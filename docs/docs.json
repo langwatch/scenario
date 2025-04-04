@@ -28,7 +28,7 @@
       {
         "group": "Examples",
         "icon": "book-open",
-        "pages": ["examples/basic-test", "examples/advanced-test"]
+        "pages": ["examples/basic-test"]
       }
     ]
   },

@@ -1,11 +1,9 @@
 ---
 title: 'Getting Started with Scenario'
-description: 'Learn how to install and use Scenario for testing your conversational agents'
+description: 'Learn how to install and use Scenario for testing your AI agents'
 ---
 
 # Getting Started with Scenario
-
-This guide will help you get up and running with Scenario to test your conversational agents.
 
 ## Installation
 
@@ -23,50 +21,37 @@ uv pip install scenario
 
 ## Basic Usage
 
-Here's a simple example of how to create a test for your conversational agent:
+Here's a simple example of how to create a test for your AI agent:
 
 ```python
-import scenario
+from scenario import Scenario
 
-def test_simple_conversation():
-    # Define a test scenario
-    test = scenario.Scenario(
-        name="Simple greeting test",
-        description="Tests if the agent responds appropriately to a greeting"
-    )
-    
-    # Add a test case
-    test.add_test_case(
-        input="Hello, how are you?",
-        expected_output_contains="I'm doing well"
-    )
-    
-    # Run the test against your agent
-    agent = scenario.TestingAgent(
-        model="gpt-3.5-turbo",
-        system_prompt="You are a helpful assistant."
-    )
-    
-    # Execute the test
-    result = test.run(agent)
-    
-    # Assert that the test passed
-    assert result.passed
-```
+# Define your agent
+def support_agent(message, context=None):
+    """A basic customer support agent."""
+    if "refund" in message.lower():
+        return {"message": "Sure, I can help you with a refund. Can you share your order ID?"}
+    return {"message": "I'm here to help with orders, refunds, and more!"}
 
-## Using with pytest
+# Create a test scenario
+scenario = Scenario(
+    description="User requests a refund",
+    agent=support_agent,
+    success_criteria=[
+        "Agent asks for the order ID",
+        "Agent offers help with the refund process"
+    ],
+    failure_criteria=[
+        "Agent gives a generic response",
+        "Agent ignores the refund request"
+    ],
+    strategy="Say: I want a refund for my last order"
+)
 
-Scenario integrates seamlessly with pytest:
-
-```python
-import pytest
-from scenario import agent_test
-
-@agent_test
-def test_agent_greeting(testing_agent):
-    """Test that the agent responds appropriately to a greeting."""
-    response = testing_agent.chat("Hello, how are you today?")
-    assert "doing well" in response.lower() or "good" in response.lower()
+# Run the test
+result = scenario.run()
+print(f"Test success: {result.success}")
+print(f"Conversation: {result.conversation}")
 ```
 
 ## Next Steps

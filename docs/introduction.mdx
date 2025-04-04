@@ -1,22 +1,23 @@
 ---
 title: 'Introduction to Scenario'
-description: 'A testing library for conversational agents'
+description: 'A testing library for AI agents'
 ---
 
 # Scenario
 
-Scenario is a powerful testing library designed specifically for conversational agents. It provides a structured way to test, evaluate, and validate the behavior of AI agents in various scenarios.
+Scenario is a Python library for testing AI agents through simulated conversations. Under the hood, it runs an evaluator agent (powered by an LLM) that interacts with your agent (the target) and continuously evaluates its responses throughout the dialogue.
 
 ## Key Features
 
-- **Agent Testing**: Create comprehensive test scenarios for your conversational agents
-- **Pytest Integration**: Seamlessly integrates with pytest for easy test automation
-- **Flexible Configuration**: Customize testing parameters to suit your specific needs
-- **Detailed Results**: Get comprehensive insights into your agent's performance
+- **Scenario-Based Testing**: Define test conversations as code, just like unit tests. Each scenario simulates a user goal and checks whether your agent reaches it (or avoids failure cases).
+- **Developer-Friendly**: Built to feel familiar, since Scenario uses plain Python and integrates smoothly with pytest.
+- **Continuous Feedback**: As you develop, keep adding new scenarios and edge cases to grow your test suite—just like with traditional unit testing.
 
 ## Why Scenario?
 
-As AI agents become more complex and critical to applications, traditional testing methods fall short. Scenario provides a specialized framework to ensure your conversational agents behave as expected across a wide range of inputs and situations.
+Testing AI agents is fundamentally different from traditional software, since there’s no single input/output to validate. Agents reason, chat, and evolve over multiple steps. Most devs end up manually prompting their agent, tweaking things, and re-testing in an ad hoc loop.
+
+Scenario brings structure to that chaos. Just like unit tests for functions, you define scenarios that simulate real conversations, with clear success and failure criteria. Scenario runs these for you, automatically and repeatably—so you can improve your agents faster.
 
 ## Getting Started
 

@@ -5,51 +5,42 @@ description: 'Learn how to create a simple test with Scenario'
 
 # Basic Testing Example
 
-This example demonstrates how to create a simple test for a conversational agent using Scenario.
+This example demonstrates how to create a simple test for a customer support agent using Scenario.
 
 ## Setting Up a Basic Test
 
 ```python
-import scenario
-from scenario import Scenario, TestingAgent
+from scenario import Scenario
 
-# Define a function that represents your agent
-def my_agent(message, context=None):
-    """A simple agent that responds to messages."""
-    if "hello" in message.lower():
-        return {"message": "Hello! How can I help you today?"}
-    elif "weather" in message.lower():
-        return {"message": "I'm sorry, I don't have access to weather information."}
-    else:
-        return {"message": "I'm not sure how to respond to that."}
+# Define your agent
+def support_agent(message, context=None):
+    """A simple customer support agent."""
+    if "refund" in message.lower():
+        return {"message": "Sure, I can help you with that. May I have your order ID?"}
+    return {"message": "I'm here to help with any order-related issues."}
 
-# Create a scenario to test the agent's greeting
+# Create a test scenario
 greeting_test = Scenario(
-    description="Test if the agent responds appropriately to a greeting",
+    description="User asks for a refund",
     success_criteria=[
-        "Agent responds with a greeting",
-        "Agent offers assistance"
+        "Agent acknowledges the refund request",
+        "Agent asks for the order ID"
     ],
     failure_criteria=[
-        "Agent doesn't acknowledge the greeting",
-        "Agent responds inappropriately"
+        "Agent ignores the refund request",
+        "Agent gives a vague or unrelated response"
     ],
-    agent=my_agent,
+    agent=support_agent,
+    strategy="I’d like a refund for my last purchase.",
     max_turns=3
 )
 
 # Run the test
 result = greeting_test.run()
 
-# Check the result
+# Check results
 print(f"Test passed: {result.success}")
-if result.success:
-    print(f"Met criteria: {result.met_criteria}")
-else:
-    print(f"Failure reason: {result.failure_reason}")
-    print(f"Triggered failures: {result.triggered_failures}")
-
-# Print the conversation
+print("Conversation:")
 for message in result.conversation:
     print(f"{message['role']}: {message['content']}")
 ```
@@ -62,19 +53,24 @@ Scenario integrates seamlessly with pytest:
 import pytest
 from scenario import agent_test
 
-@agent_test
-def test_greeting(testing_agent):
-    """Test that the agent responds appropriately to a greeting."""
-    response = testing_agent.chat("Hello there!")
-    assert "hello" in response.lower() or "hi" in response.lower()
-    assert "help" in response.lower() or "assist" in response.lower()
+# Define the agent under test
+def support_agent(message, context=None):
+    if "refund" in message.lower():
+        return {"message": "Sure, I can help with that. What's your order ID?"}
+    return {"message": "Let me know how I can assist you."}
 
-@agent_test
-def test_weather_query(testing_agent):
-    """Test that the agent handles weather queries appropriately."""
-    response = testing_agent.chat("What's the weather like today?")
-    assert "weather" in response.lower()
-    assert "sorry" in response.lower() or "don't have access" in response.lower()
+# Write test cases using the @agent_test decorator
+@agent_test(agent=support_agent)
+def test_agent_handles_refund(testing_agent):
+    response = testing_agent.chat("I need a refund")
+    assert "order id" in response.lower()
+    assert "help" in response.lower()
+
+@agent_test(agent=support_agent)
+def test_agent_handles_unknown_input(testing_agent):
+    response = testing_agent.chat("What's the return policy on socks?")
+    assert "assist" in response.lower() or "help" in response.lower()
+
 ```
 
 ## Running Tests
