@@ -1,0 +1,52 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Scenario",
+  "theme": "maple",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373"
+  },
+  "favicon": "public/favicon.png",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Documentation",
+        "icon": "book-open",
+        "pages": ["introduction", "getting-started"]
+      },
+      {
+        "group": "API Reference",
+        "icon": "code",
+        "pages": [
+          "api/scenario",
+          "api/testing-agent",
+          "api/result",
+          "api/config"
+        ]
+      },
+      {
+        "group": "Examples",
+        "icon": "book-open",
+        "pages": ["examples/basic-test", "examples/advanced-test"]
+      }
+    ]
+  },
+  "logo": {
+    "light": "public/logo/party_blob.gif",
+    "dark": "public/logo/party_blob.gif"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/scenario-testing/scenario"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/scenario-testing/scenario"
+    }
+  }
+}
