@@ -1,0 +1,107 @@
+---
+title: 'Configuration API'
+description: 'Configure the Scenario library'
+---
+
+# Configuration API
+
+The `ScenarioConfig` class provides a way to configure global settings for the Scenario library.
+
+## Using the Configuration
+
+```python
+from scenario import config
+
+# Update configuration
+config(
+    model="gpt-4",
+    temperature=0.2,
+    verbose=True
+)
+
+# Get a specific configuration value
+model = config.get("model")  # Returns "gpt-4"
+
+# Set a specific configuration value
+config.set("max_tokens", 2000)
+```
+
+## Configuration Options
+
+<ParamField path="model" type="string" default="gpt-3.5-turbo">
+  The LLM model to use for the testing agent
+</ParamField>
+
+<ParamField path="llm_provider" type="string" default="openai">
+  The LLM provider to use
+</ParamField>
+
+<ParamField path="api_key" type="Optional[string]" default="None">
+  API key for the LLM provider (defaults to environment variable)
+</ParamField>
+
+<ParamField path="temperature" type="float" default="0.1">
+  Temperature setting for the LLM (lower values are more deterministic)
+</ParamField>
+
+<ParamField path="max_tokens" type="int" default="1000">
+  Maximum number of tokens for LLM responses
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Whether to enable verbose output mode
+</ParamField>
+
+<ParamField path="timeout" type="int" default="60">
+  Timeout in seconds for API calls
+</ParamField>
+
+## Methods
+
+### get
+
+```python
+def get(self, key: str) -> Any
+```
+
+Gets a configuration value.
+
+<ParamField path="key" type="str" required>
+  The configuration key to get
+</ParamField>
+
+<ResponseField name="Returns" type="Any">
+  The configuration value
+</ResponseField>
+
+### set
+
+```python
+def set(self, key: str, value: Any) -> None
+```
+
+Sets a configuration value.
+
+<ParamField path="key" type="str" required>
+  The configuration key to set
+</ParamField>
+
+<ParamField path="value" type="Any" required>
+  The value to set
+</ParamField>
+
+### to_dict
+
+```python
+def to_dict(self) -> Dict[str, Any]
+```
+
+Gets a copy of the configuration dictionary.
+
+<ResponseField name="Returns" type="Dict[str, Any]">
+  Dictionary containing all configuration settings
+</ResponseField>
+
+## Singleton Pattern
+
+The `config` object is a singleton, meaning there's only one instance of it throughout your application. This ensures that configuration changes are applied globally.

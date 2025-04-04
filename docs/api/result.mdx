@@ -1,0 +1,158 @@
+---
+title: 'ScenarioResult API'
+description: 'The ScenarioResult class for test outcomes'
+---
+
+# ScenarioResult API
+
+The `ScenarioResult` class represents the outcome of a scenario test run, providing detailed information about the test results.
+
+## ScenarioResult Class
+
+```python
+from scenario import ScenarioResult
+
+# Access result properties
+if result.success:
+    print("Test passed!")
+    print(f"Met criteria: {result.met_criteria}")
+else:
+    print(f"Test failed: {result.failure_reason}")
+    print(f"Triggered failures: {result.triggered_failures}")
+```
+
+## Properties
+
+<ResponseField name="success" type="bool">
+  Whether the scenario test passed
+</ResponseField>
+
+<ResponseField name="conversation" type="List[Dict[str, str]]">
+  The full conversation history between the testing agent and the agent under test
+</ResponseField>
+
+<ResponseField name="artifacts" type="Dict[str, Any]">
+  Additional artifacts collected during the test
+</ResponseField>
+
+<ResponseField name="failure_reason" type="Optional[str]">
+  Reason for failure, if the test failed
+</ResponseField>
+
+<ResponseField name="met_criteria" type="List[str]">
+  List of success criteria that were met
+</ResponseField>
+
+<ResponseField name="unmet_criteria" type="List[str]">
+  List of success criteria that were not met
+</ResponseField>
+
+<ResponseField name="triggered_failures" type="List[str]">
+  List of failure criteria that were triggered
+</ResponseField>
+
+## Methods
+
+### to_dict
+
+```python
+def to_dict(self) -> Dict[str, Any]
+```
+
+Converts the result to a dictionary representation.
+
+<ResponseField name="Returns" type="Dict[str, Any]">
+  Dictionary representation of the result
+</ResponseField>
+
+### from_dict
+
+```python
+@classmethod
+def from_dict(cls, data: Dict[str, Any]) -> "ScenarioResult"
+```
+
+Creates a result from a dictionary representation.
+
+<ParamField path="data" type="Dict[str, Any]" required>
+  Dictionary containing result data
+</ParamField>
+
+<ResponseField name="Returns" type="ScenarioResult">
+  A new ScenarioResult instance
+</ResponseField>
+
+### success_result
+
+```python
+@classmethod
+def success_result(
+    cls,
+    conversation: List[Dict[str, str]],
+    artifacts: Dict[str, Any],
+    met_criteria: List[str]
+) -> "ScenarioResult"
+```
+
+Creates a successful result.
+
+<ParamField path="conversation" type="List[Dict[str, str]]" required>
+  The conversation history
+</ParamField>
+
+<ParamField path="artifacts" type="Dict[str, Any]" required>
+  Additional artifacts from the test
+</ParamField>
+
+<ParamField path="met_criteria" type="List[str]" required>
+  List of success criteria that were met
+</ParamField>
+
+<ResponseField name="Returns" type="ScenarioResult">
+  A successful ScenarioResult instance
+</ResponseField>
+
+### failure_result
+
+```python
+@classmethod
+def failure_result(
+    cls,
+    conversation: List[Dict[str, str]],
+    artifacts: Dict[str, Any],
+    failure_reason: str,
+    met_criteria: Optional[List[str]] = None,
+    unmet_criteria: Optional[List[str]] = None,
+    triggered_failures: Optional[List[str]] = None,
+) -> "ScenarioResult"
+```
+
+Creates a failed result.
+
+<ParamField path="conversation" type="List[Dict[str, str]]" required>
+  The conversation history
+</ParamField>
+
+<ParamField path="artifacts" type="Dict[str, Any]" required>
+  Additional artifacts from the test
+</ParamField>
+
+<ParamField path="failure_reason" type="str" required>
+  Reason for failure
+</ParamField>
+
+<ParamField path="met_criteria" type="List[str]" optional>
+  List of success criteria that were met
+</ParamField>
+
+<ParamField path="unmet_criteria" type="List[str]" optional>
+  List of success criteria that were not met
+</ParamField>
+
+<ParamField path="triggered_failures" type="List[str]" optional>
+  List of failure criteria that were triggered
+</ParamField>
+
+<ResponseField name="Returns" type="ScenarioResult">
+  A failed ScenarioResult instance
+</ResponseField>

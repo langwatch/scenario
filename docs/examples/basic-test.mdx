@@ -1,0 +1,88 @@
+---
+title: 'Basic Testing Example'
+description: 'Learn how to create a simple test with Scenario'
+---
+
+# Basic Testing Example
+
+This example demonstrates how to create a simple test for a conversational agent using Scenario.
+
+## Setting Up a Basic Test
+
+```python
+import scenario
+from scenario import Scenario, TestingAgent
+
+# Define a function that represents your agent
+def my_agent(message, context=None):
+    """A simple agent that responds to messages."""
+    if "hello" in message.lower():
+        return {"message": "Hello! How can I help you today?"}
+    elif "weather" in message.lower():
+        return {"message": "I'm sorry, I don't have access to weather information."}
+    else:
+        return {"message": "I'm not sure how to respond to that."}
+
+# Create a scenario to test the agent's greeting
+greeting_test = Scenario(
+    description="Test if the agent responds appropriately to a greeting",
+    success_criteria=[
+        "Agent responds with a greeting",
+        "Agent offers assistance"
+    ],
+    failure_criteria=[
+        "Agent doesn't acknowledge the greeting",
+        "Agent responds inappropriately"
+    ],
+    agent=my_agent,
+    max_turns=3
+)
+
+# Run the test
+result = greeting_test.run()
+
+# Check the result
+print(f"Test passed: {result.success}")
+if result.success:
+    print(f"Met criteria: {result.met_criteria}")
+else:
+    print(f"Failure reason: {result.failure_reason}")
+    print(f"Triggered failures: {result.triggered_failures}")
+
+# Print the conversation
+for message in result.conversation:
+    print(f"{message['role']}: {message['content']}")
+```
+
+## Using with pytest
+
+Scenario integrates seamlessly with pytest:
+
+```python
+import pytest
+from scenario import agent_test
+
+@agent_test
+def test_greeting(testing_agent):
+    """Test that the agent responds appropriately to a greeting."""
+    response = testing_agent.chat("Hello there!")
+    assert "hello" in response.lower() or "hi" in response.lower()
+    assert "help" in response.lower() or "assist" in response.lower()
+
+@agent_test
+def test_weather_query(testing_agent):
+    """Test that the agent handles weather queries appropriately."""
+    response = testing_agent.chat("What's the weather like today?")
+    assert "weather" in response.lower()
+    assert "sorry" in response.lower() or "don't have access" in response.lower()
+```
+
+## Running Tests
+
+Run your tests using pytest:
+
+```bash
+pytest -v
+```
+
+This will execute all tests marked with the `@agent_test` decorator and provide detailed output about the test results.

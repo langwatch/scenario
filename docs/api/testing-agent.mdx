@@ -1,0 +1,111 @@
+---
+title: 'TestingAgent API'
+description: 'The TestingAgent class that evaluates your conversational agents'
+---
+
+# TestingAgent API
+
+The `TestingAgent` class is responsible for interacting with your agent under test, evaluating its responses against success and failure criteria, and determining the test outcome.
+
+## TestingAgent Class
+
+```python
+from scenario import TestingAgent
+
+# Create a custom testing agent
+testing_agent = TestingAgent(
+    custom_config={
+        "model": "gpt-4",
+        "temperature": 0.2,
+        "max_tokens": 1000
+    }
+)
+
+# Use the default testing agent
+from scenario import DEFAULT_TESTING_AGENT
+```
+
+## Constructor Parameters
+
+<ParamField path="custom_config" type="Dict[str, Any]" optional>
+  Custom configuration overrides for the testing agent
+</ParamField>
+
+## Methods
+
+### run_scenario
+
+```python
+def run_scenario(
+    self,
+    agent_fn: Callable[[str, Optional[Dict[str, Any]]], Dict[str, Any]],
+    scenario: Scenario,
+    context: Optional[Dict[str, Any]] = None,
+) -> ScenarioResult
+```
+
+Runs a scenario against the agent under test.
+
+<ParamField path="agent_fn" type="Callable" required>
+  Function that takes a message and returns the agent's response
+</ParamField>
+
+<ParamField path="scenario" type="Scenario" required>
+  The scenario to test
+</ParamField>
+
+<ParamField path="context" type="Dict[str, Any]" optional>
+  Optional initial context for the agent
+</ParamField>
+
+<ResponseField name="Returns" type="ScenarioResult">
+  A `ScenarioResult` object containing the test outcome
+</ResponseField>
+
+## Configuration
+
+The TestingAgent uses the following configuration parameters:
+
+<ParamField path="model" type="string" default="gpt-3.5-turbo">
+  The LLM model to use for the testing agent
+</ParamField>
+
+<ParamField path="temperature" type="float" default="0.7">
+  Temperature setting for the LLM
+</ParamField>
+
+<ParamField path="max_tokens" type="int" default="1000">
+  Maximum number of tokens for LLM responses
+</ParamField>
+
+## Default Testing Agent
+
+The library provides a default testing agent instance that you can use directly:
+
+```python
+from scenario import DEFAULT_TESTING_AGENT
+
+# Use the default testing agent with your scenario
+result = my_scenario.run()  # Uses DEFAULT_TESTING_AGENT internally
+```
+
+## Advanced Usage
+
+The TestingAgent is responsible for:
+
+1. Generating initial messages to send to your agent based on the scenario
+2. Evaluating responses from your agent against success/failure criteria
+3. Determining when to end the test and return a result
+4. Managing conversation history and artifacts
+
+You can customize the testing agent's behavior by providing a custom configuration:
+
+```python
+testing_agent = TestingAgent(
+    custom_config={
+        "model": "gpt-4",          # Use a more capable model
+        "temperature": 0.2,        # Lower temperature for more deterministic testing
+        "max_tokens": 2000,        # Allow longer responses
+    }
+)
+```

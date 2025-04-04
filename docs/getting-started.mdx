@@ -1,0 +1,74 @@
+---
+title: 'Getting Started with Scenario'
+description: 'Learn how to install and use Scenario for testing your conversational agents'
+---
+
+# Getting Started with Scenario
+
+This guide will help you get up and running with Scenario to test your conversational agents.
+
+## Installation
+
+Install Scenario using pip:
+
+```bash
+pip install scenario
+```
+
+Or if you prefer to use a more modern Python package manager:
+
+```bash
+uv pip install scenario
+```
+
+## Basic Usage
+
+Here's a simple example of how to create a test for your conversational agent:
+
+```python
+import scenario
+
+def test_simple_conversation():
+    # Define a test scenario
+    test = scenario.Scenario(
+        name="Simple greeting test",
+        description="Tests if the agent responds appropriately to a greeting"
+    )
+    
+    # Add a test case
+    test.add_test_case(
+        input="Hello, how are you?",
+        expected_output_contains="I'm doing well"
+    )
+    
+    # Run the test against your agent
+    agent = scenario.TestingAgent(
+        model="gpt-3.5-turbo",
+        system_prompt="You are a helpful assistant."
+    )
+    
+    # Execute the test
+    result = test.run(agent)
+    
+    # Assert that the test passed
+    assert result.passed
+```
+
+## Using with pytest
+
+Scenario integrates seamlessly with pytest:
+
+```python
+import pytest
+from scenario import agent_test
+
+@agent_test
+def test_agent_greeting(testing_agent):
+    """Test that the agent responds appropriately to a greeting."""
+    response = testing_agent.chat("Hello, how are you today?")
+    assert "doing well" in response.lower() or "good" in response.lower()
+```
+
+## Next Steps
+
+Explore the [API Documentation](/api/scenario) to learn more about Scenario's capabilities and how to create more complex test scenarios.
