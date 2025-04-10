@@ -1,0 +1,24 @@
+---
+title: 'Introduction to Scenario'
+description: 'A testing library for AI agents'
+---
+
+# Scenario
+
+Scenario is a Python library for testing AI agents through simulated conversations. Under the hood, it runs an evaluator agent (powered by an LLM) that interacts with your agent (the target) and continuously evaluates its responses throughout the dialogue.
+
+## Key Features
+
+- **Scenario-Based Testing**: Define test conversations as code, just like unit tests. Each scenario simulates a user goal and checks whether your agent reaches it (or avoids failure cases).
+- **Developer-Friendly**: Built to feel familiar, since Scenario uses plain Python and integrates smoothly with pytest.
+- **Continuous Feedback**: As you develop, keep adding new scenarios and edge cases to grow your test suite—just like with traditional unit testing.
+
+## Why Scenario?
+
+Testing AI agents is fundamentally different from traditional software, since there’s no single input/output to validate. Agents reason, chat, and evolve over multiple steps. Most devs end up manually prompting their agent, tweaking things, and re-testing in an ad hoc loop.
+
+Scenario brings structure to that chaos. Just like unit tests for functions, you define scenarios that simulate real conversations, with clear success and failure criteria. Scenario runs these for you, automatically and repeatably—so you can improve your agents faster.
+
+## Getting Started
+
+Check out our [Getting Started](/getting-started) guide to begin testing your conversational agents with Scenario.

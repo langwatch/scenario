@@ -1,0 +1,84 @@
+---
+title: 'Basic Testing Example'
+description: 'Learn how to create a simple test with Scenario'
+---
+
+# Basic Testing Example
+
+This example demonstrates how to create a simple test for a customer support agent using Scenario.
+
+## Setting Up a Basic Test
+
+```python
+from scenario import Scenario
+
+# Define your agent
+def support_agent(message, context=None):
+    """A simple customer support agent."""
+    if "refund" in message.lower():
+        return {"message": "Sure, I can help you with that. May I have your order ID?"}
+    return {"message": "I'm here to help with any order-related issues."}
+
+# Create a test scenario
+greeting_test = Scenario(
+    description="User asks for a refund",
+    success_criteria=[
+        "Agent acknowledges the refund request",
+        "Agent asks for the order ID"
+    ],
+    failure_criteria=[
+        "Agent ignores the refund request",
+        "Agent gives a vague or unrelated response"
+    ],
+    agent=support_agent,
+    strategy="I’d like a refund for my last purchase.",
+    max_turns=3
+)
+
+# Run the test
+result = greeting_test.run()
+
+# Check results
+print(f"Test passed: {result.success}")
+print("Conversation:")
+for message in result.conversation:
+    print(f"{message['role']}: {message['content']}")
+```
+
+## Using with pytest
+
+Scenario integrates seamlessly with pytest:
+
+```python
+import pytest
+from scenario import agent_test
+
+# Define the agent under test
+def support_agent(message, context=None):
+    if "refund" in message.lower():
+        return {"message": "Sure, I can help with that. What's your order ID?"}
+    return {"message": "Let me know how I can assist you."}
+
+# Write test cases using the @agent_test decorator
+@agent_test(agent=support_agent)
+def test_agent_handles_refund(testing_agent):
+    response = testing_agent.chat("I need a refund")
+    assert "order id" in response.lower()
+    assert "help" in response.lower()
+
+@agent_test(agent=support_agent)
+def test_agent_handles_unknown_input(testing_agent):
+    response = testing_agent.chat("What's the return policy on socks?")
+    assert "assist" in response.lower() or "help" in response.lower()
+
+```
+
+## Running Tests
+
+Run your tests using pytest:
+
+```bash
+pytest -v
+```
+
+This will execute all tests marked with the `@agent_test` decorator and provide detailed output about the test results.

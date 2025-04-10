@@ -1,0 +1,59 @@
+---
+title: 'Getting Started with Scenario'
+description: 'Learn how to install and use Scenario for testing your AI agents'
+---
+
+# Getting Started with Scenario
+
+## Installation
+
+Install Scenario using pip:
+
+```bash
+pip install scenario
+```
+
+Or if you prefer to use a more modern Python package manager:
+
+```bash
+uv pip install scenario
+```
+
+## Basic Usage
+
+Here's a simple example of how to create a test for your AI agent:
+
+```python
+from scenario import Scenario
+
+# Define your agent
+def support_agent(message, context=None):
+    """A basic customer support agent."""
+    if "refund" in message.lower():
+        return {"message": "Sure, I can help you with a refund. Can you share your order ID?"}
+    return {"message": "I'm here to help with orders, refunds, and more!"}
+
+# Create a test scenario
+scenario = Scenario(
+    description="User requests a refund",
+    agent=support_agent,
+    success_criteria=[
+        "Agent asks for the order ID",
+        "Agent offers help with the refund process"
+    ],
+    failure_criteria=[
+        "Agent gives a generic response",
+        "Agent ignores the refund request"
+    ],
+    strategy="Say: I want a refund for my last order"
+)
+
+# Run the test
+result = scenario.run()
+print(f"Test success: {result.success}")
+print(f"Conversation: {result.conversation}")
+```
+
+## Next Steps
+
+Explore the [API Documentation](/api/scenario) to learn more about Scenario's capabilities and how to create more complex test scenarios.

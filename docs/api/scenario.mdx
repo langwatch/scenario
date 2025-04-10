@@ -1,0 +1,115 @@
+---
+title: 'Scenario API'
+description: 'Core Scenario class for defining agent tests'
+---
+
+# Scenario API
+
+The `Scenario` class is the core component of the library, allowing you to define specific testing cases for your AI agents.
+
+## Scenario Class
+
+```python
+from scenario import Scenario
+
+# Create a new scenario
+test_scenario = Scenario(
+    description="Test the agent's ability to answer math questions",
+    success_criteria=["Agent provides correct numerical answer", "Agent shows work"],
+    failure_criteria=["Agent refuses to answer", "Agent provides incorrect answer"],
+    agent=my_agent_function,
+    max_turns=5
+)
+
+# Run the scenario
+result = test_scenario.run()
+```
+
+## Constructor Parameters
+
+<ParamField path="description" type="string" required>
+  A detailed description of what the scenario is testing
+</ParamField>
+
+<ParamField path="success_criteria" type="List[str]" required>
+  List of criteria that determine if the agent passed the test
+</ParamField>
+
+<ParamField path="failure_criteria" type="List[str]" required>
+  List of criteria that determine if the agent failed the test
+</ParamField>
+
+<ParamField path="agent" type="Callable" required>
+  The agent function to test, must be callable
+</ParamField>
+
+<ParamField path="testing_agent" type="Any" default="DEFAULT_TESTING_AGENT">
+  The testing agent to use for evaluating the scenario
+</ParamField>
+
+<ParamField path="strategy" type="string" default="None">
+  Optional strategy that guides the testing agent
+</ParamField>
+
+<ParamField path="max_turns" type="int" default="10">
+  Maximum number of conversation turns for the test
+</ParamField>
+
+<ParamField path="metadata" type="Dict[str, Any]" default="{}">
+  Additional metadata for the scenario
+</ParamField>
+
+## Methods
+
+### run
+
+```python
+def run(self, context: Optional[Dict[str, Any]] = None) -> ScenarioResult
+```
+
+Runs the scenario against the agent under test.
+
+<ParamField path="context" type="Dict[str, Any]" optional>
+  Optional initial context for the agent
+</ParamField>
+
+<ResponseField name="Returns" type="ScenarioResult">
+  A `ScenarioResult` object containing the test outcome
+</ResponseField>
+
+### to_dict
+
+```python
+def to_dict(self) -> Dict[str, Any]
+```
+
+Converts the scenario to a dictionary representation.
+
+<ResponseField name="Returns" type="Dict[str, Any]">
+  Dictionary representation of the scenario
+</ResponseField>
+
+### from_dict
+
+```python
+@classmethod
+def from_dict(cls, data: Dict[str, Any], agent: Callable, testing_agent: Any = None) -> "Scenario"
+```
+
+Creates a scenario from a dictionary representation.
+
+<ParamField path="data" type="Dict[str, Any]" required>
+  Dictionary containing scenario configuration
+</ParamField>
+
+<ParamField path="agent" type="Callable" required>
+  The agent function to test
+</ParamField>
+
+<ParamField path="testing_agent" type="Any" optional>
+  The testing agent to use
+</ParamField>
+
+<ResponseField name="Returns" type="Scenario">
+  A new Scenario instance
+</ResponseField>
