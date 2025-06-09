@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langwatch-scenario"
-version = "0.2.0"
+version = "1.0.0"
 description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [
@@ -63,10 +63,13 @@ dev = [
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0"
+version = "1.0.0"
+tag_format = "v$version"
 version_files = [
     "pyproject.toml:version"
 ]
+bump_message = "bump: version $current_version → $new_version"
+major_version_zero = true
 style = [
     ["qmark", "fg:#ff9d00 bold"],
     ["question", "bold"],
