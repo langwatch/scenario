@@ -21,14 +21,13 @@ import time
 import termcolor
 import asyncio
 import concurrent.futures
-
 from scenario.config import ScenarioConfig
 from scenario._utils import (
-    await_if_awaitable,
     check_valid_return_type,
     convert_agent_return_types_to_openai_messages,
     print_openai_messages,
     show_spinner,
+    await_if_awaitable,
 )
 from openai.types.chat import (
     ChatCompletionMessageParam,
