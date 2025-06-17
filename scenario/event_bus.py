@@ -1,72 +1,80 @@
 from rx.subject import Subject
 from rx import operators as ops
 from typing import Optional
-from .events import BaseScenarioEvent, ScenarioRunFinishedEvent
+from datetime import datetime, UTC
+from .events import ScenarioEventType, ScenarioRunFinishedEvent, BaseScenarioEvent
 import asyncio
 
 class ScenarioEventBus:
     """
     Manages scenario event publishing, subscription, and processing pipeline using RxPY.
-    Mirrors the TypeScript implementation's reactive approach.
+    Events are processed concurrently.
     """
     
-    def __init__(self, event_reporter=None):
+    def __init__(self, event_reporter=None, max_retries: int = 3):
         self._events = Subject()
         self._event_reporter = event_reporter
         self._processing_complete = asyncio.Event()
         self._processing_task: Optional[asyncio.Task] = None
+        self._max_retries = max_retries
         
     def publish(self, event: BaseScenarioEvent) -> None:
         """
         Publishes an event into the processing pipeline.
+        Ensures event has a timestamp (as Unix timestamp in milliseconds).
         """
+        # Create a new event with timestamp
+        event_dict = event.model_dump()
+        # Convert to Unix timestamp in milliseconds
+        event_dict['timestamp'] = int(datetime.now(UTC).timestamp() * 1000)
+        event = type(event)(**event_dict)
+            
         self._events.on_next(event)
         
-        # If it's a finish event, complete the stream
         if isinstance(event, ScenarioRunFinishedEvent):
             self._events.on_completed()
     
     async def listen(self) -> None:
         """
         Begins listening for and processing events.
-        Returns when a RUN_FINISHED event is fully processed.
         """
         if self._processing_task is not None:
             return
             
-        def process_event(event):
-            """Processes a single event through the reporter"""
-            async def _process():
-                try:
-                    if self._event_reporter:
-                        await self._event_reporter.post_event(event)
-                except Exception as e:
-                    print(f"Error processing event: {e}")
+        async def process_single_event(event, attempt=1):
+            try:
+                if self._event_reporter:
+                    await self._event_reporter.post_event(event)
+                return True
+            except Exception as e:
+                if attempt >= self._max_retries:
+                    print(f"Failed to process event after {attempt} attempts: {e}")
+                    return False
+                print(f"Error processing event (attempt {attempt}/{self._max_retries}): {e}")
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
+                return await process_single_event(event, attempt + 1)
                     
-            # Create and run the coroutine
+        def process_event(event):
             loop = asyncio.get_event_loop()
-            return loop.create_task(_process())
+            return loop.create_task(process_single_event(event))
         
-        def on_complete():
-            """Called when the event stream is completed"""
-            self._processing_complete.set()
-            
-        def on_error(error):
-            """Called when an error occurs in the stream"""
-            print(f"Error in event stream: {error}")
-            self._processing_complete.set()
-            
-        # Set up the event processing pipeline
+        # Set up the event processing pipeline with concurrent processing
         self._events.pipe(
             ops.flat_map(lambda event: process_event(event))
         ).subscribe(
-            on_next=lambda _: None,
-            on_completed=on_complete,
-            on_error=on_error
+            on_next=lambda success: None,
+            on_completed=lambda: self._processing_complete.set(),
+            on_error=lambda e: print(f"Unexpected error in event stream: {e}")
         )
     
     async def drain(self) -> None:
         """
         Waits for all events to be processed after the stream is completed.
         """
-        await self._processing_complete.wait() 
+        await self._processing_complete.wait()
+
+    def is_completed(self) -> bool:
+        """
+        Returns whether the event bus has completed processing all events.
+        """
+        return self._processing_complete.is_set() 

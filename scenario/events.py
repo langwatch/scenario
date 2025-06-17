@@ -17,24 +17,6 @@ from ag_ui.core import BaseEvent
 ChatMessage = Dict[str, Any]  # {"id": str, "role": str, "content": str, ...}
 
 
-# Re-export for convenience
-__all__ = [
-    "ScenarioEventType",
-    "ScenarioRunStatus", 
-    "Verdict",
-    "ChatMessage",
-    "BaseScenarioEvent",
-    "ScenarioRunStartedEvent",
-    "ScenarioResults",
-    "ScenarioRunFinishedEvent",
-    "ScenarioMessageSnapshotEvent",
-    "generate_batch_run_id",
-    "generate_scenario_id",
-    "generate_scenario_run_id",
-    "generate_scenario_set_id",
-]
-
-
 class ScenarioEventType(str, Enum):
     """Event types for scenario execution."""
     
@@ -43,20 +25,20 @@ class ScenarioEventType(str, Enum):
     MESSAGE_SNAPSHOT = "MESSAGE_SNAPSHOT"
 
 
-class Verdict(str, Enum):
-    """Verdict of scenario evaluation."""
-    
-    Success = "Success"
-    Failure = "Failure"
-    Inconclusive = "Inconclusive"
-
-
 class ScenarioRunStatus(str, Enum):
     """Status of scenario execution."""
     
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class Verdict(str, Enum):
+    """Verdict of scenario evaluation."""
+    
+    Success = "Success"
+    Failure = "Failure"
+    Inconclusive = "Inconclusive"
 
 
 class ScenarioResults(BaseModel):
@@ -78,7 +60,6 @@ class ScenarioMetadata(BaseModel):
     status: ScenarioRunStatus = Field(..., description="Status of scenario execution")
 
 
-
 class BaseScenarioEvent(BaseEvent):
     """Base event for scenario execution with AG-UI compatibility."""
     
@@ -87,6 +68,7 @@ class BaseScenarioEvent(BaseEvent):
     scenarioId: str = Field(..., description="Scenario identifier")
     scenarioRunId: str = Field(..., description="Individual scenario run identifier")
     scenarioSetId: Optional[str] = Field(None, description="Scenario set identifier")
+    # timestamp is inherited from BaseEvent
 
 
 class ScenarioRunStartedEvent(BaseScenarioEvent):
@@ -111,14 +93,19 @@ class ScenarioMessageSnapshotEvent(BaseScenarioEvent):
     messages: List[ChatMessage] = Field(default_factory=list)
 
 
+def generate_batch_run_id() -> str:
+    """Generate a batch run ID."""
+    return f"batch-run-{uuid.uuid4()}"
+
+
 def generate_scenario_set_id() -> str:
     """Generate a scenario set ID."""
     return f"scenario-set-{uuid.uuid4()}"
 
 
-def generate_batch_run_id() -> str:
-    """Generate a batch run ID."""
-    return f"batch-run-{uuid.uuid4()}"
+def generate_scenario_id() -> str:
+    """Generate a scenario ID."""
+    return f"scenario-{uuid.uuid4()}"
 
 
 def generate_scenario_run_id() -> str:
@@ -126,6 +113,19 @@ def generate_scenario_run_id() -> str:
     return f"scenario-run-{uuid.uuid4()}"
 
 
-def generate_scenario_id() -> str:
-    """Generate a scenario ID."""
-    return f"scenario-{uuid.uuid4()}" 
+# Re-export for convenience
+__all__ = [
+    "ScenarioEventType",
+    "ScenarioRunStatus", 
+    "Verdict",
+    "ChatMessage",
+    "BaseScenarioEvent",
+    "ScenarioRunStartedEvent",
+    "ScenarioResults",
+    "ScenarioRunFinishedEvent",
+    "ScenarioMessageSnapshotEvent",
+    "generate_batch_run_id",
+    "generate_scenario_id",
+    "generate_scenario_run_id",
+    "generate_scenario_set_id",
+]
