@@ -8,6 +8,8 @@ the backend, and provides a single import location for event models.
 If you need to add custom logic or helpers, you can extend or wrap these models here.
 """
 
+from typing import Union
+
 from langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0 as ScenarioRunStartedEvent,
     PostApiScenarioEventsBodyType0Metadata as ScenarioRunStartedEventMetadata,
@@ -18,8 +20,15 @@ from langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType2 as ScenarioMessageSnapshotEvent,
     # No separate metadata types for finished or snapshot events
 )
+# Union type for all supported event types
+ScenarioEvent = Union[
+    ScenarioRunStartedEvent,
+    ScenarioRunFinishedEvent, 
+    ScenarioMessageSnapshotEvent
+]
 
 __all__ = [
+    "ScenarioEvent",
     "ScenarioRunStartedEvent",
     "ScenarioRunStartedEventMetadata",
     "ScenarioRunFinishedEvent",

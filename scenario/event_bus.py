@@ -2,8 +2,9 @@ from rx.subject import Subject
 from rx import operators as ops
 from typing import Optional
 from datetime import datetime, UTC
-from .events import ScenarioEventType, ScenarioRunFinishedEvent, BaseScenarioEvent
+from .events import ScenarioEvent, ScenarioRunFinishedEvent
 import asyncio
+
 
 class ScenarioEventBus:
     """
@@ -18,7 +19,7 @@ class ScenarioEventBus:
         self._processing_task: Optional[asyncio.Task] = None
         self._max_retries = max_retries
         
-    def publish(self, event: BaseScenarioEvent) -> None:
+    def publish(self, event: ScenarioEvent) -> None:
         """
         Publishes an event into the processing pipeline.
         Ensures event has a timestamp (as Unix timestamp in milliseconds).
