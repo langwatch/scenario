@@ -21,6 +21,8 @@ import time
 import termcolor
 import asyncio
 import concurrent.futures
+import uuid
+
 from scenario.config import ScenarioConfig
 from scenario._utils import (
     check_valid_return_type,
@@ -28,6 +30,7 @@ from scenario._utils import (
     print_openai_messages,
     show_spinner,
     await_if_awaitable,
+    get_or_create_batch_run_id,
 )
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -42,6 +45,8 @@ from .agent_adapter import AgentAdapter
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
+from .event_bus import ScenarioEventBus
+from .events import ScenarioRunStartedEvent, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEventMetadata, ScenarioRunFinishedEventResults, ScenarioRunFinishedEventVerdict, ScenarioRunFinishedEventStatus
 
 
 class ScenarioExecutor:
@@ -116,6 +121,11 @@ class ScenarioExecutor:
     _pending_agents_on_turn: Set[AgentAdapter] = set()
     _agent_times: Dict[int, float] = {}
 
+    event_bus: ScenarioEventBus
+
+    scenario_run_id: str
+    batch_run_id: str
+
     def __init__(
         self,
         name: str,
@@ -127,6 +137,7 @@ class ScenarioExecutor:
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        event_bus: Optional[ScenarioEventBus] = None,
     ):
         """
         Initialize a scenario executor.
@@ -147,6 +158,27 @@ class ScenarioExecutor:
                       Overrides global configuration for this scenario.
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
+            event_reporter: Optional event reporter for the scenario
+
+        Example:
+            ```python
+            executor = ScenarioExecutor(
+                name="customer service test",
+                description="Customer has a billing question and needs help",
+                agents=[
+                    customer_service_agent,
+                    scenario.UserSimulatorAgent(),
+                    scenario.JudgeAgent(criteria=[
+                        "Agent is polite and professional",
+                        "Agent addresses the billing question",
+                        "Agent provides clear next steps"
+                    ])
+                ],
+                max_turns=15,
+                verbose=True,
+                debug=False
+            )
+            ```
         """
         self.name = name
         self.description = description
@@ -162,6 +194,11 @@ class ScenarioExecutor:
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
         self.reset()
+
+        self.event_bus = event_bus or ScenarioEventBus()
+
+        self.scenario_run_id = f"scenario-run-{uuid.uuid4()}"
+        self.batch_run_id = get_or_create_batch_run_id()
 
     @classmethod
     async def run(
@@ -348,6 +385,14 @@ class ScenarioExecutor:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
 
+        self.event_bus.publish(ScenarioMessageSnapshotEvent(
+            batch_run_id=self.batch_run_id,
+            scenario_run_id=self.scenario_run_id,
+            scenario_id=self.name,
+            timestamp=int(time.time() * 1000),
+            messages=self._state.messages,
+        ))
+
     def add_messages(
         self,
         messages: List[ChatCompletionMessageParam],
@@ -485,6 +530,17 @@ class ScenarioExecutor:
         Returns:
             ScenarioResult containing the test outcome
         """
+        await self.event_bus.listen()
+        self.event_bus.publish(ScenarioRunStartedEvent(
+            batch_run_id=self.batch_run_id,
+            scenario_run_id=self.scenario_run_id,
+            scenario_id=self.name,
+            timestamp=int(time.time() * 1000),
+            metadata=ScenarioRunStartedEventMetadata(
+                name=self.name,
+                description=self.description,
+            ),
+        ))
 
         if self.config.verbose:
             print("")  # new line
@@ -499,9 +555,23 @@ class ScenarioExecutor:
                 result = callable
 
             if isinstance(result, ScenarioResult):
+                self.event_bus.publish(ScenarioRunFinishedEvent(
+                    batch_run_id=self.batch_run_id,
+                    scenario_run_id=self.scenario_run_id,
+                    scenario_id=self.name,
+                    timestamp=int(time.time() * 1000),
+                    status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILURE,
+                    results=ScenarioRunFinishedEventResults(
+                        verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
+                        reasoning=result.reasoning,
+                        met_criteria=result.passed_criteria,
+                        unmet_criteria=result.failed_criteria,
+                    ),
+                ))
+                await self.event_bus.drain()
                 return result
 
-        return self._reached_max_turns(
+        result = self._reached_max_turns(
             """Reached end of script without conclusion, add one of the following to the end of the script:
 
 - `scenario.proceed()` to let the simulation continue to play out
@@ -509,6 +579,16 @@ class ScenarioExecutor:
 - `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
             """
         )
+
+        self.event_bus.publish(ScenarioRunFinishedEvent(
+            batch_run_id=self.batch_run_id,
+            scenario_run_id=self.scenario_run_id,
+            scenario_id=self.name,
+            timestamp=int(time.time() * 1000),
+            scenario_result=result,
+        ))
+        await self.event_bus.drain()
+        return result
 
     async def _call_agent(
         self, idx: int, role: AgentRole, request_judgment: bool = False

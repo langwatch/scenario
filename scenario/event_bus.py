@@ -3,6 +3,7 @@ from rx import operators as ops
 from typing import Optional
 from datetime import datetime, UTC
 from .events import ScenarioEvent, ScenarioRunFinishedEvent
+from .event_reporter import EventReporter
 import asyncio
 
 
@@ -14,7 +15,8 @@ class ScenarioEventBus:
     
     def __init__(self, event_reporter=None, max_retries: int = 3):
         self._events = Subject()
-        self._event_reporter = event_reporter
+        # Use default EventReporter if none provided
+        self._event_reporter = event_reporter or EventReporter()
         self._processing_complete = asyncio.Event()
         self._processing_task: Optional[asyncio.Task] = None
         self._max_retries = max_retries

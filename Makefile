@@ -36,5 +36,5 @@ pdocs:
 
 # This only works if you have the openapi json locally
 generate-openapi-client:
-	openapi-python-client generate --path ../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json --output-path ./langwatch_api_client --overwrite
-	uv pip install -e ./langwatch_api_client
+	openapi-python-client generate --path ../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json --output-path ./scenario/langwatch_api_client --overwrite
+	uv pip install -e ./scenario/langwatch_api_client

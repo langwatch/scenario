@@ -1,8 +1,8 @@
 import logging
 import os
 
-from langwatch_api_client.lang_watch_api_client.client import Client as LangWatchClient
-from langwatch_api_client.lang_watch_api_client.api.default import post_api_scenario_events
+from .langwatch_api_client.lang_watch_api_client.client import Client as LangWatchClient
+from .langwatch_api_client.lang_watch_api_client.api.default import post_api_scenario_events
 
 class EventReporter:
     """

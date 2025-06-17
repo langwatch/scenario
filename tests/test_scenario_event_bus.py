@@ -9,7 +9,7 @@ from scenario.events import (
     ScenarioMessageSnapshotEvent,
 )
 from scenario.event_bus import ScenarioEventBus
-from datetime import datetime
+from ag_ui.core import UserMessage
 
 class MockEventReporter:
     def __init__(self):
@@ -44,6 +44,14 @@ async def test_scenario_event_bus_basic_flow():
         metadata=metadata
     )
     bus.publish(start_event)
+
+    message_event = ScenarioMessageSnapshotEvent(
+        batch_run_id=batch_run_id,
+        scenario_id=scenario_id,
+        scenario_run_id=scenario_run_id,
+        messages=[UserMessage(id="1", role="user", content="Hello, how are you?")]
+    )
+    bus.publish(message_event)
     
     # Create results for finished event
     results = ScenarioRunFinishedEventResults(
@@ -65,7 +73,7 @@ async def test_scenario_event_bus_basic_flow():
     await bus.drain()
     
     # Assert
-    assert len(reporter.events) == 2
+    assert len(reporter.events) == 3
     
     # Verify all events have timestamps as integers
     for event in reporter.events:
@@ -75,9 +83,11 @@ async def test_scenario_event_bus_basic_flow():
     
     # Verify start event was timestamped before finish event
     start_events = [e for e in reporter.events if isinstance(e, ScenarioRunStartedEvent)]
+    message_events = [e for e in reporter.events if isinstance(e, ScenarioMessageSnapshotEvent)]
     finish_events = [e for e in reporter.events if isinstance(e, ScenarioRunFinishedEvent)]
     assert len(start_events) == 1
     assert len(finish_events) == 1
+    assert len(message_events) == 1
     assert start_events[0].timestamp <= finish_events[0].timestamp
 
 @pytest.mark.asyncio

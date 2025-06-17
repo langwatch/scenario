@@ -7,6 +7,8 @@ for better user experience during scenario execution.
 """
 
 from contextlib import contextmanager
+import os
+import uuid
 import sys
 from typing import (
     Any,
@@ -512,3 +514,32 @@ async def await_if_awaitable(value: T) -> T:
         return await value
     else:
         return value
+
+
+
+def get_or_create_batch_run_id() -> str:
+    """
+    Gets or creates a batch run ID for the current scenario execution.
+    
+    The batch run ID is consistent across all scenarios in the same process
+    execution, allowing grouping of related scenario runs. This is useful
+    for tracking and reporting on batches of scenarios run together.
+    
+    Returns:
+        str: A unique batch run ID that persists for the process lifetime
+        
+    Example:
+        ```python
+        # All scenarios in same process will share this ID
+        batch_id = get_or_create_batch_run_id()
+        print(f"Running scenario in batch: {batch_id}")
+        ```
+    """
+    
+    # Check if batch ID already exists in environment
+    if not os.environ.get("SCENARIO_BATCH_ID"):
+        # Generate new batch ID if not set
+        os.environ["SCENARIO_BATCH_ID"] = f"batch-run-{uuid.uuid4()}"
+    
+    return os.environ["SCENARIO_BATCH_ID"]
+

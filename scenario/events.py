@@ -10,7 +10,7 @@ If you need to add custom logic or helpers, you can extend or wrap these models 
 
 from typing import Union
 
-from langwatch_api_client.lang_watch_api_client.models import (
+from .langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
     PostApiScenarioEventsBodyType0Metadata as ScenarioRunStartedEventMetadata,
     PostApiScenarioEventsBodyType1,
@@ -71,6 +71,7 @@ class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
         batch_run_id (str): Unique identifier for the batch of scenario runs
         scenario_id (str): Unique identifier for the scenario definition
         scenario_run_id (str): Unique identifier for this specific run
+        messages (list): List of message objects in the conversation
         timestamp (int, optional): Unix timestamp in milliseconds, auto-generated if not provided
         scenario_set_id (str, optional): Set identifier, defaults to "default"
     """
