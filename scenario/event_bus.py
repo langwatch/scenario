@@ -24,12 +24,8 @@ class ScenarioEventBus:
         Publishes an event into the processing pipeline.
         Ensures event has a timestamp (as Unix timestamp in milliseconds).
         """
-        # Create a new event with timestamp
-        event_dict = event.model_dump()
         # Convert to Unix timestamp in milliseconds
-        event_dict['timestamp'] = int(datetime.now(UTC).timestamp() * 1000)
-        event = type(event)(**event_dict)
-            
+        event.timestamp = int(datetime.now(UTC).timestamp() * 1000)
         self._events.on_next(event)
         
         if isinstance(event, ScenarioRunFinishedEvent):

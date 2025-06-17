@@ -1,13 +1,12 @@
 import pytest
 from scenario.events import (
     ScenarioRunStartedEvent,
+    ScenarioRunStartedEventMetadata,
     ScenarioRunFinishedEvent,
-    ScenarioRunStatus,
-    ScenarioResults,
-    Verdict,
-    generate_batch_run_id,
-    generate_scenario_id,
-    generate_scenario_run_id,
+    ScenarioRunFinishedEventStatus,
+    ScenarioRunFinishedEventResults,
+    ScenarioRunFinishedEventVerdict,
+    ScenarioMessageSnapshotEvent,
 )
 from scenario.event_bus import ScenarioEventBus
 from datetime import datetime
@@ -25,30 +24,41 @@ async def test_scenario_event_bus_basic_flow():
     reporter = MockEventReporter()
     bus = ScenarioEventBus(event_reporter=reporter)
     
-    batch_run_id = generate_batch_run_id()
-    scenario_id = generate_scenario_id()
-    scenario_run_id = generate_scenario_run_id()
+    batch_run_id = "batch-123"
+    scenario_id = "scenario-456"
+    scenario_run_id = "run-789"
     
     # Act
     await bus.listen()
     
+    # Create metadata for started event
+    metadata = ScenarioRunStartedEventMetadata(
+        name="test-scenario",
+        description="Test scenario description"
+    )
+    
     start_event = ScenarioRunStartedEvent(
-        batchRunId=batch_run_id,
-        scenarioId=scenario_id,
-        scenarioRunId=scenario_run_id,
-        metadata={}
+        batch_run_id=batch_run_id,
+        scenario_id=scenario_id,
+        scenario_run_id=scenario_run_id,
+        metadata=metadata
     )
     bus.publish(start_event)
     
+    # Create results for finished event
+    results = ScenarioRunFinishedEventResults(
+        verdict=ScenarioRunFinishedEventVerdict.SUCCESS,
+        met_criteria=["criteria1"],
+        unmet_criteria=[],
+        reasoning="Test completed successfully",
+    )
+    
     finish_event = ScenarioRunFinishedEvent(
-        batchRunId=batch_run_id,
-        scenarioId=scenario_id,
-        scenarioRunId=scenario_run_id,
-        status=ScenarioRunStatus.SUCCESS,
-        results=ScenarioResults(
-            verdict=Verdict.Success,
-            reasoning="Test completed successfully"
-        )
+        batch_run_id=batch_run_id,
+        scenario_id=scenario_id,
+        scenario_run_id=scenario_run_id,
+        status=ScenarioRunFinishedEventStatus.SUCCESS,
+        results=results
     )
     bus.publish(finish_event)
     
@@ -83,7 +93,7 @@ async def test_scenario_event_bus_handles_errors():
             
         def _event_key(self, event):
             # Use a tuple of fields that uniquely identify the event
-            return (getattr(event, "scenarioRunId", None), type(event).__name__)
+            return (getattr(event, "scenario_run_id", None), type(event).__name__)
         
         async def post_event(self, event):
             key = self._event_key(event)
@@ -97,32 +107,43 @@ async def test_scenario_event_bus_handles_errors():
     reporter = RetryEventReporter()
     bus = ScenarioEventBus(event_reporter=reporter, max_retries=3)
     
-    batch_run_id = generate_batch_run_id()
-    scenario_id = generate_scenario_id()
-    scenario_run_id = generate_scenario_run_id()
+    batch_run_id = "batch-123"
+    scenario_id = "scenario-456"
+    scenario_run_id = "run-789"
     
     # Act
     await bus.listen()
     
+    # Create metadata for started event
+    metadata = ScenarioRunStartedEventMetadata(
+        name="test-scenario",
+        description="Test scenario description"
+    )
+    
     # This event will fail twice then succeed
     start_event = ScenarioRunStartedEvent(
-        batchRunId=batch_run_id,
-        scenarioId=scenario_id,
-        scenarioRunId=scenario_run_id,
-        metadata={}
+        batch_run_id=batch_run_id,
+        scenario_id=scenario_id,
+        scenario_run_id=scenario_run_id,
+        metadata=metadata
     )
     bus.publish(start_event)
     
+    # Create results for finished event
+    results = ScenarioRunFinishedEventResults(
+        verdict=ScenarioRunFinishedEventVerdict.FAILURE,
+        met_criteria=[],
+        unmet_criteria=["criteria1"],
+        reasoning="Test completed successfully"
+    )
+    
     # This event should process normally
     finish_event = ScenarioRunFinishedEvent(
-        batchRunId=batch_run_id,
-        scenarioId=scenario_id,
-        scenarioRunId=scenario_run_id,
-        status=ScenarioRunStatus.SUCCESS,
-        results=ScenarioResults(
-            verdict=Verdict.Success,
-            reasoning="Test completed successfully"
-        )
+        batch_run_id=batch_run_id,
+        scenario_id=scenario_id,
+        scenario_run_id=scenario_run_id,
+        status=ScenarioRunFinishedEventStatus.SUCCESS,
+        results=results
     )
     bus.publish(finish_event)
     
