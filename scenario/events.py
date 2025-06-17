@@ -68,6 +68,14 @@ class ScenarioResults(BaseModel):
     reasoning: str = ""
 
 
+class ScenarioMetadata(BaseModel):
+    """Metadata for scenario execution."""
+    
+    scenarioId: str = Field(..., description="Scenario identifier")
+    scenarioRunId: str = Field(..., description="Individual scenario run identifier")
+    scenarioSetId: Optional[str] = Field(None, description="Scenario set identifier")
+    batchRunId: str = Field(..., description="Batch run identifier")
+    status: ScenarioRunStatus = Field(..., description="Status of scenario execution")
 
 
 
