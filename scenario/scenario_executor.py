@@ -25,7 +25,6 @@ import concurrent.futures
 
 from scenario.config import ScenarioConfig
 from scenario.utils import (
-    await_if_awaitable,
     check_valid_return_type,
     convert_agent_return_types_to_openai_messages,
     print_openai_messages,
