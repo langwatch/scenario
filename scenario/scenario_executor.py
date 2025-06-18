@@ -31,6 +31,8 @@ from scenario._utils import (
     show_spinner,
     await_if_awaitable,
     get_or_create_batch_run_id,
+    convert_messages_to_ag_ui_messages,
+    await_if_awaitable
 )
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -390,7 +392,7 @@ class ScenarioExecutor:
             scenario_run_id=self.scenario_run_id,
             scenario_id=self.name,
             timestamp=int(time.time() * 1000),
-            messages=self._state.messages,
+            messages=convert_messages_to_ag_ui_messages(self._state.messages),
         ))
 
     def add_messages(

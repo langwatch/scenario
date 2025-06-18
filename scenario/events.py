@@ -85,6 +85,7 @@ ScenarioEvent = Union[
     ScenarioMessageSnapshotEvent
 ]
 
+
 __all__ = [
     "ScenarioEvent",
     "ScenarioRunStartedEvent",
