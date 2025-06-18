@@ -9,7 +9,7 @@ If you need to add custom logic or helpers, you can extend or wrap these models 
 """
 
 from typing import Union, Any, Optional
-
+from ..langwatch_api_client.lang_watch_api_client.types import UNSET
 from ..langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
     PostApiScenarioEventsBodyType0Metadata as ScenarioRunStartedEventMetadata,
@@ -67,7 +67,7 @@ class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             metadata=metadata,
-            timestamp=timestamp,
+            timestamp=float(timestamp) if timestamp else UNSET,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id or "default"
         )
@@ -106,7 +106,7 @@ class ScenarioRunFinishedEvent(PostApiScenarioEventsBodyType1):
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             status=status,
-            timestamp=timestamp,
+            timestamp=float(timestamp) if timestamp else UNSET,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id or "default",
             results=results
@@ -144,7 +144,7 @@ class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             messages=messages,
-            timestamp=timestamp,
+            timestamp=float(timestamp) if timestamp else UNSET,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id or "default"
         )

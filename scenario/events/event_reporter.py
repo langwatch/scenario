@@ -1,6 +1,6 @@
 import logging
 import os
-import aiohttp
+import httpx
 from typing import Optional
 from .events import ScenarioEvent 
 
@@ -54,27 +54,27 @@ class EventReporter:
             return
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
                     self.endpoint,
                     json=event.to_dict(),
                     headers={
                         "Content-Type": "application/json",
                         "X-Auth-Token": self.api_key
                     }
-                ) as response:
-                    self.logger.debug(f"Event POST response status: {response.status}")
-                    
-                    if response.ok:
-                        data = await response.json()
-                        self.logger.debug(f"Event POST response: {data}")
-                    else:
-                        error_text = await response.text()
-                        self.logger.error(
-                            f"Event POST failed: status={response.status}, "
-                            f"statusText={response.reason}, error={error_text}, "
-                            # f"event={printable_event}"
-                        )
+                )
+                self.logger.debug(f"Event POST response status: {response.status_code}")
+                
+                if response.is_success:
+                    data = response.json()
+                    self.logger.debug(f"Event POST response: {data}")
+                else:
+                    error_text = response.text
+                    self.logger.error(
+                        f"Event POST failed: status={response.status_code}, "
+                        f"reason={response.reason_phrase}, error={error_text}, "
+                        # f"event={printable_event}"
+                    )
         except Exception as error:
             self.logger.error(
                 f"Event POST error: {error}, event={event}, endpoint={self.endpoint}") 

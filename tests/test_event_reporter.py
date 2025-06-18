@@ -7,8 +7,7 @@ from scenario.events.events import ScenarioRunStartedEvent, ScenarioRunStartedEv
 @pytest.mark.asyncio
 async def test_post_event_sends_correct_request(caplog):
     # Arrange
-    endpoint = "https://api.example.com"
-    api_path = "/api/scenario-events"
+    endpoint = "https://api.example.com/api/scenario-events"
     api_key = "test-api-key"
     
     # Create metadata using the proper model
@@ -27,7 +26,7 @@ async def test_post_event_sends_correct_request(caplog):
     reporter = EventReporter(endpoint=endpoint, api_key=api_key)
 
     with respx.mock as mock:
-        route = mock.post(f"{endpoint}{api_path}").respond(200, json={"ok": True})
+        route = mock.post(endpoint).respond(200, json={"ok": True})
 
         # Act
         with caplog.at_level(logging.DEBUG):
