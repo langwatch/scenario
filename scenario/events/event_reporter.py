@@ -4,6 +4,8 @@ import httpx
 from typing import Optional
 from .events import ScenarioEvent 
 
+DEFAULT_LANGWATCH_ENDPOINT = "https://api.langwatch.ai/api/scenario-events"
+
 class EventReporter:
     """
     Handles HTTP posting of scenario events to external endpoints.
@@ -32,7 +34,7 @@ class EventReporter:
     """
 
     def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None):
-        self.endpoint = endpoint or os.getenv("SCENARIO_EVENTS_ENDPOINT")
+        self.endpoint = endpoint or os.getenv("SCENARIO_EVENTS_ENDPOINT") or DEFAULT_LANGWATCH_ENDPOINT
         self.api_key = api_key or os.getenv("LANGWATCH_API_KEY", "")
         self.logger = logging.getLogger("EventReporter")
 
