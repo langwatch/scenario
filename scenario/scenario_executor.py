@@ -533,63 +533,81 @@ class ScenarioExecutor:
         Returns:
             ScenarioResult containing the test outcome
         """
-        await self.event_bus.listen()
-        self.event_bus.publish(ScenarioRunStartedEvent(
-            batch_run_id=self.batch_run_id,
-            scenario_run_id=self.scenario_run_id,
-            scenario_id=self.name,
-            timestamp=int(time.time() * 1000),
-            metadata=ScenarioRunStartedEventMetadata(
-                name=self.name,
-                description=self.description,
-            ),
-        ))
+        try:
+            await self.event_bus.listen()
+            self.event_bus.publish(ScenarioRunStartedEvent(
+                batch_run_id=self.batch_run_id,
+                scenario_run_id=self.scenario_run_id,
+                scenario_id=self.name,
+                timestamp=int(time.time() * 1000),
+                metadata=ScenarioRunStartedEventMetadata(
+                    name=self.name,
+                    description=self.description,
+                ),
+            ))
 
-        if self.config.verbose:
-            print("")  # new line
+            if self.config.verbose:
+                print("")  # new line
 
-        self.reset()
+            self.reset()
 
-        for script_step in self.script:
-            callable = script_step(self._state)
-            if isinstance(callable, Awaitable):
-                result = await callable
-            else:
-                result = callable
+            for script_step in self.script:
+                callable = script_step(self._state)
+                if isinstance(callable, Awaitable):
+                    result = await callable
+                else:
+                    result = callable
 
-            if isinstance(result, ScenarioResult):
-                self.event_bus.publish(ScenarioRunFinishedEvent(
-                    batch_run_id=self.batch_run_id,
-                    scenario_run_id=self.scenario_run_id,
-                    scenario_id=self.name,
-                    timestamp=int(time.time() * 1000),
-                    status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILURE,
-                    results=ScenarioRunFinishedEventResults(
-                        verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
-                        reasoning=result.reasoning,
-                        met_criteria=result.passed_criteria,
-                        unmet_criteria=result.failed_criteria,
-                    ),
-                ))
-                return result
+                if isinstance(result, ScenarioResult):
+                    self.event_bus.publish(ScenarioRunFinishedEvent(
+                        batch_run_id=self.batch_run_id,
+                        scenario_run_id=self.scenario_run_id,
+                        scenario_id=self.name,
+                        timestamp=int(time.time() * 1000),
+                        status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILURE,
+                        results=ScenarioRunFinishedEventResults(
+                            verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
+                            reasoning=result.reasoning,
+                            met_criteria=result.passed_criteria,
+                            unmet_criteria=result.failed_criteria,
+                        ),
+                    ))
+                    return result
 
-        result = self._reached_max_turns(
-            """Reached end of script without conclusion, add one of the following to the end of the script:
+            result = self._reached_max_turns(
+                """Reached end of script without conclusion, add one of the following to the end of the script:
 
 - `scenario.proceed()` to let the simulation continue to play out
 - `scenario.judge()` to force criteria judgement
 - `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
-            """
-        )
+                """
+            )
 
-        self.event_bus.publish(ScenarioRunFinishedEvent(
-            batch_run_id=self.batch_run_id,
-            scenario_run_id=self.scenario_run_id,
-            scenario_id=self.name,
-            timestamp=int(time.time() * 1000),
-            scenario_result=result,
-        ))
-        return result
+            self.event_bus.publish(ScenarioRunFinishedEvent(
+                batch_run_id=self.batch_run_id,
+                scenario_run_id=self.scenario_run_id,
+                scenario_id=self.name,
+                timestamp=int(time.time() * 1000),
+                scenario_result=result,
+            ))
+            return result
+
+        except Exception as e:
+            # Publish failure event before propagating the error
+            self.event_bus.publish(ScenarioRunFinishedEvent(
+                batch_run_id=self.batch_run_id,
+                scenario_run_id=self.scenario_run_id,
+                scenario_id=self.name,
+                timestamp=int(time.time() * 1000),
+                status=ScenarioRunFinishedEventStatus.ERROR,  # or CANCELLED depending on your needs
+                results=ScenarioRunFinishedEventResults(
+                    verdict=ScenarioRunFinishedEventVerdict.FAILURE,
+                    reasoning=f"Scenario failed with error: {str(e)}",
+                    met_criteria=[],
+                    unmet_criteria=[],
+                ),
+            ))
+            raise  # Re-raise the exception after cleanup
 
     async def _call_agent(
         self, idx: int, role: AgentRole, request_judgment: bool = False
