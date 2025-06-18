@@ -8,7 +8,7 @@ the backend, and provides a single import location for event models.
 If you need to add custom logic or helpers, you can extend or wrap these models here.
 """
 
-from typing import Union
+from typing import Union, Any, Optional
 
 from .langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
@@ -18,10 +18,22 @@ from .langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType1ResultsType0Verdict as ScenarioRunFinishedEventVerdict,
     PostApiScenarioEventsBodyType1Status as ScenarioRunFinishedEventStatus,
     PostApiScenarioEventsBodyType2,
-    # No separate metadata types for finished or snapshot events
+    # Message types for the snapshot event
+    PostApiScenarioEventsBodyType2MessagesItemType0,
+    PostApiScenarioEventsBodyType2MessagesItemType1,
+    PostApiScenarioEventsBodyType2MessagesItemType2,
+    PostApiScenarioEventsBodyType2MessagesItemType3,
+    PostApiScenarioEventsBodyType2MessagesItemType4,
 )
 
-# Auto-generate the event classes with the correct type_ attribute
+# Type alias for message types
+MessageType = Union[
+    PostApiScenarioEventsBodyType2MessagesItemType0,
+    PostApiScenarioEventsBodyType2MessagesItemType1, 
+    PostApiScenarioEventsBodyType2MessagesItemType2,
+    PostApiScenarioEventsBodyType2MessagesItemType3,
+    PostApiScenarioEventsBodyType2MessagesItemType4,
+]
 
 class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
     """
@@ -35,11 +47,30 @@ class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
         scenario_id (str): Unique identifier for the scenario definition
         scenario_run_id (str): Unique identifier for this specific run
         metadata (ScenarioRunStartedEventMetadata): Scenario details like name and description
-        timestamp (int, optional): Unix timestamp in milliseconds, auto-generated if not provided
-        scenario_set_id (str, optional): Set identifier, defaults to "default"
+        timestamp (Optional[int], optional): Unix timestamp in milliseconds, auto-generated if not provided
+        raw_event (Optional[Any], optional): Raw event data
+        scenario_set_id (Optional[str], optional): Set identifier, defaults to "default"
     """
-    def __init__(self, *args, type_="SCENARIO_RUN_STARTED", **kwargs):
-        super().__init__(*args, type_=type_, **kwargs)
+    def __init__(
+        self,
+        batch_run_id: str,
+        scenario_id: str,
+        scenario_run_id: str,
+        metadata: ScenarioRunStartedEventMetadata,
+        timestamp: int,
+        raw_event: Optional[Any] = None,
+        scenario_set_id: Optional[str] = "default"
+    ):
+        super().__init__(
+            type_="SCENARIO_RUN_STARTED",
+            batch_run_id=batch_run_id,
+            scenario_id=scenario_id,
+            scenario_run_id=scenario_run_id,
+            metadata=metadata,
+            timestamp=timestamp,
+            raw_event=raw_event,
+            scenario_set_id=scenario_set_id or "default"
+        )
 
 class ScenarioRunFinishedEvent(PostApiScenarioEventsBodyType1):
     """
@@ -53,12 +84,33 @@ class ScenarioRunFinishedEvent(PostApiScenarioEventsBodyType1):
         scenario_id (str): Unique identifier for the scenario definition
         scenario_run_id (str): Unique identifier for this specific run
         status (ScenarioRunFinishedEventStatus): Overall execution status
-        results (ScenarioRunFinishedEventResults): Verdict and reasoning for the outcome
-        timestamp (int, optional): Unix timestamp in milliseconds, auto-generated if not provided
-        scenario_set_id (str, optional): Set identifier, defaults to "default"
+        timestamp (Optional[int], optional): Unix timestamp in milliseconds, auto-generated if not provided
+        raw_event (Optional[Any], optional): Raw event data
+        scenario_set_id (Optional[str], optional): Set identifier, defaults to "default"
+        results (Optional[ScenarioRunFinishedEventResults], optional): Verdict and reasoning for the outcome
     """
-    def __init__(self, *args, type_="SCENARIO_RUN_FINISHED", **kwargs):
-        super().__init__(*args, type_=type_, **kwargs)
+    def __init__(
+        self,
+        batch_run_id: str,
+        scenario_id: str,
+        scenario_run_id: str,
+        status: ScenarioRunFinishedEventStatus,
+        timestamp: int,
+        results: Optional[ScenarioRunFinishedEventResults] = None,
+        raw_event: Optional[Any] = None,
+        scenario_set_id: Optional[str] = "default",
+    ):
+        super().__init__(
+            type_="SCENARIO_RUN_FINISHED",
+            batch_run_id=batch_run_id,
+            scenario_id=scenario_id,
+            scenario_run_id=scenario_run_id,
+            status=status,
+            timestamp=timestamp,
+            raw_event=raw_event,
+            scenario_set_id=scenario_set_id or "default",
+            results=results
+        )
 
 class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
     """
@@ -71,12 +123,31 @@ class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
         batch_run_id (str): Unique identifier for the batch of scenario runs
         scenario_id (str): Unique identifier for the scenario definition
         scenario_run_id (str): Unique identifier for this specific run
-        messages (list): List of message objects in the conversation
-        timestamp (int, optional): Unix timestamp in milliseconds, auto-generated if not provided
-        scenario_set_id (str, optional): Set identifier, defaults to "default"
+        messages (list[MessageType]): List of message objects in the conversation
+        timestamp (Optional[int], optional): Unix timestamp in milliseconds, auto-generated if not provided
+        raw_event (Optional[Any], optional): Raw event data
+        scenario_set_id (Optional[str], optional): Set identifier, defaults to "default"
     """
-    def __init__(self, *args, type_="SCENARIO_MESSAGE_SNAPSHOT", **kwargs):
-        super().__init__(*args, type_=type_, **kwargs)
+    def __init__(
+        self,
+        batch_run_id: str,
+        scenario_id: str,
+        scenario_run_id: str,
+        messages: list[MessageType],
+        timestamp: int,
+        raw_event: Optional[Any] = None,
+        scenario_set_id: Optional[str] = "default"
+    ):
+        super().__init__(
+            type_="SCENARIO_MESSAGE_SNAPSHOT",
+            batch_run_id=batch_run_id,
+            scenario_id=scenario_id,
+            scenario_run_id=scenario_run_id,
+            messages=messages,
+            timestamp=timestamp,
+            raw_event=raw_event,
+            scenario_set_id=scenario_set_id or "default"
+        )
 
 # Union type for all supported event types
 ScenarioEvent = Union[
@@ -95,4 +166,5 @@ __all__ = [
     "ScenarioRunFinishedEventVerdict",
     "ScenarioRunFinishedEventStatus",
     "ScenarioMessageSnapshotEvent",
+    "MessageType",
 ]
