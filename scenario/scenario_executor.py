@@ -303,6 +303,7 @@ class ScenarioExecutor:
                 try:
                     return loop.run_until_complete(scenario._run())
                 finally:
+                    loop.run_until_complete(scenario.event_bus.drain())
                     loop.close()
 
             # Run the function in the thread pool and await its result
@@ -570,7 +571,6 @@ class ScenarioExecutor:
                         unmet_criteria=result.failed_criteria,
                     ),
                 ))
-                await self.event_bus.drain()
                 return result
 
         result = self._reached_max_turns(
@@ -589,7 +589,6 @@ class ScenarioExecutor:
             timestamp=int(time.time() * 1000),
             scenario_result=result,
         ))
-        await self.event_bus.drain()
         return result
 
     async def _call_agent(
