@@ -18,10 +18,9 @@ async def test_post_event_sends_correct_request(caplog):
     )
     
     event = ScenarioRunStartedEvent(
-        type_="SCENARIO_RUN_STARTED",  # Note: attribute name is type_ with underscore
-        batch_run_id="batch-1",       # Note: snake_case not camelCase
-        scenario_id="scenario-1",     # Note: snake_case not camelCase
-        scenario_run_id="run-1",      # Note: snake_case not camelCase
+        batch_run_id="batch-1",
+        scenario_id="scenario-1",
+        scenario_run_id="run-1",
         metadata=metadata,
     )
 

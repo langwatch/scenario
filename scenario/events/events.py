@@ -57,7 +57,7 @@ class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
         scenario_id: str,
         scenario_run_id: str,
         metadata: ScenarioRunStartedEventMetadata,
-        timestamp: int,
+        timestamp: Optional[int] = None,
         raw_event: Optional[Any] = None,
         scenario_set_id: Optional[str] = "default"
     ):
@@ -95,7 +95,7 @@ class ScenarioRunFinishedEvent(PostApiScenarioEventsBodyType1):
         scenario_id: str,
         scenario_run_id: str,
         status: ScenarioRunFinishedEventStatus,
-        timestamp: int,
+        timestamp: Optional[int] = None,
         results: Optional[ScenarioRunFinishedEventResults] = None,
         raw_event: Optional[Any] = None,
         scenario_set_id: Optional[str] = "default",
@@ -134,7 +134,7 @@ class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
         scenario_id: str,
         scenario_run_id: str,
         messages: list[MessageType],
-        timestamp: int,
+        timestamp: Optional[int] = None,
         raw_event: Optional[Any] = None,
         scenario_set_id: Optional[str] = "default"
     ):
