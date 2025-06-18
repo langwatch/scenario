@@ -1,9 +1,11 @@
-from rx.subject import Subject
+from rx.subject.subject import Subject
 from rx import operators as ops
 from typing import Optional
 from datetime import datetime, UTC
 from .events import ScenarioEvent, ScenarioRunFinishedEvent
 from .event_reporter import EventReporter
+from typing import Any
+
 import asyncio
 
 
@@ -13,12 +15,12 @@ class ScenarioEventBus:
     Events are processed concurrently.
     """
     
-    def __init__(self, event_reporter=None, max_retries: int = 3):
+    def __init__(self, event_reporter: Optional[EventReporter] = None, max_retries: int = 3):
         self._events = Subject()
         # Use default EventReporter if none provided
-        self._event_reporter = event_reporter or EventReporter()
+        self._event_reporter: EventReporter = event_reporter or EventReporter()
         self._processing_complete = asyncio.Event()
-        self._processing_task: Optional[asyncio.Task] = None
+        self._processing_task: Optional[asyncio.Task[Any]] = None
         self._max_retries = max_retries
         
     def publish(self, event: ScenarioEvent) -> None:
@@ -40,7 +42,7 @@ class ScenarioEventBus:
         if self._processing_task is not None:
             return
             
-        async def process_single_event(event, attempt=1):
+        async def process_single_event(event: ScenarioEvent, attempt: int = 1) -> bool:
             try:
                 if self._event_reporter:
                     await self._event_reporter.post_event(event)
@@ -53,7 +55,7 @@ class ScenarioEventBus:
                 await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
                 return await process_single_event(event, attempt + 1)
                     
-        def process_event(event):
+        def process_event(event: ScenarioEvent) -> asyncio.Task[bool]:
             loop = asyncio.get_event_loop()
             return loop.create_task(process_single_event(event))
         
