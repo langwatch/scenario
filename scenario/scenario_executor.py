@@ -564,10 +564,10 @@ class ScenarioExecutor:
                         scenario_run_id=self.scenario_run_id,
                         scenario_id=self.name,
                         timestamp=int(time.time() * 1000),
-                        status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILURE,
+                        status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED,
                         results=ScenarioRunFinishedEventResults(
                             verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
-                            reasoning=result.reasoning,
+                            reasoning=result.reasoning or "",
                             met_criteria=result.passed_criteria,
                             unmet_criteria=result.failed_criteria,
                         ),
