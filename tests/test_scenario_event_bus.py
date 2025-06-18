@@ -1,5 +1,5 @@
 import pytest
-from scenario.events import (
+from scenario.events.events import (
     ScenarioRunStartedEvent,
     ScenarioRunStartedEventMetadata,
     ScenarioRunFinishedEvent,
@@ -8,7 +8,7 @@ from scenario.events import (
     ScenarioRunFinishedEventVerdict,
     ScenarioMessageSnapshotEvent,
 )
-from scenario.event_bus import ScenarioEventBus
+from scenario.events.event_bus import ScenarioEventBus
 from ag_ui.core import UserMessage
 
 class MockEventReporter:

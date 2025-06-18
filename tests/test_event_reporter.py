@@ -1,8 +1,8 @@
 import pytest
 import respx
 import logging
-from scenario.event_reporter import EventReporter  # You will create this
-from scenario.events import ScenarioRunStartedEvent, ScenarioRunStartedEventMetadata
+from scenario.events.event_reporter import EventReporter  # You will create this
+from scenario.events.events import ScenarioRunStartedEvent, ScenarioRunStartedEventMetadata
 
 @pytest.mark.asyncio
 async def test_post_event_sends_correct_request(caplog):

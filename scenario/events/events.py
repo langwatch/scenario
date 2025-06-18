@@ -10,7 +10,7 @@ If you need to add custom logic or helpers, you can extend or wrap these models 
 
 from typing import Union, Any, Optional
 
-from .langwatch_api_client.lang_watch_api_client.models import (
+from ..langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
     PostApiScenarioEventsBodyType0Metadata as ScenarioRunStartedEventMetadata,
     PostApiScenarioEventsBodyType1,

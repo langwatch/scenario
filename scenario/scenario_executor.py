@@ -31,7 +31,6 @@ from scenario._utils import (
     show_spinner,
     await_if_awaitable,
     get_or_create_batch_run_id,
-    convert_messages_to_ag_ui_messages,
     await_if_awaitable
 )
 from openai.types.chat import (
@@ -47,8 +46,17 @@ from .agent_adapter import AgentAdapter
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
-from .event_bus import ScenarioEventBus
-from .events import ScenarioRunStartedEvent, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEventMetadata, ScenarioRunFinishedEventResults, ScenarioRunFinishedEventVerdict, ScenarioRunFinishedEventStatus
+from .events import (
+    ScenarioEventBus, 
+    ScenarioRunStartedEvent, 
+    ScenarioMessageSnapshotEvent, 
+    ScenarioRunFinishedEvent, 
+    ScenarioRunStartedEventMetadata, 
+    ScenarioRunFinishedEventResults, 
+    ScenarioRunFinishedEventVerdict, 
+    ScenarioRunFinishedEventStatus, 
+    convert_messages_to_ag_ui_messages,
+)
 
 
 class ScenarioExecutor:

@@ -1,7 +1,7 @@
 import logging
 import os
 import aiohttp
-import json
+from typing import Optional
 from .events import ScenarioEvent 
 
 class EventReporter:
@@ -31,7 +31,7 @@ class EventReporter:
         await reporter.post_event(event)
     """
 
-    def __init__(self, endpoint=None, api_key=None):
+    def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None):
         self.endpoint = endpoint or os.getenv("SCENARIO_EVENTS_ENDPOINT")
         self.api_key = api_key or os.getenv("LANGWATCH_API_KEY", "")
         self.logger = logging.getLogger("EventReporter")
