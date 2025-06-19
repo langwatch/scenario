@@ -323,7 +323,7 @@ Scenario automatically publishes events during execution for monitoring and obse
 
 ```bash
 # Enable automatic event reporting
-export SCENARIO_EVENTS_ENDPOINT="https://your-api.com/events"
+export LANGWATCH_ENDPOINT="https://api.langwatch.ai"
 export LANGWATCH_API_KEY="your-api-key"
 ```
 

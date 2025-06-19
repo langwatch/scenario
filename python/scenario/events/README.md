@@ -131,7 +131,7 @@ from scenario.events import ScenarioEventBus, EventReporter
 
 # Custom event reporter
 reporter = EventReporter(
-    endpoint="https://your-api.com/events",
+    endpoint="https://api.langwatch.ai",
     api_key="your-api-key"
 )
 
@@ -162,13 +162,13 @@ from scenario.events import EventReporter
 
 # Via constructor
 reporter = EventReporter(
-    endpoint="https://your-api.com/events",
+    endpoint="https://api.langwatch.ai",
     api_key="your-api-key"
 )
 
 # Via environment variables
 import os
-os.environ["SCENARIO_EVENTS_ENDPOINT"] = "https://your-api.com/events"
+os.environ["LANGWATCH_ENDPOINT"] = "https://api.langwatch.ai"
 os.environ["LANGWATCH_API_KEY"] = "your-api-key"
 
 reporter = EventReporter()  # Uses environment variables
@@ -262,9 +262,9 @@ tool_msg = ToolMessage(
 ```python
 from scenario.events import ScenarioEventBus, EventReporter
 
-# Integrate with monitoring systems like DataDog, New Relic, etc.
+# Integrate with LangWatch
 monitoring_reporter = EventReporter(
-    endpoint="https://api.datadoghq.com/api/v1/events",
+    endpoint="https://api.langwatch.ai",
     api_key="your-datadog-api-key"
 )
 
