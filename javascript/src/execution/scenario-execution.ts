@@ -11,10 +11,12 @@ import {
   type ScenarioExecutionLike,
   type AgentAdapter,
   JudgeAgentAdapter,
-  ScenarioExecutionStateLike
+  ScenarioExecutionStateLike,
+  ScenarioConfigFinal
 } from "../domain";
 import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEvent, ScenarioRunStatus } from "../events/schema";
 import { generateScenarioId, generateScenarioRunId, generateThreadId, getBatchRunId } from "../utils/ids";
+import { Logger } from "../utils/logger";
 
 function convertAgentReturnTypesToMessages(response: AgentReturnTypes, role: "user" | "assistant"): CoreMessage[] {
   if (typeof response === "string")
@@ -32,14 +34,25 @@ function convertAgentReturnTypesToMessages(response: AgentReturnTypes, role: "us
 export class ScenarioExecution implements ScenarioExecutionLike {
   private state: ScenarioExecutionStateLike = new ScenarioExecutionState();
   private eventSubject = new Subject<ScenarioEvent>();
+  private logger = new Logger("scenario.execution.ScenarioExecution");
+  private config: ScenarioConfigFinal;
+
   public readonly events$: Observable<ScenarioEvent> =
     this.eventSubject.asObservable();
 
-  constructor(
-    public readonly config: ScenarioConfig,
-    public readonly steps: ScriptStep[],
+  constructor(config: ScenarioConfig, script: ScriptStep[],
   ) {
-    this.config.id = this.config.id ?? generateScenarioId();
+    this.config = {
+      id: config.id ?? generateScenarioId(),
+      name: config.name,
+      description: config.description,
+      agents: config.agents,
+      script: script,
+      verbose: config.verbose ?? false,
+      maxTurns: config.maxTurns ?? 10,
+      threadId: config.threadId ?? generateThreadId(),
+    } satisfies ScenarioConfigFinal;
+
     this.reset();
   }
 
@@ -59,7 +72,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     try {
       // Execute script steps - pass the execution context (this), not just state
-      for (const scriptStep of this.steps) {
+      for (const scriptStep of this.config.script) {
+        this.logger.debug(`[${this.config.id}] Executing script step`, {
+          scriptStep,
+        });
+
         const result = await scriptStep(this.state, this);
 
         this.emitMessageSnapshot({ scenarioRunId });
@@ -111,7 +128,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (onTurn) await onTurn(this.state);
 
-      if (this.state.turn != null && this.state.turn >= (this.config.maxTurns || 10))
+      if (this.state.turn != null && this.state.turn >= this.config.maxTurns)
         return this.reachedMaxTurns();
     }
 

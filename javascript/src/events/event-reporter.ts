@@ -1,6 +1,8 @@
 import type { ScenarioEvent } from "./schema";
 import { Logger } from "../utils/logger";
 
+let alreadyWarningAboutNoLangWatchIntegration = false;
+
 /**
  * Handles HTTP posting of scenario events to external endpoints.
  *
@@ -15,6 +17,13 @@ export class EventReporter {
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.endpoint = config.endpoint;
     this.apiKey = config.apiKey ?? "";
+
+    if (!this.apiKey) {
+      if (!alreadyWarningAboutNoLangWatchIntegration) {
+        console.warn(`Configure your LangWatch API key (via LANGWATCH_API_KEY, or scenario.config.js) to enable simulation reporting in the LangWatch dashboard.`);
+        alreadyWarningAboutNoLangWatchIntegration = true;
+      }
+    }
   }
 
   /**
@@ -28,7 +37,7 @@ export class EventReporter {
 
     if (!this.endpoint) {
       this.logger.warn(
-        "No SCENARIO_EVENTS_ENDPOINT configured, skipping event posting"
+        "No LANGWATCH_ENDPOINT configured, skipping event posting"
       );
       return;
     }

@@ -10,10 +10,19 @@ export interface ScenarioConfig {
   agents: AgentAdapter[];
   script?: ScriptStep[];
 
-  verbose?: boolean | number;
+  verbose?: boolean;
   maxTurns?: number;
 
   threadId?: string;
+}
+
+export interface ScenarioConfigFinal extends Omit<ScenarioConfig, "id" | "script" | "threadId" | "verbose" | "maxTurns"> {
+  id: string;
+  script: ScriptStep[];
+
+  verbose: boolean;
+  maxTurns: number;
+  threadId: string;
 }
 
 export interface ScenarioExecutionLike {

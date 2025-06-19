@@ -3,8 +3,6 @@ import { EventReporter } from "./event-reporter";
 import { ScenarioEvent, ScenarioEventType } from "./schema";
 import { Logger } from "../utils/logger";
 
-const logger = new Logger("scenario.events.EventBus");
-
 /**
  * Manages scenario event publishing, subscription, and processing pipeline.
  */
@@ -12,6 +10,7 @@ export class EventBus {
   private events$ = new Subject<ScenarioEvent>();
   private eventReporter: EventReporter;
   private processingPromise: Promise<void> | null = null;
+  private logger = new Logger("scenario.events.EventBus");
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.eventReporter = new EventReporter(config);
@@ -21,6 +20,9 @@ export class EventBus {
    * Publishes an event into the processing pipeline.
    */
   publish(event: ScenarioEvent): void {
+    this.logger.debug(`[${event.type}] Publishing event`, {
+      event,
+    });
     this.events$.next(event);
   }
 
@@ -29,6 +31,8 @@ export class EventBus {
    * Returns a promise that resolves when a RUN_FINISHED event is fully processed.
    */
   listen(): Promise<void> {
+    this.logger.debug("Listening for events");
+
     if (this.processingPromise) {
       return this.processingPromise;
     }
@@ -36,23 +40,32 @@ export class EventBus {
     this.processingPromise = new Promise<void>((resolve, reject) => {
       this.events$
         .pipe(
-          concatMap(async (event) => {
+          concatMap(async (event: ScenarioEvent) => {
+            this.logger.debug(`[${event.type}] Processing event`, {
+              event,
+            });
+
             await this.eventReporter.postEvent(event);
             return event;
           }),
-          catchError((error) => {
-            logger.error("Error in event stream:", error);
+          catchError((error: unknown) => {
+            this.logger.error("Error in event stream:", error);
+
             return EMPTY;
           })
         )
         .subscribe({
-          next: (event) => {
+          next: (event: ScenarioEvent) => {
+            this.logger.debug(`[${event.type}] Event processed`, {
+              event,
+            });
+
             if (event.type === ScenarioEventType.RUN_FINISHED) {
               resolve();
             }
           },
-          error: (error) => {
-            logger.error("Error in event stream:", error);
+          error: (error: unknown) => {
+            this.logger.error("Error in event stream:", error);
             reject(error);
           },
         });
@@ -65,6 +78,7 @@ export class EventBus {
    * Stops accepting new events and drains the processing queue.
    */
   async drain(): Promise<void> {
+    this.logger.debug("Draining event stream");
     this.events$.unsubscribe();
 
     if (this.processingPromise) {
@@ -77,6 +91,8 @@ export class EventBus {
    * @param source$ - The event stream to subscribe to.
    */
   subscribeTo(source$: Observable<ScenarioEvent>): Subscription {
+    this.logger.debug("Subscribing to event stream");
+
     return source$.subscribe(this.events$);
   }
 }
