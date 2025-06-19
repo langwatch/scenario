@@ -394,7 +394,6 @@ class ScenarioExecutor:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
 
-        self._emit_message_snapshot_event()
 
     def add_messages(
         self,
@@ -550,6 +549,7 @@ class ScenarioExecutor:
                     result = await callable
                 else:
                     result = callable
+                self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
                     status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
@@ -881,7 +881,7 @@ class ScenarioExecutor:
         )
         self.event_bus.publish(event)
 
-    def _emit_message_snapshot_event(self) -> None:
+    def _emit_message_snapshot_event(self, scenario_run_id: str) -> None:
         """
         Emit a message snapshot event.
         
@@ -894,7 +894,7 @@ class ScenarioExecutor:
             `add_messages()` to provide continuous visibility into scenario
             execution state.
         """
-        common_fields = self._create_common_event_fields(self.batch_run_id)
+        common_fields = self._create_common_event_fields(scenario_run_id)
         
         event = ScenarioMessageSnapshotEvent(
             **common_fields,

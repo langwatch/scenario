@@ -4,6 +4,6 @@
 # To regenerate:
 # make generate-openapi-client
 # 
-# Generated from: ../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json
+# Generated from: ../../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json
 # Generator: openapi-python-client
-# Generated on: Thu Jun 19 15:30:47 CEST 2025
+# Generated on: Thu Jun 19 18:11:51 CEST 2025

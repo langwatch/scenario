@@ -48,7 +48,7 @@ class EventReporter:
             None - logs success/failure internally
         """
         event_type = event.type_
-        self.logger.debug(f"[{event_type}] Posting event: {event}")
+        self.logger.info(f"[{event_type}] Publishing event ({event.scenario_run_id})")
 
         if not self.endpoint:
             self.logger.warning(
@@ -66,19 +66,18 @@ class EventReporter:
                         "X-Auth-Token": self.api_key,
                     },
                 )
-                self.logger.debug(f"Event POST response status: {response.status_code}")
-
+                self.logger.info(f"[{event_type}] POST response status: {response.status_code} ({event.scenario_run_id})")
+                
                 if response.is_success:
                     data = response.json()
-                    self.logger.debug(f"Event POST response: {data}")
+                    self.logger.info(f"[{event_type}] POST response: {data} ({event.scenario_run_id})")
                 else:
                     error_text = response.text
                     self.logger.error(
-                        f"Event POST failed: status={response.status_code}, "
+                        f"[{event_type}] Event POST failed: status={response.status_code}, "
                         f"reason={response.reason_phrase}, error={error_text}, "
-                        # f"event={printable_event}"
+                        f"event={event}"
                     )
         except Exception as error:
             self.logger.error(
-                f"Event POST error: {error}, event={event}, endpoint={self.endpoint}"
-            )
+                f"[{event_type}] Event POST error: {error}, event={event}, endpoint={self.endpoint}") 

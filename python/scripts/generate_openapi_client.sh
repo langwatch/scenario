@@ -10,7 +10,7 @@
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 # Configuration
-OPENAPI_SPEC_PATH="../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json"
+OPENAPI_SPEC_PATH="https://github.com/langwatch/langwatch/blob/main/langwatch/src/app/api/openapiLangWatch.json"
 GENERATED_DIR="scenario/generated"
 CLIENT_DIR="${GENERATED_DIR}/langwatch_api_client"
 

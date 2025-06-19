@@ -2,7 +2,8 @@ import pytest
 import respx
 import logging
 import time
-from scenario.events.event_reporter import EventReporter  # You will create this
+from _pytest.logging import LogCaptureFixture
+from scenario.events.event_reporter import EventReporter
 from scenario.events.events import (
     ScenarioRunStartedEvent,
     ScenarioRunStartedEventMetadata,
@@ -10,7 +11,7 @@ from scenario.events.events import (
 
 
 @pytest.mark.asyncio
-async def test_post_event_sends_correct_request(caplog):
+async def test_post_event_sends_correct_request(caplog: LogCaptureFixture) -> None:
     # Arrange
     endpoint = "https://api.langwatch.ai"
     api_key = "test-api-key"
@@ -32,7 +33,8 @@ async def test_post_event_sends_correct_request(caplog):
     reporter = EventReporter(endpoint=endpoint, api_key=api_key)
 
     with respx.mock as mock:
-        route = mock.post(endpoint).respond(200, json={"ok": True})
+        # Fix the endpoint to match the actual POST URL from EventReporter
+        route = mock.post(f"{endpoint}/api/scenario-events").respond(200, json={"ok": True})
 
         # Act
         with caplog.at_level(logging.DEBUG):
@@ -48,4 +50,4 @@ async def test_post_event_sends_correct_request(caplog):
             or b'"type":"SCENARIO_RUN_STARTED"' in request.content
         )
         # Check logs for success
-        assert any("Event POST response status: 200" in m for m in caplog.messages)
+        assert any("POST response status: 200" in m for m in caplog.messages)
