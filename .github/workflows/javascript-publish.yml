@@ -28,16 +28,20 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        working-directory: javascript
 
       - name: Run tests
         run: pnpm test:ci
+        working-directory: javascript
 
       - name: Update version (manual trigger only)
         if: github.event.inputs.version != ''
         run: |
           pnpm version ${{ github.event.inputs.version }} --no-git-tag-version
+        working-directory: javascript
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks
+        working-directory: javascript
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
