@@ -34,4 +34,25 @@ def get_or_create_batch_run_id() -> str:
         # Generate new batch ID if not set
         os.environ["SCENARIO_BATCH_ID"] = f"batch-run-{uuid.uuid4()}"
     
-    return os.environ["SCENARIO_BATCH_ID"] 
+    return os.environ["SCENARIO_BATCH_ID"]
+
+
+def generate_scenario_run_id() -> str:
+    """
+    Generates a unique scenario run ID for a single scenario execution.
+    
+    Each scenario run gets a unique identifier that distinguishes it from
+    other runs, even within the same batch. This is used for tracking
+    individual scenario executions and correlating events.
+    
+    Returns:
+        str: A unique scenario run ID
+        
+    Example:
+        ```python
+        # Each scenario gets its own unique ID
+        scenario_id = generate_scenario_run_id()
+        print(f"Running scenario with ID: {scenario_id}")
+        ```
+    """
+    return f"scenario-run-{uuid.uuid4()}" 

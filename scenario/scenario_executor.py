@@ -31,6 +31,7 @@ from scenario._utils import (
     show_spinner,
     await_if_awaitable,
     get_or_create_batch_run_id,
+    generate_scenario_run_id,
 )
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -132,7 +133,6 @@ class ScenarioExecutor:
 
     event_bus: ScenarioEventBus
 
-    scenario_run_id: str
     batch_run_id: str
 
     def __init__(
@@ -396,7 +396,7 @@ class ScenarioExecutor:
 
         self.event_bus.publish(ScenarioMessageSnapshotEvent(
             batch_run_id=self.batch_run_id,
-            scenario_run_id=self.scenario_run_id,
+            scenario_run_id=self.batch_run_id,
             scenario_id=self.name,
             timestamp=int(time.time() * 1000),
             messages=convert_messages_to_ag_ui_messages(self._state.messages),
@@ -539,13 +539,13 @@ class ScenarioExecutor:
         Returns:
             ScenarioResult containing the test outcome
         """
-        scenario_run_id = f"scenario-run-{uuid.uuid4()}"
+        scenario_run_id = generate_scenario_run_id()
 
         try:
             await self.event_bus.listen()
             self.event_bus.publish(ScenarioRunStartedEvent(
                 batch_run_id=self.batch_run_id,
-                scenario_run_id=self.scenario_run_id,
+                scenario_run_id=scenario_run_id,
                 scenario_id=self.name,
                 timestamp=int(time.time() * 1000),
                 metadata=ScenarioRunStartedEventMetadata(
