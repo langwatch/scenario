@@ -1,6 +1,7 @@
 import pytest
 import respx
 import logging
+import time
 from scenario.events.event_reporter import EventReporter  # You will create this
 from scenario.events.events import ScenarioRunStartedEvent, ScenarioRunStartedEventMetadata
 
@@ -21,6 +22,7 @@ async def test_post_event_sends_correct_request(caplog):
         scenario_id="scenario-1",
         scenario_run_id="run-1",
         metadata=metadata,
+        timestamp=int(time.time() * 1000),
     )
 
     reporter = EventReporter(endpoint=endpoint, api_key=api_key)

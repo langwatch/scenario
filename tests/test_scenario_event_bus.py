@@ -1,4 +1,5 @@
 import pytest
+import time
 from scenario.events.events import (
     ScenarioRunStartedEvent,
     ScenarioRunStartedEventMetadata,
@@ -41,7 +42,8 @@ async def test_scenario_event_bus_basic_flow():
         batch_run_id=batch_run_id,
         scenario_id=scenario_id,
         scenario_run_id=scenario_run_id,
-        metadata=metadata
+        metadata=metadata,
+        timestamp=int(time.time() * 1000),
     )
     bus.publish(start_event)
 
@@ -49,7 +51,8 @@ async def test_scenario_event_bus_basic_flow():
         batch_run_id=batch_run_id,
         scenario_id=scenario_id,
         scenario_run_id=scenario_run_id,
-        messages=[UserMessage(id="1", role="user", content="Hello, how are you?")]
+        messages=[UserMessage(id="1", role="user", content="Hello, how are you?")],
+        timestamp=int(time.time() * 1000),
     )
     bus.publish(message_event)
     
@@ -66,7 +69,8 @@ async def test_scenario_event_bus_basic_flow():
         scenario_id=scenario_id,
         scenario_run_id=scenario_run_id,
         status=ScenarioRunFinishedEventStatus.SUCCESS,
-        results=results
+        results=results,
+        timestamp=int(time.time() * 1000),
     )
     bus.publish(finish_event)
     
@@ -135,7 +139,8 @@ async def test_scenario_event_bus_handles_errors():
         batch_run_id=batch_run_id,
         scenario_id=scenario_id,
         scenario_run_id=scenario_run_id,
-        metadata=metadata
+        metadata=metadata,
+        timestamp=int(time.time() * 1000),
     )
     bus.publish(start_event)
     
@@ -153,7 +158,8 @@ async def test_scenario_event_bus_handles_errors():
         scenario_id=scenario_id,
         scenario_run_id=scenario_run_id,
         status=ScenarioRunFinishedEventStatus.SUCCESS,
-        results=results
+        results=results,
+        timestamp=int(time.time() * 1000),
     )
     bus.publish(finish_event)
     
