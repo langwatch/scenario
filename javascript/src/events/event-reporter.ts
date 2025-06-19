@@ -43,7 +43,7 @@ export class EventReporter {
     }
 
     try {
-      const response = await fetch(this.endpoint, {
+      const response = await fetch(`${this.endpoint}/api/scenario-events`, {
         method: "POST",
         body: JSON.stringify(event),
         headers: {

@@ -35,7 +35,7 @@ const weatherAgent: scenario.AgentAdapter = {
       toolChoice: "auto",
     });
 
-    if (response.toolCalls) {
+    if (response.toolCalls && response.toolCalls.length > 0) {
       const toolCall = response.toolCalls[0];
       const toolCallName = toolCall.toolName;
 
