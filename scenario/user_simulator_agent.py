@@ -15,7 +15,7 @@ from litellm.files.main import ModelResponse
 
 from scenario.cache import scenario_cache
 from scenario.agent_adapter import AgentAdapter
-from scenario._utils import reverse_roles
+from scenario._utils.utils import reverse_roles
 from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message

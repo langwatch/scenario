@@ -31,7 +31,6 @@ from scenario._utils import (
     show_spinner,
     await_if_awaitable,
     get_or_create_batch_run_id,
-    await_if_awaitable
 )
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -207,7 +206,6 @@ class ScenarioExecutor:
 
         self.event_bus = event_bus or ScenarioEventBus()
 
-        self.scenario_run_id = f"scenario-run-{uuid.uuid4()}"
         self.batch_run_id = get_or_create_batch_run_id()
 
     @classmethod
@@ -541,6 +539,8 @@ class ScenarioExecutor:
         Returns:
             ScenarioResult containing the test outcome
         """
+        scenario_run_id = f"scenario-run-{uuid.uuid4()}"
+
         try:
             await self.event_bus.listen()
             self.event_bus.publish(ScenarioRunStartedEvent(
@@ -569,7 +569,7 @@ class ScenarioExecutor:
                 if isinstance(result, ScenarioResult):
                     self.event_bus.publish(ScenarioRunFinishedEvent(
                         batch_run_id=self.batch_run_id,
-                        scenario_run_id=self.scenario_run_id,
+                        scenario_run_id=scenario_run_id,
                         scenario_id=self.name,
                         timestamp=int(time.time() * 1000),
                         status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED,
@@ -593,7 +593,7 @@ class ScenarioExecutor:
 
             self.event_bus.publish(ScenarioRunFinishedEvent(
                 batch_run_id=self.batch_run_id,
-                scenario_run_id=self.scenario_run_id,
+                scenario_run_id=scenario_run_id,
                 scenario_id=self.name,
                 timestamp=int(time.time() * 1000),
                 status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED,
@@ -610,7 +610,7 @@ class ScenarioExecutor:
             # Publish failure event before propagating the error
             self.event_bus.publish(ScenarioRunFinishedEvent(
                 batch_run_id=self.batch_run_id,
-                scenario_run_id=self.scenario_run_id,
+                scenario_run_id=scenario_run_id,
                 scenario_id=self.name,
                 timestamp=int(time.time() * 1000),
                 status=ScenarioRunFinishedEventStatus.ERROR,  # or CANCELLED depending on your needs

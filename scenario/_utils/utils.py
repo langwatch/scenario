@@ -7,19 +7,14 @@ for better user experience during scenario execution.
 """
 
 from contextlib import contextmanager
-import os
-import uuid
 import sys
 from typing import (
     Any,
     Iterator,
-    List,
-    Literal,
     Optional,
     Union,
     TypeVar,
     Awaitable,
-    cast,
 )
 from pydantic import BaseModel
 import copy
@@ -36,7 +31,7 @@ from rich.text import Text
 from rich.errors import LiveError
 
 from scenario._error_messages import message_return_error_message
-from scenario.types import AgentReturnTypes, ScenarioResult
+from scenario.types import ScenarioResult
 
 T = TypeVar("T")
 
@@ -58,7 +53,7 @@ class SerializableAndPydanticEncoder(json.JSONEncoder):
         json.dumps(data, cls=SerializableAndPydanticEncoder)
         ```
     """
-    def default(self, o):
+    def default(self, o: Any) -> Any:
         if isinstance(o, BaseModel):
             return o.model_dump(exclude_unset=True)
         if isinstance(o, Iterator):
@@ -82,19 +77,19 @@ class SerializableWithStringFallback(SerializableAndPydanticEncoder):
         # Result: {"function": "<function <lambda> at 0x...>", "complex_object": "..."}
         ```
     """
-    def default(self, o):
+    def default(self, o: Any) -> Any:
         try:
             return super().default(o)
         except:
             return str(o)
 
 
-def safe_list_at(list, index, default=None):
+def safe_list_at(list_obj: list, index: int, default: Any = None) -> Any:
     """
     Safely get an item from a list by index with a default fallback.
 
     Args:
-        list: The list to access
+        list_obj: The list to access
         index: The index to retrieve
         default: Value to return if index is out of bounds
 
@@ -110,12 +105,12 @@ def safe_list_at(list, index, default=None):
         ```
     """
     try:
-        return list[index]
+        return list_obj[index]
     except:
         return default
 
 
-def safe_attr_or_key(obj, attr_or_key, default=None):
+def safe_attr_or_key(obj: Any, attr_or_key: str, default: Any = None) -> Any:
     """
     Safely get an attribute or dictionary key from an object.
 
@@ -143,10 +138,10 @@ def safe_attr_or_key(obj, attr_or_key, default=None):
         print(safe_attr_or_key(obj, "missing"))  # None
         ```
     """
-    return getattr(obj, attr_or_key, obj.get(attr_or_key))
+    return getattr(obj, attr_or_key, getattr(obj, 'get', lambda x, default=None: default)(attr_or_key, default))
 
 
-def title_case(string):
+def title_case(string: str) -> str:
     """
     Convert snake_case string to Title Case.
 
@@ -228,7 +223,7 @@ def print_openai_messages(
             )
 
 
-def _take_maybe_json_first_lines(string, max_lines=5):
+def _take_maybe_json_first_lines(string: str, max_lines: int = 5) -> str:
     """
     Truncate string content and format JSON if possible.
 
@@ -270,14 +265,14 @@ class TextFirstSpinner(Spinner):
         color: Color for the descriptive text
         **kwargs: Additional arguments passed to the base Spinner class
     """
-    def __init__(self, name, text: str, color: str, **kwargs):
+    def __init__(self, name: str, text: str, color: str, **kwargs: Any) -> None:
         super().__init__(
             name, "", style="bold white", **kwargs
         )  # Initialize with empty text
         self.text_before = text
         self.color = color
 
-    def render(self, time):
+    def render(self, time: float) -> Text:
         # Get the original spinner frame
         spinner_frame = super().render(time)
         # Create a composite with text first, then spinner
@@ -385,92 +380,6 @@ def check_valid_return_type(return_value: Any, class_name: str) -> None:
     )
 
 
-def convert_agent_return_types_to_openai_messages(
-    agent_response: AgentReturnTypes, role: Literal["user", "assistant"]
-) -> List[ChatCompletionMessageParam]:
-    """
-    Convert various agent return types to standardized OpenAI message format.
-
-    This function normalizes different return types from agent adapters into
-    a consistent list of OpenAI-compatible messages that can be used throughout
-    the scenario execution pipeline.
-
-    Args:
-        agent_response: Response from an agent adapter call
-        role: The role to assign to string responses ("user" or "assistant")
-
-    Returns:
-        List of OpenAI-compatible messages
-
-    Raises:
-        ValueError: If agent_response is a ScenarioResult (which should be handled separately)
-
-    Example:
-        ```
-        # String response
-        messages = convert_agent_return_types_to_openai_messages("Hello", "assistant")
-        # Result: [{"role": "assistant", "content": "Hello"}]
-
-        # Dict response
-        response = {"role": "assistant", "content": "Hi", "tool_calls": [...]}
-        messages = convert_agent_return_types_to_openai_messages(response, "assistant")
-        # Result: [{"role": "assistant", "content": "Hi", "tool_calls": [...]}]
-
-        # List response
-        responses = [
-            {"role": "assistant", "content": "Thinking..."},
-            {"role": "assistant", "content": "Here's the answer"}
-        ]
-        messages = convert_agent_return_types_to_openai_messages(responses, "assistant")
-        # Result: Same list, validated and normalized
-        ```
-    """
-    if isinstance(agent_response, ScenarioResult):
-        raise ValueError(
-            "Unexpectedly tried to convert a ScenarioResult to openai messages",
-            agent_response.__repr__(),
-        )
-
-    def convert_maybe_object_to_openai_message(
-        obj: Any,
-    ) -> ChatCompletionMessageParam:
-        if isinstance(obj, dict):
-            return cast(ChatCompletionMessageParam, obj)
-        elif isinstance(obj, BaseModel):
-            return cast(
-                ChatCompletionMessageParam,
-                obj.model_dump(
-                    exclude_unset=True,
-                    exclude_none=True,
-                    exclude_defaults=True,
-                    warnings=False,
-                ),
-            )
-        else:
-            raise ValueError(f"Unexpected agent response type: {type(obj).__name__}")
-
-    def ensure_dict(
-        obj: T,
-    ) -> T:
-        return json.loads(json.dumps(obj, cls=SerializableAndPydanticEncoder))
-
-    if isinstance(agent_response, str):
-        return [
-            (
-                {"role": "user", "content": agent_response}
-                if role == "user"
-                else {"role": "assistant", "content": agent_response}
-            )
-        ]
-    elif isinstance(agent_response, list):
-        return [
-            ensure_dict(convert_maybe_object_to_openai_message(message))
-            for message in agent_response
-        ]
-    else:
-        return [ensure_dict(convert_maybe_object_to_openai_message(agent_response))]
-
-
 def reverse_roles(
     messages: list[ChatCompletionMessageParam],
 ) -> list[ChatCompletionMessageParam]:
@@ -514,31 +423,3 @@ async def await_if_awaitable(value: T) -> T:
         return await value
     else:
         return value
-
-
-
-def get_or_create_batch_run_id() -> str:
-    """
-    Gets or creates a batch run ID for the current scenario execution.
-    
-    The batch run ID is consistent across all scenarios in the same process
-    execution, allowing grouping of related scenario runs. This is useful
-    for tracking and reporting on batches of scenarios run together.
-    
-    Returns:
-        str: A unique batch run ID that persists for the process lifetime
-        
-    Example:
-        ```python
-        # All scenarios in same process will share this ID
-        batch_id = get_or_create_batch_run_id()
-        print(f"Running scenario in batch: {batch_id}")
-        ```
-    """
-    
-    # Check if batch ID already exists in environment
-    if not os.environ.get("SCENARIO_BATCH_ID"):
-        # Generate new batch ID if not set
-        os.environ["SCENARIO_BATCH_ID"] = f"batch-run-{uuid.uuid4()}"
-    
-    return os.environ["SCENARIO_BATCH_ID"]

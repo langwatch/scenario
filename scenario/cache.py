@@ -18,7 +18,7 @@ import json
 
 import wrapt
 from scenario.types import AgentInput
-from scenario._utils import SerializableWithStringFallback
+from scenario._utils.utils import SerializableWithStringFallback
 
 if TYPE_CHECKING:
     from scenario.scenario_executor import ScenarioExecutor
