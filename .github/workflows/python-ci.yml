@@ -2,9 +2,12 @@ name: python-ci
 
 on:
   push:
-    branches: [main, develop]
+    branches:
+      - main
   pull_request:
-    branches: [main, develop]
+    paths:
+      - "python/**"
+  workflow_dispatch:
 
 jobs:
   test:

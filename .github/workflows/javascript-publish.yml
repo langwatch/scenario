@@ -1,4 +1,4 @@
-name: publish
+name: javascript-publish
 
 on:
   release:
@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  npm:
+  publish:
+    if: startsWith(github.event.release.tag_name, 'javascript/') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
 
     steps:

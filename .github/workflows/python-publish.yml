@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: python-publish
 
 on:
   release:
@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  publish-pypi:
-    if: startsWith(github.event.release.tag_name, 'v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+  publish:
+    if: startsWith(github.event.release.tag_name, 'python/') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
 
     steps:
