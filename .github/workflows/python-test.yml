@@ -1,4 +1,4 @@
-name: Tests
+name: python-ci
 
 on:
   push:
@@ -44,6 +44,6 @@ jobs:
         run: |
           uv run pytest tests/ -v --tb=short
 
-      # - name: Type check
-      #   run: |
-      #     uv run pyright .
+      - name: Type check
+        run: |
+          uv run pyright .

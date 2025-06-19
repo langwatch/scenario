@@ -1,9 +1,13 @@
-name: ci
+name: javascript-ci
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
-    branches: [main, improvements]
-    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "javascript/**"
+  workflow_dispatch:
 
 jobs:
   build:
