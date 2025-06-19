@@ -317,6 +317,26 @@ async def test_user_is_very_hungry():
 
 Those two scenarios should now run in parallel.
 
+## Events System
+
+Scenario automatically publishes events during execution for monitoring and observability. You can enable event reporting by setting environment variables:
+
+```bash
+# Enable automatic event reporting
+export SCENARIO_EVENTS_ENDPOINT="https://your-api.com/events"
+export LANGWATCH_API_KEY="your-api-key"
+```
+
+With these variables set, Scenario will automatically:
+
+- Publish events when scenarios start, finish, and when messages are added
+- Handle retries and error handling automatically
+- Process events asynchronously without blocking your tests
+
+The events include timing information, conversation history, and success/failure metrics for analysis.
+
+For advanced customization, see the event classes in the codebase for detailed documentation.
+
 ## License
 
 MIT License

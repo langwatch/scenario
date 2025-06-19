@@ -817,13 +817,36 @@ class ScenarioExecutor:
     # Event handling methods
 
     class _CommonEventFields(TypedDict):
+        """
+        Common fields shared across all scenario events.
+        
+        These fields provide consistent identification and timing information
+        for all events emitted during scenario execution.
+        
+        Attributes:
+            batch_run_id: Unique identifier for the batch of scenario runs
+            scenario_run_id: Unique identifier for this specific scenario run
+            scenario_id: Human-readable name/identifier for the scenario
+            timestamp: Unix timestamp in milliseconds when the event occurred
+        """
         batch_run_id: str
         scenario_run_id: str
         scenario_id: str
         timestamp: int
 
     def _create_common_event_fields(self, scenario_run_id: str) -> _CommonEventFields:
-        """Create common fields used across all scenario events."""
+        """
+        Create common fields used across all scenario events.
+        
+        This method generates the standard fields that every scenario event
+        must include for proper identification and timing.
+        
+        Args:
+            scenario_run_id: Unique identifier for the current scenario run
+            
+        Returns:
+            Dictionary containing common event fields with current timestamp
+        """
         return {
             "batch_run_id": self.batch_run_id,
             "scenario_run_id": scenario_run_id,
@@ -832,7 +855,20 @@ class ScenarioExecutor:
         }
 
     def _emit_run_started_event(self, scenario_run_id: str) -> None:
-        """Emit a scenario run started event."""
+        """
+        Emit a scenario run started event.
+        
+        This event is published when a scenario begins execution. It includes
+        metadata about the scenario such as name and description, and is used
+        to track the start of scenario runs in monitoring systems.
+        
+        Args:
+            scenario_run_id: Unique identifier for the current scenario run
+            
+        Note:
+            This event is automatically published at the beginning of `_run()`
+            and signals the start of scenario execution to any event listeners.
+        """
         common_fields = self._create_common_event_fields(scenario_run_id)
         metadata = ScenarioRunStartedEventMetadata(
             name=self.name,
@@ -846,7 +882,18 @@ class ScenarioExecutor:
         self.event_bus.publish(event)
 
     def _emit_message_snapshot_event(self) -> None:
-        """Emit a message snapshot event."""
+        """
+        Emit a message snapshot event.
+        
+        This event captures the current state of the conversation during
+        scenario execution. It's published whenever messages are added to
+        the conversation, allowing real-time tracking of scenario progress.
+        
+        Note:
+            This event is automatically published by `add_message()` and
+            `add_messages()` to provide continuous visibility into scenario
+            execution state.
+        """
         common_fields = self._create_common_event_fields(self.batch_run_id)
         
         event = ScenarioMessageSnapshotEvent(
@@ -861,7 +908,23 @@ class ScenarioExecutor:
         result: ScenarioResult, 
         status: ScenarioRunFinishedEventStatus
     ) -> None:
-        """Emit a scenario run finished event."""
+        """
+        Emit a scenario run finished event.
+        
+        This event is published when a scenario completes execution, whether
+        successfully or with an error. It includes the final results, verdict,
+        and reasoning for the scenario outcome.
+        
+        Args:
+            scenario_run_id: Unique identifier for the current scenario run
+            result: The final scenario result containing success/failure status
+            status: The execution status (SUCCESS, FAILED, or ERROR)
+            
+        Note:
+            This event is automatically published at the end of `_run()` and
+            signals the completion of scenario execution to any event listeners.
+            It includes detailed results for monitoring and analysis purposes.
+        """
         common_fields = self._create_common_event_fields(scenario_run_id)
         
         results = ScenarioRunFinishedEventResults(
