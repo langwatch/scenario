@@ -48,8 +48,8 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
     const projectConfig = await loadScenarioProjectConfig();
 
     eventBus = new EventBus({
-      endpoint: projectConfig.langwatchEndpoint,
-      apiKey: projectConfig.langwatchApiKey,
+      endpoint: projectConfig.langwatchEndpoint ?? process.env.LANGWATCH_ENDPOINT ?? "https://app.langwatch.ai",
+      apiKey: projectConfig.langwatchApiKey ?? process.env.LANGWATCH_API_KEY,
     });
     eventBus.listen();
 

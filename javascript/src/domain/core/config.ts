@@ -8,8 +8,8 @@ export const scenarioProjectConfigSchema = z.object({
     maxTokens: z.number().optional(),
   }).optional(),
 
-  langwatchEndpoint: z.string().default(process.env.LANGWATCH_ENDPOINT ?? "https://app.langwatch.ai"),
-  langwatchApiKey: z.string().default(process.env.LANGWATCH_API_KEY ?? "").optional(),
+  langwatchEndpoint: z.string().optional(),
+  langwatchApiKey: z.string().optional(),
 }).strict();
 
 export type ScenarioProjectConfig = z.infer<typeof scenarioProjectConfigSchema>;
