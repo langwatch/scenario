@@ -1,5 +1,5 @@
 /**
- * Simple logger that respects LOG_LEVEL environment variable.
+ * Simple logger that respects SCENARIO_LOG_LEVEL environment variable.
  *
  * Supports standard log levels: error, warn, info, debug
  * Silent by default (good for library usage)
@@ -18,7 +18,7 @@ export class Logger {
    * Checks if logging should occur based on LOG_LEVEL env var
    */
   private shouldLog(level: "error" | "warn" | "info" | "debug"): boolean {
-    const logLevel = (process.env.LOG_LEVEL || "").toLowerCase();
+    const logLevel = (process.env.SCENARIO_LOG_LEVEL || "").toLowerCase();
 
     const levels = ["error", "warn", "info", "debug"];
     const currentLevelIndex = levels.indexOf(logLevel);
