@@ -1,9 +1,12 @@
+**/pnpm-lock.yaml linguist-generated=true merge=ours
+**/uv.lock linguist-generated=true        merge=ours
+
 # Mark generated code directories
-scenario/generated/ linguist-generated=true
-scenario/generated/** linguist-generated=true
+python/scenario/generated/   linguist-generated=true
+python/scenario/generated/** linguist-generated=true
 
 # Exclude generated code from GitHub language statistics
-scenario/generated/ linguist-vendored=true
+python/scenario/generated/ linguist-vendored=true
 
 # Ensure proper line endings
 *.py text eol=lf

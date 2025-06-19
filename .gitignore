@@ -1,3 +1,19 @@
+# Python stuff
+__pycache__
+build/
+dist/
+.pytest_cache
+.venv
+examples/.chainlit
+examples/chainlit.md
+examples/.ipynb_checkpoints
+optimized_rag.json
+repl.ipynb
+chainlit.md
+*.ignored.*
+*.egg-info
+pytestdebug.log
+
 # Logs
 logs
 *.log
