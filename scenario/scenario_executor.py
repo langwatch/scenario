@@ -16,12 +16,12 @@ from typing import (
     Set,
     Tuple,
     Union,
+    TypedDict,
 )
 import time
 import termcolor
 import asyncio
 import concurrent.futures
-import uuid
 
 from scenario.config import ScenarioConfig
 from scenario._utils import (
@@ -394,13 +394,7 @@ class ScenarioExecutor:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
 
-        self.event_bus.publish(ScenarioMessageSnapshotEvent(
-            batch_run_id=self.batch_run_id,
-            scenario_run_id=self.batch_run_id,
-            scenario_id=self.name,
-            timestamp=int(time.time() * 1000),
-            messages=convert_messages_to_ag_ui_messages(self._state.messages),
-        ))
+        self._emit_message_snapshot_event()
 
     def add_messages(
         self,
@@ -543,16 +537,7 @@ class ScenarioExecutor:
 
         try:
             await self.event_bus.listen()
-            self.event_bus.publish(ScenarioRunStartedEvent(
-                batch_run_id=self.batch_run_id,
-                scenario_run_id=scenario_run_id,
-                scenario_id=self.name,
-                timestamp=int(time.time() * 1000),
-                metadata=ScenarioRunStartedEventMetadata(
-                    name=self.name,
-                    description=self.description,
-                ),
-            ))
+            self._emit_run_started_event(scenario_run_id)
 
             if self.config.verbose:
                 print("")  # new line
@@ -567,19 +552,8 @@ class ScenarioExecutor:
                     result = callable
 
                 if isinstance(result, ScenarioResult):
-                    self.event_bus.publish(ScenarioRunFinishedEvent(
-                        batch_run_id=self.batch_run_id,
-                        scenario_run_id=scenario_run_id,
-                        scenario_id=self.name,
-                        timestamp=int(time.time() * 1000),
-                        status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED,
-                        results=ScenarioRunFinishedEventResults(
-                            verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
-                            reasoning=result.reasoning or "",
-                            met_criteria=result.passed_criteria,
-                            unmet_criteria=result.failed_criteria,
-                        ),
-                    ))
+                    status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
+                    self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
             result = self._reached_max_turns(
@@ -591,36 +565,20 @@ class ScenarioExecutor:
                 """
             )
 
-            self.event_bus.publish(ScenarioRunFinishedEvent(
-                batch_run_id=self.batch_run_id,
-                scenario_run_id=scenario_run_id,
-                scenario_id=self.name,
-                timestamp=int(time.time() * 1000),
-                status=ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED,
-                results=ScenarioRunFinishedEventResults(
-                    verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
-                    reasoning=result.reasoning or "",
-                    met_criteria=result.passed_criteria,
-                    unmet_criteria=result.failed_criteria,
-                ),
-            ))
+            status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
+            self._emit_run_finished_event(scenario_run_id, result, status)
             return result
 
         except Exception as e:
             # Publish failure event before propagating the error
-            self.event_bus.publish(ScenarioRunFinishedEvent(
-                batch_run_id=self.batch_run_id,
-                scenario_run_id=scenario_run_id,
-                scenario_id=self.name,
-                timestamp=int(time.time() * 1000),
-                status=ScenarioRunFinishedEventStatus.ERROR,  # or CANCELLED depending on your needs
-                results=ScenarioRunFinishedEventResults(
-                    verdict=ScenarioRunFinishedEventVerdict.FAILURE,
-                    reasoning=f"Scenario failed with error: {str(e)}",
-                    met_criteria=[],
-                    unmet_criteria=[],
-                ),
-            ))
+            error_result = ScenarioResult(
+                success=False,
+                messages=self._state.messages,
+                reasoning=f"Scenario failed with error: {str(e)}",
+                total_time=time.time() - self._total_start_time,
+                agent_time=0,
+            )
+            self._emit_run_finished_event(scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR)
             raise  # Re-raise the exception after cleanup
 
     async def _call_agent(
@@ -855,3 +813,67 @@ class ScenarioExecutor:
         )
         if isinstance(result, ScenarioResult):
             return result
+
+    # Event handling methods
+
+    class _CommonEventFields(TypedDict):
+        batch_run_id: str
+        scenario_run_id: str
+        scenario_id: str
+        timestamp: int
+
+    def _create_common_event_fields(self, scenario_run_id: str) -> _CommonEventFields:
+        """Create common fields used across all scenario events."""
+        return {
+            "batch_run_id": self.batch_run_id,
+            "scenario_run_id": scenario_run_id,
+            "scenario_id": self.name,
+            "timestamp": int(time.time() * 1000),
+        }
+
+    def _emit_run_started_event(self, scenario_run_id: str) -> None:
+        """Emit a scenario run started event."""
+        common_fields = self._create_common_event_fields(scenario_run_id)
+        metadata = ScenarioRunStartedEventMetadata(
+            name=self.name,
+            description=self.description,
+        )
+        
+        event = ScenarioRunStartedEvent(
+            **common_fields,
+            metadata=metadata,
+        )
+        self.event_bus.publish(event)
+
+    def _emit_message_snapshot_event(self) -> None:
+        """Emit a message snapshot event."""
+        common_fields = self._create_common_event_fields(self.batch_run_id)
+        
+        event = ScenarioMessageSnapshotEvent(
+            **common_fields,
+            messages=convert_messages_to_ag_ui_messages(self._state.messages),
+        )
+        self.event_bus.publish(event)
+
+    def _emit_run_finished_event(
+        self, 
+        scenario_run_id: str, 
+        result: ScenarioResult, 
+        status: ScenarioRunFinishedEventStatus
+    ) -> None:
+        """Emit a scenario run finished event."""
+        common_fields = self._create_common_event_fields(scenario_run_id)
+        
+        results = ScenarioRunFinishedEventResults(
+            verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
+            reasoning=result.reasoning or "",
+            met_criteria=result.passed_criteria,
+            unmet_criteria=result.failed_criteria,
+        )
+        
+        event = ScenarioRunFinishedEvent(
+            **common_fields,
+            status=status,
+            results=results,
+        )
+        self.event_bus.publish(event)
