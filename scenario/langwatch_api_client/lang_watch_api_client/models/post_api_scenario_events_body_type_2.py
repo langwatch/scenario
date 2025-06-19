@@ -32,18 +32,19 @@ class PostApiScenarioEventsBodyType2:
     """
     Attributes:
         type_ (Literal['SCENARIO_MESSAGE_SNAPSHOT']):
+        timestamp (float):
         messages (list[Union['PostApiScenarioEventsBodyType2MessagesItemType0',
             'PostApiScenarioEventsBodyType2MessagesItemType1', 'PostApiScenarioEventsBodyType2MessagesItemType2',
             'PostApiScenarioEventsBodyType2MessagesItemType3', 'PostApiScenarioEventsBodyType2MessagesItemType4']]):
         batch_run_id (str):
         scenario_id (str):
         scenario_run_id (str):
-        timestamp (Union[Unset, float]):
         raw_event (Union[Unset, Any]):
         scenario_set_id (Union[Unset, str]):  Default: 'default'.
     """
 
     type_: Literal["SCENARIO_MESSAGE_SNAPSHOT"]
+    timestamp: float
     messages: list[
         Union[
             "PostApiScenarioEventsBodyType2MessagesItemType0",
@@ -56,7 +57,6 @@ class PostApiScenarioEventsBodyType2:
     batch_run_id: str
     scenario_id: str
     scenario_run_id: str
-    timestamp: Union[Unset, float] = UNSET
     raw_event: Union[Unset, Any] = UNSET
     scenario_set_id: Union[Unset, str] = "default"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -76,6 +76,8 @@ class PostApiScenarioEventsBodyType2:
         )
 
         type_ = self.type_
+
+        timestamp = self.timestamp
 
         messages = []
         for messages_item_data in self.messages:
@@ -99,8 +101,6 @@ class PostApiScenarioEventsBodyType2:
 
         scenario_run_id = self.scenario_run_id
 
-        timestamp = self.timestamp
-
         raw_event = self.raw_event
 
         scenario_set_id = self.scenario_set_id
@@ -110,14 +110,13 @@ class PostApiScenarioEventsBodyType2:
         field_dict.update(
             {
                 "type": type_,
+                "timestamp": timestamp,
                 "messages": messages,
                 "batchRunId": batch_run_id,
                 "scenarioId": scenario_id,
                 "scenarioRunId": scenario_run_id,
             }
         )
-        if timestamp is not UNSET:
-            field_dict["timestamp"] = timestamp
         if raw_event is not UNSET:
             field_dict["rawEvent"] = raw_event
         if scenario_set_id is not UNSET:
@@ -147,6 +146,8 @@ class PostApiScenarioEventsBodyType2:
         type_ = cast(Literal["SCENARIO_MESSAGE_SNAPSHOT"], d.pop("type"))
         if type_ != "SCENARIO_MESSAGE_SNAPSHOT":
             raise ValueError(f"type must match const 'SCENARIO_MESSAGE_SNAPSHOT', got '{type_}'")
+
+        timestamp = d.pop("timestamp")
 
         messages = []
         _messages = d.pop("messages")
@@ -209,19 +210,17 @@ class PostApiScenarioEventsBodyType2:
 
         scenario_run_id = d.pop("scenarioRunId")
 
-        timestamp = d.pop("timestamp", UNSET)
-
         raw_event = d.pop("rawEvent", UNSET)
 
         scenario_set_id = d.pop("scenarioSetId", UNSET)
 
         post_api_scenario_events_body_type_2 = cls(
             type_=type_,
+            timestamp=timestamp,
             messages=messages,
             batch_run_id=batch_run_id,
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
-            timestamp=timestamp,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id,
         )

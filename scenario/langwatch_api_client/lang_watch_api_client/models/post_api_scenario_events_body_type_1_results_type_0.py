@@ -20,12 +20,14 @@ class PostApiScenarioEventsBodyType1ResultsType0:
         met_criteria (list[str]):
         unmet_criteria (list[str]):
         reasoning (Union[Unset, str]):
+        error (Union[Unset, str]):
     """
 
     verdict: PostApiScenarioEventsBodyType1ResultsType0Verdict
     met_criteria: list[str]
     unmet_criteria: list[str]
     reasoning: Union[Unset, str] = UNSET
+    error: Union[Unset, str] = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -36,6 +38,8 @@ class PostApiScenarioEventsBodyType1ResultsType0:
         unmet_criteria = self.unmet_criteria
 
         reasoning = self.reasoning
+
+        error = self.error
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -48,6 +52,8 @@ class PostApiScenarioEventsBodyType1ResultsType0:
         )
         if reasoning is not UNSET:
             field_dict["reasoning"] = reasoning
+        if error is not UNSET:
+            field_dict["error"] = error
 
         return field_dict
 
@@ -62,11 +68,14 @@ class PostApiScenarioEventsBodyType1ResultsType0:
 
         reasoning = d.pop("reasoning", UNSET)
 
+        error = d.pop("error", UNSET)
+
         post_api_scenario_events_body_type_1_results_type_0 = cls(
             verdict=verdict,
             met_criteria=met_criteria,
             unmet_criteria=unmet_criteria,
             reasoning=reasoning,
+            error=error,
         )
 
         post_api_scenario_events_body_type_1_results_type_0.additional_properties = d

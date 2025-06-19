@@ -18,27 +18,29 @@ class PostApiScenarioEventsBodyType0:
     """
     Attributes:
         type_ (Literal['SCENARIO_RUN_STARTED']):
+        timestamp (float):
         batch_run_id (str):
         scenario_id (str):
         scenario_run_id (str):
         metadata (PostApiScenarioEventsBodyType0Metadata):
-        timestamp (Union[Unset, float]):
         raw_event (Union[Unset, Any]):
         scenario_set_id (Union[Unset, str]):  Default: 'default'.
     """
 
     type_: Literal["SCENARIO_RUN_STARTED"]
+    timestamp: float
     batch_run_id: str
     scenario_id: str
     scenario_run_id: str
     metadata: "PostApiScenarioEventsBodyType0Metadata"
-    timestamp: Union[Unset, float] = UNSET
     raw_event: Union[Unset, Any] = UNSET
     scenario_set_id: Union[Unset, str] = "default"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         type_ = self.type_
+
+        timestamp = self.timestamp
 
         batch_run_id = self.batch_run_id
 
@@ -47,8 +49,6 @@ class PostApiScenarioEventsBodyType0:
         scenario_run_id = self.scenario_run_id
 
         metadata = self.metadata.to_dict()
-
-        timestamp = self.timestamp
 
         raw_event = self.raw_event
 
@@ -59,14 +59,13 @@ class PostApiScenarioEventsBodyType0:
         field_dict.update(
             {
                 "type": type_,
+                "timestamp": timestamp,
                 "batchRunId": batch_run_id,
                 "scenarioId": scenario_id,
                 "scenarioRunId": scenario_run_id,
                 "metadata": metadata,
             }
         )
-        if timestamp is not UNSET:
-            field_dict["timestamp"] = timestamp
         if raw_event is not UNSET:
             field_dict["rawEvent"] = raw_event
         if scenario_set_id is not UNSET:
@@ -83,6 +82,8 @@ class PostApiScenarioEventsBodyType0:
         if type_ != "SCENARIO_RUN_STARTED":
             raise ValueError(f"type must match const 'SCENARIO_RUN_STARTED', got '{type_}'")
 
+        timestamp = d.pop("timestamp")
+
         batch_run_id = d.pop("batchRunId")
 
         scenario_id = d.pop("scenarioId")
@@ -91,19 +92,17 @@ class PostApiScenarioEventsBodyType0:
 
         metadata = PostApiScenarioEventsBodyType0Metadata.from_dict(d.pop("metadata"))
 
-        timestamp = d.pop("timestamp", UNSET)
-
         raw_event = d.pop("rawEvent", UNSET)
 
         scenario_set_id = d.pop("scenarioSetId", UNSET)
 
         post_api_scenario_events_body_type_0 = cls(
             type_=type_,
+            timestamp=timestamp,
             batch_run_id=batch_run_id,
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             metadata=metadata,
-            timestamp=timestamp,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id,
         )
