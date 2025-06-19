@@ -1,5 +1,7 @@
 import { generate, parse } from "xksuid";
 
+let batchRunId: string | null = null;
+
 export function generateThreadId(): string {
   return `thread_${generate()}`;
 }
@@ -13,11 +15,11 @@ export function generateScenarioId(): string {
 }
 
 export function getBatchRunId(): string {
-  if (!process.env.SCENARIO_BATCH_ID) {
-    process.env.SCENARIO_BATCH_ID = `scenariobatchrun_${generate()}`;
+  if (!batchRunId) {
+    batchRunId = process.env.SCENARIO_BATCH_RUN_ID ?? `scenariobatchrun_${generate()}`;
   }
 
-  return process.env.SCENARIO_BATCH_ID;
+  return batchRunId;
 }
 
 export function generateMessageId(): string {
