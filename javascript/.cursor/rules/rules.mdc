@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## Rules
+Always use pnpm (never npm/yarn)
+Package is @langwatch/scenario-ts
+Build both CommonJS and ESM
+Examples must use @langwatch/scenario-ts import
+Keep dist/ in .gitignore

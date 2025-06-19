@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main, improvements]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.15.4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run build
+      - run: cd examples/vitest && rm -rf pnpm-lock.yaml && pnpm install --force
+      - run: pnpm test

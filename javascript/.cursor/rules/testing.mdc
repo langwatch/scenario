@@ -1,0 +1,19 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+When writing tests in this project:
+
+1. Follow the Arrange-Act-Assert pattern
+2. Write descriptive test names that explain what is being tested
+3. Each test should verify one specific behavior
+4. Use meaningful test data and avoid magic numbers
+5. Mock external dependencies appropriately
+6. Test both success and failure cases
+7. Keep tests independent and isolated
+8. Use proper setup and teardown
+9. Document complex test scenarios
+10. Maintain high test coverage for critical paths
+
+Remember: Tests are documentation. Make them clear and maintainable.
