@@ -1,0 +1,104 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+When documenting code and conducting reviews:
+
+1. Document public APIs and interfaces thoroughly
+2. Explain complex algorithms and business logic
+3. Include examples for non-trivial usage
+4. Keep documentation up-to-date with code changes
+5. Use JSDoc comments for TypeScript files
+6. Document assumptions and limitations
+7. Include error handling documentation
+8. Explain performance considerations
+9. Document security implications
+10. Keep README files current and informative
+
+When reviewing code:
+1. Check for adherence to SOLID principles
+2. Verify proper error handling
+3. Ensure test coverage is adequate
+4. Look for potential performance issues
+5. Check for security vulnerabilities
+6. Verify documentation is complete
+7. Ensure code is maintainable
+8. Check for proper type usage
+9. Verify naming conventions
+10. Ensure backward compatibility
+
+Remember: Good documentation saves time and prevents bugs.
+
+When documenting TypeScript code:
+
+1. Document all public APIs and interfaces with JSDoc comments:
+   ```typescript
+   /**
+    * Brief description of what the function/class does
+    * 
+    * @param paramName - Description of the parameter
+    * @returns Description of the return value
+    * @throws ErrorType - Description of when this error occurs
+    * @example
+    * ```typescript
+    * const result = functionName(param);
+    * ```
+    */
+   ```
+
+2. Use TypeScript's type system effectively:
+   - Define custom types and interfaces for complex data structures
+   - Use type aliases for better readability
+   - Avoid using `any` type
+   - Use union types and discriminated unions where appropriate
+
+3. Document complex algorithms and business logic:
+   - Explain the purpose and approach
+   - Document edge cases and limitations
+   - Include performance considerations
+   - Explain any non-obvious optimizations
+
+4. Document error handling:
+   - List all possible error conditions
+   - Explain error recovery strategies
+   - Document error types and their meanings
+   - Include examples of error handling
+
+5. Document configuration options:
+   - Explain each configuration parameter
+   - Provide default values
+   - Document environment variables
+   - Include examples of different configurations
+
+6. Keep documentation up-to-date:
+   - Update documentation when code changes
+   - Review documentation during code reviews
+   - Remove outdated comments
+   - Keep examples current
+
+7. Document security considerations:
+   - Explain security implications
+   - Document authentication requirements
+   - List potential security risks
+   - Provide security best practices
+
+8. Include performance documentation:
+   - Document time complexity
+   - Explain memory usage
+   - List performance optimizations
+   - Document scaling considerations
+
+9. Document testing requirements:
+   - Explain how to run tests
+   - Document test coverage requirements
+   - List test dependencies
+   - Provide test examples
+
+10. Maintain README files:
+    - Keep installation instructions current
+    - Document usage examples
+    - List dependencies and requirements
+    - Include contribution guidelines
+
+Remember: Documentation is part of the code. Keep it as clean and maintainable as the code itself.

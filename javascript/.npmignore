@@ -1,0 +1,12 @@
+src/
+examples/
+coverage/
+.git/
+.cursor/
+*.log
+*.test.ts
+*.spec.ts
+tsconfig*.json
+jest.config.ts
+eslint.config.mjs
+.github/ 
