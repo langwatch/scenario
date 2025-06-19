@@ -18,6 +18,8 @@ import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, Scenari
 import { generateScenarioId, generateScenarioRunId, generateThreadId, getBatchRunId } from "../utils/ids";
 import { Logger } from "../utils/logger";
 
+const batchRunId = getBatchRunId();
+
 function convertAgentReturnTypesToMessages(response: AgentReturnTypes, role: "user" | "assistant"): CoreMessage[] {
   if (typeof response === "string")
     return [{ role, content: response } as CoreMessage];
@@ -392,7 +394,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    */
   private makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
     return {
-      batchRunId: getBatchRunId(),
+      batchRunId: batchRunId,
       scenarioId: this.config.id!,
       scenarioRunId,
       timestamp: Date.now(),
