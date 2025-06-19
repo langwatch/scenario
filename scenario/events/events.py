@@ -9,8 +9,7 @@ If you need to add custom logic or helpers, you can extend or wrap these models 
 """
 
 from typing import Union, Any, Optional
-from ..langwatch_api_client.lang_watch_api_client.types import UNSET
-from ..langwatch_api_client.lang_watch_api_client.models import (
+from scenario.generated.langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
     PostApiScenarioEventsBodyType0Metadata as ScenarioRunStartedEventMetadata,
     PostApiScenarioEventsBodyType1,
@@ -57,7 +56,7 @@ class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
         scenario_id: str,
         scenario_run_id: str,
         metadata: ScenarioRunStartedEventMetadata,
-        timestamp: Optional[int] = None,
+        timestamp: int,
         raw_event: Optional[Any] = None,
         scenario_set_id: Optional[str] = "default"
     ):
@@ -67,7 +66,7 @@ class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             metadata=metadata,
-            timestamp=float(timestamp) if timestamp else UNSET,
+            timestamp=timestamp,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id or "default"
         )
@@ -95,7 +94,7 @@ class ScenarioRunFinishedEvent(PostApiScenarioEventsBodyType1):
         scenario_id: str,
         scenario_run_id: str,
         status: ScenarioRunFinishedEventStatus,
-        timestamp: Optional[int] = None,
+        timestamp: int,
         results: Optional[ScenarioRunFinishedEventResults] = None,
         raw_event: Optional[Any] = None,
         scenario_set_id: Optional[str] = "default",
@@ -106,7 +105,7 @@ class ScenarioRunFinishedEvent(PostApiScenarioEventsBodyType1):
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             status=status,
-            timestamp=float(timestamp) if timestamp else UNSET,
+            timestamp=timestamp,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id or "default",
             results=results
@@ -134,7 +133,7 @@ class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
         scenario_id: str,
         scenario_run_id: str,
         messages: list[MessageType],
-        timestamp: Optional[int] = None,
+        timestamp: int,
         raw_event: Optional[Any] = None,
         scenario_set_id: Optional[str] = "default"
     ):
@@ -144,7 +143,7 @@ class ScenarioMessageSnapshotEvent(PostApiScenarioEventsBodyType2):
             scenario_id=scenario_id,
             scenario_run_id=scenario_run_id,
             messages=messages,
-            timestamp=float(timestamp) if timestamp else UNSET,
+            timestamp=timestamp,
             raw_event=raw_event,
             scenario_set_id=scenario_set_id or "default"
         )

@@ -1,0 +1,9 @@
+# This directory contains auto-generated code from openapi-python-client
+# DO NOT EDIT FILES IN THIS DIRECTORY MANUALLY
+# 
+# To regenerate:
+# make generate-openapi-client
+# 
+# Generated from: ../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json
+# Generator: openapi-python-client
+# Generated on: Thu Jun 19 15:30:47 CEST 2025

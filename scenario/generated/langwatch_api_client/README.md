@@ -1,4 +1,19 @@
 # lang-watch-api-client
+**⚠️ AUTO-GENERATED CODE - DO NOT EDIT MANUALLY ⚠️**
+
+This is an auto-generated client library for accessing LangWatch API, created using `openapi-python-client`.
+
+## Regeneration
+To regenerate this client:
+```bash
+make generate-openapi-client
+```
+
+## Source
+Generated from: `../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json`
+
+---
+
 A client library for accessing LangWatch API
 
 ## Usage

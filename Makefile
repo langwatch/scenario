@@ -1,4 +1,4 @@
-.PHONY: test example install ensure-uv bump-version typecheck typecheck-pyright
+.PHONY: test example install ensure-uv bump-version typecheck typecheck-pyright generate-openapi-client clean-generated
 
 test:
 	PYTHONPATH=$$PYTHONPATH:. uv run pytest -s -vv tests/ $(filter-out $@,$(MAKECMDGOALS))
@@ -34,7 +34,13 @@ pdocs:
 %:
 	@:
 
-# This only works if you have the openapi json locally
+# Generate OpenAPI client from LangWatch API specification
 generate-openapi-client:
-	openapi-python-client generate --path ../langwatch-saas/langwatch/langwatch/src/app/api/openapiLangWatch.json --output-path ./scenario/langwatch_api_client --overwrite
-	uv pip install -e ./scenario/langwatch_api_client
+	@chmod +x scripts/generate_openapi_client.sh
+	@./scripts/generate_openapi_client.sh
+
+# Clean generated code
+clean-generated:
+	@echo "🧹 Cleaning generated code..."
+	rm -rf ./scenario/generated/
+	@echo "✅ Generated code cleaned!"
