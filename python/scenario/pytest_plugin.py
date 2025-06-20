@@ -197,7 +197,7 @@ class ScenarioReporter:
 
 
 # Store the original run method
-original_run = ScenarioExecutor._run
+original_run = ScenarioExecutor.run
 
 
 @pytest.hookimpl(trylast=True)
@@ -259,7 +259,7 @@ def pytest_configure(config):
         return result
 
     # Apply the patch
-    ScenarioExecutor._run = auto_reporting_run
+    ScenarioExecutor.run = auto_reporting_run
 
 
 @pytest.hookimpl(trylast=True)
@@ -269,7 +269,7 @@ def pytest_unconfigure(config):
 
     This hook is called when pytest is shutting down and:
     - Prints the final scenario test report
-    - Restores the original ScenarioExecutor._run method
+    - Restores the original ScenarioExecutor.run method
     - Cleans up any remaining resources
 
     Args:
@@ -284,7 +284,7 @@ def pytest_unconfigure(config):
         config._scenario_reporter.print_report()
 
     # Restore the original method
-    ScenarioExecutor._run = original_run
+    ScenarioExecutor.run = original_run
 
 
 @pytest.fixture

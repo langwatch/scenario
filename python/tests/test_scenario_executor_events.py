@@ -75,7 +75,7 @@ async def executed_events(executor: ScenarioExecutor) -> ExecutedEventsFixture:
     """Run scenario and collect events."""
     events: List[ScenarioEvent] = []
     executor.events.subscribe(events.append)
-    await executor._run()
+    await executor.run()
     return events, executor
 
 

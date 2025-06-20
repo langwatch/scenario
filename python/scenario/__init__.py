@@ -109,7 +109,7 @@ from .script import message, user, agent, judge, proceed, succeed, fail
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
 
-run = ScenarioExecutor.run
+from .scenario_runner import run
 
 configure = ScenarioConfig.configure
 
