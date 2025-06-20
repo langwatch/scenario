@@ -70,7 +70,7 @@ dev = [
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "0.2.0"
-tag_format = "v$version"
+tag_format = "python/v$version"
 version_files = ["pyproject.toml:version"]
 bump_message = "bump: version $current_version → $new_version"
 major_version_zero = true

@@ -25,6 +25,10 @@ bump-version:
 	uv run cz bump --major-version-zero --allow-no-commit
 	@echo "✅ Version bumped and tagged!"
 
+bump-and-publish: bump-version
+	@echo "🔍 Pushing version bump and tags..."
+	git push --tags
+
 typecheck:
 	uv run pyright .
 
