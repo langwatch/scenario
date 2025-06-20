@@ -48,6 +48,9 @@ jobs:
         run: pnpm run lint
         working-directory: javascript
 
-      - name: Test
+      - name: Test (Examples)
         run: pnpm run test
+        env:
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript/examples/vitest
