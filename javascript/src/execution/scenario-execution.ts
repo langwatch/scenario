@@ -42,14 +42,21 @@ function convertAgentReturnTypesToMessages(response: AgentReturnTypes, role: "us
  *
  * @example
  * ```typescript
- * import { scenario, user, agent, succeed } from "@getscenario/scenario";
+ * import { scenario, user, agent, succeed, judge } from "@getscenario/scenario";
  *
  * const myScenario = scenario(
  *   {
  *     name: "My First Scenario",
  *     description: "A simple test of the agent's greeting.",
  *     agents: [
- *       // Add your agent adapters here
+ *       scenario.userSimulatorAgent(),
+ *       scenario.judgeAgent({
+ *         criteria: [
+ *           "Agent should respond with a greeting",
+ *           "Agent should ask for the user's name",
+ *           "Agent should respond with a farewell",
+ *         ],
+ *       }),
  *     ],
  *   },
  *   [
