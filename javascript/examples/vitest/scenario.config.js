@@ -5,5 +5,4 @@ export default defineConfig({
   defaultModel: {
     model: openai("gpt-4.1-nano"),
   },
-  langwatchEndpoint: "http://localhost:5560",
 });
