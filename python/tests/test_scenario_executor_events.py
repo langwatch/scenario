@@ -5,7 +5,7 @@ from scenario import JudgeAgent, UserSimulatorAgent
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, ScenarioResult
 from scenario.scenario_executor import ScenarioExecutor
-from scenario.events import (
+from scenario._events import (
     ScenarioEvent,
     ScenarioRunStartedEvent,
     ScenarioRunFinishedEvent,

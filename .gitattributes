@@ -2,13 +2,13 @@
 **/uv.lock        linguist-generated=true merge=ours
 
 # Mark generated code directories
-python/scenario/generated/    linguist-generated=true
-python/scenario/generated/**  linguist-generated=true
+python/scenario/_generated/    linguist-generated=true
+python/scenario/_generated/**  linguist-generated=true
 docs/docs/public/reference/   linguist-generated=true
 docs/docs/public/reference/** linguist-generated=true
 
 # Exclude generated code from GitHub language statistics
-python/scenario/generated/  linguist-vendored=true
+python/scenario/_generated/  linguist-vendored=true
 docs/docs/public/reference/ linguist-vendored=true
 
 # Ensure proper line endings
@@ -36,4 +36,4 @@ docs/docs/public/reference/ linguist-vendored=true
 *.pdf binary
 *.zip binary
 *.tar.gz binary
-*.lockb binary 
+*.lockb binary

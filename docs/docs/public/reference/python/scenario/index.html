@@ -376,14 +376,6 @@ __version__ = &#34;0.1.0&#34;</code></pre>
 <dd>
 <div class="desc"><p>Configuration module for Scenario …</p></div>
 </dd>
-<dt><code class="name"><a title="scenario.events" href="events/index.html">scenario.events</a></code></dt>
-<dd>
-<div class="desc"><p>Scenario events module for handling event publishing, processing, and reporting …</p></div>
-</dd>
-<dt><code class="name"><a title="scenario.generated" href="generated/index.html">scenario.generated</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
 <dt><code class="name"><a title="scenario.judge_agent" href="judge_agent.html">scenario.judge_agent</a></code></dt>
 <dd>
 <div class="desc"><p>Judge agent module for evaluating scenario conversations …</p></div>
@@ -411,10 +403,6 @@ __version__ = &#34;0.1.0&#34;</code></pre>
 <dt><code class="name"><a title="scenario.user_simulator_agent" href="user_simulator_agent.html">scenario.user_simulator_agent</a></code></dt>
 <dd>
 <div class="desc"><p>User simulator agent module for generating realistic user interactions …</p></div>
-</dd>
-<dt><code class="name"><a title="scenario.utils" href="utils/index.html">scenario.utils</a></code></dt>
-<dd>
-<div class="desc"></div>
 </dd>
 </dl>
 </section>
@@ -1151,14 +1139,7 @@ result = await scenario.run(
 print(f&quot;Test {'PASSED' if result.success else 'FAILED'}&quot;)
 print(f&quot;Reasoning: {result.reasoning}&quot;)
 print(f&quot;Conversation had {len(result.messages)} messages&quot;)
-</code></pre>
-<h2 id="note">Note</h2>
-<ul>
-<li>Runs in isolated thread pool to support parallel execution</li>
-<li>Blocks until scenario completes or times out</li>
-<li>All agent calls are automatically cached when cache_key is set</li>
-<li>Exception handling ensures clean resource cleanup</li>
-</ul></div>
+</code></pre></div>
 </dd>
 <dt id="scenario.succeed"><code class="name flex">
 <span>def <span class="ident">succeed</span></span>(<span>reasoning: str | None = None) ‑> Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[None]] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]</span>
@@ -1525,7 +1506,7 @@ result = await scenario.run(
 <dl>
 <dt id="scenario.AgentAdapter.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -1773,27 +1754,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.AgentInput.judgment_request"><code class="name">var <span class="ident">judgment_request</span> : bool</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.new_messages"><code class="name">var <span class="ident">new_messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.scenario_state"><code class="name">var <span class="ident">scenario_state</span> : Any</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -1940,15 +1921,15 @@ different types of agents.</p>
 <dl>
 <dt id="scenario.AgentRole.AGENT"><code class="name">var <span class="ident">AGENT</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentRole.JUDGE"><code class="name">var <span class="ident">JUDGE</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentRole.USER"><code class="name">var <span class="ident">USER</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 </dd>
@@ -2472,31 +2453,27 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
 <dl>
 <dt id="scenario.JudgeAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.criteria"><code class="name">var <span class="ident">criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
-</dd>
-<dt id="scenario.JudgeAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
-<dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -2769,6 +2746,14 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
 </details>
 </dd>
 </dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
+<ul class="hlist">
+<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
+</ul>
+</li>
+</ul>
 </dd>
 <dt id="scenario.ScenarioConfig"><code class="flex name class">
 <span>class <span class="ident">ScenarioConfig</span></span>
@@ -2971,31 +2956,31 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioConfig.cache_key"><code class="name">var <span class="ident">cache_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.debug"><code class="name">var <span class="ident">debug</span> : bool | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.default_config"><code class="name">var <span class="ident">default_config</span> : ClassVar[<a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a> | None]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.default_model"><code class="name">var <span class="ident">default_model</span> : str | <a title="scenario.config.ModelConfig" href="config.html#scenario.config.ModelConfig">ModelConfig</a> | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.max_turns"><code class="name">var <span class="ident">max_turns</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.verbose"><code class="name">var <span class="ident">verbose</span> : bool | int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Static methods</h3>
@@ -3134,7 +3119,7 @@ merged = base_config.merge(override_config)
 </dd>
 <dt id="scenario.ScenarioExecutor"><code class="flex name class">
 <span>class <span class="ident">ScenarioExecutor</span></span>
-<span>(</span><span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], script: List[Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, event_bus: <a title="scenario.events.event_bus.ScenarioEventBus" href="events/event_bus.html#scenario.events.event_bus.ScenarioEventBus">ScenarioEventBus</a> | None = None)</span>
+<span>(</span><span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], script: List[Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, event_bus: scenario._events.event_bus.ScenarioEventBus | None = None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Core orchestrator for scenario-based agent testing.</p>
@@ -3160,39 +3145,6 @@ than instantiating it directly.</p>
 <dt><strong><code>config</code></strong></dt>
 <dd>Configuration settings for execution behavior</dd>
 </dl>
-<h2 id="example">Example</h2>
-<pre><code># Direct instantiation (less common)
-executor = ScenarioExecutor(
-   name=&quot;weather query test&quot;,
-   description=&quot;User asks about weather, agent should provide helpful response&quot;,
-   agents=[
-       weather_agent,
-       scenario.UserSimulatorAgent(),
-       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful weather info&quot;])
-   ],
-   max_turns=10,
-   verbose=True
-)
-result = await executor._run()
-
-# Preferred high-level API
-result = await scenario.run(
-   name=&quot;weather query test&quot;,
-   description=&quot;User asks about weather, agent should provide helpful response&quot;,
-   agents=[
-       weather_agent,
-       scenario.UserSimulatorAgent(),
-       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful weather info&quot;])
-   ]
-)
-</code></pre>
-<h2 id="note">Note</h2>
-<ul>
-<li>Scenarios run in isolated thread pools to support parallel execution</li>
-<li>All agent interactions are cached when cache_key is configured</li>
-<li>Debug mode allows step-by-step execution with user intervention</li>
-<li>Results include detailed timing information and conversation history</li>
-</ul>
 <p>Initialize a scenario executor.</p>
 <h2 id="args">Args</h2>
 <dl>
@@ -3247,40 +3199,6 @@ Overrides global configuration for this scenario.</dd>
         agents: List of agent adapters participating in the scenario
         script: Optional list of script steps to control scenario flow
         config: Configuration settings for execution behavior
-
-    Example:
-        ```
-        # Direct instantiation (less common)
-        executor = ScenarioExecutor(
-           name=&#34;weather query test&#34;,
-           description=&#34;User asks about weather, agent should provide helpful response&#34;,
-           agents=[
-               weather_agent,
-               scenario.UserSimulatorAgent(),
-               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful weather info&#34;])
-           ],
-           max_turns=10,
-           verbose=True
-        )
-        result = await executor._run()
-
-        # Preferred high-level API
-        result = await scenario.run(
-           name=&#34;weather query test&#34;,
-           description=&#34;User asks about weather, agent should provide helpful response&#34;,
-           agents=[
-               weather_agent,
-               scenario.UserSimulatorAgent(),
-               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful weather info&#34;])
-           ]
-        )
-        ```
-
-    Note:
-        - Scenarios run in isolated thread pools to support parallel execution
-        - All agent interactions are cached when cache_key is configured
-        - Debug mode allows step-by-step execution with user intervention
-        - Results include detailed timing information and conversation history
     &#34;&#34;&#34;
 
     name: str
@@ -3354,7 +3272,7 @@ Overrides global configuration for this scenario.</dd>
 
         # Create executor&#39;s own event stream
         self._events = Subject()
-        
+
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
         self.event_bus.subscribe_to_events(self._events)
@@ -3369,11 +3287,11 @@ Overrides global configuration for this scenario.</dd>
     def _emit_event(self, event: ScenarioEvent) -&gt; None:
         &#34;&#34;&#34;
         Emit a domain event to all subscribers.
-        
+
         This method publishes scenario events to the internal event stream,
         which subscribers (like the event bus) can observe and react to.
         The timestamp is automatically set to the current time.
-        
+
         Args:
             event: The scenario event to emit
         &#34;&#34;&#34;
@@ -3450,12 +3368,6 @@ Overrides global configuration for this scenario.</dd>
             print(f&#34;Reasoning: {result.reasoning}&#34;)
             print(f&#34;Conversation had {len(result.messages)} messages&#34;)
             ```
-
-        Note:
-            - Runs in isolated thread pool to support parallel execution
-            - Blocks until scenario completes or times out
-            - All agent calls are automatically cached when cache_key is set
-            - Exception handling ensures clean resource cleanup
         &#34;&#34;&#34;
         scenario = cls(
             name=name,
@@ -3990,10 +3902,10 @@ Overrides global configuration for this scenario.</dd>
     class _CommonEventFields(TypedDict):
         &#34;&#34;&#34;
         Common fields shared across all scenario events.
-        
+
         These fields provide consistent identification and timing information
         for all events emitted during scenario execution.
-        
+
         Attributes:
             batch_run_id: Unique identifier for the batch of scenario runs
             scenario_run_id: Unique identifier for this specific scenario run
@@ -4008,13 +3920,13 @@ Overrides global configuration for this scenario.</dd>
     def _create_common_event_fields(self, scenario_run_id: str) -&gt; _CommonEventFields:
         &#34;&#34;&#34;
         Create common fields used across all scenario events.
-        
+
         This method generates the standard fields that every scenario event
         must include for proper identification and timing.
-        
+
         Args:
             scenario_run_id: Unique identifier for the current scenario run
-            
+
         Returns:
             Dictionary containing common event fields with current timestamp
         &#34;&#34;&#34;
@@ -4028,11 +3940,11 @@ Overrides global configuration for this scenario.</dd>
     def _emit_run_started_event(self, scenario_run_id: str) -&gt; None:
         &#34;&#34;&#34;
         Emit a scenario run started event.
-        
+
         This event is published when a scenario begins execution. It includes
         metadata about the scenario such as name and description, and is used
         to track the start of scenario runs in monitoring systems.
-        
+
         Args:
             scenario_run_id: Unique identifier for the current scenario run
         &#34;&#34;&#34;
@@ -4041,7 +3953,7 @@ Overrides global configuration for this scenario.</dd>
             name=self.name,
             description=self.description,
         )
-        
+
         event = ScenarioRunStartedEvent(
             **common_fields,
             metadata=metadata,
@@ -4051,13 +3963,13 @@ Overrides global configuration for this scenario.</dd>
     def _emit_message_snapshot_event(self, scenario_run_id: str) -&gt; None:
         &#34;&#34;&#34;
         Emit a message snapshot event.
-        
+
         This event captures the current state of the conversation during
         scenario execution. It&#39;s published whenever messages are added to
         the conversation, allowing real-time tracking of scenario progress.
         &#34;&#34;&#34;
         common_fields = self._create_common_event_fields(scenario_run_id)
-        
+
         event = ScenarioMessageSnapshotEvent(
             **common_fields,
             messages=convert_messages_to_api_client_messages(self._state.messages),
@@ -4065,39 +3977,39 @@ Overrides global configuration for this scenario.</dd>
         self._emit_event(event)
 
     def _emit_run_finished_event(
-        self, 
-        scenario_run_id: str, 
-        result: ScenarioResult, 
+        self,
+        scenario_run_id: str,
+        result: ScenarioResult,
         status: ScenarioRunFinishedEventStatus
     ) -&gt; None:
         &#34;&#34;&#34;
         Emit a scenario run finished event.
-        
+
         This event is published when a scenario completes execution, whether
         successfully or with an error. It includes the final results, verdict,
         and reasoning for the scenario outcome.
-        
+
         Args:
             scenario_run_id: Unique identifier for the current scenario run
             result: The final scenario result containing success/failure status
             status: The execution status (SUCCESS, FAILED, or ERROR)
         &#34;&#34;&#34;
         common_fields = self._create_common_event_fields(scenario_run_id)
-        
+
         results = ScenarioRunFinishedEventResults(
             verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
             reasoning=result.reasoning or &#34;&#34;,
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
         )
-        
+
         event = ScenarioRunFinishedEvent(
             **common_fields,
             status=status,
             results=results,
         )
         self._emit_event(event)
-        
+
         # Signal end of event stream
         self._events.on_completed()</code></pre>
 </details>
@@ -4105,31 +4017,31 @@ Overrides global configuration for this scenario.</dd>
 <dl>
 <dt id="scenario.ScenarioExecutor.agents"><code class="name">var <span class="ident">agents</span> : List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioExecutor.batch_run_id"><code class="name">var <span class="ident">batch_run_id</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioExecutor.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioExecutor.description"><code class="name">var <span class="ident">description</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
-<dt id="scenario.ScenarioExecutor.event_bus"><code class="name">var <span class="ident">event_bus</span> : <a title="scenario.events.event_bus.ScenarioEventBus" href="events/event_bus.html#scenario.events.event_bus.ScenarioEventBus">ScenarioEventBus</a></code></dt>
+<dt id="scenario.ScenarioExecutor.event_bus"><code class="name">var <span class="ident">event_bus</span> : scenario._events.event_bus.ScenarioEventBus</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioExecutor.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioExecutor.script"><code class="name">var <span class="ident">script</span> : List[Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[None]] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Static methods</h3>
@@ -4199,14 +4111,7 @@ result = await scenario.run(
 print(f&quot;Test {'PASSED' if result.success else 'FAILED'}&quot;)
 print(f&quot;Reasoning: {result.reasoning}&quot;)
 print(f&quot;Conversation had {len(result.messages)} messages&quot;)
-</code></pre>
-<h2 id="note">Note</h2>
-<ul>
-<li>Runs in isolated thread pool to support parallel execution</li>
-<li>Blocks until scenario completes or times out</li>
-<li>All agent calls are automatically cached when cache_key is set</li>
-<li>Exception handling ensures clean resource cleanup</li>
-</ul></div>
+</code></pre></div>
 </dd>
 </dl>
 <h3>Instance variables</h3>
@@ -4728,35 +4633,35 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioResult.agent_time"><code class="name">var <span class="ident">agent_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.failed_criteria"><code class="name">var <span class="ident">failed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.passed_criteria"><code class="name">var <span class="ident">passed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.reasoning"><code class="name">var <span class="ident">reasoning</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.success"><code class="name">var <span class="ident">success</span> : bool</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.total_time"><code class="name">var <span class="ident">total_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 </dd>
@@ -5013,27 +4918,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioState.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.current_turn"><code class="name">var <span class="ident">current_turn</span> : int</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.description"><code class="name">var <span class="ident">description</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -5657,27 +5562,23 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <dl>
 <dt id="scenario.UserSimulatorAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
-</dd>
-<dt id="scenario.UserSimulatorAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
-<dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -5797,6 +5698,14 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 </details>
 </dd>
 </dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
+<ul class="hlist">
+<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
+</ul>
+</li>
+</ul>
 </dd>
 </dl>
 </section>
@@ -5826,8 +5735,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <ul>
 <li><code><a title="scenario.agent_adapter" href="agent_adapter.html">scenario.agent_adapter</a></code></li>
 <li><code><a title="scenario.config" href="config.html">scenario.config</a></code></li>
-<li><code><a title="scenario.events" href="events/index.html">scenario.events</a></code></li>
-<li><code><a title="scenario.generated" href="generated/index.html">scenario.generated</a></code></li>
 <li><code><a title="scenario.judge_agent" href="judge_agent.html">scenario.judge_agent</a></code></li>
 <li><code><a title="scenario.pytest_plugin" href="pytest_plugin.html">scenario.pytest_plugin</a></code></li>
 <li><code><a title="scenario.scenario_executor" href="scenario_executor.html">scenario.scenario_executor</a></code></li>
@@ -5835,7 +5742,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.script" href="script.html">scenario.script</a></code></li>
 <li><code><a title="scenario.types" href="types.html">scenario.types</a></code></li>
 <li><code><a title="scenario.user_simulator_agent" href="user_simulator_agent.html">scenario.user_simulator_agent</a></code></li>
-<li><code><a title="scenario.utils" href="utils/index.html">scenario.utils</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
@@ -5876,7 +5782,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.JudgeAgent.criteria" href="#scenario.JudgeAgent.criteria">criteria</a></code></li>
 <li><code><a title="scenario.JudgeAgent.max_tokens" href="#scenario.JudgeAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.JudgeAgent.model" href="#scenario.JudgeAgent.model">model</a></code></li>
-<li><code><a title="scenario.JudgeAgent.role" href="#scenario.JudgeAgent.role">role</a></code></li>
 <li><code><a title="scenario.JudgeAgent.system_prompt" href="#scenario.JudgeAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.JudgeAgent.temperature" href="#scenario.JudgeAgent.temperature">temperature</a></code></li>
 </ul>
@@ -5958,7 +5863,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.UserSimulatorAgent.call" href="#scenario.UserSimulatorAgent.call">call</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.max_tokens" href="#scenario.UserSimulatorAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.model" href="#scenario.UserSimulatorAgent.model">model</a></code></li>
-<li><code><a title="scenario.UserSimulatorAgent.role" href="#scenario.UserSimulatorAgent.role">role</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.system_prompt" href="#scenario.UserSimulatorAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.temperature" href="#scenario.UserSimulatorAgent.temperature">temperature</a></code></li>
 </ul>

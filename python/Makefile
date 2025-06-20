@@ -46,5 +46,5 @@ generate-openapi-client:
 # Clean generated code
 clean-generated:
 	@echo "🧹 Cleaning generated code..."
-	rm -rf ./scenario/generated/
+	rm -rf ./scenario/_generated/
 	@echo "✅ Generated code cleaned!"

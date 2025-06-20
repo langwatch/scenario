@@ -9,7 +9,7 @@ If you need to add custom logic or helpers, you can extend or wrap these models 
 """
 
 from typing import Union, TypeAlias
-from scenario.generated.langwatch_api_client.lang_watch_api_client.models import (
+from scenario._generated.langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType2MessagesItemType0,
     PostApiScenarioEventsBodyType2MessagesItemType1,
     PostApiScenarioEventsBodyType2MessagesItemType2,
@@ -41,12 +41,12 @@ __all__ = [
     "MessageType",
     "DeveloperMessage",
     "SystemMessage",
-    "AssistantMessage", 
+    "AssistantMessage",
     "UserMessage",
     "ToolMessage",
     "ToolCall",
     "FunctionCall",
-    
+
     # API client models -- Required for PDocs
     "PostApiScenarioEventsBodyType2MessagesItemType0",
     "PostApiScenarioEventsBodyType2MessagesItemType1",

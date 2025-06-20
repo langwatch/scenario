@@ -25,8 +25,8 @@ import concurrent.futures
 
 from scenario.config import ScenarioConfig
 from scenario._utils import (
-    check_valid_return_type,
     convert_agent_return_types_to_openai_messages,
+    check_valid_return_type,
     print_openai_messages,
     show_spinner,
     await_if_awaitable,
@@ -46,7 +46,7 @@ from .agent_adapter import AgentAdapter
 from .script import proceed
 from pksuid import PKSUID
 from .scenario_state import ScenarioState
-from .events import (
+from ._events import (
     ScenarioEventBus,
     ScenarioEvent,
     ScenarioRunStartedEvent,

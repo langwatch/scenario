@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from openai.types.chat import ChatCompletionMessageParam
 
 from scenario.types import AgentReturnTypes, ScenarioResult
-from .utils import SerializableAndPydanticEncoder
+from scenario._utils.utils import SerializableAndPydanticEncoder
 
 T = TypeVar("T")
 
