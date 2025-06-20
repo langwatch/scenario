@@ -41,8 +41,25 @@ jobs:
         run: |
           pnpm version ${{ github.event.inputs.version }} --no-git-tag-version
 
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG_NAME#javascript/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Determine dist-tag
+        id: disttag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "tag=prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --tag ${{ steps.disttag.outputs.tag }}
         working-directory: javascript
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
