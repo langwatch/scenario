@@ -6,7 +6,6 @@ from .event_reporter import EventReporter
 import asyncio
 import queue
 import threading
-import time
 import logging
 
 class ScenarioEventBus:
@@ -20,15 +19,13 @@ class ScenarioEventBus:
     Key design principles:
     - Single worker thread handles all HTTP posting (simplifies concurrency)
     - Thread created lazily when first event arrives
-    - Thread terminates when queue empty and no pending requests
-    - Promise-like tracking of pending HTTP requests for drain() functionality
+    - Thread terminates when queue empty and stream completed
     - Non-daemon thread ensures all events posted before program exit
 
     Attributes:
         _event_reporter: EventReporter instance for HTTP posting of events
         _max_retries: Maximum number of retry attempts for failed event processing
         _event_queue: Thread-safe queue for passing events to worker thread
-        _pending_requests: Counter of active HTTP requests (like JS promises)
         _completed: Whether the event stream has completed
         _subscription: RxPY subscription to the event stream
         _worker_thread: Dedicated thread for processing events
@@ -54,8 +51,6 @@ class ScenarioEventBus:
         
         # Threading infrastructure
         self._event_queue: queue.Queue[ScenarioEvent] = queue.Queue()
-        self._pending_requests = 0  # Counter for promise-like tracking
-        self._pending_lock = threading.Lock()  # Protect the counter
         self._completed = False
         self._subscription: Optional[Any] = None
         self._worker_thread: Optional[threading.Thread] = None
@@ -88,10 +83,10 @@ class ScenarioEventBus:
                     self._process_event_sync(event)
                     self._event_queue.task_done()
                 except queue.Empty:
-                    with self._pending_lock:
-                        if self._completed and self._pending_requests == 0:
-                            self.logger.debug("No more work, worker thread exiting")
-                            break
+                    # Exit if stream completed and no more events
+                    if self._completed:
+                        self.logger.debug("Stream completed and no more events, worker thread exiting")
+                        break
                     continue
                     
             except Exception as e:
@@ -102,14 +97,11 @@ class ScenarioEventBus:
     def _process_event_sync(self, event: ScenarioEvent) -> None:
         """
         Process event synchronously in worker thread with retry logic.
-        Tracks pending requests like JS promises for drain() functionality.
         """
-        with self._pending_lock:
-            self._pending_requests += 1
-            self.logger.debug(f"Starting HTTP post for {event.type_} ({event.scenario_run_id}) - pending: {self._pending_requests}")
+        self.logger.debug(f"Processing HTTP post for {event.type_} ({event.scenario_run_id})")
         
         try:
-            # Convert async to sync using asyncio.run
+            # Convert async to sync using asyncio.run - this blocks until HTTP completes
             success = asyncio.run(self._process_event_with_retry(event))
             if not success:
                 self.logger.warning(f"Failed to process event {event.type_} after {self._max_retries} attempts")
@@ -117,11 +109,6 @@ class ScenarioEventBus:
                 self.logger.debug(f"Successfully posted {event.type_} ({event.scenario_run_id})")
         except Exception as e:
             self.logger.error(f"Error processing event {event.type_}: {e}")
-        finally:
-            # Decrement pending counter (like resolving a promise)
-            with self._pending_lock:
-                self._pending_requests -= 1
-                self.logger.debug(f"HTTP post completed for {event.type_} ({event.scenario_run_id}) - pending: {self._pending_requests}")
 
     async def _process_event_with_retry(self, event: ScenarioEvent, attempt: int = 1) -> bool:
         """
@@ -167,30 +154,17 @@ class ScenarioEventBus:
 
     def drain(self) -> None:
         """
-        Waits for all queued events and pending HTTP requests to complete.
+        Waits for all queued events to complete processing.
         
-        This method blocks until:
-        1. All events in the queue have been processed
-        2. All HTTP requests have completed (like waiting for promises)
-        
-        Non-async since we're using pure threading now.
+        This method blocks until all events in the queue have been processed.
+        Since _process_event_sync() uses asyncio.run(), HTTP requests complete
+        before task_done() is called, so join() ensures everything is finished.
         """
-        self.logger.debug("Drain started - waiting for queue and pending requests")
+        self.logger.debug("Drain started - waiting for queue to empty")
         
-        # Wait for queue to be empty
+        # Wait for all events to be processed - this is sufficient!
         self._event_queue.join()
         self.logger.debug("Event queue drained")
-        
-        # Wait for all pending HTTP requests to complete
-        while True:
-            with self._pending_lock:
-                pending = self._pending_requests
-                if pending == 0:
-                    break
-            self.logger.debug(f"Waiting for {pending} pending HTTP requests...")
-            time.sleep(0.01)
-        
-        self.logger.debug("All HTTP requests completed")
         
         # Signal worker to shutdown and wait for it
         self._shutdown_event.set()
@@ -208,7 +182,4 @@ class ScenarioEventBus:
         """
         Returns whether all events have been processed.
         """
-        with self._pending_lock:
-            return (self._completed and 
-                    self._event_queue.empty() and 
-                    self._pending_requests == 0)
+        return self._completed and self._event_queue.empty()
