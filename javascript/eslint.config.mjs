@@ -8,7 +8,7 @@ import tseslint from "typescript-eslint";
 export default defineConfig([
   importPlugin.flatConfigs.recommended,
   {
-    ignores: ["**/node_modules/**", "**/dist/**", "**/build/**"],
+    ignores: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/api-reference-docs/**", "**/docs/**"],
   },
   {
     files: ["**/*.{js,mjs,cjs,ts}"],
