@@ -15,6 +15,22 @@ from .events import (
     ScenarioRunFinishedEventVerdict,
     ScenarioRunFinishedEventStatus,
     ScenarioMessageSnapshotEvent,
+    MessageType,
+)
+
+from scenario.generated.langwatch_api_client.lang_watch_api_client.models import (
+    PostApiScenarioEventsBodyType0Metadata,
+    PostApiScenarioEventsBodyType1,
+    PostApiScenarioEventsBodyType1ResultsType0,
+    PostApiScenarioEventsBodyType1ResultsType0Verdict,
+    PostApiScenarioEventsBodyType1Status,
+    PostApiScenarioEventsBodyType2,
+    PostApiScenarioEventsBodyType2MessagesItemType1,
+    PostApiScenarioEventsBodyType2MessagesItemType2,
+    PostApiScenarioEventsBodyType2MessagesItemType3,
+    PostApiScenarioEventsBodyType2MessagesItemType4,
+    PostApiScenarioEventsBodyType2MessagesItemType2ToolCallsItem,
+    PostApiScenarioEventsBodyType2MessagesItemType2ToolCallsItemFunction,
 )
 
 # Event processing infrastructure
@@ -44,12 +60,27 @@ __all__ = [
     "ScenarioRunFinishedEventVerdict",
     "ScenarioRunFinishedEventStatus",
     "ScenarioMessageSnapshotEvent",
-    
+
+    # API client models -- Required for PDocs
+    "PostApiScenarioEventsBodyType0Metadata",
+    "PostApiScenarioEventsBodyType1",
+    "PostApiScenarioEventsBodyType1ResultsType0",
+    "PostApiScenarioEventsBodyType1ResultsType0Verdict",
+    "PostApiScenarioEventsBodyType1Status",
+    "PostApiScenarioEventsBodyType2",
+    "PostApiScenarioEventsBodyType2MessagesItemType1",
+    "PostApiScenarioEventsBodyType2MessagesItemType2",
+    "PostApiScenarioEventsBodyType2MessagesItemType3",
+    "PostApiScenarioEventsBodyType2MessagesItemType4",
+    "PostApiScenarioEventsBodyType2MessagesItemType2ToolCallsItem",
+    "PostApiScenarioEventsBodyType2MessagesItemType2ToolCallsItemFunction",
+
     # Event processing
     "ScenarioEventBus",
     "EventReporter",
     
     # Messages
+    "MessageType",
     "UserMessage",
     "AssistantMessage", 
     "SystemMessage",

@@ -5,15 +5,6 @@ from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 
 from scenario.scenario_executor import ScenarioExecutor
-from typing import List, cast
-from scenario.events import (
-    ScenarioEvent,
-    ScenarioRunStartedEvent, 
-    ScenarioRunFinishedEvent,
-    ScenarioMessageSnapshotEvent,
-    ScenarioRunFinishedEventStatus,
-    ScenarioRunFinishedEventVerdict,
-)
 
 
 class MockJudgeAgent(JudgeAgent):

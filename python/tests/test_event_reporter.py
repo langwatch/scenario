@@ -42,7 +42,7 @@ async def test_post_event_sends_correct_request(caplog: LogCaptureFixture) -> No
 
         # Assert
         assert route.called
-        request = route.calls[0].request
+        request: httpx.Request = route.calls[0].request # type: ignore
         assert request.headers["X-Auth-Token"] == api_key
         assert request.headers["Content-Type"] == "application/json"
         assert (

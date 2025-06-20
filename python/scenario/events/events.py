@@ -8,31 +8,24 @@ the backend, and provides a single import location for event models.
 If you need to add custom logic or helpers, you can extend or wrap these models here.
 """
 
-from typing import Union, Any, Optional
+from typing import Union, Any, Optional, TypeAlias
 from scenario.generated.langwatch_api_client.lang_watch_api_client.models import (
     PostApiScenarioEventsBodyType0,
-    PostApiScenarioEventsBodyType0Metadata as ScenarioRunStartedEventMetadata,
+    PostApiScenarioEventsBodyType0Metadata,
     PostApiScenarioEventsBodyType1,
-    PostApiScenarioEventsBodyType1ResultsType0 as ScenarioRunFinishedEventResults,
-    PostApiScenarioEventsBodyType1ResultsType0Verdict as ScenarioRunFinishedEventVerdict,
-    PostApiScenarioEventsBodyType1Status as ScenarioRunFinishedEventStatus,
+    PostApiScenarioEventsBodyType1ResultsType0,
+    PostApiScenarioEventsBodyType1ResultsType0Verdict,
+    PostApiScenarioEventsBodyType1Status,
     PostApiScenarioEventsBodyType2,
-    # Message types for the snapshot event
-    PostApiScenarioEventsBodyType2MessagesItemType0,
-    PostApiScenarioEventsBodyType2MessagesItemType1,
-    PostApiScenarioEventsBodyType2MessagesItemType2,
-    PostApiScenarioEventsBodyType2MessagesItemType3,
-    PostApiScenarioEventsBodyType2MessagesItemType4,
 )
+from .messages import MessageType
 
-# Type alias for message types
-MessageType = Union[
-    PostApiScenarioEventsBodyType2MessagesItemType0,
-    PostApiScenarioEventsBodyType2MessagesItemType1, 
-    PostApiScenarioEventsBodyType2MessagesItemType2,
-    PostApiScenarioEventsBodyType2MessagesItemType3,
-    PostApiScenarioEventsBodyType2MessagesItemType4,
-]
+# Create alias for cleaner naming
+ScenarioRunStartedEventMetadata: TypeAlias = PostApiScenarioEventsBodyType0Metadata
+ScenarioRunFinishedEventResults: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0
+ScenarioRunFinishedEventVerdict: TypeAlias = PostApiScenarioEventsBodyType1ResultsType0Verdict
+ScenarioRunFinishedEventStatus: TypeAlias = PostApiScenarioEventsBodyType1Status
+
 
 class ScenarioRunStartedEvent(PostApiScenarioEventsBodyType0):
     """
@@ -166,4 +159,11 @@ __all__ = [
     "ScenarioRunFinishedEventStatus",
     "ScenarioMessageSnapshotEvent",
     "MessageType",
+
+    # API client models -- Required for PDocs
+    "PostApiScenarioEventsBodyType0Metadata",
+    "PostApiScenarioEventsBodyType1ResultsType0",
+    "PostApiScenarioEventsBodyType1ResultsType0Verdict",
+    "PostApiScenarioEventsBodyType1Status",
+    "PostApiScenarioEventsBodyType2",
 ]
