@@ -4,6 +4,7 @@
 # Mark generated code directories
 python/scenario/generated/    linguist-generated=true
 python/scenario/generated/**  linguist-generated=true
+docs/docs/public/reference/   linguist-generated=true
 docs/docs/public/reference/** linguist-generated=true
 
 # Exclude generated code from GitHub language statistics
