@@ -46,5 +46,40 @@ export class EventReporter {
       return;
     }
 
+    try {
+      const response = await fetch(this.eventsEndpoint.href, {
+        method: "POST",
+        body: JSON.stringify(event),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Auth-Token": this.apiKey,
+        },
+      });
+
+      this.logger.debug(
+        `[${event.type}] Event POST response status: ${response.status}`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        this.logger.debug(`[${event.type}] Event POST response:`, data);
+      } else {
+        const errorText = await response.text();
+        this.logger.error(`[${event.type}] Event POST failed:`, {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+          event: event,
+        });
+        // Don't throw - event posting shouldn't break scenario execution
+      }
+    } catch (error) {
+      this.logger.error(`[${event.type}] Event POST error:`, {
+        error,
+        event,
+        endpoint: this.eventsEndpoint,
+      });
+      // Don't throw - event posting shouldn't break scenario execution
+    }
   }
 }
