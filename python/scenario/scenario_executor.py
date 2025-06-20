@@ -48,6 +48,7 @@ from pksuid import PKSUID
 from .scenario_state import ScenarioState
 from .events import (
     ScenarioEventBus, 
+    ScenarioEvent,
     ScenarioRunStartedEvent, 
     ScenarioMessageSnapshotEvent, 
     ScenarioRunFinishedEvent, 
@@ -57,6 +58,8 @@ from .events import (
     ScenarioRunFinishedEventStatus, 
     convert_messages_to_ag_ui_messages,
 )
+from rx.subject.subject import Subject
+from rx.core.observable.observable import Observable
 
 
 class ScenarioExecutor:
@@ -130,6 +133,7 @@ class ScenarioExecutor:
     _pending_roles_on_turn: List[AgentRole] = []
     _pending_agents_on_turn: Set[AgentAdapter] = set()
     _agent_times: Dict[int, float] = {}
+    _events: Subject
 
     event_bus: ScenarioEventBus
 
@@ -167,27 +171,7 @@ class ScenarioExecutor:
                       Overrides global configuration for this scenario.
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
-            event_reporter: Optional event reporter for the scenario
-
-        Example:
-            ```python
-            executor = ScenarioExecutor(
-                name="customer service test",
-                description="Customer has a billing question and needs help",
-                agents=[
-                    customer_service_agent,
-                    scenario.UserSimulatorAgent(),
-                    scenario.JudgeAgent(criteria=[
-                        "Agent is polite and professional",
-                        "Agent addresses the billing question",
-                        "Agent provides clear next steps"
-                    ])
-                ],
-                max_turns=15,
-                verbose=True,
-                debug=False
-            )
-            ```
+            event_bus: Optional event bus that will subscribe to this executor's events
         """
         self.name = name
         self.description = description
@@ -204,9 +188,33 @@ class ScenarioExecutor:
 
         self.reset()
 
+        # Create executor's own event stream
+        self._events = Subject()
+        
+        # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
+        self.event_bus.subscribe_to_events(self._events)
 
         self.batch_run_id = get_or_create_batch_run_id()
+
+    @property
+    def events(self) -> Observable:
+        """Expose event stream for subscribers like the event bus."""
+        return self._events
+
+    def _emit_event(self, event: ScenarioEvent) -> None:
+        """
+        Emit a domain event to all subscribers.
+        
+        This method publishes scenario events to the internal event stream,
+        which subscribers (like the event bus) can observe and react to.
+        The timestamp is automatically set to the current time.
+        
+        Args:
+            event: The scenario event to emit
+        """
+        event.timestamp = int(time.time() * 1000)
+        self._events.on_next(event)
 
     @classmethod
     async def run(
@@ -309,7 +317,7 @@ class ScenarioExecutor:
                 try:
                     return loop.run_until_complete(scenario._run())
                 finally:
-                    loop.run_until_complete(scenario.event_bus.drain())
+                    scenario.event_bus.drain()
                     loop.close()
 
             # Run the function in the thread pool and await its result
@@ -535,7 +543,6 @@ class ScenarioExecutor:
         scenario_run_id = generate_scenario_run_id()
 
         try:
-            await self.event_bus.listen()
             self._emit_run_started_event(scenario_run_id)
 
             if self.config.verbose:
@@ -864,10 +871,6 @@ class ScenarioExecutor:
         
         Args:
             scenario_run_id: Unique identifier for the current scenario run
-            
-        Note:
-            This event is automatically published at the beginning of `_run()`
-            and signals the start of scenario execution to any event listeners.
         """
         common_fields = self._create_common_event_fields(scenario_run_id)
         metadata = ScenarioRunStartedEventMetadata(
@@ -879,7 +882,7 @@ class ScenarioExecutor:
             **common_fields,
             metadata=metadata,
         )
-        self.event_bus.publish(event)
+        self._emit_event(event)
 
     def _emit_message_snapshot_event(self, scenario_run_id: str) -> None:
         """
@@ -888,11 +891,6 @@ class ScenarioExecutor:
         This event captures the current state of the conversation during
         scenario execution. It's published whenever messages are added to
         the conversation, allowing real-time tracking of scenario progress.
-        
-        Note:
-            This event is automatically published by `add_message()` and
-            `add_messages()` to provide continuous visibility into scenario
-            execution state.
         """
         common_fields = self._create_common_event_fields(scenario_run_id)
         
@@ -900,7 +898,7 @@ class ScenarioExecutor:
             **common_fields,
             messages=convert_messages_to_ag_ui_messages(self._state.messages),
         )
-        self.event_bus.publish(event)
+        self._emit_event(event)
 
     def _emit_run_finished_event(
         self, 
@@ -919,11 +917,6 @@ class ScenarioExecutor:
             scenario_run_id: Unique identifier for the current scenario run
             result: The final scenario result containing success/failure status
             status: The execution status (SUCCESS, FAILED, or ERROR)
-            
-        Note:
-            This event is automatically published at the end of `_run()` and
-            signals the completion of scenario execution to any event listeners.
-            It includes detailed results for monitoring and analysis purposes.
         """
         common_fields = self._create_common_event_fields(scenario_run_id)
         
@@ -939,4 +932,7 @@ class ScenarioExecutor:
             status=status,
             results=results,
         )
-        self.event_bus.publish(event)
+        self._emit_event(event)
+        
+        # Signal end of event stream
+        self._events.on_completed()

@@ -35,7 +35,7 @@ class EventReporter:
     def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None):
         self.endpoint = endpoint or os.getenv("LANGWATCH_ENDPOINT")
         self.api_key = api_key or os.getenv("LANGWATCH_API_KEY", "")
-        self.logger = logging.getLogger("EventReporter")
+        self.logger = logging.getLogger(__name__)
 
     async def post_event(self, event: ScenarioEvent):
         """
