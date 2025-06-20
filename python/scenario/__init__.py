@@ -98,7 +98,7 @@ from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes
 from .config import ScenarioConfig
 
 # Then import modules with dependencies
-from .scenario_executor import ScenarioExecutor
+from .scenario_executor import run
 from .scenario_state import ScenarioState
 from .agent_adapter import AgentAdapter
 from .judge_agent import JudgeAgent
@@ -108,8 +108,6 @@ from .script import message, user, agent, judge, proceed, succeed, fail
 
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
-
-from .scenario_runner import run
 
 configure = ScenarioConfig.configure
 
@@ -138,7 +136,6 @@ __all__ = [
     "ScenarioConfig",
     "AgentReturnTypes",
     # Classes
-    "ScenarioExecutor",
     "ScenarioState",
     "AgentAdapter",
     "UserSimulatorAgent",
