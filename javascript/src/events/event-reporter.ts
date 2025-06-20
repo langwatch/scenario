@@ -23,8 +23,8 @@ export class EventReporter {
         console.warn(`To enable simulation reporting in the LangWatch dashboard, configure your LangWatch API key (via LANGWATCH_API_KEY, or scenario.config.js)`);
       } else {
         console.log("LangWatch API key configured, enabling simulation reporting");
-        console.log(`Endpoint: ${this.eventsEndpoint.href}`);
-        console.log(`API Key Length: ${this.apiKey.length}`);
+        console.log(`Endpoint: ${config.endpoint} -> ${this.eventsEndpoint.href}`);
+        console.log(`API Key: ${!this.apiKey ? "not configured" : "configured"}`);
       }
       console.log("=== Scenario Simulation Reporting ===");
     }
