@@ -32,13 +32,22 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
         working-directory: javascript
-      - run: pnpm run lint
+
+      - name: Build
+        run: pnpm run build
         working-directory: javascript
-      - run: pnpm run build
-        working-directory: javascript
-      - run: cd examples/vitest && rm -rf pnpm-lock.yaml && pnpm install --force
+
+      - name: Install example dependencies
+        run: pnpm install --frozen-lockfile
         working-directory: javascript/examples/vitest
-      - run: pnpm run test
+
+      - name: Lint
+        run: pnpm run lint
+        working-directory: javascript
+
+      - name: Test
+        run: pnpm run test
         working-directory: javascript/examples/vitest
