@@ -51,7 +51,7 @@ async def test_scenario_event_bus_basic_flow():
         batch_run_id=batch_run_id,
         scenario_id=scenario_id,
         scenario_run_id=scenario_run_id,
-        messages=[UserMessage(id="1", content="Hello, how are you?")],
+        messages=[UserMessage(id="1", role="user", content="Hello, how are you?")],
         timestamp=int(time.time() * 1000),
     )
     

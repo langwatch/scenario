@@ -56,7 +56,7 @@ from .events import (
     ScenarioRunFinishedEventResults, 
     ScenarioRunFinishedEventVerdict, 
     ScenarioRunFinishedEventStatus, 
-    convert_messages_to_ag_ui_messages,
+    convert_messages_to_api_client_messages,
 )
 from rx.subject.subject import Subject
 from rx.core.observable.observable import Observable
@@ -896,7 +896,7 @@ class ScenarioExecutor:
         
         event = ScenarioMessageSnapshotEvent(
             **common_fields,
-            messages=convert_messages_to_ag_ui_messages(self._state.messages),
+            messages=convert_messages_to_api_client_messages(self._state.messages),
         )
         self._emit_event(event)
 

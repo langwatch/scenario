@@ -15,7 +15,6 @@ from .events import (
     ScenarioRunFinishedEventVerdict,
     ScenarioRunFinishedEventStatus,
     ScenarioMessageSnapshotEvent,
-    MessageType,
 )
 
 # Event processing infrastructure
@@ -24,7 +23,6 @@ from .event_reporter import EventReporter
 
 # Message utilities and types
 from .messages import (
-    Message,
     UserMessage,
     AssistantMessage,
     SystemMessage,
@@ -34,7 +32,7 @@ from .messages import (
 )
 
 # Utility functions
-from .utils import convert_messages_to_ag_ui_messages
+from .utils import convert_messages_to_api_client_messages
 
 __all__ = [
     # Event types
@@ -46,14 +44,12 @@ __all__ = [
     "ScenarioRunFinishedEventVerdict",
     "ScenarioRunFinishedEventStatus",
     "ScenarioMessageSnapshotEvent",
-    "MessageType",
     
     # Event processing
     "ScenarioEventBus",
     "EventReporter",
     
     # Messages
-    "Message",
     "UserMessage",
     "AssistantMessage", 
     "SystemMessage",
@@ -62,5 +58,5 @@ __all__ = [
     "FunctionCall",
     
     # Utils
-    "convert_messages_to_ag_ui_messages",
+    "convert_messages_to_api_client_messages",
 ] 

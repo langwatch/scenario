@@ -1,30 +1,34 @@
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from .messages import UserMessage, AssistantMessage, SystemMessage, ToolMessage, ToolCall, FunctionCall
-from typing import List, Union
-
+from .events import MessageType
+from .messages import (
+    SystemMessage,
+    AssistantMessage,
+    UserMessage,
+    ToolMessage,
+    ToolCall,
+    FunctionCall,
+)
+from typing import List
 import uuid
 
-# Define the correct Message type for the return value
-Message = Union[UserMessage, AssistantMessage, SystemMessage, ToolMessage]
-
-def convert_messages_to_ag_ui_messages(messages: list[ChatCompletionMessageParam]) -> list[Message]:
+def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessageParam]) -> list[MessageType]:
     """
-    Converts OpenAI ChatCompletionMessageParam messages to ag_ui Message format.
+    Converts OpenAI ChatCompletionMessageParam messages to API client Message format.
     
-    This function transforms messages from OpenAI's format to the ag_ui protocol
-    format for consistent message handling across the scenario framework.
+    This function transforms messages from OpenAI's format to the API client format
+    that matches the expected schema for ScenarioMessageSnapshotEvent.
     
     Args:
         messages: List of OpenAI ChatCompletionMessageParam messages
         
     Returns:
-        List of ag_ui Message objects
+        List of API client Message objects
         
     Raises:
         ValueError: If message role is not supported or message format is invalid
     """
 
-    converted_messages: list[Message] = []
+    converted_messages: list[MessageType] = []
     
     for i, message in enumerate(messages):
         # Generate unique ID for each message
@@ -38,18 +42,19 @@ def convert_messages_to_ag_ui_messages(messages: list[ChatCompletionMessageParam
                 raise ValueError(f"User message at index {i} missing required content")
             converted_messages.append(UserMessage(
                 id=message_id,
+                role="user",
                 content=str(content)
             ))
         elif role == "assistant":
             # Handle tool calls if present
             tool_calls = message.get("tool_calls")
-            ag_ui_tool_calls: List[ToolCall] | None = None
+            api_tool_calls: List[ToolCall] = []
             
             if tool_calls:
-                ag_ui_tool_calls = []
                 for tool_call in tool_calls:
-                    ag_ui_tool_calls.append(ToolCall(
+                    api_tool_calls.append(ToolCall(
                         id=tool_call.get("id", str(uuid.uuid4())),
+                        type_="function",
                         function=FunctionCall(
                             name=tool_call["function"]["name"],
                             arguments=tool_call["function"]["arguments"]
@@ -58,14 +63,16 @@ def convert_messages_to_ag_ui_messages(messages: list[ChatCompletionMessageParam
             
             converted_messages.append(AssistantMessage(
                 id=message_id,
-                content=str(content) if content else None,
-                tool_calls=ag_ui_tool_calls
+                role="assistant",
+                content=str(content),
+                tool_calls=api_tool_calls
             ))
         elif role == "system":
             if not content:
                 raise ValueError(f"System message at index {i} missing required content")
             converted_messages.append(SystemMessage(
                 id=message_id,
+                role="system",
                 content=str(content)
             ))
         elif role == "tool":
@@ -77,6 +84,7 @@ def convert_messages_to_ag_ui_messages(messages: list[ChatCompletionMessageParam
                 
             converted_messages.append(ToolMessage(
                 id=message_id,
+                role="tool",
                 content=str(content),
                 tool_call_id=tool_call_id
             ))
