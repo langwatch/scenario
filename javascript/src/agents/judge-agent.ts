@@ -7,8 +7,17 @@ import { getProjectConfig } from "../config";
 import { ScenarioResult } from "../domain/core/execution";
 import { mergeAndValidateConfig } from "../utils/config";
 
+/**
+ * Configuration for the judge agent.
+ */
 interface JudgeAgentConfig extends TestingAgentConfig {
+  /**
+   * A custom system prompt to override the default behavior of the judge.
+   */
   systemPrompt?: string;
+  /**
+   * The criteria that the judge will use to evaluate the conversation.
+   */
   criteria: string[];
 }
 
@@ -69,6 +78,54 @@ function buildFinishTestTool(criteria: string[]): Tool {
   });
 }
 
+/**
+ * Agent that evaluates conversations against success criteria.
+ *
+ * The JudgeAgent watches conversations in real-time and makes decisions about
+ * whether the agent under test is meeting the specified criteria. It can either
+ * allow the conversation to continue or end it with a success/failure verdict.
+ *
+ * The judge uses function calling to make structured decisions and provides
+ * detailed reasoning for its verdicts. It evaluates each criterion independently
+ * and provides comprehensive feedback about what worked and what didn't.
+ *
+ * @param cfg Configuration for the judge agent.
+ * @param cfg.criteria List of success criteria to evaluate against.
+ * @param cfg.model Optional The language model to use for generating responses.
+ * @param cfg.temperature Optional The temperature to use for the model.
+ * @param cfg.maxTokens Optional The maximum number of tokens to generate.
+ * @param cfg.systemPrompt Optional Custom system prompt to override default judge behavior.
+ *
+ * @example
+ * ```typescript
+ * import { run, judgeAgent, AgentRole, user, agent, AgentAdapter } from '@langwatch/scenario';
+ *
+ * const myAgent: AgentAdapter = {
+ *   role: AgentRole.AGENT,
+ *   async call(input) {
+ *     return `The user said: ${input.messages.at(-1)?.content}`;
+ *   }
+ * };
+ *
+ * async function main() {
+ *   const result = await run({
+ *     name: "Judge Agent Test",
+ *     description: "A simple test to see if the judge agent works.",
+ *     agents: [
+ *       myAgent,
+ *       judgeAgent({
+ *         criteria: ["The agent must respond to the user."],
+ *       }),
+ *     ],
+ *     script: [
+ *       user("Hello!"),
+ *       agent(),
+ *     ],
+ *   });
+ * }
+ * main();
+ * ```
+ */
 export const judgeAgent = (cfg: JudgeAgentConfig) => {
   return {
     role: AgentRole.JUDGE,

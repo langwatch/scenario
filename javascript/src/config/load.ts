@@ -3,6 +3,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ScenarioProjectConfig, scenarioProjectConfigSchema } from "../domain";
 
+/**
+ * Loads the scenario project config from `scenario.config.js` or `scenario.config.mjs`.
+ * If no config file is found, it returns a default config.
+ * @returns A promise that resolves with the project config.
+ * @throws An error if the config file is invalid.
+ */
 export async function loadScenarioProjectConfig(): Promise<ScenarioProjectConfig> {
   const cwd = process.cwd();
   const configNames = [

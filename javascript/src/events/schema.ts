@@ -1,19 +1,51 @@
 import { EventType, MessagesSnapshotEventSchema } from "@ag-ui/core";
 import { z } from "zod";
 
-// Scenario event type enum
+/**
+ * The type of a scenario event.
+ */
 export enum ScenarioEventType {
+  /**
+   * A scenario run has started.
+   */
   RUN_STARTED = "SCENARIO_RUN_STARTED",
+  /**
+   * A scenario run has finished.
+   */
   RUN_FINISHED = "SCENARIO_RUN_FINISHED",
+  /**
+   * A snapshot of the messages in a scenario.
+   */
   MESSAGE_SNAPSHOT = "SCENARIO_MESSAGE_SNAPSHOT",
 }
 
+/**
+ * The status of a scenario run.
+ */
 export enum ScenarioRunStatus {
+  /**
+   * The scenario completed successfully.
+   */
   SUCCESS = "SUCCESS",
+  /**
+   * The scenario failed with an error.
+   */
   ERROR = "ERROR",
+  /**
+   * The scenario was cancelled.
+   */
   CANCELLED = "CANCELLED",
+  /**
+   * The scenario is in progress.
+   */
   IN_PROGRESS = "IN_PROGRESS",
+  /**
+   * The scenario is pending execution.
+   */
   PENDING = "PENDING",
+  /**
+   * The scenario failed.
+   */
   FAILED = "FAILED",
 }
 
@@ -72,13 +104,25 @@ export const scenarioEventSchema = z.discriminatedUnion("type", [
 ]);
 
 // Type exports
+/**
+ * Event fired when a scenario run starts.
+ */
 export type ScenarioRunStartedEvent = z.infer<typeof scenarioRunStartedSchema>;
+/**
+ * Event fired when a scenario run finishes.
+ */
 export type ScenarioRunFinishedEvent = z.infer<
   typeof scenarioRunFinishedSchema
 >;
+/**
+ * Event fired to snapshot the current messages in a scenario.
+ */
 export type ScenarioMessageSnapshotEvent = z.infer<
   typeof scenarioMessageSnapshotSchema
 >;
+/**
+ * A union of all possible scenario events.
+ */
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 
 // Define response schemas

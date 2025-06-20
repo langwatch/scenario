@@ -33,15 +33,60 @@ function convertAgentReturnTypesToMessages(response: AgentReturnTypes, role: "us
   return [];
 }
 
+/**
+ * Manages the execution of a single scenario.
+ *
+ * This class orchestrates the interaction between agents, executes the script,
+ * and manages the scenario's state. It also emits events that can be subscribed to
+ * for observing the scenario's progress.
+ *
+ * @example
+ * ```typescript
+ * import { scenario, user, agent, succeed } from "@getscenario/scenario";
+ *
+ * const myScenario = scenario(
+ *   {
+ *     name: "My First Scenario",
+ *     description: "A simple test of the agent's greeting.",
+ *     agents: [
+ *       // Add your agent adapters here
+ *     ],
+ *   },
+ *   [
+ *     user("Hello"),
+ *     agent("Hi, how can I help you?"),
+ *     succeed("Agent responded correctly."),
+ *   ]
+ * );
+ *
+ * const execution = new ScenarioExecution(myScenario.config, myScenario.script);
+ *
+ * execution.events$.subscribe(event => {
+ *   console.log("Scenario event:", event);
+ * });
+ *
+ * const result = await execution.execute();
+ * console.log("Scenario result:", result.success);
+ * ```
+ */
 export class ScenarioExecution implements ScenarioExecutionLike {
   private state: ScenarioExecutionStateLike = new ScenarioExecutionState();
   private eventSubject = new Subject<ScenarioEvent>();
   private logger = new Logger("scenario.execution.ScenarioExecution");
   private config: ScenarioConfigFinal;
 
+  /**
+   * An observable stream of events that occur during the scenario execution.
+   * Subscribe to this to monitor the progress of the scenario in real-time.
+   */
   public readonly events$: Observable<ScenarioEvent> =
     this.eventSubject.asObservable();
 
+  /**
+   * Creates a new ScenarioExecution instance.
+   * @param config The scenario configuration.
+   * @param script The script steps to execute.
+   */
   constructor(config: ScenarioConfig, script: ScriptStep[],
   ) {
     this.config = {
@@ -58,14 +103,26 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.reset();
   }
 
+  /**
+   * The history of messages in the conversation.
+   */
   get history(): CoreMessage[] {
     return this.state.history;
   }
 
+  /**
+   * The unique identifier for the conversation thread.
+   */
   get threadId(): string {
     return this.state.threadId;
   }
 
+  /**
+   * Executes the entire scenario from start to finish.
+   * This will run through the script and any automatic proceeding logic until a
+   * final result (success, failure, or error) is determined.
+   * @returns A promise that resolves with the final result of the scenario.
+   */
   async execute(): Promise<ScenarioResult> {
     this.reset();
 
@@ -112,6 +169,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
   }
 
+  /**
+   * Executes a single step in the scenario.
+   * A step usually corresponds to a single agent's turn. This method is useful
+   * for manually controlling the scenario's progress.
+   * @returns A promise that resolves with the new messages added during the step, or a final scenario result if the step concludes the scenario.
+   */
   async step(): Promise<CoreMessage[] | ScenarioResult> {
     const result = await this._step();
     if (result === null) throw new Error("No result from step");
@@ -300,6 +363,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return result;
   }
 
+  /**
+   * Adds a message to the conversation history.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param message The message to add.
+   */
   async message(message: CoreMessage): Promise<void> {
     if (message.role === "user") {
       await this.scriptCallAgent(AgentRole.USER, message);
@@ -310,18 +378,47 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
   }
 
+  /**
+   * Executes a user turn.
+   * If content is provided, it's used as the user's message.
+   * If not, the user simulator agent is called to generate a message.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param content The optional content of the user's message.
+   */
   async user(content?: string | CoreMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.USER, content);
   }
 
+  /**
+   * Executes an agent turn.
+   * If content is provided, it's used as the agent's message.
+   * If not, the agent under test is called to generate a response.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param content The optional content of the agent's message.
+   */
   async agent(content?: string | CoreMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.AGENT, content);
   }
 
+  /**
+   * Invokes the judge agent to evaluate the current state of the conversation.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param content Optional message to pass to the judge.
+   * @returns A promise that resolves with the scenario result if the judge makes a final decision, otherwise null.
+   */
   async judge(content?: string | CoreMessage): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
   }
 
+  /**
+   * Lets the scenario proceed automatically for a specified number of turns.
+   * This simulates the natural flow of conversation between agents.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param turns The number of turns to proceed. If undefined, runs until a conclusion or max turns is reached.
+   * @param onTurn A callback executed at the end of each turn.
+   * @param onStep A callback executed after each agent interaction.
+   * @returns A promise that resolves with the scenario result if a conclusion is reached.
+   */
   async proceed(
     turns?: number,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
@@ -344,9 +441,15 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (nextMessage !== null && typeof nextMessage === "object" && "success" in nextMessage)
         return nextMessage;
+      }
     }
-  }
 
+  /**
+   * Immediately ends the scenario with a success verdict.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param reasoning An optional explanation for the success.
+   * @returns A promise that resolves with the final successful scenario result.
+   */
   async succeed(reasoning?: string): Promise<ScenarioResult> {
     return {
       success: true,
@@ -357,6 +460,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     };
   }
 
+  /**
+   * Immediately ends the scenario with a failure verdict.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param reasoning An optional explanation for the failure.
+   * @returns A promise that resolves with the final failed scenario result.
+   */
   async fail(reasoning?: string): Promise<ScenarioResult> {
     return {
       success: false,

@@ -31,6 +31,11 @@ async function loadProjectConfig() {
   return configLoadPromise;
 }
 
+/**
+ * Gets the project config.
+ * It will be loaded from the `scenario.config.js` file if it hasn't been loaded yet.
+ * @returns The project config, or null if it could not be loaded.
+ */
 export async function getProjectConfig() {
   await loadProjectConfig();
 

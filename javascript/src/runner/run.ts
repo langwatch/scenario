@@ -1,3 +1,10 @@
+/**
+ * Scenario execution engine for agent testing.
+ *
+ * This file contains the core `run` function that orchestrates the execution
+ * of scenario tests, managing the interaction between user simulators, agents under test,
+ * and judge agents to determine test success or failure.
+ */
 import {
   AssistantContent,
   ToolContent,
@@ -11,6 +18,55 @@ import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
 import { generateThreadId } from "../utils/ids";
 
+/**
+ * High-level interface for running a scenario test.
+ *
+ * This is the main entry point for executing scenario tests. It creates a
+ * ScenarioExecution instance and runs it.
+ *
+ * @param cfg Configuration for the scenario test.
+ * @param cfg.name Human-readable name for the scenario.
+ * @param cfg.description Detailed description of what the scenario tests.
+ * @param cfg.agents List of agent adapters (agent under test, user simulator, judge).
+ * @param cfg.maxTurns Maximum conversation turns before timeout (default: 10).
+ * @param cfg.verbose Show detailed output during execution.
+ * @param cfg.script Optional script steps to control scenario flow.
+ * @param cfg.threadId Optional ID for the conversation thread.
+ * @returns A promise that resolves with the ScenarioResult containing the test outcome,
+ *          conversation history, success/failure status, and detailed reasoning.
+ *
+ * @example
+ * ```typescript
+ * import { run, AgentAdapter, AgentRole, user, agent } from '@langwatch/scenario';
+ *
+ * const myAgent: AgentAdapter = {
+ *   role: AgentRole.AGENT,
+ *   async call(input) {
+ *     return `The user said: ${input.messages.at(-1)?.content}`;
+ *   }
+ * };
+ *
+ * async function main() {
+ *   const result = await run({
+ *     name: "Customer Service Test",
+ *     description: "A simple test to see if the agent responds.",
+ *     agents: [myAgent],
+ *     script: [
+ *       user("Hello, world!"),
+ *       agent(),
+ *     ],
+ *   });
+ *
+ *   if (result.success) {
+ *     console.log("Scenario passed!");
+ *   } else {
+ *     console.error(`Scenario failed: ${result.reasoning}`);
+ *   }
+ * }
+ *
+ * main();
+ * ```
+ */
 export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
   if (!cfg.name) {
     throw new Error("Scenario name is required");

@@ -2,6 +2,12 @@ import { CoreMessage, CoreToolMessage } from "ai";
 import { ScenarioResult, AgentRole, AgentAdapter, ScenarioExecutionStateLike } from "../domain";
 import { generateMessageId } from "../utils/ids";
 
+/**
+ * Manages the state of a scenario execution.
+ * This class implements the ScenarioExecutionStateLike interface and provides
+ * the internal logic for tracking conversation history, turns, results, and
+ * other related information.
+ */
 export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   private _history: (CoreMessage & { id: string })[] = [];
   private _turn: number = 0;
@@ -14,6 +20,9 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   private _agentTimes: Map<number, number> = new Map();
   private _totalStartTime: number = 0;
 
+  /**
+   * Creates a new ScenarioExecutionState.
+   */
   constructor() {
     this._totalStartTime = Date.now();
   }
