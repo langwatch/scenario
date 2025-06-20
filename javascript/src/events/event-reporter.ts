@@ -22,7 +22,7 @@ export class EventReporter {
         console.warn("LangWatch API key not configured, simulations will be local");
         console.warn(`To enable simulation reporting in the LangWatch dashboard, configure your LangWatch API key (via LANGWATCH_API_KEY, or scenario.config.js)`);
       } else {
-        console.log("LangWatch API key configured, enabling simulation reporting");
+        console.log("Simulation reporting is enabled");
         console.log(`Endpoint: ${config.endpoint} -> ${this.eventsEndpoint.href}`);
         console.log(`API Key: ${!this.apiKey ? "not configured" : "configured"}`);
       }
