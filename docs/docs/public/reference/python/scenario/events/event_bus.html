@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.11.6" />
+<title>Scenario API documentation</title>
+<meta name="description" content="" />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+<link rel="icon" href="https://scenario.langwatch.ai/favicon.ico" type="image/x-icon" />
+</head>
+<body>
+<style>
+.navbar.navbar--fixed-top{
+background-color: #fff;
+box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.1);
+display: flex;
+height: 3.75rem;
+padding: 0.5rem 1rem;
+}
+.navbar__inner {
+display: flex;
+flex-wrap: wrap;
+justify-content: space-between;
+width: 100%;
+}
+.navbar__items {
+align-items: center;
+display: flex;
+flex: 1;
+min-width: 0;
+}
+.navbar__items--right {
+flex: 0 0 auto;
+justify-content: flex-end;
+}
+.navbar__link {
+color: #1c1e21;
+font-weight: 500;
+}
+.navbar__link:hover, .navbar__link--active {
+color: #2e8555;
+text-decoration: none;
+}
+.navbar__item {
+display: inline-block;
+padding: 0.25em 0.75em;
+}
+.navbar a {
+text-decoration: none;
+transition: color 200ms cubic-bezier(0.08, 0.52, 0.52, 1);
+}
+.navbar__brand {
+align-items: center;
+color: #1c1e21;
+display: flex;
+margin-right: 1rem;
+min-width: 0;
+}
+.iconExternalLink_node_modules-\@docusaurus-theme-classic-lib-theme-Icon-ExternalLink-styles-module {
+margin-left: 0.3rem;
+}
+</style>
+<nav aria-label="Main" class="navbar navbar--fixed-top">
+<div class="navbar__inner" style="display: flex;
+flex-wrap: wrap;
+justify-content: space-between;
+width: 100%;">
+<div class="navbar__items">
+<a class="navbar__brand" href="/scenario/"
+><b class="navbar__title text--truncate">Scenario</b></a
+><a
+aria-current="page"
+class="navbar__item navbar__link"
+href="/scenario/docs/intro"
+>Docs</a
+>
+<a
+aria-current="page"
+class="navbar__item navbar__link navbar__link--active"
+href="/scenario/reference/scenario/index.html"
+>Reference</a
+>
+</div>
+<div class="navbar__items navbar__items--right">
+<a
+href="https://github.com/langwatch/scenario"
+target="_blank"
+rel="noopener noreferrer"
+class="navbar__item navbar__link"
+style="display: flex; align-items: center"
+>GitHub<svg
+width="13.5"
+height="13.5"
+aria-hidden="true"
+viewBox="0 0 24 24"
+class="iconExternalLink_node_modules-@docusaurus-theme-classic-lib-theme-Icon-ExternalLink-styles-module"
+>
+<path
+fill="currentColor"
+d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"
+></path></svg
+></a>
+</div>
+</div>
+<div role="presentation" class="navbar-sidebar__backdrop"></div>
+</nav>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>scenario.events.event_bus</code></h1>
+</header>
+<section id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">from rx.core.observable.observable import Observable
+from typing import Optional, Any
+from .events import ScenarioEvent
+from .event_reporter import EventReporter
+
+import asyncio
+import queue
+import threading
+import logging
+
+class ScenarioEventBus:
+    &#34;&#34;&#34;
+    Subscribes to scenario event streams and handles HTTP posting using a dedicated worker thread.
+
+    The EventBus acts as an observer of scenario events, automatically
+    posting them to external APIs. It uses a queue-based threading model
+    where events are processed by a dedicated worker thread.
+
+    Key design principles:
+    - Single worker thread handles all HTTP posting (simplifies concurrency)
+    - Thread created lazily when first event arrives
+    - Thread terminates when queue empty and stream completed
+    - Non-daemon thread ensures all events posted before program exit
+
+    Attributes:
+        _event_reporter: EventReporter instance for HTTP posting of events
+        _max_retries: Maximum number of retry attempts for failed event processing
+        _event_queue: Thread-safe queue for passing events to worker thread
+        _completed: Whether the event stream has completed
+        _subscription: RxPY subscription to the event stream
+        _worker_thread: Dedicated thread for processing events
+    &#34;&#34;&#34;
+
+    def __init__(
+        self, event_reporter: Optional[EventReporter] = None, max_retries: int = 3
+    ):
+        &#34;&#34;&#34;
+        Initialize the event bus with optional event reporter and retry configuration.
+
+        Args:
+            event_reporter: Optional EventReporter for HTTP posting of events.
+                          If not provided, a default EventReporter will be created.
+            max_retries: Maximum number of retry attempts for failed event processing.
+                       Defaults to 3 attempts with exponential backoff.
+        &#34;&#34;&#34;
+        self._event_reporter: EventReporter = event_reporter or EventReporter()
+        self._max_retries = max_retries
+        
+        # Custom logger for this class
+        self.logger = logging.getLogger(__name__)
+        
+        # Threading infrastructure
+        self._event_queue: queue.Queue[ScenarioEvent] = queue.Queue()
+        self._completed = False
+        self._subscription: Optional[Any] = None
+        self._worker_thread: Optional[threading.Thread] = None
+        self._shutdown_event = threading.Event()  # Signal worker to shutdown
+
+    def _get_or_create_worker(self) -&gt; None:
+        &#34;&#34;&#34;Lazily create worker thread when first event arrives&#34;&#34;&#34;
+        if self._worker_thread is None or not self._worker_thread.is_alive():
+            self.logger.debug(&#34;Creating new worker thread&#34;)
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                daemon=False,
+                name=&#34;ScenarioEventBus-Worker&#34;
+            )
+            self._worker_thread.start()
+            self.logger.debug(&#34;Worker thread started&#34;)
+
+    def _worker_loop(self) -&gt; None:
+        &#34;&#34;&#34;Main worker thread loop - processes events from queue until shutdown&#34;&#34;&#34;
+        self.logger.debug(&#34;Worker thread loop started&#34;)
+        while True:
+            try:
+                if self._shutdown_event.wait(timeout=0.1):
+                    self.logger.debug(&#34;Worker thread received shutdown signal&#34;)
+                    break
+                
+                try:
+                    event = self._event_queue.get(timeout=0.1)
+                    self.logger.debug(f&#34;Worker picked up event: {event.type_} ({event.scenario_run_id})&#34;)
+                    self._process_event_sync(event)
+                    self._event_queue.task_done()
+                except queue.Empty:
+                    # Exit if stream completed and no more events
+                    if self._completed:
+                        self.logger.debug(&#34;Stream completed and no more events, worker thread exiting&#34;)
+                        break
+                    continue
+                    
+            except Exception as e:
+                self.logger.error(f&#34;Worker thread error: {e}&#34;)
+        
+        self.logger.debug(&#34;Worker thread loop ended&#34;)
+
+    def _process_event_sync(self, event: ScenarioEvent) -&gt; None:
+        &#34;&#34;&#34;
+        Process event synchronously in worker thread with retry logic.
+        &#34;&#34;&#34;
+        self.logger.debug(f&#34;Processing HTTP post for {event.type_} ({event.scenario_run_id})&#34;)
+        
+        try:
+            # Convert async to sync using asyncio.run - this blocks until HTTP completes
+            success = asyncio.run(self._process_event_with_retry(event))
+            if not success:
+                self.logger.warning(f&#34;Failed to process event {event.type_} after {self._max_retries} attempts&#34;)
+            else:
+                self.logger.debug(f&#34;Successfully posted {event.type_} ({event.scenario_run_id})&#34;)
+        except Exception as e:
+            self.logger.error(f&#34;Error processing event {event.type_}: {e}&#34;)
+
+    async def _process_event_with_retry(self, event: ScenarioEvent, attempt: int = 1) -&gt; bool:
+        &#34;&#34;&#34;
+        Process a single event with retry logic (now runs in worker thread context).
+        &#34;&#34;&#34;
+        try:
+            if self._event_reporter:
+                await self._event_reporter.post_event(event)
+            return True
+        except Exception as e:
+            if attempt &gt;= self._max_retries:
+                return False
+            print(f&#34;Error processing event (attempt {attempt}/{self._max_retries}): {e}&#34;)
+            await asyncio.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
+            return await self._process_event_with_retry(event, attempt + 1)
+
+    def subscribe_to_events(self, event_stream: Observable) -&gt; None:
+        &#34;&#34;&#34;
+        Subscribe to any observable stream of scenario events.
+        Events are queued for processing by the dedicated worker thread.
+        &#34;&#34;&#34;
+        if self._subscription is not None:
+            self.logger.debug(&#34;Already subscribed to event stream&#34;)
+            return
+
+        def handle_event(event: ScenarioEvent) -&gt; None:
+            self.logger.debug(f&#34;Event received, queuing: {event.type_} ({event.scenario_run_id})&#34;)
+            self._get_or_create_worker()
+            self._event_queue.put(event)
+            self.logger.debug(f&#34;Event queued: {event.type_} ({event.scenario_run_id})&#34;)
+
+        self.logger.info(&#34;Subscribing to event stream&#34;)
+        self._subscription = event_stream.subscribe(
+            handle_event,
+            lambda e: self.logger.error(f&#34;Error in event stream: {e}&#34;),
+            lambda: self._set_completed()
+        )
+
+    def _set_completed(self):
+        &#34;&#34;&#34;Helper to set completed state with logging&#34;&#34;&#34;
+        self.logger.debug(&#34;Event stream completed&#34;)
+        self._completed = True
+
+    def drain(self) -&gt; None:
+        &#34;&#34;&#34;
+        Waits for all queued events to complete processing.
+        
+        This method blocks until all events in the queue have been processed.
+        Since _process_event_sync() uses asyncio.run(), HTTP requests complete
+        before task_done() is called, so join() ensures everything is finished.
+        &#34;&#34;&#34;
+        self.logger.debug(&#34;Drain started - waiting for queue to empty&#34;)
+        
+        # Wait for all events to be processed - this is sufficient!
+        self._event_queue.join()
+        self.logger.debug(&#34;Event queue drained&#34;)
+        
+        # Signal worker to shutdown and wait for it
+        self._shutdown_event.set()
+        if self._worker_thread and self._worker_thread.is_alive():
+            self.logger.debug(&#34;Waiting for worker thread to shutdown...&#34;)
+            self._worker_thread.join(timeout=5.0)
+            if self._worker_thread.is_alive():
+                self.logger.warning(&#34;Worker thread did not shutdown within timeout&#34;)
+            else:
+                self.logger.debug(&#34;Worker thread shutdown complete&#34;)
+        
+        self.logger.info(&#34;Drain completed&#34;)
+
+    def is_completed(self) -&gt; bool:
+        &#34;&#34;&#34;
+        Returns whether all events have been processed.
+        &#34;&#34;&#34;
+        return self._completed and self._event_queue.empty()</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="scenario.events.event_bus.ScenarioEventBus"><code class="flex name class">
+<span>class <span class="ident">ScenarioEventBus</span></span>
+<span>(</span><span>event_reporter: <a title="scenario.events.event_reporter.EventReporter" href="event_reporter.html#scenario.events.event_reporter.EventReporter">EventReporter</a> | None = None, max_retries: int = 3)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Subscribes to scenario event streams and handles HTTP posting using a dedicated worker thread.</p>
+<p>The EventBus acts as an observer of scenario events, automatically
+posting them to external APIs. It uses a queue-based threading model
+where events are processed by a dedicated worker thread.</p>
+<p>Key design principles:
+- Single worker thread handles all HTTP posting (simplifies concurrency)
+- Thread created lazily when first event arrives
+- Thread terminates when queue empty and stream completed
+- Non-daemon thread ensures all events posted before program exit</p>
+<h2 id="attributes">Attributes</h2>
+<dl>
+<dt><strong><code>_event_reporter</code></strong></dt>
+<dd>EventReporter instance for HTTP posting of events</dd>
+<dt><strong><code>_max_retries</code></strong></dt>
+<dd>Maximum number of retry attempts for failed event processing</dd>
+<dt><strong><code>_event_queue</code></strong></dt>
+<dd>Thread-safe queue for passing events to worker thread</dd>
+<dt><strong><code>_completed</code></strong></dt>
+<dd>Whether the event stream has completed</dd>
+<dt><strong><code>_subscription</code></strong></dt>
+<dd>RxPY subscription to the event stream</dd>
+<dt><strong><code>_worker_thread</code></strong></dt>
+<dd>Dedicated thread for processing events</dd>
+</dl>
+<p>Initialize the event bus with optional event reporter and retry configuration.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>event_reporter</code></strong></dt>
+<dd>Optional EventReporter for HTTP posting of events.
+If not provided, a default EventReporter will be created.</dd>
+<dt><strong><code>max_retries</code></strong></dt>
+<dd>Maximum number of retry attempts for failed event processing.
+Defaults to 3 attempts with exponential backoff.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ScenarioEventBus:
+    &#34;&#34;&#34;
+    Subscribes to scenario event streams and handles HTTP posting using a dedicated worker thread.
+
+    The EventBus acts as an observer of scenario events, automatically
+    posting them to external APIs. It uses a queue-based threading model
+    where events are processed by a dedicated worker thread.
+
+    Key design principles:
+    - Single worker thread handles all HTTP posting (simplifies concurrency)
+    - Thread created lazily when first event arrives
+    - Thread terminates when queue empty and stream completed
+    - Non-daemon thread ensures all events posted before program exit
+
+    Attributes:
+        _event_reporter: EventReporter instance for HTTP posting of events
+        _max_retries: Maximum number of retry attempts for failed event processing
+        _event_queue: Thread-safe queue for passing events to worker thread
+        _completed: Whether the event stream has completed
+        _subscription: RxPY subscription to the event stream
+        _worker_thread: Dedicated thread for processing events
+    &#34;&#34;&#34;
+
+    def __init__(
+        self, event_reporter: Optional[EventReporter] = None, max_retries: int = 3
+    ):
+        &#34;&#34;&#34;
+        Initialize the event bus with optional event reporter and retry configuration.
+
+        Args:
+            event_reporter: Optional EventReporter for HTTP posting of events.
+                          If not provided, a default EventReporter will be created.
+            max_retries: Maximum number of retry attempts for failed event processing.
+                       Defaults to 3 attempts with exponential backoff.
+        &#34;&#34;&#34;
+        self._event_reporter: EventReporter = event_reporter or EventReporter()
+        self._max_retries = max_retries
+        
+        # Custom logger for this class
+        self.logger = logging.getLogger(__name__)
+        
+        # Threading infrastructure
+        self._event_queue: queue.Queue[ScenarioEvent] = queue.Queue()
+        self._completed = False
+        self._subscription: Optional[Any] = None
+        self._worker_thread: Optional[threading.Thread] = None
+        self._shutdown_event = threading.Event()  # Signal worker to shutdown
+
+    def _get_or_create_worker(self) -&gt; None:
+        &#34;&#34;&#34;Lazily create worker thread when first event arrives&#34;&#34;&#34;
+        if self._worker_thread is None or not self._worker_thread.is_alive():
+            self.logger.debug(&#34;Creating new worker thread&#34;)
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                daemon=False,
+                name=&#34;ScenarioEventBus-Worker&#34;
+            )
+            self._worker_thread.start()
+            self.logger.debug(&#34;Worker thread started&#34;)
+
+    def _worker_loop(self) -&gt; None:
+        &#34;&#34;&#34;Main worker thread loop - processes events from queue until shutdown&#34;&#34;&#34;
+        self.logger.debug(&#34;Worker thread loop started&#34;)
+        while True:
+            try:
+                if self._shutdown_event.wait(timeout=0.1):
+                    self.logger.debug(&#34;Worker thread received shutdown signal&#34;)
+                    break
+                
+                try:
+                    event = self._event_queue.get(timeout=0.1)
+                    self.logger.debug(f&#34;Worker picked up event: {event.type_} ({event.scenario_run_id})&#34;)
+                    self._process_event_sync(event)
+                    self._event_queue.task_done()
+                except queue.Empty:
+                    # Exit if stream completed and no more events
+                    if self._completed:
+                        self.logger.debug(&#34;Stream completed and no more events, worker thread exiting&#34;)
+                        break
+                    continue
+                    
+            except Exception as e:
+                self.logger.error(f&#34;Worker thread error: {e}&#34;)
+        
+        self.logger.debug(&#34;Worker thread loop ended&#34;)
+
+    def _process_event_sync(self, event: ScenarioEvent) -&gt; None:
+        &#34;&#34;&#34;
+        Process event synchronously in worker thread with retry logic.
+        &#34;&#34;&#34;
+        self.logger.debug(f&#34;Processing HTTP post for {event.type_} ({event.scenario_run_id})&#34;)
+        
+        try:
+            # Convert async to sync using asyncio.run - this blocks until HTTP completes
+            success = asyncio.run(self._process_event_with_retry(event))
+            if not success:
+                self.logger.warning(f&#34;Failed to process event {event.type_} after {self._max_retries} attempts&#34;)
+            else:
+                self.logger.debug(f&#34;Successfully posted {event.type_} ({event.scenario_run_id})&#34;)
+        except Exception as e:
+            self.logger.error(f&#34;Error processing event {event.type_}: {e}&#34;)
+
+    async def _process_event_with_retry(self, event: ScenarioEvent, attempt: int = 1) -&gt; bool:
+        &#34;&#34;&#34;
+        Process a single event with retry logic (now runs in worker thread context).
+        &#34;&#34;&#34;
+        try:
+            if self._event_reporter:
+                await self._event_reporter.post_event(event)
+            return True
+        except Exception as e:
+            if attempt &gt;= self._max_retries:
+                return False
+            print(f&#34;Error processing event (attempt {attempt}/{self._max_retries}): {e}&#34;)
+            await asyncio.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
+            return await self._process_event_with_retry(event, attempt + 1)
+
+    def subscribe_to_events(self, event_stream: Observable) -&gt; None:
+        &#34;&#34;&#34;
+        Subscribe to any observable stream of scenario events.
+        Events are queued for processing by the dedicated worker thread.
+        &#34;&#34;&#34;
+        if self._subscription is not None:
+            self.logger.debug(&#34;Already subscribed to event stream&#34;)
+            return
+
+        def handle_event(event: ScenarioEvent) -&gt; None:
+            self.logger.debug(f&#34;Event received, queuing: {event.type_} ({event.scenario_run_id})&#34;)
+            self._get_or_create_worker()
+            self._event_queue.put(event)
+            self.logger.debug(f&#34;Event queued: {event.type_} ({event.scenario_run_id})&#34;)
+
+        self.logger.info(&#34;Subscribing to event stream&#34;)
+        self._subscription = event_stream.subscribe(
+            handle_event,
+            lambda e: self.logger.error(f&#34;Error in event stream: {e}&#34;),
+            lambda: self._set_completed()
+        )
+
+    def _set_completed(self):
+        &#34;&#34;&#34;Helper to set completed state with logging&#34;&#34;&#34;
+        self.logger.debug(&#34;Event stream completed&#34;)
+        self._completed = True
+
+    def drain(self) -&gt; None:
+        &#34;&#34;&#34;
+        Waits for all queued events to complete processing.
+        
+        This method blocks until all events in the queue have been processed.
+        Since _process_event_sync() uses asyncio.run(), HTTP requests complete
+        before task_done() is called, so join() ensures everything is finished.
+        &#34;&#34;&#34;
+        self.logger.debug(&#34;Drain started - waiting for queue to empty&#34;)
+        
+        # Wait for all events to be processed - this is sufficient!
+        self._event_queue.join()
+        self.logger.debug(&#34;Event queue drained&#34;)
+        
+        # Signal worker to shutdown and wait for it
+        self._shutdown_event.set()
+        if self._worker_thread and self._worker_thread.is_alive():
+            self.logger.debug(&#34;Waiting for worker thread to shutdown...&#34;)
+            self._worker_thread.join(timeout=5.0)
+            if self._worker_thread.is_alive():
+                self.logger.warning(&#34;Worker thread did not shutdown within timeout&#34;)
+            else:
+                self.logger.debug(&#34;Worker thread shutdown complete&#34;)
+        
+        self.logger.info(&#34;Drain completed&#34;)
+
+    def is_completed(self) -&gt; bool:
+        &#34;&#34;&#34;
+        Returns whether all events have been processed.
+        &#34;&#34;&#34;
+        return self._completed and self._event_queue.empty()</code></pre>
+</details>
+<h3>Methods</h3>
+<dl>
+<dt id="scenario.events.event_bus.ScenarioEventBus.drain"><code class="name flex">
+<span>def <span class="ident">drain</span></span>(<span>self) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Waits for all queued events to complete processing.</p>
+<p>This method blocks until all events in the queue have been processed.
+Since _process_event_sync() uses asyncio.run(), HTTP requests complete
+before task_done() is called, so join() ensures everything is finished.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def drain(self) -&gt; None:
+    &#34;&#34;&#34;
+    Waits for all queued events to complete processing.
+    
+    This method blocks until all events in the queue have been processed.
+    Since _process_event_sync() uses asyncio.run(), HTTP requests complete
+    before task_done() is called, so join() ensures everything is finished.
+    &#34;&#34;&#34;
+    self.logger.debug(&#34;Drain started - waiting for queue to empty&#34;)
+    
+    # Wait for all events to be processed - this is sufficient!
+    self._event_queue.join()
+    self.logger.debug(&#34;Event queue drained&#34;)
+    
+    # Signal worker to shutdown and wait for it
+    self._shutdown_event.set()
+    if self._worker_thread and self._worker_thread.is_alive():
+        self.logger.debug(&#34;Waiting for worker thread to shutdown...&#34;)
+        self._worker_thread.join(timeout=5.0)
+        if self._worker_thread.is_alive():
+            self.logger.warning(&#34;Worker thread did not shutdown within timeout&#34;)
+        else:
+            self.logger.debug(&#34;Worker thread shutdown complete&#34;)
+    
+    self.logger.info(&#34;Drain completed&#34;)</code></pre>
+</details>
+</dd>
+<dt id="scenario.events.event_bus.ScenarioEventBus.is_completed"><code class="name flex">
+<span>def <span class="ident">is_completed</span></span>(<span>self) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Returns whether all events have been processed.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def is_completed(self) -&gt; bool:
+    &#34;&#34;&#34;
+    Returns whether all events have been processed.
+    &#34;&#34;&#34;
+    return self._completed and self._event_queue.empty()</code></pre>
+</details>
+</dd>
+<dt id="scenario.events.event_bus.ScenarioEventBus.subscribe_to_events"><code class="name flex">
+<span>def <span class="ident">subscribe_to_events</span></span>(<span>self, event_stream: rx.core.observable.observable.Observable) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Subscribe to any observable stream of scenario events.
+Events are queued for processing by the dedicated worker thread.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def subscribe_to_events(self, event_stream: Observable) -&gt; None:
+    &#34;&#34;&#34;
+    Subscribe to any observable stream of scenario events.
+    Events are queued for processing by the dedicated worker thread.
+    &#34;&#34;&#34;
+    if self._subscription is not None:
+        self.logger.debug(&#34;Already subscribed to event stream&#34;)
+        return
+
+    def handle_event(event: ScenarioEvent) -&gt; None:
+        self.logger.debug(f&#34;Event received, queuing: {event.type_} ({event.scenario_run_id})&#34;)
+        self._get_or_create_worker()
+        self._event_queue.put(event)
+        self.logger.debug(f&#34;Event queued: {event.type_} ({event.scenario_run_id})&#34;)
+
+    self.logger.info(&#34;Subscribing to event stream&#34;)
+    self._subscription = event_stream.subscribe(
+        handle_event,
+        lambda e: self.logger.error(f&#34;Error in event stream: {e}&#34;),
+        lambda: self._set_completed()
+    )</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+</article>
+<nav id="sidebar">
+<a href="/" style="color: #000">← Back to Docs</a>
+<h1>Scenario API Reference</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="scenario.events" href="index.html">scenario.events</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="scenario.events.event_bus.ScenarioEventBus" href="#scenario.events.event_bus.ScenarioEventBus">ScenarioEventBus</a></code></h4>
+<ul class="">
+<li><code><a title="scenario.events.event_bus.ScenarioEventBus.drain" href="#scenario.events.event_bus.ScenarioEventBus.drain">drain</a></code></li>
+<li><code><a title="scenario.events.event_bus.ScenarioEventBus.is_completed" href="#scenario.events.event_bus.ScenarioEventBus.is_completed">is_completed</a></code></li>
+<li><code><a title="scenario.events.event_bus.ScenarioEventBus.subscribe_to_events" href="#scenario.events.event_bus.ScenarioEventBus.subscribe_to_events">subscribe_to_events</a></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.11.6</a>.</p>
+</footer>
+</body>
+</html>
