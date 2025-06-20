@@ -31,8 +31,8 @@ class MockUserSimulatorAgent(UserSimulatorAgent):
 
 
 class MockAgent(AgentAdapter):
-    async def call(self, input: AgentInput) -> dict[str, str]:
-        return {"role": "assistant", "content": "Hey, how can I help you?"}
+    async def call(self, input: AgentInput) -> str:
+        return "Hey, how can I help you?"
 
 
 class MockEventReporter(EventReporter):
@@ -75,7 +75,7 @@ async def executed_events(executor: ScenarioExecutor) -> ExecutedEventsFixture:
     """Run scenario and collect events."""
     events: List[ScenarioEvent] = []
     executor.events.subscribe(events.append)
-    await executor._run()
+    await executor.run(name="test scenario", description="test description")
     return events, executor
 
 

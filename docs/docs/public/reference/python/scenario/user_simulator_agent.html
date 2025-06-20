@@ -14,7 +14,7 @@
 <style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
 <script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
-<link rel="icon" href="/favicon.ico" type="image/x-icon" />
+<link rel="icon" href="https://scenario.langwatch.ai/favicon.ico" type="image/x-icon" />
 </head>
 <body>
 <style>
@@ -144,7 +144,7 @@ from litellm.files.main import ModelResponse
 
 from scenario.cache import scenario_cache
 from scenario.agent_adapter import AgentAdapter
-from scenario._utils import reverse_roles
+from scenario._utils.utils import reverse_roles
 from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
@@ -705,23 +705,27 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <dl>
 <dt id="scenario.user_simulator_agent.UserSimulatorAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.user_simulator_agent.UserSimulatorAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.user_simulator_agent.UserSimulatorAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
+</dd>
+<dt id="scenario.user_simulator_agent.UserSimulatorAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
+<dd>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.user_simulator_agent.UserSimulatorAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.user_simulator_agent.UserSimulatorAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -841,14 +845,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 </details>
 </dd>
 </dl>
-<h3>Inherited members</h3>
-<ul class="hlist">
-<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
-<ul class="hlist">
-<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
-</ul>
-</li>
-</ul>
 </dd>
 </dl>
 </section>
@@ -874,6 +870,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.user_simulator_agent.UserSimulatorAgent.call" href="#scenario.user_simulator_agent.UserSimulatorAgent.call">call</a></code></li>
 <li><code><a title="scenario.user_simulator_agent.UserSimulatorAgent.max_tokens" href="#scenario.user_simulator_agent.UserSimulatorAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.user_simulator_agent.UserSimulatorAgent.model" href="#scenario.user_simulator_agent.UserSimulatorAgent.model">model</a></code></li>
+<li><code><a title="scenario.user_simulator_agent.UserSimulatorAgent.role" href="#scenario.user_simulator_agent.UserSimulatorAgent.role">role</a></code></li>
 <li><code><a title="scenario.user_simulator_agent.UserSimulatorAgent.system_prompt" href="#scenario.user_simulator_agent.UserSimulatorAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.user_simulator_agent.UserSimulatorAgent.temperature" href="#scenario.user_simulator_agent.UserSimulatorAgent.temperature">temperature</a></code></li>
 </ul>
