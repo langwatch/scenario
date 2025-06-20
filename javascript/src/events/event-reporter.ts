@@ -1,8 +1,6 @@
 import type { ScenarioEvent } from "./schema";
 import { Logger } from "../utils/logger";
 
-let alreadyWarningAboutNoLangWatchIntegration = false;
-
 /**
  * Handles HTTP posting of scenario events to external endpoints.
  *
@@ -10,19 +8,25 @@ let alreadyWarningAboutNoLangWatchIntegration = false;
  * with proper authentication and error handling.
  */
 export class EventReporter {
-  private readonly endpoint: string;
+  private readonly eventsEndpoint: URL;
   private readonly apiKey: string;
   private readonly logger = new Logger("scenario.events.EventReporter");
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
-    this.endpoint = config.endpoint;
+    this.eventsEndpoint = new URL("/api/scenario-events", config.endpoint);
     this.apiKey = config.apiKey ?? "";
 
-    if (!this.apiKey) {
-      if (!alreadyWarningAboutNoLangWatchIntegration) {
-        console.warn(`Configure your LangWatch API key (via LANGWATCH_API_KEY, or scenario.config.js) to enable simulation reporting in the LangWatch dashboard.`);
-        alreadyWarningAboutNoLangWatchIntegration = true;
+    if (!process.env.SCENARIO_DISABLE_SIMULATION_REPORT_INFO) {
+      console.log("=== Scenario Simulation Reporting ===");
+      if (!this.apiKey) {
+        console.warn("LangWatch API key not configured, simulations will be local");
+        console.warn(`To enable simulation reporting in the LangWatch dashboard, configure your LangWatch API key (via LANGWATCH_API_KEY, or scenario.config.js)`);
+      } else {
+        console.log("LangWatch API key configured, enabling simulation reporting");
+        console.log(`Endpoint: ${this.eventsEndpoint.href}`);
+        console.log(`API Key Length: ${this.apiKey.length}`);
       }
+      console.log("=== Scenario Simulation Reporting ===");
     }
   }
 
@@ -35,47 +39,12 @@ export class EventReporter {
       event,
     });
 
-    if (!this.endpoint) {
+    if (!this.eventsEndpoint) {
       this.logger.warn(
         "No LANGWATCH_ENDPOINT configured, skipping event posting"
       );
       return;
     }
 
-    try {
-      const response = await fetch(`${this.endpoint}/api/scenario-events`, {
-        method: "POST",
-        body: JSON.stringify(event),
-        headers: {
-          "Content-Type": "application/json",
-          "X-Auth-Token": this.apiKey,
-        },
-      });
-
-      this.logger.debug(
-        `[${event.type}] Event POST response status: ${response.status}`
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        this.logger.debug(`[${event.type}] Event POST response:`, data);
-      } else {
-        const errorText = await response.text();
-        this.logger.error(`[${event.type}] Event POST failed:`, {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-          event: event,
-        });
-        // Don't throw - event posting shouldn't break scenario execution
-      }
-    } catch (error) {
-      this.logger.error(`[${event.type}] Event POST error:`, {
-        error,
-        event,
-        endpoint: this.endpoint,
-      });
-      // Don't throw - event posting shouldn't break scenario execution
-    }
   }
 }
