@@ -18,7 +18,8 @@
     "test:ci": "vitest run",
     "lint": "eslint .",
     "examples:vitest:run": "export SCENARIO_BATCH_ID=scenariobatch_$(uuidgen) && pnpm run buildpack && (cd examples/vitest && pnpm install) && pnpm -F vitest run test",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "generate:api-reference": "npx typedoc src --out api-reference-docs"
   },
   "publishConfig": {
     "access": "public"
