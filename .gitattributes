@@ -1,26 +1,28 @@
 **/pnpm-lock.yaml linguist-generated=true merge=ours
-**/uv.lock linguist-generated=true        merge=ours
+**/uv.lock        linguist-generated=true merge=ours
 
 # Mark generated code directories
-python/scenario/generated/   linguist-generated=true
-python/scenario/generated/** linguist-generated=true
+python/scenario/generated/    linguist-generated=true
+python/scenario/generated/**  linguist-generated=true
+docs/docs/public/reference/** linguist-generated=true
 
 # Exclude generated code from GitHub language statistics
-python/scenario/generated/ linguist-vendored=true
+python/scenario/generated/  linguist-vendored=true
+docs/docs/public/reference/ linguist-vendored=true
 
 # Ensure proper line endings
-*.py text eol=lf
-*.md text eol=lf
+*.py text   eol=lf
+*.md text   eol=lf
 *.toml text eol=lf
 *.json text eol=lf
-*.yml text eol=lf
+*.yml text  eol=lf
 *.yaml text eol=lf
-*.sh text eol=lf
-*.js text eol=lf
-*.ts text eol=lf
-*.tsx text eol=lf
-*.jsx text eol=lf
-*.css text eol=lf
+*.sh text   eol=lf
+*.js text   eol=lf
+*.ts text   eol=lf
+*.tsx text  eol=lf
+*.jsx text  eol=lf
+*.css text  eol=lf
 *.html text eol=lf
 
 # Binary files
