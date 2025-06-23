@@ -12,7 +12,9 @@ Scenario is designed to test AI agents through **simulation testing** - a method
 
 A **scenario** defines the test case - the situation, context, and expected behavior you want to validate:
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="customer support inquiry",
     description="""
@@ -24,6 +26,36 @@ result = await scenario.run(
 )
 ```
 
+```typescript [typescript]
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+
+const agent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Your agent logic here
+    return "Let me help you with your billing issue.";
+  },
+};
+
+const result = await scenario.run({
+  name: "customer support inquiry",
+  description: `User has a billing issue with their subscription. They are frustrated but not angry. The agent should help resolve the issue professionally and escalate if needed.`,
+  agents: [
+    agent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "Agent asks for user account number or email",
+        "Agent addresses the billing issue",
+        "Agent provides a timeline for issue resolution",
+      ],
+    }),
+  ],
+});
+```
+
+:::
+
 ### 2. Agents
 
 Three types of agents can participate in a scenario:
@@ -32,9 +64,11 @@ Three types of agents can participate in a scenario:
 - **User Simulator Agent**: Generates simulated user messages based on the scenario
 - **Judge Agent**: Evaluates the conversation against success criteria
 
-```python
+:::code-group
+
+```python [python]
 agents=[
-    MyAgent(),                    # Your agent
+    MyAgent(),                     # Your agent
     scenario.UserSimulatorAgent(), # Simulates user behavior
     scenario.JudgeAgent(criteria=[ # Evaluates success
         "Agent asks for user account number or email",
@@ -44,6 +78,22 @@ agents=[
 ]
 ```
 
+```typescript [typescript]
+const agents = [
+  agent,                         // Your agent
+  scenario.userSimulatorAgent(), // Simulates user behavior
+  scenario.judgeAgent({
+    criteria: [
+      "Agent asks for user account number or email",
+      "Agent addresses the billing issue",
+      "Agent provides a timeline for issue resolution",
+    ],
+  }),
+];
+```
+
+:::
+
 ### 3. Evaluation
 
 There are two ways to evaluate a scenario:
@@ -51,7 +101,9 @@ There are two ways to evaluate a scenario:
 - **Automatically**, by the judge agent
 - **Manually**, by specifying assertions on scripted scenarios
 
-```python
+:::code-group
+
+```python [python]
 scenario.JudgeAgent(criteria=[
     "Agent asks for user account number or email",
     "Agent addresses the billing issue",
@@ -60,6 +112,25 @@ scenario.JudgeAgent(criteria=[
 
 assert state.has_tool_call("get_billing_info") # manual assertion
 ```
+
+```typescript [typescript]
+scenario.judgeAgent({
+  criteria: [
+    "Agent asks for user account number or email",
+    "Agent addresses the billing issue",
+    "Agent provides a timeline for issue resolution",
+  ],
+});
+
+// Manual assertion in a script step:
+(state) => {
+  if (!state.hasToolCall("get_billing_info")) {
+    throw new Error("Tool not called");
+  }
+}
+```
+
+:::
 
 ## The Simulation Loop
 
@@ -71,7 +142,9 @@ Understanding how the simulation works helps you write better scenarios:
 
 Based on the scenario description, the user simulator creates a realistic opening message:
 
-```python
+:::code-group
+
+```python [python]
 # Scenario description guides the user simulator
 description="User is frustrated with slow internet and needs technical help"
 
@@ -79,16 +152,41 @@ description="User is frustrated with slow internet and needs technical help"
 # "my internet is slow"
 ```
 
+```typescript [typescript]
+
+// Scenario description guides the user simulator
+const description = "User is frustrated with slow internet and needs technical help";
+
+// User simulator might generate:
+// "my internet is slow"
+```
+
+:::
+
 ### Step 2: Agent Under Test Responds
 
 Your agent receives the conversation history and generates a response:
 
-```python
+:::code-group
+
+```python [python]
 class TechSupportAgent(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Agent sees: [{"role": "user", "content": "my internet is slow"}]
         return await my_tech_support_agent.process(input.messages)
 ```
+
+```typescript [typescript]
+const techSupportAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Agent sees: [{"role": "user", "content": "my internet is slow"}]
+    return await techSupportService.process(input.messages);
+  },
+};
+```
+
+:::
 
 ### Step 3: Judge Evaluates
 
@@ -98,11 +196,21 @@ The judge agent reviews the conversation and decides whether to:
 - **Succeed**: All criteria are met, end with success
 - **Fail**: Criteria are not met, end with failure
 
-```python
+:::code-group
+
+```python [python]
 # Judge considers criteria like:
 # - "Agent asks if user has tried to turn it off and on again"
 # - "Agent provides specific troubleshooting steps"
 ```
+
+```typescript [typescript]
+// Judge considers criteria like:
+// - "Agent asks if user has tried to turn it off and on again"
+// - "Agent provides specific troubleshooting steps"
+```
+
+:::
 
 ### Step 4: Next Turn or End
 
@@ -118,7 +226,9 @@ Scenario supports two main testing approaches:
 
 Let the agents interact naturally until the judge decides the outcome:
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="automatic conversation",
     description="User wants help with a technical issue",
@@ -131,11 +241,28 @@ result = await scenario.run(
 )
 ```
 
+```typescript [typescript]
+const result = await scenario.run({
+  name: "automatic conversation",
+  description: "User wants help with a technical issue",
+  agents: [
+    techSupportAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["Agent resolves the technical issue"] }),
+  ],
+  maxTurns: 10, // Optional limit
+});
+```
+
+:::
+
 ### Scripted Control
 
 Control the exact flow of conversation with custom scripts:
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="scripted interaction",
     description="Test specific conversation flow",
@@ -157,6 +284,31 @@ result = await scenario.run(
     ]
 )
 ```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "scripted interaction",
+  description: "Test specific conversation flow",
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["Agent handles edge case properly"] }),
+  ],
+  script: [
+    scenario.user("I have a complex request"),
+    scenario.agent(),
+    (state) => {
+      if (!state.hasToolCall("complex_handler")) {
+        throw new Error("Complex handler was not used");
+      }
+    },
+    scenario.proceed(2),
+    scenario.succeed("Edge case handled correctly"),
+  ],
+});
+```
+
+:::
 
 ## Turns vs Steps
 
@@ -195,7 +347,9 @@ code={{ python: "on_step", typescript: "onStep" }}
 />
 :
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="controlled conversation",
     description="User needs help with account settings",
@@ -210,6 +364,24 @@ result = await scenario.run(
     ]
 )
 ```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "controlled conversation",
+  description: "User needs help with account settings",
+  agents: [...],
+  maxTurns: 5, // Limit conversation length
+  script: [
+    scenario.proceed(
+      turns: 2,
+      onTurn: (state) => console.log(`Completed turn ${state.currentTurn}`),
+      onStep: (state) => console.log(`Completed step ${state.currentStep}`),
+    ),
+  ],
+});
+```
+
+:::
 
 ## The User Simulator Agent
 
@@ -232,6 +404,9 @@ scenario.UserSimulatorAgent()
 
 You can customize the user simulator's behavior:
 
+:::code-group
+
+```python [python]
 ```python
 scenario.UserSimulatorAgent(
     model="openai/o3",  # Use different model
@@ -258,6 +433,33 @@ scenario.UserSimulatorAgent(
     """
 )
 ```
+
+```typescript [typescript]
+const userSimulatorAgent = scenario.userSimulatorAgent({
+  model: "o3", // Use different model
+  systemPrompt: `
+    <role>
+        You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
+        Approach this naturally, as a human user would, with very short inputs, few words, all lowercase, imperative, not periods, like when they google or talk to chatgpt.
+    </role>
+
+    <goal>
+    Your goal (assistant) is to interact with the Agent Under Test (user) as if you were a human user.
+    </goal>
+
+    <scenario>
+    You are trying to get a refund for a purchase you made.
+    You are a busy executive who speaks concisely and directly.
+    You get impatient with long explanations and prefer bullet points.
+    You often interrupt to ask specific questions.
+    </scenario>
+
+    <rules>
+    - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user
+    </rules>
+```
+
+:::
 
 ### User Simulator Strategies
 
@@ -322,7 +524,9 @@ The judge evaluates after each agent response, allowing it to:
 
 You can customize judge behavior:
 
-```python
+:::code-group
+
+```python [python]
 scenario.JudgeAgent(
     criteria=["Agent provides accurate information"],
     model="openai/o3",  # Use different model
@@ -352,6 +556,36 @@ scenario.JudgeAgent(
 )
 ```
 
+```typescript [typescript]
+scenario.judgeAgent({
+  criteria: ["Agent provides accurate information"],
+  model: "o3", // Use different model
+  systemPrompt: `
+    <role>
+        You are an LLM as a judge watching a simulated conversation as it plays out live to determine if the agent under test meets the criteria or not.
+        </role>
+
+        <goal>
+        Your goal is to determine if you already have enough information to make a verdict of the scenario below, or if the conversation should continue for longer.
+        If you do have enough information, use the finish_test tool to determine if all the criteria have been met, if not, use the continue_test tool to let the next step play out.
+        </goal>
+
+        <scenario>
+        ${description}
+        </scenario>
+
+        <criteria>
+        ${criteria.join("\n")}
+        </criteria>
+
+        <rules>
+        - Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criterias.
+        - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+        </rules>
+```
+
+:::
+
 ## Scenario Organization
 
 Scenario sets are useful for:
@@ -368,7 +602,9 @@ While optional, we strongly recommend setting stable identifiers for your scenar
 - **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
 - **batch_run_id**: Groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
 
-```python
+:::code-group
+
+```python [python]
 import os
 
 result = await scenario.run(
@@ -382,26 +618,19 @@ result = await scenario.run(
 )
 ```
 
-You can also set the `batch_run_id` using environment variables for CI/CD integration:
-
-```python
-import os
-
-# Set batch ID for CI/CD integration
-os.environ["SCENARIO_BATCH_RUN_ID"] = os.environ.get("GITHUB_RUN_ID", "local-run")
-
-result = await scenario.run(
-    name="my first scenario",
-    description="A simple test to see if the agent responds.",
-    set_id="my-test-suite",
-    agents=[
-        scenario.Agent(my_agent),
-        scenario.UserSimulatorAgent(),
-    ]
-)
+```typescript [typescript]
+const result = await scenario.run({
+  name: "my first scenario",
+  description: "A simple test to see if the agent responds.",
+  setId: "my-test-suite", // Group this scenario into a set
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+  ],
+});
 ```
 
-The `batch_run_id` is automatically generated for each test run, but you can also set it globally using the `SCENARIO_BATCH_RUN_ID` environment variable.
+:::
 
 ### Event Tracking
 
