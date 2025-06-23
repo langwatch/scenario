@@ -116,8 +116,8 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
       console.log(`Scenario failed: ${cfg.name}`);
       console.log(`Reasoning: ${result.reasoning}`);
       console.log('--------------------------------');
-      console.log(`Passed criteria: ${result.passedCriteria.join("\n- ")}`);
-      console.log(`Failed criteria: ${result.failedCriteria.join("\n- ")}`);
+      console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
+      console.log(`Unmet criteria: ${result.unmetCriteria.join("\n- ")}`);
       console.log(result.messages.map(formatMessage).join("\n"));
     }
 
