@@ -157,6 +157,7 @@ The configuration object for a scenario.
 - `script?: ScriptStep[]`: An optional array of steps to control the scenario flow. If not provided, the scenario will proceed automatically.
 - `maxTurns?: number`: The maximum number of conversation turns before a timeout. Defaults to 10.
 - `verbose?: boolean`: Enables detailed logging during execution.
+- `setId?: string`: (Optional) Groups related scenarios into a test suite ("Simulation Set"). Useful for organizing and tracking scenarios in the UI and reporting. If not provided, the scenario will not be grouped into a set.
 
 ### Agents
 
@@ -270,3 +271,21 @@ pnpm test
 ## License
 
 MIT
+
+## Grouping Scenarios with setId
+
+You can group related scenarios into a set ("Simulation Set") by providing the `setId` option. This is useful for organizing your scenarios in the UI and for reporting in LangWatch.
+
+```typescript
+const result = await scenario.run({
+  name: "my first scenario",
+  description: "A simple test to see if the agent responds.",
+  setId: "my-test-suite", // Group this scenario into a set
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+  ],
+});
+```
+
+This will group all scenarios with the same `setId` together in the LangWatch UI and reporting tools.
