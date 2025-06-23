@@ -1,7 +1,7 @@
-import { beforeEach, afterEach } from 'vitest';
-import { EventBus } from '../../events/event-bus';
 import fs from 'fs';
 import path from 'path';
+import { beforeEach, afterEach } from 'vitest';
+import { EventBus } from '../../events/event-bus';
 
 function getProjectRoot() {
   return process.cwd();

@@ -1,5 +1,5 @@
+import VitestReporter from "@langwatch/scenario/integrations/vitest/reporter";
 import { defineConfig } from "vitest/config";
-import VitestReporter from '@langwatch/scenario/integrations/vitest/reporter';
 
 export default defineConfig({
   test: {
