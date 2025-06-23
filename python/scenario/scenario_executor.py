@@ -119,7 +119,7 @@ class ScenarioExecutor:
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
         event_bus: Optional[ScenarioEventBus] = None,
-        setId: Optional[str] = None,
+        set_id: Optional[str] = None,
     ):
         """
         Initialize a scenario executor.
@@ -141,7 +141,7 @@ class ScenarioExecutor:
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
-            setId: Optional set identifier for grouping related scenarios
+            set_id: Optional set identifier for grouping related scenarios
         """
         self.name = name
         self.description = description
@@ -166,7 +166,7 @@ class ScenarioExecutor:
         self.event_bus.subscribe_to_events(self._events)
 
         self.batch_run_id = get_or_create_batch_run_id()
-        self.scenario_set_id = setId or "default"
+        self.scenario_set_id = set_id or "default"
 
     @property
     def events(self) -> Observable:
@@ -827,7 +827,7 @@ async def run(
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
     script: Optional[List[ScriptStep]] = None,
-    setId: Optional[str] = None,
+    set_id: Optional[str] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -845,7 +845,7 @@ async def run(
         cache_key: Cache key for deterministic behavior
         debug: Enable debug mode for step-by-step execution
         script: Optional script steps to control scenario flow
-        setId: Optional set identifier for grouping related scenarios
+        set_id: Optional set identifier for grouping related scenarios
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -864,7 +864,7 @@ async def run(
                scenario.UserSimulatorAgent(),
                scenario.JudgeAgent(criteria=["Agent provides helpful response"])
            ],
-           setId="customer-support-tests"
+           set_id="customer-support-tests"
         )
 
         # Scripted scenario with custom evaluations
@@ -882,7 +882,7 @@ async def run(
                custom_eval,
                scenario.succeed()
            ],
-           setId="integration-tests"
+           set_id="integration-tests"
         )
 
         # Results analysis
@@ -900,7 +900,7 @@ async def run(
         cache_key=cache_key,
         debug=debug,
         script=script,
-        setId=setId,
+        set_id=set_id,
     )
 
     # We'll use a thread pool to run the execution logic, we

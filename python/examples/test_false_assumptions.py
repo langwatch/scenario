@@ -62,7 +62,7 @@ async def test_early_assumption_bias():
             # Time to make a judgment call
             scenario.judge(),
         ],
-        setId="python-examples",
+        set_id="python-examples",
     )
 
     assert result.success
