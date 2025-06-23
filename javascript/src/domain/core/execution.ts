@@ -23,12 +23,12 @@ export interface ScenarioResult {
   /**
    * A list of criteria that were successfully met.
    */
-  passedCriteria: string[];
+  metCriteria: string[];
 
   /**
    * A list of criteria that were not met.
    */
-  failedCriteria: string[];
+  unmetCriteria: string[];
 
   /**
    * The total time taken for the scenario execution in seconds.

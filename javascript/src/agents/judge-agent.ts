@@ -159,8 +159,8 @@ export const judgeAgent = (cfg: JudgeAgentConfig) => {
           success: false,
           messages: [],
           reasoning: "JudgeAgent: No criteria was provided to be judged against",
-          passedCriteria: [],
-          failedCriteria: [],
+          metCriteria: [],
+          unmetCriteria: [],
         } satisfies ScenarioResult;
       }
 
@@ -190,15 +190,15 @@ export const judgeAgent = (cfg: JudgeAgentConfig) => {
             const reasoning = args.reasoning || "No reasoning provided";
             const criteria = args.criteria || {};
             const criteriaValues = Object.values(criteria);
-            const passedCriteria = cfg.criteria.filter((_, i) => criteriaValues[i] === "true");
-            const failedCriteria = cfg.criteria.filter((_, i) => criteriaValues[i] !== "true");
+            const metCriteria = cfg.criteria.filter((_, i) => criteriaValues[i] === "true");
+            const unmetCriteria = cfg.criteria.filter((_, i) => criteriaValues[i] !== "true");
 
             return {
               success: verdict === "success",
               messages: input.messages,
               reasoning,
-              passedCriteria,
-              failedCriteria,
+              metCriteria,
+              unmetCriteria,
             } satisfies ScenarioResult;
 
           }
@@ -211,8 +211,8 @@ export const judgeAgent = (cfg: JudgeAgentConfig) => {
               success: false,
               messages: input.messages,
               reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
-              passedCriteria: [],
-              failedCriteria: cfg.criteria,
+              metCriteria: [],
+              unmetCriteria: cfg.criteria,
             } satisfies ScenarioResult;
         }
       }
@@ -221,8 +221,8 @@ export const judgeAgent = (cfg: JudgeAgentConfig) => {
         success: false,
         messages: input.messages,
         reasoning: `JudgeAgent: No tool call found in LLM output`,
-        passedCriteria: [],
-        failedCriteria: cfg.criteria,
+        metCriteria: [],
+        unmetCriteria: cfg.criteria,
       } satisfies ScenarioResult;
     },
   } satisfies JudgeAgentAdapter;
