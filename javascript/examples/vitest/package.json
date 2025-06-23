@@ -1,23 +1,23 @@
 {
-  "name": "vitest",
+  "name": "vitest-example",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "SCENARIO_BATCH_RUN_ID=scenariobatchrun_$(nanoid) dotenv -e .env -- vitest run"
+    "test": "SCENARIO_BATCH_RUN_ID=scenariobatchrun_$(nanoid) dotenv -e .env -- pnpm exec vitest run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "dotenv-cli": "^8.0.0",
     "dotenv": "^16.5.0",
-    "nanoid-cli": "^1.0.1",
-    "vitest": "^3.1.3"
+    "dotenv-cli": "^8.0.0",
+    "nanoid-cli": "^1.0.1"
   },
   "dependencies": {
-    "@langwatch/scenario": "file:../..",
-    "ai": ">=4.0.0"
+    "@langwatch/scenario": "workspace:*",
+    "ai": ">=4.0.0",
+    "vitest": "3.2.4"
   }
 }

@@ -7,6 +7,7 @@ import { Logger } from "../utils/logger";
  * Manages scenario event publishing, subscription, and processing pipeline.
  */
 export class EventBus {
+  private static registry = new Set<EventBus>();
   private events$ = new Subject<ScenarioEvent>();
   private eventReporter: EventReporter;
   private processingPromise: Promise<void> | null = null;
@@ -14,6 +15,11 @@ export class EventBus {
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.eventReporter = new EventReporter(config);
+    EventBus.registry.add(this);
+  }
+
+  static getAllBuses(): Set<EventBus> {
+    return EventBus.registry;
   }
 
   /**
@@ -94,5 +100,12 @@ export class EventBus {
     this.logger.debug("Subscribing to event stream");
 
     return source$.subscribe(this.events$);
+  }
+
+  /**
+   * Expose the events$ observable for external subscription (read-only).
+   */
+  get eventsObservable(): Observable<ScenarioEvent> {
+    return this.events$.asObservable();
   }
 }
