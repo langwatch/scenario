@@ -21,7 +21,9 @@ interface with an async <RefLink link={{ python: "agent_adapter.html#scenario.ag
 method, which receives an <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "types.html#scenario.types.AgentInput" }} code={{ python: "AgentInput", typescript: "AgentInput" }} />
 and returns <RefLink link={{ python: "types.html#scenario.types.AgentReturnTypes", typescript: "types.html#scenario.types.AgentReturnTypes" }} code={{ python: "AgentReturnTypes", typescript: "AgentReturnTypes" }} />:
 
-```python
+:::code-group
+
+```python [python]
 import scenario
 
 class MyAgent(scenario.AgentAdapter):
@@ -30,28 +32,80 @@ class MyAgent(scenario.AgentAdapter):
         pass
 ```
 
+```typescript [typescript]
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+
+// Object style
+const myAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Your integration logic here
+    return "Hello!";
+  },
+};
+
+// Or class style
+import type { AgentInput, AgentReturnTypes } from "@langwatch/scenario";
+import { AgentRole } from "@langwatch/scenario";
+
+class MyAgent implements AgentAdapter {
+  role = AgentRole.AGENT;
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Your integration logic here
+    return "Hello!";
+  }
+}
+```
+
+:::
+
 ### AgentInput
 
-The <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "types.html#scenario.types.AgentInput" }} code={{ python: "AgentInput", typescript: "AgentInput" }} /> provides everything your agent needs for responding on the current turn:
+:::code-group
 
-```python
+```python [python]
 class AgentInput:
-    thread_id: str                          # Unique conversation ID
-    messages: List[ChatCompletionMessageParam]  # Full conversation history
+    thread_id: str                                  # Unique conversation ID
+    messages: List[ChatCompletionMessageParam]      # Full conversation history
     new_messages: List[ChatCompletionMessageParam]  # New messages since last call
-    judgment_request: bool                  # Whether this is a judge request
-    scenario_state: ScenarioState          # Current scenario state
+    judgment_request: bool                          # Whether this is a judge request
+    scenario_state: ScenarioState                   # Current scenario state
 
     # Convenience methods
     def last_new_user_message(self) -> ChatCompletionUserMessageParam
     def last_new_user_message_str(self) -> str
 ```
 
+```typescript [typescript]
+import type { AgentInput } from "@langwatch/scenario";
+
+// interface AgentInput {
+//   threadId: string;                          // Unique conversation ID
+//   messages: CoreMessage[];                   // Full conversation history
+//   newMessages: CoreMessage[];                // New messages since last call
+//   requestedRole: AgentRole;                  // Role requested by the user
+//   judgmentRequest: boolean;                  // Whether this is a judge request
+//   scenarioState: ScenarioExecutionStateLike; // Current scenario state
+//   scenarioConfig: ScenarioConfig;            // Current scenario config
+// }
+
+// Example usage in an agent:
+const agent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content;
+    return `You said: ${lastUserMessage}`;
+  },
+};
+```
+
+:::
+
 ### AgentReturnTypes
 
-Your agent can return any of these types:
+:::code-group
 
-```python
+```python [python]
 AgentReturnTypes = Union[
     str,                                   # Simple text response
     ChatCompletionMessageParam,            # Single OpenAI message
@@ -60,13 +114,43 @@ AgentReturnTypes = Union[
 ]
 ```
 
+```typescript [typescript]
+import type { AgentReturnTypes, CoreMessage, ScenarioResult } from "@langwatch/scenario";
+
+// AgentReturnTypes can be:
+// - string
+// - CoreMessage
+// - CoreMessage[]
+// - ScenarioResult
+
+// Example:
+const agent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    // Return a string
+    return "Hello!";
+    // Or return a CoreMessage
+    // return { role: "assistant", content: "Hello!" };
+    // Or return multiple messages
+    // return [
+    //   { role: "assistant", content: "Step 1..." },
+    //   { role: "assistant", content: "Step 2..." },
+    // ];
+    // Or return a ScenarioResult (for judge agents)
+    // return { success: true, reasoning: "All criteria met." };
+  },
+};
+```
+
+:::
+
 ## Integration Patterns
 
 ### 1. Simple String Agents
 
-For agents that take a string and return a string:
+:::code-group
 
-```python
+```python [python]
 def my_simple_agent(question: str) -> str:
     """Your existing agent function"""
     return f"Here's my response to: {question}"
@@ -77,11 +161,23 @@ class SimpleAgent(scenario.AgentAdapter):
         return my_simple_agent(user_message)
 ```
 
+```typescript [typescript]
+const mySimpleAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content;
+    return `Here's my response to: ${lastUserMessage}`;
+  },
+};
+```
+
+:::
+
 ### 2. OpenAI Message Agents
 
-For agents that work with OpenAI-compatible messages:
+:::code-group
 
-```python
+```python [python]
 import litellm
 
 class LiteLLMAgent(scenario.AgentAdapter):
@@ -96,11 +192,29 @@ class LiteLLMAgent(scenario.AgentAdapter):
         return response.choices[0].message
 ```
 
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import { generateText } from "ai";
+
+const openAIAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    const response = await generateText({
+      model: openai("gpt-4.1-mini"),
+      messages: input.messages,
+    });
+    return response.text;
+  },
+};
+```
+
+:::
+
 ### 3. Stateful Agents
 
-For agents that maintain state across calls:
+:::code-group
 
-```python
+```python [python]
 class StatefulAgent(scenario.AgentAdapter):
     def __init__(self):
         self.agent = MyAgent()
@@ -108,15 +222,32 @@ class StatefulAgent(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # We only send new_messages here because this agent keeps the history across calls
         response = await self.agent.call(messages=input.new_messages, thread_id=input.thread_id)
-
         return response
 ```
 
+```typescript [typescript]
+// Example: Stateful agent using closure
+function createStatefulAgent(): AgentAdapter {
+  let state = {};
+  return {
+    role: AgentRole.AGENT,
+    async call(input: AgentInput) {
+      // Use or update state here
+      // For example, count turns:
+      state.turns = (state.turns || 0) + 1;
+      return `Turn number: ${state.turns}`;
+    },
+  };
+}
+```
+
+:::
+
 ### 4. Multi-Step Responses
 
-Return multiple messages for complex interactions:
+:::code-group
 
-```python
+```python [python]
 class MultiStepAgent(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         user_request = input.last_new_user_message_str()
@@ -131,11 +262,90 @@ class MultiStepAgent(scenario.AgentAdapter):
         return await self.simple_response(user_request)
 ```
 
+```typescript [typescript]
+const multiStepAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content || "";
+    if (lastUserMessage.toLowerCase().includes("complex task")) {
+      return [
+        { role: "assistant", content: "I'll help you with that complex task." },
+        { role: "assistant", content: "Let me break this down into steps..." },
+        { role: "assistant", content: "Here's your complete solution:" },
+      ];
+    }
+    return { role: "assistant", content: `Here's a simple response to: ${lastUserMessage}` };
+  },
+};
+```
+
+:::
+
+### 5. Error Handling Agents
+
+:::code-group
+
+```python [python]
+class ErrorAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        raise Exception("Simulated agent failure")
+```
+
+```typescript [typescript]
+const errorAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    throw new Error("Simulated agent failure");
+  },
+};
+
+// In your test, check result.error and result.success
+```
+
+:::
+
+### 6. Tool-Using Agents
+
+:::code-group
+
+```python [python]
+# See OpenAI Message Agents above for Python tool usage (litellm)
+```
+
+```typescript [typescript]
+import { tool } from "ai";
+import { z } from "zod";
+
+const getCurrentWeather = tool({
+  description: "Get the current weather in a given city.",
+  parameters: z.object({
+    city: z.string().describe("The city to get the weather for."),
+  }),
+  execute: async ({ city }) => `The weather in ${city} is sunny!`,
+});
+
+const toolAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input: AgentInput) {
+    // Use generateText with tools
+    const response = await generateText({
+      model: openai("gpt-4.1-mini"),
+      messages: input.messages,
+      tools: { get_current_weather: getCurrentWeather },
+      toolChoice: "auto",
+    });
+    return response.text;
+  },
+};
+```
+
+:::
+
 ## Caching Integration
 
-Use Scenario's caching with your agent:
+:::code-group
 
-```python
+```python [python]
 class CachedAgent(scenario.AgentAdapter):
     @scenario.cache()
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
@@ -143,8 +353,12 @@ class CachedAgent(scenario.AgentAdapter):
         return await self.expensive_llm_call(input.messages)
 ```
 
-You can also use the <RefLink link={{ python: "index.html#scenario.cache", typescript: "index.html#scenario.cache" }} code={{ python: "@scenario.cache", typescript: "@scenario.cache" }} />
-decorator deeper down the stack, in your own codebase, for memoizing any relevant functions.
+```typescript [typescript]
+// Caching is currently only available in Python.
+// For deterministic testing in TypeScript, use mock agents or stubbed responses.
+```
+
+:::
 
 {/* ## Next Steps
 
