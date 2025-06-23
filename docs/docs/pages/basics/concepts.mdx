@@ -388,7 +388,7 @@ You can also set the `batch_run_id` using environment variables for CI/CD integr
 import os
 
 # Set batch ID for CI/CD integration
-os.environ["SCENARIO_BATCH_ID"] = os.environ.get("GITHUB_RUN_ID", "local-run")
+os.environ["SCENARIO_BATCH_RUN_ID"] = os.environ.get("GITHUB_RUN_ID", "local-run")
 
 result = await scenario.run(
     name="my first scenario",
@@ -401,7 +401,7 @@ result = await scenario.run(
 )
 ```
 
-The `batch_run_id` is automatically generated for each test run, but you can also set it globally using the `SCENARIO_BATCH_ID` environment variable.
+The `batch_run_id` is automatically generated for each test run, but you can also set it globally using the `SCENARIO_BATCH_RUN_ID` environment variable.
 
 ### Event Tracking
 

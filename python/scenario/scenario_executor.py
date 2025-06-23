@@ -31,7 +31,7 @@ from scenario._utils import (
     print_openai_messages,
     show_spinner,
     await_if_awaitable,
-    get_or_create_batch_run_id,
+    get_batch_run_id,
     generate_scenario_run_id,
 )
 from openai.types.chat import (
@@ -165,7 +165,7 @@ class ScenarioExecutor:
         self.event_bus = event_bus or ScenarioEventBus()
         self.event_bus.subscribe_to_events(self._events)
 
-        self.batch_run_id = get_or_create_batch_run_id()
+        self.batch_run_id = get_batch_run_id()
         self.scenario_set_id = set_id or "default"
 
     @property

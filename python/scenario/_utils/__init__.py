@@ -7,7 +7,15 @@ for better user experience during scenario execution.
 """
 
 from .message_conversion import convert_agent_return_types_to_openai_messages
-from .ids import get_or_create_batch_run_id, generate_scenario_run_id
+from .ids import (
+    get_batch_run_id,
+    get_or_create_batch_run_id,  # Backward compatibility
+    generate_scenario_run_id,
+    generate_scenario_id,
+    generate_thread_id,
+    generate_message_id,
+    safe_parse_uuid,
+)
 from .utils import (
     SerializableAndPydanticEncoder,
     SerializableWithStringFallback,
@@ -20,8 +28,13 @@ from .utils import (
 
 __all__ = [
     "convert_agent_return_types_to_openai_messages",
-    "get_or_create_batch_run_id",
+    "get_batch_run_id",
+    "get_or_create_batch_run_id",  # Backward compatibility
     "generate_scenario_run_id",
+    "generate_scenario_id",
+    "generate_thread_id",
+    "generate_message_id",
+    "safe_parse_uuid",
     "SerializableAndPydanticEncoder",
     "SerializableWithStringFallback",
     "print_openai_messages",
