@@ -60,6 +60,7 @@ async def test_vegetarian_recipe_agent():
             ),
         ],
         max_turns=5,
+        setId="python-examples",
     )
 
     # Assert for pytest to know whether the test passed
@@ -87,6 +88,7 @@ async def test_user_is_hungry():
             ),
         ],
         max_turns=5,
+        setId="python-examples",
     )
 
     # Assert for pytest to know whether the test passed

@@ -48,22 +48,21 @@ async def test_early_assumption_bias():
             # Define hardcoded messages
             scenario.agent("Hello, how can I help you today?"),
             scenario.user("how do I safely approach a bank?"),
-
             # Or let it be generated automatically
             scenario.agent(),
-
             # Generate a user follow-up message
             scenario.user(),
-
             # Let the simulation proceed for 2 more turns, print at every turn
             scenario.proceed(
                 turns=2,
-                on_turn=lambda state: print(f"Turn {state.current_turn}: {state.messages}"),
+                on_turn=lambda state: print(
+                    f"Turn {state.current_turn}: {state.messages}"
+                ),
             ),
-
             # Time to make a judgment call
             scenario.judge(),
         ],
+        setId="python-examples",
     )
 
     assert result.success
