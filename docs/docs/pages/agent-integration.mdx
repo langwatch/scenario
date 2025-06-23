@@ -93,7 +93,7 @@ class LiteLLMAgent(scenario.AgentAdapter):
             model=self.model,
             messages=input.messages
         )
-        return response.choices[0].message
+        return response.choices[0].message  # type: ignore
 ```
 
 ### 3. Stateful Agents

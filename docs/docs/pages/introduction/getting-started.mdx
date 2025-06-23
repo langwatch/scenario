@@ -83,7 +83,7 @@ def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
             *messages,
         ],
     )
-    return response.choices[0].message
+    return response.choices[0].message  # type: ignore
 ```
 
 ### 2. Set up your environment
@@ -102,7 +102,10 @@ uv run pytest -s test_my_agent.py
 
 You should see output showing the conversation between the simulated user and your agent, followed by the judge's evaluation:
 
-<EmbeddedScript id="asciicast-nvO5GWGzqKTTCd8gtNSezQw11" src="https://asciinema.org/a/nvO5GWGzqKTTCd8gtNSezQw11.js" />
+<EmbeddedScript
+  id="asciicast-nvO5GWGzqKTTCd8gtNSezQw11"
+  src="https://asciinema.org/a/nvO5GWGzqKTTCd8gtNSezQw11.js"
+/>
 
 ## What happened?
 

@@ -86,7 +86,7 @@ def scenario_cache(ignore=[]):
                     model="gpt-4",
                     messages=[{"role": "user", "content": message}]
                 )
-                return response.choices[0].message.content
+                return response.choices[0].message.content  # type: ignore
 
         # Usage in tests
         scenario.configure(cache_key="my-test-suite-v1")
