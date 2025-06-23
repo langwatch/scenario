@@ -52,10 +52,25 @@ export class EventReporter {
       return;
     }
 
+    const eventToSend = { ...event };
+
+    // This is a hack to deal with the fact that the backend only accepts strings
+    if (eventToSend.type === "SCENARIO_MESSAGE_SNAPSHOT") {
+      eventToSend.messages = eventToSend.messages.map((message) => {
+        if (Array.isArray(message.content)) {
+          return {
+            ...message,
+            content: JSON.stringify(message.content),
+          };
+        }
+        return message;
+      });
+    }
+
     try {
       const response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
-        body: JSON.stringify(event),
+        body: JSON.stringify(eventToSend),
         headers: {
           "Content-Type": "application/json",
           "X-Auth-Token": this.apiKey,
@@ -75,14 +90,14 @@ export class EventReporter {
           status: response.status,
           statusText: response.statusText,
           error: errorText,
-          event: event,
+          event: eventToSend,
         });
         // Don't throw - event posting shouldn't break scenario execution
       }
     } catch (error) {
       this.logger.error(`[${event.type}] Event POST error:`, {
         error,
-        event,
+        event: eventToSend,
         endpoint: this.eventsEndpoint,
       });
       // Don't throw - event posting shouldn't break scenario execution
