@@ -47,12 +47,56 @@ description="""
 
 :::tip
 Write descriptions from the user's perspective. Include:
+
 - **Context**: What situation is the user in?
 - **Intent**: What do they want to accomplish?
 - **Constraints**: What limitations or concerns do they have?
 - **Personality**: How might they communicate?
-:::
+  :::
 
+The `setId` is included in all events emitted during scenario execution, making it easy to filter and analyze related test results in monitoring systems.
+
+### Grouping Your Sets and Batches
+
+While optional, we strongly recommend setting stable identifiers for your scenarios, sets, and batches for better organization and tracking in LangWatch.
+
+- **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
+- **batch_run_id**: Groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
+
+```python
+import os
+
+result = await scenario.run(
+    name="my first scenario",
+    description="A simple test to see if the agent responds.",
+    set_id="my-test-suite",
+    agents=[
+        scenario.Agent(my_agent),
+        scenario.UserSimulatorAgent(),
+    ]
+)
+```
+
+You can also set the `batch_run_id` using environment variables for CI/CD integration:
+
+```python
+import os
+
+# Set batch ID for CI/CD integration
+os.environ["SCENARIO_BATCH_ID"] = os.environ.get("GITHUB_RUN_ID", "local-run")
+
+result = await scenario.run(
+    name="my first scenario",
+    description="A simple test to see if the agent responds.",
+    set_id="my-test-suite",
+    agents=[
+        scenario.Agent(my_agent),
+        scenario.UserSimulatorAgent(),
+    ]
+)
+```
+
+The `batch_run_id` is automatically generated for each test run, but you can also set it globally using the `SCENARIO_BATCH_ID` environment variable.
 
 ## Connect Your Agent
 
@@ -125,6 +169,7 @@ async def test_customer_service_billing():
 ## Writing Tips
 
 ### 1. Start with User Intent
+
 Begin with what the user wants to accomplish:
 
 ```python
@@ -140,6 +185,7 @@ description="""
 ```
 
 ### 2. Include Personality and Context
+
 Make scenarios realistic by adding human elements:
 
 ```python
@@ -151,6 +197,7 @@ description="""
 ```
 
 ### 3. Test Edge Cases
+
 Use scenarios to explore edge cases:
 
 ```python
@@ -162,6 +209,7 @@ description="""
 ```
 
 ### 4. Layer Complexity Gradually
+
 Start simple, then add complexity:
 
 ```python
@@ -179,6 +227,7 @@ description="""
 ## Common Patterns
 
 ### Information Gathering
+
 Test how well your agent collects necessary information:
 
 ```python
@@ -196,6 +245,7 @@ agents=[
 ```
 
 ### Clarification and Confirmation
+
 Test how agents handle ambiguous requests:
 
 ```python
@@ -212,6 +262,7 @@ agents=[
 ```
 
 ### Error Recovery
+
 Test how agents handle mistakes, you can enforce it to have made a mistake by using a <RefLink link={{ python: "script.html", typescript: "script.html" }} code={{ python: "script", typescript: "script" }} />,
 and let the rest play out by itself.
 

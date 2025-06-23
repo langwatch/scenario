@@ -406,6 +406,48 @@ class MyAgent:
 
 This will cache any function call you decorate when running the tests and make them repeatable, hashed by the function arguments, the scenario being executed, and the `cache_key` you provided. You can exclude arguments that should not be hashed for the cache key by naming them in the `ignore` argument.
 
+## Grouping Your Sets and Batches
+
+While optional, we strongly recommend setting stable identifiers for your scenarios, sets, and batches for better organization and tracking in LangWatch.
+
+- **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
+- **batch_run_id**: Groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
+
+```python
+import os
+
+result = await scenario.run(
+    name="my first scenario",
+    description="A simple test to see if the agent responds.",
+    set_id="my-test-suite",
+    agents=[
+        scenario.Agent(my_agent),
+        scenario.UserSimulatorAgent(),
+    ]
+)
+```
+
+You can also set the `batch_run_id` using environment variables for CI/CD integration:
+
+```python
+import os
+
+# Set batch ID for CI/CD integration
+os.environ["SCENARIO_BATCH_ID"] = os.environ.get("GITHUB_RUN_ID", "local-run")
+
+result = await scenario.run(
+    name="my first scenario",
+    description="A simple test to see if the agent responds.",
+    set_id="my-test-suite",
+    agents=[
+        scenario.Agent(my_agent),
+        scenario.UserSimulatorAgent(),
+    ]
+)
+```
+
+The `batch_run_id` is automatically generated for each test run, but you can also set it globally using the `SCENARIO_BATCH_ID` environment variable.
+
 ## Disable Output
 
 You can remove the `-s` flag from pytest to hide the output during test, which will only show up if the test fails. Alternatively, you can set `verbose=False` in the `Scenario.configure` method or in the specific scenario you are running.
