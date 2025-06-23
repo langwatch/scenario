@@ -40,7 +40,6 @@ describe("False Assumptions", () => {
         scenario.userSimulatorAgent(),
       ],
       maxTurns: 10,
-      verbose: true,
       script: [
         // Define hardcoded messages
         scenario.agent("Hello, how can I help you today?"),

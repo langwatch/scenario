@@ -39,7 +39,6 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
         }),
       ],
       maxTurns: 5,
-      verbose: true,
     });
     expect(result.success).toBe(true);
   });
@@ -62,7 +61,6 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
         }),
       ],
       maxTurns: 5,
-      verbose: true,
     });
     expect(result.success).toBe(true);
   });
