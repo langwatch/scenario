@@ -1,5 +1,5 @@
 import { CoreMessage, CoreToolMessage } from "ai";
-import { ScenarioExecutionStateLike } from "../domain";
+import { ScenarioExecutionStateLike, ScenarioConfig } from "../domain";
 import { generateMessageId } from "../utils/ids";
 
 /**
@@ -12,13 +12,15 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   private _messages: (CoreMessage & { id: string })[] = [];
   private _currentTurn: number = 0;
   private _threadId: string = "";
-  private _pendingMessages: Map<number, CoreMessage[]> = new Map();
+  description: string;
+  config: ScenarioConfig;
 
-  get messages(): CoreMessage[] {
-    return this._messages;
+  constructor(config: ScenarioConfig) {
+    this.config = config;
+    this.description = config.description;
   }
 
-  get history(): CoreMessage[] {
+  get messages(): CoreMessage[] {
     return this._messages;
   }
 
@@ -38,40 +40,13 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     this._threadId = value;
   }
 
-  addMessage(message: CoreMessage, agentCount?: number, fromAgentIdx?: number): void {
+  /**
+   * Adds a message to the conversation history.
+   *
+   * @param message - The message to add.
+   */
+  addMessage(message: CoreMessage): void {
     this._messages.push({ ...message, id: generateMessageId() });
-
-    if (agentCount === void 0) return;
-
-    for (let idx = 0; idx < agentCount; idx++) {
-      if (idx === fromAgentIdx) continue;
-
-      if (!this._pendingMessages.has(idx)) {
-        this._pendingMessages.set(idx, []);
-      }
-      this._pendingMessages.get(idx)!.push(message);
-    }
-  }
-
-  appendMessage(role: CoreMessage["role"], content: string): void {
-    const message: CoreMessage = { role, content } as CoreMessage;
-    this._messages.push({ ...message, id: generateMessageId() });
-  }
-
-  appendUserMessage(content: string): void {
-    this.appendMessage("user", content);
-  }
-
-  appendAssistantMessage(content: string): void {
-    this.appendMessage("assistant", content);
-  }
-
-  getPendingMessages(agentIdx: number): CoreMessage[] {
-    return this._pendingMessages.get(agentIdx) || [];
-  }
-
-  clearPendingMessages(agentIdx: number): void {
-    this._pendingMessages.set(agentIdx, []);
   }
 
   lastMessage(): CoreMessage {
@@ -91,20 +66,6 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
 
     if (!lastMessage) {
       throw new Error("No user message in history");
-    }
-
-    return lastMessage;
-  }
-
-  lastAssistantMessage(): CoreMessage {
-    if (this._messages.length === 0) {
-      throw new Error("No messages in history");
-    }
-
-    const lastMessage = this._messages.findLast(message => message.role === "assistant");
-
-    if (!lastMessage) {
-      throw new Error("No assistant message in history");
     }
 
     return lastMessage;

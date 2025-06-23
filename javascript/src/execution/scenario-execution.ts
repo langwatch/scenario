@@ -27,50 +27,42 @@ const batchRunId = getBatchRunId();
  * and manages the scenario's state. It also emits events that can be subscribed to
  * for observing the scenario's progress.
  *
+ * Note: This is an internal class. Most users will interact with the higher-level
+ * `scenario.run()` function instead of instantiating this class directly.
+ *
  * @example
  * ```typescript
- * import { scenario, user, agent, succeed, judge } from "@getscenario/scenario";
+ * import scenario from "@langwatch/scenario";
  *
- * const myScenario = scenario(
- *   {
- *     name: "My First Scenario",
- *     description: "A simple test of the agent's greeting.",
- *     agents: [
- *       scenario.userSimulatorAgent(),
- *       scenario.judgeAgent({
- *         criteria: [
- *           "Agent should respond with a greeting",
- *           "Agent should ask for the user's name",
- *           "Agent should respond with a farewell",
- *         ],
- *       }),
- *     ],
- *   },
- *   [
- *     user("Hello"),
- *     agent("Hi, how can I help you?"),
- *     succeed("Agent responded correctly."),
+ * // This is a simplified example of what `scenario.run` does internally.
+ * const result = await scenario.run({
+ *   name: "My First Scenario",
+ *   description: "A simple test of the agent's greeting.",
+ *   agents: [
+ *     scenario.userSimulatorAgent(),
+ *     scenario.judgeAgent({
+ *       criteria: ["Agent should respond with a greeting"],
+ *     }),
+ *   ],
+ *   script: [
+ *     scenario.user("Hello"),
+ *     scenario.agent(),
+ *     scenario.judge(),
  *   ]
- * );
- *
- * const execution = new ScenarioExecution(myScenario.config, myScenario.script);
- *
- * execution.events$.subscribe(event => {
- *   console.log("Scenario event:", event);
  * });
  *
- * const result = await execution.execute();
  * console.log("Scenario result:", result.success);
  * ```
  */
 export class ScenarioExecution implements ScenarioExecutionLike {
-  private state: ScenarioExecutionStateLike = new ScenarioExecutionState();
+  private state: ScenarioExecutionState;
   private eventSubject = new Subject<ScenarioEvent>();
   private logger = new Logger("scenario.execution.ScenarioExecution");
   private config: ScenarioConfigFinal;
   private agents: AgentAdapter[] = [];
   private pendingRolesOnTurn: AgentRole[] = [];
   private pendingAgentsOnTurn: Set<AgentAdapter> = new Set();
+  private pendingMessages: Map<number, CoreMessage[]> = new Map();
   private partialResult: Omit<ScenarioResult, "messages"> | null = null;
   private agentTimes: Map<number, number> = new Map();
   private totalStartTime: number = 0;
@@ -99,6 +91,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       maxTurns: config.maxTurns ?? 10,
       threadId: config.threadId ?? generateThreadId(),
     } satisfies ScenarioConfigFinal;
+
+    this.state = new ScenarioExecutionState(this.config);
 
     this.reset();
   }
@@ -227,7 +221,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     const agentInput: AgentInput = {
       threadId: this.state.threadId,
       messages: this.state.messages,
-      newMessages: this.state.getPendingMessages(idx),
+      newMessages: this.pendingMessages.get(idx) ?? [],
       requestedRole: role,
       judgmentRequest: judgmentRequest,
       scenarioState: this.state,
@@ -238,7 +232,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     const endTime = Date.now();
 
     this.addAgentTime(idx, endTime - startTime);
-    this.state.clearPendingMessages(idx);
+    this.pendingMessages.delete(idx);
 
     if (typeof agentResponse === "object" && agentResponse && "success" in agentResponse) {
       return agentResponse as ScenarioResult;
@@ -250,7 +244,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     );
 
     for (const message of messages) {
-      this.state.addMessage(message, this.agents.length, idx);
+      this.state.addMessage(message);
+      this.broadcastMessage(message, idx);
     }
 
     return messages;
@@ -267,7 +262,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } else if (message.role === "assistant") {
       await this.scriptCallAgent(AgentRole.AGENT, message);
     } else {
-      this.state.addMessage(message, this.agents.length);
+      this.state.addMessage(message);
+      this.broadcastMessage(message);
     }
   }
 
@@ -434,15 +430,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.removePendingAgent(agent);
 
     if (content) {
-      if (typeof content === "string") {
-        if (role === AgentRole.USER) {
-          this.state.addMessage({ role: "user", content } as CoreMessage, this.agents.length, index);
-        } else {
-          this.state.addMessage({ role: "assistant", content } as CoreMessage, this.agents.length, index);
-        }
-      } else {
-        this.state.addMessage(content, this.agents.length, index);
-      }
+      const message = typeof content === "string" ? { role: (role === AgentRole.USER ? "user" : "assistant"), content } as CoreMessage : content;
+      this.state.addMessage(message);
+      this.broadcastMessage(message, index);
 
       return null;
     }
@@ -455,12 +445,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   private reset(): void {
-    this.state = new ScenarioExecutionState();
+    this.state = new ScenarioExecutionState(this.config);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
     this.newTurn();
     this.state.currentTurn = 0;
     this.totalStartTime = Date.now();
+    this.pendingMessages.clear();
   }
 
   private nextAgentForRole(role: AgentRole): { idx: number; agent: AgentAdapter | null } {
@@ -469,6 +460,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         return { idx: this.agents.indexOf(agent), agent };
       }
     }
+
     return { idx: -1, agent: null };
   }
 
@@ -609,6 +601,23 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       status,
       // Add error/metrics fields if needed
     } as ScenarioRunFinishedEvent);
+  }
+
+  /**
+   * Distributes a message to all other agents in the scenario.
+   *
+   * @param message - The message to broadcast.
+   * @param fromAgentIdx - The index of the agent that sent the message, to avoid echoing.
+   */
+  private broadcastMessage(message: CoreMessage, fromAgentIdx?: number): void {
+    for (let idx = 0; idx < this.agents.length; idx++) {
+      if (idx === fromAgentIdx) continue;
+
+      if (!this.pendingMessages.has(idx)) {
+        this.pendingMessages.set(idx, []);
+      }
+      this.pendingMessages.get(idx)!.push(message);
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import { CoreMessage, CoreToolMessage } from "ai";
+import type { ScenarioConfig } from "../scenarios";
 
 /**
  * Represents the result of a scenario execution.
@@ -45,40 +46,36 @@ export interface ScenarioResult {
  */
 export interface ScenarioExecutionStateLike {
   /**
+   * The scenario configuration.
+   */
+  readonly config: ScenarioConfig;
+
+  /**
+   * The scenario description.
+   */
+  readonly description: string;
+
+  /**
    * The sequence of messages exchanged during the scenario.
    */
-  messages: CoreMessage[];
+  get messages(): CoreMessage[];
 
   /**
    * The unique identifier for the execution thread.
    */
-  threadId: string;
+  get threadId(): string;
 
   /**
    * The current turn number in the scenario.
    */
-  currentTurn: number;
+  get currentTurn(): number;
 
   /**
-   * Adds a message to the execution state.
-   * @param message - The message to add.
-   * @param agentCount - The total number of agents.
-   * @param fromAgentIdx - The index of the agent sending the message.
+   * Adds a message to the scenario's execution state.
+   *
+   * @param message - The core message to add.
    */
-  addMessage(message: CoreMessage, agentCount?: number, fromAgentIdx?: number): void;
-
-  /**
-    * Retrieves pending messages for a specific agent.
-    * @param agentIdx - The index of the agent.
-    * @returns An array of pending messages.
-    */
-  getPendingMessages(agentIdx: number): CoreMessage[];
-
-  /**
-   * Clears pending messages for a specific agent.
-   * @param agentIdx - The index of the agent.
-   */
-  clearPendingMessages(agentIdx: number): void;
+  addMessage(message: CoreMessage): void;
 
   /**
    * Retrieves the last message from the execution state.
