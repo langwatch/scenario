@@ -147,6 +147,7 @@ from typing import (
     TypedDict,
 )
 import time
+import warnings
 import termcolor
 import asyncio
 import concurrent.futures
@@ -232,6 +233,7 @@ class ScenarioExecutor:
     event_bus: ScenarioEventBus
 
     batch_run_id: str
+    scenario_set_id: str
 
     def __init__(
         self,
@@ -245,6 +247,7 @@ class ScenarioExecutor:
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
         event_bus: Optional[ScenarioEventBus] = None,
+        set_id: Optional[str] = None,
     ):
         &#34;&#34;&#34;
         Initialize a scenario executor.
@@ -266,6 +269,7 @@ class ScenarioExecutor:
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor&#39;s events
+            set_id: Optional set identifier for grouping related scenarios
         &#34;&#34;&#34;
         self.name = name
         self.description = description
@@ -290,6 +294,7 @@ class ScenarioExecutor:
         self.event_bus.subscribe_to_events(self._events)
 
         self.batch_run_id = get_or_create_batch_run_id()
+        self.scenario_set_id = set_id or &#34;default&#34;
 
     @property
     def events(self) -&gt; Observable:
@@ -309,111 +314,6 @@ class ScenarioExecutor:
         &#34;&#34;&#34;
         event.timestamp = int(time.time() * 1000)
         self._events.on_next(event)
-
-    @classmethod
-    async def run(
-        cls,
-        name: str,
-        description: str,
-        agents: List[AgentAdapter] = [],
-        max_turns: Optional[int] = None,
-        verbose: Optional[Union[bool, int]] = None,
-        cache_key: Optional[str] = None,
-        debug: Optional[bool] = None,
-        script: Optional[List[ScriptStep]] = None,
-    ) -&gt; ScenarioResult:
-        &#34;&#34;&#34;
-        High-level interface for running a scenario test.
-
-        This is the main entry point for executing scenario tests. It creates a
-        ScenarioExecutor instance and runs it in an isolated thread pool to support
-        parallel execution and prevent blocking.
-
-        Args:
-            name: Human-readable name for the scenario
-            description: Detailed description of what the scenario tests
-            agents: List of agent adapters (agent under test, user simulator, judge)
-            max_turns: Maximum conversation turns before timeout (default: 10)
-            verbose: Show detailed output during execution
-            cache_key: Cache key for deterministic behavior
-            debug: Enable debug mode for step-by-step execution
-            script: Optional script steps to control scenario flow
-
-        Returns:
-            ScenarioResult containing the test outcome, conversation history,
-            success/failure status, and detailed reasoning
-
-        Example:
-            ```
-            import scenario
-
-            # Simple scenario with automatic flow
-            result = await scenario.run(
-               name=&#34;help request&#34;,
-               description=&#34;User asks for help with a technical problem&#34;,
-               agents=[
-                   my_agent,
-                   scenario.UserSimulatorAgent(),
-                   scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
-               ]
-            )
-
-            # Scripted scenario with custom evaluations
-            result = await scenario.run(
-               name=&#34;custom interaction&#34;,
-               description=&#34;Test specific conversation flow&#34;,
-               agents=[
-                   my_agent,
-                   scenario.UserSimulatorAgent(),
-                   scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
-               ],
-               script=[
-                   scenario.user(&#34;Hello&#34;),
-                   scenario.agent(),
-                   custom_eval,
-                   scenario.succeed()
-               ]
-            )
-
-            # Results analysis
-            print(f&#34;Test {&#39;PASSED&#39; if result.success else &#39;FAILED&#39;}&#34;)
-            print(f&#34;Reasoning: {result.reasoning}&#34;)
-            print(f&#34;Conversation had {len(result.messages)} messages&#34;)
-            ```
-        &#34;&#34;&#34;
-        scenario = cls(
-            name=name,
-            description=description,
-            agents=agents,
-            max_turns=max_turns,
-            verbose=verbose,
-            cache_key=cache_key,
-            debug=debug,
-            script=script,
-        )
-
-        # We&#39;ll use a thread pool to run the execution logic, we
-        # require a separate thread because even though asyncio is
-        # being used throughout, any user code on the callback can
-        # be blocking, preventing them from running scenarios in parallel
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-
-            def run_in_thread():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-                try:
-                    return loop.run_until_complete(scenario._run())
-                finally:
-                    scenario.event_bus.drain()
-                    loop.close()
-
-            # Run the function in the thread pool and await its result
-            # This converts the thread&#39;s execution into a Future that the current
-            # event loop can await without blocking
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(executor, run_in_thread)
-            return result
 
     def reset(self):
         &#34;&#34;&#34;
@@ -489,7 +389,6 @@ class ScenarioExecutor:
             if idx not in self._pending_messages:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
-
 
     def add_messages(
         self,
@@ -618,7 +517,7 @@ class ScenarioExecutor:
             agent_time=agent_time,
         )
 
-    async def _run(self) -&gt; ScenarioResult:
+    async def run(self) -&gt; ScenarioResult:
         &#34;&#34;&#34;
         Run a scenario against the agent under test.
 
@@ -647,7 +546,11 @@ class ScenarioExecutor:
                 self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
-                    status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
+                    status = (
+                        ScenarioRunFinishedEventStatus.SUCCESS
+                        if result.success
+                        else ScenarioRunFinishedEventStatus.FAILED
+                    )
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -660,7 +563,11 @@ class ScenarioExecutor:
                 &#34;&#34;&#34;
             )
 
-            status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
+            status = (
+                ScenarioRunFinishedEventStatus.SUCCESS
+                if result.success
+                else ScenarioRunFinishedEventStatus.FAILED
+            )
             self._emit_run_finished_event(scenario_run_id, result, status)
             return result
 
@@ -673,7 +580,9 @@ class ScenarioExecutor:
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
-            self._emit_run_finished_event(scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR)
+            self._emit_run_finished_event(
+                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
+            )
             raise  # Re-raise the exception after cleanup
 
     async def _call_agent(
@@ -715,16 +624,19 @@ class ScenarioExecutor:
         ):
             start_time = time.time()
 
-            agent_response = agent.call(
-                AgentInput(
-                    # TODO: test thread_id
-                    thread_id=self._state.thread_id,
-                    messages=self._state.messages,
-                    new_messages=self._pending_messages.get(idx, []),
-                    judgment_request=request_judgment,
-                    scenario_state=self._state,
+            # Prevent pydantic validation warnings which should already be disabled
+            with warnings.catch_warnings():
+                warnings.simplefilter(&#34;ignore&#34;)
+                agent_response = agent.call(
+                    AgentInput(
+                        # TODO: test thread_id
+                        thread_id=self._state.thread_id,
+                        messages=self._state.messages,
+                        new_messages=self._pending_messages.get(idx, []),
+                        judgment_request=request_judgment,
+                        scenario_state=self._state,
+                    )
                 )
-            )
             if not isinstance(agent_response, Awaitable):
                 raise Exception(
                     agent_response_not_awaitable(agent.__class__.__name__),
@@ -922,11 +834,14 @@ class ScenarioExecutor:
             batch_run_id: Unique identifier for the batch of scenario runs
             scenario_run_id: Unique identifier for this specific scenario run
             scenario_id: Human-readable name/identifier for the scenario
+            scenario_set_id: Set identifier for grouping related scenarios
             timestamp: Unix timestamp in milliseconds when the event occurred
         &#34;&#34;&#34;
+
         batch_run_id: str
         scenario_run_id: str
         scenario_id: str
+        scenario_set_id: str
         timestamp: int
 
     def _create_common_event_fields(self, scenario_run_id: str) -&gt; _CommonEventFields:
@@ -946,6 +861,7 @@ class ScenarioExecutor:
             &#34;batch_run_id&#34;: self.batch_run_id,
             &#34;scenario_run_id&#34;: scenario_run_id,
             &#34;scenario_id&#34;: self.name,
+            &#34;scenario_set_id&#34;: self.scenario_set_id,
             &#34;timestamp&#34;: int(time.time() * 1000),
         }
 
@@ -992,7 +908,7 @@ class ScenarioExecutor:
         self,
         scenario_run_id: str,
         result: ScenarioResult,
-        status: ScenarioRunFinishedEventStatus
+        status: ScenarioRunFinishedEventStatus,
     ) -&gt; None:
         &#34;&#34;&#34;
         Emit a scenario run finished event.
@@ -1009,7 +925,11 @@ class ScenarioExecutor:
         common_fields = self._create_common_event_fields(scenario_run_id)
 
         results = ScenarioRunFinishedEventResults(
-            verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
+            verdict=(
+                ScenarioRunFinishedEventVerdict.SUCCESS
+                if result.success
+                else ScenarioRunFinishedEventVerdict.FAILURE
+            ),
             reasoning=result.reasoning or &#34;&#34;,
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
@@ -1023,7 +943,116 @@ class ScenarioExecutor:
         self._emit_event(event)
 
         # Signal end of event stream
-        self._events.on_completed()</code></pre>
+        self._events.on_completed()
+
+
+async def run(
+    name: str,
+    description: str,
+    agents: List[AgentAdapter] = [],
+    max_turns: Optional[int] = None,
+    verbose: Optional[Union[bool, int]] = None,
+    cache_key: Optional[str] = None,
+    debug: Optional[bool] = None,
+    script: Optional[List[ScriptStep]] = None,
+    set_id: Optional[str] = None,
+) -&gt; ScenarioResult:
+    &#34;&#34;&#34;
+    High-level interface for running a scenario test.
+
+    This is the main entry point for executing scenario tests. It creates a
+    ScenarioExecutor instance and runs it in an isolated thread pool to support
+    parallel execution and prevent blocking.
+
+    Args:
+        name: Human-readable name for the scenario
+        description: Detailed description of what the scenario tests
+        agents: List of agent adapters (agent under test, user simulator, judge)
+        max_turns: Maximum conversation turns before timeout (default: 10)
+        verbose: Show detailed output during execution
+        cache_key: Cache key for deterministic behavior
+        debug: Enable debug mode for step-by-step execution
+        script: Optional script steps to control scenario flow
+        set_id: Optional set identifier for grouping related scenarios
+
+    Returns:
+        ScenarioResult containing the test outcome, conversation history,
+        success/failure status, and detailed reasoning
+
+    Example:
+        ```
+        import scenario
+
+        # Simple scenario with automatic flow
+        result = await scenario.run(
+           name=&#34;help request&#34;,
+           description=&#34;User asks for help with a technical problem&#34;,
+           agents=[
+               my_agent,
+               scenario.UserSimulatorAgent(),
+               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
+           ],
+           set_id=&#34;customer-support-tests&#34;
+        )
+
+        # Scripted scenario with custom evaluations
+        result = await scenario.run(
+           name=&#34;custom interaction&#34;,
+           description=&#34;Test specific conversation flow&#34;,
+           agents=[
+               my_agent,
+               scenario.UserSimulatorAgent(),
+               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
+           ],
+           script=[
+               scenario.user(&#34;Hello&#34;),
+               scenario.agent(),
+               custom_eval,
+               scenario.succeed()
+           ],
+           set_id=&#34;integration-tests&#34;
+        )
+
+        # Results analysis
+        print(f&#34;Test {&#39;PASSED&#39; if result.success else &#39;FAILED&#39;}&#34;)
+        print(f&#34;Reasoning: {result.reasoning}&#34;)
+        print(f&#34;Conversation had {len(result.messages)} messages&#34;)
+        ```
+    &#34;&#34;&#34;
+    scenario = ScenarioExecutor(
+        name=name,
+        description=description,
+        agents=agents,
+        max_turns=max_turns,
+        verbose=verbose,
+        cache_key=cache_key,
+        debug=debug,
+        script=script,
+        set_id=set_id,
+    )
+
+    # We&#39;ll use a thread pool to run the execution logic, we
+    # require a separate thread because even though asyncio is
+    # being used throughout, any user code on the callback can
+    # be blocking, preventing them from running scenarios in parallel
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+
+        def run_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                return loop.run_until_complete(scenario.run())
+            finally:
+                scenario.event_bus.drain()
+                loop.close()
+
+        # Run the function in the thread pool and await its result
+        # This converts the thread&#39;s execution into a Future that the current
+        # event loop can await without blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(executor, run_in_thread)
+        return result</code></pre>
 </details>
 </section>
 <section>
@@ -1031,13 +1060,199 @@ class ScenarioExecutor:
 <section>
 </section>
 <section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="scenario.scenario_executor.run"><code class="name flex">
+<span>async def <span class="ident">run</span></span>(<span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, script: List[Callable[[ForwardRef('ScenarioState')], None] | Callable[[ForwardRef('ScenarioState')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('ScenarioState')], Awaitable[None]] | Callable[[ForwardRef('ScenarioState')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, set_id: str | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>High-level interface for running a scenario test.</p>
+<p>This is the main entry point for executing scenario tests. It creates a
+ScenarioExecutor instance and runs it in an isolated thread pool to support
+parallel execution and prevent blocking.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>name</code></strong></dt>
+<dd>Human-readable name for the scenario</dd>
+<dt><strong><code>description</code></strong></dt>
+<dd>Detailed description of what the scenario tests</dd>
+<dt><strong><code>agents</code></strong></dt>
+<dd>List of agent adapters (agent under test, user simulator, judge)</dd>
+<dt><strong><code>max_turns</code></strong></dt>
+<dd>Maximum conversation turns before timeout (default: 10)</dd>
+<dt><strong><code>verbose</code></strong></dt>
+<dd>Show detailed output during execution</dd>
+<dt><strong><code>cache_key</code></strong></dt>
+<dd>Cache key for deterministic behavior</dd>
+<dt><strong><code>debug</code></strong></dt>
+<dd>Enable debug mode for step-by-step execution</dd>
+<dt><strong><code>script</code></strong></dt>
+<dd>Optional script steps to control scenario flow</dd>
+<dt><strong><code>set_id</code></strong></dt>
+<dd>Optional set identifier for grouping related scenarios</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>ScenarioResult containing the test outcome, conversation history,
+success/failure status, and detailed reasoning</p>
+<h2 id="example">Example</h2>
+<pre><code>import scenario
+
+# Simple scenario with automatic flow
+result = await scenario.run(
+   name=&quot;help request&quot;,
+   description=&quot;User asks for help with a technical problem&quot;,
+   agents=[
+       my_agent,
+       scenario.UserSimulatorAgent(),
+       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
+   ],
+   set_id=&quot;customer-support-tests&quot;
+)
+
+# Scripted scenario with custom evaluations
+result = await scenario.run(
+   name=&quot;custom interaction&quot;,
+   description=&quot;Test specific conversation flow&quot;,
+   agents=[
+       my_agent,
+       scenario.UserSimulatorAgent(),
+       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
+   ],
+   script=[
+       scenario.user(&quot;Hello&quot;),
+       scenario.agent(),
+       custom_eval,
+       scenario.succeed()
+   ],
+   set_id=&quot;integration-tests&quot;
+)
+
+# Results analysis
+print(f&quot;Test {'PASSED' if result.success else 'FAILED'}&quot;)
+print(f&quot;Reasoning: {result.reasoning}&quot;)
+print(f&quot;Conversation had {len(result.messages)} messages&quot;)
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def run(
+    name: str,
+    description: str,
+    agents: List[AgentAdapter] = [],
+    max_turns: Optional[int] = None,
+    verbose: Optional[Union[bool, int]] = None,
+    cache_key: Optional[str] = None,
+    debug: Optional[bool] = None,
+    script: Optional[List[ScriptStep]] = None,
+    set_id: Optional[str] = None,
+) -&gt; ScenarioResult:
+    &#34;&#34;&#34;
+    High-level interface for running a scenario test.
+
+    This is the main entry point for executing scenario tests. It creates a
+    ScenarioExecutor instance and runs it in an isolated thread pool to support
+    parallel execution and prevent blocking.
+
+    Args:
+        name: Human-readable name for the scenario
+        description: Detailed description of what the scenario tests
+        agents: List of agent adapters (agent under test, user simulator, judge)
+        max_turns: Maximum conversation turns before timeout (default: 10)
+        verbose: Show detailed output during execution
+        cache_key: Cache key for deterministic behavior
+        debug: Enable debug mode for step-by-step execution
+        script: Optional script steps to control scenario flow
+        set_id: Optional set identifier for grouping related scenarios
+
+    Returns:
+        ScenarioResult containing the test outcome, conversation history,
+        success/failure status, and detailed reasoning
+
+    Example:
+        ```
+        import scenario
+
+        # Simple scenario with automatic flow
+        result = await scenario.run(
+           name=&#34;help request&#34;,
+           description=&#34;User asks for help with a technical problem&#34;,
+           agents=[
+               my_agent,
+               scenario.UserSimulatorAgent(),
+               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
+           ],
+           set_id=&#34;customer-support-tests&#34;
+        )
+
+        # Scripted scenario with custom evaluations
+        result = await scenario.run(
+           name=&#34;custom interaction&#34;,
+           description=&#34;Test specific conversation flow&#34;,
+           agents=[
+               my_agent,
+               scenario.UserSimulatorAgent(),
+               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
+           ],
+           script=[
+               scenario.user(&#34;Hello&#34;),
+               scenario.agent(),
+               custom_eval,
+               scenario.succeed()
+           ],
+           set_id=&#34;integration-tests&#34;
+        )
+
+        # Results analysis
+        print(f&#34;Test {&#39;PASSED&#39; if result.success else &#39;FAILED&#39;}&#34;)
+        print(f&#34;Reasoning: {result.reasoning}&#34;)
+        print(f&#34;Conversation had {len(result.messages)} messages&#34;)
+        ```
+    &#34;&#34;&#34;
+    scenario = ScenarioExecutor(
+        name=name,
+        description=description,
+        agents=agents,
+        max_turns=max_turns,
+        verbose=verbose,
+        cache_key=cache_key,
+        debug=debug,
+        script=script,
+        set_id=set_id,
+    )
+
+    # We&#39;ll use a thread pool to run the execution logic, we
+    # require a separate thread because even though asyncio is
+    # being used throughout, any user code on the callback can
+    # be blocking, preventing them from running scenarios in parallel
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+
+        def run_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                return loop.run_until_complete(scenario.run())
+            finally:
+                scenario.event_bus.drain()
+                loop.close()
+
+        # Run the function in the thread pool and await its result
+        # This converts the thread&#39;s execution into a Future that the current
+        # event loop can await without blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(executor, run_in_thread)
+        return result</code></pre>
+</details>
+</dd>
+</dl>
 </section>
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
 <dt id="scenario.scenario_executor.ScenarioExecutor"><code class="flex name class">
 <span>class <span class="ident">ScenarioExecutor</span></span>
-<span>(</span><span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], script: List[Callable[[ForwardRef('ScenarioState')], None] | Callable[[ForwardRef('ScenarioState')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('ScenarioState')], Awaitable[None]] | Callable[[ForwardRef('ScenarioState')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, event_bus: scenario._events.event_bus.ScenarioEventBus | None = None)</span>
+<span>(</span><span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], script: List[Callable[[ForwardRef('ScenarioState')], None] | Callable[[ForwardRef('ScenarioState')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('ScenarioState')], Awaitable[None]] | Callable[[ForwardRef('ScenarioState')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, event_bus: scenario._events.event_bus.ScenarioEventBus | None = None, set_id: str | None = None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Core orchestrator for scenario-based agent testing.</p>
@@ -1048,7 +1263,7 @@ class ScenarioExecutor:
 - Collecting and reporting test results
 - Supporting debug mode for interactive testing</p>
 <p>This class serves as both a builder (for configuration) and an executor (for running tests).
-Most users will interact with it through the high-level <code><a title="scenario.run" href="index.html#scenario.run">ScenarioExecutor.run()</a></code> function rather
+Most users will interact with it through the high-level <code><a title="scenario.run" href="index.html#scenario.run">run()</a></code> function rather
 than instantiating it directly.</p>
 <h2 id="attributes">Attributes</h2>
 <dl>
@@ -1091,6 +1306,8 @@ Overrides global configuration for this scenario.</dd>
 Overrides global configuration for this scenario.</dd>
 <dt><strong><code>event_bus</code></strong></dt>
 <dd>Optional event bus that will subscribe to this executor's events</dd>
+<dt><strong><code>set_id</code></strong></dt>
+<dd>Optional set identifier for grouping related scenarios</dd>
 </dl></div>
 <details class="source">
 <summary>
@@ -1138,6 +1355,7 @@ Overrides global configuration for this scenario.</dd>
     event_bus: ScenarioEventBus
 
     batch_run_id: str
+    scenario_set_id: str
 
     def __init__(
         self,
@@ -1151,6 +1369,7 @@ Overrides global configuration for this scenario.</dd>
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
         event_bus: Optional[ScenarioEventBus] = None,
+        set_id: Optional[str] = None,
     ):
         &#34;&#34;&#34;
         Initialize a scenario executor.
@@ -1172,6 +1391,7 @@ Overrides global configuration for this scenario.</dd>
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor&#39;s events
+            set_id: Optional set identifier for grouping related scenarios
         &#34;&#34;&#34;
         self.name = name
         self.description = description
@@ -1196,6 +1416,7 @@ Overrides global configuration for this scenario.</dd>
         self.event_bus.subscribe_to_events(self._events)
 
         self.batch_run_id = get_or_create_batch_run_id()
+        self.scenario_set_id = set_id or &#34;default&#34;
 
     @property
     def events(self) -&gt; Observable:
@@ -1215,111 +1436,6 @@ Overrides global configuration for this scenario.</dd>
         &#34;&#34;&#34;
         event.timestamp = int(time.time() * 1000)
         self._events.on_next(event)
-
-    @classmethod
-    async def run(
-        cls,
-        name: str,
-        description: str,
-        agents: List[AgentAdapter] = [],
-        max_turns: Optional[int] = None,
-        verbose: Optional[Union[bool, int]] = None,
-        cache_key: Optional[str] = None,
-        debug: Optional[bool] = None,
-        script: Optional[List[ScriptStep]] = None,
-    ) -&gt; ScenarioResult:
-        &#34;&#34;&#34;
-        High-level interface for running a scenario test.
-
-        This is the main entry point for executing scenario tests. It creates a
-        ScenarioExecutor instance and runs it in an isolated thread pool to support
-        parallel execution and prevent blocking.
-
-        Args:
-            name: Human-readable name for the scenario
-            description: Detailed description of what the scenario tests
-            agents: List of agent adapters (agent under test, user simulator, judge)
-            max_turns: Maximum conversation turns before timeout (default: 10)
-            verbose: Show detailed output during execution
-            cache_key: Cache key for deterministic behavior
-            debug: Enable debug mode for step-by-step execution
-            script: Optional script steps to control scenario flow
-
-        Returns:
-            ScenarioResult containing the test outcome, conversation history,
-            success/failure status, and detailed reasoning
-
-        Example:
-            ```
-            import scenario
-
-            # Simple scenario with automatic flow
-            result = await scenario.run(
-               name=&#34;help request&#34;,
-               description=&#34;User asks for help with a technical problem&#34;,
-               agents=[
-                   my_agent,
-                   scenario.UserSimulatorAgent(),
-                   scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
-               ]
-            )
-
-            # Scripted scenario with custom evaluations
-            result = await scenario.run(
-               name=&#34;custom interaction&#34;,
-               description=&#34;Test specific conversation flow&#34;,
-               agents=[
-                   my_agent,
-                   scenario.UserSimulatorAgent(),
-                   scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
-               ],
-               script=[
-                   scenario.user(&#34;Hello&#34;),
-                   scenario.agent(),
-                   custom_eval,
-                   scenario.succeed()
-               ]
-            )
-
-            # Results analysis
-            print(f&#34;Test {&#39;PASSED&#39; if result.success else &#39;FAILED&#39;}&#34;)
-            print(f&#34;Reasoning: {result.reasoning}&#34;)
-            print(f&#34;Conversation had {len(result.messages)} messages&#34;)
-            ```
-        &#34;&#34;&#34;
-        scenario = cls(
-            name=name,
-            description=description,
-            agents=agents,
-            max_turns=max_turns,
-            verbose=verbose,
-            cache_key=cache_key,
-            debug=debug,
-            script=script,
-        )
-
-        # We&#39;ll use a thread pool to run the execution logic, we
-        # require a separate thread because even though asyncio is
-        # being used throughout, any user code on the callback can
-        # be blocking, preventing them from running scenarios in parallel
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-
-            def run_in_thread():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-                try:
-                    return loop.run_until_complete(scenario._run())
-                finally:
-                    scenario.event_bus.drain()
-                    loop.close()
-
-            # Run the function in the thread pool and await its result
-            # This converts the thread&#39;s execution into a Future that the current
-            # event loop can await without blocking
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(executor, run_in_thread)
-            return result
 
     def reset(self):
         &#34;&#34;&#34;
@@ -1395,7 +1511,6 @@ Overrides global configuration for this scenario.</dd>
             if idx not in self._pending_messages:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
-
 
     def add_messages(
         self,
@@ -1524,7 +1639,7 @@ Overrides global configuration for this scenario.</dd>
             agent_time=agent_time,
         )
 
-    async def _run(self) -&gt; ScenarioResult:
+    async def run(self) -&gt; ScenarioResult:
         &#34;&#34;&#34;
         Run a scenario against the agent under test.
 
@@ -1553,7 +1668,11 @@ Overrides global configuration for this scenario.</dd>
                 self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
-                    status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
+                    status = (
+                        ScenarioRunFinishedEventStatus.SUCCESS
+                        if result.success
+                        else ScenarioRunFinishedEventStatus.FAILED
+                    )
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -1566,7 +1685,11 @@ Overrides global configuration for this scenario.</dd>
                 &#34;&#34;&#34;
             )
 
-            status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
+            status = (
+                ScenarioRunFinishedEventStatus.SUCCESS
+                if result.success
+                else ScenarioRunFinishedEventStatus.FAILED
+            )
             self._emit_run_finished_event(scenario_run_id, result, status)
             return result
 
@@ -1579,7 +1702,9 @@ Overrides global configuration for this scenario.</dd>
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
-            self._emit_run_finished_event(scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR)
+            self._emit_run_finished_event(
+                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
+            )
             raise  # Re-raise the exception after cleanup
 
     async def _call_agent(
@@ -1621,16 +1746,19 @@ Overrides global configuration for this scenario.</dd>
         ):
             start_time = time.time()
 
-            agent_response = agent.call(
-                AgentInput(
-                    # TODO: test thread_id
-                    thread_id=self._state.thread_id,
-                    messages=self._state.messages,
-                    new_messages=self._pending_messages.get(idx, []),
-                    judgment_request=request_judgment,
-                    scenario_state=self._state,
+            # Prevent pydantic validation warnings which should already be disabled
+            with warnings.catch_warnings():
+                warnings.simplefilter(&#34;ignore&#34;)
+                agent_response = agent.call(
+                    AgentInput(
+                        # TODO: test thread_id
+                        thread_id=self._state.thread_id,
+                        messages=self._state.messages,
+                        new_messages=self._pending_messages.get(idx, []),
+                        judgment_request=request_judgment,
+                        scenario_state=self._state,
+                    )
                 )
-            )
             if not isinstance(agent_response, Awaitable):
                 raise Exception(
                     agent_response_not_awaitable(agent.__class__.__name__),
@@ -1828,11 +1956,14 @@ Overrides global configuration for this scenario.</dd>
             batch_run_id: Unique identifier for the batch of scenario runs
             scenario_run_id: Unique identifier for this specific scenario run
             scenario_id: Human-readable name/identifier for the scenario
+            scenario_set_id: Set identifier for grouping related scenarios
             timestamp: Unix timestamp in milliseconds when the event occurred
         &#34;&#34;&#34;
+
         batch_run_id: str
         scenario_run_id: str
         scenario_id: str
+        scenario_set_id: str
         timestamp: int
 
     def _create_common_event_fields(self, scenario_run_id: str) -&gt; _CommonEventFields:
@@ -1852,6 +1983,7 @@ Overrides global configuration for this scenario.</dd>
             &#34;batch_run_id&#34;: self.batch_run_id,
             &#34;scenario_run_id&#34;: scenario_run_id,
             &#34;scenario_id&#34;: self.name,
+            &#34;scenario_set_id&#34;: self.scenario_set_id,
             &#34;timestamp&#34;: int(time.time() * 1000),
         }
 
@@ -1898,7 +2030,7 @@ Overrides global configuration for this scenario.</dd>
         self,
         scenario_run_id: str,
         result: ScenarioResult,
-        status: ScenarioRunFinishedEventStatus
+        status: ScenarioRunFinishedEventStatus,
     ) -&gt; None:
         &#34;&#34;&#34;
         Emit a scenario run finished event.
@@ -1915,7 +2047,11 @@ Overrides global configuration for this scenario.</dd>
         common_fields = self._create_common_event_fields(scenario_run_id)
 
         results = ScenarioRunFinishedEventResults(
-            verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
+            verdict=(
+                ScenarioRunFinishedEventVerdict.SUCCESS
+                if result.success
+                else ScenarioRunFinishedEventVerdict.FAILURE
+            ),
             reasoning=result.reasoning or &#34;&#34;,
             met_criteria=result.passed_criteria,
             unmet_criteria=result.failed_criteria,
@@ -1935,101 +2071,35 @@ Overrides global configuration for this scenario.</dd>
 <dl>
 <dt id="scenario.scenario_executor.ScenarioExecutor.agents"><code class="name">var <span class="ident">agents</span> : List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.batch_run_id"><code class="name">var <span class="ident">batch_run_id</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.description"><code class="name">var <span class="ident">description</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.event_bus"><code class="name">var <span class="ident">event_bus</span> : scenario._events.event_bus.ScenarioEventBus</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
+</dd>
+<dt id="scenario.scenario_executor.ScenarioExecutor.scenario_set_id"><code class="name">var <span class="ident">scenario_set_id</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.script"><code class="name">var <span class="ident">script</span> : List[Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[None]] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-</dl>
-<h3>Static methods</h3>
-<dl>
-<dt id="scenario.scenario_executor.ScenarioExecutor.run"><code class="name flex">
-<span>async def <span class="ident">run</span></span>(<span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, script: List[Callable[[ForwardRef('ScenarioState')], None] | Callable[[ForwardRef('ScenarioState')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('ScenarioState')], Awaitable[None]] | Callable[[ForwardRef('ScenarioState')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>High-level interface for running a scenario test.</p>
-<p>This is the main entry point for executing scenario tests. It creates a
-ScenarioExecutor instance and runs it in an isolated thread pool to support
-parallel execution and prevent blocking.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>name</code></strong></dt>
-<dd>Human-readable name for the scenario</dd>
-<dt><strong><code>description</code></strong></dt>
-<dd>Detailed description of what the scenario tests</dd>
-<dt><strong><code>agents</code></strong></dt>
-<dd>List of agent adapters (agent under test, user simulator, judge)</dd>
-<dt><strong><code>max_turns</code></strong></dt>
-<dd>Maximum conversation turns before timeout (default: 10)</dd>
-<dt><strong><code>verbose</code></strong></dt>
-<dd>Show detailed output during execution</dd>
-<dt><strong><code>cache_key</code></strong></dt>
-<dd>Cache key for deterministic behavior</dd>
-<dt><strong><code>debug</code></strong></dt>
-<dd>Enable debug mode for step-by-step execution</dd>
-<dt><strong><code>script</code></strong></dt>
-<dd>Optional script steps to control scenario flow</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>ScenarioResult containing the test outcome, conversation history,
-success/failure status, and detailed reasoning</p>
-<h2 id="example">Example</h2>
-<pre><code>import scenario
-
-# Simple scenario with automatic flow
-result = await scenario.run(
-   name=&quot;help request&quot;,
-   description=&quot;User asks for help with a technical problem&quot;,
-   agents=[
-       my_agent,
-       scenario.UserSimulatorAgent(),
-       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
-   ]
-)
-
-# Scripted scenario with custom evaluations
-result = await scenario.run(
-   name=&quot;custom interaction&quot;,
-   description=&quot;Test specific conversation flow&quot;,
-   agents=[
-       my_agent,
-       scenario.UserSimulatorAgent(),
-       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
-   ],
-   script=[
-       scenario.user(&quot;Hello&quot;),
-       scenario.agent(),
-       custom_eval,
-       scenario.succeed()
-   ]
-)
-
-# Results analysis
-print(f&quot;Test {'PASSED' if result.success else 'FAILED'}&quot;)
-print(f&quot;Reasoning: {result.reasoning}&quot;)
-print(f&quot;Conversation had {len(result.messages)} messages&quot;)
-</code></pre></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Instance variables</h3>
@@ -2350,6 +2420,91 @@ Called automatically during initialization and can be used to rerun scenarios.</
     context_scenario.set(self)</code></pre>
 </details>
 </dd>
+<dt id="scenario.scenario_executor.ScenarioExecutor.run"><code class="name flex">
+<span>async def <span class="ident">run</span></span>(<span>self) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Run a scenario against the agent under test.</p>
+<h2 id="args">Args</h2>
+<dl>
+<dt><strong><code>context</code></strong></dt>
+<dd>Optional initial context for the agent</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<p>ScenarioResult containing the test outcome</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">    async def run(self) -&gt; ScenarioResult:
+        &#34;&#34;&#34;
+        Run a scenario against the agent under test.
+
+        Args:
+            context: Optional initial context for the agent
+
+        Returns:
+            ScenarioResult containing the test outcome
+        &#34;&#34;&#34;
+        scenario_run_id = generate_scenario_run_id()
+
+        try:
+            self._emit_run_started_event(scenario_run_id)
+
+            if self.config.verbose:
+                print(&#34;&#34;)  # new line
+
+            self.reset()
+
+            for script_step in self.script:
+                callable = script_step(self._state)
+                if isinstance(callable, Awaitable):
+                    result = await callable
+                else:
+                    result = callable
+                self._emit_message_snapshot_event(scenario_run_id)
+
+                if isinstance(result, ScenarioResult):
+                    status = (
+                        ScenarioRunFinishedEventStatus.SUCCESS
+                        if result.success
+                        else ScenarioRunFinishedEventStatus.FAILED
+                    )
+                    self._emit_run_finished_event(scenario_run_id, result, status)
+                    return result
+
+            result = self._reached_max_turns(
+                &#34;&#34;&#34;Reached end of script without conclusion, add one of the following to the end of the script:
+
+- `scenario.proceed()` to let the simulation continue to play out
+- `scenario.judge()` to force criteria judgement
+- `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
+                &#34;&#34;&#34;
+            )
+
+            status = (
+                ScenarioRunFinishedEventStatus.SUCCESS
+                if result.success
+                else ScenarioRunFinishedEventStatus.FAILED
+            )
+            self._emit_run_finished_event(scenario_run_id, result, status)
+            return result
+
+        except Exception as e:
+            # Publish failure event before propagating the error
+            error_result = ScenarioResult(
+                success=False,
+                messages=self._state.messages,
+                reasoning=f&#34;Scenario failed with error: {str(e)}&#34;,
+                total_time=time.time() - self._total_start_time,
+                agent_time=0,
+            )
+            self._emit_run_finished_event(
+                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
+            )
+            raise  # Re-raise the exception after cleanup</code></pre>
+</details>
+</dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.step"><code class="name flex">
 <span>async def <span class="ident">step</span></span>(<span>self) ‑> List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam] | <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
 </code></dt>
@@ -2448,6 +2603,11 @@ high-level run() method or script DSL functions instead.</p></div>
 <li><code><a title="scenario" href="index.html">scenario</a></code></li>
 </ul>
 </li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="scenario.scenario_executor.run" href="#scenario.scenario_executor.run">run</a></code></li>
+</ul>
+</li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
@@ -2469,6 +2629,7 @@ high-level run() method or script DSL functions instead.</p></div>
 <li><code><a title="scenario.scenario_executor.ScenarioExecutor.proceed" href="#scenario.scenario_executor.ScenarioExecutor.proceed">proceed</a></code></li>
 <li><code><a title="scenario.scenario_executor.ScenarioExecutor.reset" href="#scenario.scenario_executor.ScenarioExecutor.reset">reset</a></code></li>
 <li><code><a title="scenario.scenario_executor.ScenarioExecutor.run" href="#scenario.scenario_executor.ScenarioExecutor.run">run</a></code></li>
+<li><code><a title="scenario.scenario_executor.ScenarioExecutor.scenario_set_id" href="#scenario.scenario_executor.ScenarioExecutor.scenario_set_id">scenario_set_id</a></code></li>
 <li><code><a title="scenario.scenario_executor.ScenarioExecutor.script" href="#scenario.scenario_executor.ScenarioExecutor.script">script</a></code></li>
 <li><code><a title="scenario.scenario_executor.ScenarioExecutor.step" href="#scenario.scenario_executor.ScenarioExecutor.step">step</a></code></li>
 <li><code><a title="scenario.scenario_executor.ScenarioExecutor.succeed" href="#scenario.scenario_executor.ScenarioExecutor.succeed">succeed</a></code></li>

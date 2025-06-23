@@ -316,7 +316,7 @@ from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes
 from .config import ScenarioConfig
 
 # Then import modules with dependencies
-from .scenario_executor import ScenarioExecutor
+from .scenario_executor import run
 from .scenario_state import ScenarioState
 from .agent_adapter import AgentAdapter
 from .judge_agent import JudgeAgent
@@ -326,8 +326,6 @@ from .script import message, user, agent, judge, proceed, succeed, fail
 
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
-
-run = ScenarioExecutor.run
 
 configure = ScenarioConfig.configure
 
@@ -356,7 +354,6 @@ __all__ = [
     &#34;ScenarioConfig&#34;,
     &#34;AgentReturnTypes&#34;,
     # Classes
-    &#34;ScenarioExecutor&#34;,
     &#34;ScenarioState&#34;,
     &#34;AgentAdapter&#34;,
     &#34;UserSimulatorAgent&#34;,
@@ -1075,7 +1072,7 @@ result = await scenario.run(
 </details>
 </dd>
 <dt id="scenario.run"><code class="name flex">
-<span>async def <span class="ident">run</span></span>(<span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, script: List[Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
+<span>async def <span class="ident">run</span></span>(<span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, script: List[Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, set_id: str | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>High-level interface for running a scenario test.</p>
@@ -1100,6 +1097,8 @@ parallel execution and prevent blocking.</p>
 <dd>Enable debug mode for step-by-step execution</dd>
 <dt><strong><code>script</code></strong></dt>
 <dd>Optional script steps to control scenario flow</dd>
+<dt><strong><code>set_id</code></strong></dt>
+<dd>Optional set identifier for grouping related scenarios</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <p>ScenarioResult containing the test outcome, conversation history,
@@ -1115,7 +1114,8 @@ result = await scenario.run(
        my_agent,
        scenario.UserSimulatorAgent(),
        scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
-   ]
+   ],
+   set_id=&quot;customer-support-tests&quot;
 )
 
 # Scripted scenario with custom evaluations
@@ -1132,7 +1132,8 @@ result = await scenario.run(
        scenario.agent(),
        custom_eval,
        scenario.succeed()
-   ]
+   ],
+   set_id=&quot;integration-tests&quot;
 )
 
 # Results analysis
@@ -1140,6 +1141,118 @@ print(f&quot;Test {'PASSED' if result.success else 'FAILED'}&quot;)
 print(f&quot;Reasoning: {result.reasoning}&quot;)
 print(f&quot;Conversation had {len(result.messages)} messages&quot;)
 </code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def run(
+    name: str,
+    description: str,
+    agents: List[AgentAdapter] = [],
+    max_turns: Optional[int] = None,
+    verbose: Optional[Union[bool, int]] = None,
+    cache_key: Optional[str] = None,
+    debug: Optional[bool] = None,
+    script: Optional[List[ScriptStep]] = None,
+    set_id: Optional[str] = None,
+) -&gt; ScenarioResult:
+    &#34;&#34;&#34;
+    High-level interface for running a scenario test.
+
+    This is the main entry point for executing scenario tests. It creates a
+    ScenarioExecutor instance and runs it in an isolated thread pool to support
+    parallel execution and prevent blocking.
+
+    Args:
+        name: Human-readable name for the scenario
+        description: Detailed description of what the scenario tests
+        agents: List of agent adapters (agent under test, user simulator, judge)
+        max_turns: Maximum conversation turns before timeout (default: 10)
+        verbose: Show detailed output during execution
+        cache_key: Cache key for deterministic behavior
+        debug: Enable debug mode for step-by-step execution
+        script: Optional script steps to control scenario flow
+        set_id: Optional set identifier for grouping related scenarios
+
+    Returns:
+        ScenarioResult containing the test outcome, conversation history,
+        success/failure status, and detailed reasoning
+
+    Example:
+        ```
+        import scenario
+
+        # Simple scenario with automatic flow
+        result = await scenario.run(
+           name=&#34;help request&#34;,
+           description=&#34;User asks for help with a technical problem&#34;,
+           agents=[
+               my_agent,
+               scenario.UserSimulatorAgent(),
+               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
+           ],
+           set_id=&#34;customer-support-tests&#34;
+        )
+
+        # Scripted scenario with custom evaluations
+        result = await scenario.run(
+           name=&#34;custom interaction&#34;,
+           description=&#34;Test specific conversation flow&#34;,
+           agents=[
+               my_agent,
+               scenario.UserSimulatorAgent(),
+               scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
+           ],
+           script=[
+               scenario.user(&#34;Hello&#34;),
+               scenario.agent(),
+               custom_eval,
+               scenario.succeed()
+           ],
+           set_id=&#34;integration-tests&#34;
+        )
+
+        # Results analysis
+        print(f&#34;Test {&#39;PASSED&#39; if result.success else &#39;FAILED&#39;}&#34;)
+        print(f&#34;Reasoning: {result.reasoning}&#34;)
+        print(f&#34;Conversation had {len(result.messages)} messages&#34;)
+        ```
+    &#34;&#34;&#34;
+    scenario = ScenarioExecutor(
+        name=name,
+        description=description,
+        agents=agents,
+        max_turns=max_turns,
+        verbose=verbose,
+        cache_key=cache_key,
+        debug=debug,
+        script=script,
+        set_id=set_id,
+    )
+
+    # We&#39;ll use a thread pool to run the execution logic, we
+    # require a separate thread because even though asyncio is
+    # being used throughout, any user code on the callback can
+    # be blocking, preventing them from running scenarios in parallel
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+
+        def run_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                return loop.run_until_complete(scenario.run())
+            finally:
+                scenario.event_bus.drain()
+                loop.close()
+
+        # Run the function in the thread pool and await its result
+        # This converts the thread&#39;s execution into a Future that the current
+        # event loop can await without blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(executor, run_in_thread)
+        return result</code></pre>
+</details>
 </dd>
 <dt id="scenario.succeed"><code class="name flex">
 <span>def <span class="ident">succeed</span></span>(<span>reasoning: str | None = None) ‑> Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[None]] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]</span>
@@ -1506,7 +1619,7 @@ result = await scenario.run(
 <dl>
 <dt id="scenario.AgentAdapter.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -1690,6 +1803,7 @@ validated to form a valid model.</p>
                 return response
         ```
     &#34;&#34;&#34;
+
     thread_id: str
     # Prevent pydantic from validating/parsing the messages and causing issues: https://github.com/pydantic/pydantic/issues/9541
     messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
@@ -1754,27 +1868,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.AgentInput.judgment_request"><code class="name">var <span class="ident">judgment_request</span> : bool</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentInput.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentInput.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentInput.new_messages"><code class="name">var <span class="ident">new_messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentInput.scenario_state"><code class="name">var <span class="ident">scenario_state</span> : Any</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentInput.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -1909,6 +2023,7 @@ different types of agents.</p>
         AGENT: Represents the agent under test that responds to user inputs
         JUDGE: Represents a judge agent that evaluates the conversation and determines success/failure
     &#34;&#34;&#34;
+
     USER = &#34;User&#34;
     AGENT = &#34;Agent&#34;
     JUDGE = &#34;Judge&#34;</code></pre>
@@ -1921,15 +2036,15 @@ different types of agents.</p>
 <dl>
 <dt id="scenario.AgentRole.AGENT"><code class="name">var <span class="ident">AGENT</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentRole.JUDGE"><code class="name">var <span class="ident">JUDGE</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.AgentRole.USER"><code class="name">var <span class="ident">USER</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 </dd>
@@ -2124,6 +2239,7 @@ tech_judge = JudgeAgent(
         - Provide detailed reasoning for their decisions
         - Support both positive criteria (things that should happen) and negative criteria (things that shouldn&#39;t)
     &#34;&#34;&#34;
+
     role = AgentRole.JUDGE
 
     model: str
@@ -2248,6 +2364,10 @@ tech_judge = JudgeAgent(
 
         scenario = input.scenario_state
 
+        criteria_str = &#34;\n&#34;.join(
+            [f&#34;{idx + 1}. {criterion}&#34; for idx, criterion in enumerate(self.criteria)]
+        )
+
         messages = [
             {
                 &#34;role&#34;: &#34;system&#34;,
@@ -2267,7 +2387,7 @@ If you do have enough information, use the finish_test tool to determine if all 
 &lt;/scenario&gt;
 
 &lt;criteria&gt;
-{&#34;\n&#34;.join([f&#34;{idx + 1}. {criterion}&#34; for idx, criterion in enumerate(self.criteria)])}
+{criteria_str}
 &lt;/criteria&gt;
 
 &lt;rules&gt;
@@ -2453,27 +2573,31 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
 <dl>
 <dt id="scenario.JudgeAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.JudgeAgent.criteria"><code class="name">var <span class="ident">criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.JudgeAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.JudgeAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
+</dd>
+<dt id="scenario.JudgeAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
+<dd>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.JudgeAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.JudgeAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -2548,6 +2672,10 @@ error in the evaluation process</dd>
 
         scenario = input.scenario_state
 
+        criteria_str = &#34;\n&#34;.join(
+            [f&#34;{idx + 1}. {criterion}&#34; for idx, criterion in enumerate(self.criteria)]
+        )
+
         messages = [
             {
                 &#34;role&#34;: &#34;system&#34;,
@@ -2567,7 +2695,7 @@ If you do have enough information, use the finish_test tool to determine if all 
 &lt;/scenario&gt;
 
 &lt;criteria&gt;
-{&#34;\n&#34;.join([f&#34;{idx + 1}. {criterion}&#34; for idx, criterion in enumerate(self.criteria)])}
+{criteria_str}
 &lt;/criteria&gt;
 
 &lt;rules&gt;
@@ -2746,14 +2874,6 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
 </details>
 </dd>
 </dl>
-<h3>Inherited members</h3>
-<ul class="hlist">
-<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
-<ul class="hlist">
-<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
-</ul>
-</li>
-</ul>
 </dd>
 <dt id="scenario.ScenarioConfig"><code class="flex name class">
 <span>class <span class="ident">ScenarioConfig</span></span>
@@ -2956,31 +3076,31 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioConfig.cache_key"><code class="name">var <span class="ident">cache_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioConfig.debug"><code class="name">var <span class="ident">debug</span> : bool | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioConfig.default_config"><code class="name">var <span class="ident">default_config</span> : ClassVar[<a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a> | None]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioConfig.default_model"><code class="name">var <span class="ident">default_model</span> : str | <a title="scenario.config.ModelConfig" href="config.html#scenario.config.ModelConfig">ModelConfig</a> | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioConfig.max_turns"><code class="name">var <span class="ident">max_turns</span> : int | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioConfig.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioConfig.verbose"><code class="name">var <span class="ident">verbose</span> : bool | int | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Static methods</h3>
@@ -3117,1404 +3237,6 @@ merged = base_config.merge(override_config)
 </dd>
 </dl>
 </dd>
-<dt id="scenario.ScenarioExecutor"><code class="flex name class">
-<span>class <span class="ident">ScenarioExecutor</span></span>
-<span>(</span><span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], script: List[Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, event_bus: scenario._events.event_bus.ScenarioEventBus | None = None)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Core orchestrator for scenario-based agent testing.</p>
-<p>The ScenarioExecutor manages the complete lifecycle of a scenario test, including:
-- Orchestrating conversations between user simulators, agents, and judges
-- Managing turn-based execution flow
-- Handling script-based scenario control
-- Collecting and reporting test results
-- Supporting debug mode for interactive testing</p>
-<p>This class serves as both a builder (for configuration) and an executor (for running tests).
-Most users will interact with it through the high-level <code><a title="scenario.run" href="#scenario.run">ScenarioExecutor.run()</a></code> function rather
-than instantiating it directly.</p>
-<h2 id="attributes">Attributes</h2>
-<dl>
-<dt><strong><code>name</code></strong></dt>
-<dd>Human-readable name for the scenario</dd>
-<dt><strong><code>description</code></strong></dt>
-<dd>Detailed description of what the scenario tests</dd>
-<dt><strong><code>agents</code></strong></dt>
-<dd>List of agent adapters participating in the scenario</dd>
-<dt><strong><code>script</code></strong></dt>
-<dd>Optional list of script steps to control scenario flow</dd>
-<dt><strong><code>config</code></strong></dt>
-<dd>Configuration settings for execution behavior</dd>
-</dl>
-<p>Initialize a scenario executor.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>name</code></strong></dt>
-<dd>Human-readable name for the scenario (used in reports and logs)</dd>
-<dt><strong><code>description</code></strong></dt>
-<dd>Detailed description of what the scenario tests.
-This guides the user simulator's behavior and provides context.</dd>
-<dt><strong><code>agents</code></strong></dt>
-<dd>List of agent adapters participating in the scenario.
-Typically includes: agent under test, user simulator, and judge.</dd>
-<dt><strong><code>script</code></strong></dt>
-<dd>Optional list of script steps to control scenario flow.
-If not provided, defaults to automatic proceeding.</dd>
-<dt><strong><code>max_turns</code></strong></dt>
-<dd>Maximum number of conversation turns before timeout.
-Overrides global configuration for this scenario.</dd>
-<dt><strong><code>verbose</code></strong></dt>
-<dd>Whether to show detailed output during execution.
-Can be True/False or integer level (2 for extra details).</dd>
-<dt><strong><code>cache_key</code></strong></dt>
-<dd>Cache key for deterministic behavior across runs.
-Overrides global configuration for this scenario.</dd>
-<dt><strong><code>debug</code></strong></dt>
-<dd>Whether to enable debug mode with step-by-step execution.
-Overrides global configuration for this scenario.</dd>
-<dt><strong><code>event_bus</code></strong></dt>
-<dd>Optional event bus that will subscribe to this executor's events</dd>
-</dl></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ScenarioExecutor:
-    &#34;&#34;&#34;
-    Core orchestrator for scenario-based agent testing.
-
-    The ScenarioExecutor manages the complete lifecycle of a scenario test, including:
-    - Orchestrating conversations between user simulators, agents, and judges
-    - Managing turn-based execution flow
-    - Handling script-based scenario control
-    - Collecting and reporting test results
-    - Supporting debug mode for interactive testing
-
-    This class serves as both a builder (for configuration) and an executor (for running tests).
-    Most users will interact with it through the high-level `scenario.run()` function rather
-    than instantiating it directly.
-
-    Attributes:
-        name: Human-readable name for the scenario
-        description: Detailed description of what the scenario tests
-        agents: List of agent adapters participating in the scenario
-        script: Optional list of script steps to control scenario flow
-        config: Configuration settings for execution behavior
-    &#34;&#34;&#34;
-
-    name: str
-    description: str
-    agents: List[AgentAdapter]
-    script: List[ScriptStep]
-
-    config: ScenarioConfig
-
-    _state: ScenarioState
-    _total_start_time: float
-    _pending_messages: Dict[int, List[ChatCompletionMessageParam]]
-
-    _pending_roles_on_turn: List[AgentRole] = []
-    _pending_agents_on_turn: Set[AgentAdapter] = set()
-    _agent_times: Dict[int, float] = {}
-    _events: Subject
-
-    event_bus: ScenarioEventBus
-
-    batch_run_id: str
-
-    def __init__(
-        self,
-        name: str,
-        description: str,
-        agents: List[AgentAdapter] = [],
-        script: Optional[List[ScriptStep]] = None,
-        # Config
-        max_turns: Optional[int] = None,
-        verbose: Optional[Union[bool, int]] = None,
-        cache_key: Optional[str] = None,
-        debug: Optional[bool] = None,
-        event_bus: Optional[ScenarioEventBus] = None,
-    ):
-        &#34;&#34;&#34;
-        Initialize a scenario executor.
-
-        Args:
-            name: Human-readable name for the scenario (used in reports and logs)
-            description: Detailed description of what the scenario tests.
-                        This guides the user simulator&#39;s behavior and provides context.
-            agents: List of agent adapters participating in the scenario.
-                   Typically includes: agent under test, user simulator, and judge.
-            script: Optional list of script steps to control scenario flow.
-                   If not provided, defaults to automatic proceeding.
-            max_turns: Maximum number of conversation turns before timeout.
-                      Overrides global configuration for this scenario.
-            verbose: Whether to show detailed output during execution.
-                    Can be True/False or integer level (2 for extra details).
-            cache_key: Cache key for deterministic behavior across runs.
-                      Overrides global configuration for this scenario.
-            debug: Whether to enable debug mode with step-by-step execution.
-                  Overrides global configuration for this scenario.
-            event_bus: Optional event bus that will subscribe to this executor&#39;s events
-        &#34;&#34;&#34;
-        self.name = name
-        self.description = description
-        self.agents = agents
-        self.script = script or [proceed()]
-
-        config = ScenarioConfig(
-            max_turns=max_turns,
-            verbose=verbose,
-            cache_key=cache_key,
-            debug=debug,
-        )
-        self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
-
-        self.reset()
-
-        # Create executor&#39;s own event stream
-        self._events = Subject()
-
-        # Create and configure event bus to subscribe to our events
-        self.event_bus = event_bus or ScenarioEventBus()
-        self.event_bus.subscribe_to_events(self._events)
-
-        self.batch_run_id = get_or_create_batch_run_id()
-
-    @property
-    def events(self) -&gt; Observable:
-        &#34;&#34;&#34;Expose event stream for subscribers like the event bus.&#34;&#34;&#34;
-        return self._events
-
-    def _emit_event(self, event: ScenarioEvent) -&gt; None:
-        &#34;&#34;&#34;
-        Emit a domain event to all subscribers.
-
-        This method publishes scenario events to the internal event stream,
-        which subscribers (like the event bus) can observe and react to.
-        The timestamp is automatically set to the current time.
-
-        Args:
-            event: The scenario event to emit
-        &#34;&#34;&#34;
-        event.timestamp = int(time.time() * 1000)
-        self._events.on_next(event)
-
-    @classmethod
-    async def run(
-        cls,
-        name: str,
-        description: str,
-        agents: List[AgentAdapter] = [],
-        max_turns: Optional[int] = None,
-        verbose: Optional[Union[bool, int]] = None,
-        cache_key: Optional[str] = None,
-        debug: Optional[bool] = None,
-        script: Optional[List[ScriptStep]] = None,
-    ) -&gt; ScenarioResult:
-        &#34;&#34;&#34;
-        High-level interface for running a scenario test.
-
-        This is the main entry point for executing scenario tests. It creates a
-        ScenarioExecutor instance and runs it in an isolated thread pool to support
-        parallel execution and prevent blocking.
-
-        Args:
-            name: Human-readable name for the scenario
-            description: Detailed description of what the scenario tests
-            agents: List of agent adapters (agent under test, user simulator, judge)
-            max_turns: Maximum conversation turns before timeout (default: 10)
-            verbose: Show detailed output during execution
-            cache_key: Cache key for deterministic behavior
-            debug: Enable debug mode for step-by-step execution
-            script: Optional script steps to control scenario flow
-
-        Returns:
-            ScenarioResult containing the test outcome, conversation history,
-            success/failure status, and detailed reasoning
-
-        Example:
-            ```
-            import scenario
-
-            # Simple scenario with automatic flow
-            result = await scenario.run(
-               name=&#34;help request&#34;,
-               description=&#34;User asks for help with a technical problem&#34;,
-               agents=[
-                   my_agent,
-                   scenario.UserSimulatorAgent(),
-                   scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
-               ]
-            )
-
-            # Scripted scenario with custom evaluations
-            result = await scenario.run(
-               name=&#34;custom interaction&#34;,
-               description=&#34;Test specific conversation flow&#34;,
-               agents=[
-                   my_agent,
-                   scenario.UserSimulatorAgent(),
-                   scenario.JudgeAgent(criteria=[&#34;Agent provides helpful response&#34;])
-               ],
-               script=[
-                   scenario.user(&#34;Hello&#34;),
-                   scenario.agent(),
-                   custom_eval,
-                   scenario.succeed()
-               ]
-            )
-
-            # Results analysis
-            print(f&#34;Test {&#39;PASSED&#39; if result.success else &#39;FAILED&#39;}&#34;)
-            print(f&#34;Reasoning: {result.reasoning}&#34;)
-            print(f&#34;Conversation had {len(result.messages)} messages&#34;)
-            ```
-        &#34;&#34;&#34;
-        scenario = cls(
-            name=name,
-            description=description,
-            agents=agents,
-            max_turns=max_turns,
-            verbose=verbose,
-            cache_key=cache_key,
-            debug=debug,
-            script=script,
-        )
-
-        # We&#39;ll use a thread pool to run the execution logic, we
-        # require a separate thread because even though asyncio is
-        # being used throughout, any user code on the callback can
-        # be blocking, preventing them from running scenarios in parallel
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-
-            def run_in_thread():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-                try:
-                    return loop.run_until_complete(scenario._run())
-                finally:
-                    scenario.event_bus.drain()
-                    loop.close()
-
-            # Run the function in the thread pool and await its result
-            # This converts the thread&#39;s execution into a Future that the current
-            # event loop can await without blocking
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(executor, run_in_thread)
-            return result
-
-    def reset(self):
-        &#34;&#34;&#34;
-        Reset the scenario executor to initial state.
-
-        This method reinitializes all internal state for a fresh scenario run,
-        including conversation history, turn counters, and agent timing information.
-        Called automatically during initialization and can be used to rerun scenarios.
-        &#34;&#34;&#34;
-        self._state = ScenarioState(
-            description=self.description,
-            messages=[],
-            thread_id=str(PKSUID(&#34;thread&#34;)),
-            current_turn=0,
-            config=self.config,
-            _executor=self,
-        )
-        # Pydantic doesn&#39;t actually set the _executor field from the constructor, as it&#39;s private, so we need to do it manually
-        self._state._executor = self
-
-        self._pending_messages = {}
-        self._total_start_time = time.time()
-        self._agent_times = {}
-
-        self._new_turn()
-        self._state.current_turn = 0
-
-        context_scenario.set(self)
-
-    def add_message(
-        self, message: ChatCompletionMessageParam, from_agent_idx: Optional[int] = None
-    ):
-        &#34;&#34;&#34;
-        Add a message to the conversation and broadcast to other agents.
-
-        This method adds a message to the conversation history and makes it available
-        to other agents in their next call. It&#39;s used internally by the executor
-        and can be called from script steps to inject custom messages.
-
-        Args:
-            message: OpenAI-compatible message to add to the conversation
-            from_agent_idx: Index of the agent that generated this message.
-                           Used to avoid broadcasting the message back to its creator.
-
-        Example:
-            ```
-            def inject_system_message(state: ScenarioState) -&gt; None:
-                state.add_message({
-                    &#34;role&#34;: &#34;system&#34;,
-                    &#34;content&#34;: &#34;The user is now in a hurry&#34;
-                })
-
-            # Use in script
-            result = await scenario.run(
-               name=&#34;system message test&#34;,
-               agents=[agent, user_sim, judge],
-               script=[
-                   scenario.user(&#34;Hello&#34;),
-                   scenario.agent(),
-                   inject_system_message,
-                   scenario.user(),  # Will see the system message
-                   scenario.succeed()
-               ]
-            )
-            ```
-        &#34;&#34;&#34;
-        self._state.messages.append(message)
-
-        # Broadcast the message to other agents
-        for idx, _ in enumerate(self.agents):
-            if idx == from_agent_idx:
-                continue
-            if idx not in self._pending_messages:
-                self._pending_messages[idx] = []
-            self._pending_messages[idx].append(message)
-
-
-    def add_messages(
-        self,
-        messages: List[ChatCompletionMessageParam],
-        from_agent_idx: Optional[int] = None,
-    ):
-        &#34;&#34;&#34;
-        Add multiple messages to the conversation.
-
-        Convenience method for adding multiple messages at once. Each message
-        is added individually using add_message().
-
-        Args:
-            messages: List of OpenAI-compatible messages to add
-            from_agent_idx: Index of the agent that generated these messages
-
-        Example:
-            ```
-            # Agent returns multiple messages for a complex interaction
-            messages = [
-                {&#34;role&#34;: &#34;assistant&#34;, &#34;content&#34;: &#34;Let me search for that...&#34;},
-                {&#34;role&#34;: &#34;assistant&#34;, &#34;content&#34;: &#34;Here&#39;s what I found: ...&#34;}
-            ]
-            executor.add_messages(messages, from_agent_idx=0)
-            ```
-        &#34;&#34;&#34;
-        for message in messages:
-            self.add_message(message, from_agent_idx)
-
-    def _new_turn(self):
-        self._pending_agents_on_turn = set(self.agents)
-        self._pending_roles_on_turn = [
-            AgentRole.USER,
-            AgentRole.AGENT,
-            AgentRole.JUDGE,
-        ]
-        self._state.current_turn += 1
-
-    async def step(self) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult]:
-        &#34;&#34;&#34;
-        Execute a single step in the scenario.
-
-        A step consists of calling the next agent in the current turn&#39;s sequence
-        and processing their response. This method is used internally by the
-        scenario execution flow.
-
-        Returns:
-            Either a list of messages (if the scenario continues) or a
-            ScenarioResult (if the scenario should end)
-
-        Raises:
-            ValueError: If no result is returned from the internal step method
-
-        Note:
-            This is primarily an internal method. Most users should use the
-            high-level run() method or script DSL functions instead.
-        &#34;&#34;&#34;
-        result = await self._step()
-        if result is None:
-            raise ValueError(&#34;No result from step&#34;)
-        return result
-
-    async def _step(
-        self,
-        go_to_next_turn=True,
-        on_turn: Optional[
-            Union[
-                Callable[[&#34;ScenarioState&#34;], None],
-                Callable[[&#34;ScenarioState&#34;], Awaitable[None]],
-            ]
-        ] = None,
-    ) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult, None]:
-        if len(self._pending_roles_on_turn) == 0:
-            if not go_to_next_turn:
-                return None
-
-            self._new_turn()
-
-            if on_turn:
-                await await_if_awaitable(on_turn(self._state))
-
-            if self._state.current_turn &gt;= (self.config.max_turns or 10):
-                return self._reached_max_turns()
-
-        current_role = self._pending_roles_on_turn[0]
-        idx, next_agent = self._next_agent_for_role(current_role)
-        if not next_agent:
-            self._pending_roles_on_turn.pop(0)
-            return await self._step(go_to_next_turn=go_to_next_turn, on_turn=on_turn)
-
-        self._pending_agents_on_turn.remove(next_agent)
-        return await self._call_agent(idx, role=current_role)
-
-    def _next_agent_for_role(
-        self, role: AgentRole
-    ) -&gt; Tuple[int, Optional[AgentAdapter]]:
-        for idx, agent in enumerate(self.agents):
-            if (
-                role == agent.role
-                and agent in self._pending_agents_on_turn
-                and agent.role in self._pending_roles_on_turn
-            ):
-                return idx, agent
-        return -1, None
-
-    def _reached_max_turns(self, error_message: Optional[str] = None) -&gt; ScenarioResult:
-        # If we reached max turns without conclusion, fail the test
-        agent_roles_agents_idx = [
-            idx
-            for idx, agent in enumerate(self.agents)
-            if agent.role == AgentRole.AGENT
-        ]
-        agent_times = [
-            self._agent_times[idx]
-            for idx in agent_roles_agents_idx
-            if idx in self._agent_times
-        ]
-        agent_time = sum(agent_times)
-
-        return ScenarioResult(
-            success=False,
-            messages=self._state.messages,
-            reasoning=error_message
-            or f&#34;Reached maximum turns ({self.config.max_turns or 10}) without conclusion&#34;,
-            total_time=time.time() - self._total_start_time,
-            agent_time=agent_time,
-        )
-
-    async def _run(self) -&gt; ScenarioResult:
-        &#34;&#34;&#34;
-        Run a scenario against the agent under test.
-
-        Args:
-            context: Optional initial context for the agent
-
-        Returns:
-            ScenarioResult containing the test outcome
-        &#34;&#34;&#34;
-        scenario_run_id = generate_scenario_run_id()
-
-        try:
-            self._emit_run_started_event(scenario_run_id)
-
-            if self.config.verbose:
-                print(&#34;&#34;)  # new line
-
-            self.reset()
-
-            for script_step in self.script:
-                callable = script_step(self._state)
-                if isinstance(callable, Awaitable):
-                    result = await callable
-                else:
-                    result = callable
-                self._emit_message_snapshot_event(scenario_run_id)
-
-                if isinstance(result, ScenarioResult):
-                    status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
-                    self._emit_run_finished_event(scenario_run_id, result, status)
-                    return result
-
-            result = self._reached_max_turns(
-                &#34;&#34;&#34;Reached end of script without conclusion, add one of the following to the end of the script:
-
-- `scenario.proceed()` to let the simulation continue to play out
-- `scenario.judge()` to force criteria judgement
-- `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
-                &#34;&#34;&#34;
-            )
-
-            status = ScenarioRunFinishedEventStatus.SUCCESS if result.success else ScenarioRunFinishedEventStatus.FAILED
-            self._emit_run_finished_event(scenario_run_id, result, status)
-            return result
-
-        except Exception as e:
-            # Publish failure event before propagating the error
-            error_result = ScenarioResult(
-                success=False,
-                messages=self._state.messages,
-                reasoning=f&#34;Scenario failed with error: {str(e)}&#34;,
-                total_time=time.time() - self._total_start_time,
-                agent_time=0,
-            )
-            self._emit_run_finished_event(scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR)
-            raise  # Re-raise the exception after cleanup
-
-    async def _call_agent(
-        self, idx: int, role: AgentRole, request_judgment: bool = False
-    ) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult]:
-        agent = self.agents[idx]
-
-        if role == AgentRole.USER and self.config.debug:
-            print(
-                f&#34;\n{self._scenario_name()}{termcolor.colored(&#39;[Debug Mode]&#39;, &#39;yellow&#39;)} Press enter to continue or type a message to send&#34;
-            )
-            input_message = input(
-                self._scenario_name() + termcolor.colored(&#34;User: &#34;, &#34;green&#34;)
-            )
-
-            # Clear the input prompt lines completely
-            for _ in range(3):
-                sys.stdout.write(&#34;\033[F&#34;)  # Move up to the input line
-                sys.stdout.write(&#34;\033[2K&#34;)  # Clear the entire input line
-            sys.stdout.flush()  # Make sure the clearing is visible
-
-            if input_message:
-                return [
-                    ChatCompletionUserMessageParam(role=&#34;user&#34;, content=input_message)
-                ]
-
-        with show_spinner(
-            text=(
-                &#34;Judging...&#34;
-                if role == AgentRole.JUDGE
-                else f&#34;{role.value if isinstance(role, AgentRole) else role}:&#34;
-            ),
-            color=(
-                &#34;blue&#34;
-                if role == AgentRole.AGENT
-                else &#34;green&#34; if role == AgentRole.USER else &#34;yellow&#34;
-            ),
-            enabled=self.config.verbose,
-        ):
-            start_time = time.time()
-
-            agent_response = agent.call(
-                AgentInput(
-                    # TODO: test thread_id
-                    thread_id=self._state.thread_id,
-                    messages=self._state.messages,
-                    new_messages=self._pending_messages.get(idx, []),
-                    judgment_request=request_judgment,
-                    scenario_state=self._state,
-                )
-            )
-            if not isinstance(agent_response, Awaitable):
-                raise Exception(
-                    agent_response_not_awaitable(agent.__class__.__name__),
-                )
-
-            agent_response = await agent_response
-
-            if idx not in self._agent_times:
-                self._agent_times[idx] = 0
-            self._agent_times[idx] += time.time() - start_time
-
-            self._pending_messages[idx] = []
-            check_valid_return_type(agent_response, agent.__class__.__name__)
-
-            messages = []
-            if isinstance(agent_response, ScenarioResult):
-                # TODO: should be an event
-                return agent_response
-            else:
-                messages = convert_agent_return_types_to_openai_messages(
-                    agent_response,
-                    role=&#34;user&#34; if role == AgentRole.USER else &#34;assistant&#34;,
-                )
-
-            self.add_messages(messages, from_agent_idx=idx)
-
-            if messages and self.config.verbose:
-                print_openai_messages(
-                    self._scenario_name(),
-                    [m for m in messages if m[&#34;role&#34;] != &#34;system&#34;],
-                )
-
-            return messages
-
-    def _scenario_name(self):
-        if self.config.verbose == 2:
-            return termcolor.colored(f&#34;[Scenario: {self.name}] &#34;, &#34;yellow&#34;)
-        else:
-            return &#34;&#34;
-
-    # Scripting utils
-
-    async def message(self, message: ChatCompletionMessageParam) -&gt; None:
-        if message[&#34;role&#34;] == &#34;user&#34;:
-            await self._script_call_agent(AgentRole.USER, message)
-        elif message[&#34;role&#34;] == &#34;assistant&#34;:
-            await self._script_call_agent(AgentRole.AGENT, message)
-        else:
-            self.add_message(message)
-
-    async def user(
-        self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
-    ) -&gt; None:
-        await self._script_call_agent(AgentRole.USER, content)
-
-    async def agent(
-        self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
-    ) -&gt; None:
-        await self._script_call_agent(AgentRole.AGENT, content)
-
-    async def judge(
-        self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
-    ) -&gt; Optional[ScenarioResult]:
-        return await self._script_call_agent(
-            AgentRole.JUDGE, content, request_judgment=True
-        )
-
-    async def proceed(
-        self,
-        turns: Optional[int] = None,
-        on_turn: Optional[
-            Union[
-                Callable[[&#34;ScenarioState&#34;], None],
-                Callable[[&#34;ScenarioState&#34;], Awaitable[None]],
-            ]
-        ] = None,
-        on_step: Optional[
-            Union[
-                Callable[[&#34;ScenarioState&#34;], None],
-                Callable[[&#34;ScenarioState&#34;], Awaitable[None]],
-            ]
-        ] = None,
-    ) -&gt; Optional[ScenarioResult]:
-        initial_turn: Optional[int] = None
-        while True:
-            next_message = await self._step(
-                on_turn=on_turn,
-                go_to_next_turn=(
-                    turns is None
-                    or initial_turn is None
-                    or (self._state.current_turn + 1 &lt; initial_turn + turns)
-                ),
-            )
-
-            if initial_turn is None:
-                initial_turn = self._state.current_turn
-
-            if next_message is None:
-                break
-
-            if on_step:
-                await await_if_awaitable(on_step(self._state))
-
-            if isinstance(next_message, ScenarioResult):
-                return next_message
-
-    async def succeed(self, reasoning: Optional[str] = None) -&gt; ScenarioResult:
-        return ScenarioResult(
-            success=True,
-            messages=self._state.messages,
-            reasoning=reasoning
-            or &#34;Scenario marked as successful with scenario.succeed()&#34;,
-        )
-
-    async def fail(self, reasoning: Optional[str] = None) -&gt; ScenarioResult:
-        return ScenarioResult(
-            success=False,
-            messages=self._state.messages,
-            reasoning=reasoning or &#34;Scenario marked as failed with scenario.fail()&#34;,
-        )
-
-    def _consume_until_role(self, role: AgentRole) -&gt; None:
-        while len(self._pending_roles_on_turn) &gt; 0:
-            next_role = self._pending_roles_on_turn[0]
-            if next_role == role:
-                break
-            self._pending_roles_on_turn.pop(0)
-
-    async def _script_call_agent(
-        self,
-        role: AgentRole,
-        content: Optional[Union[str, ChatCompletionMessageParam]] = None,
-        request_judgment: bool = False,
-    ) -&gt; Optional[ScenarioResult]:
-        self._consume_until_role(role)
-        idx, next_agent = self._next_agent_for_role(role)
-        if not next_agent:
-            self._new_turn()
-            self._consume_until_role(role)
-            idx, next_agent = self._next_agent_for_role(role)
-
-            if not next_agent:
-                role_class = (
-                    &#34;a scenario.UserSimulatorAgent()&#34;
-                    if role == AgentRole.USER
-                    else (
-                        &#34;a scenario.JudgeAgent()&#34;
-                        if role == AgentRole.JUDGE
-                        else &#34;your agent&#34;
-                    )
-                )
-                if content:
-                    raise ValueError(
-                        f&#34;Cannot generate a message for role `{role.value}` with content `{content}` because no agent with this role was found, please add {role_class} to the scenario `agents` list&#34;
-                    )
-                raise ValueError(
-                    f&#34;Cannot generate a message for role `{role.value}` because no agent with this role was found, please add {role_class} to the scenario `agents` list&#34;
-                )
-
-        self._pending_agents_on_turn.remove(next_agent)
-
-        if content:
-            if isinstance(content, str):
-                message = (
-                    ChatCompletionUserMessageParam(role=&#34;user&#34;, content=content)
-                    if role == AgentRole.USER
-                    else ChatCompletionAssistantMessageParam(
-                        role=&#34;assistant&#34;, content=content
-                    )
-                )
-            else:
-                message = content
-
-            self.add_message(message)
-            if self.config.verbose:
-                print_openai_messages(self._scenario_name(), [message])
-            return
-
-        result = await self._call_agent(
-            idx, role=role, request_judgment=request_judgment
-        )
-        if isinstance(result, ScenarioResult):
-            return result
-
-    # Event handling methods
-
-    class _CommonEventFields(TypedDict):
-        &#34;&#34;&#34;
-        Common fields shared across all scenario events.
-
-        These fields provide consistent identification and timing information
-        for all events emitted during scenario execution.
-
-        Attributes:
-            batch_run_id: Unique identifier for the batch of scenario runs
-            scenario_run_id: Unique identifier for this specific scenario run
-            scenario_id: Human-readable name/identifier for the scenario
-            timestamp: Unix timestamp in milliseconds when the event occurred
-        &#34;&#34;&#34;
-        batch_run_id: str
-        scenario_run_id: str
-        scenario_id: str
-        timestamp: int
-
-    def _create_common_event_fields(self, scenario_run_id: str) -&gt; _CommonEventFields:
-        &#34;&#34;&#34;
-        Create common fields used across all scenario events.
-
-        This method generates the standard fields that every scenario event
-        must include for proper identification and timing.
-
-        Args:
-            scenario_run_id: Unique identifier for the current scenario run
-
-        Returns:
-            Dictionary containing common event fields with current timestamp
-        &#34;&#34;&#34;
-        return {
-            &#34;batch_run_id&#34;: self.batch_run_id,
-            &#34;scenario_run_id&#34;: scenario_run_id,
-            &#34;scenario_id&#34;: self.name,
-            &#34;timestamp&#34;: int(time.time() * 1000),
-        }
-
-    def _emit_run_started_event(self, scenario_run_id: str) -&gt; None:
-        &#34;&#34;&#34;
-        Emit a scenario run started event.
-
-        This event is published when a scenario begins execution. It includes
-        metadata about the scenario such as name and description, and is used
-        to track the start of scenario runs in monitoring systems.
-
-        Args:
-            scenario_run_id: Unique identifier for the current scenario run
-        &#34;&#34;&#34;
-        common_fields = self._create_common_event_fields(scenario_run_id)
-        metadata = ScenarioRunStartedEventMetadata(
-            name=self.name,
-            description=self.description,
-        )
-
-        event = ScenarioRunStartedEvent(
-            **common_fields,
-            metadata=metadata,
-        )
-        self._emit_event(event)
-
-    def _emit_message_snapshot_event(self, scenario_run_id: str) -&gt; None:
-        &#34;&#34;&#34;
-        Emit a message snapshot event.
-
-        This event captures the current state of the conversation during
-        scenario execution. It&#39;s published whenever messages are added to
-        the conversation, allowing real-time tracking of scenario progress.
-        &#34;&#34;&#34;
-        common_fields = self._create_common_event_fields(scenario_run_id)
-
-        event = ScenarioMessageSnapshotEvent(
-            **common_fields,
-            messages=convert_messages_to_api_client_messages(self._state.messages),
-        )
-        self._emit_event(event)
-
-    def _emit_run_finished_event(
-        self,
-        scenario_run_id: str,
-        result: ScenarioResult,
-        status: ScenarioRunFinishedEventStatus
-    ) -&gt; None:
-        &#34;&#34;&#34;
-        Emit a scenario run finished event.
-
-        This event is published when a scenario completes execution, whether
-        successfully or with an error. It includes the final results, verdict,
-        and reasoning for the scenario outcome.
-
-        Args:
-            scenario_run_id: Unique identifier for the current scenario run
-            result: The final scenario result containing success/failure status
-            status: The execution status (SUCCESS, FAILED, or ERROR)
-        &#34;&#34;&#34;
-        common_fields = self._create_common_event_fields(scenario_run_id)
-
-        results = ScenarioRunFinishedEventResults(
-            verdict=ScenarioRunFinishedEventVerdict.SUCCESS if result.success else ScenarioRunFinishedEventVerdict.FAILURE,
-            reasoning=result.reasoning or &#34;&#34;,
-            met_criteria=result.passed_criteria,
-            unmet_criteria=result.failed_criteria,
-        )
-
-        event = ScenarioRunFinishedEvent(
-            **common_fields,
-            status=status,
-            results=results,
-        )
-        self._emit_event(event)
-
-        # Signal end of event stream
-        self._events.on_completed()</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="scenario.ScenarioExecutor.agents"><code class="name">var <span class="ident">agents</span> : List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>]</code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-<dt id="scenario.ScenarioExecutor.batch_run_id"><code class="name">var <span class="ident">batch_run_id</span> : str</code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-<dt id="scenario.ScenarioExecutor.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-<dt id="scenario.ScenarioExecutor.description"><code class="name">var <span class="ident">description</span> : str</code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-<dt id="scenario.ScenarioExecutor.event_bus"><code class="name">var <span class="ident">event_bus</span> : scenario._events.event_bus.ScenarioEventBus</code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-<dt id="scenario.ScenarioExecutor.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-<dt id="scenario.ScenarioExecutor.script"><code class="name">var <span class="ident">script</span> : List[Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[None]] | Callable[[<a title="scenario.scenario_state.ScenarioState" href="scenario_state.html#scenario.scenario_state.ScenarioState">ScenarioState</a>], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]]</code></dt>
-<dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
-</dd>
-</dl>
-<h3>Static methods</h3>
-<dl>
-<dt id="scenario.ScenarioExecutor.run"><code class="name flex">
-<span>async def <span class="ident">run</span></span>(<span>name: str, description: str, agents: List[<a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a>] = [], max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, script: List[Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[<a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None]]] | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>High-level interface for running a scenario test.</p>
-<p>This is the main entry point for executing scenario tests. It creates a
-ScenarioExecutor instance and runs it in an isolated thread pool to support
-parallel execution and prevent blocking.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>name</code></strong></dt>
-<dd>Human-readable name for the scenario</dd>
-<dt><strong><code>description</code></strong></dt>
-<dd>Detailed description of what the scenario tests</dd>
-<dt><strong><code>agents</code></strong></dt>
-<dd>List of agent adapters (agent under test, user simulator, judge)</dd>
-<dt><strong><code>max_turns</code></strong></dt>
-<dd>Maximum conversation turns before timeout (default: 10)</dd>
-<dt><strong><code>verbose</code></strong></dt>
-<dd>Show detailed output during execution</dd>
-<dt><strong><code>cache_key</code></strong></dt>
-<dd>Cache key for deterministic behavior</dd>
-<dt><strong><code>debug</code></strong></dt>
-<dd>Enable debug mode for step-by-step execution</dd>
-<dt><strong><code>script</code></strong></dt>
-<dd>Optional script steps to control scenario flow</dd>
-</dl>
-<h2 id="returns">Returns</h2>
-<p>ScenarioResult containing the test outcome, conversation history,
-success/failure status, and detailed reasoning</p>
-<h2 id="example">Example</h2>
-<pre><code>import scenario
-
-# Simple scenario with automatic flow
-result = await scenario.run(
-   name=&quot;help request&quot;,
-   description=&quot;User asks for help with a technical problem&quot;,
-   agents=[
-       my_agent,
-       scenario.UserSimulatorAgent(),
-       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
-   ]
-)
-
-# Scripted scenario with custom evaluations
-result = await scenario.run(
-   name=&quot;custom interaction&quot;,
-   description=&quot;Test specific conversation flow&quot;,
-   agents=[
-       my_agent,
-       scenario.UserSimulatorAgent(),
-       scenario.JudgeAgent(criteria=[&quot;Agent provides helpful response&quot;])
-   ],
-   script=[
-       scenario.user(&quot;Hello&quot;),
-       scenario.agent(),
-       custom_eval,
-       scenario.succeed()
-   ]
-)
-
-# Results analysis
-print(f&quot;Test {'PASSED' if result.success else 'FAILED'}&quot;)
-print(f&quot;Reasoning: {result.reasoning}&quot;)
-print(f&quot;Conversation had {len(result.messages)} messages&quot;)
-</code></pre></div>
-</dd>
-</dl>
-<h3>Instance variables</h3>
-<dl>
-<dt id="scenario.ScenarioExecutor.events"><code class="name">var <span class="ident">events</span> : rx.core.observable.observable.Observable</code></dt>
-<dd>
-<div class="desc"><p>Expose event stream for subscribers like the event bus.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@property
-def events(self) -&gt; Observable:
-    &#34;&#34;&#34;Expose event stream for subscribers like the event bus.&#34;&#34;&#34;
-    return self._events</code></pre>
-</details>
-</dd>
-</dl>
-<h3>Methods</h3>
-<dl>
-<dt id="scenario.ScenarioExecutor.add_message"><code class="name flex">
-<span>def <span class="ident">add_message</span></span>(<span>self, message: openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam, from_agent_idx: int | None = None)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Add a message to the conversation and broadcast to other agents.</p>
-<p>This method adds a message to the conversation history and makes it available
-to other agents in their next call. It's used internally by the executor
-and can be called from script steps to inject custom messages.</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>message</code></strong></dt>
-<dd>OpenAI-compatible message to add to the conversation</dd>
-<dt><strong><code>from_agent_idx</code></strong></dt>
-<dd>Index of the agent that generated this message.
-Used to avoid broadcasting the message back to its creator.</dd>
-</dl>
-<h2 id="example">Example</h2>
-<pre><code>def inject_system_message(state: ScenarioState) -&gt; None:
-    state.add_message({
-        &quot;role&quot;: &quot;system&quot;,
-        &quot;content&quot;: &quot;The user is now in a hurry&quot;
-    })
-
-# Use in script
-result = await scenario.run(
-   name=&quot;system message test&quot;,
-   agents=[agent, user_sim, judge],
-   script=[
-       scenario.user(&quot;Hello&quot;),
-       scenario.agent(),
-       inject_system_message,
-       scenario.user(),  # Will see the system message
-       scenario.succeed()
-   ]
-)
-</code></pre></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def add_message(
-    self, message: ChatCompletionMessageParam, from_agent_idx: Optional[int] = None
-):
-    &#34;&#34;&#34;
-    Add a message to the conversation and broadcast to other agents.
-
-    This method adds a message to the conversation history and makes it available
-    to other agents in their next call. It&#39;s used internally by the executor
-    and can be called from script steps to inject custom messages.
-
-    Args:
-        message: OpenAI-compatible message to add to the conversation
-        from_agent_idx: Index of the agent that generated this message.
-                       Used to avoid broadcasting the message back to its creator.
-
-    Example:
-        ```
-        def inject_system_message(state: ScenarioState) -&gt; None:
-            state.add_message({
-                &#34;role&#34;: &#34;system&#34;,
-                &#34;content&#34;: &#34;The user is now in a hurry&#34;
-            })
-
-        # Use in script
-        result = await scenario.run(
-           name=&#34;system message test&#34;,
-           agents=[agent, user_sim, judge],
-           script=[
-               scenario.user(&#34;Hello&#34;),
-               scenario.agent(),
-               inject_system_message,
-               scenario.user(),  # Will see the system message
-               scenario.succeed()
-           ]
-        )
-        ```
-    &#34;&#34;&#34;
-    self._state.messages.append(message)
-
-    # Broadcast the message to other agents
-    for idx, _ in enumerate(self.agents):
-        if idx == from_agent_idx:
-            continue
-        if idx not in self._pending_messages:
-            self._pending_messages[idx] = []
-        self._pending_messages[idx].append(message)</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.add_messages"><code class="name flex">
-<span>def <span class="ident">add_messages</span></span>(<span>self, messages: List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam], from_agent_idx: int | None = None)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Add multiple messages to the conversation.</p>
-<p>Convenience method for adding multiple messages at once. Each message
-is added individually using add_message().</p>
-<h2 id="args">Args</h2>
-<dl>
-<dt><strong><code>messages</code></strong></dt>
-<dd>List of OpenAI-compatible messages to add</dd>
-<dt><strong><code>from_agent_idx</code></strong></dt>
-<dd>Index of the agent that generated these messages</dd>
-</dl>
-<h2 id="example">Example</h2>
-<pre><code># Agent returns multiple messages for a complex interaction
-messages = [
-    {&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: &quot;Let me search for that...&quot;},
-    {&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: &quot;Here's what I found: ...&quot;}
-]
-executor.add_messages(messages, from_agent_idx=0)
-</code></pre></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def add_messages(
-    self,
-    messages: List[ChatCompletionMessageParam],
-    from_agent_idx: Optional[int] = None,
-):
-    &#34;&#34;&#34;
-    Add multiple messages to the conversation.
-
-    Convenience method for adding multiple messages at once. Each message
-    is added individually using add_message().
-
-    Args:
-        messages: List of OpenAI-compatible messages to add
-        from_agent_idx: Index of the agent that generated these messages
-
-    Example:
-        ```
-        # Agent returns multiple messages for a complex interaction
-        messages = [
-            {&#34;role&#34;: &#34;assistant&#34;, &#34;content&#34;: &#34;Let me search for that...&#34;},
-            {&#34;role&#34;: &#34;assistant&#34;, &#34;content&#34;: &#34;Here&#39;s what I found: ...&#34;}
-        ]
-        executor.add_messages(messages, from_agent_idx=0)
-        ```
-    &#34;&#34;&#34;
-    for message in messages:
-        self.add_message(message, from_agent_idx)</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.agent"><code class="name flex">
-<span>async def <span class="ident">agent</span></span>(<span>self, content: str | openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam | None = None) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def agent(
-    self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
-) -&gt; None:
-    await self._script_call_agent(AgentRole.AGENT, content)</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.fail"><code class="name flex">
-<span>async def <span class="ident">fail</span></span>(<span>self, reasoning: str | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def fail(self, reasoning: Optional[str] = None) -&gt; ScenarioResult:
-    return ScenarioResult(
-        success=False,
-        messages=self._state.messages,
-        reasoning=reasoning or &#34;Scenario marked as failed with scenario.fail()&#34;,
-    )</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.judge"><code class="name flex">
-<span>async def <span class="ident">judge</span></span>(<span>self, content: str | openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def judge(
-    self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
-) -&gt; Optional[ScenarioResult]:
-    return await self._script_call_agent(
-        AgentRole.JUDGE, content, request_judgment=True
-    )</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.message"><code class="name flex">
-<span>async def <span class="ident">message</span></span>(<span>self, message: openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def message(self, message: ChatCompletionMessageParam) -&gt; None:
-    if message[&#34;role&#34;] == &#34;user&#34;:
-        await self._script_call_agent(AgentRole.USER, message)
-    elif message[&#34;role&#34;] == &#34;assistant&#34;:
-        await self._script_call_agent(AgentRole.AGENT, message)
-    else:
-        self.add_message(message)</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.proceed"><code class="name flex">
-<span>async def <span class="ident">proceed</span></span>(<span>self, turns: int | None = None, on_turn: Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | None = None, on_step: Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], None] | Callable[[ForwardRef('<a title="scenario.ScenarioState" href="#scenario.ScenarioState">ScenarioState</a>')], Awaitable[None]] | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a> | None</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def proceed(
-    self,
-    turns: Optional[int] = None,
-    on_turn: Optional[
-        Union[
-            Callable[[&#34;ScenarioState&#34;], None],
-            Callable[[&#34;ScenarioState&#34;], Awaitable[None]],
-        ]
-    ] = None,
-    on_step: Optional[
-        Union[
-            Callable[[&#34;ScenarioState&#34;], None],
-            Callable[[&#34;ScenarioState&#34;], Awaitable[None]],
-        ]
-    ] = None,
-) -&gt; Optional[ScenarioResult]:
-    initial_turn: Optional[int] = None
-    while True:
-        next_message = await self._step(
-            on_turn=on_turn,
-            go_to_next_turn=(
-                turns is None
-                or initial_turn is None
-                or (self._state.current_turn + 1 &lt; initial_turn + turns)
-            ),
-        )
-
-        if initial_turn is None:
-            initial_turn = self._state.current_turn
-
-        if next_message is None:
-            break
-
-        if on_step:
-            await await_if_awaitable(on_step(self._state))
-
-        if isinstance(next_message, ScenarioResult):
-            return next_message</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.reset"><code class="name flex">
-<span>def <span class="ident">reset</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Reset the scenario executor to initial state.</p>
-<p>This method reinitializes all internal state for a fresh scenario run,
-including conversation history, turn counters, and agent timing information.
-Called automatically during initialization and can be used to rerun scenarios.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def reset(self):
-    &#34;&#34;&#34;
-    Reset the scenario executor to initial state.
-
-    This method reinitializes all internal state for a fresh scenario run,
-    including conversation history, turn counters, and agent timing information.
-    Called automatically during initialization and can be used to rerun scenarios.
-    &#34;&#34;&#34;
-    self._state = ScenarioState(
-        description=self.description,
-        messages=[],
-        thread_id=str(PKSUID(&#34;thread&#34;)),
-        current_turn=0,
-        config=self.config,
-        _executor=self,
-    )
-    # Pydantic doesn&#39;t actually set the _executor field from the constructor, as it&#39;s private, so we need to do it manually
-    self._state._executor = self
-
-    self._pending_messages = {}
-    self._total_start_time = time.time()
-    self._agent_times = {}
-
-    self._new_turn()
-    self._state.current_turn = 0
-
-    context_scenario.set(self)</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.step"><code class="name flex">
-<span>async def <span class="ident">step</span></span>(<span>self) ‑> List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam] | <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Execute a single step in the scenario.</p>
-<p>A step consists of calling the next agent in the current turn's sequence
-and processing their response. This method is used internally by the
-scenario execution flow.</p>
-<h2 id="returns">Returns</h2>
-<p>Either a list of messages (if the scenario continues) or a
-ScenarioResult (if the scenario should end)</p>
-<h2 id="raises">Raises</h2>
-<dl>
-<dt><code>ValueError</code></dt>
-<dd>If no result is returned from the internal step method</dd>
-</dl>
-<h2 id="note">Note</h2>
-<p>This is primarily an internal method. Most users should use the
-high-level run() method or script DSL functions instead.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def step(self) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult]:
-    &#34;&#34;&#34;
-    Execute a single step in the scenario.
-
-    A step consists of calling the next agent in the current turn&#39;s sequence
-    and processing their response. This method is used internally by the
-    scenario execution flow.
-
-    Returns:
-        Either a list of messages (if the scenario continues) or a
-        ScenarioResult (if the scenario should end)
-
-    Raises:
-        ValueError: If no result is returned from the internal step method
-
-    Note:
-        This is primarily an internal method. Most users should use the
-        high-level run() method or script DSL functions instead.
-    &#34;&#34;&#34;
-    result = await self._step()
-    if result is None:
-        raise ValueError(&#34;No result from step&#34;)
-    return result</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.succeed"><code class="name flex">
-<span>async def <span class="ident">succeed</span></span>(<span>self, reasoning: str | None = None) ‑> <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def succeed(self, reasoning: Optional[str] = None) -&gt; ScenarioResult:
-    return ScenarioResult(
-        success=True,
-        messages=self._state.messages,
-        reasoning=reasoning
-        or &#34;Scenario marked as successful with scenario.succeed()&#34;,
-    )</code></pre>
-</details>
-</dd>
-<dt id="scenario.ScenarioExecutor.user"><code class="name flex">
-<span>async def <span class="ident">user</span></span>(<span>self, content: str | openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam | None = None) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">async def user(
-    self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
-) -&gt; None:
-    await self._script_call_agent(AgentRole.USER, content)</code></pre>
-</details>
-</dd>
-</dl>
-</dd>
 <dt id="scenario.ScenarioResult"><code class="flex name class">
 <span>class <span class="ident">ScenarioResult</span></span>
 <span>(</span><span>**data: Any)</span>
@@ -4608,7 +3330,8 @@ validated to form a valid model.</p>
     &#34;&#34;&#34;
 
     success: bool
-    messages: List[ChatCompletionMessageParam]
+    # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
+    messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
@@ -4633,35 +3356,35 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioResult.agent_time"><code class="name">var <span class="ident">agent_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.failed_criteria"><code class="name">var <span class="ident">failed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.passed_criteria"><code class="name">var <span class="ident">passed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.reasoning"><code class="name">var <span class="ident">reasoning</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.success"><code class="name">var <span class="ident">success</span> : bool</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioResult.total_time"><code class="name">var <span class="ident">total_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 </dd>
@@ -4774,6 +3497,7 @@ validated to form a valid model.</p>
         )
         ```
     &#34;&#34;&#34;
+
     description: str
     messages: List[ChatCompletionMessageParam]
     thread_id: str
@@ -4918,27 +3642,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioState.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioState.current_turn"><code class="name">var <span class="ident">current_turn</span> : int</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioState.description"><code class="name">var <span class="ident">description</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioState.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioState.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.ScenarioState.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -5562,23 +4286,27 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <dl>
 <dt id="scenario.UserSimulatorAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
+</dd>
+<dt id="scenario.UserSimulatorAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
+<dd>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -5698,14 +4426,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 </details>
 </dd>
 </dl>
-<h3>Inherited members</h3>
-<ul class="hlist">
-<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
-<ul class="hlist">
-<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
-</ul>
-</li>
-</ul>
 </dd>
 </dl>
 </section>
@@ -5782,6 +4502,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.JudgeAgent.criteria" href="#scenario.JudgeAgent.criteria">criteria</a></code></li>
 <li><code><a title="scenario.JudgeAgent.max_tokens" href="#scenario.JudgeAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.JudgeAgent.model" href="#scenario.JudgeAgent.model">model</a></code></li>
+<li><code><a title="scenario.JudgeAgent.role" href="#scenario.JudgeAgent.role">role</a></code></li>
 <li><code><a title="scenario.JudgeAgent.system_prompt" href="#scenario.JudgeAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.JudgeAgent.temperature" href="#scenario.JudgeAgent.temperature">temperature</a></code></li>
 </ul>
@@ -5799,31 +4520,6 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.ScenarioConfig.merge" href="#scenario.ScenarioConfig.merge">merge</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.model_config" href="#scenario.ScenarioConfig.model_config">model_config</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.verbose" href="#scenario.ScenarioConfig.verbose">verbose</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="scenario.ScenarioExecutor" href="#scenario.ScenarioExecutor">ScenarioExecutor</a></code></h4>
-<ul class="two-column">
-<li><code><a title="scenario.ScenarioExecutor.add_message" href="#scenario.ScenarioExecutor.add_message">add_message</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.add_messages" href="#scenario.ScenarioExecutor.add_messages">add_messages</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.agent" href="#scenario.ScenarioExecutor.agent">agent</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.agents" href="#scenario.ScenarioExecutor.agents">agents</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.batch_run_id" href="#scenario.ScenarioExecutor.batch_run_id">batch_run_id</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.config" href="#scenario.ScenarioExecutor.config">config</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.description" href="#scenario.ScenarioExecutor.description">description</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.event_bus" href="#scenario.ScenarioExecutor.event_bus">event_bus</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.events" href="#scenario.ScenarioExecutor.events">events</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.fail" href="#scenario.ScenarioExecutor.fail">fail</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.judge" href="#scenario.ScenarioExecutor.judge">judge</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.message" href="#scenario.ScenarioExecutor.message">message</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.name" href="#scenario.ScenarioExecutor.name">name</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.proceed" href="#scenario.ScenarioExecutor.proceed">proceed</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.reset" href="#scenario.ScenarioExecutor.reset">reset</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.run" href="#scenario.ScenarioExecutor.run">run</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.script" href="#scenario.ScenarioExecutor.script">script</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.step" href="#scenario.ScenarioExecutor.step">step</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.succeed" href="#scenario.ScenarioExecutor.succeed">succeed</a></code></li>
-<li><code><a title="scenario.ScenarioExecutor.user" href="#scenario.ScenarioExecutor.user">user</a></code></li>
 </ul>
 </li>
 <li>
@@ -5863,6 +4559,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.UserSimulatorAgent.call" href="#scenario.UserSimulatorAgent.call">call</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.max_tokens" href="#scenario.UserSimulatorAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.model" href="#scenario.UserSimulatorAgent.model">model</a></code></li>
+<li><code><a title="scenario.UserSimulatorAgent.role" href="#scenario.UserSimulatorAgent.role">role</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.system_prompt" href="#scenario.UserSimulatorAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.temperature" href="#scenario.UserSimulatorAgent.temperature">temperature</a></code></li>
 </ul>

@@ -123,7 +123,7 @@ d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">from enum import Enum
-from pydantic import BaseModel, Field, SkipValidation
+from pydantic import BaseModel, SkipValidation
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -159,6 +159,7 @@ class AgentRole(Enum):
         AGENT: Represents the agent under test that responds to user inputs
         JUDGE: Represents a judge agent that evaluates the conversation and determines success/failure
     &#34;&#34;&#34;
+
     USER = &#34;User&#34;
     AGENT = &#34;Agent&#34;
     JUDGE = &#34;Judge&#34;
@@ -195,6 +196,7 @@ class AgentInput(BaseModel):
                 return response
         ```
     &#34;&#34;&#34;
+
     thread_id: str
     # Prevent pydantic from validating/parsing the messages and causing issues: https://github.com/pydantic/pydantic/issues/9541
     messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
@@ -292,7 +294,8 @@ class ScenarioResult(BaseModel):
     &#34;&#34;&#34;
 
     success: bool
-    messages: List[ChatCompletionMessageParam]
+    # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
+    messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
@@ -558,6 +561,7 @@ validated to form a valid model.</p>
                 return response
         ```
     &#34;&#34;&#34;
+
     thread_id: str
     # Prevent pydantic from validating/parsing the messages and causing issues: https://github.com/pydantic/pydantic/issues/9541
     messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
@@ -622,27 +626,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.types.AgentInput.judgment_request"><code class="name">var <span class="ident">judgment_request</span> : bool</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentInput.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentInput.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentInput.new_messages"><code class="name">var <span class="ident">new_messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentInput.scenario_state"><code class="name">var <span class="ident">scenario_state</span> : Any</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentInput.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -777,6 +781,7 @@ different types of agents.</p>
         AGENT: Represents the agent under test that responds to user inputs
         JUDGE: Represents a judge agent that evaluates the conversation and determines success/failure
     &#34;&#34;&#34;
+
     USER = &#34;User&#34;
     AGENT = &#34;Agent&#34;
     JUDGE = &#34;Judge&#34;</code></pre>
@@ -789,15 +794,15 @@ different types of agents.</p>
 <dl>
 <dt id="scenario.types.AgentRole.AGENT"><code class="name">var <span class="ident">AGENT</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentRole.JUDGE"><code class="name">var <span class="ident">JUDGE</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.AgentRole.USER"><code class="name">var <span class="ident">USER</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 </dd>
@@ -894,7 +899,8 @@ validated to form a valid model.</p>
     &#34;&#34;&#34;
 
     success: bool
-    messages: List[ChatCompletionMessageParam]
+    # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
+    messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
@@ -919,35 +925,35 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.types.ScenarioResult.agent_time"><code class="name">var <span class="ident">agent_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.failed_criteria"><code class="name">var <span class="ident">failed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.passed_criteria"><code class="name">var <span class="ident">passed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.reasoning"><code class="name">var <span class="ident">reasoning</span> : str | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.success"><code class="name">var <span class="ident">success</span> : bool</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.types.ScenarioResult.total_time"><code class="name">var <span class="ident">total_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 </dd>

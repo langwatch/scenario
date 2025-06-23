@@ -326,7 +326,7 @@ class ScenarioReporter:
 
 
 # Store the original run method
-original_run = ScenarioExecutor._run
+original_run = ScenarioExecutor.run
 
 
 @pytest.hookimpl(trylast=True)
@@ -388,7 +388,7 @@ def pytest_configure(config):
         return result
 
     # Apply the patch
-    ScenarioExecutor._run = auto_reporting_run
+    ScenarioExecutor.run = auto_reporting_run
 
 
 @pytest.hookimpl(trylast=True)
@@ -398,7 +398,7 @@ def pytest_unconfigure(config):
 
     This hook is called when pytest is shutting down and:
     - Prints the final scenario test report
-    - Restores the original ScenarioExecutor._run method
+    - Restores the original ScenarioExecutor.run method
     - Cleans up any remaining resources
 
     Args:
@@ -413,7 +413,7 @@ def pytest_unconfigure(config):
         config._scenario_reporter.print_report()
 
     # Restore the original method
-    ScenarioExecutor._run = original_run
+    ScenarioExecutor.run = original_run
 
 
 @pytest.fixture
@@ -567,7 +567,7 @@ def pytest_configure(config):
         return result
 
     # Apply the patch
-    ScenarioExecutor._run = auto_reporting_run</code></pre>
+    ScenarioExecutor.run = auto_reporting_run</code></pre>
 </details>
 </dd>
 <dt id="scenario.pytest_plugin.pytest_unconfigure"><code class="name flex">
@@ -577,7 +577,7 @@ def pytest_configure(config):
 <div class="desc"><p>Clean up pytest integration when pytest exits.</p>
 <p>This hook is called when pytest is shutting down and:
 - Prints the final scenario test report
-- Restores the original ScenarioExecutor._run method
+- Restores the original ScenarioExecutor.run method
 - Cleans up any remaining resources</p>
 <h2 id="args">Args</h2>
 <dl>
@@ -598,7 +598,7 @@ def pytest_unconfigure(config):
 
     This hook is called when pytest is shutting down and:
     - Prints the final scenario test report
-    - Restores the original ScenarioExecutor._run method
+    - Restores the original ScenarioExecutor.run method
     - Cleans up any remaining resources
 
     Args:
@@ -613,7 +613,7 @@ def pytest_unconfigure(config):
         config._scenario_reporter.print_report()
 
     # Restore the original method
-    ScenarioExecutor._run = original_run</code></pre>
+    ScenarioExecutor.run = original_run</code></pre>
 </details>
 </dd>
 <dt id="scenario.pytest_plugin.scenario_reporter"><code class="name flex">
@@ -1164,11 +1164,11 @@ Success Rate: 80%
 <dl>
 <dt id="scenario.pytest_plugin.ScenarioReporterResults.result"><code class="name">var <span class="ident">result</span> : <a title="scenario.types.ScenarioResult" href="types.html#scenario.types.ScenarioResult">ScenarioResult</a></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 <dt id="scenario.pytest_plugin.ScenarioReporterResults.scenario"><code class="name">var <span class="ident">scenario</span> : <a title="scenario.scenario_executor.ScenarioExecutor" href="scenario_executor.html#scenario.scenario_executor.ScenarioExecutor">ScenarioExecutor</a></code></dt>
 <dd>
-<div class="desc"><p>The type of the None singleton.</p></div>
+<div class="desc"></div>
 </dd>
 </dl>
 </dd>
