@@ -61,6 +61,7 @@ const baseScenarioEventSchema = baseEventSchema.extend({
   batchRunId: z.string(),
   scenarioId: z.string(),
   scenarioRunId: z.string(),
+  scenarioSetId: z.string().optional(),
 });
 
 // Scenario Run Started Event

@@ -90,6 +90,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       verbose: config.verbose ?? false,
       maxTurns: config.maxTurns ?? 10,
       threadId: config.threadId ?? generateThreadId(),
+      setId: config.setId,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
@@ -551,11 +552,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    */
   private makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
     return {
-      batchRunId: batchRunId,
-      scenarioId: this.config.id!,
-      scenarioRunId,
+      type: "placeholder", // This will be replaced by the specific event type
       timestamp: Date.now(),
-      rawEvent: void 0,
+      batchRunId,
+      scenarioId: this.config.id,
+      scenarioRunId,
+      scenarioSetId: this.config.setId,
     };
   }
 

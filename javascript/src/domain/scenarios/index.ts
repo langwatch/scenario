@@ -43,6 +43,13 @@ export interface ScenarioConfig {
    * If not provided, a new thread will be created.
    */
   threadId?: string;
+
+  /**
+   * Optional identifier to group this scenario into a set ("Simulation Set").
+   * This is useful for organizing related scenarios in the UI and for reporting.
+   * If not provided, the scenario will not be grouped into a set.
+   */
+  setId?: string;
 }
 
 /**
@@ -57,6 +64,10 @@ export interface ScenarioConfigFinal extends Omit<ScenarioConfig, "id" | "script
   verbose: boolean;
   maxTurns: number;
   threadId: string;
+  /**
+   * Optional identifier to group this scenario into a set ("Simulation Set").
+   */
+  setId?: string;
 }
 
 /**
