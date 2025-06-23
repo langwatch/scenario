@@ -164,12 +164,20 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
       ].join("\n"));
     } catch (error) {
+      const errorResult: ScenarioResult = {
+        success: false,
+        messages: this.state.messages,
+        reasoning: `Scenario failed with error: ${error instanceof Error ? error.message : String(error)}`,
+        metCriteria: [],
+        unmetCriteria: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
       this.emitRunFinished({
         scenarioRunId,
         status: ScenarioRunStatus.ERROR,
+        result: errorResult,
       });
-
-      throw error;
+      return errorResult;
     }
   }
 
@@ -609,7 +617,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         metCriteria: result?.metCriteria ?? [],
         unmetCriteria: result?.unmetCriteria ?? [],
         reasoning: result?.reasoning,
-        error: void 0,
+        error: result?.error,
       },
     };
 

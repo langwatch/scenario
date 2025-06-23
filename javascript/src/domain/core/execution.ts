@@ -3,6 +3,7 @@ import type { ScenarioConfig } from "../scenarios";
 
 /**
  * Represents the result of a scenario execution.
+ *
  */
 export interface ScenarioResult {
   /**
@@ -39,6 +40,11 @@ export interface ScenarioResult {
    * The time the agent spent processing during the scenario in seconds.
    */
   agentTime?: number;
+
+  /**
+   * An optional error message if the scenario failed due to an error.
+   */
+  error?: string;
 }
 
 /**
