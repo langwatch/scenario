@@ -56,7 +56,7 @@ describe("False Assumptions", () => {
         scenario.proceed(
           2,
           (state) => {
-            console.log(`Turn ${state.turn}: ${JSON.stringify(state.history)}`);
+            console.log(`Turn ${state.currentTurn}: ${JSON.stringify(state.messages)}`);
           }
         ),
 

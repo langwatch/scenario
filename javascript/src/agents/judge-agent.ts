@@ -138,7 +138,7 @@ export const judgeAgent = (cfg: JudgeAgentConfig) => {
         ...input.messages,
       ];
 
-      const isLastMessage = input.scenarioState.turn == input.scenarioConfig.maxTurns;
+      const isLastMessage = input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
 
       const projectConfig = await getProjectConfig();
       const mergedConfig = mergeAndValidateConfig(cfg, projectConfig);
