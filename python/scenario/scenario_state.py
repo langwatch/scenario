@@ -6,7 +6,7 @@ of a scenario execution, including conversation history, turn tracking, and
 utility methods for inspecting the conversation.
 """
 
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
@@ -68,6 +68,7 @@ class ScenarioState(BaseModel):
         )
         ```
     """
+
     description: str
     messages: List[ChatCompletionMessageParam]
     thread_id: str

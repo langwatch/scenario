@@ -105,6 +105,7 @@ class ScenarioExecutor:
     event_bus: ScenarioEventBus
 
     batch_run_id: str
+    scenario_set_id: str
 
     def __init__(
         self,
@@ -118,6 +119,7 @@ class ScenarioExecutor:
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
         event_bus: Optional[ScenarioEventBus] = None,
+        setId: Optional[str] = None,
     ):
         """
         Initialize a scenario executor.
@@ -139,6 +141,7 @@ class ScenarioExecutor:
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
+            setId: Optional set identifier for grouping related scenarios
         """
         self.name = name
         self.description = description
@@ -163,6 +166,7 @@ class ScenarioExecutor:
         self.event_bus.subscribe_to_events(self._events)
 
         self.batch_run_id = get_or_create_batch_run_id()
+        self.scenario_set_id = setId or "default"
 
     @property
     def events(self) -> Observable:
@@ -702,12 +706,14 @@ class ScenarioExecutor:
             batch_run_id: Unique identifier for the batch of scenario runs
             scenario_run_id: Unique identifier for this specific scenario run
             scenario_id: Human-readable name/identifier for the scenario
+            scenario_set_id: Set identifier for grouping related scenarios
             timestamp: Unix timestamp in milliseconds when the event occurred
         """
 
         batch_run_id: str
         scenario_run_id: str
         scenario_id: str
+        scenario_set_id: str
         timestamp: int
 
     def _create_common_event_fields(self, scenario_run_id: str) -> _CommonEventFields:
@@ -727,6 +733,7 @@ class ScenarioExecutor:
             "batch_run_id": self.batch_run_id,
             "scenario_run_id": scenario_run_id,
             "scenario_id": self.name,
+            "scenario_set_id": self.scenario_set_id,
             "timestamp": int(time.time() * 1000),
         }
 
@@ -820,6 +827,7 @@ async def run(
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
     script: Optional[List[ScriptStep]] = None,
+    setId: Optional[str] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -837,6 +845,7 @@ async def run(
         cache_key: Cache key for deterministic behavior
         debug: Enable debug mode for step-by-step execution
         script: Optional script steps to control scenario flow
+        setId: Optional set identifier for grouping related scenarios
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -854,7 +863,8 @@ async def run(
                my_agent,
                scenario.UserSimulatorAgent(),
                scenario.JudgeAgent(criteria=["Agent provides helpful response"])
-           ]
+           ],
+           setId="customer-support-tests"
         )
 
         # Scripted scenario with custom evaluations
@@ -871,7 +881,8 @@ async def run(
                scenario.agent(),
                custom_eval,
                scenario.succeed()
-           ]
+           ],
+           setId="integration-tests"
         )
 
         # Results analysis
@@ -889,6 +900,7 @@ async def run(
         cache_key=cache_key,
         debug=debug,
         script=script,
+        setId=setId,
     )
 
     # We'll use a thread pool to run the execution logic, we
