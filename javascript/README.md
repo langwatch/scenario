@@ -251,6 +251,49 @@ You can control the library's behavior with the following environment variables:
 - `LANGWATCH_API_KEY`: Your LangWatch API key. This is used as a fallback if `langwatchApiKey` is not set in your config file.
 - `LANGWATCH_ENDPOINT`: The LangWatch reporting endpoint. This is used as a fallback if `langwatchEndpoint` is not set in your config file.
 
+## Grouping Scenarios with setId
+
+You can group related scenarios into a set ("Simulation Set") by providing the `setId` option. This is useful for organizing your scenarios in the UI and for reporting in LangWatch.
+
+```typescript
+const result = await scenario.run({
+  name: "my first scenario",
+  description: "A simple test to see if the agent responds.",
+  setId: "my-test-suite", // Group this scenario into a set
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+  ],
+});
+```
+
+This will group all scenarios with the same `setId` together in the LangWatch UI and reporting tools.
+
+- The `setupFiles` entry enables Scenario's event logging for each test.
+- The custom `VitestReporter` provides detailed scenario test reports in your test output.
+
+
+## Vitest Integration
+
+To get rich scenario reporting and logging with Vitest, add the Scenario custom reporter and setup file to your `vitest.config.ts`:
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+import VitestReporter from '@langwatch/scenario/integrations/vitest/reporter';
+
+export default defineConfig({
+  test: {
+    testTimeout: 180000, // 3 minutes, or however long you want to wait for the scenario to run
+    setupFiles: ['@langwatch/scenario/integrations/vitest/setup'],
+    reporters: [
+      'default',
+      new VitestReporter(),
+    ],
+  },
+});
+```
+
 ## Development
 
 This project uses `pnpm` for package management.
@@ -271,21 +314,3 @@ pnpm test
 ## License
 
 MIT
-
-## Grouping Scenarios with setId
-
-You can group related scenarios into a set ("Simulation Set") by providing the `setId` option. This is useful for organizing your scenarios in the UI and for reporting in LangWatch.
-
-```typescript
-const result = await scenario.run({
-  name: "my first scenario",
-  description: "A simple test to see if the agent responds.",
-  setId: "my-test-suite", // Group this scenario into a set
-  agents: [
-    myAgent,
-    scenario.userSimulatorAgent(),
-  ],
-});
-```
-
-This will group all scenarios with the same `setId` together in the LangWatch UI and reporting tools.
