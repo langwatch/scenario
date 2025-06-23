@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
 
 // An adapter for a simple agent that echoes back messages.
 const echoAgent: AgentAdapter = {

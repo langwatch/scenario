@@ -1,8 +1,5 @@
 import { openai } from "@ai-sdk/openai";
-import scenario, {
-  type AgentAdapter,
-  AgentRole,
-} from "@langwatch/scenario";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText } from "ai";
 import { describe, it, expect } from "vitest";
 
