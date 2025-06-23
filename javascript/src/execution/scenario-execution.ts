@@ -623,6 +623,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }) {
     const event: ScenarioRunFinishedEvent = {
       ...this.makeBaseEvent({ scenarioRunId }),
+      scenarioSetId: this.config.setId ?? "default",
       type: ScenarioEventType.RUN_FINISHED,
       status: status,
       results: {

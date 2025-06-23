@@ -54,19 +54,6 @@ export class EventReporter {
 
     const eventToSend = { ...event };
 
-    // This is a hack to deal with the fact that the backend only accepts strings
-    if (eventToSend.type === "SCENARIO_MESSAGE_SNAPSHOT") {
-      eventToSend.messages = eventToSend.messages.map((message) => {
-        if (Array.isArray(message.content)) {
-          return {
-            ...message,
-            content: JSON.stringify(message.content),
-          };
-        }
-        return message;
-      });
-    }
-
     try {
       const response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
