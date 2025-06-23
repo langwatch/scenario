@@ -208,6 +208,7 @@ async def test_customer_service_billing():
 
 ```typescript [typescript]
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
 
 const customerServiceAgent: AgentAdapter = {
   role: AgentRole.AGENT,
@@ -220,35 +221,38 @@ const customerServiceAgent: AgentAdapter = {
   },
 };
 
-const result = await scenario.run({
-  name: "billing dispute resolution",
-  description: `
-    Customer received a bill that seems higher than expected.
-    They're not angry but are confused and want an explanation.
-    They have their account information ready and are generally
-    cooperative but need clear explanations.
-  `,
-  agents: [
-    customerServiceAgent,
-    scenario.userSimulatorAgent(),
-    scenario.judgeAgent({
-      criteria: [
-        "Agent asks for account information to look up the bill",
-        "Agent reviews the bill details with the customer",
-        "Agent explains any charges that seem unusual or high",
-        "Agent offers options if there was an error",
-        "Agent maintains a professional and helpful tone",
-        "Agent ensures customer understands before ending",
+describe("Customer Service Billing", () => {
+  it("should resolve a billing dispute with professionalism and clarity", async () => {
+    const result = await scenario.run({
+      name: "billing dispute resolution",
+      description: `
+        Customer received a bill that seems higher than expected.
+        They're not angry but are confused and want an explanation.
+        They have their account information ready and are generally
+        cooperative but need clear explanations.
+      `,
+      agents: [
+        customerServiceAgent,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent asks for account information to look up the bill",
+            "Agent reviews the bill details with the customer",
+            "Agent explains any charges that seem unusual or high",
+            "Agent offers options if there was an error",
+            "Agent maintains a professional and helpful tone",
+            "Agent ensures customer understands before ending",
+          ],
+        }),
       ],
-    }),
-  ],
-  maxTurns: 8, // Reasonable limit for this type of interaction
-});
+      maxTurns: 8, // Reasonable limit for this type of interaction
+    });
 
-// Additional assertions
-if (!result.success) throw new Error("Scenario did not succeed");
-if (result.messages.length < 4) throw new Error("Should have substantial conversation");
-if (!result.messages.some(m => String(m.content).toLowerCase().includes("account"))) throw new Error("Should discuss account");
+    expect(result.success).toBe(true);
+    expect(result.messages.length).toBeGreaterThanOrEqual(4); // Should have substantial conversation
+    expect(result.messages.some(m => String(m.content).toLowerCase().includes("account"))).toBe(true); // Should discuss account
+  });
+});
 ```
 
 :::
