@@ -10,7 +10,7 @@ import { mergeAndValidateConfig } from "../utils/config";
 /**
  * Configuration for the judge agent.
  */
-interface JudgeAgentConfig extends TestingAgentConfig {
+export interface JudgeAgentConfig extends TestingAgentConfig {
   /**
    * A custom system prompt to override the default behavior of the judge.
    */
