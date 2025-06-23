@@ -52,12 +52,10 @@ export class EventReporter {
       return;
     }
 
-    const eventToSend = { ...event };
-
     try {
       const response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
-        body: JSON.stringify(eventToSend),
+        body: JSON.stringify(event),
         headers: {
           "Content-Type": "application/json",
           "X-Auth-Token": this.apiKey,
@@ -77,14 +75,14 @@ export class EventReporter {
           status: response.status,
           statusText: response.statusText,
           error: errorText,
-          event: eventToSend,
+          event: event,
         });
         // Don't throw - event posting shouldn't break scenario execution
       }
     } catch (error) {
       this.logger.error(`[${event.type}] Event POST error:`, {
         error,
-        event: eventToSend,
+        event: event,
         endpoint: this.eventsEndpoint,
       });
       // Don't throw - event posting shouldn't break scenario execution
