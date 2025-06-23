@@ -6,7 +6,9 @@ import { RefLink } from "../../components/RefLink";
 
 Every scenario test follows this basic pattern:
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="descriptive test name",
     description="detailed scenario context",
@@ -18,6 +20,31 @@ result = await scenario.run(
     script=[] # Optional
 )
 ```
+
+```typescript [typescript]
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+
+const yourAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Your agent logic here
+    return "Hello!";
+  },
+};
+
+const result = await scenario.run({
+  name: "descriptive test name",
+  description: "detailed scenario context",
+  agents: [
+    yourAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["success criteria"] }),
+  ],
+  script: [], // Optional
+});
+```
+
+:::
 
 ### Name and Description
 
@@ -63,9 +90,9 @@ While optional, we strongly recommend setting stable identifiers for your scenar
 - **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
 - **batch_run_id**: Groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
 
-```python
-import os
+:::code-group
 
+```python [python]
 result = await scenario.run(
     name="my first scenario",
     description="A simple test to see if the agent responds.",
@@ -77,32 +104,27 @@ result = await scenario.run(
 )
 ```
 
-You can also set the `batch_run_id` using environment variables for CI/CD integration:
-
-```python
-import os
-
-# Set batch ID for CI/CD integration
-os.environ["SCENARIO_BATCH_RUN_ID"] = os.environ.get("GITHUB_RUN_ID", "local-run")
-
-result = await scenario.run(
-    name="my first scenario",
-    description="A simple test to see if the agent responds.",
-    set_id="my-test-suite",
-    agents=[
-        scenario.Agent(my_agent),
-        scenario.UserSimulatorAgent(),
-    ]
-)
+```typescript [typescript]
+const result = await scenario.run({
+  name: "my first scenario",
+  description: "A simple test to see if the agent responds.",
+  setId: "my-test-suite", // Group this scenario into a set
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+  ],
+});
 ```
 
-The `batch_run_id` is automatically generated for each test run, but you can also set it globally using the `SCENARIO_BATCH_RUN_ID` environment variable.
+:::
 
 ## Connect Your Agent
 
 To start testing your agent, you first need to connect it to the scenario, this is done through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface:
 
-```python
+:::code-group
+
+```python [python]
 import scenario
 
 class MyAgent(scenario.AgentAdapter):
@@ -117,15 +139,33 @@ class MyAgent(scenario.AgentAdapter):
         return response
 ```
 
-The adapter pattern lets you connect any existing agent - whether it's a simple function or custom framework - without modifying your agent's code.
+```typescript [typescript]
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
-For detailed integration patterns including simple string, OpenAI-messages, or framework-specific integrations, see [Agent Integration](../agent-integration).
+const myAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Get the user's message
+    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content;
+
+    // Call your existing agent
+    const response = await myExistingAgent.process(lastUserMessage);
+
+    // Return the response (can be string, message, or array of messages)
+    return response;
+  },
+};
+```
+
+:::
 
 ## Example: Complete Scenario
 
 Here's a complete example showing all concepts together:
 
-```python
+:::code-group
+
+```python [python]
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_customer_service_billing():
@@ -165,6 +205,53 @@ async def test_customer_service_billing():
     assert len(result.messages) >= 4  # Should have substantial conversation
     assert "account" in str(result.messages).lower()  # Should discuss account
 ```
+
+```typescript [typescript]
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+
+const customerServiceAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Call your existing agent with context
+    return await customerServiceBot.process({
+      messages: input.messages,
+      context: { department: "billing" },
+    });
+  },
+};
+
+const result = await scenario.run({
+  name: "billing dispute resolution",
+  description: `
+    Customer received a bill that seems higher than expected.
+    They're not angry but are confused and want an explanation.
+    They have their account information ready and are generally
+    cooperative but need clear explanations.
+  `,
+  agents: [
+    customerServiceAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "Agent asks for account information to look up the bill",
+        "Agent reviews the bill details with the customer",
+        "Agent explains any charges that seem unusual or high",
+        "Agent offers options if there was an error",
+        "Agent maintains a professional and helpful tone",
+        "Agent ensures customer understands before ending",
+      ],
+    }),
+  ],
+  maxTurns: 8, // Reasonable limit for this type of interaction
+});
+
+// Additional assertions
+if (!result.success) throw new Error("Scenario did not succeed");
+if (result.messages.length < 4) throw new Error("Should have substantial conversation");
+if (!result.messages.some(m => String(m.content).toLowerCase().includes("account"))) throw new Error("Should discuss account");
+```
+
+:::
 
 ## Writing Tips
 
