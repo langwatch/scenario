@@ -17,6 +17,7 @@ export class EventBus {
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.eventReporter = new EventReporter(config);
     EventBus.registry.add(this);
+
     // Notify global listeners
     for (const listener of EventBus.globalListeners) {
       listener(this);
@@ -94,7 +95,9 @@ export class EventBus {
    */
   async drain(): Promise<void> {
     this.logger.debug("Draining event stream");
-    this.events$.unsubscribe();
+
+    // Complete the stream, but don't unsubscribe the Subject itself!!!
+    this.events$.complete();
 
     if (this.processingPromise) {
       await this.processingPromise;
