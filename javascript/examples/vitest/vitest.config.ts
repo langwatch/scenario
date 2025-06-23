@@ -1,9 +1,13 @@
 import { defineConfig } from "vitest/config";
-import VitestReporter from '@langwatch/scenario/reporters/vitest-reporter';
+import VitestReporter from '@langwatch/scenario/integrations/vitest/reporter';
 
 export default defineConfig({
   test: {
     testTimeout: 180000,
-    reporters: [new VitestReporter],
+    setupFiles: ['@langwatch/scenario/integrations/vitest/setup'],
+    reporters: [
+      'default',
+      new VitestReporter(),
+    ],
   },
 });
