@@ -14,7 +14,7 @@ import {
   ScenarioExecutionStateLike,
   ScenarioConfigFinal
 } from "../domain";
-import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEvent, ScenarioRunStatus } from "../events/schema";
+import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEvent, ScenarioRunStatus, Verdict } from "../events/schema";
 import { generateScenarioId, generateScenarioRunId, generateThreadId, getBatchRunId } from "../utils/ids";
 import { Logger } from "../utils/logger";
 
@@ -144,7 +144,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         if (result && typeof result === "object" && "success" in result) {
           this.emitRunFinished({
             scenarioRunId,
-            status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
+            status: result.success
+              ? ScenarioRunStatus.SUCCESS
+              : ScenarioRunStatus.FAILED,
+            result: result as ScenarioResult,
           });
 
           return result as ScenarioResult;
@@ -344,8 +347,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       success: true,
       messages: this.state.messages,
       reasoning: reasoning || "Scenario marked as successful with Scenario.succeed()",
-      passedCriteria: [],
-      failedCriteria: [],
+      metCriteria: [],
+      unmetCriteria: [],
     };
   }
 
@@ -360,8 +363,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       success: false,
       messages: this.state.messages,
       reasoning: reasoning || "Scenario marked as failed with Scenario.fail()",
-      passedCriteria: [],
-      failedCriteria: [],
+      metCriteria: [],
+      unmetCriteria: [],
     };
   }
 
@@ -528,8 +531,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       success: false,
       messages: this.state.messages,
       reasoning: errorMessage || `Reached maximum turns (${this.config.maxTurns || 10}) without conclusion`,
-      passedCriteria: [],
-      failedCriteria: this.getJudgeAgent()?.criteria ?? [],
+      metCriteria: [],
+      unmetCriteria: this.getJudgeAgent()?.criteria ?? [],
       totalTime: this.totalTime,
       agentTime: totalAgentTime,
     };
@@ -591,16 +594,27 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private emitRunFinished({
     scenarioRunId,
     status,
+    result,
   }: {
     scenarioRunId: string;
     status: ScenarioRunStatus;
+    result?: ScenarioResult;
   }) {
-    this.emitEvent({
+    const event: ScenarioRunFinishedEvent = {
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_FINISHED,
-      status,
-      // Add error/metrics fields if needed
-    } as ScenarioRunFinishedEvent);
+      status: status,
+      results: {
+        verdict: result?.success ? Verdict.SUCCESS : Verdict.FAILURE,
+        metCriteria: result?.metCriteria ?? [],
+        unmetCriteria: result?.unmetCriteria ?? [],
+        reasoning: result?.reasoning,
+        error: void 0,
+      },
+    };
+
+    this.emitEvent(event);
+    this.eventSubject.complete();
   }
 
   /**
