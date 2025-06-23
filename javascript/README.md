@@ -1,9 +1,9 @@
 # Scenario
 
-![scenario](../assets/scenario-wide.webp)
+![scenario](https://github.com/langwatch/scenario/raw/refs/heads/main/assets/scenario-wide.webp)
 
 
-[![npm version](https://badge.fury.io/js/%40getscenario%2Fscenario.svg)](https://badge.fury.io/js/%40getscenario%2Fscenario)
+[![npm version](https://badge.fury.io/js/%40langwatch%2Fscenario.svg)](https://badge.fury.io/js/%40langwatch%2Fscenario)
 
 A powerful TypeScript library for testing AI agents in realistic, scripted scenarios.
 
@@ -21,11 +21,11 @@ Scenario provides a declarative DSL for defining test cases, allowing you to con
 ## Installation
 
 ```bash
-pnpm add @getscenario/scenario
+pnpm add @langwatch/scenario
 # or
-npm install @getscenario/scenario
+npm install @langwatch/scenario
 # or
-yarn add @getscenario/scenario
+yarn add @langwatch/scenario
 ```
 
 ## Quick Start
@@ -34,7 +34,7 @@ Create your first scenario test in under a minute.
 
 ```typescript
 // echo.test.ts
-import { run, AgentRole, AgentAdapter, user, agent, succeed } from "@getscenario/scenario";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 // 1. Create an adapter for your agent
 const echoAgent: AgentAdapter = {
@@ -48,14 +48,14 @@ const echoAgent: AgentAdapter = {
 
 // 2. Define and run your scenario
 async function testEchoAgent() {
-  const result = await run({
+  const result = await scenario.run({
     name: "Echo Agent Test",
     description: "The agent should echo back the user's message.",
     agents: [echoAgent],
     script: [
-      user("Hello world!"),
-      agent("You said: Hello world!"), // You can assert the agent's response directly
-      succeed("Agent correctly echoed the message."),
+      scenario.user("Hello world!"),
+      scenario.agent("You said: Hello world!"), // You can assert the agent's response directly
+      scenario.succeed("Agent correctly echoed the message."),
     ],
   });
 
@@ -77,7 +77,7 @@ Scenario integrates seamlessly with test runners like [Vitest](https://vitest.de
 // weather.test.ts
 import { describe, it, expect } from "vitest";
 import { openai } from "@ai-sdk/openai";
-import { run, userSimulatorAgent, AgentRole, AgentAdapter, user, agent, succeed } from "@getscenario/scenario";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText, tool } from "ai";
 import { z } from "zod";
 
@@ -117,21 +117,21 @@ describe("Weather Agent", () => {
     };
 
     // 3. Define and run your scenario
-    const result = await run({
+    const result = await scenario.run({
       name: "Checking the weather",
       description: "The user asks for the weather in a specific city, and the agent should use the weather tool to find it.",
       agents: [
         weatherAgent,
-        userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
       ],
       script: [
-        user("What's the weather like in Barcelona?"),
-        agent(),
+        scenario.user("What's the weather like in Barcelona?"),
+        scenario.agent(),
         // You can use inline assertions within your script
         (state) => {
           expect(state.hasToolCall("get_current_weather")).toBe(true);
         },
-        succeed("Agent correctly used the weather tool."),
+        scenario.succeed("Agent correctly used the weather tool."),
       ],
     });
 
@@ -212,7 +212,7 @@ You can configure project-wide defaults by creating a `scenario.config.js` or `s
 
 ```js
 // scenario.config.mjs
-import { defineConfig } from "@getscenario/scenario/config";
+import { defineConfig } from "@langwatch/scenario/config";
 import { openai } from "@ai-sdk/openai";
 
 export default defineConfig({

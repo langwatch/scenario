@@ -1,6 +1,6 @@
-# Vitest Examples for @langwatch/scenario-ts
+# Vitest Examples for @langwatch/scenario
 
-This directory contains examples of using [@langwatch/scenario-ts](https://github.com/langwatch/scenario-ts) with [Vitest](https://vitest.dev/) for testing AI agents through scenarios.
+This directory contains examples of using [@langwatch/scenario](https://github.com/langwatch/scenario) with [Vitest](https://vitest.dev/) for testing AI agents through scenarios.
 
 ## Getting Started
 
@@ -11,6 +11,10 @@ This directory contains examples of using [@langwatch/scenario-ts](https://githu
    ```
 
 2. Create a `.env` file with your API keys if needed (for examples that use external LLM providers).
+
+  ```bash
+  echo "OPENAI_API_KEY=..." > .env
+  ```
 
 3. Run the examples:
    ```bash
@@ -31,7 +35,7 @@ We chose Vitest as our preferred testing framework for several reasons:
 
 5. **Jest Compatibility**: Vitest maintains an API compatible with Jest, making migration straightforward. Most tests written for Jest can run with minimal changes in Vitest.
 
-While we recommend Vitest, the `@langwatch/scenario-ts` library itself is testing framework agnostic. You can use it with Jest or other testing frameworks with appropriate configuration.
+While we recommend Vitest, the `@langwatch/scenario` library itself is testing framework agnostic. You can use it with Jest or other testing frameworks with appropriate configuration.
 
 ## Example Scenarios
 
@@ -40,51 +44,57 @@ This directory includes the following example test scenarios:
 - **simple-example.spec.ts**: A minimal example showing how to test a basic echo agent
 - **vegetarian-recipe-example.spec.ts**: Tests an AI agent that generates vegetarian recipes
 - **too-verbose-recipe-fail-example.spec.ts**: Demonstrates a failing test scenario
+- **false-assumptions.test.ts**: Demonstrates a more complex scenario with a user simulator, a judge agent, and a declarative script.
 
 ## Key Concepts
 
 Each example demonstrates these core concepts:
 
-1. Implementing the `TestableAgent` interface
-2. Creating a `Scenario` with success and failure criteria
-3. Running tests with Vitest's testing framework
-4. Verifying results using Vitest assertions
+1.  Implementing the `AgentAdapter` interface for your agent.
+2.  Defining a test case with `scenario.run`, including description, agents, and a script.
+3.  Using specialized agents like `scenario.judgeAgent` for evaluation and `scenario.userSimulatorAgent` for simulating user behavior.
+4.  Controlling the conversation flow with a declarative `script`.
+5.  Asserting the success of the scenario using Vitest's `expect`.
 
 ## Example Usage
 
 ```typescript
-import { Scenario, TestableAgent, Verdict } from "@langwatch/scenario-ts";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
-// Implement your agent
-class MyAgent implements TestableAgent {
-  async invoke(message: string): Promise<{ message: string }> {
-    return { message: `Response to: ${message}` };
-  }
-}
+// Implement your agent adapter
+const myAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // A simple echo agent
+    const lastUserMessage = input.messages[input.messages.length - 1];
+    return `You said: ${lastUserMessage.content}`;
+  },
+};
 
 describe("My Agent Test", () => {
   it("should handle basic interactions", async () => {
-    // Define your test scenario
-    const scenario = new Scenario({
-      description: "Test basic interaction",
-      strategy: "Send a message and verify response",
-      successCriteria: ["Agent responds with the original message"],
-      failureCriteria: ["Agent fails to respond"],
-    });
-
-    // Create agent instance
-    const agent = new MyAgent();
-
-    // Run the scenario
     const result = await scenario.run({
-      agent,
-      maxTurns: 3,
+      name: "Basic Echo Interaction",
+      description: "Test that the agent echoes back the user's message.",
+      agents: [
+        myAgent,
+        scenario.judgeAgent({
+          criteria: ["The agent should echo the user's message correctly."],
+        }),
+        scenario.userSimulatorAgent(),
+      ],
+      maxTurns: 2,
       verbose: process.env.VERBOSE === "true",
+      script: [
+        scenario.user("Hello agent!"),
+        scenario.agent(), // Agent will respond
+        scenario.judge(),
+      ],
     });
 
     // Assert results
-    expect(result.verdict).toBe(Verdict.Success);
+    expect(result.success).toBe(true);
   });
 });
 ```
