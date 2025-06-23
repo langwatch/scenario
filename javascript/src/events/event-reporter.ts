@@ -25,13 +25,7 @@ export class EventReporter {
           "To visualize the conversations in real time, configure your LangWatch API key (via LANGWATCH_API_KEY, or scenario.config.js)"
         );
       } else {
-        console.log("Simulation reporting is enabled");
-        console.log(
-          `Endpoint: ${config.endpoint} -> ${this.eventsEndpoint.href}`
-        );
-        console.log(
-          `API Key: ${!this.apiKey ? "not configured" : "configured"}`
-        );
+        console.log(`simulation reporting is enabled, endpoint:(${this.eventsEndpoint}) api_key_configured:(${this.apiKey.length > 0 ? "true" : "false"})`);
       }
     }
   }
