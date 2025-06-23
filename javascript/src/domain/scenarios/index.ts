@@ -67,7 +67,8 @@ export interface ScenarioExecutionLike {
   /**
    * The history of messages in the conversation.
    */
-  readonly history: CoreMessage[];
+  readonly messages: CoreMessage[];
+
   /**
    * The ID of the conversation thread.
    */
