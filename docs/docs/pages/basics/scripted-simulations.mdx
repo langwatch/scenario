@@ -8,7 +8,9 @@ While automatic simulations are powerful, sometimes you need precise control ove
 
 A script is a list of functions that control the conversation flow:
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="scripted interaction",
     description="Test specific conversation patterns",
@@ -24,6 +26,25 @@ result = await scenario.run(
     ]
 )
 ```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "scripted interaction",
+  description: "Test specific conversation patterns",
+  agents: [
+    myAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["Agent responds helpfully"] }),
+  ],
+  script: [
+    scenario.user("Hello, I need help"),
+    scenario.agent(),
+    scenario.judge(),
+  ],
+});
+```
+
+:::
 
 ### Commands List
 
@@ -43,7 +64,9 @@ result = await scenario.run(
 
 Generate or specify user messages:
 
-```python
+:::code-group
+
+```python [python]
 script=[
     # Specific user message
     scenario.user("I want to cancel my subscription"),
@@ -60,11 +83,34 @@ script=[
 ]
 ```
 
+```typescript [typescript]
+const script = [
+  // Specific user message
+  scenario.user("I want to cancel my subscription"),
+
+  // Let user simulator generate message based on scenario
+  scenario.user(),
+
+  // Structured message with additional content
+  scenario.message({
+    role: "user",
+    content: [
+        { type: "text", text: "I want to cancel my subscription" },
+        { type: "image_url", image_url: { url: "https://example.com/image.png" } },
+    ],
+  }),
+];
+```
+
+:::
+
 ### <RefLink link={{ python: "script.html#scenario.script.agent", typescript: "script.html#scenario.script.agent" }}>`scenario.agent()`</RefLink>
 
 Generate or specify agent responses:
 
-```python
+:::code-group
+
+```python [python]
 script=[
     scenario.user("Help me with billing"),
 
@@ -83,11 +129,31 @@ script=[
 ]
 ```
 
+```typescript [typescript]
+
+const script = [
+  scenario.user("Help me with billing"),
+  scenario.agent(),
+  scenario.agent("I'll help you with billing. Can you provide your account number?"),
+  scenario.message({
+    role: "assistant",
+    content: [
+      { type: "text", text: "I'll help you with billing. Can you provide your account number?" },
+      { type: "tool-call", toolCallId: "lookup_account", toolName: "lookup_account", args: { account_number: "123456" } },
+    ],
+  }),
+];
+```
+
+:::
+
 ### <RefLink link={{ python: "script.html#scenario.script.message", typescript: "script.html#scenario.script.message" }}>`scenario.message()`</RefLink>
 
 Add any OpenAI-compatible message directly to the conversation:
 
-```python
+:::code-group
+
+```python [python]
 script=[
     # User message
     scenario.message({"role": "user", "content": "Hello, I need help"}),
@@ -132,6 +198,50 @@ script=[
     })
 ]
 ```
+
+```typescript [typescript]
+import { message } from "@langwatch/scenario/script";
+
+const script = [
+  // User message
+  message({ role: "user", content: "Hello, I need help" }),
+
+  // Assistant message
+  message({ role: "assistant", content: "I'd be happy to help!" }),
+
+  // Assistant message with tool call (CoreMessage format)
+  message({
+    role: "assistant",
+    content: [
+      { type: "text", text: "Let me look that up for you" },
+      { type: "tool-call", toolCallId: "call_123", toolName: "search_database", args: { query: "user question" } },
+    ],
+  }),
+
+  // Tool response (CoreMessage format)
+  message({
+    role: "tool",
+    toolCallId: "call_123",
+    content: [
+      { type: "tool-result", toolCallId: "call_123", result: { results: ["result1", "result2"] } },
+    ],
+  }),
+
+  // System message
+  message({ role: "system", content: "The user is now in a hurry and needs quick responses" }),
+
+  // Multimodal user message
+  message({
+    role: "user",
+    content: [
+      { type: "text", text: "What's in this image?" },
+      { type: "image_url", image_url: { url: "data:image/..." } },
+    ],
+  }),
+];
+```
+
+:::
 
 :::tip
 Use <RefLink link={{ python: "script.html#scenario.script.message", typescript: "script.html#scenario.script.message" }} code={{ python: "scenario.message()", typescript: "scenario.message()" }} /> when you need precise control over message structure. For simple text messages, <RefLink link={{ python: "script.html#scenario.script.user", typescript: "script.html#scenario.script.user" }} code={{ python: "scenario.user()", typescript: "scenario.user()" }} /> and <RefLink link={{ python: "script.html#scenario.script.agent", typescript: "script.html#scenario.script.agent" }} code={{ python: "scenario.agent()", typescript: "scenario.agent()" }} /> are more convenient.
@@ -198,7 +308,9 @@ script=[
 
 Add custom logic at any point in the conversation:
 
-```python
+:::code-group
+
+```python [python]
 def check_tool_usage(state: scenario.ScenarioState) -> None:
     """Verify agent called the required tool"""
     assert state.has_tool_call("get_weather"), "Agent should have called weather tool"
@@ -226,11 +338,46 @@ script=[
 ]
 ```
 
+```typescript [typescript]
+
+async function check_tool_usage(state: scenario.ScenarioState) {
+    // Verify agent called the required tool
+    assert state.hasToolCall("get_weather"), "Agent should have called weather tool";
+
+    // Get the tool call details
+    const weatherCall = state.lastToolCall("get_weather");
+    if (!weatherCall) return;
+
+    const args = JSON.parse(weatherCall.function.arguments);
+    if (!args.location) throw new Error("Weather tool should include location");
+}
+
+async function verify_response_quality(state: scenario.ScenarioState) {
+
+    const lastMessage = state.lastMessage();
+    const content = lastMessage.content;
+
+    if (content.length <= 10) throw new Error("Response should be substantial");
+    if (content.toLowerCase().includes("sorry")) throw new Error("Agent shouldn't apologize unnecessarily");
+
+const script = [
+  scenario.user("What's the weather in Paris?"),
+  scenario.agent(),
+  check_tool_usage,
+  verify_response_quality,
+  scenario.succeed(),
+];
+```
+
+:::
+
 ### Async Custom Steps
 
 Custom steps can be async for external API calls:
 
-```python
+:::code-group
+
+```python [python]
 async def external_evaluation(state: scenario.ScenarioState) -> None:
     """Run external evaluation service"""
     last_response = state.last_message().get("content", "")
@@ -251,11 +398,37 @@ script=[
 ]
 ```
 
+```typescript [typescript]
+async function externalEval(state: scenario.ScenarioState) {
+    // Run external evaluation service
+    const lastResponse = state.lastMessage().content;
+
+    // Call external service
+    const evalResult = await external_evaluator.evaluate(
+        input: state.lastUserMessage().content,
+        output: lastResponse
+    );
+
+    if (evalResult.score <= 0.8) throw new Error(`Quality score too low: ${evalResult.score}`);
+}
+
+const script = [
+  scenario.user("Complex query"),
+  scenario.agent(),
+  externalEval,
+  scenario.proceed(),
+];
+```
+
+:::
+
 ### Conditional Logic
 
 Use conditional logic to branch based on conversation state:
 
-```python
+:::code-group
+
+```python [python]
 def conditional_check(state: scenario.ScenarioState) -> Optional[scenario.ScenarioResult]:
     """Branch logic based on agent response"""
     last_message = state.last_message()
@@ -286,13 +459,50 @@ script=[
 ]
 ```
 
+```typescript [typescript]
+async function conditionalCheck(state: scenario.ScenarioState) {
+    // Branch logic based on agent response
+    const lastMessage = state.lastMessage();
+    const content = lastMessage.content.toLowerCase();
+
+    if (content.includes("i don't know")) {
+        return scenario.ScenarioResult(
+            success: false,
+            messages: state.messages,
+            reasoning: "Agent should not give up so easily"
+        );
+    } else if (content.includes("let me help")) {
+        // Continue the conversation
+        return null;
+    } else {
+        // Force a specific follow-up
+        state.addMessage({
+            role: "user",
+            content: "Can you be more specific?"
+        });
+        return null;
+    }
+}
+
+const script = [
+  scenario.user("I have a problem"),
+  scenario.agent(),
+  conditionalCheck,
+  scenario.proceed(),
+];
+```
+
+:::
+
 ## Starting from Existing History
 
 Sometimes you want to test scenarios that begin mid-conversation:
 
 ### Pre-populate Conversation History
 
-```python
+:::code-group
+
+```python [python]
 result = await scenario.run(
     name="mid-conversation booking",
     description="User is in the middle of booking a flight and now wants to add hotels",
@@ -316,11 +526,39 @@ result = await scenario.run(
 )
 ```
 
+```typescript [typescript]
+const script = [
+  // Set up previous conversation context
+  scenario.message({ role: "user", content: "I'd like to book a flight" }),
+  scenario.message({ role: "assistant", content: "I'd be happy to help. Where would you like to go?" }),
+  scenario.message({ role: "user", content: "I want to go to Paris" }),
+  scenario.message({ role: "assistant", content: "Great! When would you like to travel?" }),
+
+  // Continue with new interaction
+  scenario.user("Actually, can you also help me find hotels?"),
+  scenario.agent(),
+  scenario.judge(),
+];
+
+const result = await scenario.run({
+  name: "mid-conversation booking",
+  description: "User is in the middle of booking a flight and now wants to add hotels",
+  agents: [
+    travelAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({ criteria: ["Agent handles additional requests smoothly"] }),
+  ],
+  script,
+});
+```
+
+:::
+
 ### Load from External Sources
 
-If you have a source with openai-message format history, you can easily load it into the conversation:
+:::code-group
 
-```python
+```python [python]
 async def load_real_conversation(state: scenario.ScenarioState) -> None:
     """Load conversation from logs or database"""
     conversation_data = await load_conversation_from_db("conversation_123")
@@ -336,13 +574,32 @@ script=[
 ]
 ```
 
-## Advanced Flow Control
+```typescript [typescript]
+async function loadRealConversation(state: scenario.ScenarioState) {
+  // Load conversation from logs or database
+  const conversationData = await loadConversationFromDb("conversation_123");
+  for (const message of conversationData) {
+    state.addMessage(message);
+  }
+}
 
-### `scenario.proceed()` with Callbacks
+const script = [
+  loadRealConversation, // Load real conversation
+  scenario.user("One more question..."), // Continue from there
+  scenario.agent(),
+  scenario.judge(),
+];
+```
 
-Monitor and control automatic conversation flow:
+:::
 
-```python
+### Advanced Flow Control
+
+#### `scenario.proceed()` with Callbacks
+
+:::code-group
+
+```python [python]
 def log_turn_progress(state: scenario.ScenarioState) -> None:
     """Log progress after each turn"""
     print(f"Turn {state.current_turn}: {len(state.messages)} messages")
@@ -375,11 +632,42 @@ script=[
 ]
 ```
 
+```typescript [typescript]
+function logTurnProgress(state: scenario.ScenarioState) {
+  // Log progress after each turn
+  console.log(`Turn ${state.currentTurn}: ${state.messages.length} messages`);
+  // Check for concerning patterns
+  const lastMsg = state.lastMessage().content;
+  if (typeof lastMsg === "string" && lastMsg.toLowerCase().includes("error")) {
+    console.warn("⚠️  Error detected in conversation");
+  }
+}
+
+function safetyCheck(state: scenario.ScenarioState) {
+  const lastMsg = state.lastMessage();
+  if (lastMsg.role === "assistant") {
+    const content = typeof lastMsg.content === "string" ? lastMsg.content.toLowerCase() : "";
+    if (["harmful", "dangerous", "illegal"].some(word => content.includes(word))) {
+      throw new Error("Safety violation detected");
+    }
+  }
+}
+
+const script = [
+  scenario.user("Start conversation"),
+  scenario.agent(),
+  scenario.proceed(5, logTurnProgress, safetyCheck),
+  scenario.judge(),
+];
+```
+
+:::
+
 ### Dynamic Script Modification
 
-Modify the script based on conversation state:
+:::code-group
 
-```python
+```python [python]
 def dynamic_script_logic(state: scenario.ScenarioState) -> None:
     """Modify conversation flow based on agent behavior"""
     last_msg = state.last_message().get("content", "")
@@ -409,11 +697,44 @@ script=[
 ]
 ```
 
-## Combining Scripted and Automatic Flow
+```typescript [typescript]
+function dynamicScriptLogic(state: scenario.ScenarioState) {
+  const lastMsg = state.lastMessage().content;
+  // If any message has a toolCallId, inject a tool error
+  if (state.messages.some(m => m.toolCallId)) {
+    state.addMessage({
+      role: "tool",
+      toolCallId: "test_call_123",
+      content: [
+        { type: "tool-result", toolCallId: "test_call_123", result: { error: "Service unavailable" } },
+      ],
+    });
+  }
+  // Continue based on agent's response to the error
+  if (typeof lastMsg === "string" && lastMsg.toLowerCase().includes("apologize")) {
+    state.addMessage({
+      role: "user",
+      content: "Is there another way to help me?",
+    });
+  }
+}
 
-Mix precise control with automatic simulation:
+const script = [
+  scenario.user("I need current data"),
+  scenario.agent(),
+  dynamicScriptLogic, // Inject tool error
+  scenario.agent(),   // See how agent handles error
+  scenario.judge(),
+];
+```
 
-```python
+:::
+
+### Combining Scripted and Automatic Flow
+
+:::code-group
+
+```python [python]
 script=[
     # Start with specific setup
     scenario.user("I need help with a complex issue"),
@@ -437,13 +758,49 @@ script=[
 ]
 ```
 
-## Best Practices
+```typescript [typescript]
+const script = [
+  // Start with specific setup
+  scenario.user("I need help with a complex issue"),
+  scenario.agent(),
 
-### 1. Start Simple
+  // Verify initial response
+  (state) => {
+    const content = state.lastMessage().content;
+    if (typeof content !== "string" || !content.toLowerCase().includes("help")) {
+      throw new Error("Agent did not offer help");
+    }
+  },
 
-Begin with basic scripts and add complexity gradually:
+  // Let conversation flow naturally for a while
+  scenario.proceed(3),
 
-```python
+  // Inject a complication
+  scenario.user("Actually, I need to change my original request"),
+  scenario.agent(),
+
+  // Verify adaptation
+  (state) => {
+    const content = state.lastMessage().content;
+    if (typeof content !== "string" || content.length <= 50) {
+      throw new Error("Agent did not provide a substantial adaptation");
+    }
+  },
+
+  // Let judge decide final outcome
+  scenario.judge(),
+];
+```
+
+:::
+
+### Best Practices
+
+#### 1. Start Simple
+
+:::code-group
+
+```python [python]
 # Start with basic flow
 script=[
     scenario.user("Hello"),
@@ -460,15 +817,35 @@ script=[
 ]
 ```
 
-:::tip
-When just starting out, [debug mode](./debug-mode) can be very helpful for you to try to break your agent and figure out what to test.
+```typescript [typescript]
+// Start with basic flow
+const script = [
+  scenario.user("Hello"),
+  scenario.agent(),
+  scenario.succeed(),
+];
+
+// Then add validation
+const scriptWithValidation = [
+  scenario.user("Hello"),
+  scenario.agent(),
+  (state) => {
+    const content = state.lastMessage().content;
+    if (typeof content !== "string" || !content.toLowerCase().includes("hello")) {
+      throw new Error("Agent did not greet properly");
+    }
+  },
+  scenario.succeed(),
+];
+```
+
 :::
 
-### 2. Use Descriptive Function Names
+#### 2. Use Descriptive Function Names
 
-Make your custom steps self-documenting:
+:::code-group
 
-```python
+```python [python]
 def ensure_no_pii_leaked(state: scenario.ScenarioState) -> None:
     content = state.last_message().get("content", "")
     assert "George" not in content, \
@@ -480,11 +857,32 @@ def verify_agent_asks_for_clarification(state: scenario.ScenarioState) -> None:
         "Agent should ask clarifying questions"
 ```
 
-### 3. Balance Control and Realism
+```typescript [typescript]
+function ensureNoPiiLeaked(state: scenario.ScenarioState) {
+  const content = state.lastMessage().content;
+  if (typeof content === "string" && content.includes("George")) {
+    throw new Error("Agent should not mention the user's real name in responses");
+  }
+}
 
-Don't over-script; leave room for natural conversation:
+function verifyAgentAsksForClarification(state: scenario.ScenarioState) {
+  const content = state.lastMessage().content;
+  if (
+    typeof content !== "string" ||
+    !["what", "which", "how", "when", "where"].some(word => content.toLowerCase().includes(word))
+  ) {
+    throw new Error("Agent should ask clarifying questions");
+  }
+}
+```
 
-```python
+:::
+
+#### 3. Balance Control and Realism
+
+:::code-group
+
+```python [python]
 # Over-scripted - too rigid
 script=[
     scenario.user("Exact message 1"),
@@ -505,11 +903,41 @@ script=[
 ]
 ```
 
-## Integration with External Tools
+```typescript [typescript]
+// Over-scripted - too rigid
+const rigidScript = [
+  scenario.user("Exact message 1"),
+  scenario.agent("Exact response 1"),
+  scenario.user("Exact message 2"),
+  scenario.agent(),
+  ensureExactResponse2,
+  scenario.succeed(),
+];
 
-### LLM Evaluators
+// Better - mix of control and automation
+const betterScript = [
+  scenario.user("I need help with billing"),
+  scenario.agent(), // Let agent respond naturally
+  (state) => {
+    const content = state.lastMessage().content;
+    if (typeof content !== "string" || !content.toLowerCase().includes("account")) {
+      throw new Error("Agent did not mention account");
+    }
+  },
+  scenario.proceed(2), // Allow natural conversation
+  scenario.judge(),
+];
+```
 
-```python
+:::
+
+### Integration with External Tools
+
+#### LLM Evaluators
+
+:::code-group
+
+```python [python]
 import litellm
 
 async def llm_evaluator(state: scenario.ScenarioState) -> None:
@@ -542,9 +970,44 @@ script=[
 ]
 ```
 
-### Database Validation
+```typescript [typescript]
+async function llmEvaluator(state: scenario.ScenarioState) {
+  // Use LLM to evaluate response quality
+  const conversation = state.messages.slice(-4).map(
+    msg => `${msg.role}: ${typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content)}`
+  ).join("\n");
 
-```python
+  const evaluationPrompt = `
+    Evaluate this customer service conversation:
+    ${conversation}
+
+    Is the agent response professional and helpful? Respond with just "yes" or "no".
+  `;
+
+  const response = await openai.completion({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: evaluationPrompt }],
+  });
+
+  const result = response.choices[0].message.content.trim().toLowerCase();
+  if (result !== "yes") throw new Error(`LLM evaluation failed: ${result}`);
+}
+
+const script = [
+  scenario.user("I'm frustrated with my service"),
+  scenario.agent(),
+  llmEvaluator, // External LLM evaluation
+  scenario.proceed(),
+];
+```
+
+:::
+
+#### Database Validation
+
+:::code-group
+
+```python [python]
 async def verify_database_update(state: scenario.ScenarioState) -> None:
     """Verify agent actually updated the database"""
     # Extract customer ID from conversation
@@ -565,44 +1028,24 @@ script=[
 ]
 ```
 
-### Mocking with pytest
+```typescript [typescript]
+async function verifyDatabaseUpdate(state: scenario.ScenarioState) {
+  // Extract customer ID from conversation
+  const messagesText = JSON.stringify(state.messages);
+  // This would be actual database check
+  const customerUpdated = await checkCustomerRecordUpdated("extracted_from_conversation");
+  if (!customerUpdated) throw new Error("Agent should have updated customer record");
+}
 
-```python
-import pytest
-from unittest.mock import patch
-
-@pytest.mark.asyncio
-@patch('my_agent_module.external_weather_api')
-async def test_weather_agent_with_mock(mock_weather_api):
-    """Test agent behavior with mocked external service"""
-
-    # Set up mock response
-    mock_weather_api.get_weather.return_value = {
-        "temperature": "72°F",
-        "condition": "sunny",
-        "humidity": "45%"
-    }
-
-    class WeatherAgent(scenario.AgentAdapter):
-        async def call(self, input: scenario.AgentInput) -> str:
-            # This will use the mocked API
-            weather_data = external_weather_api.get_weather("New York")
-            return f"Weather in New York: {weather_data['temperature']}, {weather_data['condition']}"
-
-    result = await scenario.run(
-        name="mocked weather test",
-        description="User asks about weather",
-        agents=[
-            WeatherAgent(),
-            scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(criteria=["Agent provides weather information"])
-        ]
-    )
-
-    # Verify the mock was called
-    mock_weather_api.get_weather.assert_called_once_with("New York")
-    assert result.success
+const script = [
+  scenario.user("Please update my contact information"),
+  scenario.agent(),
+  verifyDatabaseUpdate, // Verify actual system changes
+  scenario.succeed("Contact information updated successfully"),
+];
 ```
+
+:::
 
 ## Next Steps
 
