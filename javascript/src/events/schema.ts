@@ -2,6 +2,24 @@ import { EventType, MessagesSnapshotEventSchema } from "@ag-ui/core";
 import { z } from "zod";
 
 /**
+ * The verdict of a scenario run.
+ */
+export enum Verdict {
+  /**
+   * The scenario completed successfully.
+   */
+  SUCCESS = "success",
+  /**
+   * The scenario failed.
+   */
+  FAILURE = "failure",
+  /**
+   * The scenario is inconclusive.
+   */
+  INCONCLUSIVE = "inconclusive",
+}
+
+/**
  * The type of a scenario event.
  */
 export enum ScenarioEventType {
@@ -79,14 +97,15 @@ export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
 export const scenarioRunFinishedSchema = baseScenarioEventSchema.extend({
   type: z.literal(ScenarioEventType.RUN_FINISHED),
   status: z.nativeEnum(ScenarioRunStatus),
-  //   error: z
-  //     .object({
-  //       message: z.string(),
-  //       code: z.string().optional(),
-  //       stack: z.string().optional(),
-  //     })
-  //     .optional(),
-  //   metrics: z.record(z.number()).optional(),
+  results: z
+    .object({
+      verdict: z.nativeEnum(Verdict),
+      reasoning: z.string().optional(),
+      metCriteria: z.array(z.string()),
+      unmetCriteria: z.array(z.string()),
+      error: z.string().optional(),
+    })
+    .nullable(),
 });
 
 // Scenario Message Snapshot Event
