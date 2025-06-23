@@ -12,14 +12,23 @@ export class EventBus {
   private eventReporter: EventReporter;
   private processingPromise: Promise<void> | null = null;
   private logger = new Logger("scenario.events.EventBus");
+  private static globalListeners: Array<(bus: EventBus) => void> = [];
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.eventReporter = new EventReporter(config);
     EventBus.registry.add(this);
+    // Notify global listeners
+    for (const listener of EventBus.globalListeners) {
+      listener(this);
+    }
   }
 
   static getAllBuses(): Set<EventBus> {
     return EventBus.registry;
+  }
+
+  static addGlobalListener(listener: (bus: EventBus) => void) {
+    EventBus.globalListeners.push(listener);
   }
 
   /**
