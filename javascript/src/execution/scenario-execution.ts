@@ -235,13 +235,20 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.addAgentTime(idx, endTime - startTime);
     this.pendingMessages.delete(idx);
 
-    if (typeof agentResponse === "object" && agentResponse && "success" in agentResponse) {
+    if (
+      agentResponse &&
+      typeof agentResponse === "object" &&
+      "success" in agentResponse
+    ) {
       return agentResponse as ScenarioResult;
     }
 
+    const currentAgentTime = this.agentTimes.get(idx) ?? 0;
+    this.agentTimes.set(idx, currentAgentTime + (Date.now() - startTime));
+
     const messages = convertAgentReturnTypesToMessages(
       agentResponse,
-      role === AgentRole.USER ? "user" : "assistant"
+      role === AgentRole.USER ? "user" : "assistant",
     );
 
     for (const message of messages) {
@@ -439,10 +446,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
 
     const result = await this.callAgent(index, role, judgmentRequest);
-    if (Array.isArray(result))
-      return null;
+    if (result && typeof result === "object" && "success" in result) {
+      return result as ScenarioResult;
+    }
 
-    return result;
+    // The result is a set of messages, which have already been added to the state
+    // by callAgent, so we don't need to do anything with them here.
+
+    return null;
   }
 
   private reset(): void {
