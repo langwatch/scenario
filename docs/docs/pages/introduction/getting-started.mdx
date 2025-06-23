@@ -14,6 +14,10 @@ uv add langwatch-scenario pytest
 ```
 
 ```bash [typescript]
+pnpm add @langwatch/scenario vitest
+# or
+npm install @langwatch/scenario vitest
+# or
 npm install @langwatch/scenario vitest
 ```
 
@@ -25,9 +29,10 @@ Let's create your first scenario test. This example shows how to test a simple v
 
 ### 1. Create your first test
 
-Create a file called `test_my_agent.py`:
+:::code-group
 
-```python
+```python [python]
+# my_vegetarian_recipe_agent.py
 import pytest
 import scenario
 import litellm
@@ -86,19 +91,77 @@ def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
     return response.choices[0].message
 ```
 
-### 2. Set up your environment
+```typescript [typescript]
+// vegetarian-recipe.test.ts
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
 
-Create a `.env` file with your OpenAI API key:
+// 1. Create your agent adapter
+const vegetarianRecipeAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await generateText({
+      model: openai("gpt-4.1-mini"),
+      messages: [
+        { role: "system", content: "You are a vegetarian recipe agent." },
+        ...input.messages,
+      ],
+    });
+    return response.text;
+  },
+};
+
+describe("Vegetarian Recipe Agent", () => {
+  it("should generate a vegetarian recipe", async () => {
+    // 2. Run the scenario
+    const result = await scenario.run({
+      name: "dinner recipe request",
+      description: `It's saturday evening, the user is very hungry and tired, but have no money to order out, so they are looking for a recipe.`,
+      agents: [
+        vegetarianRecipeAgent,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent should not ask more than two follow-up questions",
+            "Agent should generate a recipe",
+            "Recipe should include a list of ingredients",
+            "Recipe should include step-by-step cooking instructions",
+            "Recipe should be vegetarian and not include any sort of meat",
+          ],
+        }),
+      ],
+    });
+
+    // 3. Assert the result
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+:::
+
+### 2. Set up your environment
 
 ```bash
 OPENAI_API_KEY=<your-api-key>
+LANGWATCH_API_KEY=<your-api-key> # optional, for simulation reporting
 ```
 
 ### 3. Run your test
 
-```bash
+:::code-group
+
+```bash [python]
 uv run pytest -s test_my_agent.py
 ```
+
+```bash [typescript]
+npx vitest run vegetarian-recipe.test.ts
+```
+
+:::
 
 You should see output showing the conversation between the simulated user and your agent, followed by the judge's evaluation:
 
@@ -108,10 +171,10 @@ You should see output showing the conversation between the simulated user and yo
 
 In this example:
 
-1. **Agent Integration**: You created an <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> that wraps your agent function
-2. **Simulation**: The <RefLink link={{ python: "user_simulator_agent.html", typescript: "user_simulator_agent.html" }} code={{ python: "UserSimulatorAgent", typescript: "UserSimulatorAgent" }} /> automatically generated realistic user messages based on the scenario description
-3. **Evaluation**: The <RefLink link={{ python: "judge_agent.html", typescript: "judge_agent.html" }} code={{ python: "JudgeAgent", typescript: "JudgeAgent" }} /> evaluated the conversation against your criteria
-4. **Caching**: The <RefLink link={{ python: "index.html#scenario.cache", typescript: "index.html#scenario.cache" }} code={{ python: "@scenario.cache()", typescript: "@scenario.cache()" }} /> decorator made your agent calls deterministic for testing
+1. **Agent Integration**: You created an <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> that wraps your agent function (Python) or object (TypeScript)
+2. **Simulation**: The <RefLink link={{ python: "user_simulator_agent.html", typescript: "user_simulator_agent.html" }} code={{ python: "UserSimulatorAgent", typescript: "userSimulatorAgent" }} /> automatically generated realistic user messages based on the scenario description
+3. **Evaluation**: The <RefLink link={{ python: "judge_agent.html", typescript: "judge_agent.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> evaluated the conversation against your criteria
+4. **Caching**: The <RefLink link={{ python: "index.html#scenario.cache" }} code={{ python: "@scenario.cache()" }} /> decorator (Python) made your agent calls deterministic for testing
 
 ## Key Concepts
 
