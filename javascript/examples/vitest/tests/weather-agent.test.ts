@@ -1,5 +1,5 @@
 import { openai } from "@ai-sdk/openai";
-import * as scenario from "@langwatch/scenario";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText, tool } from "ai";
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
@@ -19,8 +19,8 @@ const getCurrentWeather = tool({
   },
 });
 
-const weatherAgent: scenario.AgentAdapter = {
-  role: scenario.AgentRole.AGENT,
+const weatherAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
       model: openai("gpt-4.1-mini"),
