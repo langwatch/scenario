@@ -1,5 +1,5 @@
 import { CoreMessage, CoreToolMessage } from "ai";
-import { ScenarioResult, AgentRole, AgentAdapter, ScenarioExecutionStateLike } from "../domain";
+import { ScenarioExecutionStateLike } from "../domain";
 import { generateMessageId } from "../utils/ids";
 
 /**
@@ -9,37 +9,53 @@ import { generateMessageId } from "../utils/ids";
  * other related information.
  */
 export class ScenarioExecutionState implements ScenarioExecutionStateLike {
-  private _history: (CoreMessage & { id: string })[] = [];
-  private _turn: number = 0;
-  private _partialResult: Omit<ScenarioResult, "messages"> | null = null;
+  private _messages: (CoreMessage & { id: string })[] = [];
+  private _currentTurn: number = 0;
   private _threadId: string = "";
-  private _agents: AgentAdapter[] = [];
   private _pendingMessages: Map<number, CoreMessage[]> = new Map();
-  private _pendingRolesOnTurn: AgentRole[] = [];
-  private _pendingAgentsOnTurn: Set<AgentAdapter> = new Set();
-  private _agentTimes: Map<number, number> = new Map();
-  private _totalStartTime: number = 0;
 
-  /**
-   * Creates a new ScenarioExecutionState.
-   */
-  constructor() {
-    this._totalStartTime = Date.now();
+  get messages(): CoreMessage[] {
+    return this._messages;
   }
 
-  setThreadId(threadId: string): void {
-    this._threadId = threadId;
+  get history(): CoreMessage[] {
+    return this._messages;
   }
 
-  setAgents(agents: AgentAdapter[]): void {
-    this._agents = agents;
-    this._pendingMessages.clear();
-    this._agentTimes.clear();
+  get currentTurn(): number {
+    return this._currentTurn;
+  }
+
+  set currentTurn(turn: number) {
+    this._currentTurn = turn;
+  }
+
+  get threadId(): string {
+    return this._threadId;
+  }
+
+  set threadId(value: string) {
+    this._threadId = value;
+  }
+
+  addMessage(message: CoreMessage, agentCount?: number, fromAgentIdx?: number): void {
+    this._messages.push({ ...message, id: generateMessageId() });
+
+    if (agentCount === void 0) return;
+
+    for (let idx = 0; idx < agentCount; idx++) {
+      if (idx === fromAgentIdx) continue;
+
+      if (!this._pendingMessages.has(idx)) {
+        this._pendingMessages.set(idx, []);
+      }
+      this._pendingMessages.get(idx)!.push(message);
+    }
   }
 
   appendMessage(role: CoreMessage["role"], content: string): void {
     const message: CoreMessage = { role, content } as CoreMessage;
-    this._history.push({ ...message, id: generateMessageId() });
+    this._messages.push({ ...message, id: generateMessageId() });
   }
 
   appendUserMessage(content: string): void {
@@ -50,25 +66,6 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     this.appendMessage("assistant", content);
   }
 
-  addMessage(message: CoreMessage, fromAgentIdx?: number): void {
-    this._history.push({ ...message, id: generateMessageId() });
-
-    for (let idx = 0; idx < this._agents.length; idx++) {
-      if (idx === fromAgentIdx) continue;
-
-      if (!this._pendingMessages.has(idx)) {
-        this._pendingMessages.set(idx, []);
-      }
-      this._pendingMessages.get(idx)!.push(message);
-    }
-  }
-
-  addMessages(messages: CoreMessage[], fromAgentIdx?: number): void {
-    for (const message of messages) {
-      this.addMessage(message, fromAgentIdx);
-    }
-  }
-
   getPendingMessages(agentIdx: number): CoreMessage[] {
     return this._pendingMessages.get(agentIdx) || [];
   }
@@ -77,151 +74,63 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     this._pendingMessages.set(agentIdx, []);
   }
 
-  newTurn(): void {
-    this._pendingAgentsOnTurn = new Set(this._agents);
-    this._pendingRolesOnTurn = [
-      AgentRole.USER,
-      AgentRole.AGENT,
-      AgentRole.JUDGE,
-    ];
-
-    if (this._turn === null) {
-      this._turn = 1;
-    } else {
-      this._turn++;
+  lastMessage(): CoreMessage {
+    if (this._messages.length === 0) {
+      throw new Error("No messages in history");
     }
+
+    return this._messages[this._messages.length - 1]
   }
 
-  removePendingRole(role: AgentRole): void {
-    const index = this._pendingRolesOnTurn.indexOf(role);
-    if (index > -1) {
-      this._pendingRolesOnTurn.splice(index, 1);
+  lastUserMessage(): CoreMessage {
+    if (this._messages.length === 0) {
+      throw new Error("No messages in history");
     }
-  }
 
-  removePendingAgent(agent: AgentAdapter): void {
-    this._pendingAgentsOnTurn.delete(agent);
-  }
+    const lastMessage = this._messages.findLast(message => message.role === "user");
 
-  getNextAgentForRole(role: AgentRole): { index: number; agent: AgentAdapter } | null {
-    for (let i = 0; i < this._agents.length; i++) {
-      const agent = this._agents[i];
-      if (agent.role === role && this._pendingAgentsOnTurn.has(agent)) {
-        return { index: i, agent };
-      }
+    if (!lastMessage) {
+      throw new Error("No user message in history");
     }
-    return null;
+
+    return lastMessage;
   }
 
-  addAgentTime(agentIdx: number, time: number): void {
-    const currentTime = this._agentTimes.get(agentIdx) || 0;
+  lastAssistantMessage(): CoreMessage {
+    if (this._messages.length === 0) {
+      throw new Error("No messages in history");
+    }
 
-    this._agentTimes.set(agentIdx, currentTime + time);
+    const lastMessage = this._messages.findLast(message => message.role === "assistant");
+
+    if (!lastMessage) {
+      throw new Error("No assistant message in history");
+    }
+
+    return lastMessage;
   }
 
-  hasResult(): boolean {
-    return this._partialResult !== null;
-  }
+  lastToolCall(toolName: string): CoreToolMessage {
+    if (this._messages.length === 0) {
+      throw new Error("No messages in history");
+    }
 
-  setResult(result: Omit<ScenarioResult, "messages">): void {
-    this._partialResult = result;
-  }
+    const lastMessage = this._messages.findLast(message => message.role === "tool" && message.content.find(
+      part => part.type === "tool-result" && part.toolName === toolName
+    ));
 
-  get lastMessage(): CoreMessage | undefined {
-    return this._history[this._history.length - 1];
-  }
+    if (!lastMessage) {
+      throw new Error("No tool call message in history");
+    }
 
-  get lastUserMessage(): CoreMessage | undefined {
-    return this._history.findLast(message => message.role === "user");
-  }
-
-  get lastAssistantMessage(): CoreMessage | undefined {
-    return this._history.findLast(message => message.role === "assistant");
-  }
-
-  get lastToolCall(): CoreToolMessage | undefined {
-    return this._history.findLast(message => message.role === "tool");
-  }
-
-  getLastToolCallByToolName(toolName: string): CoreToolMessage | undefined {
-    const toolMessage = this._history.findLast(message =>
-      message.role === "tool" && message.content.find(
-        part => part.type === "tool-result" && part.toolName === toolName
-      ),
-    );
-
-    return toolMessage as CoreToolMessage | undefined;
+    return lastMessage as CoreToolMessage;
   }
 
   hasToolCall(toolName: string): boolean {
-    return this._history.some(message =>
+    return this._messages.some(message =>
       message.role === "tool" && message.content.find(
         part => part.type === "tool-result" && part.toolName === toolName
       ),
     );
-  }
-
-  get history(): CoreMessage[] {
-    return this._history;
-  }
-
-  get historyWithoutLastMessage(): CoreMessage[] {
-    return this._history.slice(0, -1);
-  }
-
-  get historyWithoutLastUserMessage(): CoreMessage[] {
-    const lastUserMessageIndex = this._history.findLastIndex(message => message.role === "user");
-
-    if (lastUserMessageIndex === -1) return this._history;
-
-    return this._history.slice(0, lastUserMessageIndex);
-  }
-
-  get turn(): number | null {
-    return this._turn;
-  }
-
-  set turn(turn: number) {
-    this._turn = turn;
-  }
-
-  get threadId(): string {
-    return this._threadId;
-  }
-
-  get agents(): AgentAdapter[] {
-    return this._agents;
-  }
-
-  get pendingRolesOnTurn(): AgentRole[] {
-    return this._pendingRolesOnTurn;
-  }
-
-  set pendingRolesOnTurn(roles: AgentRole[]) {
-    this._pendingRolesOnTurn = roles;
-  }
-
-  get pendingAgentsOnTurn(): AgentAdapter[] {
-    return Array.from(this._pendingAgentsOnTurn);
-  }
-
-  set pendingAgentsOnTurn(agents: AgentAdapter[]) {
-    this._pendingAgentsOnTurn = new Set(agents);
-  }
-
-  get partialResult(): Omit<ScenarioResult, "messages"> | null {
-    return this._partialResult;
-  }
-
-  get totalTime(): number {
-    return Date.now() - this._totalStartTime;
-  }
-
-  get agentTimes(): Map<number, number> {
-    return new Map(this._agentTimes);
-  }
-
-  removeLastPendingRole(): void {
-    this._pendingRolesOnTurn.pop();
   }
 }
