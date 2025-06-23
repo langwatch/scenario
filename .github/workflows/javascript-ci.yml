@@ -43,17 +43,13 @@ jobs:
         run: pnpm run build
         working-directory: javascript
 
-      - name: Install example dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: javascript/examples/vitest
-
       - name: Lint
         run: pnpm run lint
         working-directory: javascript
 
       - name: Test (Examples)
-        run: pnpm run test
+        run: pnpm -F vitest-example test
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        working-directory: javascript/examples/vitest
+        working-directory: javascript
