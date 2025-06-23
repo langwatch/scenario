@@ -80,6 +80,7 @@ describe("Weather Agent", () => {
         (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.succeed(),
       ],
+      setId: "javascript-examples",
     });
     expect(result.success).toBe(true);
   });

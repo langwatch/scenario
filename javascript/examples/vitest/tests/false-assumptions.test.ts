@@ -15,7 +15,7 @@ describe("False Assumptions", () => {
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
-          model: openai("gpt-4.1-mini"),
+          model: openai("gpt-4.1-nano"),
           messages: [
             { role: "system", content: "You are a helpful assistant" },
             ...input.messages,
@@ -27,7 +27,7 @@ describe("False Assumptions", () => {
     };
 
     const result = await scenario.run({
-      name: "Early assumption bias",
+      name: "early assumption bias",
       description: "The agent makes false assumption that the user is talking about an ATM bank, and user corrects it that they actually mean river banks",
       agents: [
         agent,
@@ -62,6 +62,7 @@ describe("False Assumptions", () => {
         // Time to make a judgment call
         scenario.judge(),
       ],
+      setId: "javascript-examples",
     });
 
     expect(result.success).toBe(true);

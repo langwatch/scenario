@@ -22,9 +22,10 @@ describe("Scenario Error Handling", () => {
         scenario.userSimulatorAgent(),
         scenario.judgeAgent({ criteria: ["Agent should not throw errors"] }),
       ],
+      setId: "javascript-examples",
     });
     expect(result.success).toBe(false);
     expect(result.error).toContain("Simulated agent failure");
     expect(result.reasoning).toContain("Scenario failed with error");
   });
-}); 
+});
