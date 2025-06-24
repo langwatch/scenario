@@ -146,11 +146,7 @@ class ScenarioEventBus:
         """
         Handle watch message for scenario run started events.
         """
-        scenario_set_id = self._extract_scenario_set_id(event)
-
         self._event_alert_message_logger.handle_watch_message(
-            scenario_set_id=str(scenario_set_id),
-            scenario_run_id=event.scenario_run_id,
             set_url=str(result["setUrl"]),
         )
 
