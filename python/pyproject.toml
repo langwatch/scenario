@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langwatch-scenario"
-version = "0.7.3"
+version = "0.7.4"
 description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
