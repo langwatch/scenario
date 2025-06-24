@@ -22,7 +22,7 @@ async function loadProjectConfig() {
     try {
       config = await loadScenarioProjectConfig();
 
-      logger.info("loaded scenario project config", { config });
+      logger.debug("loaded scenario project config", { config });
     } catch (error) {
       logger.error("error loading scenario project config", { error });
     } finally {
