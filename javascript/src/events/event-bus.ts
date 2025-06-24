@@ -5,7 +5,10 @@ import {
   Subject,
   Observable,
   Subscription,
+  tap,
+  map,
 } from "rxjs";
+import { EventAlertMessageLogger } from "./event-alert-message-logger";
 import { EventReporter } from "./event-reporter";
 import { ScenarioEvent, ScenarioEventType } from "./schema";
 import { Logger } from "../utils/logger";
@@ -17,12 +20,14 @@ export class EventBus {
   private static registry = new Set<EventBus>();
   private events$ = new Subject<ScenarioEvent>();
   private eventReporter: EventReporter;
+  private eventAlertMessageLogger: EventAlertMessageLogger;
   private processingPromise: Promise<void> | null = null;
   private logger = new Logger("scenario.events.EventBus");
   private static globalListeners: Array<(bus: EventBus) => void> = [];
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.eventReporter = new EventReporter(config);
+    this.eventAlertMessageLogger = new EventAlertMessageLogger();
     EventBus.registry.add(this);
 
     // Notify global listeners
@@ -63,26 +68,35 @@ export class EventBus {
     this.processingPromise = new Promise<void>((resolve, reject) => {
       this.events$
         .pipe(
+          // Post events and get results
           concatMap(async (event: ScenarioEvent) => {
-            this.logger.debug(`[${event.type}] Processing event`, {
-              event,
-            });
-
-            await this.eventReporter.postEvent(event);
-            return event;
+            this.logger.debug(`[${event.type}] Processing event`, { event });
+            const result = await this.eventReporter.postEvent(event);
+            return { event, result };
           }),
+
+          // Handle watch messages reactively
+          tap(({ event, result }) => {
+            if (event.type === ScenarioEventType.RUN_STARTED && result.setUrl) {
+              this.eventAlertMessageLogger.handleWatchMessage({
+                scenarioSetId: event.scenarioSetId,
+                scenarioRunId: event.scenarioRunId,
+                setUrl: result.setUrl,
+              });
+            }
+          }),
+
+          // Extract just the event for downstream processing
+          map(({ event }) => event),
+
           catchError((error: unknown) => {
             this.logger.error("Error in event stream:", error);
-
             return EMPTY;
           })
         )
         .subscribe({
           next: (event: ScenarioEvent) => {
-            this.logger.debug(`[${event.type}] Event processed`, {
-              event,
-            });
-
+            this.logger.debug(`[${event.type}] Event processed`, { event });
             if (event.type === ScenarioEventType.RUN_FINISHED) {
               resolve();
             }

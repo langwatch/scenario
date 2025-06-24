@@ -33,15 +33,16 @@ export class EventAlertMessageLogger {
    * Shows a fancy message about how to watch the simulation.
    * Called when a run started event is received with a session ID.
    */
-  handleWatchMessage(event: {
+  handleWatchMessage(params: {
     scenarioSetId: string;
     scenarioRunId: string;
+    setUrl: string;
   }): void {
     if (this.isGreetingDisabled()) {
       return;
     }
 
-    this.displayWatchMessage(event);
+    this.displayWatchMessage(params);
   }
 
   private isGreetingDisabled(): boolean {
@@ -76,10 +77,23 @@ export class EventAlertMessageLogger {
         }`
       );
       console.log("");
-      console.log(`📦 Batch Run ID: ${batchRunId}\n`);
-      console.log("👀 Watch Your Simulation Live");
-      console.log(`   ${env.LANGWATCH_ENDPOINT}/scenarios`);
-      console.log(`${separator}`);
+      console.log(`📦 Batch Run ID: ${batchRunId}`);
+      console.log(`${separator}\n`);
     }
+  }
+
+  private displayWatchMessage(params: { setUrl: string }): void {
+    const separator = "─".repeat(60);
+    const setUrl = params.setUrl;
+    const batchUrl = `${setUrl}/${getBatchRunId()}`;
+
+    console.log(`\n${separator}`);
+    console.log("👀 Watch Your Simulation Live");
+    console.log(`${separator}`);
+    console.log("🌐 Open in your browser:");
+    console.log(`   Scenario Set: ${setUrl}`);
+    console.log(`   Batch Run: ${batchUrl}`);
+    console.log("");
+    console.log(`${separator}\n`);
   }
 }

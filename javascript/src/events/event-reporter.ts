@@ -26,7 +26,8 @@ export class EventReporter {
    * Posts an event to the configured endpoint.
    * Logs success/failure but doesn't throw - event posting shouldn't break scenario execution.
    */
-  async postEvent(event: ScenarioEvent): Promise<void> {
+  async postEvent(event: ScenarioEvent): Promise<{ setUrl?: string }> {
+    const result: { setUrl?: string } = {};
     this.logger.debug(`[${event.type}] Posting event`, {
       event,
     });
@@ -35,7 +36,7 @@ export class EventReporter {
       this.logger.warn(
         "No LANGWATCH_ENDPOINT configured, skipping event posting"
       );
-      return;
+      return result;
     }
 
     try {
@@ -53,8 +54,10 @@ export class EventReporter {
       );
 
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as { url: string };
         this.logger.debug(`[${event.type}] Event POST response:`, data);
+
+        result.setUrl = data.url;
       } else {
         const errorText = await response.text();
         this.logger.error(`[${event.type}] Event POST failed:`, {
@@ -73,5 +76,7 @@ export class EventReporter {
       });
       // Don't throw - event posting shouldn't break scenario execution
     }
+
+    return result;
   }
 }
