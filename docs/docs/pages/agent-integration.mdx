@@ -360,15 +360,20 @@ class CachedAgent(scenario.AgentAdapter):
 
 :::
 
-{/* ## Next Steps
+## Framework Integrations
 
-Now that you understand agent integration, explore specific integration guides:
+Scenario provides specific integration guides for popular agent frameworks:
 
-- [OpenAI Compatible Agents](/agent-integration/openai-agents) - Agents using OpenAI message format
-- [Tool-Using Agents](/agent-integration/tool-agents) - Agents that call external tools
-- [Framework Integrations](/agent-integration/frameworks) - LangChain, AutoGen, and other frameworks
+- **[Agno Integration](./agent-integration/agno)** - Integrate Agno agents with proper state management
+- **[Google ADK Integration](./agent-integration/google-adk)** - Integrate Google Agent Development Kit agents
+- **[LangGraph Integration](./agent-integration/langgraph)** - Integrate LangGraph agents with streaming support
+- **[LiteLLM Integration](./agent-integration/litellm)** - Integrate LiteLLM agents with unified LLM interface
+- **[OpenAI Integration](./agent-integration/openai)** - Integrate OpenAI agents with direct API calls
+- **[Pydantic AI Integration](./agent-integration/pydantic-ai)** - Integrate Pydantic AI agents with manual history management
 
-Or dive deeper into advanced topics:
+## Next Steps
 
-- [Scenario Basics](/scenario) - Master scenario creation and control
-- Check the [AgentAdapter API Reference](/reference/python/scenario/agent_adapter.html) for detailed documentation */}
+Now that you understand agent integration, explore specific guides:
+
+- [Scenario Basics](./basics/concepts) - Master scenario creation and control
+- Check the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> API for detailed documentation

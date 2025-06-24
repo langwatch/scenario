@@ -1,0 +1,91 @@
+import { RefLink } from "../../components/RefLink";
+
+# Google ADK Integration [Learn how to integrate Google ADK agents with the Scenario testing framework]
+
+Google ADK agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface. The key is managing the ADK session service and runner properly.
+
+## Basic Integration Pattern
+
+Given this Google ADK agent example:
+
+```python
+from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
+
+agent = Agent(
+    name="customer_support_agent",
+    model=LiteLlm(model="openai/gpt-4.1-mini"),
+    description="Customer support agent for XPTO Telecom",
+    instruction=SYSTEM_PROMPT,
+    tools=[
+        get_customer_order_history,
+        get_order_status,
+        get_company_policy,
+        get_troubleshooting_guide,
+        escalate_to_human,
+    ],
+)
+```
+
+You can integrate it with Scenario like this:
+
+```python
+import scenario
+from google.adk.sessions import InMemorySessionService
+from google.adk.runners import Runner
+from google.genai.types import Content, Part
+import google.adk.models.lite_llm as litellm
+
+class GoogleADKAgentAdapter(scenario.AgentAdapter):
+    def __init__(self):
+        self.session_service = InMemorySessionService()
+        self.runner = Runner(
+            agent=agent,
+            app_name="customer_support_agent",
+            session_service=self.session_service,
+        )
+
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Get or create session
+        session = await self.session_service.get_session(
+            app_name="customer_support_agent",
+            user_id="user_1",
+            session_id=input.thread_id,
+        )
+        if not session:
+            session = await self.session_service.create_session(
+                app_name="customer_support_agent",
+                user_id="user_1",
+                session_id=input.thread_id,
+            )
+
+        # Create user message in ADK format
+        user_message = Content(
+            role="user", parts=[Part(text=input.last_new_user_message_str())]
+        )
+
+        # Run the agent and collect responses
+        contents = []
+        async for event in self.runner.run_async(
+            user_id="user_1",
+            session_id=input.thread_id,
+            new_message=user_message
+        ):
+            contents += [event.content] if event.content else []
+
+        # Convert to OpenAI format for Scenario
+        messages_openai_format = [
+            litellm._content_to_message_param(content) for content in contents
+        ]
+        return messages_openai_format
+```
+
+## Full Example Project
+
+For a complete working example with a customer support agent, including tools, system prompts, and comprehensive tests, check out the [create-agent-app project](https://github.com/langwatch/create-agent-app/blob/main/google_adk_example/tests/test_customer_support_agent.py).
+
+## Next Steps
+
+- Explore [Scenario Basics](/basics/concepts) for advanced testing patterns
+- Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
+- Check out more [Agent Integration patterns](/agent-integration) for other frameworks

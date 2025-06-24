@@ -1,0 +1,84 @@
+import { RefLink } from "../../components/RefLink";
+
+# Agno Integration [Learn how to integrate Agno agents with the Scenario testing framework]
+
+Agno agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface. The key is handling message state properly since Agno agents maintain their own conversation history.
+
+## Basic Integration Pattern
+
+Given this Agno agent example:
+
+```python
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+import os
+
+agent = Agent(
+    model=OpenAIChat(
+        id="gpt-4.1-mini",
+        api_key=os.getenv("OPENAI_API_KEY"),
+    ),
+    tools=[
+        get_customer_order_history,
+        get_order_status,
+        get_company_policy,
+        get_troubleshooting_guide,
+        escalate_to_human,
+    ],
+    description=SYSTEM_PROMPT,
+    add_history_to_messages=True,
+)
+```
+
+You can very easily integrate it with Scenario like this:
+
+```python
+class Agent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        result = agent.run(input.last_new_user_message_str())
+        return str(result.content)
+```
+
+## Full Integration (OpenAI only)
+
+To support tool calls and other complex interactions, you can convert the Agno messages to the OpenAI format:
+
+```python
+import scenario
+from agno.models.openai import OpenAIChat
+
+class AgnoAgentAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Get the current message count to identify new messages
+        current_messages_count = len(
+            agent.get_messages_for_session(input.thread_id) or ["initial"]
+        )
+
+        # Run the Agno agent with the latest user message
+        result = agent.run(
+            input.last_new_user_message_str(),
+            session_id=input.thread_id
+        )
+
+        # Extract only the new messages that were added during this call
+        new_messages = (result.messages or [])[current_messages_count + 1:]
+
+        # Format messages for Scenario (OpenAI format)
+        openai_formatted_messages = [
+            OpenAIChat()._format_message(message) for message in new_messages
+        ]
+
+        return openai_formatted_messages
+```
+
+This conversion however only works for OpenAI agents. Messages comming from Gemini or Anthropic will have a slightly different format and will need more manual conversion for the tool calls.
+
+## Full Example Project
+
+For a complete working example with a customer support agent, including tools, system prompts, and comprehensive tests, check out the [create-agent-app project](https://github.com/langwatch/create-agent-app/blob/main/agno_example/tests/test_customer_support_agent.py).
+
+## Next Steps
+
+- Explore [Scenario Basics](/basics/concepts) for advanced testing patterns
+- Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
+- Check out more [Agent Integration patterns](/agent-integration) for other frameworks

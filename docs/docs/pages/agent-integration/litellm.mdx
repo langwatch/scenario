@@ -1,0 +1,43 @@
+import { RefLink } from "../../components/RefLink";
+
+# LiteLLM Integration [Learn how to integrate LiteLLM agents with the Scenario testing framework]
+
+LiteLLM agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface. LiteLLM provides a unified interface to 100+ LLMs, making it perfect for testing agents across different models.
+
+## Basic Integration Pattern
+
+You can integrate it LiteLLM directly, as its messages are already in the OpenAI format:
+
+```python
+import scenario
+import litellm
+
+class LiteLLMAgentAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        response = litellm.completion(
+            model="openai/gpt-4.1-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """
+                        You are a vegetarian recipe agent.
+                        Given the user request, ask AT MOST ONE follow-up question,
+                        then provide a complete recipe. Keep your responses concise and focused.
+                    """,
+                },
+                *input.messages,
+            ],
+        )
+
+        return response.choices[0].message  # type: ignore
+```
+
+## Full Example Project
+
+For a complete working example with a vegetarian recipe agent, check out the [Scenario examples](https://github.com/langwatch/scenario/blob/main/python/examples/test_vegetarian_recipe_agent.py).
+
+## Next Steps
+
+- Explore [Scenario Basics](/basics/concepts) for advanced testing patterns
+- Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
+- Check out more [Agent Integration patterns](/agent-integration) for other frameworks

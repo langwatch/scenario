@@ -94,6 +94,30 @@ export default defineConfig({
           text: "Integrating Any Agent",
           link: "/agent-integration",
         },
+        {
+          text: "Agno",
+          link: "/agent-integration/agno",
+        },
+        {
+          text: "Google ADK",
+          link: "/agent-integration/google-adk",
+        },
+        {
+          text: "LangGraph",
+          link: "/agent-integration/langgraph",
+        },
+        {
+          text: "LiteLLM",
+          link: "/agent-integration/litellm",
+        },
+        {
+          text: "OpenAI",
+          link: "/agent-integration/openai",
+        },
+        {
+          text: "Pydantic AI",
+          link: "/agent-integration/pydantic-ai",
+        },
       ],
     },
     {
