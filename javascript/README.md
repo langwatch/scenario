@@ -314,3 +314,14 @@ pnpm test
 ## License
 
 MIT
+
+### SCENARIO_BATCH_RUN_ID
+
+When running scenario tests, you can set the `SCENARIO_BATCH_RUN_ID` environment variable to uniquely identify a batch of test runs. This is especially useful for grouping results in reporting tools and CI pipelines.
+
+Example:
+```bash
+SCENARIO_BATCH_RUN_ID=my-ci-run-123 pnpm test
+```
+
+If you use the provided test script, a unique batch run ID is generated automatically for each run.
