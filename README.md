@@ -145,6 +145,7 @@ async def test_vegetarian_recipe_agent():
                 ]
             ),
         ],
+        set_id="python-examples",
     )
 
     # Assert for pytest to know whether the test passed
@@ -183,14 +184,14 @@ def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
 Save it as `tests/vegetarian-recipe-agent.test.ts`:
 
 ```typescript
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { openai } from "@ai-sdk/openai";
-import * as scenario from "@langwatch/scenario";
 import { generateText } from "ai";
 import { describe, it, expect } from "vitest";
 
 describe("Vegetarian Recipe Agent", () => {
-  const agent: scenario.AgentAdapter = {
-    role: scenario.AgentRole.AGENT,
+  const agent: AgentAdapter = {
+    role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
         model: openai("gpt-4.1-mini"),
@@ -224,6 +225,7 @@ describe("Vegetarian Recipe Agent", () => {
           ],
         }),
       ],
+      setId: "javascript-examples",
     });
     expect(result.success).toBe(true);
   });
