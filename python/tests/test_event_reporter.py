@@ -13,7 +13,7 @@ from scenario._events.events import (
 @pytest.mark.asyncio
 async def test_post_event_sends_correct_request(caplog: LogCaptureFixture) -> None:
     # Arrange
-    endpoint = "https://api.langwatch.ai"
+    endpoint = "https://app.langwatch.ai"
     api_key = "test-api-key"
 
     # Create metadata using the proper model
@@ -34,7 +34,9 @@ async def test_post_event_sends_correct_request(caplog: LogCaptureFixture) -> No
 
     with respx.mock as mock:
         # Fix the endpoint to match the actual POST URL from EventReporter
-        route = mock.post(f"{endpoint}/api/scenario-events").respond(200, json={"ok": True})
+        route = mock.post(f"{endpoint}/api/scenario-events").respond(
+            200, json={"ok": True}
+        )
 
         # Act
         with caplog.at_level(logging.DEBUG):
@@ -42,7 +44,7 @@ async def test_post_event_sends_correct_request(caplog: LogCaptureFixture) -> No
 
         # Assert
         assert route.called
-        request: httpx.Request = route.calls[0].request # type: ignore
+        request: httpx.Request = route.calls[0].request  # type: ignore
         assert request.headers["X-Auth-Token"] == api_key
         assert request.headers["Content-Type"] == "application/json"
         assert (

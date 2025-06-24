@@ -28,7 +28,7 @@ class EventReporter:
             }
         }
 
-        reporter = EventReporter(endpoint="https://api.langwatch.ai", api_key="test-api-key")
+        reporter = EventReporter(endpoint="https://app.langwatch.ai", api_key="test-api-key")
         await reporter.post_event(event)
     """
 
@@ -66,11 +66,15 @@ class EventReporter:
                         "X-Auth-Token": self.api_key,
                     },
                 )
-                self.logger.info(f"[{event_type}] POST response status: {response.status_code} ({event.scenario_run_id})")
-                
+                self.logger.info(
+                    f"[{event_type}] POST response status: {response.status_code} ({event.scenario_run_id})"
+                )
+
                 if response.is_success:
                     data = response.json()
-                    self.logger.info(f"[{event_type}] POST response: {data} ({event.scenario_run_id})")
+                    self.logger.info(
+                        f"[{event_type}] POST response: {data} ({event.scenario_run_id})"
+                    )
                 else:
                     error_text = response.text
                     self.logger.error(
@@ -80,4 +84,5 @@ class EventReporter:
                     )
         except Exception as error:
             self.logger.error(
-                f"[{event_type}] Event POST error: {error}, event={event}, endpoint={self.endpoint}") 
+                f"[{event_type}] Event POST error: {error}, event={event}, endpoint={self.endpoint}"
+            )
