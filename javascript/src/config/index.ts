@@ -1,11 +1,13 @@
 import { ScenarioProjectConfig } from "../domain";
 import { loadScenarioProjectConfig } from "./load";
 import { Logger } from "../utils/logger";
+export * from "./env";
+export * from "./log-levels";
 
 const logger = new Logger("scenario.config");
 
 let configLoaded = false;
-let config: ScenarioProjectConfig | null = null
+let config: ScenarioProjectConfig | null = null;
 let configLoadPromise: Promise<void> | null = null;
 
 async function loadProjectConfig() {

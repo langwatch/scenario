@@ -1,4 +1,11 @@
-import { concatMap, EMPTY, catchError, Subject, Observable, Subscription } from "rxjs";
+import {
+  concatMap,
+  EMPTY,
+  catchError,
+  Subject,
+  Observable,
+  Subscription,
+} from "rxjs";
 import { EventReporter } from "./event-reporter";
 import { ScenarioEvent, ScenarioEventType } from "./schema";
 import { Logger } from "../utils/logger";

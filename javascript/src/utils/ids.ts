@@ -1,6 +1,5 @@
 import { generate, parse } from "xksuid";
-
-let batchRunId: string | null = null;
+import { env } from "../config";
 
 /**
  * Generates a new thread ID.
@@ -32,11 +31,11 @@ export function generateScenarioId(): string {
  * @returns The batch run ID.
  */
 export function getBatchRunId(): string {
-  if (!batchRunId) {
-    batchRunId = process.env.SCENARIO_BATCH_RUN_ID ?? `scenariobatchrun_${generate()}`;
+  if (!env.SCENARIO_BATCH_RUN_ID) {
+    env.SCENARIO_BATCH_RUN_ID = `scenariobatchrun_${generate()}`;
   }
 
-  return batchRunId;
+  return env.SCENARIO_BATCH_RUN_ID;
 }
 
 /**

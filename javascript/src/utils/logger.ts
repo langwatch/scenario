@@ -1,3 +1,5 @@
+import { env, LogLevel } from "../config";
+
 /**
  * Simple logger that respects SCENARIO_LOG_LEVEL environment variable.
  *
@@ -5,8 +7,6 @@
  * Silent by default (good for library usage)
  */
 export class Logger {
-  constructor(private readonly context?: string) {}
-
   /**
    * Creates a logger with context (e.g., class name)
    */
@@ -14,15 +14,22 @@ export class Logger {
     return new Logger(context);
   }
 
+  constructor(private readonly context?: string) {}
+
+  private getLogLevel(): LogLevel {
+    return env.SCENARIO_LOG_LEVEL ?? LogLevel.INFO;
+  }
+
+  private getLogLevelIndex(level: LogLevel): number {
+    return Object.values(LogLevel).indexOf(level);
+  }
+
   /**
    * Checks if logging should occur based on LOG_LEVEL env var
    */
-  private shouldLog(level: "error" | "warn" | "info" | "debug"): boolean {
-    const logLevel = (process.env.SCENARIO_LOG_LEVEL || "").toLowerCase();
-
-    const levels = ["error", "warn", "info", "debug"];
-    const currentLevelIndex = levels.indexOf(logLevel);
-    const requestedLevelIndex = levels.indexOf(level);
+  private shouldLog(level: LogLevel): boolean {
+    const currentLevelIndex = this.getLogLevelIndex(this.getLogLevel());
+    const requestedLevelIndex = this.getLogLevelIndex(level);
 
     // If LOG_LEVEL is not set or invalid, don't log (silent by default)
     return currentLevelIndex >= 0 && requestedLevelIndex <= currentLevelIndex;
@@ -33,7 +40,7 @@ export class Logger {
   }
 
   error(message: string, data?: unknown): void {
-    if (this.shouldLog("error")) {
+    if (this.shouldLog(LogLevel.ERROR)) {
       const formattedMessage = this.formatMessage(message);
       if (data) {
         console.error(formattedMessage, data);
@@ -44,7 +51,7 @@ export class Logger {
   }
 
   warn(message: string, data?: unknown): void {
-    if (this.shouldLog("warn")) {
+    if (this.shouldLog(LogLevel.WARN)) {
       const formattedMessage = this.formatMessage(message);
       if (data) {
         console.warn(formattedMessage, data);
@@ -55,7 +62,7 @@ export class Logger {
   }
 
   info(message: string, data?: unknown): void {
-    if (this.shouldLog("info")) {
+    if (this.shouldLog(LogLevel.INFO)) {
       const formattedMessage = this.formatMessage(message);
       if (data) {
         console.info(formattedMessage, data);
@@ -66,7 +73,7 @@ export class Logger {
   }
 
   debug(message: string, data?: unknown): void {
-    if (this.shouldLog("debug")) {
+    if (this.shouldLog(LogLevel.DEBUG)) {
       const formattedMessage = this.formatMessage(message);
       if (data) {
         console.log(formattedMessage, data);
