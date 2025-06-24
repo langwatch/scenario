@@ -1,6 +1,5 @@
-import type { ScenarioEvent } from "./schema";
-import { env } from "../config";
 import { EventAlertMessageLogger } from "./event-alert-message-logger";
+import { ScenarioEventType, type ScenarioEvent } from "./schema";
 import { Logger } from "../utils/logger";
 
 /**
@@ -28,21 +27,13 @@ export class EventReporter {
    */
   async postEvent(event: ScenarioEvent): Promise<{ setUrl?: string }> {
     const result: { setUrl?: string } = {};
-    this.logger.debug(`[${event.type}] Posting event`, {
-      event,
-    });
-
-    if (!env.LANGWATCH_ENDPOINT) {
-      this.logger.warn(
-        "No LANGWATCH_ENDPOINT configured, skipping event posting"
-      );
-      return result;
-    }
+    this.logger.debug(`[${event.type}] Posting event`, { event });
+    const processedEvent = this.processEventForApi(event);
 
     try {
       const response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
-        body: JSON.stringify(event),
+        body: JSON.stringify(processedEvent),
         headers: {
           "Content-Type": "application/json",
           "X-Auth-Token": this.apiKey,
@@ -56,7 +47,6 @@ export class EventReporter {
       if (response.ok) {
         const data = (await response.json()) as { url: string };
         this.logger.debug(`[${event.type}] Event POST response:`, data);
-
         result.setUrl = data.url;
       } else {
         const errorText = await response.text();
@@ -64,19 +54,37 @@ export class EventReporter {
           status: response.status,
           statusText: response.statusText,
           error: errorText,
-          event: event,
+          event: JSON.stringify(processedEvent),
         });
-        // Don't throw - event posting shouldn't break scenario execution
       }
     } catch (error) {
       this.logger.error(`[${event.type}] Event POST error:`, {
         error,
-        event: event,
+        event: JSON.stringify(processedEvent),
         endpoint: this.eventsEndpoint.href,
       });
-      // Don't throw - event posting shouldn't break scenario execution
     }
 
     return result;
+  }
+
+  /**
+   * Processes event data to ensure API compatibility.
+   * Converts message content objects to strings when needed.
+   */
+  private processEventForApi(event: ScenarioEvent): ScenarioEvent {
+    if (event.type === ScenarioEventType.MESSAGE_SNAPSHOT) {
+      return {
+        ...event,
+        messages: event.messages.map((message) => ({
+          ...message,
+          content:
+            typeof message.content !== "string"
+              ? JSON.stringify(message.content)
+              : message.content,
+        })),
+      };
+    }
+    return event;
   }
 }
