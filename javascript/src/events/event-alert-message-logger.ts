@@ -64,6 +64,9 @@ export class EventAlertMessageLogger {
       console.log("   • Or configure apiKey in scenario.config.js");
       console.log("");
       console.log(`📦 Batch Run ID: ${batchRunId}`);
+      console.log("");
+      console.log("🔇 To disable these messages:");
+      console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
       console.log(`${separator}\n`);
     } else {
       console.log(`\n${separator}`);
@@ -78,6 +81,9 @@ export class EventAlertMessageLogger {
       );
       console.log("");
       console.log(`📦 Batch Run ID: ${batchRunId}`);
+      console.log("");
+      console.log("🔇 To disable these messages:");
+      console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
       console.log(`${separator}\n`);
     }
   }

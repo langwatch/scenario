@@ -29,9 +29,7 @@ class EventAlertMessageLogger:
         EventAlertMessageLogger._shown_batch_ids.add(batch_run_id)
         self._display_greeting(batch_run_id)
 
-    def handle_watch_message(
-        self, scenario_set_id: str, scenario_run_id: str, set_url: str
-    ) -> None:
+    def handle_watch_message(self, set_url: str) -> None:
         """
         Shows a fancy message about how to watch the simulation.
         Called when a run started event is received with a session ID.
@@ -61,6 +59,9 @@ class EventAlertMessageLogger:
             print("   • Or configure apiKey in scenario.config.js")
             print("")
             print(f"📦 Batch Run ID: {batch_run_id}")
+            print("")
+            print("🔇 To disable these messages:")
+            print("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true")
             print(f"{separator}\n")
         else:
             endpoint = os.getenv("LANGWATCH_ENDPOINT", "https://app.langwatch.ai")
@@ -74,6 +75,9 @@ class EventAlertMessageLogger:
             print(f"   API Key: {'Configured' if api_key else 'Not configured'}")
             print("")
             print(f"📦 Batch Run ID: {batch_run_id}")
+            print("")
+            print("🔇 To disable these messages:")
+            print("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true")
             print(f"{separator}\n")
 
     def _display_watch_message(self, set_url: str) -> None:
