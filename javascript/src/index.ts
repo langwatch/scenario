@@ -11,8 +11,9 @@ export * from "./execution";
 export * from "./runner";
 export * from "./script";
 
-// Export the runtime functions under a `scenario` object
-export const scenario = {
+type ScenarioApi = typeof agents & typeof domain & typeof execution & typeof runner & typeof script;
+
+export const scenario: ScenarioApi = {
   ...agents,
   ...domain,
   ...execution,
