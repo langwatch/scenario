@@ -1,12 +1,14 @@
 from rx.core.observable.observable import Observable
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 from .events import ScenarioEvent
 from .event_reporter import EventReporter
+from .event_alert_message_logger import EventAlertMessageLogger
 
 import asyncio
 import queue
 import threading
 import logging
+
 
 class ScenarioEventBus:
     """
@@ -24,6 +26,7 @@ class ScenarioEventBus:
 
     Attributes:
         _event_reporter: EventReporter instance for HTTP posting of events
+        _event_alert_message_logger: EventAlertMessageLogger for user-friendly console output
         _max_retries: Maximum number of retry attempts for failed event processing
         _event_queue: Thread-safe queue for passing events to worker thread
         _completed: Whether the event stream has completed
@@ -44,11 +47,12 @@ class ScenarioEventBus:
                        Defaults to 3 attempts with exponential backoff.
         """
         self._event_reporter: EventReporter = event_reporter or EventReporter()
+        self._event_alert_message_logger = EventAlertMessageLogger()
         self._max_retries = max_retries
-        
+
         # Custom logger for this class
         self.logger = logging.getLogger(__name__)
-        
+
         # Threading infrastructure
         self._event_queue: queue.Queue[ScenarioEvent] = queue.Queue()
         self._completed = False
@@ -61,9 +65,7 @@ class ScenarioEventBus:
         if self._worker_thread is None or not self._worker_thread.is_alive():
             self.logger.debug("Creating new worker thread")
             self._worker_thread = threading.Thread(
-                target=self._worker_loop,
-                daemon=False,
-                name="ScenarioEventBus-Worker"
+                target=self._worker_loop, daemon=False, name="ScenarioEventBus-Worker"
             )
             self._worker_thread.start()
             self.logger.debug("Worker thread started")
@@ -76,52 +78,112 @@ class ScenarioEventBus:
                 if self._shutdown_event.wait(timeout=0.1):
                     self.logger.debug("Worker thread received shutdown signal")
                     break
-                
+
                 try:
                     event = self._event_queue.get(timeout=0.1)
-                    self.logger.debug(f"Worker picked up event: {event.type_} ({event.scenario_run_id})")
+                    self.logger.debug(
+                        f"Worker picked up event: {event.type_} ({event.scenario_run_id})"
+                    )
                     self._process_event_sync(event)
                     self._event_queue.task_done()
                 except queue.Empty:
                     # Exit if stream completed and no more events
                     if self._completed:
-                        self.logger.debug("Stream completed and no more events, worker thread exiting")
+                        self.logger.debug(
+                            "Stream completed and no more events, worker thread exiting"
+                        )
                         break
                     continue
-                    
+
             except Exception as e:
                 self.logger.error(f"Worker thread error: {e}")
-        
+
         self.logger.debug("Worker thread loop ended")
 
     def _process_event_sync(self, event: ScenarioEvent) -> None:
         """
         Process event synchronously in worker thread with retry logic.
         """
-        self.logger.debug(f"Processing HTTP post for {event.type_} ({event.scenario_run_id})")
-        
+        self.logger.debug(
+            f"Processing HTTP post for {event.type_} ({event.scenario_run_id})"
+        )
+
         try:
-            # Convert async to sync using asyncio.run - this blocks until HTTP completes
-            success = asyncio.run(self._process_event_with_retry(event))
-            if not success:
-                self.logger.warning(f"Failed to process event {event.type_} after {self._max_retries} attempts")
-            else:
-                self.logger.debug(f"Successfully posted {event.type_} ({event.scenario_run_id})")
+            result = self._post_event_with_retry(event)
+            self._handle_event_result(event, result)
         except Exception as e:
             self.logger.error(f"Error processing event {event.type_}: {e}")
 
-    async def _process_event_with_retry(self, event: ScenarioEvent, attempt: int = 1) -> bool:
+    def _post_event_with_retry(self, event: ScenarioEvent) -> Optional[Dict[str, Any]]:
+        """
+        Post event with retry logic, converting async to sync.
+        """
+        return asyncio.run(self._process_event_with_retry(event))
+
+    def _handle_event_result(
+        self, event: ScenarioEvent, result: Optional[Dict[str, Any]]
+    ) -> None:
+        """
+        Handle the result of event processing, including logging and watch messages.
+        """
+        if result is None:
+            self.logger.warning(
+                f"Failed to process event {event.type_} after {self._max_retries} attempts"
+            )
+            return
+
+        self.logger.debug(
+            f"Successfully posted {event.type_} ({event.scenario_run_id})"
+        )
+
+        # Handle watch message for run started events
+        if event.type_ == "SCENARIO_RUN_STARTED" and result.get("setUrl"):
+            self._handle_watch_message(event, result)
+
+    def _handle_watch_message(
+        self, event: ScenarioEvent, result: Dict[str, Any]
+    ) -> None:
+        """
+        Handle watch message for scenario run started events.
+        """
+        scenario_set_id = self._extract_scenario_set_id(event)
+
+        self._event_alert_message_logger.handle_watch_message(
+            scenario_set_id=str(scenario_set_id),
+            scenario_run_id=event.scenario_run_id,
+            set_url=str(result["setUrl"]),
+        )
+
+    def _extract_scenario_set_id(self, event: ScenarioEvent) -> str:
+        """
+        Extract scenario set ID from event, handling Unset types from generated models.
+        """
+        scenario_set_id = getattr(event, "scenario_set_id", "default")
+
+        # Handle Unset type from generated models
+        if hasattr(scenario_set_id, "__class__") and "Unset" in str(
+            scenario_set_id.__class__
+        ):
+            return "default"
+
+        return str(scenario_set_id)
+
+    async def _process_event_with_retry(
+        self, event: ScenarioEvent, attempt: int = 1
+    ) -> Optional[Dict[str, Any]]:
         """
         Process a single event with retry logic (now runs in worker thread context).
         """
         try:
             if self._event_reporter:
-                await self._event_reporter.post_event(event)
-            return True
+                return await self._event_reporter.post_event(event)
+            return {}
         except Exception as e:
             if attempt >= self._max_retries:
-                return False
-            print(f"Error processing event (attempt {attempt}/{self._max_retries}): {e}")
+                return None
+            print(
+                f"Error processing event (attempt {attempt}/{self._max_retries}): {e}"
+            )
             await asyncio.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
             return await self._process_event_with_retry(event, attempt + 1)
 
@@ -135,7 +197,9 @@ class ScenarioEventBus:
             return
 
         def handle_event(event: ScenarioEvent) -> None:
-            self.logger.debug(f"Event received, queuing: {event.type_} ({event.scenario_run_id})")
+            self.logger.debug(
+                f"Event received, queuing: {event.type_} ({event.scenario_run_id})"
+            )
             self._get_or_create_worker()
             self._event_queue.put(event)
             self.logger.debug(f"Event queued: {event.type_} ({event.scenario_run_id})")
@@ -144,7 +208,7 @@ class ScenarioEventBus:
         self._subscription = event_stream.subscribe(
             handle_event,
             lambda e: self.logger.error(f"Error in event stream: {e}"),
-            lambda: self._set_completed()
+            lambda: self._set_completed(),
         )
 
     def _set_completed(self):
@@ -155,17 +219,17 @@ class ScenarioEventBus:
     def drain(self) -> None:
         """
         Waits for all queued events to complete processing.
-        
+
         This method blocks until all events in the queue have been processed.
         Since _process_event_sync() uses asyncio.run(), HTTP requests complete
         before task_done() is called, so join() ensures everything is finished.
         """
         self.logger.debug("Drain started - waiting for queue to empty")
-        
+
         # Wait for all events to be processed - this is sufficient!
         self._event_queue.join()
         self.logger.debug("Event queue drained")
-        
+
         # Signal worker to shutdown and wait for it
         self._shutdown_event.set()
         if self._worker_thread and self._worker_thread.is_alive():
@@ -175,7 +239,7 @@ class ScenarioEventBus:
                 self.logger.warning("Worker thread did not shutdown within timeout")
             else:
                 self.logger.debug("Worker thread shutdown complete")
-        
+
         self.logger.info("Drain completed")
 
     def is_completed(self) -> bool:
