@@ -33,33 +33,14 @@ const weatherAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const result = await weatherAgentMastra.generate(input.messages);
-
-    // Handle tool calls
-    for (const message of result.response.messages) {
-      if (message.role === "tool") {
-        return {
-          role: "tool",
-          toolCallId: message.content[0].toolCallId,
-          content: [
-            {
-              type: "tool-result",
-              toolName: message.content[0].toolName,
-              toolCallId: message.content[0].toolCallId,
-              result: message.content[0].result,
-            },
-          ],
-        };
-      }
-    }
-
-    return result.text;
+    return result.response.messages;
   },
 };
 ```
 
 ## Full Example Project
 
-For a complete working example with a customer support agent, including tools, system prompts, and comprehensive tests, check out the [create-agent-app project](https://github.com/langwatch/create-agent-app/blob/main/mastra_example/tests/test_customer_support_agent.ts).
+For a complete working example with a customer support agent, including tools, system prompts, and comprehensive tests, check out the [create-agent-app project](https://github.com/langwatch/create-agent-app/blob/main/mastra_example/tests/customer-support-agent.test.ts).
 
 ## Next Steps
 
