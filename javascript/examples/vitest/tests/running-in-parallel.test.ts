@@ -12,7 +12,11 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
         messages: [
           {
             role: "system",
-            content: `You are a vegetarian recipe agent.\nGiven the user request, ask AT MOST ONE follow-up question, then provide a complete recipe. Keep your responses concise and focused.`,
+            content: `You are a vegetarian recipe agent. When a user asks for a recipe,
+            <rules>
+              - You may ask ONLY ONE clarifying question if absolutely necessary (like dietary restrictions or cooking time preference), but then you MUST provide a complete vegetarian recipe.
+              - Do not ask multiple follow-up questions.
+            </rules>`,
           },
           ...input.messages,
         ],
@@ -41,7 +45,13 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
       maxTurns: 5,
       setId: "javascript-examples",
     });
-    expect(result.success).toBe(true);
+
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.log(result);
+      throw error;
+    }
   });
 
   it("should generate a vegetarian recipe for a very hungry user", async () => {
@@ -64,6 +74,12 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
       maxTurns: 5,
       setId: "javascript-examples",
     });
-    expect(result.success).toBe(true);
+
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.log(result);
+      throw error;
+    }
   });
 });
