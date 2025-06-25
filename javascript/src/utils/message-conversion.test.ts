@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertCoreMessagesToAguiMessages } from './message-conversation';
+import { convertCoreMessagesToAguiMessages } from './message-conversion';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeCoreMessage(partial: any): any {
