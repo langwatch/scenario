@@ -115,6 +115,10 @@ export default defineConfig({
           link: "/agent-integration/litellm",
         },
         {
+          text: "Mastra",
+          link: "/agent-integration/mastra",
+        },
+        {
           text: "OpenAI",
           link: "/agent-integration/openai",
         },
