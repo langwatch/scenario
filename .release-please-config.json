@@ -23,7 +23,7 @@
       ]
     }
   },
-  "bootstrap-sha": "ba902f2",
+  "bootstrap-sha": "bce696d",
   "release-search-depth": 400,
   "tag-separator": "/",
   "separate-pull-requests": true,
