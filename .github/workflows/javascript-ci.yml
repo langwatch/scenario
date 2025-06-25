@@ -47,6 +47,10 @@ jobs:
         run: pnpm run lint
         working-directory: javascript
 
+      - name: Tests
+        run: pnpm run test
+        working-directory: javascript
+
       - name: Test (Examples)
         run: pnpm -F vitest-example test
         env:
