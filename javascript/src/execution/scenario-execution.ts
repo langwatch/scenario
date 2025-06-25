@@ -12,10 +12,25 @@ import {
   type AgentAdapter,
   JudgeAgentAdapter,
   ScenarioExecutionStateLike,
-  ScenarioConfigFinal
+  ScenarioConfigFinal,
+  DEFAULT_MAX_TURNS,
+  DEFAULT_VERBOSE,
 } from "../domain";
-import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEvent, ScenarioRunStatus, Verdict } from "../events/schema";
-import { generateScenarioId, generateScenarioRunId, generateThreadId, getBatchRunId } from "../utils/ids";
+import {
+  ScenarioEvent,
+  ScenarioEventType,
+  ScenarioMessageSnapshotEvent,
+  ScenarioRunFinishedEvent,
+  ScenarioRunStartedEvent,
+  ScenarioRunStatus,
+  Verdict,
+} from "../events/schema";
+import {
+  generateScenarioId,
+  generateScenarioRunId,
+  generateThreadId,
+  getBatchRunId,
+} from "../utils/ids";
 import { Logger } from "../utils/logger";
 import convertCoreMessagesToAguiMessages from "../utils/message-conversion";
 
@@ -80,16 +95,15 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * @param config The scenario configuration.
    * @param script The script steps to execute.
    */
-  constructor(config: ScenarioConfig, script: ScriptStep[],
-  ) {
+  constructor(config: ScenarioConfig, script: ScriptStep[]) {
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
       description: config.description,
       agents: config.agents,
       script: script,
-      verbose: config.verbose ?? false,
-      maxTurns: config.maxTurns ?? 10,
+      verbose: config.verbose ?? DEFAULT_VERBOSE,
+      maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId,
     } satisfies ScenarioConfigFinal;
@@ -159,17 +173,21 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       this.emitRunFinished({ scenarioRunId, status: ScenarioRunStatus.FAILED });
 
       // If no conclusion reached, return max turns error
-      return this.reachedMaxTurns([
-        "Reached end of script without conclusion, add one of the following to the end of the script:",
-        "- `Scenario.proceed()` to let the simulation continue to play out",
-        "- `Scenario.judge()` to force criteria judgement",
-        "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
-      ].join("\n"));
+      return this.reachedMaxTurns(
+        [
+          "Reached end of script without conclusion, add one of the following to the end of the script:",
+          "- `Scenario.proceed()` to let the simulation continue to play out",
+          "- `Scenario.judge()` to force criteria judgement",
+          "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
+        ].join("\n")
+      );
     } catch (error) {
       const errorResult: ScenarioResult = {
         success: false,
         messages: this.state.messages,
-        reasoning: `Scenario failed with error: ${error instanceof Error ? error.message : String(error)}`,
+        reasoning: `Scenario failed with error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         metCriteria: [],
         unmetCriteria: [],
         error: error instanceof Error ? error.message : String(error),
@@ -198,7 +216,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   private async _step(
     goToNextTurn: boolean = true,
-    onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
+    onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<CoreMessage[] | ScenarioResult | null> {
     if (this.pendingRolesOnTurn.length === 0) {
       if (!goToNextTurn) return null;
@@ -226,7 +244,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async callAgent(
     idx: number,
     role: AgentRole,
-    judgmentRequest: boolean = false,
+    judgmentRequest: boolean = false
   ): Promise<CoreMessage[] | ScenarioResult> {
     const agent = this.agents[idx];
     const startTime = Date.now();
@@ -260,7 +278,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     const messages = convertAgentReturnTypesToMessages(
       agentResponse,
-      role === AgentRole.USER ? "user" : "assistant",
+      role === AgentRole.USER ? "user" : "assistant"
     );
 
     for (const message of messages) {
@@ -331,16 +349,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   async proceed(
     turns?: number,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
-    onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
+    onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<ScenarioResult | null> {
     let initialTurn = this.state.currentTurn;
 
     while (true) {
-      const goToNextTurn = turns === void 0 || initialTurn === null || this.state.currentTurn != null && this.state.currentTurn + 1 < initialTurn + turns;
+      const goToNextTurn =
+        turns === void 0 ||
+        initialTurn === null ||
+        (this.state.currentTurn != null &&
+          this.state.currentTurn + 1 < initialTurn + turns);
       const nextMessage = await this._step(goToNextTurn, onTurn);
 
-      if (initialTurn === null)
-        initialTurn = this.state.currentTurn;
+      if (initialTurn === null) initialTurn = this.state.currentTurn;
 
       if (nextMessage === null) {
         return null;
@@ -348,7 +369,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (onStep) await onStep(this.state);
 
-      if (nextMessage !== null && typeof nextMessage === "object" && "success" in nextMessage)
+      if (
+        nextMessage !== null &&
+        typeof nextMessage === "object" &&
+        "success" in nextMessage
+      )
         return nextMessage;
     }
   }
@@ -363,7 +388,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return {
       success: true,
       messages: this.state.messages,
-      reasoning: reasoning || "Scenario marked as successful with Scenario.succeed()",
+      reasoning:
+        reasoning || "Scenario marked as successful with Scenario.succeed()",
       metCriteria: [],
       unmetCriteria: [],
     };
@@ -402,7 +428,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async scriptCallAgent(
     role: AgentRole,
     content?: string | CoreMessage,
-    judgmentRequest: boolean = false,
+    judgmentRequest: boolean = false
   ): Promise<ScenarioResult | null> {
     this.consumeUntilRole(role);
 
@@ -450,7 +476,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.removePendingAgent(agent);
 
     if (content) {
-      const message = typeof content === "string" ? { role: (role === AgentRole.USER ? "user" : "assistant"), content } as CoreMessage : content;
+      const message =
+        typeof content === "string"
+          ? ({
+              role: role === AgentRole.USER ? "user" : "assistant",
+              content,
+            } as CoreMessage)
+          : content;
       this.state.addMessage(message);
       this.broadcastMessage(message, index);
 
@@ -478,9 +510,16 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.pendingMessages.clear();
   }
 
-  private nextAgentForRole(role: AgentRole): { idx: number; agent: AgentAdapter | null } {
+  private nextAgentForRole(role: AgentRole): {
+    idx: number;
+    agent: AgentAdapter | null;
+  } {
     for (const agent of this.agents) {
-      if (agent.role === role && this.pendingAgentsOnTurn.has(agent) && this.pendingRolesOnTurn.includes(role)) {
+      if (
+        agent.role === role &&
+        this.pendingAgentsOnTurn.has(agent) &&
+        this.pendingRolesOnTurn.includes(role)
+      ) {
         return { idx: this.agents.indexOf(agent), agent };
       }
     }
@@ -514,7 +553,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.pendingAgentsOnTurn.delete(agent);
   }
 
-  private getNextAgentForRole(role: AgentRole): { index: number; agent: AgentAdapter } | null {
+  private getNextAgentForRole(
+    role: AgentRole
+  ): { index: number; agent: AgentAdapter } | null {
     for (let i = 0; i < this.agents.length; i++) {
       const agent = this.agents[i];
       if (agent.role === role && this.pendingAgentsOnTurn.has(agent)) {
@@ -543,15 +584,20 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       .filter(({ agent }) => agent.role === AgentRole.AGENT)
       .map(({ idx }) => idx);
 
-    const agentTimes = agentRoleAgentsIdx
-      .map(i => this.agentTimes.get(i) || 0);
+    const agentTimes = agentRoleAgentsIdx.map(
+      (i) => this.agentTimes.get(i) || 0
+    );
 
     const totalAgentTime = agentTimes.reduce((sum, time) => sum + time, 0);
 
     return {
       success: false,
       messages: this.state.messages,
-      reasoning: errorMessage || `Reached maximum turns (${this.config.maxTurns || 10}) without conclusion`,
+      reasoning:
+        errorMessage ||
+        `Reached maximum turns (${
+          this.config.maxTurns || 10
+        }) without conclusion`,
       metCriteria: [],
       unmetCriteria: this.getJudgeAgent()?.criteria ?? [],
       totalTime: this.totalTime,
@@ -560,7 +606,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   private getJudgeAgent(): JudgeAgentAdapter | null {
-    return this.agents.find(agent => agent instanceof JudgeAgentAdapter) ?? null;
+    return (
+      this.agents.find((agent) => agent instanceof JudgeAgentAdapter) ?? null
+    );
   }
 
   /**
@@ -660,16 +708,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
 function convertAgentReturnTypesToMessages(
   response: AgentReturnTypes,
-  role: "user" | "assistant",
+  role: "user" | "assistant"
 ): CoreMessage[] {
   if (typeof response === "string")
     return [{ role, content: response } as CoreMessage];
 
-  if (Array.isArray(response))
-    return response;
+  if (Array.isArray(response)) return response;
 
-  if (typeof response === "object" && "role" in response)
-    return [response];
+  if (typeof response === "object" && "role" in response) return [response];
 
   return [];
 }

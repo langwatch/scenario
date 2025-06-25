@@ -2,6 +2,9 @@ import { CoreMessage } from "ai";
 import { AgentAdapter } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
+export const DEFAULT_MAX_TURNS = 10;
+export const DEFAULT_VERBOSE = false;
+
 /**
  * Configuration for a scenario.
  */
@@ -30,11 +33,19 @@ export interface ScenarioConfig {
   script?: ScriptStep[];
 
   /**
-   * Whether to output verbose logging. Defaults to false.
+   * Whether to output verbose logging.
+   *
+   * If no value is provided, this defaults to {@link DEFAULT_VERBOSE}.
+   *
+   * @default {@link DEFAULT_VERBOSE}
    */
   verbose?: boolean;
   /**
-   * The maximum number of turns to execute. Defaults to 20.
+   * The maximum number of turns to execute.
+   *
+   * If no value is provided, this defaults to {@link DEFAULT_MAX_TURNS}.
+   *
+   * @default {@link DEFAULT_MAX_TURNS}
    */
   maxTurns?: number;
 
@@ -57,7 +68,11 @@ export interface ScenarioConfig {
  * All optional fields are filled with default values.
  * @internal
  */
-export interface ScenarioConfigFinal extends Omit<ScenarioConfig, "id" | "script" | "threadId" | "verbose" | "maxTurns"> {
+export interface ScenarioConfigFinal
+  extends Omit<
+    ScenarioConfig,
+    "id" | "script" | "threadId" | "verbose" | "maxTurns"
+  > {
   id: string;
   script: ScriptStep[];
 
@@ -118,7 +133,7 @@ export interface ScenarioExecutionLike {
   proceed(
     turns?: number,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
-    onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
+    onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<ScenarioResult | null>;
   /**
    * Ends the scenario with a success.
@@ -140,5 +155,5 @@ export interface ScenarioExecutionLike {
  */
 export type ScriptStep = (
   state: ScenarioExecutionStateLike,
-  executor: ScenarioExecutionLike,
+  executor: ScenarioExecutionLike
 ) => Promise<void | ScenarioResult | null> | void | ScenarioResult | null;
