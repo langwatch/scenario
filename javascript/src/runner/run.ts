@@ -5,14 +5,15 @@
  * of scenario tests, managing the interaction between user simulators, agents under test,
  * and judge agents to determine test success or failure.
  */
-import {
-  AssistantContent,
-  ToolContent,
-  CoreMessage,
-} from "ai";
+import { AssistantContent, ToolContent, CoreMessage } from "ai";
 import { Subscription } from "rxjs";
-import { loadScenarioProjectConfig } from "../config/load";
-import { allAgentRoles, AgentRole, ScenarioConfig, ScenarioResult } from "../domain";
+import { env } from "../config";
+import {
+  allAgentRoles,
+  AgentRole,
+  ScenarioConfig,
+  ScenarioResult,
+} from "../domain";
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
@@ -101,11 +102,9 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
   let subscription: Subscription | null = null;
 
   try {
-    const projectConfig = await loadScenarioProjectConfig();
-
     eventBus = new EventBus({
-      endpoint: projectConfig.langwatchEndpoint ?? process.env.LANGWATCH_ENDPOINT ?? "https://app.langwatch.ai",
-      apiKey: projectConfig.langwatchApiKey ?? process.env.LANGWATCH_API_KEY,
+      endpoint: env.LANGWATCH_ENDPOINT,
+      apiKey: env.LANGWATCH_API_KEY,
     });
     eventBus.listen();
 
@@ -115,7 +114,7 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
     if (cfg.verbose && !result.success) {
       console.log(`Scenario failed: ${cfg.name}`);
       console.log(`Reasoning: ${result.reasoning}`);
-      console.log('--------------------------------');
+      console.log("--------------------------------");
       console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
       console.log(`Unmet criteria: ${result.unmetCriteria.join("\n- ")}`);
       console.log(result.messages.map(formatMessage).join("\n"));
@@ -129,7 +128,7 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
 }
 
 function formatMessage(m: CoreMessage): string {
-  switch(m.role) {
+  switch (m.role) {
     case "user":
       return `User: ${m.content}`;
     case "assistant":
@@ -158,16 +157,24 @@ function formatParts(part: AssistantContent | ToolContent): string {
   return "Unknown content: " + JSON.stringify(part);
 }
 
-function formatPart(part: (Exclude<AssistantContent, string> | ToolContent)[number]): string {
-  switch(part.type) {
+function formatPart(
+  part: (Exclude<AssistantContent, string> | ToolContent)[number]
+): string {
+  switch (part.type) {
     case "text":
       return part.text;
     case "file":
-      return `(file): ${part.filename} ${typeof part.data === "string" ? `url:${part.data}` : 'base64:omitted'}`;
+      return `(file): ${part.filename} ${
+        typeof part.data === "string" ? `url:${part.data}` : "base64:omitted"
+      }`;
     case "tool-call":
-      return `(tool call): ${part.toolName} id:${part.toolCallId} args:(${JSON.stringify(part.args)})`;
+      return `(tool call): ${part.toolName} id:${
+        part.toolCallId
+      } args:(${JSON.stringify(part.args)})`;
     case "tool-result":
-      return `(tool result): ${part.toolName} id:${part.toolCallId} result:(${JSON.stringify(part.result)})`;
+      return `(tool result): ${part.toolName} id:${
+        part.toolCallId
+      } result:(${JSON.stringify(part.result)})`;
     case "reasoning":
       return `(reasoning): ${part.text}`;
     case "redacted-reasoning":

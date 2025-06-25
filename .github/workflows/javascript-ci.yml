@@ -57,3 +57,14 @@ jobs:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript
+
+      - name: Check documentation is up to date
+        run: |
+          # Generate docs and check if there are any changes
+          pnpm run generate:api-reference
+          if ! git diff --quiet; then
+            echo "Documentation is out of date. Please run 'pnpm run build-docs' and commit the changes."
+            git diff
+            exit 1
+          fi
+        working-directory: javascript

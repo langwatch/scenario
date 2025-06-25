@@ -4,9 +4,6 @@ import { z } from "zod";
 /** Default temperature for language model inference */
 export const DEFAULT_TEMPERATURE = 0.0;
 
-/** Default LangWatch endpoint URL */
-export const DEFAULT_LANGWATCH_ENDPOINT = "https://app.langwatch.ai";
-
 export const scenarioProjectConfigSchema = z
   .object({
     defaultModel: z
@@ -21,9 +18,6 @@ export const scenarioProjectConfigSchema = z
         maxTokens: z.number().optional(),
       })
       .optional(),
-
-    langwatchEndpoint: z.string().optional(),
-    langwatchApiKey: z.string().optional(),
   })
   .strict();
 
