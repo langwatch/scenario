@@ -15,6 +15,7 @@ import {
   ScenarioConfigFinal
 } from "../domain";
 import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEvent, ScenarioRunStatus, Verdict } from "../events/schema";
+import convertCoreMessagesToAguiMessages from "../utils/conversion";
 import { generateScenarioId, generateScenarioRunId, generateThreadId, getBatchRunId } from "../utils/ids";
 import { Logger } from "../utils/logger";
 
@@ -167,7 +168,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } catch (error) {
       const errorResult: ScenarioResult = {
         success: false,
-        messages: this.state.messages,
+        messages: convertCoreMessagesToAguiMessages(this.state.messages),
         reasoning: `Scenario failed with error: ${error instanceof Error ? error.message : String(error)}`,
         metCriteria: [],
         unmetCriteria: [],
@@ -361,7 +362,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   async succeed(reasoning?: string): Promise<ScenarioResult> {
     return {
       success: true,
-      messages: this.state.messages,
+      messages: convertCoreMessagesToAguiMessages(this.state.messages),
       reasoning: reasoning || "Scenario marked as successful with Scenario.succeed()",
       metCriteria: [],
       unmetCriteria: [],
@@ -377,7 +378,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   async fail(reasoning?: string): Promise<ScenarioResult> {
     return {
       success: false,
-      messages: this.state.messages,
+      messages: convertCoreMessagesToAguiMessages(this.state.messages),
       reasoning: reasoning || "Scenario marked as failed with Scenario.fail()",
       metCriteria: [],
       unmetCriteria: [],
@@ -549,7 +550,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     return {
       success: false,
-      messages: this.state.messages,
+      messages: convertCoreMessagesToAguiMessages(this.state.messages),
       reasoning: errorMessage || `Reached maximum turns (${this.config.maxTurns || 10}) without conclusion`,
       metCriteria: [],
       unmetCriteria: this.getJudgeAgent()?.criteria ?? [],
@@ -604,7 +605,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.MESSAGE_SNAPSHOT,
-      messages: this.state.messages,
+      messages: convertCoreMessagesToAguiMessages(this.state.messages),
       // Add any other required fields from MessagesSnapshotEventSchema
     } as ScenarioMessageSnapshotEvent);
   }
