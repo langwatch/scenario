@@ -69,7 +69,9 @@ export const userSimulatorAgent = (config?: TestingAgentConfig) => {
     role: AgentRole.USER,
 
     call: async (input: AgentInput) => {
-      const systemPrompt = buildSystemPrompt(input.scenarioConfig.description);
+      const systemPrompt =
+        config?.systemPrompt ??
+        buildSystemPrompt(input.scenarioConfig.description);
       const messages: CoreMessage[] = [
         { role: "system", content: systemPrompt },
         { role: "assistant", content: "Hello, how can I help you today" },
