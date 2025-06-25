@@ -15,9 +15,9 @@ import {
   ScenarioConfigFinal
 } from "../domain";
 import { ScenarioEvent, ScenarioEventType, ScenarioMessageSnapshotEvent, ScenarioRunFinishedEvent, ScenarioRunStartedEvent, ScenarioRunStatus, Verdict } from "../events/schema";
-import convertCoreMessagesToAguiMessages from "../utils/conversion";
 import { generateScenarioId, generateScenarioRunId, generateThreadId, getBatchRunId } from "../utils/ids";
 import { Logger } from "../utils/logger";
+import convertCoreMessagesToAguiMessages from "../utils/message-conversation";
 
 const batchRunId = getBatchRunId();
 
