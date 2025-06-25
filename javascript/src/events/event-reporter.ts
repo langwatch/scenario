@@ -13,12 +13,15 @@ export class EventReporter {
   private readonly eventsEndpoint: URL;
   private readonly eventAlertMessageLogger: EventAlertMessageLogger;
   private readonly logger = new Logger("scenario.events.EventReporter");
+  private readonly isEnabled: boolean;
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.apiKey = config.apiKey ?? "";
     this.eventsEndpoint = new URL("/api/scenario-events", config.endpoint);
     this.eventAlertMessageLogger = new EventAlertMessageLogger();
     this.eventAlertMessageLogger.handleGreeting();
+    this.isEnabled =
+      this.apiKey.length > 0 && this.eventsEndpoint.href.length > 0;
   }
 
   /**
@@ -26,6 +29,11 @@ export class EventReporter {
    * Logs success/failure but doesn't throw - event posting shouldn't break scenario execution.
    */
   async postEvent(event: ScenarioEvent): Promise<{ setUrl?: string }> {
+    /**
+     * Early exit to prevent events from being posted if the endpoint is not configured.
+     */
+    if (!this.isEnabled) return {};
+
     const result: { setUrl?: string } = {};
     this.logger.debug(`[${event.type}] Posting event`, { event });
     const processedEvent = this.processEventForApi(event);
