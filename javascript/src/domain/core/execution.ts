@@ -1,4 +1,3 @@
-import { MessagesSnapshotEvent } from '@ag-ui/core';
 import { CoreMessage, CoreToolMessage } from "ai";
 import type { ScenarioConfig } from "../scenarios";
 
@@ -15,7 +14,7 @@ export interface ScenarioResult {
   /**
    * The sequence of messages exchanged during the scenario.
    */
-  messages: MessagesSnapshotEvent["messages"];
+  messages: CoreMessage[];
 
   /**
    * The reasoning behind the scenario's outcome.
