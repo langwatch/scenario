@@ -56,7 +56,7 @@ export function convertCoreMessagesToAguiMessages(coreMessages: CoreMessage[]): 
         const toolCalls = msg.content.filter(p => p.type === "tool-call");
         const nonToolCalls = msg.content.filter(p => p.type !== "tool-call");
 
-        const assistantMessage: AgUiMessage = {
+        aguiMessages.push({
           id: id,
           role: "assistant",
           content: JSON.stringify(nonToolCalls),
@@ -68,16 +68,8 @@ export function convertCoreMessagesToAguiMessages(coreMessages: CoreMessage[]): 
               arguments: JSON.stringify(c.args),
             },
           }))
-        };
+        });
 
-        // Simplify output if there's only a single text part in the output
-        if (nonToolCalls.length === 1 && nonToolCalls[0].type === "text") {
-          assistantMessage.content = nonToolCalls[0].text;
-        } else {
-          assistantMessage.content = JSON.stringify(nonToolCalls);
-        }
-
-        aguiMessages.push(assistantMessage);
         break;
       }
 

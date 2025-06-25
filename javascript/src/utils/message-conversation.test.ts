@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertCoreMessagesToAguiMessages } from './conversion';
+import { convertCoreMessagesToAguiMessages } from './message-conversation';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeCoreMessage(partial: any): any {
@@ -43,33 +43,7 @@ describe('convertCoreMessagesToAguiMessages', () => {
     ]);
   });
 
-  it('converts an assistant message with array content (tool and text)', () => {
-    const arr = [
-      { type: 'tool-call', toolCallId: 't1', toolName: 'fn', args: { foo: 1 } },
-      { type: 'text', text: 'result' },
-    ];
-    const input = [makeCoreMessage({ role: 'assistant', content: arr })];
-    const result = convertCoreMessagesToAguiMessages(input);
-    expect(result).toEqual([
-      {
-        id: 'core-id',
-        role: 'assistant',
-        content: 'result',
-        toolCalls: [
-          {
-            id: 't1',
-            type: 'function',
-            function: {
-              name: 'fn',
-              arguments: JSON.stringify({ foo: 1 }),
-            },
-          },
-        ],
-      },
-    ]);
-  });
-
-  it('converts an assistant message with array content (multiple non-text)', () => {
+  it('converts an assistant message with array content', () => {
     const arr = [
       { type: 'tool-call', toolCallId: 't1', toolName: 'fn', args: { foo: 1 } },
       { type: 'json', value: { bar: 2 } },
