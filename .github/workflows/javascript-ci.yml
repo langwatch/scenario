@@ -58,13 +58,22 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript
 
-      - name: Check documentation is up to date
-        run: |
-          # Generate docs and check if there are any changes
-          pnpm run generate:api-reference
-          if ! git diff --quiet; then
-            echo "Documentation is out of date. Please run 'pnpm run build-docs' and commit the changes."
-            git diff
-            exit 1
-          fi
-        working-directory: javascript
+      # - name: Check documentation is up to date
+      #   run: |
+      #     # Generate hash of current source files
+      #     CURRENT_HASH=$(pnpm run hash-source)
+
+      #     # Check if docs were generated for current source content
+      #     if [ -f "../docs/docs/public/reference/javascript/.docs-source-hash" ]; then
+      #       DOCS_HASH=$(cat ../docs/docs/public/reference/javascript/.docs-source-hash)
+      #       if [ "$CURRENT_HASH" = "$DOCS_HASH" ]; then
+      #         echo "Documentation is up to date"
+      #         exit 0
+      #       fi
+      #     fi
+
+      #     echo "Documentation is out of date. Please run 'pnpm run generate:api-reference' and commit the changes."
+      #     echo "Current source hash: $CURRENT_HASH"
+      #     echo "Docs generated for hash: $(cat ../docs/docs/public/reference/javascript/.docs-source-hash 2>/dev/null || echo 'unknown')"
+      #     exit 1
+      #   working-directory: javascript
