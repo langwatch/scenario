@@ -4,6 +4,7 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   publish:
@@ -34,12 +35,6 @@ jobs:
       - name: Run tests
         working-directory: javascript
         run: pnpm test:ci
-
-      - name: Update version (manual trigger only)
-        if: github.event.inputs.version != ''
-        working-directory: javascript
-        run: |
-          pnpm version ${{ github.event.inputs.version }} --no-git-tag-version
 
       - name: Extract version from tag
         id: version

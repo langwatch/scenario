@@ -1,4 +1,4 @@
-.PHONY: test example install ensure-uv bump-version typecheck typecheck-pyright generate-openapi-client clean-generated
+.PHONY: test example install ensure-uv typecheck typecheck-pyright generate-openapi-client clean-generated
 
 test:
 	PYTHONPATH=$$PYTHONPATH:. uv run pytest -s -vv tests/ $(filter-out $@,$(MAKECMDGOALS))
@@ -21,17 +21,7 @@ ensure-uv:
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
 	fi
 
-bump-version:
-	@echo "🔍 Analyzing commits since last version..."
-	uv run cz bump --major-version-zero --allow-no-commit --dry-run
-	@echo ""
-	@read -p "Proceed with version bump? [y/N] " confirm && [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ] || exit 1
-	uv run cz bump --major-version-zero --allow-no-commit
-	@echo "✅ Version bumped and tagged!"
 
-bump-and-publish: bump-version
-	@echo "🔍 Pushing version bump and tags..."
-	git push --tags
 
 typecheck:
 	uv run pyright .

@@ -43,7 +43,6 @@ dev = [
     "isort",
     "pytest-cov",
     "pre-commit",
-    "commitizen",
     "pyright",
     "pydantic-ai",
     "function-schema",
@@ -67,7 +66,7 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 
 [dependency-groups]
 dev = [
-    "commitizen>=4.8.3",
+
     "function-schema>=0.4.5",
     "pre-commit>=4.2.0",
     "pydantic-ai>=0.0.52",
@@ -77,11 +76,4 @@ dev = [
     "respx>=0.22.0",
 ]
 
-[tool.commitizen]
-name = "cz_conventional_commits"
-version = "0.7.0"
-tag_format = "python/v$version"
-legacy_tag_formats = ["v$version"]
-version_files = ["pyproject.toml:version"]
-bump_message = "bump: version $current_version → $new_version"
-major_version_zero = true
+

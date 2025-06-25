@@ -14,7 +14,7 @@ help:
 	@echo "  make python/build"
 	@echo "  make python/typecheck"
 	@echo "  make python/pdocs"
-	@echo "  make python/bump-version"
+
 	@echo "  make python/test tests/test_specific.py"
 
 # Directory forwarding rule - handles patterns like python/target
