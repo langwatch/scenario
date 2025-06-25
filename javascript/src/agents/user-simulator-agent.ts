@@ -1,8 +1,13 @@
 import { generateText, CoreMessage } from "ai";
-import { AgentInput, AgentRole, UserSimulatorAgentAdapter } from "../domain";
 import { TestingAgentConfig } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
+import {
+  AgentInput,
+  AgentRole,
+  UserSimulatorAgentAdapter,
+  DEFAULT_TEMPERATURE,
+} from "../domain";
 import { mergeAndValidateConfig } from "../utils/config";
 
 function buildSystemPrompt(description: string): string {
@@ -36,8 +41,17 @@ ${description}
  *
  * @param config Optional configuration for the agent.
  * @param config.model The language model to use for generating responses.
- * @param config.temperature The temperature to use for the model.
+ *                     If not provided, a default model will be used.
+ * @param config.temperature The temperature for the language model (0.0-1.0).
+ *                          Lower values make responses more deterministic.
+ *                          Defaults to {@link DEFAULT_TEMPERATURE}.
  * @param config.maxTokens The maximum number of tokens to generate.
+ *                        If not provided, uses model defaults.
+ * @param config.name The name of the agent.
+ * @param config.systemPrompt Custom system prompt to override default user simulation behavior.
+ *                           Use this to create specialized user personas or behaviors.
+ *
+ * @throws {Error} If no model is configured either in parameters or global config.
  *
  * @example
  * ```typescript
@@ -51,7 +65,8 @@ ${description}
  * };
  *
  * async function main() {
- *   const result = await run({
+ *   // Basic user simulator with default behavior
+ *   const basicResult = await run({
  *     name: "User Simulator Test",
  *     description: "A simple test to see if the user simulator works.",
  *     agents: [myAgent, userSimulatorAgent()],
@@ -60,9 +75,50 @@ ${description}
  *       agent(),
  *     ],
  *   });
+ *
+ *   // Customized user simulator
+ *   const customResult = await run({
+ *     name: "Expert User Test",
+ *     description: "User seeks help with TypeScript programming",
+ *     agents: [
+ *       myAgent,
+ *       userSimulatorAgent({
+ *         model: openai("gpt-4"),
+ *         temperature: 0.3,
+ *         systemPrompt: "You are a technical user who asks detailed questions"
+ *       })
+ *     ],
+ *     script: [
+ *       user(),
+ *       agent(),
+ *     ],
+ *   });
+ *
+ *   // User simulator with custom persona
+ *   const expertResult = await run({
+ *     name: "Expert Developer Test",
+ *     description: "Testing with a technical expert user persona.",
+ *     agents: [
+ *       myAgent,
+ *       userSimulatorAgent({
+ *         systemPrompt: `
+ *           You are an expert software developer testing an AI coding assistant.
+ *           Ask challenging, technical questions and be demanding about code quality.
+ *           Use technical jargon and expect detailed, accurate responses.
+ *         `
+ *       })
+ *     ],
+ *     script: [
+ *       user(),
+ *       agent(),
+ *     ],
+ *   });
  * }
  * main();
  * ```
+ *
+ * @note
+ * - Uses role reversal internally to work around LLM biases toward assistant roles
  */
 export const userSimulatorAgent = (config?: TestingAgentConfig) => {
   return {
@@ -93,7 +149,7 @@ export const userSimulatorAgent = (config?: TestingAgentConfig) => {
       const completion = await generateText({
         model: mergedConfig.model,
         messages: reversedMessages,
-        temperature: mergedConfig.temperature ?? 0.0,
+        temperature: mergedConfig.temperature ?? DEFAULT_TEMPERATURE,
         maxTokens: mergedConfig.maxTokens,
       });
 
