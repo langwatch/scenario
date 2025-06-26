@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/langwatch/scenario/compare/javascript/v0.2.4...javascript/v0.2.5) (2025-06-26)
+
+
+### Bug Fixes
+
+* cleanup comment ([#76](https://github.com/langwatch/scenario/issues/76)) ([b8a685c](https://github.com/langwatch/scenario/commit/b8a685cc16b93a9fa2f6d753de54ab5444a051a9))
+
 ## [0.2.4](https://github.com/langwatch/scenario/compare/javascript/v0.2.3...javascript/v0.2.4) (2025-06-26)
 
 
