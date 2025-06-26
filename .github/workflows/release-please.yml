@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  issues: write # This is important for label creation
   contents: write
   pull-requests: write
 
@@ -14,8 +15,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
-      paths_released: ${{ steps.release.outputs.paths_released }}
+      # Don't use release_created this: https://danwakeem.medium.com/beware-the-release-please-v4-github-action-ee71ff9de151
+      # releases_created: ${{ steps.release.outputs.releases_created }}
+      # paths_released: ${{ steps.release.outputs.paths_released }}
       # JavaScript outputs
       javascript--release_created: ${{ steps.release.outputs['javascript--release_created'] }}
       javascript--tag_name: ${{ steps.release.outputs['javascript--tag_name'] }}
