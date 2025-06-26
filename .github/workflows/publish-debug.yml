@@ -1,0 +1,19 @@
+name: javascript-publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug release info
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Tag name: ${{ github.event.release.tag_name }}"
+          echo "Release title: ${{ github.event.release.name }}"
+          echo "Release body: ${{ github.event.release.body }}"
