@@ -1,7 +1,7 @@
 import { env, LogLevel } from "../config";
 
 /**
- * Simple logger that respects SCENARIO_LOG_LEVEL environment variable.
+ * Simple logger that respects LOG_LEVEL environment variable.
  *
  * Supports standard log levels: error, warn, info, debug
  * Silent by default (good for library usage)
@@ -17,7 +17,7 @@ export class Logger {
   constructor(private readonly context?: string) {}
 
   private getLogLevel(): LogLevel {
-    return env.SCENARIO_LOG_LEVEL ?? LogLevel.INFO;
+    return env.LOG_LEVEL ?? LogLevel.INFO;
   }
 
   private getLogLevelIndex(level: LogLevel): number {

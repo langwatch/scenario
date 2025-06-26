@@ -19,7 +19,7 @@ You can control Scenario's behavior with environment variables. These can be set
 | `LANGWATCH_API_KEY`                       | string | —                              | API key for LangWatch reporting.                                     | ✅          | ✅      |
 | `LANGWATCH_ENDPOINT`                      | string | `https://app.langwatch.ai`     | Endpoint for LangWatch reporting.                                    | ✅          | ✅      |
 | `SCENARIO_DISABLE_SIMULATION_REPORT_INFO` | string | `false`                        | If set (to any value), disables simulation report info **messages**. | ✅          | ❌      |
-| `SCENARIO_LOG_LEVEL`                      | enum   | `info`                         | Log level: `error`, `warn`, `info`, `debug`.                         | ✅          | ❌      |
+| `LOG_LEVEL`                               | enum   | `info`                         | Log level: `error`, `warn`, `info`, `debug`.                         | ✅          | ❌      |
 | `SCENARIO_BATCH_RUN_ID`                   | string | `scenariobatchrun_<random_id>` | Unique ID for a batch of scenario runs (useful for CI).              | ✅          | ❌      |
 
 ---
@@ -102,6 +102,7 @@ See the [ScenarioConfig class reference](https://github.com/langwatch/scenario/b
 
 Scenario uses a log level system to control output. By default, logs are silent unless you set a log level.
 
-- Set `SCENARIO_LOG_LEVEL` to one of: `error`, `warn`, `info`, `debug`.
-- Example: `SCENARIO_LOG_LEVEL=debug` for verbose output.
-- Example: `SCENARIO_LOG_LEVEL=error` to only see errors.
+- Set `LOG_LEVEL` to one of: `error`, `warn`, `info`, `debug`.
+- Example: `LOG_LEVEL=debug` for verbose output.
+- Example: `LOG_LEVEL=error` to only see errors.
+- If not set, the default is `info`, but info logs are mostly related to scenario results.

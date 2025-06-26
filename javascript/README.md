@@ -240,7 +240,7 @@ The following configuration options are all optional. You can specify any combin
 
 You can control the library's behavior with the following environment variables:
 
-- `SCENARIO_LOG_LEVEL`: Sets the verbosity of the internal logger. Can be `error`, `warn`, `info`, or `debug`. By default, logging is silent.
+- `LOG_LEVEL`: Sets the verbosity of the internal logger. Can be `error`, `warn`, `info`, or `debug`. By default, logging is silent.
 - `SCENARIO_DISABLE_SIMULATION_REPORT_INFO`: Set to `true` to disable the "Scenario Simulation Reporting" banner that is printed to the console when a test run starts.
 - `LANGWATCH_API_KEY`: Your LangWatch API key. This is used as a fallback if `langwatchApiKey` is not set in your config file.
 - `LANGWATCH_ENDPOINT`: The LangWatch reporting endpoint. This is used as a fallback if `langwatchEndpoint` is not set in your config file.

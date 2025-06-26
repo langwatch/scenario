@@ -39,7 +39,7 @@ const envSchema = z.object({
    * Log level for the scenario package.
    * Defaults to 'info' if not specified.
    */
-  SCENARIO_LOG_LEVEL: z.nativeEnum(LogLevel).optional(),
+  LOG_LEVEL: z.nativeEnum(LogLevel).optional(),
 
   /**
    * Scenario batch run ID.
