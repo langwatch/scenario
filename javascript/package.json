@@ -19,8 +19,7 @@
     "lint": "eslint .",
     "examples:vitest:run": "export SCENARIO_BATCH_ID=scenariobatch_$(uuidgen) && (cd examples/vitest && pnpm install) && pnpm -F vitest-example run test",
     "prepublishOnly": "pnpm run build",
-    "hash-source": "find src -name \"*.ts\" -type f | sort | xargs cat | sha256sum | cut -d' ' -f1",
-    "generate:api-reference": "npx typedoc src --out api-reference-docs && rm -rf ../docs/docs/public/reference/javascript/scenario && mv api-reference-docs ../docs/docs/public/reference/javascript/scenario && pnpm run hash-source > ../docs/docs/public/reference/javascript/.docs-source-hash"
+    "generate:api-reference": "npx typedoc src --out api-reference-docs && rm -rf ../docs/docs/public/reference/javascript/scenario && mv api-reference-docs ../docs/docs/public/reference/javascript/scenario"
   },
   "publishConfig": {
     "access": "public"
