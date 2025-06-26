@@ -63,6 +63,13 @@ export default defineConfig({
       ],
     },
     {
+      text: "Visualization",
+      items: [{
+        text: "Simulations Visualizer",
+        link: "/visualizations",
+      }],
+    },
+    {
       text: "Scenario Basics",
       items: [
         {
