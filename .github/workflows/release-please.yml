@@ -31,3 +31,16 @@ jobs:
           # Use manifest mode for monorepo
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # Call existing publish workflows when releases are created
+  publish-javascript:
+    if: needs.release-please.outputs.javascript--release_created
+    needs: release-please
+    uses: ./.github/workflows/javascript-publish.yml
+    secrets: inherit
+
+  publish-python:
+    if: needs.release-please.outputs.python--release_created
+    needs: release-please
+    uses: ./.github/workflows/python-publish.yml
+    secrets: inherit

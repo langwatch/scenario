@@ -4,12 +4,15 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'javascript/') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    if: |
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'javascript/')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_call' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
