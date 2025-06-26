@@ -8,6 +8,9 @@ import type {
   ScenarioRunFinishedEvent,
   ScenarioMessageSnapshotEvent,
 } from "../../events/schema";
+import { Logger } from "../../utils/logger";
+
+const logger = Logger.create("integrations:vitest:reporter");
 
 function getProjectRoot() {
   return process.cwd();
@@ -49,7 +52,10 @@ export default class VitestReporter implements Reporter {
     const fullName = getFullTestName(test);
     const filePath = getLogFilePath(test.id);
     if (!fs.existsSync(filePath)) {
-      console.log(`No log file found ${filePath} for test ${fullName}`);
+      logger.warn(
+        `No log file found ${filePath} for test ${fullName}`,
+        test.id
+      );
       return;
     }
     const lines = fs

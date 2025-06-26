@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { beforeEach, afterEach } from 'vitest';
 import { EventBus } from '../../events/event-bus';
+import { Logger } from '../../utils/logger';
+
+const logger = Logger.create('integrations:vitest:setup');
 
 function getProjectRoot() {
   return process.cwd();
@@ -30,7 +33,7 @@ beforeEach((ctx) => {
       try {
         fs.appendFileSync(filePath, JSON.stringify(event) + '\n');
       } catch (error) {
-        console.error('Error writing to log file:', error);
+        logger.error('Error writing to log file:', error);
       }
     })
   );
@@ -43,7 +46,7 @@ EventBus.addGlobalListener((bus) => {
       try {
         fs.appendFileSync(filePath, JSON.stringify(event) + '\n');
       } catch (error) {
-        console.error('Error writing to log file:', error);
+        logger.error('Error writing to log file:', error);
       }
     })
   );
