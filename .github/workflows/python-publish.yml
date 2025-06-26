@@ -5,7 +5,6 @@ on:
     types:
       - published
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read

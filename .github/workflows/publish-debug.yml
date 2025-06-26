@@ -1,4 +1,4 @@
-name: javascript-publish
+name: publish-debug
 
 on:
   release:
