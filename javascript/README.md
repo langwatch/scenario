@@ -222,10 +222,6 @@ export default defineConfig({
     model: openai("gpt-4o-mini"),
     temperature: 0.1,
   },
-
-  // Configure the LangWatch reporting endpoint and API key
-  langwatchEndpoint: "https://app.langwatch.ai",
-  langwatchApiKey: process.env.LANGWATCH_API_KEY,
 });
 ```
 
@@ -239,8 +235,6 @@ The following configuration options are all optional. You can specify any combin
   - `model`: **(Required if `defaultModel` is set)** An instance of a language model from a provider like `@ai-sdk/openai`.
   - `temperature` _(Optional)_: The default temperature for the model (e.g., `0.1`).
   - `maxTokens` _(Optional)_: The default maximum number of tokens for the model to generate.
-- `langwatchEndpoint` _(Optional)_: The endpoint for the LangWatch reporting service. If not specified, it defaults to the `LANGWATCH_ENDPOINT` environment variable, or `https://app.langwatch.ai`.
-- `langwatchApiKey` _(Optional)_: Your LangWatch API key for authenticating with the reporting service. If not specified, it defaults to the `LANGWATCH_API_KEY` environment variable.
 
 ### Environment Variables
 
