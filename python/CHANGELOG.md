@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.6](https://github.com/langwatch/scenario/compare/python/v0.7.5...python/v0.7.6) (2025-06-26)
+
+
+### Bug Fixes
+
+* update docs ([#70](https://github.com/langwatch/scenario/issues/70)) ([0990b1f](https://github.com/langwatch/scenario/commit/0990b1fcfc652171dd0b9b7bc25a4d61c7fc8121))
+
 ## [0.7.5](https://github.com/langwatch/scenario/compare/python/v0.7.4...python/v0.7.5) (2025-06-26)
 
 
