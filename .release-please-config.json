@@ -1,8 +1,12 @@
 {
   "packages": {
     "javascript": {
+      "component": "javascript",
+      "package-name": "javascript",
       "release-type": "node",
-      "package-name": "@langwatch/scenario",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": true,
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
@@ -12,8 +16,12 @@
       ]
     },
     "python": {
+      "component": "python",
+      "package-name": "python",
       "release-type": "python",
-      "package-name": "langwatch-scenario",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": true,
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
@@ -27,6 +35,8 @@
   "release-search-depth": 400,
   "tag-separator": "/",
   "separate-pull-requests": true,
-  "group-pull-request-title-pattern": "chore: release ${component} ${version}",
-  "sequential-calls": true
+  "sequential-calls": true,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "monorepo-tags": true
 }
