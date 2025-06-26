@@ -1,0 +1,107 @@
+import { Callout } from 'vocs/components';
+
+# Configuration
+
+Scenario supports flexible configuration via several different methods. Not all methods are available in all implementations. The table below shows which methods are available in your implementation:
+
+| Method                                           | JavaScript | Python |
+| ------------------------------------------------ | ---------- | ------ |
+| Environment Variables                            | ✅          | ✅      |
+| Configuration File (`scenario.config.js`/`.mjs`) | ✅          | ❌      |
+| Global Configuration (`scenario.configure()`)    | ❌          | ✅      |
+
+## Environment Variables
+
+You can control Scenario's behavior with environment variables. These can be set in your shell, CI environment, or a `.env` file.
+
+| Variable                                  | Type   | Default                        | Description                                                          | JavaScript | Python |
+| ----------------------------------------- | ------ | ------------------------------ | -------------------------------------------------------------------- | ---------- | ------ |
+| `LANGWATCH_API_KEY`                       | string | —                              | API key for LangWatch reporting.                                     | ✅          | ✅      |
+| `LANGWATCH_ENDPOINT`                      | string | `https://app.langwatch.ai`     | Endpoint for LangWatch reporting.                                    | ✅          | ✅      |
+| `SCENARIO_DISABLE_SIMULATION_REPORT_INFO` | string | `false`                        | If set (to any value), disables simulation report info **messages**. | ✅          | ❌      |
+| `SCENARIO_LOG_LEVEL`                      | enum   | `info`                         | Log level: `error`, `warn`, `info`, `debug`.                         | ✅          | ❌      |
+| `SCENARIO_BATCH_RUN_ID`                   | string | `scenariobatchrun_<random_id>` | Unique ID for a batch of scenario runs (useful for CI).              | ✅          | ❌      |
+
+---
+
+## Configuration File (`scenario.config.js`/`.mjs`)
+
+<Callout type="note">
+  The config file is only supported in the JavaScript implementation of Scenario.
+</Callout>
+
+You can create a `scenario.config.js` or `scenario.config.mjs` file in your project root to set project-wide defaults.
+
+```js
+// scenario.config.mjs
+import { defineConfig } from "@langwatch/scenario/config";
+import { openai } from "@ai-sdk/openai";
+
+export default defineConfig({
+  // Set a default model provider for all agents
+  defaultModel: {
+    model: openai("gpt-4o-mini"),
+    temperature: 0.1,
+  },
+  langwatchEndpoint: "https://app.langwatch.ai",
+  langwatchApiKey: process.env.LANGWATCH_API_KEY,
+});
+```
+
+**Note:** The config file is automatically loaded, if present, from your project root.
+
+---
+
+## Python: Global Configuration with `scenario.configure()`
+
+<Callout type="note">
+  The `scenario.configure()` function is only supported in the Python implementation of Scenario.
+</Callout>
+
+You can set global configuration for all scenarios in Python using the `scenario.configure()` function. This allows you to set defaults for model, max turns, verbosity, and more.
+
+```python
+import scenario
+
+# Set global defaults for all scenarios
+scenario.configure(
+    default_model="openai/gpt-4.1-mini",
+    max_turns=15,
+    verbose=True,
+    debug=False
+)
+
+# All subsequent scenario runs will use these defaults
+result = await scenario.run(
+    name="my test",
+    description="Test scenario",
+    agents=[my_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent()]
+)
+```
+
+**Supported options:**
+
+| Option          | Type               | Default | Description                                                   |
+| --------------- | ------------------ | ------- | ------------------------------------------------------------- |
+| `default_model` | str or ModelConfig | None    | Default LLM model for user simulator and judge agents         |
+| `max_turns`     | int                | 10      | Maximum number of conversation turns before timeout           |
+| `verbose`       | bool or int        | True    | Show detailed output during execution                         |
+| `cache_key`     | str                | None    | Key for caching scenario results (for deterministic behavior) |
+| `debug`         | bool               | False   | Enable debug mode for step-by-step execution                  |
+
+See the [ScenarioConfig class reference](https://github.com/langwatch/scenario/blob/main/python/scenario/config.py) for more details.
+
+---
+
+## Precedence
+
+- Values in `scenario.config.js`/`.mjs` (JavaScript) or `scenario.configure()` (Python) take precedence over environment variables.
+- Environment variables take precedence over built-in defaults.
+
+## Logging (JavaScript only)
+
+Scenario uses a log level system to control output. By default, logs are silent unless you set a log level.
+
+- Set `SCENARIO_LOG_LEVEL` to one of: `error`, `warn`, `info`, `debug`.
+- Example: `SCENARIO_LOG_LEVEL=debug` for verbose output.
+- Example: `SCENARIO_LOG_LEVEL=error` to only see errors.

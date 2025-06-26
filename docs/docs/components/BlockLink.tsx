@@ -5,6 +5,8 @@ import {
   NotebookPenIcon,
   ScrollTextIcon,
   BugIcon,
+  SettingsIcon,
+  TestTubeIcon,
 } from "lucide-react";
 import { Link } from "./Link";
 
@@ -15,6 +17,8 @@ const icons = {
   "notebook-pen": () => <NotebookPenIcon />,
   "scroll-text": () => <ScrollTextIcon />,
   bug: () => <BugIcon />,
+  settings: () => <SettingsIcon />,
+  "test-tube": () => <TestTubeIcon />,
 };
 
 export function BlockLink({

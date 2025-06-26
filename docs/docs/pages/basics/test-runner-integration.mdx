@@ -1,0 +1,86 @@
+# Test Runner Integration
+
+Scenario supports seamless integration with popular test runners in both JavaScript/TypeScript and Python. Please refer to the section for your language below.
+
+## JavaScript / TypeScript
+
+### Vitest
+
+To get rich scenario reporting, add the custom Scenario Vitest reporter and setup file to your `vitest.config.ts`:
+
+```ts
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+import VitestReporter from '@langwatch/scenario/integrations/vitest/reporter';
+
+export default defineConfig({
+  test: {
+    testTimeout: 180_000, // 3 minutes, or however long you want to wait for the scenario to run
+    setupFiles: ['@langwatch/scenario/integrations/vitest/setup'],
+    reporters: [
+      'default',
+      new VitestReporter(),
+    ],
+  },
+});
+```
+
+- **`testTimeout`**: Scenario tests may take longer than typical unit tests, especially if they involve LLM calls. Set a higher timeout as needed.
+- **`setupFiles`**: Enables Scenario's event logging for each test.
+- **Custom Reporter**: Provides detailed scenario test reports in your test output.
+
+### Jest
+
+Scenario can also be used with Jest, but you may need to adapt the setup and reporting for your environment. See the [Scenario README](https://github.com/langwatch/scenario) for the latest Jest integration tips.
+
+## Python
+
+### Pytest
+
+Scenario integrates seamlessly with [pytest](https://docs.pytest.org/) for Python users.
+
+To run scenario tests with pytest, simply write your tests as async functions using the `scenario` library and decorate them with `@pytest.mark.agent_test` and `@pytest.mark.asyncio` (if needed):
+
+```python
+import pytest
+import scenario
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_my_agent():
+    # Define your agent and scenario here
+    result = await scenario.run(
+        name="my scenario",
+        description="Test scenario",
+        agents=[my_agent, scenario.UserSimulatorAgent(), scenario.JudgeAgent()]
+    )
+    assert result.success
+```
+
+- Use `pytest` to discover and run your scenario tests:
+
+```bash
+pytest
+```
+
+- You can use standard pytest features like markers, fixtures, and parallelization with scenario tests.
+- For deterministic results, use the `@scenario.cache()` decorator on your agent function.
+
+See the [Scenario Python README](https://github.com/langwatch/scenario#python) for more advanced usage and options.
+
+---
+
+## Running Tests
+
+```bash
+pnpm test     # JavaScript/TypeScript
+uv run pytest # Python
+```
+
+You can set environment variables (like `SCENARIO_BATCH_RUN_ID`) to group test runs in CI:
+
+```bash
+SCENARIO_BATCH_RUN_ID=my-ci-run-123 pnpm test
+# or
+uv run pytest
+``` 

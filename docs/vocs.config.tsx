@@ -78,6 +78,14 @@ export default defineConfig({
           link: "/basics/scripted-simulations",
         },
         {
+          text: "Configuration",
+          link: "/basics/configuration",
+        },
+        {
+          text: "Test Runner Integration",
+          link: "/basics/test-runner-integration",
+        },
+        {
           text: "Cache",
           link: "/basics/cache",
         },
