@@ -21,19 +21,17 @@ describe("Multilingual Agent", () => {
   const agent = createMultilingualAgent();
 
   /**
- ```gherkin
-User Story:
-  As a user,
-  I want to translate text accurately between supported languages,
-  so that I can communicate effectively across different cultures while maintaining original punctuation and preserving emojis.
-
-Acceptance Criteria:
-  - The translation agent supports English, French, Spanish, Chinese, and German.
-  - Translations are accurate and faithfully preserve meaning, punctuation, and emoji characters.
-  - The response remains in the language of the original request.
-  - All translations are properly enclosed in quotation marks.
-  - The agent successfully handles translation requests for any combination of the supported languages.
-```
+   * User Story:
+   * As a user, I want to translate text accurately between supported languages,
+   * so that I can communicate effectively across different cultures while maintaining
+   * original punctuation and preserving emojis.
+   *
+   * Acceptance Criteria:
+   * - The translation agent supports English, French, Spanish, Chinese, and German
+   * - Translations are accurate and faithfully preserve meaning, punctuation, and emoji characters
+   * - The response remains in the language of the original request
+   * - All translations are properly enclosed in quotation marks
+   * - The agent successfully handles translation requests for any combination of the supported languages
    */
   it("handles complex translations with correct punctuation and preserved emojis", async () => {
     const result = await scenario.run({
