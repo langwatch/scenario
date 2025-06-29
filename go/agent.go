@@ -51,15 +51,15 @@ type AgentReturn struct {
 	MessageValue        openai.ChatCompletionMessageParamUnion
 }
 
-func NewStringAgentReturn(s string) AgentReturn {
-	return AgentReturn{Kind: AgentReturnString, StringValue: s}
+func NewStringAgentReturn(s string) *AgentReturn {
+	return &AgentReturn{Kind: AgentReturnString, StringValue: s}
 }
-func NewScenarioResultAgentReturn(r ScenarioResult) AgentReturn {
-	return AgentReturn{Kind: AgentReturnScenarioResult, ScenarioResultValue: r}
+func NewScenarioResultAgentReturn(r ScenarioResult) *AgentReturn {
+	return &AgentReturn{Kind: AgentReturnScenarioResult, ScenarioResultValue: r}
 }
-func NewMessagesAgentReturn(msgs []openai.ChatCompletionMessageParamUnion) AgentReturn {
-	return AgentReturn{Kind: AgentReturnMessages, MessagesValue: msgs}
+func NewMessagesAgentReturn(msgs []openai.ChatCompletionMessageParamUnion) *AgentReturn {
+	return &AgentReturn{Kind: AgentReturnMessages, MessagesValue: msgs}
 }
-func NewMessageAgentReturn(msg openai.ChatCompletionMessageParamUnion) AgentReturn {
-	return AgentReturn{Kind: AgentReturnMessage, MessageValue: msg}
+func NewMessageAgentReturn(msg openai.ChatCompletionMessageParamUnion) *AgentReturn {
+	return &AgentReturn{Kind: AgentReturnMessage, MessageValue: msg}
 }
