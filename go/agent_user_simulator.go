@@ -34,24 +34,46 @@ func buildUserSimulatorPrompt(description string) string {
 	return strings.ReplaceAll(userSimulatorPrompt, "{{.Description}}", description)
 }
 
-type UserSimulatorAgent struct {
-	cfg AgentConfig
-	llm *openai.Client
+type UserSimulatorAgentConfig struct {
+	AgentConfig
+
+	SystemPrompt *string
 }
 
-func NewUserSimulatorAgent(cfg AgentConfig) *UserSimulatorAgent {
-	// setup openai client, set based on
+type UserSimulatorAgent struct {
+	cfg UserSimulatorAgentConfig
+	llm openai.Client
+}
 
-	return &UserSimulatorAgent{cfg: cfg}
+func NewUserSimulatorAgent(cfg UserSimulatorAgentConfig) *UserSimulatorAgent {
+	return &UserSimulatorAgent{
+		cfg: cfg,
+
+		// TODO(afr): Handle properly for other llm providers
+		llm: openai.NewClient(openai.DefaultClientOptions()...),
+	}
+}
+
+func (a *UserSimulatorAgent) Role() AgentRole {
+	return AgentRoleUser
 }
 
 func (a *UserSimulatorAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, error) {
-	systemPrompt := buildUserSimulatorPrompt(input.ScenarioConfig.Description)
-	messages := append(input.Messages, openai.SystemMessage(systemPrompt))
+	var systemPrompt string
+	if a.cfg.SystemPrompt != nil {
+		systemPrompt = *a.cfg.SystemPrompt
+	} else {
+		systemPrompt = buildUserSimulatorPrompt(input.ScenarioConfig.Description)
+	}
+
+	messages := append(
+		[]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemPrompt)},
+		input.Messages...,
+	)
 
 	params := openai.ChatCompletionNewParams{
 		Messages:    messages,
-		Model:       a.cfg.Model,
+		Model:       a.cfg.Model, // TODO(afr): load model id format
 		Temperature: openai.Opt(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
 	}
 	if a.cfg.MaxTokens != nil {
