@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"errors"
+	"time"
 
 	"github.com/langwatch/scenario/go/internal/libraries/ptr"
 	"github.com/openai/openai-go"
@@ -15,6 +16,7 @@ type ScenarioExecutionState struct {
 	threadID    string
 	description string
 	config      ScenarioConfig
+	startedAt   time.Time
 }
 
 // NewScenarioExecutionState creates a new initial state for a scenario.
@@ -25,6 +27,7 @@ func NewScenarioExecutionState(cfg ScenarioConfig) *ScenarioExecutionState {
 		threadID:    cfg.ThreadID,
 		description: cfg.Description,
 		config:      cfg,
+		startedAt:   time.Now(),
 	}
 }
 
