@@ -109,6 +109,15 @@ export default defineConfig({
       ],
     },
     {
+      text: "Testing guides",
+      items: [
+        {
+          text: "Tool calling",
+          link: "/testing-guides/tool-calling",
+        },
+      ],
+    },
+    {
       text: "Agent Integration",
       items: [
         {
