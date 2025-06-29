@@ -33,6 +33,8 @@ type Execution interface {
 	Messages() []openai.ChatCompletionMessageParamUnion
 	ThreadID() string
 
+	Run(ctx context.Context) *ScenarioResult
+
 	Message(ctx context.Context, message openai.ChatCompletionMessageParamUnion) error
 
 	UserString(ctx context.Context, content string) error
