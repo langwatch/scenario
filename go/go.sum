@@ -1,0 +1,8 @@
+github.com/jamescun/basex v0.0.0-20180407124237-e1bcb39ab18e h1:hNqjOAKBqcxNss3cdPCnvrWlprJqMvXvfY0EMKqwZ4E=
+github.com/jamescun/basex v0.0.0-20180407124237-e1bcb39ab18e/go.mod h1:lnTW2aVT/MijZZXFVlMJOFaIk9ypxRMVOB9xtNJaHoQ=
+github.com/matryer/is v1.4.1 h1:55ehd8zaGABKLXQUe2awZ99BD/PTc2ls+KV/dXphgEQ=
+github.com/matryer/is v1.4.1/go.mod h1:8I/i5uYgLzgsgEloJE1U6xx5HkBQpAZvepWuujKwMRU=
+github.com/quasilyte/go-ruleguard/dsl v0.3.22 h1:wd8zkOhSNr+I+8Qeciml08ivDt1pSXe60+5DqOpCjPE=
+github.com/quasilyte/go-ruleguard/dsl v0.3.22/go.mod h1:KeCP03KrjuSO0H1kTuZQCWlQPulDV6YMIXmpQss17rU=
+github.com/wearemojo/mojo-public-go v0.0.0-20250626105007-9f59be427015 h1:fqqTDbjpf2Qy0lS6rFshhp6Hets3TowoCBa1xcsl47M=
+github.com/wearemojo/mojo-public-go v0.0.0-20250626105007-9f59be427015/go.mod h1:+KCKWpp9pBdmZVLwBXtj4wrvmXuMVq4SfJqDKENn1JU=
