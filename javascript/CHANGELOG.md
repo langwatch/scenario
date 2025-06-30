@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.6](https://github.com/langwatch/scenario/compare/javascript/v0.2.5...javascript/v0.2.6) (2025-06-30)
+
+
+### Features
+
+* add multimodal images scenarios ([#82](https://github.com/langwatch/scenario/issues/82)) ([edee80c](https://github.com/langwatch/scenario/commit/edee80c339eb7be1641f60237cf6c02ea45c3b82))
+
+
+### Miscellaneous
+
+* doc config updates ([#78](https://github.com/langwatch/scenario/issues/78)) ([386fa7f](https://github.com/langwatch/scenario/commit/386fa7f52a85cf24feda0d5c90cde51030b03c3f))
+
 ## [0.2.5](https://github.com/langwatch/scenario/compare/javascript/v0.2.4...javascript/v0.2.5) (2025-06-26)
 
 
