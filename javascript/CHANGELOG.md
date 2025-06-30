@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/langwatch/scenario/compare/javascript/v0.2.6...javascript/v0.2.7) (2025-06-30)
+
+
+### Bug Fixes
+
+* add comment ([59c1b86](https://github.com/langwatch/scenario/commit/59c1b860c56f95e0cc766c8cd1e86428439c4b6f))
+
 ## [0.2.6](https://github.com/langwatch/scenario/compare/javascript/v0.2.5...javascript/v0.2.6) (2025-06-30)
 
 
