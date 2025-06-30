@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.8](https://github.com/langwatch/scenario/compare/javascript/v0.2.7...javascript/v0.2.8) (2025-06-30)
+
+
+### Bug Fixes
+
+* try to get release-please to work ([a4ff895](https://github.com/langwatch/scenario/commit/a4ff895af5490ed854940ffa387667247ee8d6c9))
+
 ## [0.2.7](https://github.com/langwatch/scenario/compare/javascript/v0.2.6...javascript/v0.2.7) (2025-06-30)
 
 
