@@ -1,5 +1,8 @@
+import crypto from "node:crypto";
+import process from "node:process";
 import { generate, parse } from "xksuid";
-import { env } from "../config";
+
+let batchRunId: string | undefined;
 
 /**
  * Generates a new thread ID.
@@ -30,12 +33,59 @@ export function generateScenarioId(): string {
  * It can be set via the `SCENARIO_BATCH_RUN_ID` environment variable.
  * @returns The batch run ID.
  */
-export function getBatchRunId(): string {
-  if (!env.SCENARIO_BATCH_RUN_ID) {
-    env.SCENARIO_BATCH_RUN_ID = `scenariobatchrun_${generate()}`;
+export async function getBatchRunId(): Promise<string> {
+  // If the batch run id is already cached, use it
+  if (batchRunId) {
+    return batchRunId;
   }
 
-  return env.SCENARIO_BATCH_RUN_ID;
+  // If the batch run id is set in the environment, use it
+  if (process.env.SCENARIO_BATCH_RUN_ID) {
+    return (batchRunId = process.env.SCENARIO_BATCH_RUN_ID);
+  }
+
+  // If we are running inside a vitest (with global setup), then we can use the inject
+  // function to get the batch run id.
+  if (process.env.VITEST_WORKER_ID || process.env.VITEST_POOL_ID) {
+    try {
+      const { inject } = await import("vitest");
+
+      return (batchRunId = inject('scenarioBatchRunId'));
+    } catch {
+      // Ignore
+    }
+  }
+
+  // If we are running inside a vitest (without global setup) or jest test runner, and no batch run id is set,
+  // generate a new one using the parent process id.
+  if (process.env.VITEST_WORKER_ID || process.env.JEST_WORKER_ID) {
+    const parentProcessId = process.ppid;
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const week = String(getISOWeekNumber(now)).padStart(2, "0");
+    const raw = `${parentProcessId}_${year}_w${week}`;
+    const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 12);
+
+    return (batchRunId = `scenariobatchrun_${hash}`);
+  }
+
+  // Fallback to creating a new batch run id, and caching it
+  return (batchRunId = `scenariobatchrun_${generate()}`);
+}
+
+/**
+ * Returns the ISO week number for a given date.
+ * @param date - The date to get the week number for.
+ * @returns The ISO week number.
+ */
+function getISOWeekNumber(date: Date): number {
+  const tmp = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+
+  return weekNo;
 }
 
 /**
