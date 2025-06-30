@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "SCENARIO_BATCH_RUN_ID=scenariobatchrun_$(nanoid) dotenv -e .env -- pnpm exec vitest run --watch=false"
+    "test": "pnpm exec vitest run --watch=false"
   },
   "keywords": [],
   "author": "",
