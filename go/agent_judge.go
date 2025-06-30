@@ -9,6 +9,7 @@ import (
 	"github.com/langwatch/scenario/go/internal/libraries/ptr"
 
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/shared"
 )
 
 const judgePrompt = `
@@ -80,15 +81,31 @@ func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, 
 		systemPrompt = buildJudgePrompt(a.cfg.Criteria, input.ScenarioConfig.Description)
 	}
 
+	lastMessage := input.ScenarioState.CurrentTurn() >= input.ScenarioConfig.MaxTurns
+	enforceJudgement := input.JudgmentRequest
+	hasCriteria := len(a.cfg.Criteria) > 0
 	messages := append(
 		[]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemPrompt)},
 		input.Messages...,
 	)
 
+	if enforceJudgement && !hasCriteria {
+		return NewScenarioResultAgentReturn(ScenarioResult{
+			Success:       false,
+			Messages:      []openai.ChatCompletionMessageParamUnion{},
+			Reasoning:     ptr.Ptr("TestingAgent was called as a judge, but it has no criteria to judge against"),
+			MetCriteria:   []string{},
+			UnmetCriteria: []string{},
+		}), nil
+	}
+
+	// Create tools
+
 	params := openai.ChatCompletionNewParams{
 		Messages:    messages,
 		Model:       a.cfg.Model, // TODO(afr): load model id format
 		Temperature: openai.Opt(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
+		Tools:       createJudgeAgentTools(a.cfg.Criteria),
 	}
 	if a.cfg.MaxTokens != nil {
 		params.MaxCompletionTokens = openai.Opt(*a.cfg.MaxTokens)
@@ -106,4 +123,64 @@ func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, 
 	return NewMessageAgentReturn(openai.ChatCompletionMessageParamUnion{
 		OfAssistant: ptr.Ptr(completion.Choices[0].Message.ToAssistantMessageParam()),
 	}), nil
+}
+
+func createJudgeAgentTools(criteria []string) []openai.ChatCompletionToolParam {
+	criteriaMap := map[string]any{}
+	criteriaNames := []string{}
+	for _, criterion := range criteria {
+		paramName := criterionNameToParamName(criterion)
+		criteriaNames = append(criteriaNames, paramName)
+		criteriaMap[paramName] = map[string]any{
+			"enum":        []any{true, false, "inconclusive"},
+			"description": criterion,
+		}
+	}
+
+	tools := []openai.ChatCompletionToolParam{{
+		Type: "function",
+		Function: shared.FunctionDefinitionParam{
+			Name:        "continue_test",
+			Description: openai.Opt("Continue the test with the next step"),
+			Strict:      openai.Opt(true),
+			Parameters: openai.FunctionParameters{
+				"type":                 "object",
+				"properties":           map[any]any{},
+				"required":             []any{},
+				"additionalProperties": false,
+			},
+		},
+	}, {
+		Type: "function",
+		Function: shared.FunctionDefinitionParam{
+			Name:        "finish_test",
+			Description: openai.Opt("Complete the test with a final verdict"),
+			Strict:      openai.Opt(true),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[any]any{
+					"criteria": map[any]any{
+						"type":                 "object",
+						"properties":           criteriaMap,
+						"required":             criteriaNames,
+						"additionalProperties": false,
+						"description":          "Strict verdict for each criterion",
+					},
+					"reasoning": map[any]any{
+						"type":        "string",
+						"description": "Explanation of what the final verdict should be",
+					},
+					"verdict": map[any]any{
+						"type":        "string",
+						"enum":        []any{"success", "failure", "inconclusive"},
+						"description": "The final verdict of the test",
+					},
+				},
+				"required":             []any{"criteria", "reasoning", "verdict"},
+				"additionalProperties": false,
+			},
+		},
+	}}
+
+	return tools
 }
