@@ -34,8 +34,6 @@ import {
 import { Logger } from "../utils/logger";
 import convertCoreMessagesToAguiMessages from "../utils/message-conversion";
 
-const batchRunId = getBatchRunId();
-
 /**
  * Manages the execution of a single scenario.
  *
@@ -621,11 +619,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Creates base event properties shared across all scenario events.
    */
-  private makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
+  private async makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
     return {
       type: "placeholder", // This will be replaced by the specific event type
       timestamp: Date.now(),
-      batchRunId,
+      batchRunId: await getBatchRunId(),
       scenarioId: this.config.id,
       scenarioRunId,
       scenarioSetId: this.config.setId,
@@ -635,9 +633,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Emits a run started event to indicate scenario execution has begun.
    */
-  private emitRunStarted({ scenarioRunId }: { scenarioRunId: string }) {
+  private async emitRunStarted({ scenarioRunId }: { scenarioRunId: string }) {
     this.emitEvent({
-      ...this.makeBaseEvent({ scenarioRunId }),
+      ...await this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_STARTED,
       metadata: {
         name: this.config.name,
@@ -649,9 +647,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Emits a message snapshot event containing current conversation history.
    */
-  private emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
+  private async emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
     this.emitEvent({
-      ...this.makeBaseEvent({ scenarioRunId }),
+      ...await this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.MESSAGE_SNAPSHOT,
       messages: convertCoreMessagesToAguiMessages(this.state.messages),
       // Add any other required fields from MessagesSnapshotEventSchema
@@ -661,7 +659,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Emits a run finished event with the final execution status.
    */
-  private emitRunFinished({
+  private async emitRunFinished({
     scenarioRunId,
     status,
     result,
@@ -671,7 +669,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     result?: ScenarioResult;
   }) {
     const event: ScenarioRunFinishedEvent = {
-      ...this.makeBaseEvent({ scenarioRunId }),
+      ...await this.makeBaseEvent({ scenarioRunId }),
       scenarioSetId: this.config.setId ?? "default",
       type: ScenarioEventType.RUN_FINISHED,
       status: status,

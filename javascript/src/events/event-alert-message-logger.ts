@@ -14,12 +14,12 @@ export class EventAlertMessageLogger {
    * Shows a fancy greeting message about simulation reporting status.
    * Only shows once per batch run to avoid spam.
    */
-  handleGreeting(): void {
+  async handleGreeting(): Promise<void> {
     if (this.isGreetingDisabled()) {
       return;
     }
 
-    const batchRunId = getBatchRunId();
+    const batchRunId = await getBatchRunId();
 
     if (EventAlertMessageLogger.shownBatchIds.has(batchRunId)) {
       return;
@@ -33,16 +33,16 @@ export class EventAlertMessageLogger {
    * Shows a fancy message about how to watch the simulation.
    * Called when a run started event is received with a session ID.
    */
-  handleWatchMessage(params: {
+  async handleWatchMessage(params: {
     scenarioSetId: string;
     scenarioRunId: string;
     setUrl: string;
-  }): void {
+  }): Promise<void> {
     if (this.isGreetingDisabled()) {
       return;
     }
 
-    this.displayWatchMessage(params);
+    await this.displayWatchMessage(params);
   }
 
   private isGreetingDisabled(): boolean {
@@ -88,10 +88,10 @@ export class EventAlertMessageLogger {
     }
   }
 
-  private displayWatchMessage(params: { setUrl: string }): void {
+  private async displayWatchMessage(params: { setUrl: string }): Promise<void> {
     const separator = "─".repeat(60);
     const setUrl = params.setUrl;
-    const batchUrl = `${setUrl}/${getBatchRunId()}`;
+    const batchUrl = `${setUrl}/${await getBatchRunId()}`;
 
     console.log(`\n${separator}`);
     console.log("👀 Watch Your Simulation Live");
