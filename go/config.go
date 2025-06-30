@@ -7,7 +7,7 @@ type ScenarioConfig struct {
 	Agents      []AgentAdapter
 	Script      []ScriptStep
 
-	MaxTurns   *int
+	MaxTurns   int
 	ThreadID   string
 	SetID      string
 	BatchRunID string
