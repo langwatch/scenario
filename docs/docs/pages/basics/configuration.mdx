@@ -40,11 +40,10 @@ import { openai } from "@ai-sdk/openai";
 export default defineConfig({
   // Set a default model provider for all agents
   defaultModel: {
-    model: openai("gpt-4o-mini"),
-    temperature: 0.1,
+    model: openai("gpt-4.1-mini"),
+    temperature: 0.1, // Optional, defaults to 0.0
+    maxTokens: 1000, // Optional
   },
-  langwatchEndpoint: "https://app.langwatch.ai",
-  langwatchApiKey: process.env.LANGWATCH_API_KEY,
 });
 ```
 
