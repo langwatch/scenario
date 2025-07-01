@@ -35,16 +35,16 @@ export class EventAlertMessageLogger {
    * Shows a fancy message about how to watch the simulation.
    * Called when a run started event is received with a session ID.
    */
-  async handleWatchMessage(params: {
+  handleWatchMessage(params: {
     scenarioSetId: string;
     scenarioRunId: string;
     setUrl: string;
-  }): Promise<void> {
+  }): void {
     if (this.isGreetingDisabled()) {
       return;
     }
 
-    await this.displayWatchMessage(params);
+    this.displayWatchMessage(params);
   }
 
   private isGreetingDisabled(): boolean {
