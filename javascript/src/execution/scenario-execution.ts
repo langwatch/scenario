@@ -29,7 +29,6 @@ import {
   generateScenarioId,
   generateScenarioRunId,
   generateThreadId,
-  getBatchRunId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
 import convertCoreMessagesToAguiMessages from "../utils/message-conversion";
@@ -91,9 +90,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Creates a new ScenarioExecution instance.
    * @param config The scenario configuration.
+   * @param batchRunId The batch run ID.
    * @param script The script steps to execute.
    */
-  constructor(config: ScenarioConfig, script: ScriptStep[]) {
+  constructor(config: ScenarioConfig, batchRunId: string, script: ScriptStep[]) {
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -103,6 +103,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       verbose: config.verbose ?? DEFAULT_VERBOSE,
       maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       threadId: config.threadId ?? generateThreadId(),
+      batchRunId: batchRunId,
       setId: config.setId,
     } satisfies ScenarioConfigFinal;
 
@@ -619,11 +620,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Creates base event properties shared across all scenario events.
    */
-  private async makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
+  private makeBaseEvent({ scenarioRunId }: { scenarioRunId: string }) {
     return {
       type: "placeholder", // This will be replaced by the specific event type
       timestamp: Date.now(),
-      batchRunId: await getBatchRunId(),
+      batchRunId: this.config.batchRunId,
       scenarioId: this.config.id,
       scenarioRunId,
       scenarioSetId: this.config.setId,
@@ -633,9 +634,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Emits a run started event to indicate scenario execution has begun.
    */
-  private async emitRunStarted({ scenarioRunId }: { scenarioRunId: string }) {
+  private emitRunStarted({ scenarioRunId }: { scenarioRunId: string }) {
     this.emitEvent({
-      ...await this.makeBaseEvent({ scenarioRunId }),
+      ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_STARTED,
       metadata: {
         name: this.config.name,
@@ -647,9 +648,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Emits a message snapshot event containing current conversation history.
    */
-  private async emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
+  private emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
     this.emitEvent({
-      ...await this.makeBaseEvent({ scenarioRunId }),
+      ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.MESSAGE_SNAPSHOT,
       messages: convertCoreMessagesToAguiMessages(this.state.messages),
       // Add any other required fields from MessagesSnapshotEventSchema
@@ -659,7 +660,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Emits a run finished event with the final execution status.
    */
-  private async emitRunFinished({
+  private emitRunFinished({
     scenarioRunId,
     status,
     result,
@@ -669,7 +670,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     result?: ScenarioResult;
   }) {
     const event: ScenarioRunFinishedEvent = {
-      ...await this.makeBaseEvent({ scenarioRunId }),
+      ...this.makeBaseEvent({ scenarioRunId }),
       scenarioSetId: this.config.setId ?? "default",
       type: ScenarioEventType.RUN_FINISHED,
       status: status,

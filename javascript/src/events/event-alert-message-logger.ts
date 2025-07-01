@@ -1,5 +1,4 @@
 import { env } from "../config";
-import { getBatchRunId } from "../utils/ids";
 
 /**
  * Handles console output of alert messages for scenario events.
@@ -9,24 +8,27 @@ import { getBatchRunId } from "../utils/ids";
  */
 export class EventAlertMessageLogger {
   private static shownBatchIds = new Set<string>();
+  private batchRunId: string;
+
+  constructor(batchRunId: string) {
+    this.batchRunId = batchRunId;
+  }
 
   /**
    * Shows a fancy greeting message about simulation reporting status.
    * Only shows once per batch run to avoid spam.
    */
-  async handleGreeting(): Promise<void> {
+  handleGreeting(): void {
     if (this.isGreetingDisabled()) {
       return;
     }
 
-    const batchRunId = await getBatchRunId();
-
-    if (EventAlertMessageLogger.shownBatchIds.has(batchRunId)) {
+    if (EventAlertMessageLogger.shownBatchIds.has(this.batchRunId)) {
       return;
     }
 
-    EventAlertMessageLogger.shownBatchIds.add(batchRunId);
-    this.displayGreeting(batchRunId);
+    EventAlertMessageLogger.shownBatchIds.add(this.batchRunId);
+    this.displayGreeting();
   }
 
   /**
@@ -49,7 +51,7 @@ export class EventAlertMessageLogger {
     return env.SCENARIO_DISABLE_SIMULATION_REPORT_INFO === true;
   }
 
-  private displayGreeting(batchRunId: string): void {
+  private displayGreeting(): void {
     const separator = "─".repeat(60);
 
     if (!env.LANGWATCH_API_KEY) {
@@ -63,7 +65,7 @@ export class EventAlertMessageLogger {
       console.log("   • Set LANGWATCH_API_KEY environment variable");
       console.log("   • Or configure apiKey in scenario.config.js");
       console.log("");
-      console.log(`📦 Batch Run ID: ${batchRunId}`);
+      console.log(`📦 Batch Run ID: ${this.batchRunId}`);
       console.log("");
       console.log("🔇 To disable these messages:");
       console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
@@ -80,7 +82,7 @@ export class EventAlertMessageLogger {
         }`
       );
       console.log("");
-      console.log(`📦 Batch Run ID: ${batchRunId}`);
+      console.log(`📦 Batch Run ID: ${this.batchRunId}`);
       console.log("");
       console.log("🔇 To disable these messages:");
       console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
@@ -88,10 +90,10 @@ export class EventAlertMessageLogger {
     }
   }
 
-  private async displayWatchMessage(params: { setUrl: string }): Promise<void> {
+  private displayWatchMessage(params: { setUrl: string }): void {
     const separator = "─".repeat(60);
     const setUrl = params.setUrl;
-    const batchUrl = `${setUrl}/${await getBatchRunId()}`;
+    const batchUrl = `${setUrl}/${this.batchRunId}`;
 
     console.log(`\n${separator}`);
     console.log("👀 Watch Your Simulation Live");
