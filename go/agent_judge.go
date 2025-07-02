@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/langwatch/scenario/go/internal"
 	"github.com/langwatch/scenario/go/internal/libraries/ptr"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/shared"
 )
 
-const judgePrompt = `
+const (
+	judgePrompt = `
 <role>
 You are an LLM as a judge watching a simulated conversation as it plays out live to determine if the agent under test meets the criteria or not.
 </role>
@@ -36,6 +38,16 @@ If you do have enough information, use the finish_test tool to determine if all 
 </rules>
 `
 
+	lastMessagePrompt = `
+System:
+
+<finish_test>
+This is the last message, conversation has reached the maximum number of turns, give your final verdict,
+if you don't have enough information to make a verdict, say inconclusive with max turns reached.
+</finish_test>
+`
+)
+
 func buildJudgePrompt(criteria []string, description string) string {
 	formattedCriteriaList := ""
 	for i, criterion := range criteria {
@@ -57,15 +69,11 @@ type JudgeAgentConfig struct {
 
 type JudgeAgent struct {
 	cfg JudgeAgentConfig
-	llm openai.Client
 }
 
 func NewJudgeAgent(cfg JudgeAgentConfig) *JudgeAgent {
 	return &JudgeAgent{
 		cfg: cfg,
-
-		// TODO(afr): Handle properly for other llm providers
-		llm: openai.NewClient(openai.DefaultClientOptions()...),
 	}
 }
 
@@ -89,6 +97,10 @@ func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, 
 		input.Messages...,
 	)
 
+	if lastMessage {
+		messages = append(messages, openai.UserMessage(lastMessagePrompt))
+	}
+
 	if enforceJudgement && !hasCriteria {
 		return NewScenarioResultAgentReturn(ScenarioResult{
 			Success:       false,
@@ -99,11 +111,9 @@ func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, 
 		}), nil
 	}
 
-	// Create tools
-
 	params := openai.ChatCompletionNewParams{
 		Messages:    messages,
-		Model:       a.cfg.Model, // TODO(afr): load model id format
+		Model:       a.cfg.Model,
 		Temperature: openai.Opt(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
 		Tools:       createJudgeAgentTools(a.cfg.Criteria),
 	}
@@ -111,18 +121,62 @@ func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, 
 		params.MaxCompletionTokens = openai.Opt(*a.cfg.MaxTokens)
 	}
 
-	completion, err := a.llm.Chat.Completions.New(ctx, params)
+	completion, err := a.cfg.OpenAIClient.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(completion.Choices) == 0 {
-		return nil, errors.New("user simulator agent had no response choices")
+		return nil, errors.New("judge agent had no response choices")
 	}
 
-	return NewMessageAgentReturn(openai.ChatCompletionMessageParamUnion{
-		OfAssistant: ptr.Ptr(completion.Choices[0].Message.ToAssistantMessageParam()),
-	}), nil
+	completionChoice := completion.Choices[0]
+	if len(completionChoice.Message.ToolCalls) == 0 {
+		return nil, errors.New("judge agent response has no tool calls")
+	}
+
+	toolCall := completionChoice.Message.ToolCalls[0]
+	if toolCall.Type != "function" {
+		return nil, errors.New("judge agent response tool call is of an unknown type")
+	}
+
+	switch toolCall.Function.Name {
+	case "continue_test":
+		return NewEmptyAgentReturn(), nil
+
+	case "finish_test":
+		toolArguments, err := internal.ParseJudgeAgentFinishTestToolArguments(toolCall.Function.Arguments)
+		if err != nil {
+			return nil, errors.New("")
+		}
+
+		passedCriteria := []string{}
+		failedCriteria := []string{}
+
+		for key, reasoning := range toolArguments.Criteria {
+			reasoningBool, ok := reasoning.(bool)
+			if !ok {
+				continue
+			}
+
+			if reasoningBool == true {
+				passedCriteria = append(passedCriteria, key)
+			} else {
+				failedCriteria = append(failedCriteria, key)
+			}
+		}
+
+		return NewScenarioResultAgentReturn(ScenarioResult{
+			Success:       toolArguments.Verdict == "success" && len(failedCriteria) == 0,
+			Messages:      messages,
+			Reasoning:     ptr.Ptr(toolArguments.Reasoning),
+			MetCriteria:   passedCriteria,
+			UnmetCriteria: failedCriteria,
+		}), nil
+
+	default:
+		return nil, errors.New("judge agent response tool call is not of a known name")
+	}
 }
 
 func createJudgeAgentTools(criteria []string) []openai.ChatCompletionToolParam {
