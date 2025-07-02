@@ -22,8 +22,11 @@ func Run(ctx context.Context, cfg ScenarioConfig) (*ScenarioResult, error) {
 	if cfg.Description == "" {
 		return nil, ErrScenarioDescriptionRequired
 	}
-	if cfg.MaxTurns != nil && *cfg.MaxTurns < 0 {
+	if cfg.MaxTurns < 0 {
 		return nil, ErrMaxTurnsMustBePositive
+	}
+	if cfg.MaxTurns == 0 {
+		cfg.MaxTurns = 10 // Default
 	}
 	if len(cfg.Agents) == 0 {
 		return nil, ErrNoAgentsSpecified
@@ -38,7 +41,7 @@ func Run(ctx context.Context, cfg ScenarioConfig) (*ScenarioResult, error) {
 
 	if len(cfg.Script) == 0 {
 		cfg.Script = []ScriptStep{
-			Proceed(nil, nil, nil),
+			Proceed(),
 		}
 	}
 
