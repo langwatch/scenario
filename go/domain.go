@@ -13,6 +13,8 @@ type ScriptStep func(
 	state ExecutionState,
 ) (*ScenarioResult, error)
 
+type ProceedCallback func(state ExecutionState) error
+
 type ExecutionState interface {
 	Config() ScenarioConfig
 	Description() string
@@ -46,10 +48,28 @@ type Execution interface {
 	JudgeString(ctx context.Context, content string) (*ScenarioResult, error)
 	JudgeMessage(ctx context.Context, message openai.ChatCompletionMessageParamUnion) (*ScenarioResult, error)
 
-	Proceed(ctx context.Context, turns *int, onTurn any, onStep any) (*ScenarioResult, error)
+	Proceed(ctx context.Context, opts ...ProceedOption) (*ScenarioResult, error)
 
 	Succeed(ctx context.Context, reasoning string) (*ScenarioResult, error)
 	Fail(ctx context.Context, reasoning string) (*ScenarioResult, error)
+}
+
+type ProceedOptions struct {
+	Turns  int
+	OnTurn ProceedCallback
+	OnStep ProceedCallback
+}
+
+type ProceedOption func(*ProceedOptions)
+
+func WithProceedTurns(turns int) ProceedOption {
+	return func(opts *ProceedOptions) { opts.Turns = turns }
+}
+func WithProceedOnTurn(onTurn ProceedCallback) ProceedOption {
+	return func(opts *ProceedOptions) { opts.OnTurn = onTurn }
+}
+func WithProceedOnStep(onStep ProceedCallback) ProceedOption {
+	return func(opts *ProceedOptions) { opts.OnStep = onStep }
 }
 
 type ScenarioResult struct {
