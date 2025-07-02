@@ -42,15 +42,11 @@ type UserSimulatorAgentConfig struct {
 
 type UserSimulatorAgent struct {
 	cfg UserSimulatorAgentConfig
-	llm openai.Client
 }
 
 func NewUserSimulatorAgent(cfg UserSimulatorAgentConfig) *UserSimulatorAgent {
 	return &UserSimulatorAgent{
 		cfg: cfg,
-
-		// TODO(afr): Handle properly for other llm providers
-		llm: openai.NewClient(openai.DefaultClientOptions()...),
 	}
 }
 
@@ -73,14 +69,14 @@ func (a *UserSimulatorAgent) Call(ctx context.Context, input AgentInput) (*Agent
 
 	params := openai.ChatCompletionNewParams{
 		Messages:    messages,
-		Model:       a.cfg.Model, // TODO(afr): load model id format
+		Model:       a.cfg.Model,
 		Temperature: openai.Opt(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
 	}
 	if a.cfg.MaxTokens != nil {
 		params.MaxCompletionTokens = openai.Opt(*a.cfg.MaxTokens)
 	}
 
-	completion, err := a.llm.Chat.Completions.New(ctx, params)
+	completion, err := a.cfg.OpenAIClient.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, err
 	}

@@ -21,8 +21,11 @@ const (
 )
 
 type AgentConfig struct {
-	Name        string
-	Model       string
+	Name string
+
+	Model        string
+	OpenAIClient *openai.Client
+
 	Temperature *float64
 	MaxTokens   *int64
 }
@@ -59,6 +62,9 @@ func NewScenarioResultAgentReturn(r ScenarioResult) *AgentReturn {
 }
 func NewMessagesAgentReturn(msgs []openai.ChatCompletionMessageParamUnion) *AgentReturn {
 	return &AgentReturn{Kind: AgentReturnMessages, MessagesValue: msgs}
+}
+func NewEmptyAgentReturn() *AgentReturn {
+	return &AgentReturn{Kind: AgentReturnMessages, MessagesValue: []openai.ChatCompletionMessageParamUnion{}}
 }
 func NewMessageAgentReturn(msg openai.ChatCompletionMessageParamUnion) *AgentReturn {
 	return &AgentReturn{Kind: AgentReturnMessage, MessageValue: msg}
