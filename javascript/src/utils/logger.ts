@@ -1,4 +1,5 @@
-import { env, LogLevel } from "../config";
+import { env } from "../config/env";
+import { LogLevel } from "../config/log-levels";
 
 /**
  * Simple logger that respects LOG_LEVEL environment variable.
