@@ -1,0 +1,88 @@
+# Testing Tool Calls in Scenarios
+
+Tool calls are a core part of modern agent workflows. This guide covers how to write scenario tests that verify tool usage, how to assert on tool call behavior, and how to mock or script tool call results for robust, deterministic tests.
+
+## Checking for Tool Calls
+
+To verify that your agent makes the correct tool call, use the `state.has_tool_call("tool_name")` API in an assertion function. In this framework, **assertion functions should be placed directly in the `script` list** as steps, after the relevant agent/user turns. This is the idiomatic and supported way to check for tool calls in your scenario tests.
+
+**Example: Check that a weather agent calls the weather API**
+
+:::code-group
+```python [python]
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_weather_agent_tool_call():
+    class WeatherAgent(scenario.AgentAdapter):
+        async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+            # Your agent logic that triggers a tool call
+            return await my_weather_agent.process(input.messages)
+
+    # Define a custom assertion for the tool call
+    def check_for_weather_tool_call(state: scenario.ScenarioState):
+        assert state.has_tool_call("get_current_weather")
+
+    result = await scenario.run(
+        name="weather tool call",
+        description="User asks for the weather in Paris.",
+        agents=[
+            WeatherAgent(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(criteria=[
+                "Agent should call the weather tool with the correct location"
+            ])
+        ],
+        script=[
+            scenario.user(),
+            scenario.agent(),
+            check_for_weather_tool_call, # Assertion function as a script step
+            scenario.succeed(),
+        ],
+    )
+```
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+const weatherAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    return await myWeatherAgent.process(input.messages);
+  },
+};
+
+describe("Weather Agent", () => {
+  it("should call the get_current_weather tool in the scenario", async () => {
+    const result = await scenario.run({
+      name: "checking the weather",
+      description: `
+        The user is planning a boat trip from Barcelona to Rome,
+        and is wondering what the weather will be like.
+      `,
+      agents: [
+        weatherAgent,
+        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+      ],
+      script: [
+        scenario.user(),
+        scenario.agent(),
+        (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
+        scenario.succeed(),
+      ],
+      setId: "javascript-examples",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+:::
+
+## Tips for Tool Call Testing
+
+- **Place assertion functions as steps in the script list** for robust tool call checks.
+- **Assert on tool call arguments** to ensure correct API usage.
+- **Test error handling** by simulating tool failures in the script.
+- **Use JudgeAgent criteria** to enforce tool call expectations in natural language.
