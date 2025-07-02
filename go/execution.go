@@ -108,7 +108,13 @@ func (e *ScenarioExecution) JudgeMessage(ctx context.Context, message openai.Cha
 	return nil, errors.New("execution JudgeMessage not implemented")
 }
 
-func (e *ScenarioExecution) Proceed(ctx context.Context, turns *int, onTurn any, onStep any) (*ScenarioResult, error) {
+func (e *ScenarioExecution) Proceed(ctx context.Context, opts ...ProceedOption) (*ScenarioResult, error) {
+	// Build options from variadic
+	options := &ProceedOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	// Use options.Turns, options.OnTurn, options.OnStep as needed
 	return nil, errors.New("execution Proceed not implemented")
 }
 

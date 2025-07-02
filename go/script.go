@@ -48,10 +48,10 @@ func JudgeMessage(message openai.ChatCompletionMessageParamUnion) ScriptStep {
 	}
 }
 
-// TODO(afr): Move this to an options pattern. `Proceed(WithProceedTurns(n)`, `Proceed(WithProceedOnTurn(func))`, `Proceed(WithProceedOnStep(func))`)
-func Proceed(turns *int, onTurn any, onStep any) ScriptStep {
+// Proceed now uses an options pattern: Proceed(WithProceedTurns(n)), etc.
+func Proceed(opts ...ProceedOption) ScriptStep {
 	return func(ctx context.Context, execution Execution, state ExecutionState) (*ScenarioResult, error) {
-		return execution.Proceed(ctx, turns, onTurn, onStep)
+		return execution.Proceed(ctx, opts...)
 	}
 }
 
