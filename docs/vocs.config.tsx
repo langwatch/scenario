@@ -95,6 +95,10 @@ export default defineConfig({
           link: "/basics/test-runner-integration",
         },
         {
+          text: "Fixtures",
+          link: "/basics/fixtures",
+        },
+        {
           text: "Cache",
           link: "/basics/cache",
         },
