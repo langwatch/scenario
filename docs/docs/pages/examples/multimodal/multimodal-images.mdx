@@ -1,13 +1,8 @@
-import { RefLink } from "../../components/RefLink";
+import { RefLink } from "../../../components/RefLink";
 
-# Multimodal Image Analysis Example [Test an agent that understands both text and images]
+# Multimodal Image Analysis [Use Case]
 
-Agents are increasingly required to reason over **multimodal input**: text, images, audio, video, structured data – sometimes all at once.  
-This example shows how to write a Scenario test where the user provides **text _and_ an image** in the same message and the agent must respond appropriately.
-
-> **See Also:**  
-> – [Scripted Simulations](../basics/scripted-simulations.mdx) – controlling multimodal messages manually  
-> – [Writing Scenarios](../basics/writing-scenarios.mdx) – general scenario structure
+This page shows how to write a Scenario test where the user provides **text _and_ an image** in the same message and the agent must respond appropriately.
 
 ## Overview
 
@@ -17,13 +12,13 @@ The test covers three situations:
 2. User sends **only** an image (agent should produce a useful description without textual hints).
 3. User asks a **complex multi-part** question about the image (agent should address every sub-question).
 
-Success is judged automatically by a <RefLink link={{ typescript: "judge_agent.html#scenario.JudgeAgent" }} code={{ typescript: "Judge Agent" }} /> with explicit criteria.
+Success is judged automatically by a <RefLink link={{ python: "judge_agent.html#scenario.judge_agent.JudgeAgent", typescript: "functions/judgeAgent.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> with explicit criteria.
 
 ## Code Walk-through (TypeScript)
 
 :::code-group
 
-```typescript [typescript title="multimodal-images.test.ts"]
+```typescript [typescript]
 import * as fs from "fs";
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
@@ -85,6 +80,10 @@ await scenario.run({
 });
 ```
 
+```python [python]
+# Coming soon
+```
+
 :::
 
 ### Why Data URLs?
@@ -95,7 +94,7 @@ Scenario expects image content in the OpenAI **image message** format. The simpl
 Keep fixture images **small** (&lt;100&nbsp;KB) to avoid bloated test files and slow CI runs.
 :::
 
-## Judge Criteria Design
+## Best Practices
 
 When creating criteria for multimodal tests:
 
@@ -103,23 +102,13 @@ When creating criteria for multimodal tests:
 - Cover _success_ and _failure_ paths (blurred images, wrong description, ignores image, etc.).
 - Keep the list concise so a judge LLM can reason effectively.
 
-## Common Pitfalls
-
-| Pitfall                                       | How to avoid                                                                        |
-| --------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Agent ignores image and answers only the text | Add a criterion requiring explicit reference to the image.                          |
-| Large fixture images bloat repository         | Use low-resolution WebP or PNG; compress aggressively.                              |
-| Non-deterministic visual description          | Pin the model (`gpt-4o`) **and** enable Scenario's cache for deterministic results. |
-
 ## Next Steps
 
-- Convert the same test to **Python** using `litellm` or any LLM wrapper of your choice.
-- Add more edge-cases: multiple images, unsupported formats, corrupted files.
-- Explore [Visualizations](/visualizations) to inspect multimodal conversations in the UI.
+- Check out [files](./multimodal-files) and [audio](./multimodal-audio) examples.
 
 ---
 
 ### Complete Source
 
-The full test lives in the repository at  
-`javascript/examples/vitest/tests/multimodal-images.test.ts` – open it for additional `it.todo` cases you can implement next.
+Check out the full test in the repository
+[here](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-images.test.ts).

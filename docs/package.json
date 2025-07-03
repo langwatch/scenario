@@ -7,7 +7,7 @@
     "dev": "vocs dev",
     "build": "vocs build",
     "preview": "vocs preview",
-    "build:preview": "vocs build --preview && vocs preview"
+    "build:preview": "pnpm build && vocs preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.10",

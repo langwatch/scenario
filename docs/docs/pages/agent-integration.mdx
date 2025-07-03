@@ -7,8 +7,9 @@ Scenario is designed to be framework-agnostic, supporting any agent architecture
 ## Overview
 
 > **See Also:**
-> - [Configuration](../basics/configuration)
-> - [Test Runner Integration](../basics/test-runner-integration)
+
+- [Configuration](./basics/configuration)
+- [Test Runner Integration](./basics/test-runner-integration)
 
 Scenario works with any agent implementation through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
 interface. This adapter pattern allows you to:
@@ -97,7 +98,9 @@ import type { AgentInput } from "@langwatch/scenario";
 const agent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
-    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content;
+    const lastUserMessage = input.messages
+      .filter((m) => m.role === "user")
+      .at(-1)?.content;
     return `You said: ${lastUserMessage}`;
   },
 };
@@ -119,7 +122,11 @@ AgentReturnTypes = Union[
 ```
 
 ```typescript [typescript]
-import type { AgentReturnTypes, CoreMessage, ScenarioResult } from "@langwatch/scenario";
+import type {
+  AgentReturnTypes,
+  CoreMessage,
+  ScenarioResult,
+} from "@langwatch/scenario";
 
 // AgentReturnTypes can be:
 // - string
@@ -169,7 +176,9 @@ class SimpleAgent(scenario.AgentAdapter):
 const mySimpleAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
-    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content;
+    const lastUserMessage = input.messages
+      .filter((m) => m.role === "user")
+      .at(-1)?.content;
     return `Here's my response to: ${lastUserMessage}`;
   },
 };
@@ -270,7 +279,8 @@ class MultiStepAgent(scenario.AgentAdapter):
 const multiStepAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
-    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content || "";
+    const lastUserMessage =
+      input.messages.filter((m) => m.role === "user").at(-1)?.content || "";
     if (lastUserMessage.toLowerCase().includes("complex task")) {
       return [
         { role: "assistant", content: "I'll help you with that complex task." },
@@ -278,7 +288,10 @@ const multiStepAgent: AgentAdapter = {
         { role: "assistant", content: "Here's your complete solution:" },
       ];
     }
-    return { role: "assistant", content: `Here's a simple response to: ${lastUserMessage}` };
+    return {
+      role: "assistant",
+      content: `Here's a simple response to: ${lastUserMessage}`,
+    };
   },
 };
 ```
