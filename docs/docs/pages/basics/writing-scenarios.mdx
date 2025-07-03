@@ -109,10 +109,7 @@ const result = await scenario.run({
   name: "my first scenario",
   description: "A simple test to see if the agent responds.",
   setId: "my-test-suite", // Group this scenario into a set
-  agents: [
-    myAgent,
-    scenario.userSimulatorAgent(),
-  ],
+  agents: [myAgent, scenario.userSimulatorAgent()],
 });
 ```
 
@@ -120,7 +117,7 @@ const result = await scenario.run({
 
 ## Connect Your Agent
 
-To start testing your agent, you first need to connect it to the scenario, this is done through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface:
+To start testing your agent, you first need to connect it to the scenario, this is done through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface:
 
 :::code-group
 
@@ -146,7 +143,9 @@ const myAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
     // Get the user's message
-    const lastUserMessage = input.messages.filter(m => m.role === "user").at(-1)?.content;
+    const lastUserMessage = input.messages
+      .filter((m) => m.role === "user")
+      .at(-1)?.content;
 
     // Call your existing agent
     const response = await myExistingAgent.process(lastUserMessage);
@@ -250,7 +249,11 @@ describe("Customer Service Billing", () => {
 
     expect(result.success).toBe(true);
     expect(result.messages.length).toBeGreaterThanOrEqual(4); // Should have substantial conversation
-    expect(result.messages.some(m => String(m.content).toLowerCase().includes("account"))).toBe(true); // Should discuss account
+    expect(
+      result.messages.some((m) =>
+        String(m.content).toLowerCase().includes("account")
+      )
+    ).toBe(true); // Should discuss account
   });
 });
 ```

@@ -1,7 +1,7 @@
 import { EmbeddedScript } from "../../components/EmbeddedScript";
 import { RefLink } from "../../components/RefLink";
-import { Callout } from 'vocs/components';
-import { Button } from 'vocs/components';
+import { Callout } from "vocs/components";
+import { Button } from "vocs/components";
 
 # Getting Started - Your First Scenario [A scenario is a test for a situation that your agent must be able to handle]
 
@@ -174,8 +174,12 @@ _See your agent's conversations and decisions come to life:_
 
 ![Simulation Results](/images/simulations/simulation-set-overview.png "Simulation Results - detailed view")
 
-<Button href="https://app.langwatch.ai/@project/simulations">Open the Simulations Visualizer</Button>
-<Button href="../visualizations">Learn more about visualizing simulations</Button>
+<Button href="https://app.langwatch.ai/@project/simulations">
+  Open the Simulations Visualizer
+</Button>
+<Button href="../visualizations">
+  Learn more about visualizing simulations
+</Button>
 
 </Callout>
 
@@ -183,13 +187,16 @@ _See your agent's conversations and decisions come to life:_
 
 You should see output showing the conversation between the simulated user and your agent, followed by the judge's evaluation:
 
-<EmbeddedScript id="asciicast-nvO5GWGzqKTTCd8gtNSezQw11" src="https://asciinema.org/a/nvO5GWGzqKTTCd8gtNSezQw11.js" />
+<EmbeddedScript
+  id="asciicast-nvO5GWGzqKTTCd8gtNSezQw11"
+  src="https://asciinema.org/a/nvO5GWGzqKTTCd8gtNSezQw11.js"
+/>
 
 ## What happened?
 
 In this example:
 
-1. **Agent Integration**: You created an <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> that wraps your agent function (Python) or object (TypeScript)
+1. **Agent Integration**: You created an <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
 2. **Simulation**: The <RefLink link={{ python: "user_simulator_agent.html", typescript: "user_simulator_agent.html" }} code={{ python: "UserSimulatorAgent", typescript: "userSimulatorAgent" }} /> automatically generated realistic user messages based on the scenario description
 3. **Evaluation**: The <RefLink link={{ python: "judge_agent.html", typescript: "judge_agent.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> evaluated the conversation against your criteria
 4. **Caching**: The <RefLink link={{ python: "index.html#scenario.cache" }} code={{ python: "@scenario.cache()" }} /> decorator (Python) made your agent calls deterministic for testing
