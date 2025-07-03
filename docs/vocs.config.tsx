@@ -64,10 +64,12 @@ export default defineConfig({
     },
     {
       text: "Visualization",
-      items: [{
-        text: "Simulations Visualizer",
-        link: "/visualizations",
-      }],
+      items: [
+        {
+          text: "Simulations Visualizer",
+          link: "/visualizations",
+        },
+      ],
     },
     {
       text: "Scenario Basics",
@@ -149,6 +151,15 @@ export default defineConfig({
         {
           text: "The Agent Testing Pyramid",
           link: "/best-practices/the-agent-testing-pyramid",
+        },
+      ],
+    },
+    {
+      text: "Examples",
+      items: [
+        {
+          text: "Multimodal Images",
+          link: "/examples/multimodal-images",
         },
       ],
     },

@@ -1,0 +1,125 @@
+import { RefLink } from "../../components/RefLink";
+
+# Multimodal Image Analysis Example [Test an agent that understands both text and images]
+
+Agents are increasingly required to reason over **multimodal input**: text, images, audio, video, structured data – sometimes all at once.  
+This example shows how to write a Scenario test where the user provides **text _and_ an image** in the same message and the agent must respond appropriately.
+
+> **See Also:**  
+> – [Scripted Simulations](../basics/scripted-simulations.mdx) – controlling multimodal messages manually  
+> – [Writing Scenarios](../basics/writing-scenarios.mdx) – general scenario structure
+
+## Overview
+
+The test covers three situations:
+
+1. User sends text _and_ an image (agent should describe the image and answer the question).
+2. User sends **only** an image (agent should produce a useful description without textual hints).
+3. User asks a **complex multi-part** question about the image (agent should address every sub-question).
+
+Success is judged automatically by a <RefLink link={{ typescript: "judge_agent.html#scenario.JudgeAgent" }} code={{ typescript: "Judge Agent" }} /> with explicit criteria.
+
+## Code Walk-through (TypeScript)
+
+:::code-group
+
+```typescript [typescript title="multimodal-images.test.ts"]
+import * as fs from "fs";
+import * as path from "path";
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { CoreUserMessage, generateText } from "ai";
+
+// 1️⃣ Build an image-capable agent
+const imageAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    const response = await generateText({
+      model: openai("gpt-4o"),
+      messages: [
+        {
+          role: "system",
+          content: `You are a helpful assistant that can describe images.`,
+        },
+        ...input.messages,
+      ],
+    });
+    return response.text;
+  },
+};
+
+// 2️⃣ Utility to embed the fixture image as a data-URL
+function getDataURL(): string {
+  const imagePath = path.join(__dirname, "fixtures", "scenario.webp");
+  const buffer = fs.readFileSync(imagePath);
+  return `data:image/webp;base64,${buffer.toString("base64")}`;
+}
+
+// 3️⃣ Example scenario run
+await scenario.run({
+  name: "multimodal image analysis",
+  description: "User provides an image and expects a description.",
+  agents: [
+    imageAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "Agent acknowledges the image",
+        "Agent answers the user question",
+        "Agent provides a helpful description of the image",
+      ],
+    }),
+  ],
+  script: [
+    // User sends text + image in a single message
+    scenario.message({
+      role: "user",
+      content: [
+        { type: "text", text: "What do you see here?" },
+        { type: "image", image: getDataURL() },
+      ],
+    }),
+    scenario.agent(),
+    scenario.judge(),
+  ],
+});
+```
+
+:::
+
+### Why Data URLs?
+
+Scenario expects image content in the OpenAI **image message** format. The simplest way to keep the test self-contained is to read the fixture file, base-64-encode it, and prefix it with the correct `data:image/<ext>;base64,` header.
+
+:::tip
+Keep fixture images **small** (&lt;100&nbsp;KB) to avoid bloated test files and slow CI runs.
+:::
+
+## Judge Criteria Design
+
+When creating criteria for multimodal tests:
+
+- Be **explicit** about what the agent must mention (e.g. _"recognises the image contains a pyramid"_).
+- Cover _success_ and _failure_ paths (blurred images, wrong description, ignores image, etc.).
+- Keep the list concise so a judge LLM can reason effectively.
+
+## Common Pitfalls
+
+| Pitfall                                       | How to avoid                                                                        |
+| --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Agent ignores image and answers only the text | Add a criterion requiring explicit reference to the image.                          |
+| Large fixture images bloat repository         | Use low-resolution WebP or PNG; compress aggressively.                              |
+| Non-deterministic visual description          | Pin the model (`gpt-4o`) **and** enable Scenario's cache for deterministic results. |
+
+## Next Steps
+
+- Convert the same test to **Python** using `litellm` or any LLM wrapper of your choice.
+- Add more edge-cases: multiple images, unsupported formats, corrupted files.
+- Explore [Visualizations](/visualizations) to inspect multimodal conversations in the UI.
+
+---
+
+### Complete Source
+
+The full test lives in the repository at  
+`javascript/examples/vitest/tests/multimodal-images.test.ts` – open it for additional `it.todo` cases you can implement next.
