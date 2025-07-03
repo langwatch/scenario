@@ -6,7 +6,7 @@ This page shows how to write a Scenario test where the user provides **text _and
 
 ## Overview
 
-The test covers three situations:
+Your scenario tests can cover any image testing situation, for example:
 
 1. User sends text _and_ an image (agent should describe the image and answer the question).
 2. User sends **only** an image (agent should produce a useful description without textual hints).
@@ -14,7 +14,7 @@ The test covers three situations:
 
 Success is judged automatically by a <RefLink link={{ python: "judge_agent.html#scenario.judge_agent.JudgeAgent", typescript: "functions/judgeAgent.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> with explicit criteria.
 
-## Code Walk-through (TypeScript)
+## Code Walk-through
 
 :::code-group
 
@@ -44,16 +44,18 @@ const imageAgent: AgentAdapter = {
 };
 
 // 2️⃣ Utility to embed the fixture image as a data-URL
-function getDataURL(): string {
-  const imagePath = path.join(__dirname, "fixtures", "scenario.webp");
+function getDataURLFromFixture(filename: string, filetype: string): string {
+  const imagePath = path.join(__dirname, "fixtures", filename);
   const buffer = fs.readFileSync(imagePath);
-  return `data:image/webp;base64,${buffer.toString("base64")}`;
+  return `data:${filetype};base64,${buffer.toString("base64")}`;
 }
 
-// 3️⃣ Example scenario run
+// 3️⃣ Test scenarios
+const imageDataURL = getDataURLFromFixture("scenario.webp", "image/webp");
+
+// Scenario 1: Text + Image
 await scenario.run({
-  name: "multimodal image analysis",
-  description: "User provides an image and expects a description.",
+  name: "text and image analysis",
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
@@ -61,17 +63,68 @@ await scenario.run({
       criteria: [
         "Agent acknowledges the image",
         "Agent answers the user question",
-        "Agent provides a helpful description of the image",
       ],
     }),
   ],
   script: [
-    // User sends text + image in a single message
     scenario.message({
       role: "user",
       content: [
         { type: "text", text: "What do you see here?" },
-        { type: "image", image: getDataURL() },
+        { type: "image", image: imageDataURL },
+      ],
+    }),
+    scenario.agent(),
+    scenario.judge(),
+  ],
+});
+
+// Scenario 2: Image only
+await scenario.run({
+  name: "image-only analysis",
+  agents: [
+    imageAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "Agent recognizes the image",
+        "Agent provides meaningful analysis",
+      ],
+    }),
+  ],
+  script: [
+    scenario.message({
+      role: "user",
+      content: [{ type: "image", image: imageDataURL }],
+    }),
+    scenario.agent(),
+    scenario.judge(),
+  ],
+});
+
+// Scenario 3: Complex multi-part question
+await scenario.run({
+  name: "complex image analysis",
+  agents: [
+    imageAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "Agent identifies colors",
+        "Agent recognizes shapes",
+        "Agent addresses all aspects",
+      ],
+    }),
+  ],
+  script: [
+    scenario.message({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Analyze this image and tell me what colors are present, what shapes you see, and what this might represent.",
+        },
+        { type: "image", image: imageDataURL },
       ],
     }),
     scenario.agent(),

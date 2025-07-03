@@ -24,45 +24,117 @@ javascript/examples/vitest/tests/
    └─ scenario.webp
 ```
 
-## Loading a fixture in TypeScript
+## Loading a fixture
 
-```ts
+:::code-group
+
+```typescript [typescript]
 import * as fs from "fs";
 import * as path from "path";
+import { describe, it, expect } from "vitest";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 
-function getImageDataURL(filename: string): string {
+function getDataURLFromFixture(filename: string, filetype: string): string {
   const filePath = path.join(__dirname, "fixtures", filename);
   const buffer = fs.readFileSync(filePath);
-  return `data:image/webp;base64,${buffer.toString("base64")}`;
+  return `data:${filetype};base64,${buffer.toString("base64")}`;
 }
 
-// In your scenario script
-scenario.message({
-  role: "user",
-  content: [
-    { type: "text", text: "What do you see here?" },
-    { type: "image", image: getImageDataURL("scenario.webp") },
-  ],
+// Example agent that can analyze images
+const imageAnalysisAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // This would be your actual agent implementation
+    // For demo purposes, we'll return a simple response
+    return "I can see an image in the conversation. This appears to be a screenshot or diagram.";
+  },
+};
+
+describe("Image Analysis with Fixtures", () => {
+  it("should analyze an image from fixtures", async () => {
+    const result = await scenario.run({
+      name: "image analysis test",
+      description: "Test the agent's ability to analyze images from fixtures",
+      agents: [
+        imageAnalysisAgent,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent should acknowledge the presence of an image",
+            "Agent should provide some analysis or description",
+          ],
+        }),
+      ],
+      script: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What do you see in this image?" },
+            {
+              type: "image",
+              image: getDataURLFromFixture("scenario.webp", "image/webp"),
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
 });
 ```
 
-## Loading a fixture in Python
-
-```python
+```python [python]
+import pytest
+import scenario
 from pathlib import Path
 import base64
 
-def get_image_data_url(filename: str) -> str:
+def get_data_url_from_fixture(filename: str, filetype: str) -> str:
     file_path = Path(__file__).parent / "fixtures" / filename
     encoded = base64.b64encode(file_path.read_bytes()).decode()
-    return f"data:image/webp;base64,{encoded}"
+    return f"data:{filetype};base64,{encoded}"
+
+# Example agent that can analyze images
+class ImageAnalysisAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # This would be your actual agent implementation
+        # For demo purposes, we'll return a simple response
+        return "I can see an image in the conversation. This appears to be a screenshot or diagram."
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_image_analysis_with_fixtures():
+    result = await scenario.run(
+        name="image analysis test",
+        description="Test the agent's ability to analyze images from fixtures",
+        agents=[
+            ImageAnalysisAgent(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(criteria=[
+                "Agent should acknowledge the presence of an image",
+                "Agent should provide some analysis or description",
+            ])
+        ],
+        script=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What do you see in this image?"},
+                    {"type": "image", "image": get_data_url_from_fixture("scenario.webp", "image/webp")},
+                ],
+            },
+        ],
+    )
+
+    assert result.success
 ```
 
-## Best practices
+```go [go]
+// Coming soon...
+```
 
-- **Name clearly**: `rainy_day.png` is better than `image1.png`.
-- **Version if needed**: `dataset_v2.json` keeps history obvious.
-- **Reuse** across tests—don't duplicate the same asset in multiple places.
+:::
 
 ## Examples using fixtures
 
