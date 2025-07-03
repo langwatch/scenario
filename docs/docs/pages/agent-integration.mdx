@@ -11,7 +11,7 @@ Scenario is designed to be framework-agnostic, supporting any agent architecture
 - [Configuration](./basics/configuration)
 - [Test Runner Integration](./basics/test-runner-integration)
 
-Scenario works with any agent implementation through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
+Scenario works with any agent implementation through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
 interface. This adapter pattern allows you to:
 
 - **Integrate existing agents** without modifying their code
@@ -21,8 +21,8 @@ interface. This adapter pattern allows you to:
 
 ## The AgentAdapter Interface
 
-All agents in Scenario implement the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
-interface with an async <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter.call", typescript: "agent_adapter.html#scenario.agent_adapter.AgentAdapter.call" }} code={{ python: "call", typescript: "call" }} />
+All agents in Scenario implement the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
+interface with an async <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter.call", typescript: "classes/AgentAdapter.html#call" }} code={{ python: "call", typescript: "call" }} />
 method, which receives an <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "types.html#scenario.types.AgentInput" }} code={{ python: "AgentInput", typescript: "AgentInput" }} />
 and returns <RefLink link={{ python: "types.html#scenario.types.AgentReturnTypes", typescript: "types.html#scenario.types.AgentReturnTypes" }} code={{ python: "AgentReturnTypes", typescript: "AgentReturnTypes" }} />:
 

@@ -23,7 +23,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { CoreUserMessage, generateText } from "ai";
+import { generateText } from "ai";
 
 // 1️⃣ Build an image-capable agent
 const imageAgent: AgentAdapter = {

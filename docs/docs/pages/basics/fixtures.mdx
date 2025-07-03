@@ -1,0 +1,74 @@
+import { RefLink } from "../../components/RefLink";
+
+# Fixtures [Static test assets for deterministic scenarios]
+
+A _fixture_ is any static asset—image, audio clip, JSON payload—that your scenario test loads at runtime to ensure **repeatable, offline-friendly** execution.
+
+:::tip
+**Why use fixtures?**
+
+- **Determinism**: The exact same bytes are fed to the agent and judge on every run.
+- **Speed & cost**: No network fetches or external dependencies.
+- **Debugging**: Easy to reproduce failures locally.
+  :::
+
+## Where to put fixtures
+
+- Create a `fixtures/` directory **next to your test file**.
+- Commit the asset (e.g. `scenario.webp`) to version control so CI has it.
+- Keep binary files small—**&lt;100&nbsp;KB for images** is a good rule of thumb.
+
+```text
+javascript/examples/vitest/tests/
+└─ fixtures/
+   └─ scenario.webp
+```
+
+## Loading a fixture in TypeScript
+
+```ts
+import * as fs from "fs";
+import * as path from "path";
+
+function getImageDataURL(filename: string): string {
+  const filePath = path.join(__dirname, "fixtures", filename);
+  const buffer = fs.readFileSync(filePath);
+  return `data:image/webp;base64,${buffer.toString("base64")}`;
+}
+
+// In your scenario script
+scenario.message({
+  role: "user",
+  content: [
+    { type: "text", text: "What do you see here?" },
+    { type: "image", image: getImageDataURL("scenario.webp") },
+  ],
+});
+```
+
+## Loading a fixture in Python
+
+```python
+from pathlib import Path
+import base64
+
+def get_image_data_url(filename: str) -> str:
+    file_path = Path(__file__).parent / "fixtures" / filename
+    encoded = base64.b64encode(file_path.read_bytes()).decode()
+    return f"data:image/webp;base64,{encoded}"
+```
+
+## Best practices
+
+- **Name clearly**: `rainy_day.png` is better than `image1.png`.
+- **Version if needed**: `dataset_v2.json` keeps history obvious.
+- **Reuse** across tests—don't duplicate the same asset in multiple places.
+
+## Examples using fixtures
+
+- [Multimodal image analysis example](/examples/multimodal/multimodal-images) – loads a WebP image fixture.
+- [Files & audio multimodal examples](/examples/multimodal) – similar pattern for other media types.
+
+---
+
+Next up: learn how to [cache](./cache) LLM calls for even faster, deterministic runs.
