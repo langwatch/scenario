@@ -6,35 +6,22 @@ Scenario supports seamless integration with popular test runners in both JavaScr
 
 ### Vitest
 
-To get rich scenario reporting, add the custom Scenario Vitest reporter and setup file to your `vitest.config.ts`:
+To get rich scenario reporting, wrap the `vitest.config.ts` with the `withScenario` function:
 
 ```ts
 // vitest.config.ts
 import { defineConfig } from "vitest/config";
-import VitestReporter from '@langwatch/scenario/integrations/vitest/reporter';
+import { withScenario } from '@langwatch/scenario/integrations/vitest/config';
 
-export default defineConfig({
+export default withScenario(defineConfig({
   test: {
     testTimeout: 180_000, // 3 minutes, or however long you want to wait for the scenario to run
-    globalSetup: [
-      '@langwatch/scenario/integrations/vitest/setup-global', // Required
-    ],
-    setupFiles: [
-      'dotenv/config', // Optional, if you want to use dotenv to load env vars
-      '@langwatch/scenario/integrations/vitest/setup', // Required
-    ],
-    reporters: [
-      'default',
-      new VitestReporter(), // Required
-    ],
   },
 });
 
 ```
 
 - **`testTimeout`**: Scenario tests may take longer than typical unit tests, especially if they involve LLM calls. Set a higher timeout as needed.
-- **`setupFiles`**: Enables Scenario's event logging for each test.
-- **Custom Reporter**: Provides detailed scenario test reports in your test output.
 
 ### Jest
 
