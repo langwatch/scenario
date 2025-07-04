@@ -265,7 +265,7 @@ from scenario.events import ScenarioEventBus, EventReporter
 # Integrate with LangWatch
 monitoring_reporter = EventReporter(
     endpoint="https://app.langwatch.ai",
-    api_key="your-datadog-api-key"
+    api_key="your-api-key"
 )
 
 event_bus = ScenarioEventBus(event_reporter=monitoring_reporter)
