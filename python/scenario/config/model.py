@@ -25,7 +25,7 @@ class ModelConfig(BaseModel):
     Example:
         ```
         model_config = ModelConfig(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-4.1",
             api_key="your-api-key",
             temperature=0.1,
             max_tokens=1000

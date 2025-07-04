@@ -1,9 +1,9 @@
 import logging
-import os
 import httpx
 from typing import Optional, Dict, Any
 from .events import ScenarioEvent
 from .event_alert_message_logger import EventAlertMessageLogger
+from scenario.config import LangWatchSettings
 
 
 class EventReporter:
@@ -14,28 +14,28 @@ class EventReporter:
     with proper authentication and error handling.
 
     Args:
-        endpoint (str, optional): The base URL to post events to. Defaults to LANGWATCH_ENDPOINT env var.
-        api_key (str, optional): The API key for authentication. Defaults to LANGWATCH_API_KEY env var.
+        endpoint (str, optional): Override endpoint URL. If not provided, uses LANGWATCH_ENDPOINT env var.
+        api_key (str, optional): Override API key. If not provided, uses LANGWATCH_API_KEY env var.
 
     Example:
-        event = {
-            "type": "SCENARIO_RUN_STARTED",
-            "batch_run_id": "batch-1",
-            "scenario_id": "scenario-1",
-            "scenario_run_id": "run-1",
-            "metadata": {
-                "name": "test",
-                "description": "test scenario"
-            }
-        }
+        # Using environment variables (LANGWATCH_ENDPOINT, LANGWATCH_API_KEY)
+        reporter = EventReporter()
 
-        reporter = EventReporter(endpoint="https://app.langwatch.ai", api_key="test-api-key")
-        result = await reporter.post_event(event)
+        # Override specific values
+        reporter = EventReporter(endpoint="https://custom.langwatch.ai")
+        reporter = EventReporter(api_key="custom-key")
     """
 
     def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None):
-        self.endpoint = endpoint or os.getenv("LANGWATCH_ENDPOINT")
-        self.api_key = api_key or os.getenv("LANGWATCH_API_KEY", "")
+        # Load settings from environment variables
+        langwatch_settings = LangWatchSettings()
+
+        print("LANGWATCH_ENDPOINT", langwatch_settings.endpoint)
+        print("LANGWATCH_API_KEY", langwatch_settings.api_key)
+
+        # Allow constructor parameters to override settings
+        self.endpoint = endpoint or langwatch_settings.endpoint
+        self.api_key = api_key or langwatch_settings.api_key
         self.logger = logging.getLogger(__name__)
         self.event_alert_message_logger = EventAlertMessageLogger()
 
@@ -64,7 +64,7 @@ class EventReporter:
             return result
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
                 response = await client.post(
                     f"{self.endpoint}/api/scenario-events",
                     json=event.to_dict(),

@@ -40,7 +40,7 @@ class ScenarioConfig(BaseModel):
         # Or create a specific config instance
         config = ScenarioConfig(
             default_model=ModelConfig(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-4.1",
                 temperature=0.2
             ),
             max_turns=20
