@@ -1,19 +1,8 @@
-import VitestReporter from "@langwatch/scenario/integrations/vitest/reporter";
+import { withScenario } from "@langwatch/scenario/integrations/vitest/config";
 import { defineConfig } from "vitest/config";
 
-export default defineConfig({
+export default withScenario(defineConfig({
   test: {
-    testTimeout: 180000,
-    setupFiles: [
-      '@langwatch/scenario/integrations/vitest/setup',
-      'dotenv/config',
-    ],
-    globalSetup: [
-      '@langwatch/scenario/integrations/vitest/setup-global',
-    ],
-    reporters: [
-      'default',
-      new VitestReporter(),
-    ],
+    testTimeout: 180_000, // 3 minutes
   },
-});
+}));

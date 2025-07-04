@@ -89,6 +89,11 @@
       "types": "./dist/integrations/vitest/setup-global.d.ts",
       "require": "./dist/integrations/vitest/setup-global.js",
       "import": "./dist/integrations/vitest/setup-global.mjs"
+    },
+    "./integrations/vitest/config": {
+      "types": "./dist/integrations/vitest/config.d.ts",
+      "require": "./dist/integrations/vitest/config.js",
+      "import": "./dist/integrations/vitest/config.mjs"
     }
   },
   "peerDependencies": {
