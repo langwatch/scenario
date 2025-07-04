@@ -29,6 +29,7 @@ import {
   generateScenarioId,
   generateScenarioRunId,
   generateThreadId,
+  getBatchRunId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
 import convertCoreMessagesToAguiMessages from "../utils/message-conversion";
@@ -90,10 +91,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Creates a new ScenarioExecution instance.
    * @param config The scenario configuration.
-   * @param batchRunId The batch run ID.
    * @param script The script steps to execute.
    */
-  constructor(config: ScenarioConfig, batchRunId: string, script: ScriptStep[]) {
+  constructor(config: ScenarioConfig, script: ScriptStep[]) {
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -103,7 +103,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       verbose: config.verbose ?? DEFAULT_VERBOSE,
       maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       threadId: config.threadId ?? generateThreadId(),
-      batchRunId: batchRunId,
       setId: config.setId,
     } satisfies ScenarioConfigFinal;
 
@@ -624,7 +623,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return {
       type: "placeholder", // This will be replaced by the specific event type
       timestamp: Date.now(),
-      batchRunId: this.config.batchRunId,
+      batchRunId: getBatchRunId(),
       scenarioId: this.config.id,
       scenarioRunId,
       scenarioSetId: this.config.setId,

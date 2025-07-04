@@ -79,7 +79,6 @@ export interface ScenarioConfigFinal
   verbose: boolean;
   maxTurns: number;
   threadId: string;
-  batchRunId: string;
 
   /**
    * Optional identifier to group this scenario into a set ("Simulation Set").

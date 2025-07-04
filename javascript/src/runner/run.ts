@@ -17,7 +17,7 @@ import {
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
-import { generateThreadId, getBatchRunId } from "../utils/ids";
+import { generateThreadId } from "../utils/ids";
 
 /**
  * High-level interface for running a scenario test.
@@ -95,9 +95,8 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
     cfg.threadId = generateThreadId();
   }
 
-  const batchRunId = await getBatchRunId();
   const steps = cfg.script || [proceed()];
-  const execution = new ScenarioExecution(cfg, batchRunId, steps);
+  const execution = new ScenarioExecution(cfg, steps);
 
   let eventBus: EventBus | null = null;
   let subscription: Subscription | null = null;
@@ -106,7 +105,7 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
     eventBus = new EventBus({
       endpoint: env.LANGWATCH_ENDPOINT,
       apiKey: env.LANGWATCH_API_KEY,
-    }, batchRunId);
+    });
     eventBus.listen();
 
     subscription = eventBus.subscribeTo(execution.events$);

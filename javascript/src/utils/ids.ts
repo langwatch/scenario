@@ -33,7 +33,7 @@ export function generateScenarioId(): string {
  * It can be set via the `SCENARIO_BATCH_RUN_ID` environment variable.
  * @returns The batch run ID.
  */
-export async function getBatchRunId(): Promise<string> {
+export function getBatchRunId(): string {
   // If the batch run id is already cached, use it
   if (batchRunId) {
     return batchRunId;
@@ -41,23 +41,13 @@ export async function getBatchRunId(): Promise<string> {
 
   // If the batch run id is set in the environment, use it
   if (process.env.SCENARIO_BATCH_RUN_ID) {
+    console.log("process.env.SCENARIO_BATCH_RUN_ID", process.env.SCENARIO_BATCH_RUN_ID);
+
     return (batchRunId = process.env.SCENARIO_BATCH_RUN_ID);
   }
 
-  // If we are running inside a vitest (with global setup), then we can use the inject
-  // function to get the batch run id.
-  if (process.env.VITEST_WORKER_ID || process.env.VITEST_POOL_ID) {
-    try {
-      const { inject } = await import("vitest");
-
-      return (batchRunId = inject('scenarioBatchRunId'));
-    } catch {
-      // Ignore
-    }
-  }
-
-  // If we are running inside a vitest (without global setup) or jest test runner, and no batch run id is set,
-  // generate a new one using the parent process id.
+  // If we are running inside a vitest (without global setup) or jest test runner, and
+  // no batch run id is set, generate a new one using the parent process id.
   if (process.env.VITEST_WORKER_ID || process.env.JEST_WORKER_ID) {
     const parentProcessId = process.ppid;
     const now = new Date();
@@ -81,7 +71,9 @@ export async function getBatchRunId(): Promise<string> {
 function getISOWeekNumber(date: Date): number {
   const tmp = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const dayNum = tmp.getUTCDay() || 7;
+
   tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+
   const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 

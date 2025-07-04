@@ -1,4 +1,5 @@
 import { env } from "../config";
+import { getBatchRunId } from "../utils/ids";
 
 /**
  * Handles console output of alert messages for scenario events.
@@ -8,11 +9,6 @@ import { env } from "../config";
  */
 export class EventAlertMessageLogger {
   private static shownBatchIds = new Set<string>();
-  private batchRunId: string;
-
-  constructor(batchRunId: string) {
-    this.batchRunId = batchRunId;
-  }
 
   /**
    * Shows a fancy greeting message about simulation reporting status.
@@ -23,11 +19,11 @@ export class EventAlertMessageLogger {
       return;
     }
 
-    if (EventAlertMessageLogger.shownBatchIds.has(this.batchRunId)) {
+    if (EventAlertMessageLogger.shownBatchIds.has(getBatchRunId())) {
       return;
     }
 
-    EventAlertMessageLogger.shownBatchIds.add(this.batchRunId);
+    EventAlertMessageLogger.shownBatchIds.add(getBatchRunId());
     this.displayGreeting();
   }
 
@@ -65,7 +61,7 @@ export class EventAlertMessageLogger {
       console.log("   • Set LANGWATCH_API_KEY environment variable");
       console.log("   • Or configure apiKey in scenario.config.js");
       console.log("");
-      console.log(`📦 Batch Run ID: ${this.batchRunId}`);
+      console.log(`📦 Batch Run ID: ${getBatchRunId()}`);
       console.log("");
       console.log("🔇 To disable these messages:");
       console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
@@ -82,7 +78,7 @@ export class EventAlertMessageLogger {
         }`
       );
       console.log("");
-      console.log(`📦 Batch Run ID: ${this.batchRunId}`);
+      console.log(`📦 Batch Run ID: ${getBatchRunId()}`);
       console.log("");
       console.log("🔇 To disable these messages:");
       console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
@@ -93,7 +89,7 @@ export class EventAlertMessageLogger {
   private displayWatchMessage(params: { setUrl: string }): void {
     const separator = "─".repeat(60);
     const setUrl = params.setUrl;
-    const batchUrl = `${setUrl}/${this.batchRunId}`;
+    const batchUrl = `${setUrl}/${getBatchRunId()}`;
 
     console.log(`\n${separator}`);
     console.log("👀 Watch Your Simulation Live");

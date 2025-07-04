@@ -15,10 +15,10 @@ export class EventReporter {
   private readonly logger = new Logger("scenario.events.EventReporter");
   private readonly isEnabled: boolean;
 
-  constructor(config: { endpoint: string; apiKey: string | undefined }, batchRunId: string) {
+  constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.apiKey = config.apiKey ?? "";
     this.eventsEndpoint = new URL("/api/scenario-events", config.endpoint);
-    this.eventAlertMessageLogger = new EventAlertMessageLogger(batchRunId);
+    this.eventAlertMessageLogger = new EventAlertMessageLogger();
     this.eventAlertMessageLogger.handleGreeting();
     this.isEnabled =
       this.apiKey.length > 0 && this.eventsEndpoint.href.length > 0;
