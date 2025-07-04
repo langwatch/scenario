@@ -1,6 +1,5 @@
 import { Image } from "../components/Image";
 import { BlockLink } from "../components/BlockLink";
-import { HStack } from "../components/HStack";
 import { Link } from "../components/Link";
 
 # What is Scenario? [Scenario is an Agent Testing Framework based on simulations]
@@ -37,7 +36,7 @@ Scenario is a must-have tool for agent development, it allows you to change your
 If you are new to Scenario, you can start by writing your [first scenario](./introduction/getting-started), then
 learn how to [integrate your agent](./agent-integration) and dive deeper into the [core concepts](./basics/concepts).
 
-<HStack className="gap-4">
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
   <BlockLink
     icon="theater"
     title="Getting Started"
@@ -56,7 +55,7 @@ learn how to [integrate your agent](./agent-integration) and dive deeper into th
     description="Learn the core concepts and capabilities"
     href="/basics/concepts"
   />
-</HStack>
+</div>
 
 ## Why Scenario?
 
@@ -72,7 +71,7 @@ Read more about the reasoning behind Scenario in [Simulation-Based Testing](./in
 
 ## Dive deeper
 
-<HStack className="gap-4">
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
   <BlockLink
     icon="notebook-pen"
     title="Writing Scenarios"
@@ -103,4 +102,4 @@ Read more about the reasoning behind Scenario in [Simulation-Based Testing](./in
     description="Integrate with Vitest and Jest"
     href="/basics/test-runner-integration"
   />
-</HStack>
+</div>
