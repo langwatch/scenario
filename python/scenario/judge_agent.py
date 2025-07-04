@@ -41,6 +41,7 @@ class JudgeAgent(AgentAdapter):
     Attributes:
         role: Always AgentRole.JUDGE for judge agents
         model: LLM model identifier to use for evaluation
+        api_base: Optional base URL where the model is hosted
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for evaluation consistency
         max_tokens: Maximum tokens for judge reasoning
@@ -97,6 +98,7 @@ class JudgeAgent(AgentAdapter):
     role = AgentRole.JUDGE
 
     model: str
+    api_base: Optional[str]
     api_key: Optional[str]
     temperature: float
     max_tokens: Optional[int]
@@ -108,6 +110,7 @@ class JudgeAgent(AgentAdapter):
         *,
         criteria: Optional[List[str]] = None,
         model: Optional[str] = None,
+        api_base: Optional[str] = None,
         api_key: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
@@ -122,6 +125,8 @@ class JudgeAgent(AgentAdapter):
                      and negative constraints ("Agent should not provide personal information").
             model: LLM model identifier (e.g., "openai/gpt-4.1").
                    If not provided, uses the default model from global configuration.
+            api_base: Optional base URL where the model is hosted. If not provided,
+                      uses the base URL from global configuration.
             api_key: API key for the model provider. If not provided,
                      uses the key from global configuration or environment.
             temperature: Sampling temperature for evaluation (0.0-1.0).
@@ -156,6 +161,7 @@ class JudgeAgent(AgentAdapter):
         """
         # Override the default system prompt for the judge agent
         self.criteria = criteria or []
+        self.api_base = api_base
         self.api_key = api_key
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -172,6 +178,9 @@ class JudgeAgent(AgentAdapter):
             ScenarioConfig.default_config.default_model, ModelConfig
         ):
             self.model = model or ScenarioConfig.default_config.default_model.model
+            self.api_base = (
+                api_base or ScenarioConfig.default_config.default_model.api_base
+            )
             self.api_key = (
                 api_key or ScenarioConfig.default_config.default_model.api_key
             )
@@ -351,6 +360,8 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
                 max_tokens=self.max_tokens,
                 tools=tools,
                 tool_choice=(
