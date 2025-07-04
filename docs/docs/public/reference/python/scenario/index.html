@@ -369,7 +369,7 @@ __version__ = &#34;0.1.0&#34;</code></pre>
 <dd>
 <div class="desc"><p>Agent adapter module for integrating custom agents with the Scenario framework …</p></div>
 </dd>
-<dt><code class="name"><a title="scenario.config" href="config.html">scenario.config</a></code></dt>
+<dt><code class="name"><a title="scenario.config" href="config/index.html">scenario.config</a></code></dt>
 <dd>
 <div class="desc"><p>Configuration module for Scenario …</p></div>
 </dd>
@@ -675,7 +675,7 @@ to all scenarios unless explicitly overridden in individual scenario runs.</p>
 
 # Set up default configuration
 scenario.configure(
-    default_model=&quot;openai/gpt-4.1&quot;,
+    default_model=&quot;openai/gpt-4.1-mini&quot;,
     max_turns=15,
     verbose=True,
     debug=False
@@ -2900,7 +2900,7 @@ and judge agents, execution limits, and debugging options.</p>
 <h2 id="example">Example</h2>
 <pre><code># Configure globally for all scenarios
 scenario.configure(
-    default_model=&quot;openai/gpt-4.1&quot;,
+    default_model=&quot;openai/gpt-4.1-mini&quot;,
     max_turns=15,
     verbose=True,
     cache_key=&quot;my-test-suite-v1&quot;,
@@ -2943,7 +2943,7 @@ validated to form a valid model.</p>
         ```
         # Configure globally for all scenarios
         scenario.configure(
-            default_model=&#34;openai/gpt-4.1&#34;,
+            default_model=&#34;openai/gpt-4.1-mini&#34;,
             max_turns=15,
             verbose=True,
             cache_key=&#34;my-test-suite-v1&#34;,
@@ -2997,7 +2997,7 @@ validated to form a valid model.</p>
 
             # Set up default configuration
             scenario.configure(
-                default_model=&#34;openai/gpt-4.1&#34;,
+                default_model=&#34;openai/gpt-4.1-mini&#34;,
                 max_turns=15,
                 verbose=True,
                 debug=False
@@ -3082,11 +3082,11 @@ validated to form a valid model.</p>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="scenario.ScenarioConfig.default_config"><code class="name">var <span class="ident">default_config</span> : ClassVar[<a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a> | None]</code></dt>
+<dt id="scenario.ScenarioConfig.default_config"><code class="name">var <span class="ident">default_config</span> : ClassVar[<a title="scenario.config.scenario.ScenarioConfig" href="config/scenario.html#scenario.config.scenario.ScenarioConfig">ScenarioConfig</a> | None]</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="scenario.ScenarioConfig.default_model"><code class="name">var <span class="ident">default_model</span> : str | <a title="scenario.config.ModelConfig" href="config.html#scenario.config.ModelConfig">ModelConfig</a> | None</code></dt>
+<dt id="scenario.ScenarioConfig.default_model"><code class="name">var <span class="ident">default_model</span> : str | <a title="scenario.config.model.ModelConfig" href="config/model.html#scenario.config.model.ModelConfig">ModelConfig</a> | None</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -3130,7 +3130,7 @@ to all scenarios unless explicitly overridden in individual scenario runs.</p>
 
 # Set up default configuration
 scenario.configure(
-    default_model=&quot;openai/gpt-4.1&quot;,
+    default_model=&quot;openai/gpt-4.1-mini&quot;,
     max_turns=15,
     verbose=True,
     debug=False
@@ -3181,7 +3181,7 @@ items = config.items()
 </details>
 </dd>
 <dt id="scenario.ScenarioConfig.merge"><code class="name flex">
-<span>def <span class="ident">merge</span></span>(<span>self, other: <a title="scenario.ScenarioConfig" href="#scenario.ScenarioConfig">ScenarioConfig</a>) ‑> <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></span>
+<span>def <span class="ident">merge</span></span>(<span>self, other: <a title="scenario.ScenarioConfig" href="#scenario.ScenarioConfig">ScenarioConfig</a>) ‑> <a title="scenario.config.scenario.ScenarioConfig" href="config/scenario.html#scenario.config.scenario.ScenarioConfig">ScenarioConfig</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Merge this configuration with another configuration.</p>
@@ -3640,7 +3640,7 @@ validated to form a valid model.</p>
 </ul>
 <h3>Class variables</h3>
 <dl>
-<dt id="scenario.ScenarioState.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.ScenarioConfig" href="config.html#scenario.config.ScenarioConfig">ScenarioConfig</a></code></dt>
+<dt id="scenario.ScenarioState.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.scenario.ScenarioConfig" href="config/scenario.html#scenario.config.scenario.ScenarioConfig">ScenarioConfig</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -4454,7 +4454,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><h3><a href="#header-submodules">Sub-modules</a></h3>
 <ul>
 <li><code><a title="scenario.agent_adapter" href="agent_adapter.html">scenario.agent_adapter</a></code></li>
-<li><code><a title="scenario.config" href="config.html">scenario.config</a></code></li>
+<li><code><a title="scenario.config" href="config/index.html">scenario.config</a></code></li>
 <li><code><a title="scenario.judge_agent" href="judge_agent.html">scenario.judge_agent</a></code></li>
 <li><code><a title="scenario.pytest_plugin" href="pytest_plugin.html">scenario.pytest_plugin</a></code></li>
 <li><code><a title="scenario.scenario_executor" href="scenario_executor.html">scenario.scenario_executor</a></code></li>
