@@ -44,7 +44,7 @@ result = await scenario.run(
     # Define the agents that will play this simulation
     agents=[
         WeatherAgent(),
-        scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
+        scenario.UserSimulatorAgent(model="openai/gpt-4.1"),
     ],
 
     # (Optional) Control the simulation
@@ -115,7 +115,7 @@ import pytest
 import scenario
 import litellm
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-4.1")
 
 
 @pytest.mark.agent_test
@@ -159,7 +159,7 @@ import litellm
 @scenario.cache()
 def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
     response = litellm.completion(
-        model="openai/gpt-4.1-mini",
+        model="openai/gpt-4.1",
         messages=[
             {
                 "role": "system",
@@ -194,7 +194,7 @@ describe("Vegetarian Recipe Agent", () => {
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
-        model: openai("gpt-4.1-mini"),
+        model: openai("gpt-4.1"),
         messages: [
           {
             role: "system",
@@ -215,7 +215,7 @@ describe("Vegetarian Recipe Agent", () => {
         agent,
         scenario.userSimulatorAgent(),
         scenario.judgeAgent({
-          model: openai("gpt-4.1-mini"),
+          model: openai("gpt-4.1"),
           criteria: [
             "Agent should not ask more than two follow-up questions",
             "Agent should generate a recipe",
@@ -375,7 +375,7 @@ You can enable debug mode by setting the `debug` field to `True` in the `Scenari
 Debug mode allows you to see the messages in slow motion step by step, and intervene with your own inputs to debug your agent from the middle of the conversation.
 
 ```python
-scenario.configure(default_model="openai/gpt-4.1-mini", debug=True)
+scenario.configure(default_model="openai/gpt-4.1", debug=True)
 ```
 
 or
@@ -389,7 +389,7 @@ pytest -s tests/test_vegetarian_recipe_agent.py --debug
 Each time the scenario runs, the testing agent might chose a different input to start, this is good to make sure it covers the variance of real users as well, however we understand that the non-deterministic nature of it might make it less repeatable, costly and harder to debug. To solve for it, you can use the `cache_key` field in the `Scenario.configure` method or in the specific scenario you are running, this will make the testing agent give the same input for given the same scenario:
 
 ```python
-scenario.configure(default_model="openai/gpt-4.1-mini", cache_key="42")
+scenario.configure(default_model="openai/gpt-4.1", cache_key="42")
 ```
 
 To bust the cache, you can simply pass a different `cache_key`, disable it, or delete the cache files located at `~/.scenario/cache`.

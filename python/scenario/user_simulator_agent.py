@@ -48,12 +48,12 @@ class UserSimulatorAgent(AgentAdapter):
 
         # Basic user simulator with default behavior
         user_sim = scenario.UserSimulatorAgent(
-            model="openai/gpt-4.1-mini"
+            model="openai/gpt-4.1"
         )
 
         # Customized user simulator
         custom_user_sim = scenario.UserSimulatorAgent(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-4.1",
             temperature=0.3,
             system_prompt="You are a technical user who asks detailed questions"
         )
@@ -97,7 +97,7 @@ class UserSimulatorAgent(AgentAdapter):
         Initialize a user simulator agent.
 
         Args:
-            model: LLM model identifier (e.g., "openai/gpt-4.1-mini").
+            model: LLM model identifier (e.g., "openai/gpt-4.1").
                    If not provided, uses the default model from global configuration.
             api_key: API key for the model provider. If not provided,
                      uses the key from global configuration or environment.
@@ -114,11 +114,11 @@ class UserSimulatorAgent(AgentAdapter):
         Example:
             ```
             # Basic user simulator
-            user_sim = UserSimulatorAgent(model="openai/gpt-4.1-mini")
+            user_sim = UserSimulatorAgent(model="openai/gpt-4.1")
 
             # User simulator with custom persona
             expert_user = UserSimulatorAgent(
-                model="openai/gpt-4.1-mini",
+                model="openai/gpt-4.1",
                 temperature=0.2,
                 system_prompt='''
                 You are an expert software developer testing an AI coding assistant.

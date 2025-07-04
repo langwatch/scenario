@@ -62,7 +62,7 @@ class JudgeAgent(AgentAdapter):
 
         # Customized judge with specific model and behavior
         strict_judge = scenario.JudgeAgent(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-4.1",
             criteria=[
                 "Code examples are syntactically correct",
                 "Explanations are technically accurate",
@@ -120,7 +120,7 @@ class JudgeAgent(AgentAdapter):
             criteria: List of success criteria to evaluate the conversation against.
                      Can include both positive requirements ("Agent provides helpful responses")
                      and negative constraints ("Agent should not provide personal information").
-            model: LLM model identifier (e.g., "openai/gpt-4.1-mini").
+            model: LLM model identifier (e.g., "openai/gpt-4.1").
                    If not provided, uses the default model from global configuration.
             api_key: API key for the model provider. If not provided,
                      uses the key from global configuration or environment.

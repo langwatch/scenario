@@ -24,7 +24,7 @@
 * endpoint typo fixes ([#41](https://github.com/langwatch/scenario/issues/41)) ([71a9369](https://github.com/langwatch/scenario/commit/71a93691cbe9244b339e9bd481eeea9412bcf8ad))
 * fix commitizen version ([bd71534](https://github.com/langwatch/scenario/commit/bd71534ee228644bf79ea1efb366f5515c1ae03b))
 * fix having backslash on f-string which doesn't compile sometimes ([3d6bad7](https://github.com/langwatch/scenario/commit/3d6bad7595407725d330cc7cfe2e8ee50d112851))
-* little nudge for gpt-4.1-mini stop following up as the assistant ([ee035c0](https://github.com/langwatch/scenario/commit/ee035c0399a38cd7150168048db352f39ea0b61b))
+* little nudge for gpt-4.1 stop following up as the assistant ([ee035c0](https://github.com/langwatch/scenario/commit/ee035c0399a38cd7150168048db352f39ea0b61b))
 * message snapshot run id ([#14](https://github.com/langwatch/scenario/issues/14)) ([d01b4c8](https://github.com/langwatch/scenario/commit/d01b4c84e2a001e61169442558efa3d3d63e0bff))
 * pdocs reference generation ([#25](https://github.com/langwatch/scenario/issues/25)) ([546acd7](https://github.com/langwatch/scenario/commit/546acd73d143e968ffbd3247f03627cc68077892))
 * tool call messages ([#20](https://github.com/langwatch/scenario/issues/20)) ([a1417b8](https://github.com/langwatch/scenario/commit/a1417b85c00670e71ad89e201bb96c0416d7b762))

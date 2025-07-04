@@ -36,7 +36,7 @@ import scenario
 import litellm
 
 # Configure the default model for simulations
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-4.1")
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
@@ -73,7 +73,7 @@ async def test_vegetarian_recipe_agent():
 @scenario.cache()
 def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
     response = litellm.completion(
-        model="openai/gpt-4.1-mini",
+        model="openai/gpt-4.1",
         messages=[
             {
                 "role": "system",
@@ -101,7 +101,7 @@ const vegetarianRecipeAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-4.1"),
       messages: [
         { role: "system", content: "You are a vegetarian recipe agent." },
         ...input.messages,

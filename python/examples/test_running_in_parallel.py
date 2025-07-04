@@ -17,14 +17,14 @@ load_dotenv()
 
 import scenario
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-4.1")
 
 
 class VegetarianRecipeAgentAdapter(AgentAdapter):
     @scenario.cache()
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         response = litellm.completion(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-4.1",
             messages=[
                 {
                     "role": "system",

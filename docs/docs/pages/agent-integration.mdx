@@ -213,7 +213,7 @@ const openAIAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   async call(input) {
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-4.1"),
       messages: input.messages,
     });
     return response.text;
@@ -346,7 +346,7 @@ const toolAgent: AgentAdapter = {
   async call(input) {
     // Use generateText with tools
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-4.1"),
       messages: input.messages,
       tools: { get_current_weather: getCurrentWeather },
       toolChoice: "auto",

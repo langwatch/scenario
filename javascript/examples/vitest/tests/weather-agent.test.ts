@@ -23,7 +23,7 @@ const weatherAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-4.1"),
       messages: [
         {
           role: "system",
@@ -72,7 +72,7 @@ describe("Weather Agent", () => {
       `,
       agents: [
         weatherAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
       ],
       script: [
         scenario.user(),

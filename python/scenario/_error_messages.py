@@ -8,12 +8,12 @@ def agent_not_configured_error_message(class_name: str):
 
  {termcolor.colored("->", "cyan")} {class_name} was initialized without a model, please set the model when defining the testing agent, for example:
 
-    {class_name}(model="openai/gpt-4.1-mini")
+    {class_name}(model="openai/gpt-4.1")
     {termcolor.colored("^" * (29 + len(class_name)), "green")}
 
  {termcolor.colored("->", "cyan")} Alternatively, you can set the default model globally, for example:
 
-    scenario.configure(default_model="openai/gpt-4.1-mini")
+    scenario.configure(default_model="openai/gpt-4.1")
     {termcolor.colored("^" * 55, "green")}
 """
 

@@ -15,7 +15,7 @@ import openai
 class OpenAIAgentAdapter(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         response = openai.chat.completions.create(
-            model="gpt-4.1-mini",
+            model="gpt-4.1",
             messages=[
                 {
                     "role": "system",

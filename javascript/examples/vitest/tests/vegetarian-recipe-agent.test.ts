@@ -8,7 +8,7 @@ describe("Vegetarian Recipe Agent", () => {
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
-        model: openai("gpt-4.1-mini"),
+        model: openai("gpt-4.1"),
         messages: [
           {
             role: "system",
@@ -33,7 +33,7 @@ describe("Vegetarian Recipe Agent", () => {
         agent,
         scenario.userSimulatorAgent(),
         scenario.judgeAgent({
-          model: openai("gpt-4.1-mini"),
+          model: openai("gpt-4.1"),
           criteria: [
             "Agent should not ask more than two follow-up questions",
             "Agent should generate a recipe",

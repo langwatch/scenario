@@ -146,7 +146,7 @@ class ModelConfig(BaseModel):
     for use with user simulator and judge agents in the Scenario framework.
 
     Attributes:
-        model: The model identifier (e.g., &#34;openai/gpt-4.1-mini&#34;, &#34;anthropic/claude-3-sonnet&#34;)
+        model: The model identifier (e.g., &#34;openai/gpt-4.1&#34;, &#34;anthropic/claude-3-sonnet&#34;)
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for response generation (0.0 = deterministic, 1.0 = creative)
         max_tokens: Maximum number of tokens to generate in responses
@@ -154,7 +154,7 @@ class ModelConfig(BaseModel):
     Example:
         ```
         model_config = ModelConfig(
-            model=&#34;openai/gpt-4.1-mini&#34;,
+            model=&#34;openai/gpt-4.1&#34;,
             api_key=&#34;your-api-key&#34;,
             temperature=0.1,
             max_tokens=1000
@@ -187,7 +187,7 @@ class ScenarioConfig(BaseModel):
         ```
         # Configure globally for all scenarios
         scenario.configure(
-            default_model=&#34;openai/gpt-4.1-mini&#34;,
+            default_model=&#34;openai/gpt-4.1&#34;,
             max_turns=15,
             verbose=True,
             cache_key=&#34;my-test-suite-v1&#34;,
@@ -197,7 +197,7 @@ class ScenarioConfig(BaseModel):
         # Or create a specific config instance
         config = ScenarioConfig(
             default_model=ModelConfig(
-                model=&#34;openai/gpt-4.1-mini&#34;,
+                model=&#34;openai/gpt-4.1&#34;,
                 temperature=0.2
             ),
             max_turns=20
@@ -241,7 +241,7 @@ class ScenarioConfig(BaseModel):
 
             # Set up default configuration
             scenario.configure(
-                default_model=&#34;openai/gpt-4.1-mini&#34;,
+                default_model=&#34;openai/gpt-4.1&#34;,
                 max_turns=15,
                 verbose=True,
                 debug=False
@@ -333,7 +333,7 @@ for use with user simulator and judge agents in the Scenario framework.</p>
 <h2 id="attributes">Attributes</h2>
 <dl>
 <dt><strong><code>model</code></strong></dt>
-<dd>The model identifier (e.g., "openai/gpt-4.1-mini", "anthropic/claude-3-sonnet")</dd>
+<dd>The model identifier (e.g., "openai/gpt-4.1", "anthropic/claude-3-sonnet")</dd>
 <dt><strong><code>api_key</code></strong></dt>
 <dd>Optional API key for the model provider</dd>
 <dt><strong><code>temperature</code></strong></dt>
@@ -343,7 +343,7 @@ for use with user simulator and judge agents in the Scenario framework.</p>
 </dl>
 <h2 id="example">Example</h2>
 <pre><code>model_config = ModelConfig(
-    model=&quot;openai/gpt-4.1-mini&quot;,
+    model=&quot;openai/gpt-4.1&quot;,
     api_key=&quot;your-api-key&quot;,
     temperature=0.1,
     max_tokens=1000
@@ -365,7 +365,7 @@ validated to form a valid model.</p>
     for use with user simulator and judge agents in the Scenario framework.
 
     Attributes:
-        model: The model identifier (e.g., &#34;openai/gpt-4.1-mini&#34;, &#34;anthropic/claude-3-sonnet&#34;)
+        model: The model identifier (e.g., &#34;openai/gpt-4.1&#34;, &#34;anthropic/claude-3-sonnet&#34;)
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for response generation (0.0 = deterministic, 1.0 = creative)
         max_tokens: Maximum number of tokens to generate in responses
@@ -373,7 +373,7 @@ validated to form a valid model.</p>
     Example:
         ```
         model_config = ModelConfig(
-            model=&#34;openai/gpt-4.1-mini&#34;,
+            model=&#34;openai/gpt-4.1&#34;,
             api_key=&#34;your-api-key&#34;,
             temperature=0.1,
             max_tokens=1000
@@ -439,7 +439,7 @@ and judge agents, execution limits, and debugging options.</p>
 <h2 id="example">Example</h2>
 <pre><code># Configure globally for all scenarios
 scenario.configure(
-    default_model=&quot;openai/gpt-4.1-mini&quot;,
+    default_model=&quot;openai/gpt-4.1&quot;,
     max_turns=15,
     verbose=True,
     cache_key=&quot;my-test-suite-v1&quot;,
@@ -449,7 +449,7 @@ scenario.configure(
 # Or create a specific config instance
 config = ScenarioConfig(
     default_model=ModelConfig(
-        model=&quot;openai/gpt-4.1-mini&quot;,
+        model=&quot;openai/gpt-4.1&quot;,
         temperature=0.2
     ),
     max_turns=20
@@ -482,7 +482,7 @@ validated to form a valid model.</p>
         ```
         # Configure globally for all scenarios
         scenario.configure(
-            default_model=&#34;openai/gpt-4.1-mini&#34;,
+            default_model=&#34;openai/gpt-4.1&#34;,
             max_turns=15,
             verbose=True,
             cache_key=&#34;my-test-suite-v1&#34;,
@@ -492,7 +492,7 @@ validated to form a valid model.</p>
         # Or create a specific config instance
         config = ScenarioConfig(
             default_model=ModelConfig(
-                model=&#34;openai/gpt-4.1-mini&#34;,
+                model=&#34;openai/gpt-4.1&#34;,
                 temperature=0.2
             ),
             max_turns=20
@@ -536,7 +536,7 @@ validated to form a valid model.</p>
 
             # Set up default configuration
             scenario.configure(
-                default_model=&#34;openai/gpt-4.1-mini&#34;,
+                default_model=&#34;openai/gpt-4.1&#34;,
                 max_turns=15,
                 verbose=True,
                 debug=False
@@ -669,7 +669,7 @@ to all scenarios unless explicitly overridden in individual scenario runs.</p>
 
 # Set up default configuration
 scenario.configure(
-    default_model=&quot;openai/gpt-4.1-mini&quot;,
+    default_model=&quot;openai/gpt-4.1&quot;,
     max_turns=15,
     verbose=True,
     debug=False
