@@ -22,16 +22,13 @@ class EventReporter:
         reporter = EventReporter()
 
         # Override specific values
-        reporter = EventReporter(endpoint="https://custom.langwatch.ai")
-        reporter = EventReporter(api_key="custom-key")
+        reporter = EventReporter(endpoint="https://langwatch.yourdomain.com")
+        reporter = EventReporter(api_key="your-api-key")
     """
 
     def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None):
         # Load settings from environment variables
         langwatch_settings = LangWatchSettings()
-
-        print("LANGWATCH_ENDPOINT", langwatch_settings.endpoint)
-        print("LANGWATCH_API_KEY", langwatch_settings.api_key)
 
         # Allow constructor parameters to override settings
         self.endpoint = endpoint or langwatch_settings.endpoint

@@ -37,7 +37,7 @@ class LangWatchSettings(BaseSettings):
         # Or override programmatically
         settings = LangWatchSettings(
             endpoint="https://custom.langwatch.ai",
-            api_key="custom-key"
+            api_key="your-api-key"
         )
         ```
     """
