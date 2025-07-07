@@ -34,22 +34,33 @@ Then, wrap your agent for Scenario:
 ```typescript
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { customerSupportAgent } from "./customer-support-agent";
+import { createState, Message } from "@inngest/agent-kit";
 
-const agent: AgentAdapter = {
-  role: AgentRole.AGENT,
-  call: async (input) => {
-    // Convert Scenario messages to a prompt for AgentKit
-    const prompt = input.messages
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n");
+const createAgent = (): AgentAdapter => {
+  const agentState = createState();
 
-    const result = await customerSupportAgent.run(prompt);
-    const lastMessage = result.output.at(-1);
+  return {
+    role: AgentRole.AGENT,
+    call: async (input) => {
+      const latestMessage = input.messages.at(-1)?.content || "";
+      const messageContent = typeof latestMessage === "string" ? latestMessage : JSON.stringify(latestMessage);
 
-    return lastMessage?.type === "text"
-      ? lastMessage.content.toString()
-      : JSON.stringify(lastMessage);
-  },
+      let lastMessage: Message | undefined;
+      while (!lastMessage || lastMessage?.type === "tool_call") {
+        const result = await customerSupportAgent.run(messageContent, {
+          state: agentState,
+        });
+        agentState.appendResult(result);
+        lastMessage = result.output.at(-1);
+      }
+  
+      if (lastMessage?.type === "text") {
+        return lastMessage.content as string;
+      }
+      
+      return JSON.stringify(lastMessage);
+    },
+  };
 };
 ```
 
