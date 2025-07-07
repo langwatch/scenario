@@ -21,10 +21,16 @@ interface. This adapter pattern allows you to:
 
 ## The AgentAdapter Interface
 
-All agents in Scenario implement the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
-interface with an async <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter.call", typescript: "classes/AgentAdapter.html#call" }} code={{ python: "call", typescript: "call" }} />
-method, which receives an <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "interfaces/AgentInput.html" }} code={{ python: "AgentInput", typescript: "AgentInput" }} />
-and returns <RefLink link={{ python: "types.html#scenario.types.AgentReturnTypes", typescript: "types/AgentReturnTypes.html" }} code={{ python: "AgentReturnTypes", typescript: "AgentReturnTypes" }} />:
+The <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> is a simple contract that allows Scenario to work with any agent implementation.
+You only need to provide:
+
+- `role`: The agent’s role in the scenario (`AGENT`, `USER` or `JUDGE`)
+- `call`: An async function that receives the full conversation history and returns the agent’s next response
+
+You can wrap any agent (OpenAI, AgentKit, Mastra, custom, etc.) as an AgentAdapter by implementing this interface. The AgentAdaptor receives an <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "interfaces/AgentInput.html" }} code={{ python: "AgentInput", typescript: "AgentInput" }} /> and returns <RefLink link={{ python: "types.html#scenario.types.AgentReturnTypes", typescript: "types/AgentReturnTypes.html" }} code={{ python: "AgentReturnTypes", typescript: "AgentReturnTypes" }} />.
+
+When writing a Scenario test, you pass your agents as AgentAdapter objects. Scenario will call your agent’s call function whenever it’s their turn in the conversation, passing in the latest state and message history.
+
 
 :::code-group
 
