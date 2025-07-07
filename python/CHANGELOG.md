@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.7](https://github.com/langwatch/scenario/compare/python/v0.7.6...python/v0.7.7) (2025-07-07)
+
+
+### Features
+
+* better reporting python ([#44](https://github.com/langwatch/scenario/issues/44)) ([e41413b](https://github.com/langwatch/scenario/commit/e41413b5407d5e48e70825de4c38dbfb2600ef70))
+
+
+### Bug Fixes
+
+* get reporter to work and with default ([#96](https://github.com/langwatch/scenario/issues/96)) ([4109a51](https://github.com/langwatch/scenario/commit/4109a51ef9b4b578f4a63cce19959645d6887f94))
+
 ## [0.7.6](https://github.com/langwatch/scenario/compare/python/v0.7.5...python/v0.7.6) (2025-06-26)
 
 
