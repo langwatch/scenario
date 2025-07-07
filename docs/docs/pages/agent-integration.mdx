@@ -24,7 +24,7 @@ interface. This adapter pattern allows you to:
 The <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> is a simple contract that allows Scenario to work with any agent implementation.
 You only need to provide:
 
-- `role`: The agent’s role in the scenario (`AGENT`, `USER` or `JUDGE`)
+- `role`: The agent’s role in the scenario (default to `AGENT`)
 - `call`: An async function that receives the full conversation history and returns the agent’s next response
 
 You can wrap any agent (OpenAI, AgentKit, Mastra, custom, etc.) as an AgentAdapter by implementing this interface. The AgentAdaptor receives an <RefLink link={{ python: "types.html#scenario.types.AgentInput", typescript: "interfaces/AgentInput.html" }} code={{ python: "AgentInput", typescript: "AgentInput" }} /> and returns <RefLink link={{ python: "types.html#scenario.types.AgentReturnTypes", typescript: "types/AgentReturnTypes.html" }} code={{ python: "AgentReturnTypes", typescript: "AgentReturnTypes" }} />.
