@@ -147,6 +147,10 @@ export default defineConfig({
           text: "Pydantic AI",
           link: "/agent-integration/pydantic-ai",
         },
+        {
+          text: "AgentKit",
+          link: "/agent-integration/agentkit",
+        },
       ],
     },
     {

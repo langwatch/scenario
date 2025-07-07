@@ -1,0 +1,64 @@
+import { RefLink } from "../../components/RefLink";
+
+# AgentKit Integration [Learn how to integrate AgentKit agents with the Scenario testing framework]
+
+AgentKit makes it easy to build LLM-powered agents and connect them to Scenario using the <RefLink link={{typescript: "classes/AgentAdapter.html" }} code={{ typescript: "AgentAdapter" }} /> interface.
+
+## Basic Integration Pattern
+
+First, create your agent using AgentKit:
+
+```typescript
+import { createAgent, createTool, openai } from "@inngest/agent-kit";
+
+// Define a simple tool
+const getCompanyPolicy = createTool({
+  name: "get-company-policy",
+  description: "Get the company policy document",
+  parameters: {},
+  handler: async () => ({ policy: "Company policy goes here." }),
+});
+
+// Create your agent
+export const customerSupportAgent = createAgent({
+  name: "Customer Support Agent",
+  description: "Helps customers with their questions.",
+  system: "You are a helpful customer support agent.",
+  model: openai({ model: "gpt-4o-mini", apiKey: process.env.OPENAI_API_KEY }),
+  tools: [getCompanyPolicy],
+});
+```
+
+Then, wrap your agent for Scenario:
+
+```typescript
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { customerSupportAgent } from "./customer-support-agent";
+
+const agent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Convert Scenario messages to a prompt for AgentKit
+    const prompt = input.messages
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n");
+
+    const result = await customerSupportAgent.run(prompt);
+    const lastMessage = result.output.at(-1);
+
+    return lastMessage?.type === "text"
+      ? lastMessage.content.toString()
+      : JSON.stringify(lastMessage);
+  },
+};
+```
+
+## Full Example Project
+
+For a complete working example with a customer support agent, including tools, system prompts, and comprehensive tests, check out the [create-agent-app project](https://github.com/langwatch/create-agent-app/blob/main/inngest_agent_kit_example/agents/customer-support-agent.test.ts).
+
+## Next Steps
+
+- Explore [Scenario Basics](/basics/concepts) for advanced testing patterns
+- Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
+- Check out more [Agent Integration patterns](/agent-integration) for other frameworks
