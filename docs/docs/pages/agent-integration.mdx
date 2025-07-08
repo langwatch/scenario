@@ -31,8 +31,9 @@ You can wrap any agent (OpenAI, AgentKit, Mastra, custom, etc.) as an AgentAdapt
 
 When writing a Scenario test, you pass your agents as AgentAdapter objects. Scenario will call your agent’s call function whenever it’s their turn in the conversation, passing in the latest state and message history.
 
-> ⚠️ **Important:**  
-> To support message mocking in your tests, your agent's `call` function must receive the full chat history via `input.messages`. If you omit this, Scenario will not be able to determine which messages belong to the agent, and mocking will fail.
+:::tip
+To support message mocking in your tests, your agent's `call` function must receive the full chat history via `input.messages`. If you omit this, Scenario will not be able to determine which messages belong to the agent, and mocking will fail.
+:::
 
 :::code-group
 
