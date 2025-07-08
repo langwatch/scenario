@@ -309,15 +309,15 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.config.LangWatchSettings.api_key"><code class="name">var <span class="ident">api_key</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.LangWatchSettings.endpoint"><code class="name">var <span class="ident">endpoint</span> : pydantic.networks.HttpUrl</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.LangWatchSettings.model_config"><code class="name">var <span class="ident">model_config</span> : ClassVar[pydantic_settings.main.SettingsConfigDict]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 </dd>
@@ -332,7 +332,9 @@ for use with user simulator and judge agents in the Scenario framework.</p>
 <h2 id="attributes">Attributes</h2>
 <dl>
 <dt><strong><code>model</code></strong></dt>
-<dd>The model identifier (e.g., "openai/gpt-4.1-mini", "anthropic/claude-3-sonnet")</dd>
+<dd>The model identifier (e.g., "openai/gpt-4.1", "anthropic/claude-3-sonnet")</dd>
+<dt><strong><code>api_base</code></strong></dt>
+<dd>Optional base URL where the model is hosted</dd>
 <dt><strong><code>api_key</code></strong></dt>
 <dd>Optional API key for the model provider</dd>
 <dt><strong><code>temperature</code></strong></dt>
@@ -343,6 +345,7 @@ for use with user simulator and judge agents in the Scenario framework.</p>
 <h2 id="example">Example</h2>
 <pre><code>model_config = ModelConfig(
     model=&quot;openai/gpt-4.1&quot;,
+    api_base=&quot;https://api.openai.com/v1&quot;,
     api_key=&quot;your-api-key&quot;,
     temperature=0.1,
     max_tokens=1000
@@ -364,7 +367,8 @@ validated to form a valid model.</p>
     for use with user simulator and judge agents in the Scenario framework.
 
     Attributes:
-        model: The model identifier (e.g., &#34;openai/gpt-4.1-mini&#34;, &#34;anthropic/claude-3-sonnet&#34;)
+        model: The model identifier (e.g., &#34;openai/gpt-4.1&#34;, &#34;anthropic/claude-3-sonnet&#34;)
+        api_base: Optional base URL where the model is hosted
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for response generation (0.0 = deterministic, 1.0 = creative)
         max_tokens: Maximum number of tokens to generate in responses
@@ -373,6 +377,7 @@ validated to form a valid model.</p>
         ```
         model_config = ModelConfig(
             model=&#34;openai/gpt-4.1&#34;,
+            api_base=&#34;https://api.openai.com/v1&#34;,
             api_key=&#34;your-api-key&#34;,
             temperature=0.1,
             max_tokens=1000
@@ -381,6 +386,7 @@ validated to form a valid model.</p>
     &#34;&#34;&#34;
 
     model: str
+    api_base: Optional[str] = None
     api_key: Optional[str] = None
     temperature: float = 0.0
     max_tokens: Optional[int] = None</code></pre>
@@ -391,25 +397,29 @@ validated to form a valid model.</p>
 </ul>
 <h3>Class variables</h3>
 <dl>
+<dt id="scenario.config.ModelConfig.api_base"><code class="name">var <span class="ident">api_base</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
 <dt id="scenario.config.ModelConfig.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ModelConfig.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ModelConfig.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ModelConfig.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ModelConfig.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 </dd>
@@ -614,31 +624,31 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.config.ScenarioConfig.cache_key"><code class="name">var <span class="ident">cache_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ScenarioConfig.debug"><code class="name">var <span class="ident">debug</span> : bool | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ScenarioConfig.default_config"><code class="name">var <span class="ident">default_config</span> : ClassVar[<a title="scenario.config.scenario.ScenarioConfig" href="scenario.html#scenario.config.scenario.ScenarioConfig">ScenarioConfig</a> | None]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ScenarioConfig.default_model"><code class="name">var <span class="ident">default_model</span> : str | <a title="scenario.config.model.ModelConfig" href="model.html#scenario.config.model.ModelConfig">ModelConfig</a> | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ScenarioConfig.max_turns"><code class="name">var <span class="ident">max_turns</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ScenarioConfig.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.config.ScenarioConfig.verbose"><code class="name">var <span class="ident">verbose</span> : bool | int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Static methods</h3>
@@ -809,7 +819,8 @@ merged = base_config.merge(override_config)
 </li>
 <li>
 <h4><code><a title="scenario.config.ModelConfig" href="#scenario.config.ModelConfig">ModelConfig</a></code></h4>
-<ul class="">
+<ul class="two-column">
+<li><code><a title="scenario.config.ModelConfig.api_base" href="#scenario.config.ModelConfig.api_base">api_base</a></code></li>
 <li><code><a title="scenario.config.ModelConfig.api_key" href="#scenario.config.ModelConfig.api_key">api_key</a></code></li>
 <li><code><a title="scenario.config.ModelConfig.max_tokens" href="#scenario.config.ModelConfig.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.config.ModelConfig.model" href="#scenario.config.ModelConfig.model">model</a></code></li>

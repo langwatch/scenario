@@ -1619,7 +1619,7 @@ result = await scenario.run(
 <dl>
 <dt id="scenario.AgentAdapter.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -1868,27 +1868,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.AgentInput.judgment_request"><code class="name">var <span class="ident">judgment_request</span> : bool</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.new_messages"><code class="name">var <span class="ident">new_messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.scenario_state"><code class="name">var <span class="ident">scenario_state</span> : Any</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentInput.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -2036,21 +2036,21 @@ different types of agents.</p>
 <dl>
 <dt id="scenario.AgentRole.AGENT"><code class="name">var <span class="ident">AGENT</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentRole.JUDGE"><code class="name">var <span class="ident">JUDGE</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.AgentRole.USER"><code class="name">var <span class="ident">USER</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 </dd>
 <dt id="scenario.JudgeAgent"><code class="flex name class">
 <span>class <span class="ident">JudgeAgent</span></span>
-<span>(</span><span>*, criteria: List[str] | None = None, model: str | None = None, api_key: str | None = None, temperature: float = 0.0, max_tokens: int | None = None, system_prompt: str | None = None)</span>
+<span>(</span><span>*, criteria: List[str] | None = None, model: str | None = None, api_base: str | None = None, api_key: str | None = None, temperature: float = 0.0, max_tokens: int | None = None, system_prompt: str | None = None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Agent that evaluates conversations against success criteria.</p>
@@ -2066,6 +2066,8 @@ and provides comprehensive feedback about what worked and what didn't.</p>
 <dd>Always AgentRole.JUDGE for judge agents</dd>
 <dt><strong><code>model</code></strong></dt>
 <dd>LLM model identifier to use for evaluation</dd>
+<dt><strong><code>api_base</code></strong></dt>
+<dd>Optional base URL where the model is hosted</dd>
 <dt><strong><code>api_key</code></strong></dt>
 <dd>Optional API key for the model provider</dd>
 <dt><strong><code>temperature</code></strong></dt>
@@ -2132,6 +2134,9 @@ and negative constraints ("Agent should not provide personal information").</dd>
 <dt><strong><code>model</code></strong></dt>
 <dd>LLM model identifier (e.g., "openai/gpt-4.1").
 If not provided, uses the default model from global configuration.</dd>
+<dt><strong><code>api_base</code></strong></dt>
+<dd>Optional base URL where the model is hosted. If not provided,
+uses the base URL from global configuration.</dd>
 <dt><strong><code>api_key</code></strong></dt>
 <dd>API key for the model provider. If not provided,
 uses the key from global configuration or environment.</dd>
@@ -2187,6 +2192,7 @@ tech_judge = JudgeAgent(
     Attributes:
         role: Always AgentRole.JUDGE for judge agents
         model: LLM model identifier to use for evaluation
+        api_base: Optional base URL where the model is hosted
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for evaluation consistency
         max_tokens: Maximum tokens for judge reasoning
@@ -2243,6 +2249,7 @@ tech_judge = JudgeAgent(
     role = AgentRole.JUDGE
 
     model: str
+    api_base: Optional[str]
     api_key: Optional[str]
     temperature: float
     max_tokens: Optional[int]
@@ -2254,6 +2261,7 @@ tech_judge = JudgeAgent(
         *,
         criteria: Optional[List[str]] = None,
         model: Optional[str] = None,
+        api_base: Optional[str] = None,
         api_key: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
@@ -2268,6 +2276,8 @@ tech_judge = JudgeAgent(
                      and negative constraints (&#34;Agent should not provide personal information&#34;).
             model: LLM model identifier (e.g., &#34;openai/gpt-4.1&#34;).
                    If not provided, uses the default model from global configuration.
+            api_base: Optional base URL where the model is hosted. If not provided,
+                      uses the base URL from global configuration.
             api_key: API key for the model provider. If not provided,
                      uses the key from global configuration or environment.
             temperature: Sampling temperature for evaluation (0.0-1.0).
@@ -2302,6 +2312,7 @@ tech_judge = JudgeAgent(
         &#34;&#34;&#34;
         # Override the default system prompt for the judge agent
         self.criteria = criteria or []
+        self.api_base = api_base
         self.api_key = api_key
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -2318,6 +2329,9 @@ tech_judge = JudgeAgent(
             ScenarioConfig.default_config.default_model, ModelConfig
         ):
             self.model = model or ScenarioConfig.default_config.default_model.model
+            self.api_base = (
+                api_base or ScenarioConfig.default_config.default_model.api_base
+            )
             self.api_key = (
                 api_key or ScenarioConfig.default_config.default_model.api_key
             )
@@ -2497,6 +2511,8 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
                 max_tokens=self.max_tokens,
                 tools=tools,
                 tool_choice=(
@@ -2571,33 +2587,33 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
 </ul>
 <h3>Class variables</h3>
 <dl>
+<dt id="scenario.JudgeAgent.api_base"><code class="name">var <span class="ident">api_base</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
 <dt id="scenario.JudgeAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.criteria"><code class="name">var <span class="ident">criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
-</dd>
-<dt id="scenario.JudgeAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
-<dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.JudgeAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -2805,6 +2821,8 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
                 max_tokens=self.max_tokens,
                 tools=tools,
                 tool_choice=(
@@ -2874,6 +2892,14 @@ if you don&#39;t have enough information to make a verdict, say inconclusive wit
 </details>
 </dd>
 </dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
+<ul class="hlist">
+<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
+</ul>
+</li>
+</ul>
 </dd>
 <dt id="scenario.ScenarioConfig"><code class="flex name class">
 <span>class <span class="ident">ScenarioConfig</span></span>
@@ -3076,31 +3102,31 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioConfig.cache_key"><code class="name">var <span class="ident">cache_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.debug"><code class="name">var <span class="ident">debug</span> : bool | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.default_config"><code class="name">var <span class="ident">default_config</span> : ClassVar[<a title="scenario.config.scenario.ScenarioConfig" href="config/scenario.html#scenario.config.scenario.ScenarioConfig">ScenarioConfig</a> | None]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.default_model"><code class="name">var <span class="ident">default_model</span> : str | <a title="scenario.config.model.ModelConfig" href="config/model.html#scenario.config.model.ModelConfig">ModelConfig</a> | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.max_turns"><code class="name">var <span class="ident">max_turns</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioConfig.verbose"><code class="name">var <span class="ident">verbose</span> : bool | int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Static methods</h3>
@@ -3356,35 +3382,35 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioResult.agent_time"><code class="name">var <span class="ident">agent_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.failed_criteria"><code class="name">var <span class="ident">failed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.passed_criteria"><code class="name">var <span class="ident">passed_criteria</span> : List[str]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.reasoning"><code class="name">var <span class="ident">reasoning</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.success"><code class="name">var <span class="ident">success</span> : bool</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioResult.total_time"><code class="name">var <span class="ident">total_time</span> : float | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 </dd>
@@ -3642,27 +3668,27 @@ validated to form a valid model.</p>
 <dl>
 <dt id="scenario.ScenarioState.config"><code class="name">var <span class="ident">config</span> : <a title="scenario.config.scenario.ScenarioConfig" href="config/scenario.html#scenario.config.scenario.ScenarioConfig">ScenarioConfig</a></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.current_turn"><code class="name">var <span class="ident">current_turn</span> : int</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.description"><code class="name">var <span class="ident">description</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.model_config"><code class="name">var <span class="ident">model_config</span></code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.ScenarioState.thread_id"><code class="name">var <span class="ident">thread_id</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -3963,7 +3989,7 @@ the last time the specified tool was called by an assistant.</p>
 </dd>
 <dt id="scenario.UserSimulatorAgent"><code class="flex name class">
 <span>class <span class="ident">UserSimulatorAgent</span></span>
-<span>(</span><span>*, model: str | None = None, api_key: str | None = None, temperature: float = 0.0, max_tokens: int | None = None, system_prompt: str | None = None)</span>
+<span>(</span><span>*, model: str | None = None, api_base: str | None = None, api_key: str | None = None, temperature: float = 0.0, max_tokens: int | None = None, system_prompt: str | None = None)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Agent that simulates realistic user behavior in scenario conversations.</p>
@@ -3977,6 +4003,8 @@ drive the conversation forward according to the scenario description.</p>
 <dd>Always AgentRole.USER for user simulator agents</dd>
 <dt><strong><code>model</code></strong></dt>
 <dd>LLM model identifier to use for generating user messages</dd>
+<dt><strong><code>api_base</code></strong></dt>
+<dd>Optional base URL where the model is hosted</dd>
 <dt><strong><code>api_key</code></strong></dt>
 <dd>Optional API key for the model provider</dd>
 <dt><strong><code>temperature</code></strong></dt>
@@ -4025,6 +4053,9 @@ result = await scenario.run(
 <dt><strong><code>model</code></strong></dt>
 <dd>LLM model identifier (e.g., "openai/gpt-4.1").
 If not provided, uses the default model from global configuration.</dd>
+<dt><strong><code>api_base</code></strong></dt>
+<dd>Optional base URL where the model is hosted. If not provided,
+uses the base URL from global configuration.</dd>
 <dt><strong><code>api_key</code></strong></dt>
 <dd>API key for the model provider. If not provided,
 uses the key from global configuration or environment.</dd>
@@ -4073,6 +4104,7 @@ expert_user = UserSimulatorAgent(
     Attributes:
         role: Always AgentRole.USER for user simulator agents
         model: LLM model identifier to use for generating user messages
+        api_base: Optional base URL where the model is hosted
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for response generation
         max_tokens: Maximum tokens to generate in user messages
@@ -4112,9 +4144,11 @@ expert_user = UserSimulatorAgent(
         - Messages are generated in a casual, human-like style (lowercase, brief, etc.)
         - The simulator will not act as an assistant - it only generates user inputs
     &#34;&#34;&#34;
+
     role = AgentRole.USER
 
     model: str
+    api_base: Optional[str]
     api_key: Optional[str]
     temperature: float
     max_tokens: Optional[int]
@@ -4124,6 +4158,7 @@ expert_user = UserSimulatorAgent(
         self,
         *,
         model: Optional[str] = None,
+        api_base: Optional[str] = None,
         api_key: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
@@ -4135,6 +4170,8 @@ expert_user = UserSimulatorAgent(
         Args:
             model: LLM model identifier (e.g., &#34;openai/gpt-4.1&#34;).
                    If not provided, uses the default model from global configuration.
+            api_base: Optional base URL where the model is hosted. If not provided,
+                      uses the base URL from global configuration.
             api_key: API key for the model provider. If not provided,
                      uses the key from global configuration or environment.
             temperature: Sampling temperature for message generation (0.0-1.0).
@@ -4164,6 +4201,7 @@ expert_user = UserSimulatorAgent(
             ```
         &#34;&#34;&#34;
         # Override the default system prompt for the user simulator agent
+        self.api_base = api_base
         self.api_key = api_key
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -4180,6 +4218,9 @@ expert_user = UserSimulatorAgent(
             ScenarioConfig.default_config.default_model, ModelConfig
         ):
             self.model = model or ScenarioConfig.default_config.default_model.model
+            self.api_base = (
+                api_base or ScenarioConfig.default_config.default_model.api_base
+            )
             self.api_key = (
                 api_key or ScenarioConfig.default_config.default_model.api_key
             )
@@ -4258,6 +4299,8 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
                 max_tokens=self.max_tokens,
                 tools=[],
             ),
@@ -4284,29 +4327,29 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 </ul>
 <h3>Class variables</h3>
 <dl>
+<dt id="scenario.UserSimulatorAgent.api_base"><code class="name">var <span class="ident">api_base</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
 <dt id="scenario.UserSimulatorAgent.api_key"><code class="name">var <span class="ident">api_key</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.max_tokens"><code class="name">var <span class="ident">max_tokens</span> : int | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
 <dd>
-<div class="desc"></div>
-</dd>
-<dt id="scenario.UserSimulatorAgent.role"><code class="name">var <span class="ident">role</span> : ClassVar[<a title="scenario.types.AgentRole" href="types.html#scenario.types.AgentRole">AgentRole</a>]</code></dt>
-<dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.system_prompt"><code class="name">var <span class="ident">system_prompt</span> : str | None</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 <dt id="scenario.UserSimulatorAgent.temperature"><code class="name">var <span class="ident">temperature</span> : float</code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
 </dl>
 <h3>Methods</h3>
@@ -4405,6 +4448,8 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
                 max_tokens=self.max_tokens,
                 tools=[],
             ),
@@ -4426,6 +4471,14 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 </details>
 </dd>
 </dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="scenario.agent_adapter.AgentAdapter" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter">AgentAdapter</a></b></code>:
+<ul class="hlist">
+<li><code><a title="scenario.agent_adapter.AgentAdapter.role" href="agent_adapter.html#scenario.agent_adapter.AgentAdapter.role">role</a></code></li>
+</ul>
+</li>
+</ul>
 </dd>
 </dl>
 </section>
@@ -4497,12 +4550,12 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li>
 <h4><code><a title="scenario.JudgeAgent" href="#scenario.JudgeAgent">JudgeAgent</a></code></h4>
 <ul class="two-column">
+<li><code><a title="scenario.JudgeAgent.api_base" href="#scenario.JudgeAgent.api_base">api_base</a></code></li>
 <li><code><a title="scenario.JudgeAgent.api_key" href="#scenario.JudgeAgent.api_key">api_key</a></code></li>
 <li><code><a title="scenario.JudgeAgent.call" href="#scenario.JudgeAgent.call">call</a></code></li>
 <li><code><a title="scenario.JudgeAgent.criteria" href="#scenario.JudgeAgent.criteria">criteria</a></code></li>
 <li><code><a title="scenario.JudgeAgent.max_tokens" href="#scenario.JudgeAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.JudgeAgent.model" href="#scenario.JudgeAgent.model">model</a></code></li>
-<li><code><a title="scenario.JudgeAgent.role" href="#scenario.JudgeAgent.role">role</a></code></li>
 <li><code><a title="scenario.JudgeAgent.system_prompt" href="#scenario.JudgeAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.JudgeAgent.temperature" href="#scenario.JudgeAgent.temperature">temperature</a></code></li>
 </ul>
@@ -4555,11 +4608,11 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li>
 <h4><code><a title="scenario.UserSimulatorAgent" href="#scenario.UserSimulatorAgent">UserSimulatorAgent</a></code></h4>
 <ul class="two-column">
+<li><code><a title="scenario.UserSimulatorAgent.api_base" href="#scenario.UserSimulatorAgent.api_base">api_base</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.api_key" href="#scenario.UserSimulatorAgent.api_key">api_key</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.call" href="#scenario.UserSimulatorAgent.call">call</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.max_tokens" href="#scenario.UserSimulatorAgent.max_tokens">max_tokens</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.model" href="#scenario.UserSimulatorAgent.model">model</a></code></li>
-<li><code><a title="scenario.UserSimulatorAgent.role" href="#scenario.UserSimulatorAgent.role">role</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.system_prompt" href="#scenario.UserSimulatorAgent.system_prompt">system_prompt</a></code></li>
 <li><code><a title="scenario.UserSimulatorAgent.temperature" href="#scenario.UserSimulatorAgent.temperature">temperature</a></code></li>
 </ul>
