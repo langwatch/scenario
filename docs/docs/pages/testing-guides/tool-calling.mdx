@@ -70,19 +70,151 @@ describe("Weather Agent", () => {
         scenario.agent(),
         (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.succeed(),
-      ],
-      setId: "javascript-examples",
+      ], 
     });
     expect(result.success).toBe(true);
   });
 });
 ```
-
 :::
 
-## Tips for Tool Call Testing
+## Asserting Tool Call Arguments
 
-- **Place assertion functions as steps in the script list** for robust tool call checks.
-- **Assert on tool call arguments** to ensure correct API usage.
-- **Test error handling** by simulating tool failures in the script.
-- **Use JudgeAgent criteria** to enforce tool call expectations in natural language.
+Sometimes you need to check not just that a tool was called, but that it was called with the correct arguments.
+
+:::code-group
+```python [python]
+def check_tool_call_args(state):
+    tool_calls = state.latest_agent_message().tool_calls
+    assert tool_calls, "No tool calls found"
+    assert tool_calls[0].function.name == "get_current_weather"
+    assert "Paris" in tool_calls[0].function.arguments
+
+result = await scenario.run(
+    ...,
+    script=[
+        scenario.user("What's the weather in Paris?"),
+        scenario.agent(),
+        check_tool_call_args,
+        scenario.succeed(),
+    ],
+)
+```
+
+```typescript [typescript]
+const response = await scenario.run({
+  ...
+  script: [
+    scenario.user("What's the weather in Paris?"),
+    scenario.agent(),
+    (state) => {
+      const toolCalls = state.latestAgentMessage().toolCalls;
+      expect(toolCalls).toBeDefined();
+      expect(toolCalls[0].toolName).toBe("get_current_weather");
+      expect(toolCalls[0].args.location).toBe("Paris");
+    },
+    scenario.succeed(),
+  ],
+});
+```
+:::
+
+## Evaluating Tool Calls with JudgeAgent Criteria
+
+For more nuanced or subjective tool call evaluation, use JudgeAgent with natural language criteria.
+
+:::code-group
+```python [python]
+result = await scenario.run(
+    ...,
+    agents=[
+        WeatherAgent(),
+        scenario.UserSimulatorAgent(),
+        scenario.JudgeAgent(criteria=[
+            "The agent should call the get_current_weather tool with the correct location (Rome) and use the result to answer the user's question."
+        ])
+    ],
+    script=[
+        scenario.user("Should I bring an umbrella to Rome?"),
+        scenario.agent(),
+        scenario.judge(),
+    ],
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  ...
+  agents: [
+    weatherAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: [
+        "The agent should call the get_current_weather tool with the correct location (Rome) and use the result to answer the user's question."
+      ],
+    })
+  ],
+  script: [
+    scenario.user("Should I bring an umbrella to Rome?"),
+    scenario.agent(),
+    scenario.judge(), // JudgeAgent will evaluate based on criteria
+    scenario.succeed(),
+  ],
+});
+```
+:::
+
+## Mocking or Scripting Tool Call Results
+
+To make your tests deterministic and avoid backend setup, inject a tool response directly using `scenario.message()`.
+
+:::code-group
+```python [python]
+result = await scenario.run(
+  ...,
+  script=[
+    scenario.user("What's the weather in Paris?"),
+    scenario.agent(),  # Agent calls the tool
+    scenario.message({
+        "role": "tool",
+        "tool_call_id": "call_123",
+        "content": '{"temperature": "75°F", "condition": "sunny"}'
+    }),
+    scenario.agent(),  # Agent processes the tool result
+    scenario.succeed(),
+  ],
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  ...,
+  script: [
+    scenario.user("What's the weather in Paris?"),
+    scenario.agent(), // Agent calls the tool
+    scenario.message({
+      role: "tool",
+      toolCallId: "call_123",
+      content: [{
+        type: "tool-result",
+        toolName: "get_current_weather",
+        toolCallId: "call_123",
+        result: "The weather in Paris is sunny and 75°F."
+      }],
+    }),
+    scenario.agent(), // Agent processes the tool result
+    scenario.succeed(),
+  ],
+});
+```
+:::
+
+## Best Practices for Tool Call Testing
+
+Designing robust scenario tests for tool-using agents requires more than just checking if a tool was called. The following best practices help ensure your tests are reliable, maintainable, and accurately reflect real-world agent behavior—covering everything from argument validation to error handling and deterministic scripting.
+
+- **Add assertion functions directly to your script** to check tool call behavior at the right moment.
+- **Check tool call arguments** to verify the agent is using tools correctly, not just that a call was made.
+- **Simulate tool failures or edge cases** by scripting tool responses, making your tests robust to error handling.
+- **Use JudgeAgent with natural language criteria** for nuanced or subjective tool call evaluation.
+- **Script tool responses** with `scenario.message()` to make tests deterministic and avoid external dependencies.
