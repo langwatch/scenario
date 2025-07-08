@@ -1,4 +1,4 @@
-import { CoreMessage, CoreToolMessage } from "ai";
+import { CoreAssistantMessage, CoreMessage, CoreToolMessage, CoreUserMessage } from "ai";
 import type { ScenarioConfig } from "../scenarios";
 
 /**
@@ -93,7 +93,13 @@ export interface ScenarioExecutionStateLike {
    * Retrieves the last user message from the execution state.
    * @returns The last user message.
    */
-  lastUserMessage(): CoreMessage;
+  lastUserMessage(): CoreUserMessage;
+
+  /**
+   * Retrieves the last agent message from the execution state.
+   * @returns The last agent message.
+   */
+  lastAgentMessage(): CoreAssistantMessage;
 
   /**
    * Retrieves the last tool call message for a specific tool.

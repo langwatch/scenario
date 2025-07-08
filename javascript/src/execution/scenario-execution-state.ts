@@ -1,4 +1,4 @@
-import { CoreMessage, CoreToolMessage } from "ai";
+import { CoreAssistantMessage, CoreMessage, CoreToolMessage, CoreUserMessage } from "ai";
 import { ScenarioExecutionStateLike, ScenarioConfig } from "../domain";
 import { generateMessageId } from "../utils/ids";
 
@@ -57,7 +57,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     return this._messages[this._messages.length - 1]
   }
 
-  lastUserMessage(): CoreMessage {
+  lastUserMessage(): CoreUserMessage {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
@@ -66,6 +66,20 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
 
     if (!lastMessage) {
       throw new Error("No user message in history");
+    }
+
+    return lastMessage;
+  }
+
+  lastAgentMessage(): CoreAssistantMessage {
+    if (this._messages.length === 0) {
+      throw new Error("No messages in history");
+    }
+
+    const lastMessage = this._messages.findLast(message => message.role === "assistant");
+
+    if (!lastMessage) {
+      throw new Error("No agent message in history");
     }
 
     return lastMessage;
@@ -80,9 +94,6 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
       part => part.type === "tool-result" && part.toolName === toolName
     ));
 
-    if (!lastMessage) {
-      throw new Error("No tool call message in history");
-    }
 
     return lastMessage as CoreToolMessage;
   }
