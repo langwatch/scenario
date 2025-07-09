@@ -56,6 +56,8 @@ const imageDataURL = getDataURLFromFixture("scenario.webp", "image/webp");
 // Scenario 1: Text + Image
 await scenario.run({
   name: "text and image analysis",
+  description:
+    "User asks about an image and expects the agent to describe what they see and answer their question.",
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
@@ -82,6 +84,8 @@ await scenario.run({
 // Scenario 2: Image only
 await scenario.run({
   name: "image-only analysis",
+  description:
+    "User sends only an image and expects the agent to provide a meaningful description without any textual hints.",
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
@@ -105,6 +109,8 @@ await scenario.run({
 // Scenario 3: Complex multi-part question
 await scenario.run({
   name: "complex image analysis",
+  description:
+    "User asks a complex multi-part question about an image, expecting the agent to address colors, shapes, and interpretation.",
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
