@@ -1,5 +1,137 @@
-# Multimodal Audio Analysis (Coming Soon)
+import { RefLink } from "../../../components/RefLink";
 
-This page will cover Scenario tests where the user provides **audio recordings** and the agent must transcribe, interpret, or otherwise respond.
+# Testing AI Voice Agents [Use Case]
 
-Content is under development — check back soon! 🎧🚧
+This page shows how to write a Scenario test where the user provides **audio** input, and the audio is transcribed and evaluated by the agent.
+
+## Overview
+
+Your scenario tests can cover any voice-related situation, for example:
+
+1. User speaks a **simple request** (agent should respond clearly).
+2. User gives a **multi-sentence prompt** (agent should preserve context and intent).
+3. User tone or phrasing implies intent (agent should infer and respond appropriately).
+
+In this example, we use OpenAI’s `whisper-1` model to transcribe `.wav` audio files into text before passing the message to the agent. The response is judged automatically by a <RefLink link={{ python: "judge_agent.html#scenario.judge_agent.JudgeAgent", typescript: "functions/judgeAgent.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> with explicit criteria.
+
+## Code Walk-through
+
+:::code-group
+
+```typescript [typescript]
+import * as fs from "fs";
+import * as path from "path";
+import { openai } from "@ai-sdk/openai";
+import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import { generateText } from "ai";
+import OpenAI from "openai";
+
+// 🔧 Set a test set ID (useful for grouping)
+const setId = "realtime-voice-agent-test";
+
+// 1️⃣ Raw OpenAI client for Whisper
+const openaiRaw = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+// 2️⃣ Helper to load the fixture audio file
+function getFixtureAudioPath(): string {
+  return path.join(__dirname, "fixtures", "sample.wav");
+}
+
+// 3️⃣ Transcribe audio using Whisper
+async function transcribeAudio(): Promise<string> {
+  const file = fs.createReadStream(getFixtureAudioPath());
+  const response = await openaiRaw.audio.transcriptions.create({
+    file,
+    model: "whisper-1",
+    response_format: "text",
+  });
+  return response;
+}
+
+// 4️⃣ Agent that receives transcribed voice input
+const voiceAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await generateText({
+      model: openai("gpt-4o"),
+      messages: [
+        {
+          role: "system",
+          content: `You are a helpful assistant. Respond to the user's transcribed voice message.`,
+        },
+        ...input.messages,
+      ],
+    });
+    return response.text;
+  },
+};
+
+// 5️⃣ Test scenario
+describe("Voice Agent Audio Tests", () => {
+  it("should respond to a transcribed voice message", async () => {
+    const transcript = await transcribeAudio();
+
+    const result = await scenario.run({
+      name: "voice agent: with whisper",
+      description: "Transcribe audio, then test agent response",
+      agents: [
+        voiceAgent,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent responds clearly to the user's voice message",
+            "Agent tone is conversational and helpful",
+          ],
+        }),
+      ],
+      script: [
+        scenario.message({
+          role: "user",
+          content: `🗣️ (Transcribed) ${transcript}`,
+        }),
+        scenario.agent(),
+        scenario.judge(),
+      ],
+      setId,
+    });
+
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.error(result);
+      throw error;
+    }
+  });
+});
+```
+
+```python [python]
+# Coming soon
+```
+
+:::
+
+### Why Transcription First?
+
+Scenario currently supports text and image content in messages. To test real voice inputs, we transcribe the audio using OpenAI's Whisper model and then inject the result as a regular text message in the script.
+
+This keeps your tests deterministic, repeatable, and compatible with standard judge agents.
+
+## Best Practices
+
+When testing voice scenarios:
+
+- Use **natural speech patterns** in your audio (e.g. pauses, fillers, informal phrasing).
+- Define **clear, objective criteria** for what counts as a good agent response (tone, content, empathy).
+- Group related voice tests under a shared `setId` for easier filtering and reporting.
+
+## Next Steps
+
+- Check out [images](/examples/multimodal/multimodal-images) to test your agent with images.
+
+---
+
+### Complete Source
+
+Check out the full test in the repository [here](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice-agent.test.ts).
