@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.9](https://github.com/langwatch/scenario/compare/javascript/v0.2.8...javascript/v0.2.9) (2025-07-10)
+
+
+### Features
+
+* better reporting python ([#44](https://github.com/langwatch/scenario/issues/44)) ([e41413b](https://github.com/langwatch/scenario/commit/e41413b5407d5e48e70825de4c38dbfb2600ef70))
+* **javascript:** improve batch run support to work without env var in test environments ([#86](https://github.com/langwatch/scenario/issues/86)) ([bfd20ff](https://github.com/langwatch/scenario/commit/bfd20ff1a12a8c68153dabc70b7313bab97ac72d))
+
+
+### Miscellaneous
+
+* rename config level env var ([#79](https://github.com/langwatch/scenario/issues/79)) ([92336b8](https://github.com/langwatch/scenario/commit/92336b875ffbc1926597c3fc601594fb1ed804fd))
+* tool call docs ([#87](https://github.com/langwatch/scenario/issues/87)) ([e8ad793](https://github.com/langwatch/scenario/commit/e8ad793a3106e9578180084a46bcb616f1bdd15b))
+
 ## [0.2.8](https://github.com/langwatch/scenario/compare/javascript/v0.2.7...javascript/v0.2.8) (2025-06-30)
 
 
