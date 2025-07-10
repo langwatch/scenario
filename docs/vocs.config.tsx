@@ -95,10 +95,6 @@ export default defineConfig({
           link: "/basics/test-runner-integration",
         },
         {
-          text: "Fixtures",
-          link: "/testing-guides/fixtures",
-        },
-        {
           text: "Cache",
           link: "/basics/cache",
         },
@@ -114,6 +110,14 @@ export default defineConfig({
         {
           text: "Tool calling",
           link: "/testing-guides/tool-calling",
+        },
+        {
+          text: "Fixtures",
+          link: "/testing-guides/fixtures",
+        },
+        {
+          text: "Mocks",
+          link: "/testing-guides/mocks",
         },
       ],
     },

@@ -1,0 +1,993 @@
+import { RefLink } from "../../components/RefLink";
+
+# Mocks [Simulating external dependencies for deterministic testing]
+
+A _mock_ is a simulated implementation of an external dependency—API, database, tool, or service—that your scenario test uses to ensure **deterministic, offline-friendly** execution.
+
+:::tip
+**Modern Agent Architecture**
+
+Most production agents use **tool calling** to interact with external systems rather than making direct API calls in their core logic. This separation of concerns makes agents more testable, maintainable, and reliable. When mocking for agent tests, you'll primarily be mocking the tool execution functions, not the agent's reasoning logic.
+
+**If you're new to tool calling with agents, check out our [Tool Calling Guide](./tool-calling) first to understand the fundamentals.**
+:::
+
+:::tip
+**Why use mocks?**
+
+- **Determinism**: Predictable responses regardless of external service state
+- **Speed & reliability**: No network calls or external dependencies
+- **Edge case testing**: Simulate failures, timeouts, and error conditions
+- **Cost control**: Avoid expensive API calls during testing
+- **Tool isolation**: Test agent reasoning separately from external tool implementation
+  :::
+
+## Understanding Mock Levels
+
+When testing agents, you can mock at different levels of your system architecture. Each level serves different testing purposes:
+
+### Level 1: Tool Function Mocking
+
+- **Purpose**: Test that your agent calls the right tools with correct parameters
+- **Use case**: Verify agent reasoning, tool selection, and parameter passing
+- **What you're testing**: Agent logic and tool orchestration
+- **Trade-off**: Fast and simple, but doesn't test tool implementation
+
+### Level 2: API/Service Mocking
+
+- **Purpose**: Test tool implementation without external dependencies
+- **Use case**: Test HTTP calls, database queries, and external integrations within tools
+- **What you're testing**: Tool implementation and external service interfaces
+- **Trade-off**: More realistic but requires mocking at the right boundaries
+
+### Level 3: Dependency Injection
+
+- **Purpose**: Design your system for testability from the ground up
+- **Use case**: Production systems where you control the architecture
+- **What you're testing**: Full system behavior with swappable dependencies
+- **Trade-off**: Most flexible but requires architectural planning
+
+:::tip
+**Dependency Injection** is the gold standard for testable systems but requires designing your agent architecture upfront. For a deeper dive into DI patterns, see [Dependency Injection Principles](https://martinfowler.com/articles/injection.html) and [Testing with DI](https://testing-library.com/docs/guiding-principles/).
+:::
+
+## Mocking Patterns
+
+The following examples show different levels of mocking in action, ordered by how commonly they're used in agent testing:
+
+### 1. Tool Function Mocking (Level 1)
+
+Mock tool execution functions to test your agent's tool usage behavior. This is the most common mocking pattern for modern agents.
+
+#### API Data Fetching Tools
+
+:::code-group
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { generateText, tool } from "ai";
+import { describe, it, expect, vi } from "vitest";
+import { z } from "zod";
+
+// Mock the tool function
+const fetchUserDataMock = vi.fn();
+
+// Define a tool that uses the mock
+const fetchUserDataTool = tool({
+  description: "Fetch user data from external API",
+  parameters: z.object({
+    userId: z.string().describe("The user ID to fetch data for"),
+  }),
+  execute: fetchUserDataMock,
+});
+
+const userDataAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await generateText({
+      model: openai("gpt-4.1"),
+      messages: input.messages,
+      tools: { fetch_user_data: fetchUserDataTool },
+      toolChoice: "auto",
+    });
+    return response.text;
+  },
+};
+
+describe("Tool Call Mocking", () => {
+  it("should mock tool execution", async () => {
+    // Setup mock return value
+    fetchUserDataMock.mockResolvedValue({
+      name: "Alice",
+      points: 150,
+      email: "alice@example.com",
+    });
+
+    const result = await scenario.run({
+      name: "user data tool test",
+      description: "Test agent's ability to fetch user data via tool",
+      agents: [userDataAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Show me user data for ID 123"),
+        scenario.agent(),
+        (state) => {
+          // Verify the mock was called with correct parameters
+          expect(fetchUserDataMock).toHaveBeenCalledWith({ userId: "123" });
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+import pytest
+import scenario
+from unittest.mock import patch
+import litellm
+import json
+
+def fetch_user_data(user_id: str) -> dict:
+    """Fetch user data from external API."""
+    # This would normally make an API call
+    return {"name": "John", "points": 100, "email": "john@example.com"}
+
+class UserDataAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        tools = [fetch_user_data]
+
+        response = litellm.completion(
+            model="openai/gpt-4o",
+            messages=input.messages,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.__name__,
+                        "description": "Fetch user data from external API",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"user_id": {"type": "string", "description": "The user ID to fetch data for"}},
+                            "required": ["user_id"],
+                        },
+                    },
+                }
+                for tool in tools
+            ],
+            tool_choice="auto",
+        )
+
+        message = response.choices[0].message
+
+        if message.tool_calls:
+            tool_call = message.tool_calls[0]
+            tool_name = tool_call.function.name
+            args = json.loads(tool_call.function.arguments)
+            tool_func = next(t for t in tools if t.__name__ == tool_name)
+            tool_result = tool_func(**args)
+            return f"User data: {tool_result['name']} has {tool_result['points']} points."
+
+        return message.content or ""
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_tool_call_mocking():
+    with patch("__main__.fetch_user_data") as mock_fetch:
+        mock_fetch.return_value = {
+            "name": "Alice",
+            "points": 150,
+            "email": "alice@example.com"
+        }
+
+        result = await scenario.run(
+            name="user data tool test",
+            description="Test agent's ability to fetch user data via tool",
+            agents=[
+                UserDataAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Show me user data for ID 123"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        # Verify the mock was called with correct parameters
+        mock_fetch.assert_called_once_with(user_id="123")
+        assert result.success
+```
+
+:::
+
+#### Database Operations Tools
+
+:::code-group
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { generateText, tool } from "ai";
+import { describe, it, expect, vi } from "vitest";
+import { z } from "zod";
+
+// Mock the database tool functions
+const saveUserMock = vi.fn();
+const findUserMock = vi.fn();
+
+// Define database tools
+const saveUserTool = tool({
+  description: "Save a user to the database",
+  parameters: z.object({
+    name: z.string().describe("The user's name"),
+    email: z.string().describe("The user's email"),
+  }),
+  execute: saveUserMock,
+});
+
+const findUserTool = tool({
+  description: "Find users by name",
+  parameters: z.object({
+    name: z.string().describe("The name to search for"),
+  }),
+  execute: findUserMock,
+});
+
+const databaseAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await generateText({
+      model: openai("gpt-4.1"),
+      messages: input.messages,
+      tools: {
+        save_user: saveUserTool,
+        find_user: findUserTool,
+      },
+      toolChoice: "auto",
+    });
+    return response.text;
+  },
+};
+
+describe("Database Tool Mocking", () => {
+  it("should mock save user tool", async () => {
+    saveUserMock.mockResolvedValue({
+      id: 123,
+      name: "John",
+      email: "john@example.com",
+    });
+
+    const result = await scenario.run({
+      name: "database save test",
+      description: "Test agent's ability to save user data via tool",
+      agents: [databaseAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Save a new user named John with email john@example.com"),
+        scenario.agent(),
+        (state) => {
+          expect(saveUserMock).toHaveBeenCalledWith({
+            name: "John",
+            email: "john@example.com",
+          });
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+import pytest
+import scenario
+from unittest.mock import patch
+import litellm
+import json
+
+def save_user(name: str, email: str) -> dict:
+    """Save a user to the database."""
+    # This would normally save to a database
+    return {"id": 123, "name": name, "email": email}
+
+class DatabaseAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        tools = [save_user]
+
+        response = litellm.completion(
+            model="openai/gpt-4o",
+            messages=input.messages,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "save_user",
+                        "description": "Save a user to the database",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "The user's name"},
+                                "email": {"type": "string", "description": "The user's email"}
+                            },
+                            "required": ["name", "email"],
+                        },
+                    },
+                }
+            ],
+            tool_choice="auto",
+        )
+
+        message = response.choices[0].message
+
+        if message.tool_calls:
+            tool_call = message.tool_calls[0]
+            args = json.loads(tool_call.function.arguments)
+            result = save_user(**args)
+            return f"User saved with ID: {result['id']}"
+
+        return message.content or ""
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_database_tool_mocking():
+    with patch("__main__.save_user") as mock_save:
+        mock_save.return_value = {"id": 123, "name": "John", "email": "john@example.com"}
+
+        result = await scenario.run(
+            name="database save test",
+            description="Test agent's ability to save user data via tool",
+            agents=[
+                DatabaseAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Save a new user named John with email john@example.com"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        mock_save.assert_called_once_with(name="John", email="john@example.com")
+        assert result.success
+```
+
+:::
+
+### 2. API/Service Mocking (Level 2)
+
+Mock HTTP calls, database connections, and external services within your tools to test the interface between your agent system and external dependencies.
+
+:::code-group
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { generateText, tool } from "ai";
+import { describe, it, expect, vi } from "vitest";
+import { z } from "zod";
+
+// Mock the fetch function that tools will use
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+// Real tool implementation that makes HTTP calls
+const fetchUserDataTool = tool({
+  description: "Fetch user data from external API",
+  parameters: z.object({
+    userId: z.string().describe("The user ID to fetch data for"),
+  }),
+  execute: async ({ userId }) => {
+    const response = await fetch(`https://api.example.com/users/${userId}`);
+    const data = await response.json();
+    return data;
+  },
+});
+
+const userDataAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await generateText({
+      model: openai("gpt-4.1"),
+      messages: input.messages,
+      tools: { fetch_user_data: fetchUserDataTool },
+      toolChoice: "auto",
+    });
+    return response.text;
+  },
+};
+
+describe("API Service Mocking", () => {
+  it("should mock HTTP calls within tools", async () => {
+    // Mock the actual HTTP call
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          id: "123",
+          name: "Alice",
+          email: "alice@example.com",
+        }),
+    });
+
+    const result = await scenario.run({
+      name: "api service test",
+      description: "Test tool's HTTP integration",
+      agents: [userDataAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Get user data for ID 123"),
+        scenario.agent(),
+        (state) => {
+          // Verify the HTTP call was made correctly
+          expect(mockFetch).toHaveBeenCalledWith(
+            "https://api.example.com/users/123"
+          );
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+import pytest
+import scenario
+from unittest.mock import patch, AsyncMock
+import litellm
+import json
+import httpx
+
+# Real tool implementation that makes HTTP calls
+async def fetch_user_data(user_id: str) -> dict:
+    """Fetch user data from external API."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"https://api.example.com/users/{user_id}")
+        return response.json()
+
+class UserDataAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        tools = [fetch_user_data]
+
+        response = litellm.completion(
+            model="openai/gpt-4o",
+            messages=input.messages,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "fetch_user_data",
+                        "description": "Fetch user data from external API",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"user_id": {"type": "string"}},
+                            "required": ["user_id"],
+                        },
+                    },
+                }
+            ],
+            tool_choice="auto",
+        )
+
+        message = response.choices[0].message
+
+        if message.tool_calls:
+            tool_call = message.tool_calls[0]
+            args = json.loads(tool_call.function.arguments)
+            result = await fetch_user_data(**args)
+            return f"User: {result['name']} ({result['email']})"
+
+        return message.content or ""
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_api_service_mocking():
+    # Mock the HTTP client at the service level
+    mock_response = AsyncMock()
+    mock_response.json.return_value = {
+        "id": "123",
+        "name": "Alice",
+        "email": "alice@example.com"
+    }
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
+        result = await scenario.run(
+            name="api service test",
+            description="Test tool's HTTP integration",
+            agents=[
+                UserDataAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Get user data for ID 123"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        # Verify the HTTP call was made correctly
+        mock_get.assert_called_once_with("https://api.example.com/users/123")
+        assert result.success
+```
+
+:::
+
+:::tip
+**Network-Level Interception**
+
+For more advanced HTTP mocking, you can use network-level interception libraries like `nock` (Node.js), `msw` (Mock Service Worker), or `responses` (Python). These tools intercept HTTP calls at the network layer rather than mocking your HTTP client, which can be useful for testing third-party libraries or simulating network-level failures.
+:::
+
+### 3. Tool Failure Simulation (Level 1 & 2)
+
+Mock tool failures to test how your agent handles errors, timeouts, and edge cases. You can simulate failures at both the tool level and the service level.
+
+:::code-group
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { generateText, tool } from "ai";
+import { describe, it, expect, vi } from "vitest";
+import { z } from "zod";
+
+// Mock the external service tool
+const callExternalServiceMock = vi.fn();
+
+// Define a tool that can fail
+const callExternalServiceTool = tool({
+  description: "Call an external service",
+  parameters: z.object({
+    endpoint: z.string().describe("The service endpoint to call"),
+  }),
+  execute: callExternalServiceMock,
+});
+
+const resilientAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    try {
+      const response = await generateText({
+        model: openai("gpt-4.1"),
+        messages: input.messages,
+        tools: { call_external_service: callExternalServiceTool },
+        toolChoice: "auto",
+      });
+      return response.text;
+    } catch (error) {
+      return `I encountered an error: ${error.message}. Let me try a different approach.`;
+    }
+  },
+};
+
+describe("Tool Failure Simulation", () => {
+  it("should handle tool timeout errors", async () => {
+    // Simulate tool timeout
+    callExternalServiceMock.mockRejectedValue(new Error("Request timeout"));
+
+    const result = await scenario.run({
+      name: "tool timeout test",
+      description: "Test agent's ability to handle tool timeouts",
+      agents: [resilientAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Call the external service"),
+        scenario.agent(),
+        (state) => {
+          expect(callExternalServiceMock).toHaveBeenCalled();
+          // Agent should handle the error gracefully
+          const response = state.lastAgentMessage().content;
+          expect(response).toContain("error");
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should handle tool rate limit errors", async () => {
+    // Simulate rate limit error
+    callExternalServiceMock.mockRejectedValue(new Error("Rate limit exceeded"));
+
+    const result = await scenario.run({
+      name: "tool rate limit test",
+      description: "Test agent's ability to handle rate limits",
+      agents: [resilientAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Call the external service"),
+        scenario.agent(),
+        (state) => {
+          expect(callExternalServiceMock).toHaveBeenCalled();
+          const response = state.lastAgentMessage().content;
+          expect(response).toContain("error");
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should handle successful tool calls", async () => {
+    // Simulate successful tool call
+    callExternalServiceMock.mockResolvedValue("Service call successful");
+
+    const result = await scenario.run({
+      name: "tool success test",
+      description: "Test agent's ability to handle successful tool calls",
+      agents: [resilientAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Call the external service"),
+        scenario.agent(),
+        (state) => {
+          expect(callExternalServiceMock).toHaveBeenCalled();
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+import pytest
+import scenario
+from unittest.mock import patch
+import litellm
+import json
+
+def call_external_service(endpoint: str) -> str:
+    """Call an external service."""
+    # This would normally make an external API call
+    return f"Called {endpoint} successfully"
+
+class ResilientAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        tools = [call_external_service]
+
+        try:
+            response = litellm.completion(
+                model="openai/gpt-4o",
+                messages=input.messages,
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "call_external_service",
+                            "description": "Call an external service",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"endpoint": {"type": "string", "description": "The service endpoint to call"}},
+                                "required": ["endpoint"],
+                            },
+                        },
+                    }
+                ],
+                tool_choice="auto",
+            )
+
+            message = response.choices[0].message
+
+            if message.tool_calls:
+                tool_call = message.tool_calls[0]
+                args = json.loads(tool_call.function.arguments)
+                try:
+                    result = call_external_service(**args)
+                    return f"Service call result: {result}"
+                except Exception as e:
+                    return f"I encountered an error calling the service: {str(e)}. Let me try a different approach."
+
+            return message.content or ""
+        except Exception as e:
+            return f"I encountered an error: {str(e)}. Let me try a different approach."
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_tool_timeout_simulation():
+    with patch("__main__.call_external_service") as mock_service:
+        mock_service.side_effect = Exception("Request timeout")
+
+        result = await scenario.run(
+            name="tool timeout test",
+            description="Test agent's ability to handle tool timeouts",
+            agents=[
+                ResilientAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Call the external service"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        mock_service.assert_called_once()
+        assert result.success
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_tool_rate_limit_simulation():
+    with patch("__main__.call_external_service") as mock_service:
+        mock_service.side_effect = Exception("Rate limit exceeded")
+
+        result = await scenario.run(
+            name="tool rate limit test",
+            description="Test agent's ability to handle rate limits",
+            agents=[
+                ResilientAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Call the external service"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        mock_service.assert_called_once()
+        assert result.success
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_tool_success_simulation():
+    with patch("__main__.call_external_service") as mock_service:
+        mock_service.return_value = "Service call successful"
+
+        result = await scenario.run(
+            name="tool success test",
+            description="Test agent's ability to handle successful tool calls",
+            agents=[
+                ResilientAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Call the external service"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        mock_service.assert_called_once()
+        assert result.success
+```
+
+:::
+
+### 4. LLM Provider Mocking (Level 2)
+
+For testing agent flow without actual LLM calls, you can mock the model provider APIs. However, Scenario's [caching system](../basics/cache) is often a better solution for deterministic, cost-effective testing.
+
+:::code-group
+
+```typescript [typescript]
+import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { generateText } from "ai";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock the generateText function
+const mockGenerateText = vi.fn();
+vi.mock("ai", () => ({
+  generateText: mockGenerateText,
+}));
+
+const chatAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await generateText({
+      model: openai("gpt-4.1"),
+      messages: input.messages,
+    });
+    return response.text;
+  },
+};
+
+describe("LLM Provider Mocking", () => {
+  it("should mock LLM responses", async () => {
+    // Mock the LLM response
+    mockGenerateText.mockResolvedValue({
+      text: "I can help you with that request.",
+    });
+
+    const result = await scenario.run({
+      name: "llm mock test",
+      description: "Test with mocked LLM responses",
+      agents: [chatAgent, scenario.userSimulatorAgent()],
+      script: [
+        scenario.user("Hello"),
+        scenario.agent(),
+        (state) => {
+          expect(mockGenerateText).toHaveBeenCalled();
+          expect(state.lastAgentMessage().content).toBe(
+            "I can help you with that request."
+          );
+        },
+        scenario.succeed(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+import pytest
+import scenario
+from unittest.mock import patch
+
+class ChatAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        import litellm
+        response = litellm.completion(
+            model="openai/gpt-4o",
+            messages=input.messages,
+        )
+        return response.choices[0].message.content
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_llm_provider_mocking():
+    # Mock the LLM completion call
+    mock_response = {
+        "choices": [{"message": {"content": "I can help you with that request."}}]
+    }
+
+    with patch("litellm.completion", return_value=mock_response) as mock_completion:
+        result = await scenario.run(
+            name="llm mock test",
+            description="Test with mocked LLM responses",
+            agents=[
+                ChatAgent(),
+                scenario.UserSimulatorAgent(),
+            ],
+            script=[
+                scenario.user("Hello"),
+                scenario.agent(),
+                scenario.succeed(),
+            ],
+        )
+
+        mock_completion.assert_called_once()
+        assert result.success
+```
+
+:::
+
+:::tip
+**Consider Caching Instead**
+
+For most agent testing scenarios, Scenario's [caching system](../basics/cache) provides a better solution than mocking LLM calls. Caching gives you deterministic responses while still testing your actual LLM integration code.
+:::
+
+## Best Practices
+
+### 1. Mock Tools, Not Agent Logic
+
+Mock external dependencies through their tool interfaces, not your agent's core reasoning logic.
+
+:::code-group
+
+```typescript [typescript]
+// ✅ Good: Mock the tool function
+const mockWeatherTool = vi.fn().mockResolvedValue("Sunny, 75°F");
+
+const weatherTool = tool({
+  description: "Get weather data",
+  parameters: z.object({ city: z.string() }),
+  execute: mockWeatherTool,
+});
+
+// ❌ Bad: Mock the agent's reasoning
+const mockAgent = vi.fn().mockResolvedValue("It's sunny");
+```
+
+```python [python]
+# ✅ Good: Mock the tool function
+def get_weather(city: str) -> str:
+    return f"Weather in {city}"
+
+with patch("__main__.get_weather") as mock_weather:
+    mock_weather.return_value = "Sunny, 75°F"
+
+# ❌ Bad: Mock the agent itself
+mock_agent = Mock()
+```
+
+:::
+
+### 2. Use Realistic Tool Responses
+
+Make your tool mocks return data that matches real-world API responses and error conditions.
+
+:::code-group
+
+```typescript [typescript]
+// ✅ Good: Realistic API response structure
+mockApiTool.mockResolvedValue({
+  data: { temperature: 75, condition: "sunny", humidity: 65 },
+  status: "success",
+  timestamp: "2024-01-15T10:30:00Z",
+});
+
+// ❌ Bad: Oversimplified response
+mockApiTool.mockResolvedValue("sunny");
+```
+
+```python [python]
+# ✅ Good: Realistic API response structure
+mock_api_tool.return_value = {
+    "data": {"temperature": 75, "condition": "sunny", "humidity": 65},
+    "status": "success",
+    "timestamp": "2024-01-15T10:30:00Z"
+}
+
+# ❌ Bad: Oversimplified response
+mock_api_tool.return_value = "sunny"
+```
+
+:::
+
+### 3. Test Tool Failure Scenarios
+
+Agents must handle tool failures gracefully - test timeouts, rate limits, and error responses.
+
+:::code-group
+
+```typescript [typescript]
+// Test multiple failure scenarios
+it("should handle tool timeout", async () => {
+  mockTool.mockRejectedValue(new Error("Request timeout"));
+  // Test agent's timeout handling
+});
+
+it("should handle rate limits", async () => {
+  mockTool.mockRejectedValue(new Error("Rate limit exceeded"));
+  // Test agent's rate limit handling
+});
+```
+
+```python [python]
+# Test multiple failure scenarios
+@pytest.mark.asyncio
+async def test_tool_timeout():
+    mock_tool.side_effect = Exception("Request timeout")
+    # Test agent's timeout handling
+
+@pytest.mark.asyncio
+async def test_rate_limit():
+    mock_tool.side_effect = Exception("Rate limit exceeded")
+    # Test agent's rate limit handling
+```
+
+:::
+
+### General Testing Best Practices
+
+For broader testing practices like descriptive naming, test isolation, and mock cleanup, see:
+
+- **JavaScript/TypeScript**: [Vitest Best Practices](https://vitest.dev/guide/mocking.html) and [Jest Mocking Guide](https://jestjs.io/docs/manual-mocks)
+- **Python**: [pytest Best Practices](https://docs.pytest.org/en/stable/how.html#best-practices) and [unittest.mock Guide](https://docs.python.org/3/library/unittest.mock.html)
+- **General**: [Testing Best Practices](https://testing-library.com/docs/guiding-principles/) and [Test Doubles](https://martinfowler.com/bliki/TestDouble.html)
+
+## Related Concepts
+
+- [Fixtures](../basics/fixtures) – Static test assets for deterministic scenarios
+- [Tool Calling](./tool-calling) – Testing agent tool usage and responses
+- [Cache](../basics/cache) – Caching LLM calls for faster, deterministic runs
+
+---
+
+Next up: learn how to [cache](../basics/cache) LLM calls for even faster, deterministic runs.
+
+```
+
+```
