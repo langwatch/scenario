@@ -1,6 +1,6 @@
+import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText, tool } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 

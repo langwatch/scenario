@@ -1,6 +1,6 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { generateText, tool, ToolCallPart, ToolResultPart } from "ai";
+import { generateText, tool, ToolCallPart } from "ai";
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 
@@ -101,6 +101,8 @@ describe("Weather Agent", () => {
 
           expect(toolCallResult.content[0].toolName).toBe("get_current_weather");
           expect(toolCallResult.content[0].result).toContain("Barcelona");
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           expect((assistantMessageContent.args as any).city).toBe("Barcelona");
         },
         scenario.succeed(),
