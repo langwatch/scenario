@@ -96,7 +96,7 @@ export default defineConfig({
         },
         {
           text: "Fixtures",
-          link: "/basics/fixtures",
+          link: "/testing-guides/fixtures",
         },
         {
           text: "Cache",
