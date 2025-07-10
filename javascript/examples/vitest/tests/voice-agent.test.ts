@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
+import { describe, it, expect } from "vitest";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
