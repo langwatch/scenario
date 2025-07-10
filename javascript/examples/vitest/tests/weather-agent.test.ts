@@ -107,7 +107,6 @@ describe("Weather Agent", () => {
       ],
       setId: "javascript-examples",
     });
-    console.dir(result, { depth: null });
     expect(result.success).toBe(true);
   });
 });
