@@ -2,9 +2,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
 import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { describe, it, expect } from "vitest";
 import { generateText } from "ai";
 import OpenAI from "openai"; 
+import { describe, it, expect } from "vitest";
 
 const setId = "realtime-voice-agent-test";
 
