@@ -86,7 +86,7 @@ const userDataAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1"),
+      model: openai("gpt-4o"),
       messages: input.messages,
       tools: { fetch_user_data: fetchUserDataTool },
       toolChoice: "auto",
@@ -241,7 +241,7 @@ const databaseAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1"),
+      model: openai("gpt-4o"),
       messages: input.messages,
       tools: {
         save_user: saveUserTool,
@@ -392,7 +392,7 @@ const userDataAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1"),
+      model: openai("gpt-4o"),
       messages: input.messages,
       tools: { fetch_user_data: fetchUserDataTool },
       toolChoice: "auto",
@@ -406,6 +406,7 @@ describe("API Service Mocking", () => {
     // Mock the actual HTTP call
     mockFetch.mockResolvedValue({
       ok: true,
+      status: 200,
       json: () =>
         Promise.resolve({
           id: "123",
@@ -447,9 +448,8 @@ import httpx
 # Real tool implementation that makes HTTP calls
 async def fetch_user_data(user_id: str) -> dict:
     """Fetch user data from external API."""
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"https://api.example.com/users/{user_id}")
-        return response.json()
+    response = await httpx.get(f"https://api.example.com/users/{user_id}")
+    return response.json()
 
 class UserDataAgent(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
@@ -488,15 +488,18 @@ class UserDataAgent(scenario.AgentAdapter):
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_api_service_mocking():
-    # Mock the HTTP client at the service level
-    mock_response = AsyncMock()
-    mock_response.json.return_value = {
+    # Mock the entire httpx.get function
+    mock_response_data = {
         "id": "123",
         "name": "Alice",
         "email": "alice@example.com"
     }
 
-    with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
+    with patch("httpx.get") as mock_get:
+        mock_response = AsyncMock()
+        mock_response.json.return_value = mock_response_data
+        mock_get.return_value = mock_response
+
         result = await scenario.run(
             name="api service test",
             description="Test tool's HTTP integration",
@@ -554,14 +557,16 @@ const resilientAgent: AgentAdapter = {
   call: async (input) => {
     try {
       const response = await generateText({
-        model: openai("gpt-4.1"),
+        model: openai("gpt-4o"),
         messages: input.messages,
         tools: { call_external_service: callExternalServiceTool },
         toolChoice: "auto",
       });
       return response.text;
     } catch (error) {
-      return `I encountered an error: ${error.message}. Let me try a different approach.`;
+      return `I encountered an error: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }. Let me try a different approach.`;
     }
   },
 };
@@ -783,7 +788,7 @@ const chatAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1"),
+      model: openai("gpt-4o"),
       messages: input.messages,
     });
     return response.text;
@@ -831,7 +836,7 @@ class ChatAgent(scenario.AgentAdapter):
             model="openai/gpt-4o",
             messages=input.messages,
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ""
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
