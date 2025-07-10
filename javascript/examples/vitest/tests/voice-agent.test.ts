@@ -1,8 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
+import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
 import OpenAI from "openai";
 import { describe, it, expect } from "vitest";
-import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
 
 const setId = "realtime-voice-agent-test-multimodal";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -23,7 +23,7 @@ function toBase64(filePath: string): Promise<string> {
 // Voice agent powered by gpt-4o-audio-preview
 const voiceAgent: AgentAdapter = {
   role: AgentRole.AGENT,
-  call: async (input) => {
+  call: async () => {
     const audioPath = getFixtureAudioPath();
     const base64Audio = await toBase64(audioPath);
 
