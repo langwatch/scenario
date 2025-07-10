@@ -83,7 +83,7 @@ describe("Weather Agent", () => {
     const result = await scenario.run({
       name: "checking the weather",
       description: `
-        The user is planning a boat trip from Barcelona to Rome,
+        The user is planning a boat trip from Barcelona to Rome today,
         and is wondering what the weather will be like.
       `,
       agents: [
