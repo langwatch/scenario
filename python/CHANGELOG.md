@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.8](https://github.com/langwatch/scenario/compare/python/v0.7.7...python/v0.7.8) (2025-07-10)
+
+
+### Features
+
+* update python configure to accept api_base ([#97](https://github.com/langwatch/scenario/issues/97)) ([4418a0c](https://github.com/langwatch/scenario/commit/4418a0c73687fb437791e8994320d01f76f47383))
+
+
+### Miscellaneous
+
+* tool call docs ([#87](https://github.com/langwatch/scenario/issues/87)) ([e8ad793](https://github.com/langwatch/scenario/commit/e8ad793a3106e9578180084a46bcb616f1bdd15b))
+
 ## [0.7.7](https://github.com/langwatch/scenario/compare/python/v0.7.6...python/v0.7.7) (2025-07-07)
 
 
