@@ -211,7 +211,6 @@ class JudgeAgent extends JudgeAgentAdapter {
   }
 
   private async generateText(input: Parameters<typeof generateText>[0]) {
-    console.log("GENERATING TEXT - JUDGE", input);
     try {
       return await generateText(input);
     } catch (error) {

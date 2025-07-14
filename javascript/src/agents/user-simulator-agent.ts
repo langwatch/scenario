@@ -78,7 +78,6 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   };
 
   private async generateText(input: Parameters<typeof generateText>[0]) {
-    console.log("GENERATING TEXT - USER SIMULATOR", input);
     try {
       return await generateText(input);
     } catch (error) {

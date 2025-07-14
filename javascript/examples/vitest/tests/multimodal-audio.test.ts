@@ -6,12 +6,17 @@ import scenario, {
   AgentInput,
   AgentReturnTypes,
   AgentRole,
+  ScenarioResult,
 } from "@langwatch/scenario";
-import { CoreUserMessage, generateText } from "ai";
+import { CoreMessage, CoreUserMessage, generateText } from "ai";
 import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
 
 console.error(new Error().stack);
+
+const data = encodeAudioToBase64(
+  getFixtureAudioPath("male_or_female_voice.wav")
+);
 
 // Use setId to group together for visualizing in the UI
 const setId = "multimodal-audio-test";
@@ -24,39 +29,6 @@ const setId = "multimodal-audio-test";
 function encodeAudioToBase64(filePath: string): string {
   const audioBuffer = fs.readFileSync(filePath);
   return Buffer.from(audioBuffer).toString("base64");
-}
-
-/**
- * Helper function to create audio data URL
- * @param audioPath - Path to the audio file
- * @param mimeType - MIME type of the audio file (e.g., "audio/wav", "audio/mp3")
- * @returns Data URL string for the audio
- */
-function createAudioDataURL(
-  audioPath: string,
-  mimeType: string = "audio/wav"
-): string {
-  const base64Audio = encodeAudioToBase64(audioPath);
-  return `data:${mimeType};base64,${base64Audio}`;
-}
-
-/**
- * Helper function to decode base64 audio and save to file
- * @param base64Audio - Base64 encoded audio data
- * @param outputPath - Path where to save the audio file
- */
-function saveAudioFromBase64(base64Audio: string, outputPath: string): void {
-  const audioBuffer = Buffer.from(base64Audio, "base64");
-  fs.writeFileSync(outputPath, audioBuffer);
-}
-
-/**
- * Get output path for saved audio files
- * @param filename - Name of the audio file
- * @returns Path to save the audio file
- */
-function getOutputAudioPath(filename: string): string {
-  return path.join(__dirname, "fixtures", filename);
 }
 
 /**
@@ -81,60 +53,27 @@ describe("Multimodal Audio Tests", () => {
 
     call = async (input: AgentInput) => {
       const response = await this.generateText(input);
-      const message = response.choices[0].message;
-
-      // Handle audio response
-      if (message.audio?.data) {
-        const audioId = message.audio.id;
-        const outputPath = getOutputAudioPath(`response_${audioId}.wav`);
-
-        // Save the audio file
-        saveAudioFromBase64(message.audio.data, outputPath);
-
-        console.log(`Audio response saved to: ${outputPath}`);
-
-        // Return a text description of what happened
-        return `I processed the audio input and generated an audio response. The audio file has been saved to ${outputPath}. The audio ID is ${audioId}.`;
-      }
+      const message = response.choices[0].message?.audio?.transcript;
 
       // Handle text response
-      if (message.content) {
-        return message.content;
+      if (typeof message === "string") {
+        return message;
+      } else {
+        throw new Error("Agent failed to generate a response");
       }
-
-      // Fallback if neither content nor audio is available
-      return "I received the audio input but was unable to generate a response.";
     };
 
     private async generateText(input: AgentInput) {
-      const audioMessage = {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Please transcribe and analyze this audio:",
-          },
-          {
-            type: "input_audio",
-            input_audio: {
-              data: encodeAudioToBase64(
-                getFixtureAudioPath("male_or_female_voice.wav")
-              ),
-              format: "wav",
-            },
-          },
-        ],
-      } as CoreUserMessage;
-
       const response = await this.openai.chat.completions.create({
         model: "gpt-4o-audio-preview",
         modalities: ["text", "audio"],
         audio: { voice: "alloy", format: "wav" },
-        messages: [audioMessage],
-        store: true,
+        // We need to strip the id, or the openai client will throw an error
+        messages: input.messages.map(({ id, ...rest }) => rest),
+        store: false,
       });
 
-      console.log("response", JSON.stringify(response, null, 2));
+      // console.log("response", JSON.stringify(response, null, 2));
 
       return response;
     }
@@ -142,49 +81,62 @@ describe("Multimodal Audio Tests", () => {
 
   it("should process audio input and provide transcription/analysis", async () => {
     const audioMessage = {
-      role: "user" as const,
+      role: "user",
       content: [
         {
-          type: "text" as const,
-          text: "Please transcribe and analyze this audio:",
+          type: "text",
+          text: `
+          Answer the question in the audio.
+          If you're not sure, you're required to take a best guess.
+          After you've guessed, you must repeat the question and say what format the input was in (audio or text)
+          `,
         },
         {
-          type: "input_audio" as const,
+          type: "input_audio",
           input_audio: {
-            data: encodeAudioToBase64(
-              getFixtureAudioPath("male_or_female_voice.wav")
-            ),
+            data,
             format: "wav",
           },
         },
       ],
     } as CoreUserMessage;
 
+    const judge = scenario.judgeAgent({
+      criteria: [
+        "The agent correctly guesses it's a male voice",
+        "The agent repeats the question",
+        "The agent says what format the input was in (audio or text)",
+      ],
+    });
+
     const result = await scenario.run({
       name: "multimodal audio analysis",
       description:
         "User sends audio file, agent analyzes and transcribes the content",
-      agents: [
-        new AudioAgent(),
-        scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
-          criteria: [
-            "Agent acknowledges the audio input",
-            "Agent attempts to process or transcribe the audio",
-            "Agent provides appropriate feedback about audio content",
-            "Agent demonstrates understanding of multimodal input",
-          ],
-        }),
-      ],
+      agents: [new AudioAgent(), scenario.userSimulatorAgent(), judge],
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
-        scenario.judge(),
+        async (state, executor) => {
+          const lastMessage = state.messages[state.messages.length - 1];
+          const result = await judge.call({
+            ...state,
+            messages: [lastMessage],
+            newMessages: [],
+            requestedRole: AgentRole.JUDGE,
+            judgmentRequest: true,
+            scenarioState: state,
+            scenarioConfig: state.config,
+          });
+
+          return result as ScenarioResult;
+        },
       ],
       setId,
     });
 
     try {
+      console.log("result", JSON.stringify(result, null, 2));
       expect(result.success).toBe(true);
     } catch (error) {
       console.error(result);
