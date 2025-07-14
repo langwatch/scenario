@@ -479,18 +479,18 @@
     justify-content: space-between;
     width: 100%;">
     <div class="navbar__items">
-      <a class="navbar__brand" href="/scenario/"
+      <a class="navbar__brand" href="/"
         ><b class="navbar__title text--truncate">Scenario</b></a
       ><a
         aria-current="page"
         class="navbar__item navbar__link"
-        href="/scenario/docs/intro"
+        href="/"
         >Docs</a
       >
       <a
         aria-current="page"
         class="navbar__item navbar__link navbar__link--active"
-        href="/scenario/reference/scenario/index.html"
+        href="/reference/python/scenario/"
         >Reference</a
       >
     </div>
