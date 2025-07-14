@@ -2,9 +2,8 @@ import scenario, {
   AgentAdapter,
   AgentInput,
   AgentRole,
-  ScenarioResult,
+  MultimodalAudioMessage,
 } from "@langwatch/scenario";
-import { CoreUserMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
 import { encodeAudioToBase64, getFixtureAudioPath } from "./helpers";
@@ -19,6 +18,8 @@ class AudioAgent extends AgentAdapter {
 
   call = async (input: AgentInput) => {
     const response = await this.generateText(input);
+    // We need to return the transcript here since scenario currently doesn't accept
+    // audio from "assistant" messages
     const message = response.choices[0].message?.audio?.transcript;
 
     // Handle text response
@@ -54,7 +55,7 @@ describe("Multimodal Audio Tests", () => {
       getFixtureAudioPath("male_or_female_voice.wav")
     );
 
-    const audioMessage = {
+    const audioMessage = new MultimodalAudioMessage({
       role: "user",
       content: [
         {
@@ -73,7 +74,7 @@ describe("Multimodal Audio Tests", () => {
           },
         },
       ],
-    } as CoreUserMessage;
+    });
 
     const judge = scenario.voiceJudgeAgent({
       criteria: [
@@ -92,20 +93,6 @@ describe("Multimodal Audio Tests", () => {
         scenario.message(audioMessage),
         scenario.agent(),
         scenario.voiceJudge(),
-        // async (state) => {
-        //   const lastMessage = state.messages[state.messages.length - 1];
-        //   const result = await judge.call({
-        //     ...state,
-        //     messages: [lastMessage],
-        //     newMessages: [],
-        //     requestedRole: AgentRole.JUDGE,
-        //     judgmentRequest: true,
-        //     scenarioState: state,
-        //     scenarioConfig: state.config,
-        //   });
-
-        //   return result as ScenarioResult;
-        // },
       ],
       setId,
     });

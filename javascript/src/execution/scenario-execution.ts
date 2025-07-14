@@ -32,7 +32,7 @@ import {
   getBatchRunId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
-import convertCoreMessagesToAguiMessages from "../utils/message-conversion";
+import convertCoreMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 
 /**
  * Manages the execution of a single scenario.

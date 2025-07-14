@@ -10,8 +10,13 @@ export * from "./domain";
 export * from "./execution";
 export * from "./runner";
 export * from "./script";
+export * from "./messages";
 
-type ScenarioApi = typeof agents & typeof domain & typeof execution & typeof runner & typeof script;
+type ScenarioApi = typeof agents &
+  typeof domain &
+  typeof execution &
+  typeof runner &
+  typeof script;
 
 export const scenario: ScenarioApi = {
   ...agents,

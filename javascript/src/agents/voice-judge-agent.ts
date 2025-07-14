@@ -8,6 +8,7 @@ import { TestingAgentConfig, FinishTestArgs } from "./types";
 import { criterionToParamName } from "./utils";
 import { getProjectConfig } from "../config";
 import { ScenarioResult } from "../domain/core/execution";
+import { convertCoreMessagesToOpenAIMessages } from "../utils";
 import { mergeAndValidateConfig } from "../utils/config";
 import { Logger } from "../utils/logger";
 
@@ -142,27 +143,11 @@ class VoiceJudgeAgent extends JudgeAgentAdapter {
       cfg.systemPrompt ??
       buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
 
-    const messages: ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      // Convert CoreMessage to ChatCompletionMessageParam format
-      ...input.messages.map((m): ChatCompletionMessageParam => {
-        if (m.role === "tool") {
-          return {
-            role: "tool",
-            content:
-              typeof m.content === "string"
-                ? m.content
-                : JSON.stringify(m.content),
-            tool_call_id: "id" in m && typeof m.id === "string" ? m.id : "",
-          };
-        }
-
-        return {
-          role: m.role as "user" | "assistant" | "system",
-          content: m.content,
-        } as ChatCompletionMessageParam;
-      }),
-    ];
+    const messages: ChatCompletionMessageParam[] =
+      convertCoreMessagesToOpenAIMessages([
+        { role: "system", content: systemPrompt },
+        ...input.messages,
+      ]);
 
     const isLastMessage =
       input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
