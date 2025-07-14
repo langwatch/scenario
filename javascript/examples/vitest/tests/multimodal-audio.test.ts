@@ -1,85 +1,59 @@
-import * as fs from "fs";
-import * as path from "path";
-import { openai } from "@ai-sdk/openai";
 import scenario, {
   AgentAdapter,
   AgentInput,
-  AgentReturnTypes,
   AgentRole,
   ScenarioResult,
 } from "@langwatch/scenario";
-import { CoreMessage, CoreUserMessage, generateText } from "ai";
+import { CoreUserMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
+import { encodeAudioToBase64, getFixtureAudioPath } from "./helpers";
 
-console.error(new Error().stack);
+class AudioAgent extends AgentAdapter {
+  role: AgentRole = AgentRole.AGENT;
+  private openai = new OpenAI();
 
-const data = encodeAudioToBase64(
-  getFixtureAudioPath("male_or_female_voice.wav")
-);
+  constructor() {
+    super();
+  }
+
+  call = async (input: AgentInput) => {
+    const response = await this.generateText(input);
+    const message = response.choices[0].message?.audio?.transcript;
+
+    // Handle text response
+    if (typeof message === "string") {
+      return message;
+    } else {
+      throw new Error("Agent failed to generate a response");
+    }
+  };
+
+  private async generateText(input: AgentInput) {
+    const response = await this.openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      audio: { voice: "alloy", format: "wav" },
+      // We need to strip the id, or the openai client will throw an error
+      messages: input.messages.map(({ id, ...rest }) => rest),
+      store: false,
+    });
+
+    // console.log("response", JSON.stringify(response, null, 2));
+
+    return response;
+  }
+}
 
 // Use setId to group together for visualizing in the UI
 const setId = "multimodal-audio-test";
 
-/**
- * Helper function to encode audio file to base64
- * @param filePath - Path to the audio file
- * @returns Base64 encoded audio data
- */
-function encodeAudioToBase64(filePath: string): string {
-  const audioBuffer = fs.readFileSync(filePath);
-  return Buffer.from(audioBuffer).toString("base64");
-}
-
-/**
- * Get the fixture audio file path
- * Note: You'll need to add an audio fixture file to the fixtures directory
- * @returns Path to the test audio file
- */
-function getFixtureAudioPath(name: string): string {
-  // For this example, we'll assume you have a test audio file
-  // You can create a simple WAV file or use any short audio sample
-  return path.join(__dirname, "fixtures", name);
-}
-
 describe("Multimodal Audio Tests", () => {
-  class AudioAgent extends AgentAdapter {
-    role: AgentRole = AgentRole.AGENT;
-    private openai = new OpenAI();
+  it("should handle audio input", async () => {
+    const data = encodeAudioToBase64(
+      getFixtureAudioPath("male_or_female_voice.wav")
+    );
 
-    constructor() {
-      super();
-    }
-
-    call = async (input: AgentInput) => {
-      const response = await this.generateText(input);
-      const message = response.choices[0].message?.audio?.transcript;
-
-      // Handle text response
-      if (typeof message === "string") {
-        return message;
-      } else {
-        throw new Error("Agent failed to generate a response");
-      }
-    };
-
-    private async generateText(input: AgentInput) {
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-4o-audio-preview",
-        modalities: ["text", "audio"],
-        audio: { voice: "alloy", format: "wav" },
-        // We need to strip the id, or the openai client will throw an error
-        messages: input.messages.map(({ id, ...rest }) => rest),
-        store: false,
-      });
-
-      // console.log("response", JSON.stringify(response, null, 2));
-
-      return response;
-    }
-  }
-
-  it("should process audio input and provide transcription/analysis", async () => {
     const audioMessage = {
       role: "user",
       content: [
@@ -117,7 +91,7 @@ describe("Multimodal Audio Tests", () => {
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
-        async (state, executor) => {
+        async (state) => {
           const lastMessage = state.messages[state.messages.length - 1];
           const result = await judge.call({
             ...state,
