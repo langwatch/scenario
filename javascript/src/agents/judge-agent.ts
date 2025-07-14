@@ -6,6 +6,7 @@ import { criterionToParamName } from "./utils";
 import { getProjectConfig } from "../config";
 import { ScenarioResult } from "../domain/core/execution";
 import { mergeAndValidateConfig } from "../utils/config";
+import { Logger } from "../utils/logger";
 
 /**
  * Configuration for the judge agent.
@@ -22,9 +23,9 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
 }
 
 function buildSystemPrompt(criteria: string[], description: string): string {
-  const criteriaList = criteria
-    ?.map((criterion, idx) => `${idx + 1}. ${criterion}`)
-    .join("\n") || "No criteria provided";
+  const criteriaList =
+    criteria?.map((criterion, idx) => `${idx + 1}. ${criterion}`).join("\n") ||
+    "No criteria provided";
 
   return `
 <role>
@@ -64,22 +65,166 @@ function buildFinishTestTool(criteria: string[]): Tool {
   return tool({
     description: "Complete the test with a final verdict",
     parameters: z.object({
-      criteria: z.object(
-        Object.fromEntries(
-          criteriaNames.map((name, idx) => [
-            name,
-            z.enum(["true", "false", "inconclusive"]).describe(criteria[idx])
-          ])
+      criteria: z
+        .object(
+          Object.fromEntries(
+            criteriaNames.map((name, idx) => [
+              name,
+              z.enum(["true", "false", "inconclusive"]).describe(criteria[idx]),
+            ])
+          )
         )
-      ).strict().describe("Strict verdict for each criterion"),
-      reasoning: z.string().describe("Explanation of what the final verdict should be"),
-      verdict: z.enum(["success", "failure", "inconclusive"]).describe("The final verdict of the test"),
+        .strict()
+        .describe("Strict verdict for each criterion"),
+      reasoning: z
+        .string()
+        .describe("Explanation of what the final verdict should be"),
+      verdict: z
+        .enum(["success", "failure", "inconclusive"])
+        .describe("The final verdict of the test"),
     }),
   });
 }
 
 /**
  * Agent that evaluates conversations against success criteria.
+ *
+ * This is the default judge agent that is used if no judge agent is provided.
+ * It is a simple agent that uses function calling to make structured decisions
+ * and provides detailed reasoning for its verdicts.
+ *
+ * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
+ */
+class JudgeAgent extends JudgeAgentAdapter {
+  private logger = new Logger("JudgeAgent");
+  role: AgentRole = AgentRole.JUDGE;
+  criteria: string[];
+
+  constructor(private readonly cfg: JudgeAgentConfig) {
+    super();
+    this.criteria = cfg.criteria;
+    this.role = AgentRole.JUDGE;
+  }
+
+  async call(input: AgentInput) {
+    const cfg = this.cfg;
+
+    const systemPrompt =
+      cfg.systemPrompt ??
+      buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
+    const messages: CoreMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...input.messages,
+    ];
+
+    const isLastMessage =
+      input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
+
+    const projectConfig = await getProjectConfig();
+    const mergedConfig = mergeAndValidateConfig(cfg, projectConfig);
+    if (!mergedConfig.model) {
+      throw new Error("Model is required for the judge agent");
+    }
+
+    const tools: ToolSet = {
+      continue_test: buildContinueTestTool(),
+      finish_test: buildFinishTestTool(cfg.criteria),
+    };
+
+    const enforceJudgement = input.judgmentRequest;
+    const hasCriteria = cfg.criteria.length && cfg.criteria.length > 0;
+
+    if (enforceJudgement && !hasCriteria) {
+      return {
+        success: false,
+        messages: [],
+        reasoning: "JudgeAgent: No criteria was provided to be judged against",
+        metCriteria: [],
+        unmetCriteria: [],
+      } satisfies ScenarioResult;
+    }
+
+    const toolChoice: ToolChoice<typeof tools> =
+      (isLastMessage || enforceJudgement) && hasCriteria
+        ? { type: "tool", toolName: "finish_test" }
+        : "required";
+
+    const completion = await this.generateText({
+      model: mergedConfig.model,
+      messages: messages,
+      temperature: mergedConfig.temperature ?? 0.0,
+      maxTokens: mergedConfig.maxTokens,
+      tools,
+      toolChoice,
+    });
+
+    // Prefer tool call, fallback to JSON
+    let args: FinishTestArgs | undefined;
+    if (completion.toolCalls?.length) {
+      const toolCall = completion.toolCalls[0];
+
+      switch (toolCall.toolName) {
+        case "finish_test": {
+          args = toolCall.args as FinishTestArgs;
+
+          const verdict = args.verdict || "inconclusive";
+          const reasoning = args.reasoning || "No reasoning provided";
+          const criteria = args.criteria || {};
+          const criteriaValues = Object.values(criteria);
+          const metCriteria = cfg.criteria.filter(
+            (_, i) => criteriaValues[i] === "true"
+          );
+          const unmetCriteria = cfg.criteria.filter(
+            (_, i) => criteriaValues[i] !== "true"
+          );
+
+          return {
+            success: verdict === "success",
+            messages: input.messages,
+            reasoning,
+            metCriteria,
+            unmetCriteria,
+          } satisfies ScenarioResult;
+        }
+
+        case "continue_test":
+          return [];
+
+        default:
+          return {
+            success: false,
+            messages: input.messages,
+            reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
+            metCriteria: [],
+            unmetCriteria: cfg.criteria,
+          } satisfies ScenarioResult;
+      }
+    }
+
+    return {
+      success: false,
+      messages: input.messages,
+      reasoning: `JudgeAgent: No tool call found in LLM output`,
+      metCriteria: [],
+      unmetCriteria: cfg.criteria,
+    } satisfies ScenarioResult;
+  }
+
+  private async generateText(input: Parameters<typeof generateText>[0]) {
+    console.log("GENERATING TEXT - JUDGE", input);
+    try {
+      return await generateText(input);
+    } catch (error) {
+      this.logger.error("Error generating text", { error });
+      throw error;
+    }
+  }
+}
+
+/**
+ * Factory function for creating JudgeAgent instances.
+ *
+ * JudgeAgent evaluates conversations against success criteria.
  *
  * The JudgeAgent watches conversations in real-time and makes decisions about
  * whether the agent under test is meeting the specified criteria. It can either
@@ -127,103 +272,5 @@ function buildFinishTestTool(criteria: string[]): Tool {
  * ```
  */
 export const judgeAgent = (cfg: JudgeAgentConfig) => {
-  return {
-    role: AgentRole.JUDGE,
-    criteria: cfg.criteria,
-
-    call: async (input: AgentInput) => {
-      const systemPrompt = cfg.systemPrompt ?? buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
-      const messages: CoreMessage[] = [
-        { role: "system", content: systemPrompt },
-        ...input.messages,
-      ];
-
-      const isLastMessage = input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
-
-      const projectConfig = await getProjectConfig();
-      const mergedConfig = mergeAndValidateConfig(cfg, projectConfig);
-      if (!mergedConfig.model) {
-        throw new Error("Model is required for the judge agent");
-      }
-
-      const tools: ToolSet = {
-        continue_test: buildContinueTestTool(),
-        finish_test: buildFinishTestTool(cfg.criteria),
-      };
-
-      const enforceJudgement = input.judgmentRequest;
-      const hasCriteria = cfg.criteria.length && cfg.criteria.length > 0;
-
-      if (enforceJudgement && !hasCriteria) {
-        return {
-          success: false,
-          messages: [],
-          reasoning: "JudgeAgent: No criteria was provided to be judged against",
-          metCriteria: [],
-          unmetCriteria: [],
-        } satisfies ScenarioResult;
-      }
-
-      const toolChoice: ToolChoice<typeof tools> = (isLastMessage || enforceJudgement) && hasCriteria
-        ? { type: "tool", toolName: "finish_test" }
-        : "required";
-
-      const completion = await generateText({
-        model: mergedConfig.model,
-        messages: messages,
-        temperature: mergedConfig.temperature ?? 0.0,
-        maxTokens: mergedConfig.maxTokens,
-        tools,
-        toolChoice,
-      });
-
-      // Prefer tool call, fallback to JSON
-      let args: FinishTestArgs | undefined;
-      if (completion.toolCalls?.length) {
-        const toolCall = completion.toolCalls[0];
-
-        switch (toolCall.toolName) {
-          case "finish_test": {
-            args = toolCall.args as FinishTestArgs;
-
-            const verdict = args.verdict || "inconclusive";
-            const reasoning = args.reasoning || "No reasoning provided";
-            const criteria = args.criteria || {};
-            const criteriaValues = Object.values(criteria);
-            const metCriteria = cfg.criteria.filter((_, i) => criteriaValues[i] === "true");
-            const unmetCriteria = cfg.criteria.filter((_, i) => criteriaValues[i] !== "true");
-
-            return {
-              success: verdict === "success",
-              messages: input.messages,
-              reasoning,
-              metCriteria,
-              unmetCriteria,
-            } satisfies ScenarioResult;
-
-          }
-
-          case "continue_test":
-            return [];
-
-          default:
-            return {
-              success: false,
-              messages: input.messages,
-              reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
-              metCriteria: [],
-              unmetCriteria: cfg.criteria,
-            } satisfies ScenarioResult;
-        }
-      }
-
-      return {
-        success: false,
-        messages: input.messages,
-        reasoning: `JudgeAgent: No tool call found in LLM output`,
-        metCriteria: [],
-        unmetCriteria: cfg.criteria,
-      } satisfies ScenarioResult;
-    },
-  } satisfies JudgeAgentAdapter;
+  return new JudgeAgent(cfg);
 };

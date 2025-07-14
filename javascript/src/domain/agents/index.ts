@@ -8,7 +8,11 @@ export enum AgentRole {
   JUDGE = "Judge",
 }
 
-export const allAgentRoles = [AgentRole.USER, AgentRole.AGENT, AgentRole.JUDGE] as const;
+export const allAgentRoles = [
+  AgentRole.USER,
+  AgentRole.AGENT,
+  AgentRole.JUDGE,
+] as const;
 
 /**
  * Input provided to an agent's `call` method.
@@ -48,7 +52,11 @@ export interface AgentInput {
  * The possible return types from an agent's `call` method.
  * Can be a simple string, a single message, an array of messages, or a ScenarioResult.
  */
-export type AgentReturnTypes = string | CoreMessage | CoreMessage[] | ScenarioResult;
+export type AgentReturnTypes =
+  | string
+  | CoreMessage
+  | CoreMessage[]
+  | ScenarioResult;
 
 /**
  * Abstract base class for integrating custom agents with the Scenario framework.
@@ -76,10 +84,6 @@ export type AgentReturnTypes = string | CoreMessage | CoreMessage[] | ScenarioRe
 export abstract class AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
 
-  constructor(input: AgentInput) {
-    void input;
-  }
-
   /**
    * Process the input and generate a response.
    *
@@ -100,10 +104,6 @@ export abstract class AgentAdapter {
 export abstract class UserSimulatorAgentAdapter implements AgentAdapter {
   role: AgentRole = AgentRole.USER;
 
-  constructor(input: AgentInput) {
-    void input;
-  }
-
   /**
    * Process the input and generate a user message.
    *
@@ -123,10 +123,6 @@ export abstract class JudgeAgentAdapter implements AgentAdapter {
    * The criteria the judge will use to evaluate the conversation.
    */
   abstract criteria: string[];
-
-  constructor(input: AgentInput) {
-    void input;
-  }
 
   /**
    * Process the input and evaluate the conversation.

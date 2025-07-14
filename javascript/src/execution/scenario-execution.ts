@@ -244,7 +244,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   ): Promise<CoreMessage[] | ScenarioResult> {
     const agent = this.agents[idx];
     const startTime = Date.now();
-
     const agentInput: AgentInput = {
       threadId: this.state.threadId,
       messages: this.state.messages,
@@ -255,34 +254,47 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       scenarioConfig: this.config,
     };
 
-    const agentResponse = await agent.call(agentInput);
-    const endTime = Date.now();
+    try {
+      const agentResponse = await agent.call(agentInput);
+      const endTime = Date.now();
 
-    this.addAgentTime(idx, endTime - startTime);
-    this.pendingMessages.delete(idx);
+      this.addAgentTime(idx, endTime - startTime);
+      this.pendingMessages.delete(idx);
 
-    if (
-      agentResponse &&
-      typeof agentResponse === "object" &&
-      "success" in agentResponse
-    ) {
-      return agentResponse as ScenarioResult;
+      if (
+        agentResponse &&
+        typeof agentResponse === "object" &&
+        "success" in agentResponse
+      ) {
+        return agentResponse as ScenarioResult;
+      }
+
+      const currentAgentTime = this.agentTimes.get(idx) ?? 0;
+      this.agentTimes.set(idx, currentAgentTime + (Date.now() - startTime));
+
+      const messages = convertAgentReturnTypesToMessages(
+        agentResponse,
+        role === AgentRole.USER ? "user" : "assistant"
+      );
+
+      for (const message of messages) {
+        this.state.addMessage(message);
+        this.broadcastMessage(message, idx);
+      }
+
+      return messages;
+    } catch (error) {
+      this.logger.error(
+        `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+          agent: agent.constructor.name,
+          agentInput,
+        }
+      );
+
+      throw error;
     }
-
-    const currentAgentTime = this.agentTimes.get(idx) ?? 0;
-    this.agentTimes.set(idx, currentAgentTime + (Date.now() - startTime));
-
-    const messages = convertAgentReturnTypesToMessages(
-      agentResponse,
-      role === AgentRole.USER ? "user" : "assistant"
-    );
-
-    for (const message of messages) {
-      this.state.addMessage(message);
-      this.broadcastMessage(message, idx);
-    }
-
-    return messages;
   }
 
   /**
@@ -712,12 +724,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     scriptStep: ScriptStep,
     stepIndex: number
   ): Promise<void | ScenarioResult | null> {
+    const functionString = scriptStep.toString();
+
     try {
       this.logger.debug(
         `[${this.config.id}] Executing script step ${stepIndex + 1}`,
         {
           stepIndex,
-          scriptStep: scriptStep.name || "anonymous",
+          function: functionString,
         }
       );
 
@@ -742,7 +756,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         {
           stepIndex,
           error: errorMessage,
-          scriptStep: scriptStep.name || "anonymous",
+          function: functionString,
         }
       );
 

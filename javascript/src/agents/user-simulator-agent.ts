@@ -4,11 +4,11 @@ import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
 import {
   AgentInput,
-  AgentRole,
   UserSimulatorAgentAdapter,
   DEFAULT_TEMPERATURE,
 } from "../domain";
 import { mergeAndValidateConfig } from "../utils/config";
+import { Logger } from "../utils/logger";
 
 function buildSystemPrompt(description: string): string {
   return `
@@ -29,6 +29,63 @@ ${description}
 - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user
 </rules>
 `.trim();
+}
+
+class UserSimulatorAgent extends UserSimulatorAgentAdapter {
+  private logger = new Logger(this.constructor.name);
+
+  constructor(private readonly cfg?: TestingAgentConfig) {
+    super();
+  }
+
+  call = async (input: AgentInput) => {
+    const config = this.cfg;
+
+    const systemPrompt =
+      config?.systemPrompt ??
+      buildSystemPrompt(input.scenarioConfig.description);
+    const messages: CoreMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "assistant", content: "Hello, how can I help you today" },
+      ...input.messages,
+    ];
+
+    const projectConfig = await getProjectConfig();
+    const mergedConfig = mergeAndValidateConfig(config ?? {}, projectConfig);
+    if (!mergedConfig.model) {
+      throw new Error("Model is required for the user simulator agent");
+    }
+
+    // User to assistant role reversal
+    // LLM models are biased to always be the assistant not the user, so we need to do
+    // this reversal otherwise models like GPT 4.5 is super confused, and Claude 3.7
+    // even starts throwing exceptions.
+    const reversedMessages = messageRoleReversal(messages);
+
+    const completion = await this.generateText({
+      model: mergedConfig.model,
+      messages: reversedMessages,
+      temperature: mergedConfig.temperature ?? DEFAULT_TEMPERATURE,
+      maxTokens: mergedConfig.maxTokens,
+    });
+
+    const messageContent = completion.text;
+    if (!messageContent) {
+      throw new Error("No response content from LLM");
+    }
+
+    return { role: "user", content: messageContent } satisfies CoreMessage;
+  };
+
+  private async generateText(input: Parameters<typeof generateText>[0]) {
+    console.log("GENERATING TEXT - USER SIMULATOR", input);
+    try {
+      return await generateText(input);
+    } catch (error) {
+      this.logger.error("Error generating text", { error });
+      throw error;
+    }
+  }
 }
 
 /**
@@ -121,44 +178,5 @@ ${description}
  * - Uses role reversal internally to work around LLM biases toward assistant roles
  */
 export const userSimulatorAgent = (config?: TestingAgentConfig) => {
-  return {
-    role: AgentRole.USER,
-
-    call: async (input: AgentInput) => {
-      const systemPrompt =
-        config?.systemPrompt ??
-        buildSystemPrompt(input.scenarioConfig.description);
-      const messages: CoreMessage[] = [
-        { role: "system", content: systemPrompt },
-        { role: "assistant", content: "Hello, how can I help you today" },
-        ...input.messages,
-      ];
-
-      const projectConfig = await getProjectConfig();
-      const mergedConfig = mergeAndValidateConfig(config ?? {}, projectConfig);
-      if (!mergedConfig.model) {
-        throw new Error("Model is required for the user simulator agent");
-      }
-
-      // User to assistant role reversal
-      // LLM models are biased to always be the assistant not the user, so we need to do
-      // this reversal otherwise models like GPT 4.5 is super confused, and Claude 3.7
-      // even starts throwing exceptions.
-      const reversedMessages = messageRoleReversal(messages);
-
-      const completion = await generateText({
-        model: mergedConfig.model,
-        messages: reversedMessages,
-        temperature: mergedConfig.temperature ?? DEFAULT_TEMPERATURE,
-        maxTokens: mergedConfig.maxTokens,
-      });
-
-      const messageContent = completion.text;
-      if (!messageContent) {
-        throw new Error("No response content from LLM");
-      }
-
-      return { role: "user", content: messageContent } satisfies CoreMessage;
-    },
-  } satisfies UserSimulatorAgentAdapter;
+  return new UserSimulatorAgent(config);
 };

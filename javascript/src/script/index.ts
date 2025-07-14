@@ -21,7 +21,7 @@ import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
  */
 export const message = (message: CoreMessage): ScriptStep => {
   return (_state, executor) => executor.message(message);
-}
+};
 
 /**
  * Generate or specify an agent response in the conversation.
@@ -36,7 +36,7 @@ export const message = (message: CoreMessage): ScriptStep => {
  */
 export const agent = (content?: string | CoreMessage): ScriptStep => {
   return (_state, executor) => executor.agent(content);
-}
+};
 
 /**
  * Invoke the judge agent to evaluate the current conversation state.
@@ -51,7 +51,7 @@ export const agent = (content?: string | CoreMessage): ScriptStep => {
  */
 export const judge = (content?: string | CoreMessage): ScriptStep => {
   return (_state, executor) => executor.judge(content);
-}
+};
 
 /**
  * Generate or specify a user message in the conversation.
@@ -66,7 +66,7 @@ export const judge = (content?: string | CoreMessage): ScriptStep => {
  */
 export const user = (content?: string | CoreMessage): ScriptStep => {
   return (_state, executor) => executor.user(content);
-}
+};
 
 /**
  * Let the scenario proceed automatically for a specified number of turns.
@@ -84,10 +84,10 @@ export const user = (content?: string | CoreMessage): ScriptStep => {
 export const proceed = (
   turns?: number,
   onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
-  onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
+  onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>
 ): ScriptStep => {
   return (_state, executor) => executor.proceed(turns, onTurn, onStep);
-}
+};
 
 /**
  * End the scenario with a success verdict.
@@ -99,7 +99,7 @@ export const proceed = (
  */
 export const succeed = (reasoning?: string): ScriptStep => {
   return (_state, executor) => executor.succeed(reasoning);
-}
+};
 
 /**
  * End the scenario with a failure verdict.
@@ -111,4 +111,4 @@ export const succeed = (reasoning?: string): ScriptStep => {
  */
 export const fail = (reasoning?: string): ScriptStep => {
   return (_state, executor) => executor.fail(reasoning);
-}
+};

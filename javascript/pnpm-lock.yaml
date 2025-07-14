@@ -96,6 +96,9 @@ importers:
       ai:
         specifier: '>=4.0.0'
         version: 4.3.16(react@19.1.0)(zod@3.24.4)
+      openai:
+        specifier: 5.9.0
+        version: 5.9.0(zod@3.24.4)
       vitest:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.15.15)(tsx@4.19.4)
@@ -2560,6 +2563,18 @@ packages:
   onetime@5.1.2:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
+
+  openai@5.9.0:
+    resolution: {integrity: sha512-cmLC0pfqLLhBGxE4aZPyRPjydgYCncppV2ClQkKmW79hNjCvmzkfhz8rN5/YVDmjVQlFV+UsF1JIuNjNgeagyQ==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.23.8
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -6279,6 +6294,10 @@ snapshots:
   onetime@5.1.2:
     dependencies:
       mimic-fn: 2.1.0
+
+  openai@5.9.0(zod@3.24.4):
+    optionalDependencies:
+      zod: 3.24.4
 
   optionator@0.9.4:
     dependencies:
