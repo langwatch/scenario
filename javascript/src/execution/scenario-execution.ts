@@ -346,6 +346,18 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
+   * Invokes the voice judge agent to evaluate the current state of the conversation.
+   * This is part of the `ScenarioExecutionLike` interface used by script steps.
+   * @param content Optional message to pass to the voice judge.
+   * @returns A promise that resolves with the scenario result if the voice judge makes a final decision, otherwise null.
+   */
+  async voiceJudge(
+    content?: string | CoreMessage
+  ): Promise<ScenarioResult | null> {
+    return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
+  }
+
+  /**
    * Lets the scenario proceed automatically for a specified number of turns.
    * This simulates the natural flow of conversation between agents.
    * This is part of the `ScenarioExecutionLike` interface used by script steps.

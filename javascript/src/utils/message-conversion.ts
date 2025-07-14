@@ -1,6 +1,5 @@
-import { MessagesSnapshotEvent } from '@ag-ui/core';
+import { MessagesSnapshotEvent } from "@ag-ui/core";
 import { CoreMessage } from "ai";
-
 
 import { generateMessageId } from "./ids";
 
@@ -12,11 +11,14 @@ type AgUiMessage = MessagesSnapshotEvent["messages"][number];
  * @param coreMessages - Array of CoreMessage from 'ai'
  * @returns Array of AG-UI messages (user, assistant, system, tool)
  */
-export function convertCoreMessagesToAguiMessages(coreMessages: CoreMessage[]): AgUiMessage[] {
+export function convertCoreMessagesToAguiMessages(
+  coreMessages: CoreMessage[]
+): AgUiMessage[] {
   const aguiMessages: AgUiMessage[] = [];
 
   for (const msg of coreMessages) {
-    const id = 'id' in msg && typeof msg.id === 'string' ? msg.id : generateMessageId();
+    const id =
+      "id" in msg && typeof msg.id === "string" ? msg.id : generateMessageId();
 
     switch (true) {
       case msg.role === "system":
@@ -27,7 +29,7 @@ export function convertCoreMessagesToAguiMessages(coreMessages: CoreMessage[]): 
         });
         break;
 
-      case msg.role === "user" && typeof msg.content === 'string':
+      case msg.role === "user" && typeof msg.content === "string":
         aguiMessages.push({
           id: id,
           role: "user",
@@ -44,7 +46,7 @@ export function convertCoreMessagesToAguiMessages(coreMessages: CoreMessage[]): 
         });
         break;
 
-      case msg.role === "assistant" && typeof msg.content === 'string':
+      case msg.role === "assistant" && typeof msg.content === "string":
         aguiMessages.push({
           id: id,
           role: "assistant",
@@ -53,21 +55,21 @@ export function convertCoreMessagesToAguiMessages(coreMessages: CoreMessage[]): 
         break;
 
       case msg.role === "assistant" && Array.isArray(msg.content): {
-        const toolCalls = msg.content.filter(p => p.type === "tool-call");
-        const nonToolCalls = msg.content.filter(p => p.type !== "tool-call");
+        const toolCalls = msg.content.filter((p) => p.type === "tool-call");
+        const nonToolCalls = msg.content.filter((p) => p.type !== "tool-call");
 
         aguiMessages.push({
           id: id,
           role: "assistant",
           content: JSON.stringify(nonToolCalls),
-          toolCalls: toolCalls.map(c => ({
+          toolCalls: toolCalls.map((c) => ({
             id: c.toolCallId,
             type: "function",
             function: {
               name: c.toolName,
               arguments: JSON.stringify(c.args),
             },
-          }))
+          })),
         });
 
         break;

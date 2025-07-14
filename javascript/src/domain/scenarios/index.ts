@@ -125,6 +125,12 @@ export interface ScenarioExecutionLike {
    */
   judge(content?: string | CoreMessage): Promise<ScenarioResult | null>;
   /**
+   * Invokes the voice judge agent to evaluate the current state of the conversation.
+   * @param content Optional message to pass to the voice judge.
+   * @returns A promise that resolves with the scenario result if the voice judge makes a final decision, otherwise null.
+   */
+  voiceJudge(content?: string | CoreMessage): Promise<ScenarioResult | null>;
+  /**
    * Proceeds with the scenario automatically for a number of turns.
    * @param turns The number of turns to proceed. Defaults to running until the scenario ends.
    * @param onTurn Optional callback executed at the end of each turn.

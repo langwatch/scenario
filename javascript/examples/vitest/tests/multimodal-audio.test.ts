@@ -75,7 +75,7 @@ describe("Multimodal Audio Tests", () => {
       ],
     } as CoreUserMessage;
 
-    const judge = scenario.judgeAgent({
+    const judge = scenario.voiceJudgeAgent({
       criteria: [
         "The agent correctly guesses it's a male voice",
         "The agent repeats the question",
@@ -91,26 +91,53 @@ describe("Multimodal Audio Tests", () => {
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
-        async (state) => {
-          const lastMessage = state.messages[state.messages.length - 1];
-          const result = await judge.call({
-            ...state,
-            messages: [lastMessage],
-            newMessages: [],
-            requestedRole: AgentRole.JUDGE,
-            judgmentRequest: true,
-            scenarioState: state,
-            scenarioConfig: state.config,
-          });
+        scenario.voiceJudge(),
+        // async (state) => {
+        //   const lastMessage = state.messages[state.messages.length - 1];
+        //   const result = await judge.call({
+        //     ...state,
+        //     messages: [lastMessage],
+        //     newMessages: [],
+        //     requestedRole: AgentRole.JUDGE,
+        //     judgmentRequest: true,
+        //     scenarioState: state,
+        //     scenarioConfig: state.config,
+        //   });
 
-          return result as ScenarioResult;
-        },
+        //   return result as ScenarioResult;
+        // },
       ],
       setId,
     });
 
     try {
-      console.log("result", JSON.stringify(result, null, 2));
+      console.log(
+        "result",
+        JSON.stringify(
+          {
+            ...result,
+            messages: result.messages.map((m) => ({
+              ...m,
+              content: !Array.isArray(m.content)
+                ? m.content
+                : m.content.map((c) => {
+                    if (c.type === "input_audio") {
+                      return {
+                        ...c,
+                        input_audio: {
+                          ...c.input_audio,
+                          data: "[base64 data]",
+                        },
+                      };
+                    }
+                  }),
+            })),
+          },
+          null,
+          2
+        )
+      );
+
       expect(result.success).toBe(true);
     } catch (error) {
       console.error(result);
