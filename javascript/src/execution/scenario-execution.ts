@@ -146,12 +146,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     try {
       // Execute script steps - pass the execution context (this), not just state
-      for (const scriptStep of this.config.script) {
-        this.logger.debug(`[${this.config.id}] Executing script step`, {
-          scriptStep,
-        });
+      for (let i = 0; i < this.config.script.length; i++) {
+        const scriptStep = this.config.script[i];
 
-        const result = await scriptStep(this.state, this);
+        const result = await this.executeScriptStep(scriptStep, i);
 
         this.emitMessageSnapshot({ scenarioRunId });
 
@@ -700,6 +698,56 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.pendingMessages.set(idx, []);
       }
       this.pendingMessages.get(idx)!.push(message);
+    }
+  }
+
+  /**
+   * Executes a single script step with proper error handling and logging.
+   * @param scriptStep The script step function to execute
+   * @param stepIndex The index of the script step for logging context
+   * @returns The result of the script step execution
+   * @private
+   */
+  private async executeScriptStep(
+    scriptStep: ScriptStep,
+    stepIndex: number
+  ): Promise<void | ScenarioResult | null> {
+    try {
+      this.logger.debug(
+        `[${this.config.id}] Executing script step ${stepIndex + 1}`,
+        {
+          stepIndex,
+          scriptStep: scriptStep.name || "anonymous",
+        }
+      );
+
+      const result = await scriptStep(this.state, this);
+
+      this.logger.debug(
+        `[${this.config.id}] Script step ${stepIndex + 1} completed`,
+        {
+          stepIndex,
+          hasResult: result !== null && result !== undefined,
+          resultType: typeof result,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      this.logger.error(
+        `[${this.config.id}] Script step ${stepIndex + 1} failed`,
+        {
+          stepIndex,
+          error: errorMessage,
+          scriptStep: scriptStep.name || "anonymous",
+        }
+      );
+
+      // Re-throw the error with additional context
+      throw new Error(`Script step ${stepIndex + 1} failed: ${errorMessage}`);
     }
   }
 }
