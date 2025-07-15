@@ -1,5 +1,290 @@
-# Multimodal Audio Analysis (Coming Soon)
+import { RefLink } from "../../../components/RefLink";
 
-This page will cover Scenario tests where the user provides **audio recordings** and the agent must transcribe, interpret, or otherwise respond.
+# Multimodal Audio Analysis [Use Case]
 
-Content is under development — check back soon! 🎧🚧
+Scenario lets you write **end-to-end tests** for agents that listen to audio, think, and respond with either text _or_ audio.  
+This page shows three common patterns and how to test them.
+
+---
+
+## Overview
+
+1. **Audio ➜ Text** – the agent receives an audio file (e.g. WAV) and replies with a textual answer.
+2. **Audio ➜ Audio** – the agent listens and replies _in audio_ (great for voice assistants).
+3. **Voice-to-Voice Conversation** – both the user simulator _and_ the agent speak over multiple turns (came out **before** OpenAI’s real-time audio API and still works today).
+
+---
+
+## Use-case comparison
+
+| Scenario                    | Input                                         | Expected Output        | Typical Judge Model                                  |
+| --------------------------- | --------------------------------------------- | ---------------------- | ---------------------------------------------------- |
+| Audio ➜ Text                | `file` part (audio) + optional prompt         | Text                   | `gpt-4o-audio-preview` or any GPT-4-level text model |
+| Audio ➜ Audio               | `file` part (audio) + optional prompt         | Audio (voice response) | `gpt-4o-audio-preview` (handles audio)               |
+| Voice-to-Voice Conversation | Multiple turns, both sides send/receive audio | Audio dialogue         | Same as above; judge runs after conversation         |
+
+---
+
+## Code Walk-through
+
+:::code-group
+
+```typescript [audio ➜ text (javascript)]
+import scenario, {
+  AgentAdapter,
+  AgentInput,
+  AgentRole,
+} from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import OpenAI from "openai";
+import { openai } from "@ai-sdk/openai";
+import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
+import { encodeAudioToBase64, getFixturePath } from "./helpers";
+import { CoreUserMessage } from "ai";
+import { convertCoreMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
+
+class AudioAgent extends AgentAdapter {
+  role: AgentRole = AgentRole.AGENT;
+  private openai = new OpenAI();
+
+  call = async (input: AgentInput) => {
+    // Convert Core messages → OpenAI shape so the voice-model accepts them
+    const messages = convertCoreMessagesToOpenAIMessages(input.messages);
+    const response = await this.respond(messages);
+
+    // Scenario expects **text**, so we extract the transcript only
+    const transcript = response.choices[0].message?.audio?.transcript;
+    if (typeof transcript === "string") return transcript;
+    throw new Error("Agent failed to generate a response");
+  };
+
+  private async respond(messages: ChatCompletionMessageParam[]) {
+    return this.openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      audio: { voice: "alloy", format: "wav" },
+      messages,
+      store: false,
+    });
+  }
+}
+
+const setId = "multimodal-audio-test";
+
+describe("Multimodal Audio to Text Tests", () => {
+  it("should handle audio input", async () => {
+    const data = encodeAudioToBase64(
+      getFixturePath("male_or_female_voice.wav")
+    );
+
+    const audioMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "Answer the question in the audio…" },
+        { type: "file", mimeType: "audio/wav", data },
+      ],
+    } satisfies CoreUserMessage;
+
+    const audioJudge = scenario.judgeAgent({
+      model: openai("gpt-4o-audio-preview"),
+      criteria: [
+        "Agent correctly guesses it's a male voice",
+        "Agent repeats the question",
+        "Agent says what format the input was in (audio or text)",
+      ],
+    });
+
+    const result = await scenario.run({
+      name: "multimodal audio analysis",
+      description: "User sends audio, agent transcribes & analyses",
+      agents: [new AudioAgent(), scenario.userSimulatorAgent(), audioJudge],
+      script: [
+        scenario.message(audioMessage),
+        scenario.agent(),
+        scenario.judge(),
+      ],
+      setId,
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```typescript [audio ➜ audio (javascript)]
+import scenario, { AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import { openai } from "@ai-sdk/openai";
+import {
+  encodeAudioToBase64,
+  getFixturePath,
+  OpenAiVoiceAgent,
+} from "./helpers";
+
+class AudioAgent extends OpenAiVoiceAgent {
+  role: AgentRole = AgentRole.AGENT;
+}
+
+const setId = "multimodal-audio-test";
+
+describe("Multimodal Audio to Audio Tests", () => {
+  it("should handle audio input", async () => {
+    const data = encodeAudioToBase64(
+      getFixturePath("male_or_female_voice.wav")
+    );
+
+    const audioMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "Answer the question in the audio…" },
+        { type: "file", mimeType: "audio/wav", data },
+      ],
+    };
+
+    const judge = scenario.judgeAgent({
+      model: openai("gpt-4o-audio-preview"),
+      criteria: [
+        "Agent guesses gender",
+        "Agent repeats the question",
+        "Agent identifies input format",
+      ],
+    });
+
+    const result = await scenario.run({
+      setId,
+      name: "multimodal audio analysis",
+      description: "User sends audio, agent replies in audio",
+      agents: [
+        new AudioAgent({ voice: "alloy" }),
+        scenario.userSimulatorAgent(),
+        judge,
+      ],
+      script: [
+        scenario.message(audioMessage),
+        scenario.agent(),
+        scenario.judge(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```typescript [voice-to-voice conversation (javascript)]
+import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import { openai } from "@ai-sdk/openai";
+import { OpenAiVoiceAgent, messageRoleReversal } from "./helpers";
+
+class AssistantAgent extends OpenAiVoiceAgent {
+  role: AgentRole = AgentRole.AGENT;
+  constructor() {
+    super({ voice: "echo", systemPrompt: "Helpful & concise" });
+  }
+}
+
+class UserSimulator extends OpenAiVoiceAgent {
+  role: AgentRole = AgentRole.USER;
+  constructor() {
+    super({ voice: "nova", systemPrompt: "Curious novice" });
+  }
+  public async call(input: AgentInput) {
+    // Reverse roles so the agent can impersonate the user
+    return super.call({
+      ...input,
+      messages: messageRoleReversal(input.messages),
+    });
+  }
+}
+
+describe("Voice-to-Voice Conversation", () => {
+  it("should handle a complete audio conversation", async () => {
+    const convJudge = scenario.judgeAgent({
+      model: openai("gpt-4o-audio-preview"),
+      criteria: ["Conversation flows naturally between user and agent"],
+    });
+
+    const result = await scenario.run({
+      name: "full audio conversation",
+      description: "Multi-turn audio dialogue",
+      agents: [new AssistantAgent(), new UserSimulator(), convJudge],
+      script: [scenario.proceed(6), scenario.judge()],
+      setId: "full-audio-conversation-test",
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+:::
+
+### Helper utilities & caveats
+
+```typescript [convertCoreMessagesToOpenAIMessages]
+// Converts <ai> CoreMessage objects → OpenAI ChatCompletion format
+export function convertCoreMessagesToOpenAIMessages(
+  coreMessages: CoreMessage[]
+): ChatCompletionMessageParam[] {
+  // We must strip `id` fields or the OpenAI client errors
+  return coreMessages.map(({ id, ...msg }) => {
+    // Detect audio parts and convert to `input_audio` chunks that GPT-4o expects
+    // …full implementation in the repo
+  });
+}
+```
+
+The converter handles:
+
+1. Stripping message `id`s (OpenAI client rejects unknown fields).
+2. Detecting `{ type: "file", mimeType: "audio/*" }` parts and transforming them into the `input_audio` shape OpenAI’s voice model needs.
+
+```typescript [OpenAiVoiceAgent]
+export abstract class OpenAiVoiceAgent extends AgentAdapter {
+  private readonly openai = new OpenAI();
+  constructor(
+    private readonly cfg: { voice?: string; systemPrompt?: string } = {}
+  ) {
+    super();
+  }
+
+  public async call(input: AgentInput) {
+    // 1️⃣ Convert messages → OpenAI format (audio included)
+    const messages = convertCoreMessagesToOpenAIMessages(input.messages);
+    // 2️⃣ Ask the voice model for an answer (text + audio)
+    const response = await this.openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      audio: { voice: this.cfg.voice ?? "alloy", format: "wav" },
+      messages,
+      store: false,
+    });
+    // 3️⃣ Return either a CoreMessage with audio data or the plain transcript
+    // …full logic in repo
+  }
+}
+```
+
+```typescript [messageRoleReversal]
+export const messageRoleReversal = (messages: CoreMessage[]): CoreMessage[] => {
+  /* Swaps user ↔ assistant roles in segments _without_ tool calls so
+     the voice-user simulator can speak as the user.  Tool segments are
+     kept intact to avoid breaking the assistant→tool contract. */
+  // …see source for full implementation
+};
+```
+
+💡 **Caveat**: When the assistant responds with audio, some judge models may ignore the audio chunk unless the role is set to `"user"`. Pass `forceUserRole: true` to `OpenAiVoiceAgent` when you hit that edge-case.
+
+---
+
+## Complete Sources
+
+Browse the full tests in the repo:
+
+- [audio ➜ text](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts)
+- [audio ➜ audio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts)
+- [voice-to-voice conversation](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-voice-to-voice-conversation.test.ts)
+
+Need more? See the [fixtures guide](../../testing-guides/fixtures) and [agent docs](../agent-integration).
