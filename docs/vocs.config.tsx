@@ -194,7 +194,7 @@ export default defineConfig({
               link: "/examples/multimodal/multimodal-files",
             },
             {
-              text: "Audio (coming soon)",
+              text: "Audio",
               link: "/examples/multimodal/multimodal-audio",
             },
           ],
