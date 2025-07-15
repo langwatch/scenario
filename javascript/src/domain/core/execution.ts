@@ -1,4 +1,9 @@
-import { CoreAssistantMessage, CoreMessage, CoreToolMessage, CoreUserMessage } from "ai";
+import {
+  CoreAssistantMessage,
+  CoreMessage,
+  CoreToolMessage,
+  CoreUserMessage,
+} from "ai";
 import type { ScenarioConfig } from "../scenarios";
 
 /**
@@ -45,6 +50,11 @@ export interface ScenarioResult {
    * An optional error message if the scenario failed due to an error.
    */
   error?: string;
+
+  /**
+   * A transcript of the full conversation.
+   */
+  transcript?: string;
 }
 
 /**

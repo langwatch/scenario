@@ -54,4 +54,10 @@ export interface FinishTestArgs {
    * The final verdict of the test.
    */
   verdict: "success" | "failure" | "inconclusive";
+
+  /**
+   * A transcript of the full conversation.
+   * Helpful for debugging multimodal scenarios.
+   */
+  transcript: string;
 }
