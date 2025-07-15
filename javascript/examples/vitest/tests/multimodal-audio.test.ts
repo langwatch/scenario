@@ -6,7 +6,11 @@ import scenario, {
 } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
+import { openai } from "@ai-sdk/openai";
+
 import { encodeAudioToBase64, getFixtureAudioPath } from "./helpers";
+import { CoreMessage, CoreUserMessage } from "ai";
+import { convertCoreMessagesToOpenAIMessages } from "../../../src/utils/convert-core-messages-to-openai";
 
 class AudioAgent extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
@@ -17,8 +21,9 @@ class AudioAgent extends AgentAdapter {
   }
 
   call = async (input: AgentInput) => {
-    const response = await this.generateText(input);
-    // We need to return the transcript here since scenario currently doesn't accept
+    const response = await this.respond(input);
+
+    // Since we are
     // audio from "assistant" messages
     const message = response.choices[0].message?.audio?.transcript;
 
@@ -30,19 +35,21 @@ class AudioAgent extends AgentAdapter {
     }
   };
 
-  private async generateText(input: AgentInput) {
-    const response = await this.openai.chat.completions.create({
+  private async respond(input: AgentInput) {
+    const messages = convertCoreMessagesToOpenAIMessages(input.messages);
+    console.log("messages", messages);
+    return await this.openai.chat.completions.create({
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
       audio: { voice: "alloy", format: "wav" },
       // We need to strip the id, or the openai client will throw an error
-      messages: input.messages.map(({ id, ...rest }) => rest),
+      messages,
       store: false,
     });
+  }
 
-    // console.log("response", JSON.stringify(response, null, 2));
-
-    return response;
+  private convertToOpenAIMessages(messages: CoreMessage[]) {
+    return convertCoreMessagesToOpenAIMessages(messages);
   }
 }
 
@@ -55,7 +62,9 @@ describe("Multimodal Audio Tests", () => {
       getFixtureAudioPath("male_or_female_voice.wav")
     );
 
-    const audioMessage = new MultimodalAudioMessage({
+    // The AI-SDK will only support file parts,
+    // so we cannot use the OpenAI shape from above
+    const audioMessage = {
       role: "user",
       content: [
         {
@@ -67,16 +76,15 @@ describe("Multimodal Audio Tests", () => {
           `,
         },
         {
-          type: "input_audio",
-          input_audio: {
-            data,
-            format: "wav",
-          },
+          type: "file",
+          mimeType: "audio/wav",
+          data,
         },
       ],
-    });
+    } satisfies CoreUserMessage;
 
-    const judge = scenario.voiceJudgeAgent({
+    const judge = scenario.judgeAgent({
+      model: openai("gpt-4o-audio-preview"),
       criteria: [
         "The agent correctly guesses it's a male voice",
         "The agent repeats the question",
@@ -92,7 +100,7 @@ describe("Multimodal Audio Tests", () => {
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
-        scenario.voiceJudge(),
+        scenario.judge(),
       ],
       setId,
     });
