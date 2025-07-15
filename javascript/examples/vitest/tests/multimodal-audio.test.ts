@@ -2,42 +2,46 @@ import scenario, {
   AgentAdapter,
   AgentInput,
   AgentRole,
-  MultimodalAudioMessage,
 } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
 import { openai } from "@ai-sdk/openai";
-
+import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import { encodeAudioToBase64, getFixtureAudioPath } from "./helpers";
-import { CoreMessage, CoreUserMessage } from "ai";
+import { CoreUserMessage } from "ai";
+
+/**
+ * NOTE: We don't export or expose this function from the main package,
+ * as we don't support the OpenAI API directly. If you want to use this
+ * function, it's recommended that you copy and paste the code into your own codebase.
+ */
 import { convertCoreMessagesToOpenAIMessages } from "../../../src/utils/convert-core-messages-to-openai";
 
 class AudioAgent extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
   private openai = new OpenAI();
 
-  constructor() {
-    super();
-  }
-
   call = async (input: AgentInput) => {
-    const response = await this.respond(input);
+    // To use the OpenAI "voice-to-voice" model, we need to use the
+    // OpenAI api directly, and so we need to convert the messages to the correct
+    // shape here.
+    // @see https://platform.openai.com/docs/guides/audio?example=audio-in
+    const messages = convertCoreMessagesToOpenAIMessages(input.messages);
+    const response = await this.respond(messages);
 
     // Since we are
     // audio from "assistant" messages
-    const message = response.choices[0].message?.audio?.transcript;
+    const transcript = response.choices[0].message?.audio?.transcript;
 
     // Handle text response
-    if (typeof message === "string") {
-      return message;
+    if (typeof transcript === "string") {
+      return transcript;
     } else {
       throw new Error("Agent failed to generate a response");
     }
   };
 
-  private async respond(input: AgentInput) {
-    const messages = convertCoreMessagesToOpenAIMessages(input.messages);
-    console.log("messages", messages);
+  private async respond(messages: ChatCompletionMessageParam[]) {
     return await this.openai.chat.completions.create({
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
@@ -46,10 +50,6 @@ class AudioAgent extends AgentAdapter {
       messages,
       store: false,
     });
-  }
-
-  private convertToOpenAIMessages(messages: CoreMessage[]) {
-    return convertCoreMessagesToOpenAIMessages(messages);
   }
 }
 
@@ -64,6 +64,7 @@ describe("Multimodal Audio Tests", () => {
 
     // The AI-SDK will only support file parts,
     // so we cannot use the OpenAI shape from above
+    // @see https://ai-sdk.dev/docs/foundations/prompts#file-parts
     const audioMessage = {
       role: "user",
       content: [
@@ -83,7 +84,8 @@ describe("Multimodal Audio Tests", () => {
       ],
     } satisfies CoreUserMessage;
 
-    const judge = scenario.judgeAgent({
+    const audioJudge = scenario.judgeAgent({
+      // We to use this model to correctly handle the audio input
       model: openai("gpt-4o-audio-preview"),
       criteria: [
         "The agent correctly guesses it's a male voice",
@@ -96,7 +98,7 @@ describe("Multimodal Audio Tests", () => {
       name: "multimodal audio analysis",
       description:
         "User sends audio file, agent analyzes and transcribes the content",
-      agents: [new AudioAgent(), scenario.userSimulatorAgent(), judge],
+      agents: [new AudioAgent(), scenario.userSimulatorAgent(), audioJudge],
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
@@ -106,33 +108,6 @@ describe("Multimodal Audio Tests", () => {
     });
 
     try {
-      console.log(
-        "result",
-        JSON.stringify(
-          {
-            ...result,
-            messages: result.messages.map((m) => ({
-              ...m,
-              content: !Array.isArray(m.content)
-                ? m.content
-                : m.content.map((c) => {
-                    if (c.type === "input_audio") {
-                      return {
-                        ...c,
-                        input_audio: {
-                          ...c.input_audio,
-                          data: "[base64 data]",
-                        },
-                      };
-                    }
-                  }),
-            })),
-          },
-          null,
-          2
-        )
-      );
-
       expect(result.success).toBe(true);
     } catch (error) {
       console.error(result);

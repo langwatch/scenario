@@ -10,7 +10,6 @@ export * from "./domain";
 export * from "./execution";
 export * from "./runner";
 export * from "./script";
-export * from "./messages";
 
 type ScenarioApi = typeof agents &
   typeof domain &
