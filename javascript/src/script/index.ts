@@ -54,17 +54,6 @@ export const judge = (content?: string | CoreMessage): ScriptStep => {
 };
 
 /**
- * Invoke the voice judge agent to evaluate the current conversation state.
- *
- * This function forces the voice judge agent to make a decision about whether
- * the scenario should continue or end with a success/failure verdict.
- * The voice judge will evaluate based on its configured criteria.
- */
-export const voiceJudge = (content?: string | CoreMessage): ScriptStep => {
-  return (_state, executor) => executor.voiceJudge(content);
-};
-
-/**
  * Generate or specify a user message in the conversation.
  *
  * If content is provided, it will be used as the user message. If no content

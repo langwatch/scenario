@@ -25,6 +25,7 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
+import convertCoreMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
   generateScenarioRunId,
@@ -32,7 +33,6 @@ import {
   getBatchRunId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
-import convertCoreMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 
 /**
  * Manages the execution of a single scenario.
@@ -342,18 +342,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * @returns A promise that resolves with the scenario result if the judge makes a final decision, otherwise null.
    */
   async judge(content?: string | CoreMessage): Promise<ScenarioResult | null> {
-    return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
-  }
-
-  /**
-   * Invokes the voice judge agent to evaluate the current state of the conversation.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param content Optional message to pass to the voice judge.
-   * @returns A promise that resolves with the scenario result if the voice judge makes a final decision, otherwise null.
-   */
-  async voiceJudge(
-    content?: string | CoreMessage
-  ): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
   }
 
