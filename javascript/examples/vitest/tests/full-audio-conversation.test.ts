@@ -9,6 +9,9 @@ import { openai } from "@ai-sdk/openai";
 import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import { CoreUserMessage, CoreAssistantMessage, CoreMessage } from "ai";
 import { convertCoreMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
+import { saveConversationAudio } from "./helpers";
+import * as path from "path";
+import { messageRoleReversal } from "../../../src/agents/utils";
 
 /**
  * Abstract base class for voice-enabled agents using OpenAI's voice-to-voice model
@@ -24,7 +27,7 @@ abstract class VoiceAgent extends AgentAdapter {
     super();
   }
 
-  call = async (input: AgentInput): Promise<CoreMessage | string> => {
+  invoke = async (input: AgentInput): Promise<CoreMessage | string> => {
     try {
       // Convert messages to OpenAI format for voice-to-voice model
       const messages = convertCoreMessagesToOpenAIMessages(input.messages);
@@ -87,9 +90,13 @@ class MyAgent extends VoiceAgent {
       Respond naturally and conversationally since this is an audio conversation.
       Be informative but keep your responses concise and engaging.
       Adapt your speaking style to be natural for audio.`,
-      "alloy"
+      "echo"
     );
   }
+
+  call = async (input: AgentInput): Promise<CoreMessage | string> => {
+    return this.invoke(input);
+  };
 
   protected createAudioResponse(audioData: string): CoreAssistantMessage {
     return {
@@ -116,13 +123,27 @@ class MyAgent extends VoiceAgent {
 class AudioUserSimulatorAgent extends VoiceAgent {
   role: AgentRole = AgentRole.USER;
 
+  call = async (input: AgentInput): Promise<CoreMessage | string> => {
+    const messages = messageRoleReversal(input.messages);
+    return this.invoke({
+      ...input,
+      messages,
+    });
+  };
+
   constructor() {
     super(
-      `You are a curious user having a conversation.
-      Ask follow-up questions, show interest in the responses, and keep the conversation engaging.
+      `
+      You are role playing as a curious user looking for information about AI agentic testing,
+      but you're a total novice and don't know anything about it.
+
       Be natural and conversational in your speech patterns.
       This is an audio conversation, so speak as you would naturally talk.
-      Keep your responses concise but engaging.`,
+
+      After 2 responses from the other speaker, say "I'm done with this conversation" and say goodbye.
+
+      YOUR LANGUAGE IS ENGLISH.
+      `,
       "nova"
     );
   }
@@ -145,58 +166,6 @@ class AudioUserSimulatorAgent extends VoiceAgent {
   }
 }
 
-// /**
-//  * Generates an initial audio message to start the conversation
-//  * This simulates a user asking a question in audio format
-//  */
-// async function generateInitialAudioMessage(): Promise<CoreUserMessage> {
-//   const openai = new OpenAI();
-
-//   // Generate audio for an initial question
-//   const response = await openai.chat.completions.create({
-//     model: "gpt-4o-audio-preview",
-//     modalities: ["text", "audio"],
-//     audio: { voice: "nova", format: "wav" },
-//     messages: [
-//       {
-//         role: "system",
-//         content:
-//           "You are starting a conversation. Ask an interesting question about a topic you're curious about. Keep it natural and conversational.",
-//       },
-//       {
-//         role: "user",
-//         content:
-//           "Hi there! I'd love to learn something new today. Could you tell me about something fascinating?",
-//       },
-//     ],
-//     store: false,
-//   });
-
-//   const audioData = response.choices[0].message?.audio?.data;
-//   const transcript = response.choices[0].message?.audio?.transcript;
-
-//   if (audioData) {
-//     console.log("INITIAL AUDIO MESSAGE", transcript);
-//     return {
-//       role: "user",
-//       content: [
-//         {
-//           type: "file",
-//           mimeType: "audio/wav",
-//           data: audioData,
-//         },
-//       ],
-//     } as CoreUserMessage;
-//   } else {
-//     // Fallback to text if audio generation fails
-//     return {
-//       role: "user",
-//       content:
-//         "Hi there! I'd love to learn something new today. Could you tell me about something fascinating?",
-//     } as CoreUserMessage;
-//   }
-// }
-
 // Use setId to group together for visualizing in the UI
 const setId = "full-audio-conversation-test";
 
@@ -211,23 +180,19 @@ describe("Full Audio-to-Audio Conversation Tests", () => {
       criteria: ["The conversation flows naturally between user and agent"],
     });
 
-    // Initial audio message to start the conversation
-    // const initialAudioMessage = await generateInitialAudioMessage();
-
     const result = await scenario.run({
       name: "full audio-to-audio conversation",
       description:
         "Complete audio conversation between user simulator and agent over multiple turns",
       agents: [audioAgent, audioUserSimulator, conversationJudge],
       script: [
-        scenario.user(
-          "Hi there! I'd love to learn something new today. Could you tell me about something fascinating?"
-        ), // User simulator follows up
-        scenario.agent(), // Agent responds to initial message
-        scenario.user(), // User simulator follows up
-        scenario.agent(), // Agent responds again
-        scenario.user(), // User simulator continues
-        scenario.agent(), // Final agent response
+        scenario.proceed(6),
+        // scenario.user(), // User simulator follows up
+        // scenario.agent(), // Agent responds to initial message
+        // scenario.user(), // User simulator follows up
+        // scenario.agent(), // Agent responds again
+        // scenario.user(), // User simulator continues
+        // scenario.agent(), // Final agent response
         scenario.judge(), // Judge evaluates the entire conversation
       ],
       setId,
@@ -235,6 +200,15 @@ describe("Full Audio-to-Audio Conversation Tests", () => {
 
     try {
       console.log("FULL AUDIO CONVERSATION RESULT", result);
+
+      // Save the conversation as an audio file
+      const outputPath = path.join(
+        process.cwd(),
+        "audio_conversations",
+        "full-conversation.wav"
+      );
+      await saveConversationAudio(result, outputPath);
+
       expect(result.success).toBe(true);
     } catch (error) {
       console.error("Full audio conversation failed:", result);
@@ -286,6 +260,15 @@ describe("Full Audio-to-Audio Conversation Tests", () => {
 
     try {
       console.log("EXTENDED AUDIO CONVERSATION RESULT", result);
+
+      // Save the extended conversation as an audio file
+      const outputPath = path.join(
+        process.cwd(),
+        "audio_conversations",
+        "extended-conversation.wav"
+      );
+      await saveConversationAudio(result, outputPath);
+
       expect(result.success).toBe(true);
     } catch (error) {
       console.error("Extended audio conversation failed:", result);
