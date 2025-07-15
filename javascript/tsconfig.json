@@ -21,6 +21,9 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*",
+    "examples/vitest/tests/helpers/convert-core-messages-to-openai.ts"
+  ],
   "exclude": ["node_modules", "dist", "examples"]
 }

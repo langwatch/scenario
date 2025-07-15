@@ -7,15 +7,9 @@ import { describe, it, expect } from "vitest";
 import OpenAI from "openai";
 import { openai } from "@ai-sdk/openai";
 import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
-import { encodeAudioToBase64, getFixtureAudioPath } from "./helpers";
+import { encodeAudioToBase64, getFixturePath } from "./helpers";
 import { CoreUserMessage } from "ai";
-
-/**
- * NOTE: We don't export or expose this function from the main package,
- * as we don't support the OpenAI API directly. If you want to use this
- * function, it's recommended that you copy and paste the code into your own codebase.
- */
-import { convertCoreMessagesToOpenAIMessages } from "../../../src/utils/convert-core-messages-to-openai";
+import { convertCoreMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
 class AudioAgent extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
@@ -29,8 +23,7 @@ class AudioAgent extends AgentAdapter {
     const messages = convertCoreMessagesToOpenAIMessages(input.messages);
     const response = await this.respond(messages);
 
-    // Since we are
-    // audio from "assistant" messages
+    // Scenario expects the response to be a string, so we only send the transcript
     const transcript = response.choices[0].message?.audio?.transcript;
 
     // Handle text response
@@ -59,7 +52,7 @@ const setId = "multimodal-audio-test";
 describe("Multimodal Audio Tests", () => {
   it("should handle audio input", async () => {
     const data = encodeAudioToBase64(
-      getFixtureAudioPath("male_or_female_voice.wav")
+      getFixturePath("male_or_female_voice.wav")
     );
 
     // The AI-SDK will only support file parts,

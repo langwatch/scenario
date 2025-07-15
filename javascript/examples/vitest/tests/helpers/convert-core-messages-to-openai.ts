@@ -225,10 +225,6 @@ function convertRegularMessage(
  * Handles user, assistant, system, and tool roles, including multimodal and tool call content.
  * Supports audio content conversion with proper MIME type handling.
  *
- * NOTE: We don't export or expose this function from the main package,
- * as we don't support the OpenAI API directly. If you want to use this
- * function, it's recommended that you copy and paste it into your own code.
- *
  * @param coreMessages - Array of CoreMessage objects to convert
  * @returns Array of ChatCompletionMessageParam objects for OpenAI API
  * @throws Error if input is invalid or message conversion fails
