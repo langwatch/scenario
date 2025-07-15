@@ -25,6 +25,19 @@ This page shows three common patterns and how to test them.
 
 ---
 
+## Prerequisites & Setup
+
+Before running the examples you’ll need a couple of things in place:
+
+1. **Node.js ≥ 18** – the OpenAI `gpt-4o` voice model uses modern `fetch`.
+2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
+
+   ```bash
+   export OPENAI_API_KEY="sk-…"
+   ```
+
+---
+
 ## Code Walk-through
 
 :::code-group
@@ -220,6 +233,15 @@ describe("Voice-to-Voice Conversation", () => {
 
 :::
 
+## Listen to a real conversation
+
+Below is the actual audio produced by the **voice-to-voice** test above. Click play to hear the agent and user simulator exchanging ideas.
+
+<audio controls style={{ width: "100%" }}>
+  <source src="/audio/full-conversation-3.wav" type="audio/wav" />
+  Your browser does not support the audio element.
+</audio>
+
 ### Helper utilities & caveats
 
 ```typescript [convertCoreMessagesToOpenAIMessages]
@@ -276,6 +298,27 @@ export const messageRoleReversal = (messages: CoreMessage[]): CoreMessage[] => {
 ```
 
 💡 **Caveat**: When the assistant responds with audio, some judge models may ignore the audio chunk unless the role is set to `"user"`. Pass `forceUserRole: true` to `OpenAiVoiceAgent` when you hit that edge-case.
+
+---
+
+## Troubleshooting & FAQs
+
+**Judge ignores assistant audio**  
+Some judge models drop the audio chunk when it comes from the _assistant_ role. Pass `forceUserRole: true` to `OpenAiVoiceAgent`—this wraps the audio in a `"user"` message so the judge evaluates it correctly.
+
+**Tests time-out or hang**  
+Voice models are slower than text-only ones. Bump Vitest’s timeout (`--timeout 60000`) or reduce concurrency (`VITEST_MAX_WORKERS=1`) when running in CI.
+
+**“Unsupported media type” errors**  
+`convertCoreMessagesToOpenAIMessages` currently supports WAV/MP3.
+
+**CI machines without audio hardware**  
+All examples work headlessly—no speakers or microphone required.
+
+**Python equivalent?**  
+Coming soon!
+
+💸 **Cost tip**: each voice request is billed the same as a standard GPT-4 audio-preview call. Keep fixture lengths and turn counts reasonable.
 
 ---
 
