@@ -1,9 +1,14 @@
-import scenario, { AgentRole } from "@langwatch/scenario";
+import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 import { openai } from "@ai-sdk/openai";
-import { encodeAudioToBase64, getFixturePath } from "./helpers";
+import {
+  encodeAudioToBase64,
+  getFixturePath,
+  saveConversationAudio,
+} from "./helpers";
 import { CoreUserMessage } from "ai";
 import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
+import * as path from "path";
 
 class AudioAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;
@@ -18,6 +23,15 @@ const setId = "multimodal-audio-test";
  */
 describe("Multimodal Audio to Audio Tests", () => {
   it("should handle audio input", async () => {
+    const myAgent = new AudioAgent({
+      systemPrompt: `
+      You are a helpful assistant that can analyze audio input and respond with audio output.
+      You must respond with audio output.
+      `,
+      voice: "alloy",
+      forceUserRole: true,
+    });
+
     const data = encodeAudioToBase64(
       getFixturePath("male_or_female_voice.wav")
     );
@@ -47,13 +61,6 @@ describe("Multimodal Audio to Audio Tests", () => {
     const audioJudge = scenario.judgeAgent({
       // We to use this model to correctly handle the audio input
       model: openai("gpt-4o-audio-preview"),
-      systemPrompt: `
-      You are a judge that will judge the agent's response to the user's question.
-      You will be given the agent's response and the user's question.
-      You will need to judge the agent's response to the user's question.
-      Input can be in audio or text format, and assistants can respond in audio or text,
-      so you must check the full inputs and outputs.
-      `,
       criteria: [
         "The agent correctly guesses it's a male voice",
         "The agent repeats the question",
@@ -66,7 +73,7 @@ describe("Multimodal Audio to Audio Tests", () => {
       name: "multimodal audio analysis",
       description:
         "User sends audio file, agent analyzes and transcribes the content",
-      agents: [new AudioAgent(), scenario.userSimulatorAgent(), audioJudge],
+      agents: [myAgent, scenario.userSimulatorAgent(), audioJudge],
       script: [
         scenario.message(audioMessage),
         scenario.agent(),

@@ -12,7 +12,14 @@ import { CoreAssistantMessage, CoreMessage, CoreUserMessage } from "ai";
  */
 interface VoiceAgentConfig {
   systemPrompt?: string;
-  voice: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
+  voice?: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
+  /**
+   * Sometimes, the judge agent will refuse to acknowledge audio parts
+   * from the assistant, so we can force the role to be user when responding.
+   *
+   * This is a weird edge case, but is sometimes required with OpenAI API.
+   */
+  forceUserRole?: boolean;
 }
 
 /**
@@ -112,7 +119,7 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
       },
     ];
 
-    return this.role === AgentRole.USER
+    return this.role === AgentRole.USER || this.config.forceUserRole
       ? ({ role: "user", content } as CoreUserMessage)
       : ({ role: "assistant", content } as CoreAssistantMessage);
   }

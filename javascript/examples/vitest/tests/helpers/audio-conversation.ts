@@ -19,7 +19,9 @@ interface AudioSegment {
  */
 export async function saveConversationAudio(
   result: ScenarioResult,
-  outputFilePath: string
+  outputFilePath: string,
+  // Useful for debugging
+  keepTempFiles: boolean = false
 ): Promise<void> {
   const audioSegments: AudioSegment[] = [];
 
@@ -84,7 +86,9 @@ export async function saveConversationAudio(
   // Clean up temporary files
   segmentFiles.forEach((file) => {
     try {
-      fs.unlinkSync(file);
+      if (!keepTempFiles) {
+        fs.unlinkSync(file);
+      }
     } catch (error) {
       console.warn(`Failed to delete temporary file ${file}:`, error);
     }
