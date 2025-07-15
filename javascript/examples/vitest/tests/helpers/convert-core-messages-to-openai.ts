@@ -3,7 +3,6 @@ import {
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions.mjs";
-import { MultimodalAudioMessage } from "../messages";
 
 // =============================================================================
 // CONSTANTS AND TYPES
@@ -81,7 +80,7 @@ function isAudioFilePart(part: unknown): part is AudioFilePart {
  * @param msg - Message to validate
  * @throws Error if message is invalid
  */
-function validateMessage(msg: CoreMessage | MultimodalAudioMessage): void {
+function validateMessage(msg: CoreMessage): void {
   if (
     !msg ||
     typeof msg.role !== "string" ||
@@ -155,9 +154,7 @@ function extractTextContent(textPart: unknown): string {
  * @param msg - Tool message to convert
  * @returns OpenAI-compatible tool message
  */
-function convertToolMessage(
-  msg: CoreMessage | MultimodalAudioMessage
-): ChatCompletionToolMessageParam {
+function convertToolMessage(msg: CoreMessage): ChatCompletionToolMessageParam {
   return {
     role: "tool",
     content:
@@ -174,7 +171,7 @@ function convertToolMessage(
  * @returns OpenAI-compatible audio message
  */
 function convertAudioMessage(
-  msg: CoreMessage | MultimodalAudioMessage,
+  msg: CoreMessage,
   filePart: AudioFilePart
 ): ChatCompletionMessageParam {
   const format = convertMimeTypeToOpenAIAudioFormat(filePart.mimeType);
@@ -206,9 +203,7 @@ function convertAudioMessage(
  * @param msg - Regular message to convert
  * @returns OpenAI-compatible message
  */
-function convertRegularMessage(
-  msg: CoreMessage | MultimodalAudioMessage
-): ChatCompletionMessageParam {
+function convertRegularMessage(msg: CoreMessage): ChatCompletionMessageParam {
   return {
     role: msg.role as "user" | "assistant" | "system",
     content: msg.content,
@@ -238,7 +233,7 @@ function convertRegularMessage(
  * ```
  */
 export function convertCoreMessagesToOpenAIMessages(
-  coreMessages: (CoreMessage | MultimodalAudioMessage)[]
+  coreMessages: CoreMessage[]
 ): ChatCompletionMessageParam[] {
   if (!Array.isArray(coreMessages)) {
     throw new Error(ERROR_MESSAGES.INVALID_INPUT);
