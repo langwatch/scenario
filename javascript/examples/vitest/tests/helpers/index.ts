@@ -5,3 +5,4 @@ export {
   concatenateWavFiles,
   getAudioSegments,
 } from "./audio-conversation";
+export { OpenAiVoiceAgent } from "./openai-voice-agent";

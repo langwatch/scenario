@@ -1,0 +1,123 @@
+import { AgentAdapter, AgentInput, AgentRole } from "@langwatch/scenario";
+import OpenAI from "openai";
+import {
+  ChatCompletion,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions.mjs";
+import { convertCoreMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
+import { CoreAssistantMessage, CoreMessage, CoreUserMessage } from "ai";
+
+/**
+ * Configuration for voice-enabled agents
+ */
+interface VoiceAgentConfig {
+  systemPrompt: string;
+  voice: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
+}
+
+/**
+ * Abstract base class for voice-enabled agents using OpenAI's voice-to-voice model
+ * Handles common audio generation and response processing logic
+ */
+export abstract class OpenAiVoiceAgent extends AgentAdapter {
+  private readonly openai = new OpenAI();
+  private readonly config: VoiceAgentConfig;
+
+  constructor(config: VoiceAgentConfig) {
+    super();
+    this.config = config;
+  }
+
+  private get systemMessage(): ChatCompletionMessageParam {
+    return {
+      role: "system",
+      content: this.config.systemPrompt,
+    };
+  }
+
+  public async call(input: AgentInput): Promise<CoreMessage | string> {
+    try {
+      // Convert messages to OpenAI format for voice-to-voice model
+      const messages = convertCoreMessagesToOpenAIMessages(input.messages);
+      const response = await this.respondWithAudio(messages);
+      return this.handleResponse(response);
+    } catch (error) {
+      console.error(
+        `${this.constructor.name} failed to generate a response`,
+        error,
+        input.messages
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Handles the response from the OpenAI API.
+   * If the response contains audio data, it creates an audio message.
+   * Else/if the response contains a transcript, it returns the transcript.
+   * If the response does not contain audio data or a transcript, it throws an error.
+   * @param response - The response from the OpenAI API.
+   * @returns The response from the OpenAI API.
+   */
+  private handleResponse(response: ChatCompletion) {
+    // Extract audio data and transcript
+    const audioData = response.choices[0].message?.audio?.data;
+    const transcript = response.choices[0].message?.audio?.transcript;
+
+    if (audioData) {
+      console.log(`${this.constructor.name} AUDIO RESPONSE`, transcript);
+      return this.createAudioMessage(audioData);
+    } else if (transcript) {
+      console.log(`${this.constructor.name} TEXT FALLBACK`, transcript);
+      return transcript;
+    } else {
+      throw new Error(`${this.constructor.name} failed to generate a response`);
+    }
+  }
+
+  /**
+   * Responds with audio using OpenAI's voice-to-voice model
+   */
+  private async respondWithAudio(
+    messages: ChatCompletionMessageParam[]
+  ): Promise<ChatCompletion> {
+    return this.openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      audio: { voice: this.config.voice, format: "wav" },
+      messages: [this.systemMessage, ...messages],
+      store: false,
+    });
+  }
+
+  /**
+   * Creates an audio message with the appropriate role based on the agent's role
+   */
+  private createAudioMessage(audioData: string): CoreMessage {
+    this.validateRole(this.role);
+
+    const content = [
+      {
+        type: "text" as const,
+        text: "",
+      },
+      {
+        type: "file" as const,
+        mimeType: "audio/wav" as const,
+        data: audioData,
+      },
+    ];
+
+    return this.role === AgentRole.USER
+      ? ({ role: "user", content } as CoreUserMessage)
+      : ({ role: "assistant", content } as CoreAssistantMessage);
+  }
+
+  private validateRole(role: AgentRole) {
+    if (["user", "assistant"].includes(role)) {
+      throw new Error(
+        `Role must be ${AgentRole.AGENT} or ${AgentRole.USER}. Received ${role}`
+      );
+    }
+  }
+}
