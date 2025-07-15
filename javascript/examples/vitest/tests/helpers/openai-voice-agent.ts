@@ -11,7 +11,7 @@ import { CoreAssistantMessage, CoreMessage, CoreUserMessage } from "ai";
  * Configuration for voice-enabled agents
  */
 interface VoiceAgentConfig {
-  systemPrompt: string;
+  systemPrompt?: string;
   voice: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
 }
 
@@ -23,16 +23,9 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
   private readonly openai = new OpenAI();
   private readonly config: VoiceAgentConfig;
 
-  constructor(config: VoiceAgentConfig) {
+  constructor(config?: VoiceAgentConfig) {
     super();
-    this.config = config;
-  }
-
-  private get systemMessage(): ChatCompletionMessageParam {
-    return {
-      role: "system",
-      content: this.config.systemPrompt,
-    };
+    this.config = config ?? { voice: "alloy" };
   }
 
   public async call(input: AgentInput): Promise<CoreMessage | string> {
@@ -85,9 +78,20 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
       audio: { voice: this.config.voice, format: "wav" },
-      messages: [this.systemMessage, ...messages],
+      messages: this.systemMessage
+        ? [this.systemMessage, ...messages]
+        : messages,
       store: false,
     });
+  }
+
+  private get systemMessage(): ChatCompletionMessageParam | undefined {
+    if (!this.config.systemPrompt) return undefined;
+
+    return {
+      role: "system",
+      content: this.config.systemPrompt,
+    };
   }
 
   /**

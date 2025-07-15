@@ -49,7 +49,11 @@ class AudioAgent extends AgentAdapter {
 // Use setId to group together for visualizing in the UI
 const setId = "multimodal-audio-test";
 
-describe("Multimodal Audio Tests", () => {
+/**
+ * This example shows how to test an agent that can take audio input
+ * and respond with text output.
+ */
+describe("Multimodal Audio to Text Tests", () => {
   it("should handle audio input", async () => {
     const data = encodeAudioToBase64(
       getFixturePath("male_or_female_voice.wav")
@@ -108,8 +112,9 @@ describe("Multimodal Audio Tests", () => {
     }
   });
 
+  // Ideas for future tests
   it.todo("should handle audio-only input without text");
-  it.todo("should handle multiple audio formats (WAV, MP3, M4A)");
+  it.todo("should handle multiple audio formats (WAV, MP3)");
   it.todo("should handle long audio files gracefully");
   it.todo(
     "should provide appropriate responses for unclear or corrupted audio"

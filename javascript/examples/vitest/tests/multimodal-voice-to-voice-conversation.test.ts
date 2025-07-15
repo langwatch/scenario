@@ -62,7 +62,7 @@ class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
 // Use setId to group together for visualizing in the UI
 const setId = "full-audio-conversation-test";
 
-describe("Full Audio-to-Audio Conversation Tests", () => {
+describe("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
     const audioUserSimulator = new AudioUserSimulatorAgent();
     const audioAgent = new MyAgent();

@@ -82,7 +82,6 @@ function buildFinishTestTool(criteria: string[]): Tool {
       verdict: z
         .enum(["success", "failure", "inconclusive"])
         .describe("The final verdict of the test"),
-      transcript: z.string().describe("A transcript of the full conversation"),
     }),
   });
 }
@@ -185,7 +184,6 @@ class JudgeAgent extends JudgeAgentAdapter {
             reasoning,
             metCriteria,
             unmetCriteria,
-            transcript: args.transcript,
           } satisfies ScenarioResult;
         }
 
