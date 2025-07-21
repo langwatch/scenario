@@ -2,7 +2,6 @@
 
 ![scenario](https://github.com/langwatch/scenario/raw/refs/heads/main/assets/scenario-wide.webp)
 
-
 [![npm version](https://badge.fury.io/js/%40langwatch%2Fscenario.svg)](https://badge.fury.io/js/%40langwatch%2Fscenario)
 
 A powerful TypeScript library for testing AI agents in realistic, scripted scenarios.
@@ -89,7 +88,8 @@ describe("Weather Agent", () => {
       parameters: z.object({
         city: z.string().describe("The city to get the weather for."),
       }),
-      execute: async ({ city }) => `The weather in ${city} is cloudy with a temperature of 24°C.`,
+      execute: async ({ city }) =>
+        `The weather in ${city} is cloudy with a temperature of 24°C.`,
     });
 
     // 2. Create an adapter for your agent
@@ -119,7 +119,8 @@ describe("Weather Agent", () => {
     // 3. Define and run your scenario
     const result = await scenario.run({
       name: "Checking the weather",
-      description: "The user asks for the weather in a specific city, and the agent should use the weather tool to find it.",
+      description:
+        "The user asks for the weather in a specific city, and the agent should use the weather tool to find it.",
       agents: [
         weatherAgent,
         scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
@@ -254,10 +255,7 @@ const result = await scenario.run({
   name: "my first scenario",
   description: "A simple test to see if the agent responds.",
   setId: "my-test-suite", // Group this scenario into a set
-  agents: [
-    myAgent,
-    scenario.userSimulatorAgent(),
-  ],
+  agents: [myAgent, scenario.userSimulatorAgent()],
 });
 ```
 
@@ -266,27 +264,63 @@ This will group all scenarios with the same `setId` together in the LangWatch UI
 - The `setupFiles` entry enables Scenario's event logging for each test.
 - The custom `VitestReporter` provides detailed scenario test reports in your test output.
 
-
 ## Vitest Integration
 
-To get rich scenario reporting and logging with Vitest, add the Scenario custom reporter and setup file to your `vitest.config.ts`:
+Scenario provides a convenient helper function to enhance your Vitest configuration with all the necessary setup files.
+
+### Using the withScenario Helper (Recommended)
 
 ```typescript
 // vitest.config.ts
 import { defineConfig } from "vitest/config";
-import VitestReporter from '@langwatch/scenario/integrations/vitest/reporter';
+import { withScenario } from "@langwatch/scenario/integrations/vitest/config";
+import VitestReporter from "@langwatch/scenario/integrations/vitest/reporter";
+
+export default withScenario(
+  defineConfig({
+    test: {
+      testTimeout: 180000, // 3 minutes, or however long you want to wait for the scenario to run
+      // Your existing setup files will be preserved and run after Scenario's setup
+      setupFiles: ["./my-custom-setup.ts"],
+      // Your existing global setup files will be preserved and run after Scenario's global setup
+      globalSetup: ["./my-global-setup.ts"],
+      // Optional: Add the Scenario reporter for detailed test reports
+      reporters: ["default", new VitestReporter()],
+    },
+  })
+);
+```
+
+The `withScenario` helper automatically:
+
+- Adds Scenario's setup files for event logging
+- Adds Scenario's global setup files
+- Preserves any existing setup configuration you have
+- Handles both string and array configurations for setup files
+
+### Manual Configuration
+
+If you prefer to configure Vitest manually, you can add the Scenario setup files directly:
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+import VitestReporter from "@langwatch/scenario/integrations/vitest/reporter";
 
 export default defineConfig({
   test: {
     testTimeout: 180000, // 3 minutes, or however long you want to wait for the scenario to run
-    setupFiles: ['@langwatch/scenario/integrations/vitest/setup'],
-    reporters: [
-      'default',
-      new VitestReporter(),
-    ],
+    setupFiles: ["@langwatch/scenario/integrations/vitest/setup"],
+    // Optional: Add the Scenario reporter for detailed test reports
+    reporters: ["default", new VitestReporter()],
   },
 });
 ```
+
+This configuration:
+
+- The `setupFiles` entry enables Scenario's event logging for each test
+- The custom `VitestReporter` provides detailed scenario test reports in your test output (optional)
 
 ## Development
 
@@ -314,6 +348,7 @@ MIT
 When running scenario tests, you can set the `SCENARIO_BATCH_RUN_ID` environment variable to uniquely identify a batch of test runs. This is especially useful for grouping results in reporting tools and CI pipelines.
 
 Example:
+
 ```bash
 SCENARIO_BATCH_RUN_ID=my-ci-run-123 pnpm test
 ```

@@ -39,7 +39,7 @@ function getFullTestName(task: { name: string; suite?: SuiteLike }): string {
   return name;
 }
 
-export default class VitestReporter implements Reporter {
+class VitestReporter implements Reporter {
   private results: Array<{
     name: string;
     status: string;
@@ -193,3 +193,5 @@ export default class VitestReporter implements Reporter {
     console.log();
   }
 }
+
+export default VitestReporter;
