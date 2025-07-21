@@ -244,58 +244,25 @@ Below is the actual audio produced by the **voice-to-voice** test above. Click p
 
 ### Helper utilities & caveats
 
-```typescript [convertCoreMessagesToOpenAIMessages]
-// Converts <ai> CoreMessage objects → OpenAI ChatCompletion format
-export function convertCoreMessagesToOpenAIMessages(
-  coreMessages: CoreMessage[]
-): ChatCompletionMessageParam[] {
-  // We must strip `id` fields or the OpenAI client errors
-  return coreMessages.map(({ id, ...msg }) => {
-    // Detect audio parts and convert to `input_audio` chunks that GPT-4o expects
-    // …full implementation in the repo
-  });
-}
-```
+The examples above rely on several helper utilities that handle the complexity of working with OpenAI's voice models:
 
-The converter handles:
+- **[encodeAudioToBase64](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-encoding.ts)** - Converts audio files to base64-encoded strings for transmission in messages. Used to prepare audio fixtures for testing.
 
-1. Stripping message `id`s (OpenAI client rejects unknown fields).
-2. Detecting `{ type: "file", mimeType: "audio/*" }` parts and transforming them into the `input_audio` shape OpenAI’s voice model needs.
+- **[getFixturePath](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/fixture-utils.ts)** - Utility to resolve paths to test fixtures (like audio files) relative to the test directory.
 
-```typescript [OpenAiVoiceAgent]
-export abstract class OpenAiVoiceAgent extends AgentAdapter {
-  private readonly openai = new OpenAI();
-  constructor(
-    private readonly cfg: { voice?: string; systemPrompt?: string } = {}
-  ) {
-    super();
-  }
+- **[convertCoreMessagesToOpenAIMessages](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/convert-core-messages-to-openai.ts)** - Converts Scenario's CoreMessage format to OpenAI's ChatCompletion format, handling audio file detection and transformation into the `input_audio` shape that GPT-4o expects.
 
-  public async call(input: AgentInput) {
-    // 1️⃣ Convert messages → OpenAI format (audio included)
-    const messages = convertCoreMessagesToOpenAIMessages(input.messages);
-    // 2️⃣ Ask the voice model for an answer (text + audio)
-    const response = await this.openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
-      modalities: ["text", "audio"],
-      audio: { voice: this.cfg.voice ?? "alloy", format: "wav" },
-      messages,
-      store: false,
-    });
-    // 3️⃣ Return either a CoreMessage with audio data or the plain transcript
-    // …full logic in repo
-  }
-}
-```
+- **[OpenAiVoiceAgent](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/openai-voice-agent.ts)** - Abstract base class that handles the OpenAI voice API calls, message conversion, and response processing. Used by both the agent and user simulator in voice-to-voice conversations.
 
-```typescript [messageRoleReversal]
-export const messageRoleReversal = (messages: CoreMessage[]): CoreMessage[] => {
-  /* Swaps user ↔ assistant roles in segments _without_ tool calls so
-     the voice-user simulator can speak as the user.  Tool segments are
-     kept intact to avoid breaking the assistant→tool contract. */
-  // …see source for full implementation
-};
-```
+- **[messageRoleReversal](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Utility function that swaps user ↔ assistant roles in messages (excluding tool calls) so the voice user simulator can speak as the user.
+
+- **[saveConversationAudio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Saves audio responses to files for debugging and analysis.
+
+- **[concatenateWavFiles](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Combines multiple WAV files into a single conversation recording.
+
+- **[getAudioSegments](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Extracts individual audio segments from a conversation for analysis.
+
+These helpers handle the technical details like audio encoding, file management, message format conversion, and managing the OpenAI API's specific requirements for voice models.
 
 💡 **Caveat**: When the assistant responds with audio, some judge models may ignore the audio chunk unless the role is set to `"user"`. Pass `forceUserRole: true` to `OpenAiVoiceAgent` when you hit that edge-case.
 
