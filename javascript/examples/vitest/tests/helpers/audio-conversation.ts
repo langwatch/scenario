@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { ScenarioResult } from "@langwatch/scenario";
 import { CoreMessage } from "ai";
+import { isAudioFilePart } from "./convert-core-messages-to-openai";
 
 /**
  * Audio segment extracted from a conversation message
@@ -28,8 +29,8 @@ export async function saveConversationAudio(
   // Extract audio data from all messages
   result.messages.forEach((message: CoreMessage, index: number) => {
     if (message.content && Array.isArray(message.content)) {
-      message.content.forEach((content: any) => {
-        if (content.type === "file" && content.mimeType === "audio/wav") {
+      message.content.forEach((content: unknown) => {
+        if (isAudioFilePart(content)) {
           // Determine speaker based on message role
           const speaker = message.role === "user" ? "User" : "Agent";
 
@@ -97,7 +98,7 @@ export async function saveConversationAudio(
   // Clean up temp directory if empty
   try {
     fs.rmdirSync(tempDir);
-  } catch (error) {
+  } catch {
     // Directory might not be empty or might not exist, ignore
   }
 
@@ -166,8 +167,8 @@ export function getAudioSegments(result: ScenarioResult): AudioSegment[] {
 
   result.messages.forEach((message: CoreMessage, index: number) => {
     if (message.content && Array.isArray(message.content)) {
-      message.content.forEach((content: any) => {
-        if (content.type === "file" && content.mimeType === "audio/wav") {
+      message.content.forEach((content: unknown) => {
+        if (isAudioFilePart(content)) {
           const speaker = message.role === "user" ? "User" : "Agent";
 
           audioSegments.push({

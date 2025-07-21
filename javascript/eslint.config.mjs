@@ -8,7 +8,13 @@ import tseslint from "typescript-eslint";
 export default defineConfig([
   importPlugin.flatConfigs.recommended,
   {
-    ignores: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/api-reference-docs/**", "**/docs/**"],
+    ignores: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/api-reference-docs/**",
+      "**/docs/**",
+    ],
   },
   {
     files: ["**/*.{js,mjs,cjs,ts}"],
@@ -51,4 +57,18 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
   tseslint.configs.recommended,
+  {
+    files: ["**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          vars: "all",
+          varsIgnorePattern: "^_",
+          args: "after-used",
+          argsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
 ]);

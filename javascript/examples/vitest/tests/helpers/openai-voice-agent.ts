@@ -1,11 +1,11 @@
 import { AgentAdapter, AgentInput, AgentRole } from "@langwatch/scenario";
+import { CoreAssistantMessage, CoreMessage, CoreUserMessage } from "ai";
 import OpenAI from "openai";
 import {
   ChatCompletion,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions.mjs";
 import { convertCoreMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
-import { CoreAssistantMessage, CoreMessage, CoreUserMessage } from "ai";
 
 /**
  * Configuration for voice-enabled agents

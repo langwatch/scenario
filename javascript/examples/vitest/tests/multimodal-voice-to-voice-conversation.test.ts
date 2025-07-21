@@ -1,9 +1,9 @@
-import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
-import { describe, it, expect } from "vitest";
-import { openai } from "@ai-sdk/openai";
-import { CoreMessage } from "ai";
-import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
 import * as path from "path";
+import { openai } from "@ai-sdk/openai";
+import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
+import { CoreMessage } from "ai";
+import { describe, it, expect } from "vitest";
+import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
 import { messageRoleReversal } from "../../../src/agents/utils";
 
 /**

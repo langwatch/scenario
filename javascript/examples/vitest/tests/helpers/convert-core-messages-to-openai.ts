@@ -60,7 +60,7 @@ const ERROR_MESSAGES = {
  * @param part - Unknown content part to check
  * @returns true if part is an audio file part
  */
-function isAudioFilePart(part: unknown): part is AudioFilePart {
+export function isAudioFilePart(part: unknown): part is AudioFilePart {
   return (
     typeof part === "object" &&
     part !== null &&
@@ -233,14 +233,14 @@ function convertRegularMessage(msg: CoreMessage): ChatCompletionMessageParam {
  * ```
  */
 export function convertCoreMessagesToOpenAIMessages(
-  coreMessages: CoreMessage[]
+  coreMessages: (CoreMessage & { id?: string })[]
 ): ChatCompletionMessageParam[] {
   if (!Array.isArray(coreMessages)) {
     throw new Error(ERROR_MESSAGES.INVALID_INPUT);
   }
 
   // We need to strip the id, or the openai client will throw an error
-  return coreMessages.map(({ id, ...msg }): ChatCompletionMessageParam => {
+  return coreMessages.map(({ id: _id, ...msg }): ChatCompletionMessageParam => {
     validateMessage(msg);
 
     if (msg.role === "tool") {

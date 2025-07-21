@@ -1,14 +1,12 @@
-import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
-import { describe, it, expect } from "vitest";
 import { openai } from "@ai-sdk/openai";
+import scenario, { AgentRole } from "@langwatch/scenario";
+import { CoreUserMessage } from "ai";
+import { describe, it, expect } from "vitest";
 import {
   encodeAudioToBase64,
   getFixturePath,
-  saveConversationAudio,
 } from "./helpers";
-import { CoreUserMessage } from "ai";
 import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
-import * as path from "path";
 
 class AudioAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;

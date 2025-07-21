@@ -1,14 +1,14 @@
+import { openai } from "@ai-sdk/openai";
 import scenario, {
   AgentAdapter,
   AgentInput,
   AgentRole,
 } from "@langwatch/scenario";
-import { describe, it, expect } from "vitest";
-import OpenAI from "openai";
-import { openai } from "@ai-sdk/openai";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
-import { encodeAudioToBase64, getFixturePath } from "./helpers";
 import { CoreUserMessage } from "ai";
+import OpenAI from "openai";
+import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
+import { describe, it, expect } from "vitest";
+import { encodeAudioToBase64, getFixturePath } from "./helpers";
 import { convertCoreMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
 class AudioAgent extends AgentAdapter {

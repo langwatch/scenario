@@ -10,8 +10,8 @@
  */
 
 import { withScenario } from "@langwatch/scenario/integrations/vitest/config";
-import { defineConfig } from "vitest/config";
 import VitestReporter from "@langwatch/scenario/integrations/vitest/reporter";
+import { defineConfig } from "vitest/config";
 
 /**
  * Export the Vitest configuration wrapped with Scenario integration
@@ -37,7 +37,7 @@ export default withScenario(
       // (Optional) Use Scenario's custom reporter for better test output
       // Provides detailed information about agent interactions,
       // conversation flows, and test results
-      reporters: [new VitestReporter()],
+      reporters: ["default", new VitestReporter()],
     },
   })
 );
