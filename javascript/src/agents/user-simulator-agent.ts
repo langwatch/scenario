@@ -173,7 +173,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * main();
  * ```
  *
- * @note
+ * **Implementation Notes:**
  * - Uses role reversal internally to work around LLM biases toward assistant roles
  */
 export const userSimulatorAgent = (config?: TestingAgentConfig) => {
