@@ -124,6 +124,8 @@ class VitestReporter implements Reporter {
               roleLabel = chalk.cyan("Agent");
             else if (role.toLowerCase() === "assistant")
               roleLabel = chalk.cyan("Assistant");
+            else if (role.toLowerCase() === "tool")
+              roleLabel = chalk.yellow("Tool");
             else roleLabel = chalk.yellow(role);
             console.log(`${roleLabel}: ${m.content}`);
           }
