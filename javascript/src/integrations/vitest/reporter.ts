@@ -39,6 +39,10 @@ function getFullTestName(task: { name: string; suite?: SuiteLike }): string {
   return name;
 }
 
+function indent(str: string, n: number = 2) {
+  return str.replace(/^/gm, " ".repeat(n));
+}
+
 class VitestReporter implements Reporter {
   private results: Array<{
     name: string;
@@ -108,7 +112,7 @@ class VitestReporter implements Reporter {
       }
 
       if (messages.length) {
-        console.log("Chat log:");
+        console.log("Chat log:\n");
         let lastMessageCount = 0;
         for (const msg of messages) {
           const allMessages =
@@ -118,15 +122,56 @@ class VitestReporter implements Reporter {
           // Only print new messages
           for (const m of allMessages.slice(lastMessageCount)) {
             const role = m.role;
+
+            if (
+              role.toLowerCase() === "assistant" &&
+              "toolCalls" in m &&
+              Array.isArray(m.toolCalls) &&
+              m.toolCalls.length > 0
+            ) {
+              for (const toolCall of m.toolCalls) {
+                const functionName = toolCall.function.name;
+                let parsedJson = "";
+                try {
+                  parsedJson = JSON.stringify(
+                    JSON.parse(toolCall.function.arguments),
+                    null,
+                    2
+                  );
+                } catch {
+                  parsedJson = toolCall.function.arguments;
+                }
+                const role = chalk.magenta(`ToolCall(${functionName}):`);
+                console.log(`${role}:\n\n${indent(parsedJson)}\n`);
+              }
+              continue;
+            }
+
             let roleLabel = role;
             if (role.toLowerCase() === "user") roleLabel = chalk.green("User");
             else if (role.toLowerCase() === "agent")
               roleLabel = chalk.cyan("Agent");
             else if (role.toLowerCase() === "assistant")
-              roleLabel = chalk.cyan("Assistant");
-            else if (role.toLowerCase() === "tool")
-              roleLabel = chalk.yellow("Tool");
-            else roleLabel = chalk.yellow(role);
+              if (
+                Array.isArray(m.content) &&
+                typeof m.content.at(0) === "object" &&
+                (m.content.at(0) as unknown as { type: string })?.type ===
+                  "tool-call"
+              )
+                roleLabel = chalk.cyan("ToolCall");
+              else roleLabel = chalk.cyan("Assistant");
+            else if (role.toLowerCase() === "tool") {
+              roleLabel = chalk.magenta("ToolResult");
+              let parsedJson = "";
+              try {
+                parsedJson = JSON.stringify(JSON.parse(m.content), null, 2);
+              } catch {
+                parsedJson = m.content;
+              }
+              console.log(`${roleLabel}:\n\n${indent(parsedJson)}\n`);
+              continue;
+            } else roleLabel = chalk.yellow(role);
+
             console.log(`${roleLabel}: ${m.content}`);
           }
           lastMessageCount = allMessages.length;
