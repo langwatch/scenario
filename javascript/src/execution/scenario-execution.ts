@@ -193,7 +193,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         status: ScenarioRunStatus.ERROR,
         result: errorResult,
       });
-      return errorResult;
+
+      // Re-throw the error in case it was a vitest assertion error
+      throw error;
     }
   }
 
@@ -760,8 +762,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         }
       );
 
-      // Re-throw the error with additional context
-      throw new Error(`Script step ${stepIndex + 1} failed: ${errorMessage}`);
+      // Re-throw the error in case it was a vitest assertion error
+      throw error;
     }
   }
 }
