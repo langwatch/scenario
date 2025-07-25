@@ -4,11 +4,9 @@ Example test for a weather agent.
 This example demonstrates testing an AI agent that provides weather information.
 """
 
-from typing import Literal
 import pytest
 import scenario
 import litellm
-from function_schema import get_function_schema
 
 
 @pytest.mark.agent_test
@@ -19,6 +17,7 @@ async def test_travel_agent():
         async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
             return travel_agent(input.messages)
 
+    # Assertions that will be used to check for tool calls
     def check_for_weather_tool_call(state: scenario.ScenarioState):
         assert state.has_tool_call("get_current_weather")
 
@@ -68,6 +67,8 @@ async def test_travel_agent():
 import litellm
 import random
 import json
+from typing import Literal
+from function_schema import get_function_schema
 
 
 def get_current_weather(city: str, date_range: str) -> str:

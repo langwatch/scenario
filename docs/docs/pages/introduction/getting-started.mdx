@@ -64,6 +64,13 @@ async def test_vegetarian_recipe_agent():
                 "Recipe should be vegetarian and not include any sort of meat",
             ])
         ],
+        script=[
+            scenario.user("quick recipe for dinner"),
+            scenario.agent(),
+            scenario.user(),
+            scenario.agent(),
+            scenario.judge(),
+        ],
     )
 
     # 3. Assert the result
@@ -129,6 +136,13 @@ describe("Vegetarian Recipe Agent", () => {
             "Recipe should be vegetarian and not include any sort of meat",
           ],
         }),
+      ],
+      script: [
+        scenario.user("quick recipe for dinner"),
+        scenario.agent(),
+        scenario.user(),
+        scenario.agent(),
+        scenario.judge(),
       ],
     });
 
