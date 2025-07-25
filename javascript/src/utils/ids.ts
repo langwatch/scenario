@@ -41,8 +41,6 @@ export function getBatchRunId(): string {
 
   // If the batch run id is set in the environment, use it
   if (process.env.SCENARIO_BATCH_RUN_ID) {
-    console.log("process.env.SCENARIO_BATCH_RUN_ID", process.env.SCENARIO_BATCH_RUN_ID);
-
     return (batchRunId = process.env.SCENARIO_BATCH_RUN_ID);
   }
 
