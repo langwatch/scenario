@@ -37,6 +37,8 @@ result = await scenario.run(
         scenario.JudgeAgent(criteria=["Agent is helpful"])
     ]
 )
+
+assert result.success
 ```
 
 ### 2. Per-Scenario Configuration
@@ -51,6 +53,8 @@ result = await scenario.run(
     agents=[MyAgent(), scenario.UserSimulatorAgent(), scenario.JudgeAgent()],
     debug=True  # Enable debug mode just for this test
 )
+
+assert result.success
 ```
 
 ### 3. Command Line (with pytest)
@@ -134,6 +138,8 @@ result = await scenario.run(
         scenario.succeed()
     ]
 )
+
+assert result.success
 ```
 
 ## Next Steps

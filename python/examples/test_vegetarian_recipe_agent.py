@@ -38,6 +38,13 @@ async def test_vegetarian_recipe_agent():
                 ]
             ),
         ],
+        script=[
+            scenario.user("quick recipe for dinner"),
+            scenario.agent(),
+            scenario.user(),
+            scenario.agent(),
+            scenario.judge(),
+        ],
         set_id="python-examples",
     )
 

@@ -413,7 +413,7 @@ This will cache any function call you decorate when running the tests and make t
 While optional, we strongly recommend setting stable identifiers for your scenarios, sets, and batches for better organization and tracking in LangWatch.
 
 - **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
-- **batch_run_id**: Groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
+- **SCENARIO_BATCH_RUN_ID**: Env variable that groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
 
 ```python
 import os

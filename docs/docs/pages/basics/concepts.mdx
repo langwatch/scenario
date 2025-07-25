@@ -24,6 +24,8 @@ result = await scenario.run(
     """,
     # ... agents and other configuration
 )
+
+assert result.success
 ```
 
 ```typescript [typescript]
@@ -52,6 +54,8 @@ const result = await scenario.run({
     }),
   ],
 });
+
+expect(result.success).toBe(true);
 ```
 
 :::
@@ -239,6 +243,8 @@ result = await scenario.run(
     ],
     max_turns=10  # Optional limit
 )
+
+assert result.success
 ```
 
 ```typescript [typescript]
@@ -252,6 +258,8 @@ const result = await scenario.run({
   ],
   maxTurns: 10, // Optional limit
 });
+
+expect(result.success).toBe(true);
 ```
 
 :::
@@ -283,6 +291,8 @@ result = await scenario.run(
         scenario.succeed("Edge case handled correctly")
     ]
 )
+
+assert result.success
 ```
 
 ```typescript [typescript]
@@ -306,6 +316,8 @@ const result = await scenario.run({
     scenario.succeed("Edge case handled correctly"),
   ],
 });
+
+expect(result.success).toBe(true);
 ```
 
 :::
@@ -363,6 +375,8 @@ result = await scenario.run(
         )
     ]
 )
+
+assert result.success
 ```
 
 ```typescript [typescript]
@@ -379,6 +393,8 @@ const result = await scenario.run({
     ),
   ],
 });
+
+expect(result.success).toBe(true);
 ```
 
 :::
@@ -407,7 +423,6 @@ You can customize the user simulator's behavior:
 :::code-group
 
 ```python [python]
-```python
 scenario.UserSimulatorAgent(
     model="openai/o3",  # Use different model
     temperature=0.7, # Increase the temperature to vary the user messages
@@ -458,6 +473,8 @@ const userSimulatorAgent = scenario.userSimulatorAgent({
     <rules>
     - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user
     </rules>
+  `,
+});
 ```
 
 :::
@@ -601,7 +618,7 @@ Scenario sets are useful for:
 While optional, we strongly recommend setting stable identifiers for your scenarios, sets, and batches for better organization and tracking in LangWatch.
 
 - **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
-- **batch_run_id**: Groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
+- **SCENARIO_BATCH_RUN_ID**: Env variable that groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.
 
 :::code-group
 
@@ -617,6 +634,8 @@ result = await scenario.run(
         scenario.UserSimulatorAgent(),
     ]
 )
+
+assert result.success
 ```
 
 ```typescript [typescript]
@@ -629,6 +648,8 @@ const result = await scenario.run({
     scenario.userSimulatorAgent(),
   ],
 });
+
+expect(result.success).toBe(true);
 ```
 
 :::
