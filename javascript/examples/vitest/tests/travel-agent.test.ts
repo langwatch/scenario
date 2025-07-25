@@ -34,9 +34,17 @@ const getAccomodation = tool({
   description: "Get the accomodation in a given city.",
   parameters: z.object({
     city: z.string().describe("The city to get the accomodation for."),
-    weather: z.string().describe("The weather in the city."),
+    weather: z
+      .enum(["sunny", "cloudy", "rainy", "snowy"] as const)
+      .describe("The weather in the city."),
   }),
-  execute: async ({ city, weather }: { city: string; weather: string }) => {
+  execute: async ({
+    city,
+    weather,
+  }: {
+    city: string;
+    weather: "sunny" | "cloudy" | "rainy" | "snowy";
+  }) => {
     if (weather === "sunny") {
       return [
         "Water Park Inn - $100 per night",
@@ -69,13 +77,18 @@ const callTravelAgent = async (
   messages: CoreMessage[],
   responseMessages: CoreMessage[] = []
 ): Promise<AgentReturnTypes> => {
+  const tools = {
+    get_current_weather: getCurrentWeather,
+    get_accomodation: getAccomodation,
+  };
+
   const response = await generateText({
     model: openai("gpt-4.1"),
     messages: [
       {
         role: "system",
         content: `
-            You are a helpful assistant that may help the user with weather information.
+            You are a helpful travel agent that helps the user with weather information and accomodation options, use the tools provided to you.
             Do not guess the city if they don't provide it.
             You can make multiple tool calls if they ask multiple cities.
 
@@ -85,10 +98,7 @@ const callTravelAgent = async (
       ...messages,
       ...responseMessages,
     ],
-    tools: {
-      get_current_weather: getCurrentWeather,
-      get_accomodation: getAccomodation,
-    },
+    tools,
     toolChoice: "auto",
     temperature: 0.0,
   });
@@ -96,7 +106,8 @@ const callTravelAgent = async (
   if (response.toolCalls && response.toolCalls.length > 0) {
     const toolCall = response.toolCalls[0];
     // Agent executes the tool directly and returns both messages
-    const toolResult = await getCurrentWeather.execute(toolCall.args, {
+    const toolFn = tools[toolCall.toolName as keyof typeof tools];
+    const toolResult = await toolFn.execute(toolCall.args, {
       toolCallId: toolCall.toolCallId,
       messages: messages,
     });
@@ -151,8 +162,7 @@ describe("Travel Agent", () => {
         The user is planning a boat trip from Barcelona to Rome,
         and is wondering what the weather will be like.
 
-        The user will ask for different accomodation options
-        depending on the weather.
+        Then the user will ask for different accomodation options.
       `,
       agents: [
         travelAgent,
@@ -169,7 +179,7 @@ describe("Travel Agent", () => {
       script: [
         scenario.user(),
         scenario.agent(),
-        (state) => expect(state.hasToolCall("get_current_weather2")).toBe(true),
+        (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.user(),
         scenario.agent(),
         scenario.user(),

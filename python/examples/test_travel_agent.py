@@ -4,6 +4,7 @@ Example test for a weather agent.
 This example demonstrates testing an AI agent that provides weather information.
 """
 
+from typing import Literal
 import pytest
 import scenario
 import litellm
@@ -31,8 +32,7 @@ async def test_travel_agent():
             The user is planning a boat trip from Barcelona to Rome,
             and is wondering what the weather will be like.
 
-            The user will ask for different accomodation options
-            depending on the weather.
+            Then the user will ask for different accomodation options.
         """,
         agents=[
             TravelAgent(),
@@ -91,9 +91,18 @@ def get_current_weather(city: str, date_range: str) -> str:
     return f"The weather in {city} is {random.choice(choices)} with a temperature of {temperature}°C."
 
 
-def get_accomodation(city: str, weather: str) -> list[str]:
+def get_accomodation(
+    city: str, weather: Literal["sunny", "cloudy", "rainy", "snowy"]
+) -> list[str]:
     """
     Get the accomodation in a given city.
+
+    Args:
+        city: The city to get the accomodation for.
+        weather: The weather in the city. One of: "sunny", "cloudy", "rainy", "snowy".
+
+    Returns:
+        The accomodation in the given city.
     """
     if weather == "sunny":
         return [
@@ -130,7 +139,7 @@ def travel_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
             {
                 "role": "system",
                 "content": """
-                    You a helpful assistant that may help the user with weather information.
+                    You are a helpful travel agent that helps the user with weather information and accomodation options, use the tools provided to you.
                     Do not guess the city if they don't provide it.
                     You can make multiple tool calls if they ask multiple cities.
 
