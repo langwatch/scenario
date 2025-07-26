@@ -17,7 +17,7 @@
     "react-router": "^7.6.2",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.10",
-    "vocs": "latest"
+    "vocs": "github:langwatch/vocs#build"
   },
   "devDependencies": {
     "@types/react": "latest",
