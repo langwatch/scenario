@@ -176,3 +176,6 @@ coverage
 
 # Results files
 result.csv
+
+# Temp files
+tmp/

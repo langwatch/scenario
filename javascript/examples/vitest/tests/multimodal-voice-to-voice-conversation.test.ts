@@ -89,6 +89,7 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
       // Save the conversation as an audio file
       const outputPath = path.join(
         process.cwd(),
+        "tmp",
         "audio_conversations",
         "full-conversation.wav"
       );
