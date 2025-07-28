@@ -1,6 +1,24 @@
-import { CoreAssistantMessage, CoreMessage, CoreToolMessage, CoreUserMessage } from "ai";
+import {
+  CoreAssistantMessage,
+  CoreMessage,
+  CoreToolMessage,
+  CoreUserMessage,
+} from "ai";
+import { Observable, Subject } from "rxjs";
 import { ScenarioExecutionStateLike, ScenarioConfig } from "../domain";
 import { generateMessageId } from "../utils/ids";
+
+// Generic enum - ready for extension
+export enum StateChangeEventType {
+  MESSAGE_ADDED = "MESSAGE_ADDED",
+  // Future: TURN_CHANGED, THREAD_ID_CHANGED, etc.
+}
+
+// Generic discriminated union - extensible structure
+export type StateChangeEvent = {
+  type: StateChangeEventType.MESSAGE_ADDED;
+};
+// Future event types go here
 
 /**
  * Manages the state of a scenario execution.
@@ -12,6 +30,12 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   private _messages: (CoreMessage & { id: string })[] = [];
   private _currentTurn: number = 0;
   private _threadId: string = "";
+
+  /** Event stream for message additions */
+  private eventSubject = new Subject<StateChangeEvent>();
+  public readonly events$: Observable<StateChangeEvent> =
+    this.eventSubject.asObservable();
+
   description: string;
   config: ScenarioConfig;
 
@@ -46,7 +70,10 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
    * @param message - The message to add.
    */
   addMessage(message: CoreMessage): void {
-    this._messages.push({ ...message, id: generateMessageId() });
+    const messageWithId = { ...message, id: generateMessageId() };
+    this._messages.push(messageWithId);
+    // Emit event when message is added
+    this.eventSubject.next({ type: StateChangeEventType.MESSAGE_ADDED });
   }
 
   lastMessage(): CoreMessage {
@@ -54,7 +81,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
       throw new Error("No messages in history");
     }
 
-    return this._messages[this._messages.length - 1]
+    return this._messages[this._messages.length - 1];
   }
 
   lastUserMessage(): CoreUserMessage {
@@ -62,7 +89,9 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
       throw new Error("No messages in history");
     }
 
-    const lastMessage = this._messages.findLast(message => message.role === "user");
+    const lastMessage = this._messages.findLast(
+      (message) => message.role === "user"
+    );
 
     if (!lastMessage) {
       throw new Error("No user message in history");
@@ -76,7 +105,9 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
       throw new Error("No messages in history");
     }
 
-    const lastMessage = this._messages.findLast(message => message.role === "assistant");
+    const lastMessage = this._messages.findLast(
+      (message) => message.role === "assistant"
+    );
 
     if (!lastMessage) {
       throw new Error("No agent message in history");
@@ -90,19 +121,24 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
       throw new Error("No messages in history");
     }
 
-    const lastMessage = this._messages.findLast(message => message.role === "tool" && message.content.find(
-      part => part.type === "tool-result" && part.toolName === toolName
-    ));
-
+    const lastMessage = this._messages.findLast(
+      (message) =>
+        message.role === "tool" &&
+        message.content.find(
+          (part) => part.type === "tool-result" && part.toolName === toolName
+        )
+    );
 
     return lastMessage as CoreToolMessage;
   }
 
   hasToolCall(toolName: string): boolean {
-    return this._messages.some(message =>
-      message.role === "tool" && message.content.find(
-        part => part.type === "tool-result" && part.toolName === toolName
-      ),
+    return this._messages.some(
+      (message) =>
+        message.role === "tool" &&
+        message.content.find(
+          (part) => part.type === "tool-result" && part.toolName === toolName
+        )
     );
   }
 }

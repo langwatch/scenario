@@ -1,6 +1,9 @@
 import { CoreMessage } from "ai";
-import { Observable, Subject } from "rxjs";
-import { ScenarioExecutionState } from "./scenario-execution-state";
+import { filter, Observable, Subject } from "rxjs";
+import {
+  ScenarioExecutionState,
+  StateChangeEventType,
+} from "./scenario-execution-state";
 import {
   type ScenarioResult,
   type ScenarioConfig,
@@ -122,9 +125,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
 
-  /** Event stream for monitoring scenario progress */
-  private eventSubject = new Subject<ScenarioEvent>();
-
   /** Logger for debugging and monitoring */
   private logger = new Logger("scenario.execution.ScenarioExecution");
 
@@ -157,6 +157,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
+
+  /** Event stream for monitoring scenario progress */
+  private eventSubject = new Subject<ScenarioEvent>();
 
   /**
    * An observable stream of events that occur during the scenario execution.
@@ -252,14 +255,21 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     const scenarioRunId = generateScenarioRunId();
     this.emitRunStarted({ scenarioRunId });
 
+    // Create subscription with captured runId (closure)
+    const subscription = this.state.events$
+      .pipe(
+        filter((event) => event.type === StateChangeEventType.MESSAGE_ADDED)
+      )
+      .subscribe(() => {
+        this.emitMessageSnapshot({ scenarioRunId });
+      });
+
     try {
       // Execute script steps - pass the execution context (this), not just state
       for (let i = 0; i < this.config.script.length; i++) {
         const scriptStep = this.config.script[i];
 
         const result = await this.executeScriptStep(scriptStep, i);
-
-        this.emitMessageSnapshot({ scenarioRunId });
 
         if (result && typeof result === "object" && "success" in result) {
           this.emitRunFinished({
@@ -304,6 +314,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       // Re-throw the error in case it was a vitest assertion error
       throw error;
+    } finally {
+      // Clean up the subscription when execution is done
+      subscription.unsubscribe();
     }
   }
 
