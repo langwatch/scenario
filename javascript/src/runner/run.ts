@@ -7,7 +7,7 @@
  */
 import { AssistantContent, ToolContent, CoreMessage } from "ai";
 import { Subscription } from "rxjs";
-import { env } from "../config";
+import { getEnv } from "../config";
 import {
   allAgentRoles,
   AgentRole,
@@ -102,9 +102,10 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
   let subscription: Subscription | null = null;
 
   try {
+    const envConfig = getEnv();
     eventBus = new EventBus({
-      endpoint: env.LANGWATCH_ENDPOINT,
-      apiKey: env.LANGWATCH_API_KEY,
+      endpoint: envConfig.LANGWATCH_ENDPOINT,
+      apiKey: envConfig.LANGWATCH_API_KEY,
     });
     eventBus.listen();
 

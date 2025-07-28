@@ -16,7 +16,11 @@ const envSchema = z.object({
    * LangWatch endpoint URL for event reporting.
    * Defaults to the production LangWatch endpoint.
    */
-  LANGWATCH_ENDPOINT: z.string().url().default("https://app.langwatch.ai"),
+  LANGWATCH_ENDPOINT: z
+    .string()
+    .url()
+    .optional()
+    .default("https://app.langwatch.ai"),
 
   /**
    * Disables simulation report info messages when set to any truthy value.
@@ -36,10 +40,15 @@ const envSchema = z.object({
     .default("development"),
 
   /**
-   * Log level for the scenario package.
+   * Case-insensitive log level for the scenario package.
    * Defaults to 'info' if not specified.
    */
-  LOG_LEVEL: z.nativeEnum(LogLevel).optional(),
+  LOG_LEVEL: z
+    .string()
+    .toUpperCase()
+    .pipe(z.nativeEnum(LogLevel))
+    .optional()
+    .default(LogLevel.INFO),
 
   /**
    * Scenario batch run ID.
@@ -49,13 +58,15 @@ const envSchema = z.object({
 });
 
 /**
- * Parsed and validated environment variables.
- * This ensures type safety and provides defaults where appropriate.
- */
-export const env = envSchema.parse(process.env);
-
-/**
  * Type definition for the validated environment variables.
  * Useful for type checking in other parts of the application.
  */
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Get the environment variables.
+ * This is a wrapper around the envSchema.parse function that ensures type safety and provides defaults where appropriate.
+ */
+export function getEnv(): Env {
+  return envSchema.parse(process.env);
+}

@@ -660,6 +660,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * Emits a message snapshot event containing current conversation history.
    */
   private emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
+    console.log("EMITTING MESSAGE SNAPSHOT", this.state.messages);
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.MESSAGE_SNAPSHOT,

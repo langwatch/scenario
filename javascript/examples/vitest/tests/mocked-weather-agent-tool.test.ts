@@ -50,32 +50,33 @@ describe("Mocked Weather Agent Tool", () => {
         The user is planning a boat trip from Barcelona to Rome,
         and is wondering what the weather will be like.
       `,
-      agents: [
-        agent(),
-        scenario.userSimulatorAgent(),
-      ],
+      agents: [agent(), scenario.userSimulatorAgent()],
       script: [
         scenario.message({
-          "role": "user",
-          "content": "What's the weather in Paris?"
+          role: "user",
+          content: "What's the weather in Paris?",
         }),
         scenario.message({
-          "role": "assistant",
-          "content": [{
-            type: "tool-call",
-            toolName: "get_current_weather",
-            toolCallId: "call_123",
-            args: getCurrentWeather.parameters.parse({ city: "Paris" })
-          }],
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolName: "get_current_weather",
+              toolCallId: "call_123",
+              args: getCurrentWeather.parameters.parse({ city: "Paris" }),
+            },
+          ],
         }),
         scenario.message({
           role: "tool",
-          content: [{
-            type: "tool-result",
-            toolName: "get_current_weather",
-            toolCallId: "call_123",
-            result: "The weather in Paris is sunny and 75°F."
-          }],
+          content: [
+            {
+              type: "tool-result",
+              toolName: "get_current_weather",
+              toolCallId: "call_123",
+              result: "The weather in Paris is sunny and 75°F.",
+            },
+          ],
         }),
         scenario.agent(), // Agent processes the tool result
         scenario.succeed(),

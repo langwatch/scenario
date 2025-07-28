@@ -1,4 +1,4 @@
-import { env } from "../config";
+import { getEnv } from "../config";
 import { getBatchRunId } from "../utils/ids";
 
 /**
@@ -44,11 +44,12 @@ export class EventAlertMessageLogger {
   }
 
   private isGreetingDisabled(): boolean {
-    return env.SCENARIO_DISABLE_SIMULATION_REPORT_INFO === true;
+    return getEnv().SCENARIO_DISABLE_SIMULATION_REPORT_INFO === true;
   }
 
   private displayGreeting(): void {
     const separator = "─".repeat(60);
+    const env = getEnv();
 
     if (!env.LANGWATCH_API_KEY) {
       console.log(`\n${separator}`);
