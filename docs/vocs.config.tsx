@@ -1,5 +1,6 @@
 import { defineConfig } from "vocs";
 import { GithubStars } from "./docs/components/GithubStars";
+import { LanguageSelectorPortal } from "./docs/components/LanguageSelectorPortal";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
@@ -221,6 +222,9 @@ export default defineConfig({
   basePath: process.env.BASE_PATH,
   baseUrl: process.env.BASE_URL,
   topNav: [
+    {
+      element: LanguageSelectorPortal(),
+    },
     {
       element: GithubStars({ repo: "langwatch/scenario" }),
     },
