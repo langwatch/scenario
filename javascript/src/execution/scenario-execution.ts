@@ -35,11 +35,60 @@ import {
 import { Logger } from "../utils/logger";
 
 /**
- * Manages the execution of a single scenario.
+ * Manages the execution of a single scenario test.
  *
- * This class orchestrates the interaction between agents, executes the script,
- * and manages the scenario's state. It also emits events that can be subscribed to
- * for observing the scenario's progress.
+ * This class orchestrates the interaction between agents (user simulator, agent under test,
+ * and judge), executes the test script step-by-step, and manages the scenario's state
+ * throughout execution. It also emits events that can be subscribed to for real-time
+ * monitoring of the scenario's progress.
+ *
+ * ## Execution Flow Overview
+ *
+ * The execution follows a turn-based system where agents take turns responding. The key
+ * concepts are:
+ * - **Script Steps**: Functions in the scenario script like `user()`, `agent()`, `proceed()`, etc.
+ * - **Agent Interactions**: Individual agent responses that occur when an agent takes their turn
+ * - **Turns**: Groups of agent interactions that happen in sequence
+ *
+ * ## Message Broadcasting System
+ *
+ * The class implements a sophisticated message broadcasting system that ensures all agents
+ * can "hear" each other's messages:
+ *
+ * 1. **Message Creation**: When an agent sends a message, it's added to the conversation history
+ * 2. **Broadcasting**: The message is immediately broadcast to all other agents via `broadcastMessage()`
+ * 3. **Queue Management**: Each agent has a pending message queue (`pendingMessages`) that stores
+ *    messages from other agents
+ * 4. **Agent Input**: When an agent is called, it receives both the full conversation history
+ *    and any new pending messages that have been broadcast to it
+ * 5. **Queue Clearing**: After an agent processes its pending messages, its queue is cleared
+ *
+ * This creates a realistic conversation environment where agents can respond contextually
+ * to the full conversation history and any new messages from other agents.
+ *
+ * ## Example Message Flow
+ *
+ * ```
+ * Turn 1:
+ * 1. User Agent sends: "Hello"
+ *    - Added to conversation history
+ *    - Broadcast to Agent and Judge (pendingMessages[1] = ["Hello"], pendingMessages[2] = ["Hello"])
+ *
+ * 2. Agent is called:
+ *    - Receives: full conversation + pendingMessages[1] = ["Hello"]
+ *    - Sends: "Hi there! How can I help you?"
+ *    - Added to conversation history
+ *    - Broadcast to User and Judge (pendingMessages[0] = ["Hi there!..."], pendingMessages[2] = ["Hello", "Hi there!..."])
+ *    - pendingMessages[1] is cleared
+ *
+ * 3. Judge is called:
+ *    - Receives: full conversation + pendingMessages[2] = ["Hello", "Hi there!..."]
+ *    - Evaluates and decides to continue
+ *    - pendingMessages[2] is cleared
+ * ```
+ *
+ * Each script step can trigger one or more agent interactions depending on the step type.
+ * For example, a `proceed(5)` step might trigger 10 agent interactions across 5 turns.
  *
  * Note: This is an internal class. Most users will interact with the higher-level
  * `scenario.run()` function instead of instantiating this class directly.
@@ -59,9 +108,10 @@ import { Logger } from "../utils/logger";
  *     }),
  *   ],
  *   script: [
- *     scenario.user("Hello"),
- *     scenario.agent(),
- *     scenario.judge(),
+ *     scenario.user("Hello"),     // Script step 1: triggers 1 agent interaction
+ *     scenario.agent(),           // Script step 2: triggers 1 agent interaction
+ *     scenario.proceed(3),        // Script step 3: triggers multiple agent interactions
+ *     scenario.judge(),           // Script step 4: triggers 1 agent interaction
  *   ]
  * });
  *
@@ -69,29 +119,62 @@ import { Logger } from "../utils/logger";
  * ```
  */
 export class ScenarioExecution implements ScenarioExecutionLike {
+  /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
+
+  /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
+
+  /** Logger for debugging and monitoring */
   private logger = new Logger("scenario.execution.ScenarioExecution");
+
+  /** Finalized configuration with all defaults applied */
   private config: ScenarioConfigFinal;
+
+  /** Array of all agents participating in the scenario */
   private agents: AgentAdapter[] = [];
+
+  /** Roles that still need to act in the current turn (USER, AGENT, JUDGE) */
   private pendingRolesOnTurn: AgentRole[] = [];
+
+  /** Agents that still need to act in the current turn */
   private pendingAgentsOnTurn: Set<AgentAdapter> = new Set();
+
+  /**
+   * Message queues for each agent. When an agent sends a message, it gets
+   * broadcast to all other agents' pending message queues. When an agent
+   * is called, it receives these pending messages as part of its input.
+   *
+   * Key: agent index, Value: array of pending messages for that agent
+   */
   private pendingMessages: Map<number, CoreMessage[]> = new Map();
+
+  /** Intermediate result set by agents that make final decisions */
   private partialResult: Omit<ScenarioResult, "messages"> | null = null;
+
+  /** Accumulated execution time for each agent (for performance tracking) */
   private agentTimes: Map<number, number> = new Map();
+
+  /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
 
   /**
    * An observable stream of events that occur during the scenario execution.
    * Subscribe to this to monitor the progress of the scenario in real-time.
+   *
+   * Events include:
+   * - RUN_STARTED: When scenario execution begins
+   * - MESSAGE_SNAPSHOT: After each message is added to the conversation
+   * - RUN_FINISHED: When scenario execution completes (success/failure/error)
    */
   public readonly events$: Observable<ScenarioEvent> =
     this.eventSubject.asObservable();
 
   /**
    * Creates a new ScenarioExecution instance.
-   * @param config The scenario configuration.
-   * @param script The script steps to execute.
+   *
+   * @param config - The scenario configuration containing agents, settings, and metadata
+   * @param script - The ordered sequence of script steps that define the test flow
    */
   constructor(config: ScenarioConfig, script: ScriptStep[]) {
     this.config = {
@@ -112,14 +195,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
-   * The history of messages in the conversation.
+   * Gets the complete conversation history as an array of messages.
+   *
+   * @returns Array of CoreMessage objects representing the full conversation
    */
   get messages(): CoreMessage[] {
     return this.state.messages;
   }
 
   /**
-   * The unique identifier for the conversation thread.
+   * Gets the unique identifier for the conversation thread.
+   * This ID is used to maintain conversation context across multiple runs.
+   *
+   * @returns The thread identifier string
    */
   get threadId(): string {
     return this.state.threadId;
@@ -134,9 +222,29 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Executes the entire scenario from start to finish.
-   * This will run through the script and any automatic proceeding logic until a
-   * final result (success, failure, or error) is determined.
-   * @returns A promise that resolves with the final result of the scenario.
+   *
+   * This method runs through all script steps sequentially until a final result
+   * (success, failure, or error) is determined. Each script step can trigger one or
+   * more agent interactions depending on the step type:
+   * - `user()` and `agent()` steps typically trigger one agent interaction each
+   * - `proceed()` steps can trigger multiple agent interactions across multiple turns
+   * - `judge()` steps trigger the judge agent to evaluate the conversation
+   * - `succeed()` and `fail()` steps immediately end the scenario
+   *
+   * The execution will stop early if:
+   * - A script step returns a ScenarioResult
+   * - The maximum number of turns is reached
+   * - An error occurs during execution
+   *
+   * @returns A promise that resolves with the final result of the scenario
+   * @throws Error if an unhandled exception occurs during execution
+   *
+   * @example
+   * ```typescript
+   * const execution = new ScenarioExecution(config, script);
+   * const result = await execution.execute();
+   * console.log(`Scenario ${result.success ? 'passed' : 'failed'}`);
+   * ```
    */
   async execute(): Promise<ScenarioResult> {
     this.reset();
@@ -200,10 +308,38 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
-   * Executes a single step in the scenario.
-   * A step usually corresponds to a single agent's turn. This method is useful
-   * for manually controlling the scenario's progress.
-   * @returns A promise that resolves with the new messages added during the step, or a final scenario result if the step concludes the scenario.
+   * Executes a single agent interaction in the scenario.
+   *
+   * This method is for manual step-by-step execution of the scenario, where each call
+   * represents one agent taking their turn. This is different from script steps (like
+   * `user()`, `agent()`, `proceed()`, etc.) which are functions in the scenario script.
+   *
+   * Each call to this method will:
+   * - Progress to the next turn if needed
+   * - Find the next agent that should act
+   * - Execute that agent's response
+   * - Return either new messages or a final scenario result
+   *
+   * Note: This method is primarily for debugging or custom execution flows. Most users
+   * will use `execute()` to run the entire scenario automatically.
+   *
+   * @returns A promise that resolves with either:
+   *   - Array of new messages added during the agent interaction, or
+   *   - A final ScenarioResult if the interaction concludes the scenario
+   * @throws Error if no result is returned from the step
+   *
+   * @example
+   * ```typescript
+   * const execution = new ScenarioExecution(config, script);
+   *
+   * // Execute one agent interaction at a time
+   * const messages = await execution.step();
+   * if (Array.isArray(messages)) {
+   *   console.log('New messages:', messages);
+   * } else {
+   *   console.log('Scenario finished:', messages.success);
+   * }
+   * ```
    */
   async step(): Promise<CoreMessage[] | ScenarioResult> {
     const result = await this._step();
@@ -239,6 +375,34 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return await this.callAgent(idx, currentRole);
   }
 
+  /**
+   * Calls a specific agent to generate a response or make a decision.
+   *
+   * This method is the core of agent interaction. It prepares the agent's input
+   * by combining the conversation history with any pending messages that have been
+   * broadcast to this agent, then calls the agent and processes its response.
+   *
+   * The agent input includes:
+   * - Full conversation history (this.state.messages)
+   * - New messages that have been broadcast to this agent (this.pendingMessages.get(idx))
+   * - The role the agent is being asked to play
+   * - Whether this is a judgment request (for judge agents)
+   * - Current scenario state and configuration
+   *
+   * After the agent responds:
+   * - Performance timing is recorded
+   * - Pending messages for this agent are cleared (they've been processed)
+   * - If the agent returns a ScenarioResult, it's returned immediately
+   * - Otherwise, the agent's messages are added to the conversation and broadcast
+   *
+   * @param idx - The index of the agent in the agents array
+   * @param role - The role the agent is being asked to play (USER, AGENT, or JUDGE)
+   * @param judgmentRequest - Whether this is a judgment request (for judge agents)
+   * @returns A promise that resolves with either:
+   *   - Array of messages if the agent generated a response, or
+   *   - ScenarioResult if the agent made a final decision
+   * @throws Error if the agent call fails
+   */
   private async callAgent(
     idx: number,
     role: AgentRole,
@@ -301,8 +465,22 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Adds a message to the conversation history.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param message The message to add.
+   *
+   * This method is part of the ScenarioExecutionLike interface used by script steps.
+   * It automatically routes the message to the appropriate agent based on the message role:
+   * - "user" messages are routed to USER role agents
+   * - "assistant" messages are routed to AGENT role agents
+   * - Other message types are added directly to the conversation
+   *
+   * @param message - The CoreMessage to add to the conversation
+   *
+   * @example
+   * ```typescript
+   * await execution.message({
+   *   role: "user",
+   *   content: "Hello, how are you?"
+   * });
+   * ```
    */
   async message(message: CoreMessage): Promise<void> {
     if (message.role === "user") {
@@ -316,22 +494,62 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
-   * Executes a user turn.
-   * If content is provided, it's used as the user's message.
-   * If not, the user simulator agent is called to generate a message.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param content The optional content of the user's message.
+   * Executes a user turn in the conversation.
+   *
+   * If content is provided, it's used directly as the user's message. If not provided,
+   * the user simulator agent is called to generate an appropriate response based on
+   * the current conversation context.
+   *
+   * This method is part of the ScenarioExecutionLike interface used by script steps.
+   *
+   * @param content - Optional content for the user's message. Can be a string or CoreMessage.
+   *                 If not provided, the user simulator agent will generate the content.
+   *
+   * @example
+   * ```typescript
+   * // Use provided content
+   * await execution.user("What's the weather like?");
+   *
+   * // Let user simulator generate content
+   * await execution.user();
+   *
+   * // Use a CoreMessage object
+   * await execution.user({
+   *   role: "user",
+   *   content: "Tell me a joke"
+   * });
+   * ```
    */
   async user(content?: string | CoreMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.USER, content);
   }
 
   /**
-   * Executes an agent turn.
-   * If content is provided, it's used as the agent's message.
-   * If not, the agent under test is called to generate a response.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param content The optional content of the agent's message.
+   * Executes an agent turn in the conversation.
+   *
+   * If content is provided, it's used directly as the agent's response. If not provided,
+   * the agent under test is called to generate a response based on the current conversation
+   * context and any pending messages.
+   *
+   * This method is part of the ScenarioExecutionLike interface used by script steps.
+   *
+   * @param content - Optional content for the agent's response. Can be a string or CoreMessage.
+   *                 If not provided, the agent under test will generate the response.
+   *
+   * @example
+   * ```typescript
+   * // Let agent generate response
+   * await execution.agent();
+   *
+   * // Use provided content
+   * await execution.agent("The weather is sunny today!");
+   *
+   * // Use a CoreMessage object
+   * await execution.agent({
+   *   role: "assistant",
+   *   content: "I'm here to help you with weather information."
+   * });
+   * ```
    */
   async agent(content?: string | CoreMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.AGENT, content);
@@ -339,9 +557,30 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Invokes the judge agent to evaluate the current state of the conversation.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param content Optional message to pass to the judge.
-   * @returns A promise that resolves with the scenario result if the judge makes a final decision, otherwise null.
+   *
+   * The judge agent analyzes the conversation history and determines whether the
+   * scenario criteria have been met. This can result in either:
+   * - A final scenario result (success/failure) if the judge makes a decision
+   * - Null if the judge needs more information or conversation to continue
+   *
+   * This method is part of the ScenarioExecutionLike interface used by script steps.
+   *
+   * @param content - Optional message to pass to the judge agent for additional context
+   * @returns A promise that resolves with:
+   *   - ScenarioResult if the judge makes a final decision, or
+   *   - Null if the conversation should continue
+   *
+   * @example
+   * ```typescript
+   * // Let judge evaluate current state
+   * const result = await execution.judge();
+   * if (result) {
+   *   console.log(`Judge decided: ${result.success ? 'pass' : 'fail'}`);
+   * }
+   *
+   * // Provide additional context to judge
+   * const result = await execution.judge("Please consider the user's satisfaction level");
+   * ```
    */
   async judge(content?: string | CoreMessage): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
@@ -349,12 +588,43 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Lets the scenario proceed automatically for a specified number of turns.
-   * This simulates the natural flow of conversation between agents.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param turns The number of turns to proceed. If undefined, runs until a conclusion or max turns is reached.
-   * @param onTurn A callback executed at the end of each turn.
-   * @param onStep A callback executed after each agent interaction.
-   * @returns A promise that resolves with the scenario result if a conclusion is reached.
+   *
+   * This method is a script step that simulates natural conversation flow by allowing
+   * agents to interact automatically without explicit script steps. It can trigger
+   * multiple agent interactions across multiple turns, making it useful for testing
+   * scenarios where you want to see how agents behave in extended conversations.
+   *
+   * Unlike other script steps that typically trigger one agent interaction each,
+   * this step can trigger many agent interactions depending on the number of turns
+   * and the agents' behavior.
+   *
+   * The method will continue until:
+   * - The specified number of turns is reached
+   * - A final scenario result is determined
+   * - The maximum turns limit is reached
+   *
+   * @param turns - The number of turns to proceed. If undefined, runs until a conclusion
+   *               or max turns is reached
+   * @param onTurn - Optional callback executed at the end of each turn. Receives the
+   *                current execution state
+   * @param onStep - Optional callback executed after each agent interaction. Receives
+   *                the current execution state
+   * @returns A promise that resolves with:
+   *   - ScenarioResult if a conclusion is reached during the proceeding, or
+   *   - Null if the specified turns complete without conclusion
+   *
+   * @example
+   * ```typescript
+   * // Proceed for 5 turns
+   * const result = await execution.proceed(5);
+   *
+   * // Proceed until conclusion with callbacks
+   * const result = await execution.proceed(
+   *   undefined,
+   *   (state) => console.log(`Turn ${state.currentTurn} completed`),
+   *   (state) => console.log(`Agent interaction completed, ${state.messages.length} messages`)
+   * );
+   * ```
    */
   async proceed(
     turns?: number,
@@ -390,9 +660,26 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Immediately ends the scenario with a success verdict.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param reasoning An optional explanation for the success.
-   * @returns A promise that resolves with the final successful scenario result.
+   *
+   * This method forces the scenario to end successfully, regardless of the current
+   * conversation state. It's useful for scenarios where you want to explicitly
+   * mark success based on specific conditions or external factors.
+   *
+   * This method is part of the ScenarioExecutionLike interface used by script steps.
+   *
+   * @param reasoning - Optional explanation for why the scenario is being marked as successful
+   * @returns A promise that resolves with the final successful scenario result
+   *
+   * @example
+   * ```typescript
+   * // Mark success with default reasoning
+   * const result = await execution.succeed();
+   *
+   * // Mark success with custom reasoning
+   * const result = await execution.succeed(
+   *   "User successfully completed the onboarding flow"
+   * );
+   * ```
    */
   async succeed(reasoning?: string): Promise<ScenarioResult> {
     return {
@@ -407,9 +694,26 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Immediately ends the scenario with a failure verdict.
-   * This is part of the `ScenarioExecutionLike` interface used by script steps.
-   * @param reasoning An optional explanation for the failure.
-   * @returns A promise that resolves with the final failed scenario result.
+   *
+   * This method forces the scenario to end with failure, regardless of the current
+   * conversation state. It's useful for scenarios where you want to explicitly
+   * mark failure based on specific conditions or external factors.
+   *
+   * This method is part of the ScenarioExecutionLike interface used by script steps.
+   *
+   * @param reasoning - Optional explanation for why the scenario is being marked as failed
+   * @returns A promise that resolves with the final failed scenario result
+   *
+   * @example
+   * ```typescript
+   * // Mark failure with default reasoning
+   * const result = await execution.fail();
+   *
+   * // Mark failure with custom reasoning
+   * const result = await execution.fail(
+   *   "Agent failed to provide accurate weather information"
+   * );
+   * ```
    */
   async fail(reasoning?: string): Promise<ScenarioResult> {
     return {
@@ -421,20 +725,99 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     };
   }
 
+  /**
+   * Adds execution time for a specific agent to the performance tracking.
+   *
+   * This method is used internally to track how long each agent takes to respond,
+   * which is included in the final scenario result for performance analysis.
+   * The accumulated time for each agent is used to calculate total agent response
+   * times in the scenario result.
+   *
+   * @param agentIdx - The index of the agent in the agents array
+   * @param time - The execution time in milliseconds to add to the agent's total
+   *
+   * @example
+   * ```typescript
+   * // This is typically called internally by the execution engine
+   * execution.addAgentTime(0, 1500); // Agent at index 0 took 1.5 seconds
+   * ```
+   */
   addAgentTime(agentIdx: number, time: number): void {
     const currentTime = this.agentTimes.get(agentIdx) || 0;
 
     this.agentTimes.set(agentIdx, currentTime + time);
   }
 
+  /**
+   * Checks if a partial result has been set for the scenario.
+   *
+   * This method is used internally to determine if a scenario has already reached
+   * a conclusion (success or failure) but hasn't been finalized yet. Partial results
+   * are typically set by agents that make final decisions (like judge agents) and
+   * are later finalized with the complete message history.
+   *
+   * @returns True if a partial result exists, false otherwise
+   *
+   * @example
+   * ```typescript
+   * // This is typically used internally by the execution engine
+   * if (execution.hasResult()) {
+   *   console.log('Scenario has reached a conclusion');
+   * }
+   * ```
+   */
   hasResult(): boolean {
     return this.partialResult !== null;
   }
 
+  /**
+   * Sets a partial result for the scenario.
+   *
+   * This method is used internally to store intermediate results that may be
+   * finalized later with the complete message history. Partial results are typically
+   * created by agents that make final decisions (like judge agents) and contain
+   * the success/failure status, reasoning, and criteria evaluation, but not the
+   * complete message history.
+   *
+   * @param result - The partial result without the messages field. Should include
+   *                success status, reasoning, and criteria evaluation.
+   *
+   * @example
+   * ```typescript
+   * // This is typically called internally by agents that make final decisions
+   * execution.setResult({
+   *   success: true,
+   *   reasoning: "Agent provided accurate weather information",
+   *   metCriteria: ["Provides accurate weather data"],
+   *   unmetCriteria: []
+   * });
+   * ```
+   */
   setResult(result: Omit<ScenarioResult, "messages">): void {
     this.partialResult = result;
   }
 
+  /**
+   * Internal method to handle script step calls to agents.
+   *
+   * This method is the core logic for executing script steps that involve agent
+   * interactions. It handles finding the appropriate agent for the given role,
+   * managing turn progression, and executing the agent's response.
+   *
+   * The method will:
+   * - Find the next available agent for the specified role
+   * - Progress to a new turn if no agent is available
+   * - Execute the agent with the provided content or let it generate content
+   * - Handle judgment requests for judge agents
+   * - Return a final result if the agent makes a decision
+   *
+   * @param role - The role of the agent to call (USER, AGENT, or JUDGE)
+   * @param content - Optional content to use instead of letting the agent generate it
+   * @param judgmentRequest - Whether this is a judgment request (for judge agents)
+   * @returns A promise that resolves with a ScenarioResult if the agent makes a final
+   *          decision, or null if the conversation should continue
+   * @throws Error if no agent is found for the specified role
+   */
   private async scriptCallAgent(
     role: AgentRole,
     content?: string | CoreMessage,
@@ -510,6 +893,21 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return null;
   }
 
+  /**
+   * Resets the scenario execution to its initial state.
+   *
+   * This method is called at the beginning of each execution to ensure a clean
+   * state. It creates a new execution state, initializes agents, sets up the
+   * first turn, and clears any pending messages or partial results.
+   *
+   * The reset process:
+   * - Creates a new ScenarioExecutionState with the current config
+   * - Sets up the thread ID (generates new one if not provided)
+   * - Initializes all agents
+   * - Starts the first turn
+   * - Records the start time for performance tracking
+   * - Clears any pending messages
+   */
   private reset(): void {
     this.state = new ScenarioExecutionState(this.config);
     this.state.threadId = this.config.threadId || generateThreadId();
@@ -537,6 +935,16 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return { idx: -1, agent: null };
   }
 
+  /**
+   * Starts a new turn in the scenario execution.
+   *
+   * This method is called when transitioning to a new turn. It resets the pending
+   * agents and roles for the turn, allowing all agents to participate again in
+   * the new turn. The turn counter is incremented to track the current turn number.
+   *
+   * A turn represents a cycle where agents can take actions. Each turn can involve
+   * multiple agent interactions as agents respond to each other's messages.
+   */
   private newTurn(): void {
     this.pendingAgentsOnTurn = new Set(this.agents);
     this.pendingRolesOnTurn = [
@@ -588,6 +996,23 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
   }
 
+  /**
+   * Creates a failure result when the maximum number of turns is reached.
+   *
+   * This method is called when the scenario execution reaches the maximum number
+   * of turns without reaching a conclusion. It creates a failure result with
+   * appropriate reasoning and includes performance metrics.
+   *
+   * The result includes:
+   * - All messages from the conversation
+   * - Failure reasoning explaining the turn limit was reached
+   * - Empty met criteria (since no conclusion was reached)
+   * - All judge criteria as unmet (since no evaluation was completed)
+   * - Total execution time and agent response times
+   *
+   * @param errorMessage - Optional custom error message to use instead of the default
+   * @returns A ScenarioResult indicating failure due to reaching max turns
+   */
   private reachedMaxTurns(errorMessage?: string): ScenarioResult {
     const agentRoleAgentsIdx = this.agents
       .map((agent, i) => ({ agent, idx: i }))
@@ -701,8 +1126,31 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Distributes a message to all other agents in the scenario.
    *
-   * @param message - The message to broadcast.
-   * @param fromAgentIdx - The index of the agent that sent the message, to avoid echoing.
+   * This method implements the message broadcasting system that allows agents to
+   * "hear" messages from other agents. When an agent sends a message, it needs to
+   * be distributed to all other agents so they can respond appropriately.
+   *
+   * The broadcasting process:
+   * 1. Iterates through all agents in the scenario
+   * 2. Skips the agent that sent the message (to avoid echo)
+   * 3. Adds the message to each agent's pending message queue
+   * 4. Agents will receive these messages when they're called next
+   *
+   * This creates a realistic conversation environment where agents can see
+   * the full conversation history and respond contextually.
+   *
+   * @param message - The message to broadcast to all other agents
+   * @param fromAgentIdx - The index of the agent that sent the message (to avoid echoing back to sender)
+   *
+   * @example
+   * ```typescript
+   * // When agent 0 sends a message, it gets broadcast to agents 1 and 2
+   * execution.broadcastMessage(
+   *   { role: "user", content: "Hello" },
+   *   0 // fromAgentIdx
+   * );
+   * // Now agents 1 and 2 have this message in their pendingMessages queue
+   * ```
    */
   private broadcastMessage(message: CoreMessage, fromAgentIdx?: number): void {
     for (let idx = 0; idx < this.agents.length; idx++) {
@@ -717,10 +1165,22 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /**
    * Executes a single script step with proper error handling and logging.
-   * @param scriptStep The script step function to execute
-   * @param stepIndex The index of the script step for logging context
-   * @returns The result of the script step execution
-   * @private
+   *
+   * This method is responsible for executing each script step function with
+   * comprehensive error handling and logging. It provides the execution context
+   * to the script step and handles any errors that occur during execution.
+   *
+   * The method:
+   * - Logs the start of script step execution
+   * - Calls the script step function with the current state and execution context
+   * - Logs the completion of the script step
+   * - Handles and logs any errors that occur
+   * - Re-throws errors to maintain the original error context
+   *
+   * @param scriptStep - The script step function to execute (user, agent, judge, etc.)
+   * @param stepIndex - The index of the script step for logging and debugging context
+   * @returns The result of the script step execution (void, ScenarioResult, or null)
+   * @throws Error if the script step throws an error (preserves original error)
    */
   private async executeScriptStep(
     scriptStep: ScriptStep,
@@ -768,6 +1228,20 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 }
 
+/**
+ * Converts agent return types to CoreMessage format.
+ *
+ * This utility function handles the various return types that agents can return
+ * and converts them to a standardized CoreMessage format. Agents can return:
+ * - A string (converted to a message with the specified role)
+ * - An array of CoreMessage objects (returned as-is)
+ * - A single CoreMessage object (wrapped in an array)
+ * - Any other type (returns empty array)
+ *
+ * @param response - The response from an agent (string, CoreMessage, or array of CoreMessage)
+ * @param role - The role to assign if the response is a string ("user" or "assistant")
+ * @returns An array of CoreMessage objects
+ */
 function convertAgentReturnTypesToMessages(
   response: AgentReturnTypes,
   role: "user" | "assistant"
