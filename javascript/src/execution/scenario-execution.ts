@@ -296,16 +296,16 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         ].join("\n")
       );
     } catch (error) {
+      const errorInfo = extractErrorInfo(error);
       const errorResult: ScenarioResult = {
         success: false,
         messages: this.state.messages,
-        reasoning: `Scenario failed with error: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        reasoning: `Scenario failed with error: ${errorInfo.message}`,
         metCriteria: [],
         unmetCriteria: [],
-        error: error instanceof Error ? error.message : String(error),
+        error: JSON.stringify(errorInfo),
       };
+
       this.emitRunFinished({
         scenarioRunId,
         status: ScenarioRunStatus.ERROR,
@@ -1267,4 +1267,36 @@ function convertAgentReturnTypesToMessages(
   if (typeof response === "object" && "role" in response) return [response];
 
   return [];
+}
+
+/**
+ * Extracts structured error information for logging and reporting.
+ *
+ * This function takes any thrown error (unknown type) and returns an object
+ * containing the error's name, message, and stack trace if available.
+ * If the input is not an instance of Error, it provides a generic name and
+ * stringified value for message.
+ *
+ * @param error - The error object or value to extract information from.
+ * @returns An object with 'name', optional 'message', and optional 'stack' properties.
+ */
+function extractErrorInfo(error: unknown): {
+  name: string;
+  message?: string;
+  stack?: string;
+} {
+  // Extracts error information in a structured way for logging and reporting.
+  // Returns an object with name, message, and stack if available.
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  // If not an Error instance, provide a generic name and stringified value.
+  return {
+    name: typeof error,
+    message: String(error),
+  };
 }
