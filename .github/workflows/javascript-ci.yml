@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  ci-checks:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
 

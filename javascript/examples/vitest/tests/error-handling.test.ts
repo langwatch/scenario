@@ -2,8 +2,8 @@ import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
 /**
- * This test demonstrates how scenario errors are captured and reported
- * in the ScenarioResult.error field.
+ * This test demonstrates how scenario errors are thrown and caught
+ * by vitest when agents fail.
  */
 describe("Scenario Error Handling", () => {
   const errorAgent: AgentAdapter = {
@@ -13,19 +13,18 @@ describe("Scenario Error Handling", () => {
     },
   };
 
-  it("should capture agent errors in the scenario result", async () => {
-    const result = await scenario.run({
-      name: "error scenario",
-      description: "This scenario is designed to fail due to an agent error.",
-      agents: [
-        errorAgent,
-        scenario.userSimulatorAgent(),
-        scenario.judgeAgent({ criteria: ["Agent should not throw errors"] }),
-      ],
-      setId: "javascript-examples",
-    });
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Simulated agent failure");
-    expect(result.reasoning).toContain("Scenario failed with error");
+  it("should throw when agent errors occur", async () => {
+    await expect(() =>
+      scenario.run({
+        name: "error scenario",
+        description: "This scenario is designed to fail due to an agent error.",
+        agents: [
+          errorAgent,
+          scenario.userSimulatorAgent(),
+          scenario.judgeAgent({ criteria: ["Agent should not throw errors"] }),
+        ],
+        setId: "javascript-examples",
+      })
+    ).rejects.toThrow("Simulated agent failure");
   });
 });
