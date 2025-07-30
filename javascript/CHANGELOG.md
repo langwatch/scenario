@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.10](https://github.com/langwatch/scenario/compare/javascript/v0.2.9...javascript/v0.2.10) (2025-07-30)
+
+
+### Features
+
+* multimodal audio ([#110](https://github.com/langwatch/scenario/issues/110)) ([cc5d767](https://github.com/langwatch/scenario/commit/cc5d76745ff87f2e487c3aa495197802f84e637f))
+* send more error info ([#118](https://github.com/langwatch/scenario/issues/118)) ([53f807b](https://github.com/langwatch/scenario/commit/53f807bac831638e27894c75337b533c4382b0d9))
+
+
+### Bug Fixes
+
+* correctly handle error example ([#117](https://github.com/langwatch/scenario/issues/117)) ([0ddd244](https://github.com/langwatch/scenario/commit/0ddd244c30c0b4c63e55d405d57acd94cbdc91de))
+* send message snapshots after new messages ([#116](https://github.com/langwatch/scenario/issues/116)) ([eae6461](https://github.com/langwatch/scenario/commit/eae6461ae7737a8bce3188c71dc3d6b10dd67345))
+* stop capturing errors, rethrow for much better debuggability ([#113](https://github.com/langwatch/scenario/issues/113)) ([a300ce4](https://github.com/langwatch/scenario/commit/a300ce470db6894ce20549893ac9ac2f56808e2b))
+* update env loading strategy ([#115](https://github.com/langwatch/scenario/issues/115)) ([b657e84](https://github.com/langwatch/scenario/commit/b657e8476d771e5b2d50e03cc7ab3155c40bd1fc))
+
+
+### Documentation
+
+* examples improvements and language selection ([#114](https://github.com/langwatch/scenario/issues/114)) ([49f6522](https://github.com/langwatch/scenario/commit/49f65229802217504cfc1f613c0016a2beeb96cb))
+
 ## [0.2.9](https://github.com/langwatch/scenario/compare/javascript/v0.2.8...javascript/v0.2.9) (2025-07-10)
 
 
