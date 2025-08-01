@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.12](https://github.com/langwatch/scenario/compare/javascript/v0.2.11...javascript/v0.2.12) (2025-08-01)
+
+
+### Bug Fixes
+
+* duplicate examples names ([4e91a42](https://github.com/langwatch/scenario/commit/4e91a42f6ce35ee54d85623b370653cfc38df478))
+* let dependencies be more flexible, bump all ([05bb556](https://github.com/langwatch/scenario/commit/05bb5564c7e6f60b128cdfc2f1dff0fda2dedd6f))
+
 ## [0.2.11](https://github.com/langwatch/scenario/compare/javascript/v0.2.10...javascript/v0.2.11) (2025-08-01)
 
 

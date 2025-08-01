@@ -1,6 +1,6 @@
 {
   "name": "@langwatch/scenario",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "A TypeScript library for testing AI agents using scenarios",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
