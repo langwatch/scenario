@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.11](https://github.com/langwatch/scenario/compare/javascript/v0.2.10...javascript/v0.2.11) (2025-08-01)
+
+
+### Bug Fixes
+
+* remove stringify dependency, it's not used and brings a vulnerability ([9038119](https://github.com/langwatch/scenario/commit/9038119ed9142fb078e8ced80b4d9e3fd86a4ed8))
+* update lockfile ([37f92bc](https://github.com/langwatch/scenario/commit/37f92bc5fee9cf66c82975f10b42865a301ca00a))
+
 ## [0.2.10](https://github.com/langwatch/scenario/compare/javascript/v0.2.9...javascript/v0.2.10) (2025-07-30)
 
 
