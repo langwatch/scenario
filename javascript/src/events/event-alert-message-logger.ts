@@ -1,3 +1,4 @@
+import open from "open";
 import { getEnv } from "../config";
 import { getBatchRunId } from "../utils/ids";
 
@@ -53,36 +54,15 @@ export class EventAlertMessageLogger {
 
     if (!env.LANGWATCH_API_KEY) {
       console.log(`\n${separator}`);
-      console.log("🚀  LangWatch Simulation Reporting");
+      console.log("🎭  Running Scenario Tests");
       console.log(`${separator}`);
-      console.log("➡️  API key not configured");
+      console.log("➡️  LangWatch API key not configured");
       console.log("   Simulations will only output final results");
       console.log("");
       console.log("💡 To visualize conversations in real time:");
       console.log("   • Set LANGWATCH_API_KEY environment variable");
       console.log("   • Or configure apiKey in scenario.config.js");
       console.log("");
-      console.log(`📦 Batch Run ID: ${getBatchRunId()}`);
-      console.log("");
-      console.log("🔇 To disable these messages:");
-      console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
-      console.log(`${separator}\n`);
-    } else {
-      console.log(`\n${separator}`);
-      console.log("🚀  LangWatch Simulation Reporting");
-      console.log(`${separator}`);
-      console.log("✅ Simulation reporting enabled");
-      console.log(`   Endpoint: ${env.LANGWATCH_ENDPOINT}`);
-      console.log(
-        `   API Key: ${
-          env.LANGWATCH_API_KEY.length > 0 ? "Configured" : "Not configured"
-        }`
-      );
-      console.log("");
-      console.log(`📦 Batch Run ID: ${getBatchRunId()}`);
-      console.log("");
-      console.log("🔇 To disable these messages:");
-      console.log("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true");
       console.log(`${separator}\n`);
     }
   }
@@ -93,12 +73,16 @@ export class EventAlertMessageLogger {
     const batchUrl = `${setUrl}/${getBatchRunId()}`;
 
     console.log(`\n${separator}`);
-    console.log("👀 Watch Your Simulation Live");
+    console.log("🎭  Running Scenario Tests");
     console.log(`${separator}`);
-    console.log("🌐 Open in your browser:");
-    console.log(`   Scenario Set: ${setUrl}`);
-    console.log(`   Batch Run: ${batchUrl}`);
-    console.log("");
+    console.log(`Follow it live: ${batchUrl}`);
     console.log(`${separator}\n`);
+
+    try {
+      open(batchUrl);
+      // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
+    } catch (_) {
+      // Do nothing
+    }
   }
 }

@@ -1,4 +1,5 @@
 import os
+import webbrowser
 from typing import Set
 from .._utils.ids import get_batch_run_id
 
@@ -49,35 +50,13 @@ class EventAlertMessageLogger:
 
         if not os.getenv("LANGWATCH_API_KEY"):
             print(f"\n{separator}")
-            print("🚀  LangWatch Simulation Reporting")
+            print("🎭  Running Scenario Tests")
             print(f"{separator}")
-            print("➡️  API key not configured")
+            print("➡️  LangWatch API key not configured")
             print("   Simulations will only output final results")
             print("")
             print("💡 To visualize conversations in real time:")
             print("   • Set LANGWATCH_API_KEY environment variable")
-            print("   • Or configure apiKey in scenario.config.js")
-            print("")
-            print(f"📦 Batch Run ID: {batch_run_id}")
-            print("")
-            print("🔇 To disable these messages:")
-            print("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true")
-            print(f"{separator}\n")
-        else:
-            endpoint = os.getenv("LANGWATCH_ENDPOINT", "https://app.langwatch.ai")
-            api_key = os.getenv("LANGWATCH_API_KEY", "")
-
-            print(f"\n{separator}")
-            print("🚀  LangWatch Simulation Reporting")
-            print(f"{separator}")
-            print("✅ Simulation reporting enabled")
-            print(f"   Endpoint: {endpoint}")
-            print(f"   API Key: {'Configured' if api_key else 'Not configured'}")
-            print("")
-            print(f"📦 Batch Run ID: {batch_run_id}")
-            print("")
-            print("🔇 To disable these messages:")
-            print("   • Set SCENARIO_DISABLE_SIMULATION_REPORT_INFO=true")
             print(f"{separator}\n")
 
     def _display_watch_message(self, set_url: str) -> None:
@@ -86,10 +65,13 @@ class EventAlertMessageLogger:
         batch_url = f"{set_url}/{get_batch_run_id()}"
 
         print(f"\n{separator}")
-        print("👀 Watch Your Simulation Live")
+        print("🎭  Running Scenario Tests")
         print(f"{separator}")
-        print("🌐 Open in your browser:")
-        print(f"   Scenario Set: {set_url}")
-        print(f"   Batch Run: {batch_url}")
-        print("")
+        print(f"Follow it live: {batch_url}")
         print(f"{separator}\n")
+
+        # Open the URL in the default browser (cross-platform)
+        try:
+            webbrowser.open(batch_url)
+        except Exception:
+            pass
