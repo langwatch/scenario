@@ -7,7 +7,7 @@ and scenario tracking.
 """
 
 import os
-import uuid
+from pksuid import PKSUID
 
 
 def generate_thread_id() -> str:
@@ -17,7 +17,7 @@ def generate_thread_id() -> str:
     Returns:
         str: A new thread ID.
     """
-    return f"thread_{uuid.uuid4()}"
+    return f"{PKSUID('thread')}"
 
 
 def generate_scenario_run_id() -> str:
@@ -27,7 +27,7 @@ def generate_scenario_run_id() -> str:
     Returns:
         str: A new scenario run ID.
     """
-    return f"scenariorun_{uuid.uuid4()}"
+    return f"{PKSUID('run')}"
 
 
 def generate_scenario_id() -> str:
@@ -37,7 +37,7 @@ def generate_scenario_id() -> str:
     Returns:
         str: A new scenario ID.
     """
-    return f"scenario_{uuid.uuid4()}"
+    return f"{PKSUID('scenario')}"
 
 
 def get_batch_run_id() -> str:
@@ -52,7 +52,7 @@ def get_batch_run_id() -> str:
     batch_run_id = os.environ.get("SCENARIO_BATCH_RUN_ID")
     if not batch_run_id:
         # Generate new batch ID if not set
-        batch_run_id = f"scenariobatchrun_{uuid.uuid4()}"
+        batch_run_id = f"{PKSUID('batch')}"
         os.environ["SCENARIO_BATCH_RUN_ID"] = batch_run_id
 
     return batch_run_id
@@ -65,23 +65,23 @@ def generate_message_id() -> str:
     Returns:
         str: A new message ID.
     """
-    return f"scenariomsg_{uuid.uuid4()}"
+    return f"{PKSUID('msg')}"
 
 
-def safe_parse_uuid(id_str: str) -> bool:
+def safe_parse_ksuid(id_str: str) -> bool:
     """
-    Safely parses a UUID string.
+    Safely parses a Ksuid string.
 
     Args:
-        id_str: The UUID string to parse.
+        id_str: The Ksuid string to parse.
 
     Returns:
-        bool: True if the UUID string is valid, false otherwise.
+        bool: True if the Ksuid string is valid, false otherwise.
     """
     try:
-        uuid.UUID(id_str)
+        PKSUID.parse(id_str)
         return True
-    except (ValueError, TypeError):
+    except Exception:
         return False
 
 

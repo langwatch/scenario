@@ -14,7 +14,7 @@ from .ids import (
     generate_scenario_id,
     generate_thread_id,
     generate_message_id,
-    safe_parse_uuid,
+    safe_parse_ksuid,
 )
 from .utils import (
     SerializableAndPydanticEncoder,
@@ -34,7 +34,7 @@ __all__ = [
     "generate_scenario_id",
     "generate_thread_id",
     "generate_message_id",
-    "safe_parse_uuid",
+    "safe_parse_ksuid",
     "SerializableAndPydanticEncoder",
     "SerializableWithStringFallback",
     "print_openai_messages",

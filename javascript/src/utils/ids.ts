@@ -17,7 +17,7 @@ export function generateThreadId(): string {
  * @returns A new scenario run ID.
  */
 export function generateScenarioRunId(): string {
-  return `scenariorun_${generate()}`;
+  return `run_${generate()}`;
 }
 
 /**
@@ -54,11 +54,11 @@ export function getBatchRunId(): string {
     const raw = `${parentProcessId}_${year}_w${week}`;
     const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 12);
 
-    return (batchRunId = `scenariobatchrun_${hash}`);
+    return (batchRunId = `batch_${hash}`);
   }
 
   // Fallback to creating a new batch run id, and caching it
-  return (batchRunId = `scenariobatchrun_${generate()}`);
+  return (batchRunId = `batch_${generate()}`);
 }
 
 /**
@@ -83,7 +83,7 @@ function getISOWeekNumber(date: Date): number {
  * @returns A new message ID.
  */
 export function generateMessageId(): string {
-  return `scenariomsg_${generate()}`;
+  return `msg_${generate()}`;
 }
 
 /**
