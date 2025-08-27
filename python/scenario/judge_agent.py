@@ -398,7 +398,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                         failed_criteria = [
                             self.criteria[idx]
                             for idx, criterion in enumerate(criteria.values())
-                            if criterion == False
+                            if criterion == False or criterion == "inconclusive"
                         ]
 
                         # Return the appropriate ScenarioResult based on the verdict
