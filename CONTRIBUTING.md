@@ -216,7 +216,7 @@ cd scenario
 
 2. **Install dependencies and set up git hooks**:
 ```bash
-make install
+make python/install
 ```
 
 This will:
@@ -226,7 +226,7 @@ This will:
 
 3. **Run tests**:
 ```bash
-make test
+make python/test
 ```
 
 ### Running Examples
@@ -236,16 +236,16 @@ The project includes a Makefile with commands to simplify running examples and t
 1. **Running a specific example**:
 ```bash
 # Run a specific example
-make example examples/test_vegetarian_recipe_agent.py
+make python/example examples/test_vegetarian_recipe_agent.py
 ```
 
 2. **Running tests**:
 ```bash
 # Run all tests
-make test
+make python/test
 
 # Run a specific test
-make test tests/test_scenario.py
+make python/test tests/test_scenario.py
 ```
 
 The examples will produce a colorized report showing test results, success criteria met, and any failures.
