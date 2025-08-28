@@ -1,6 +1,8 @@
 import os
 import webbrowser
 from typing import Set
+
+from ..config.scenario import ScenarioConfig
 from .._utils.ids import get_batch_run_id
 
 
@@ -13,6 +15,9 @@ class EventAlertMessageLogger:
     """
 
     _shown_batch_ids: Set[str] = set()
+
+    def __init__(self, config: ScenarioConfig):
+        self.config = config
 
     def handle_greeting(self) -> None:
         """
@@ -70,8 +75,9 @@ class EventAlertMessageLogger:
         print(f"Follow it live: {batch_url}")
         print(f"{separator}\n")
 
-        # Open the URL in the default browser (cross-platform)
-        try:
-            webbrowser.open(batch_url)
-        except Exception:
-            pass
+        if not self.config.headless:
+            # Open the URL in the default browser (cross-platform)
+            try:
+                webbrowser.open(batch_url)
+            except Exception:
+                pass

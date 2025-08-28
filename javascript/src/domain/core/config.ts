@@ -18,6 +18,14 @@ export const scenarioProjectConfigSchema = z
         maxTokens: z.number().optional(),
       })
       .optional(),
+    headless: z
+      .boolean()
+      .optional()
+      .default(
+        typeof process !== "undefined"
+          ? !["false", "0"].includes(process.env.SCENARIO_HEADLESS || "false")
+          : false
+      ),
   })
   .strict();
 

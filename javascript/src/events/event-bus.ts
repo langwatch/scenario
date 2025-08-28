@@ -76,9 +76,9 @@ export class EventBus {
           }),
 
           // Handle watch messages reactively
-          tap(({ event, result }) => {
+          tap(async ({ event, result }) => {
             if (event.type === ScenarioEventType.RUN_STARTED && result.setUrl) {
-              this.eventAlertMessageLogger.handleWatchMessage({
+              await this.eventAlertMessageLogger.handleWatchMessage({
                 scenarioSetId: event.scenarioSetId,
                 scenarioRunId: event.scenarioRunId,
                 setUrl: result.setUrl,

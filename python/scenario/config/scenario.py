@@ -5,6 +5,7 @@ This module provides the main configuration class for customizing the behavior
 of the Scenario testing framework, including execution parameters and debugging options.
 """
 
+import os
 from typing import Optional, Union, ClassVar
 from pydantic import BaseModel
 
@@ -53,6 +54,7 @@ class ScenarioConfig(BaseModel):
     verbose: Optional[Union[bool, int]] = True
     cache_key: Optional[str] = None
     debug: Optional[bool] = False
+    headless: Optional[bool] = False
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
 
@@ -64,6 +66,8 @@ class ScenarioConfig(BaseModel):
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        headless: Optional[bool] = os.getenv("SCENARIO_HEADLESS", "false").lower()
+        not in ["false", "0", ""],
     ) -> None:
         """
         Set global configuration settings for all scenario executions.
@@ -107,6 +111,7 @@ class ScenarioConfig(BaseModel):
                 verbose=verbose,
                 cache_key=cache_key,
                 debug=debug,
+                headless=headless,
             )
         )
 

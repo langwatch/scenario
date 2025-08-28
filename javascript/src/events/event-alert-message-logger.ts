@@ -1,5 +1,5 @@
 import open from "open";
-import { getEnv } from "../config";
+import { getEnv, getProjectConfig } from "../config";
 import { getBatchRunId } from "../utils/ids";
 
 /**
@@ -32,16 +32,16 @@ export class EventAlertMessageLogger {
    * Shows a fancy message about how to watch the simulation.
    * Called when a run started event is received with a session ID.
    */
-  handleWatchMessage(params: {
+  async handleWatchMessage(params: {
     scenarioSetId: string;
     scenarioRunId: string;
     setUrl: string;
-  }): void {
+  }): Promise<void> {
     if (this.isGreetingDisabled()) {
       return;
     }
 
-    this.displayWatchMessage(params);
+    await this.displayWatchMessage(params);
   }
 
   private isGreetingDisabled(): boolean {
@@ -67,7 +67,7 @@ export class EventAlertMessageLogger {
     }
   }
 
-  private displayWatchMessage(params: { setUrl: string }): void {
+  private async displayWatchMessage(params: { setUrl: string }): Promise<void> {
     const separator = "─".repeat(60);
     const setUrl = params.setUrl;
     const batchUrl = `${setUrl}/${getBatchRunId()}`;
@@ -78,11 +78,15 @@ export class EventAlertMessageLogger {
     console.log(`Follow it live: ${batchUrl}`);
     console.log(`${separator}\n`);
 
-    try {
-      open(batchUrl);
-      // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
-    } catch (_) {
-      // Do nothing
+    const projectConfig = await getProjectConfig();
+
+    if (!projectConfig?.headless) {
+      try {
+        open(batchUrl);
+        // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
+      } catch (_) {
+        // Do nothing
+      }
     }
   }
 }
