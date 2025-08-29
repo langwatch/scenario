@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.9](https://github.com/langwatch/scenario/compare/python/v0.7.8...python/v0.7.9) (2025-08-29)
+
+
+### Features
+
+* open browser automatically on langwatch page for following scenario runs + improve console output to be less over the top + ksuid instead of uuids ([#122](https://github.com/langwatch/scenario/issues/122)) ([9216833](https://github.com/langwatch/scenario/commit/9216833c30db79b0e5a9ae29a16e481e30165353))
+
+
+### Bug Fixes
+
+* consider inconclusive criteria as failure ([#125](https://github.com/langwatch/scenario/issues/125)) ([5f93d33](https://github.com/langwatch/scenario/commit/5f93d3307c3f3483ba5161e00f9065826782a283))
+* documentation links ([#106](https://github.com/langwatch/scenario/issues/106)) ([24806f8](https://github.com/langwatch/scenario/commit/24806f8dc14d602752159421c014547e51f777a5))
+* stop capturing errors, rethrow for much better debuggability ([#113](https://github.com/langwatch/scenario/issues/113)) ([a300ce4](https://github.com/langwatch/scenario/commit/a300ce470db6894ce20549893ac9ac2f56808e2b))
+
+
+### Documentation
+
+* examples improvements and language selection ([#114](https://github.com/langwatch/scenario/issues/114)) ([49f6522](https://github.com/langwatch/scenario/commit/49f65229802217504cfc1f613c0016a2beeb96cb))
+
 ## [0.7.8](https://github.com/langwatch/scenario/compare/python/v0.7.7...python/v0.7.8) (2025-07-10)
 
 
