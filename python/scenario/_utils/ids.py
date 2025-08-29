@@ -17,7 +17,7 @@ def generate_thread_id() -> str:
     Returns:
         str: A new thread ID.
     """
-    return f"{PKSUID('thread')}"
+    return f"{PKSUID('scenariothread')}"
 
 
 def generate_scenario_run_id() -> str:
@@ -27,7 +27,7 @@ def generate_scenario_run_id() -> str:
     Returns:
         str: A new scenario run ID.
     """
-    return f"{PKSUID('run')}"
+    return f"{PKSUID('scenariorun')}"
 
 
 def generate_scenario_id() -> str:
@@ -52,7 +52,7 @@ def get_batch_run_id() -> str:
     batch_run_id = os.environ.get("SCENARIO_BATCH_RUN_ID")
     if not batch_run_id:
         # Generate new batch ID if not set
-        batch_run_id = f"{PKSUID('batch')}"
+        batch_run_id = f"{PKSUID('scenariobatch')}"
         os.environ["SCENARIO_BATCH_RUN_ID"] = batch_run_id
 
     return batch_run_id
@@ -65,7 +65,7 @@ def generate_message_id() -> str:
     Returns:
         str: A new message ID.
     """
-    return f"{PKSUID('msg')}"
+    return f"{PKSUID('scenariomsg')}"
 
 
 def safe_parse_ksuid(id_str: str) -> bool:

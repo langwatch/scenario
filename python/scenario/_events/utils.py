@@ -33,7 +33,7 @@ def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessage
 
     for i, message in enumerate(messages):
         # Generate unique ID for each message
-        message_id = message.get("id") or str(PKSUID('msg'))
+        message_id = message.get("id") or str(PKSUID('scenariomsg'))
 
         role = message.get("role")
         content = message.get("content")
@@ -54,7 +54,7 @@ def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessage
             if tool_calls:
                 for tool_call in tool_calls:
                     api_tool_calls.append(ToolCall(
-                        id=tool_call.get("id", str(PKSUID('tool_call'))),
+                        id=tool_call.get("id", str(PKSUID('scenariotoolcall'))),
                         type_="function",
                         function=FunctionCall(
                             name=tool_call["function"].get("name", "unknown"),
