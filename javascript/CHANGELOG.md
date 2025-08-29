@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.13](https://github.com/langwatch/scenario/compare/javascript/v0.2.12...javascript/v0.2.13) (2025-08-29)
+
+
+### Features
+
+* open browser automatically on langwatch page for following scenario runs + improve console output to be less over the top + ksuid instead of uuids ([#122](https://github.com/langwatch/scenario/issues/122)) ([9216833](https://github.com/langwatch/scenario/commit/9216833c30db79b0e5a9ae29a16e481e30165353))
+
 ## [0.2.12](https://github.com/langwatch/scenario/compare/javascript/v0.2.11...javascript/v0.2.12) (2025-08-01)
 
 
