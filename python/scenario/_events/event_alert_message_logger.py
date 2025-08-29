@@ -16,9 +16,6 @@ class EventAlertMessageLogger:
 
     _shown_batch_ids: Set[str] = set()
 
-    def __init__(self, config: ScenarioConfig):
-        self.config = config
-
     def handle_greeting(self) -> None:
         """
         Shows a fancy greeting message about simulation reporting status.
@@ -75,7 +72,8 @@ class EventAlertMessageLogger:
         print(f"Follow it live: {batch_url}")
         print(f"{separator}\n")
 
-        if not self.config.headless:
+        config = ScenarioConfig.default_config
+        if config and not config.headless:
             # Open the URL in the default browser (cross-platform)
             try:
                 webbrowser.open(batch_url)

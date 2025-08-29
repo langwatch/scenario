@@ -54,7 +54,11 @@ class ScenarioConfig(BaseModel):
     verbose: Optional[Union[bool, int]] = True
     cache_key: Optional[str] = None
     debug: Optional[bool] = False
-    headless: Optional[bool] = False
+    headless: Optional[bool] = os.getenv("SCENARIO_HEADLESS", "false").lower() not in [
+        "false",
+        "0",
+        "",
+    ]
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
 
@@ -66,8 +70,7 @@ class ScenarioConfig(BaseModel):
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
-        headless: Optional[bool] = os.getenv("SCENARIO_HEADLESS", "false").lower()
-        not in ["false", "0", ""],
+        headless: Optional[bool] = None,
     ) -> None:
         """
         Set global configuration settings for all scenario executions.

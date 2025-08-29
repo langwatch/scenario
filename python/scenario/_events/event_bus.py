@@ -37,7 +37,6 @@ class ScenarioEventBus:
 
     def __init__(
         self,
-        config: ScenarioConfig = ScenarioConfig(),
         event_reporter: Optional[EventReporter] = None,
         max_retries: int = 3,
     ):
@@ -50,8 +49,8 @@ class ScenarioEventBus:
             max_retries: Maximum number of retry attempts for failed event processing.
                        Defaults to 3 attempts with exponential backoff.
         """
-        self._event_reporter: EventReporter = event_reporter or EventReporter(config=config)
-        self._event_alert_message_logger = EventAlertMessageLogger(config=config)
+        self._event_reporter: EventReporter = event_reporter or EventReporter()
+        self._event_alert_message_logger = EventAlertMessageLogger()
         self._max_retries = max_retries
 
         # Custom logger for this class

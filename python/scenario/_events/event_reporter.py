@@ -30,7 +30,6 @@ class EventReporter:
         self,
         endpoint: Optional[str] = None,
         api_key: Optional[str] = None,
-        config: ScenarioConfig = ScenarioConfig(),
     ):
         # Load settings from environment variables
         langwatch_settings = LangWatchSettings()
@@ -39,7 +38,7 @@ class EventReporter:
         self.endpoint = endpoint or langwatch_settings.endpoint
         self.api_key = api_key or langwatch_settings.api_key
         self.logger = logging.getLogger(__name__)
-        self.event_alert_message_logger = EventAlertMessageLogger(config=config)
+        self.event_alert_message_logger = EventAlertMessageLogger()
 
         # Show greeting message when reporter is initialized
         self.event_alert_message_logger.handle_greeting()
@@ -98,7 +97,7 @@ class EventReporter:
                     )
         except Exception as error:
             self.logger.error(
-                f"[{event_type}] Event POST error: {error}, event={event}, endpoint={self.endpoint}"
+                f"[{event_type}] Event POST error: {repr(error)}, event={event}, endpoint={self.endpoint}"
             )
 
         return result

@@ -199,6 +199,8 @@ class ScenarioReporter:
 # Store the original run method
 original_run = ScenarioExecutor.run
 
+def pytest_addoption(parser):
+    parser.addoption("--headless", action="store_true")
 
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
@@ -239,6 +241,9 @@ def pytest_configure(config):
     if config.getoption("--debug"):
         print(colored("\nScenario debug mode enabled (--debug).", "yellow"))
         ScenarioConfig.configure(verbose=True, debug=True)
+
+    if config.getoption("--headless"):
+        ScenarioConfig.configure(headless=True)
 
     # Create a global reporter instance
     config._scenario_reporter = ScenarioReporter()

@@ -153,6 +153,7 @@ class ScenarioExecutor:
             verbose=verbose,
             cache_key=cache_key,
             debug=debug,
+            headless=None,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
@@ -162,7 +163,7 @@ class ScenarioExecutor:
         self._events = Subject()
 
         # Create and configure event bus to subscribe to our events
-        self.event_bus = event_bus or ScenarioEventBus(config=config)
+        self.event_bus = event_bus or ScenarioEventBus()
         self.event_bus.subscribe_to_events(self._events)
 
         self.batch_run_id = get_batch_run_id()
