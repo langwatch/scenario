@@ -9,7 +9,7 @@ description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
 license = { text = "MIT" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -36,6 +36,7 @@ dependencies = [
     "rx>=3.2.0",
     "python-dateutil>=2.9.0.post0",
     "pydantic-settings>=2.9.1",
+    "langwatch>=0.2.0",
 ]
 
 [project.optional-dependencies]
