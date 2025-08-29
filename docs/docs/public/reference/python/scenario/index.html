@@ -651,7 +651,7 @@ result2 = await scenario.run(...)
 </details>
 </dd>
 <dt id="scenario.configure"><code class="name flex">
-<span>def <span class="ident">configure</span></span>(<span>default_model: str | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None) ‑> None</span>
+<span>def <span class="ident">configure</span></span>(<span>default_model: str | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, headless: bool | None = None) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Set global configuration settings for all scenario executions.</p>
@@ -2992,6 +2992,11 @@ validated to form a valid model.</p>
     verbose: Optional[Union[bool, int]] = True
     cache_key: Optional[str] = None
     debug: Optional[bool] = False
+    headless: Optional[bool] = os.getenv(&#34;SCENARIO_HEADLESS&#34;, &#34;false&#34;).lower() not in [
+        &#34;false&#34;,
+        &#34;0&#34;,
+        &#34;&#34;,
+    ]
 
     default_config: ClassVar[Optional[&#34;ScenarioConfig&#34;]] = None
 
@@ -3003,6 +3008,7 @@ validated to form a valid model.</p>
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        headless: Optional[bool] = None,
     ) -&gt; None:
         &#34;&#34;&#34;
         Set global configuration settings for all scenario executions.
@@ -3046,6 +3052,7 @@ validated to form a valid model.</p>
                 verbose=verbose,
                 cache_key=cache_key,
                 debug=debug,
+                headless=headless,
             )
         )
 
@@ -3116,6 +3123,10 @@ validated to form a valid model.</p>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
+<dt id="scenario.ScenarioConfig.headless"><code class="name">var <span class="ident">headless</span> : bool | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
 <dt id="scenario.ScenarioConfig.max_turns"><code class="name">var <span class="ident">max_turns</span> : int | None</code></dt>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
@@ -3132,7 +3143,7 @@ validated to form a valid model.</p>
 <h3>Static methods</h3>
 <dl>
 <dt id="scenario.ScenarioConfig.configure"><code class="name flex">
-<span>def <span class="ident">configure</span></span>(<span>default_model: str | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None) ‑> None</span>
+<span>def <span class="ident">configure</span></span>(<span>default_model: str | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, headless: bool | None = None) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Set global configuration settings for all scenario executions.</p>
@@ -4568,6 +4579,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <li><code><a title="scenario.ScenarioConfig.debug" href="#scenario.ScenarioConfig.debug">debug</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.default_config" href="#scenario.ScenarioConfig.default_config">default_config</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.default_model" href="#scenario.ScenarioConfig.default_model">default_model</a></code></li>
+<li><code><a title="scenario.ScenarioConfig.headless" href="#scenario.ScenarioConfig.headless">headless</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.items" href="#scenario.ScenarioConfig.items">items</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.max_turns" href="#scenario.ScenarioConfig.max_turns">max_turns</a></code></li>
 <li><code><a title="scenario.ScenarioConfig.merge" href="#scenario.ScenarioConfig.merge">merge</a></code></li>

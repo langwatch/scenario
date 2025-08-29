@@ -281,6 +281,7 @@ class ScenarioExecutor:
             verbose=verbose,
             cache_key=cache_key,
             debug=debug,
+            headless=None,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
@@ -326,7 +327,7 @@ class ScenarioExecutor:
         self._state = ScenarioState(
             description=self.description,
             messages=[],
-            thread_id=str(PKSUID(&#34;thread&#34;)),
+            thread_id=str(PKSUID(&#34;scenariothread&#34;)),
             current_turn=0,
             config=self.config,
             _executor=self,
@@ -1403,6 +1404,7 @@ Overrides global configuration for this scenario.</dd>
             verbose=verbose,
             cache_key=cache_key,
             debug=debug,
+            headless=None,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
@@ -1448,7 +1450,7 @@ Overrides global configuration for this scenario.</dd>
         self._state = ScenarioState(
             description=self.description,
             messages=[],
-            thread_id=str(PKSUID(&#34;thread&#34;)),
+            thread_id=str(PKSUID(&#34;scenariothread&#34;)),
             current_turn=0,
             config=self.config,
             _executor=self,
@@ -2402,7 +2404,7 @@ Called automatically during initialization and can be used to rerun scenarios.</
     self._state = ScenarioState(
         description=self.description,
         messages=[],
-        thread_id=str(PKSUID(&#34;thread&#34;)),
+        thread_id=str(PKSUID(&#34;scenariothread&#34;)),
         current_turn=0,
         config=self.config,
         _executor=self,

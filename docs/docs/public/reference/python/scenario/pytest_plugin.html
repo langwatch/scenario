@@ -328,6 +328,8 @@ class ScenarioReporter:
 # Store the original run method
 original_run = ScenarioExecutor.run
 
+def pytest_addoption(parser):
+    parser.addoption(&#34;--headless&#34;, action=&#34;store_true&#34;)
 
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
@@ -368,6 +370,9 @@ def pytest_configure(config):
     if config.getoption(&#34;--debug&#34;):
         print(colored(&#34;\nScenario debug mode enabled (--debug).&#34;, &#34;yellow&#34;))
         ScenarioConfig.configure(verbose=True, debug=True)
+
+    if config.getoption(&#34;--headless&#34;):
+        ScenarioConfig.configure(headless=True)
 
     # Create a global reporter instance
     config._scenario_reporter = ScenarioReporter()
@@ -476,6 +481,19 @@ def scenario_reporter(request):
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
+<dt id="scenario.pytest_plugin.pytest_addoption"><code class="name flex">
+<span>def <span class="ident">pytest_addoption</span></span>(<span>parser)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def pytest_addoption(parser):
+    parser.addoption(&#34;--headless&#34;, action=&#34;store_true&#34;)</code></pre>
+</details>
+</dd>
 <dt id="scenario.pytest_plugin.pytest_configure"><code class="name flex">
 <span>def <span class="ident">pytest_configure</span></span>(<span>config)</span>
 </code></dt>
@@ -547,6 +565,9 @@ def pytest_configure(config):
     if config.getoption(&#34;--debug&#34;):
         print(colored(&#34;\nScenario debug mode enabled (--debug).&#34;, &#34;yellow&#34;))
         ScenarioConfig.configure(verbose=True, debug=True)
+
+    if config.getoption(&#34;--headless&#34;):
+        ScenarioConfig.configure(headless=True)
 
     # Create a global reporter instance
     config._scenario_reporter = ScenarioReporter()
@@ -1189,6 +1210,7 @@ Success Rate: 80%
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
+<li><code><a title="scenario.pytest_plugin.pytest_addoption" href="#scenario.pytest_plugin.pytest_addoption">pytest_addoption</a></code></li>
 <li><code><a title="scenario.pytest_plugin.pytest_configure" href="#scenario.pytest_plugin.pytest_configure">pytest_configure</a></code></li>
 <li><code><a title="scenario.pytest_plugin.pytest_unconfigure" href="#scenario.pytest_plugin.pytest_unconfigure">pytest_unconfigure</a></code></li>
 <li><code><a title="scenario.pytest_plugin.scenario_reporter" href="#scenario.pytest_plugin.scenario_reporter">scenario_reporter</a></code></li>

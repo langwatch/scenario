@@ -132,6 +132,7 @@ This module provides the main configuration class for customizing the behavior
 of the Scenario testing framework, including execution parameters and debugging options.
 &#34;&#34;&#34;
 
+import os
 from typing import Optional, Union, ClassVar
 from pydantic import BaseModel
 
@@ -180,6 +181,11 @@ class ScenarioConfig(BaseModel):
     verbose: Optional[Union[bool, int]] = True
     cache_key: Optional[str] = None
     debug: Optional[bool] = False
+    headless: Optional[bool] = os.getenv(&#34;SCENARIO_HEADLESS&#34;, &#34;false&#34;).lower() not in [
+        &#34;false&#34;,
+        &#34;0&#34;,
+        &#34;&#34;,
+    ]
 
     default_config: ClassVar[Optional[&#34;ScenarioConfig&#34;]] = None
 
@@ -191,6 +197,7 @@ class ScenarioConfig(BaseModel):
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        headless: Optional[bool] = None,
     ) -&gt; None:
         &#34;&#34;&#34;
         Set global configuration settings for all scenario executions.
@@ -234,6 +241,7 @@ class ScenarioConfig(BaseModel):
                 verbose=verbose,
                 cache_key=cache_key,
                 debug=debug,
+                headless=headless,
             )
         )
 
@@ -383,6 +391,11 @@ validated to form a valid model.</p>
     verbose: Optional[Union[bool, int]] = True
     cache_key: Optional[str] = None
     debug: Optional[bool] = False
+    headless: Optional[bool] = os.getenv(&#34;SCENARIO_HEADLESS&#34;, &#34;false&#34;).lower() not in [
+        &#34;false&#34;,
+        &#34;0&#34;,
+        &#34;&#34;,
+    ]
 
     default_config: ClassVar[Optional[&#34;ScenarioConfig&#34;]] = None
 
@@ -394,6 +407,7 @@ validated to form a valid model.</p>
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        headless: Optional[bool] = None,
     ) -&gt; None:
         &#34;&#34;&#34;
         Set global configuration settings for all scenario executions.
@@ -437,6 +451,7 @@ validated to form a valid model.</p>
                 verbose=verbose,
                 cache_key=cache_key,
                 debug=debug,
+                headless=headless,
             )
         )
 
@@ -507,6 +522,10 @@ validated to form a valid model.</p>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
+<dt id="scenario.config.scenario.ScenarioConfig.headless"><code class="name">var <span class="ident">headless</span> : bool | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
 <dt id="scenario.config.scenario.ScenarioConfig.max_turns"><code class="name">var <span class="ident">max_turns</span> : int | None</code></dt>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
@@ -523,7 +542,7 @@ validated to form a valid model.</p>
 <h3>Static methods</h3>
 <dl>
 <dt id="scenario.config.scenario.ScenarioConfig.configure"><code class="name flex">
-<span>def <span class="ident">configure</span></span>(<span>default_model: str | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None) ‑> None</span>
+<span>def <span class="ident">configure</span></span>(<span>default_model: str | None = None, max_turns: int | None = None, verbose: bool | int | None = None, cache_key: str | None = None, debug: bool | None = None, headless: bool | None = None) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Set global configuration settings for all scenario executions.</p>
@@ -679,6 +698,7 @@ merged = base_config.merge(override_config)
 <li><code><a title="scenario.config.scenario.ScenarioConfig.debug" href="#scenario.config.scenario.ScenarioConfig.debug">debug</a></code></li>
 <li><code><a title="scenario.config.scenario.ScenarioConfig.default_config" href="#scenario.config.scenario.ScenarioConfig.default_config">default_config</a></code></li>
 <li><code><a title="scenario.config.scenario.ScenarioConfig.default_model" href="#scenario.config.scenario.ScenarioConfig.default_model">default_model</a></code></li>
+<li><code><a title="scenario.config.scenario.ScenarioConfig.headless" href="#scenario.config.scenario.ScenarioConfig.headless">headless</a></code></li>
 <li><code><a title="scenario.config.scenario.ScenarioConfig.items" href="#scenario.config.scenario.ScenarioConfig.items">items</a></code></li>
 <li><code><a title="scenario.config.scenario.ScenarioConfig.max_turns" href="#scenario.config.scenario.ScenarioConfig.max_turns">max_turns</a></code></li>
 <li><code><a title="scenario.config.scenario.ScenarioConfig.merge" href="#scenario.config.scenario.ScenarioConfig.merge">merge</a></code></li>
