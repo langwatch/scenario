@@ -16,7 +16,9 @@ export class EventAlertMessageLogger {
    * Creates a coordination file to prevent duplicate messages across processes.
    * Returns true if this process should show the message (first one to create the file).
    */
-  private createCoordinationFile(type: "greeting" | "watch"): boolean {
+  private createCoordinationFile(
+    type: "greeting" | `watch-${string}`
+  ): boolean {
     try {
       const batchId = getBatchRunId();
       const tmpDir = os.tmpdir();
@@ -61,7 +63,7 @@ export class EventAlertMessageLogger {
       return;
     }
 
-    if (!this.createCoordinationFile("watch")) {
+    if (!this.createCoordinationFile(`watch-${params.scenarioSetId}`)) {
       return;
     }
 
