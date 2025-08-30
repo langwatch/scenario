@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/langwatch/scenario/compare/javascript/v0.2.13...javascript/v0.3.0) (2025-08-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* upgrade to vercel ai sdk v5 ([#128](https://github.com/langwatch/scenario/issues/128))
+
+### Features
+
+* upgrade to vercel ai sdk v5 ([#128](https://github.com/langwatch/scenario/issues/128)) ([7d2ca68](https://github.com/langwatch/scenario/commit/7d2ca68d6b224f4c917da7dc632fc32adc8d4104))
+
+
+### Bug Fixes
+
+* open only one browser window and print only one watch/greeting message if running in multiple workers ([a4d5a52](https://github.com/langwatch/scenario/commit/a4d5a522c4533412002a0471467be685a6cdf10f))
+* show green/red colors only if there really are any success/failures to be less confusing ([34e82f9](https://github.com/langwatch/scenario/commit/34e82f9dc672f37307e649b435693342a3a47326))
+
 ## [0.2.13](https://github.com/langwatch/scenario/compare/javascript/v0.2.12...javascript/v0.2.13) (2025-08-29)
 
 
