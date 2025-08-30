@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { CoreUserMessage, generateText } from "ai";
+import { generateText, UserModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 
 // Use setId to group together for visualizing in the UI
@@ -64,7 +64,7 @@ describe("Multimodal Images Tests", () => {
           image: imageDataURL,
         },
       ],
-    } as CoreUserMessage;
+    } as UserModelMessage;
 
     const result = await scenario.run({
       name: "multimodal image analysis",
@@ -109,7 +109,7 @@ describe("Multimodal Images Tests", () => {
           image: imageDataURL,
         },
       ],
-    } as CoreUserMessage;
+    } as UserModelMessage;
 
     const result = await scenario.run({
       name: "image-only analysis",
@@ -156,7 +156,7 @@ describe("Multimodal Images Tests", () => {
           image: imageDataURL,
         },
       ],
-    } as CoreUserMessage;
+    } as UserModelMessage;
 
     const result = await scenario.run({
       name: "complex image analysis",

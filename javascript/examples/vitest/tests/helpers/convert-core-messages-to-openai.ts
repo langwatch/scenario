@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import {
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
@@ -33,7 +33,7 @@ const MIME_TYPE_TO_OPENAI_FORMAT: Record<string, OpenAIAudioFormat> = {
  */
 type AudioFilePart = {
   type: "file";
-  mimeType: string;
+  mediaType: string;
   data: string;
 };
 
@@ -41,8 +41,8 @@ type AudioFilePart = {
  * Error messages for consistent error handling
  */
 const ERROR_MESSAGES = {
-  INVALID_INPUT: "Input must be an array of CoreMessage objects",
-  INVALID_MESSAGE: "Invalid CoreMessage: missing role or content",
+  INVALID_INPUT: "Input must be an array of ModelMessage objects",
+  INVALID_MESSAGE: "Invalid ModelMessage: missing role or content",
   INVALID_MIME_TYPE: "MIME type must be a non-empty string",
   UNSUPPORTED_MEDIA_TYPE: (mimeType: string) =>
     `Unsupported media type: ${mimeType}. Only audio types are supported.`,
@@ -66,9 +66,9 @@ export function isAudioFilePart(part: unknown): part is AudioFilePart {
     part !== null &&
     "type" in part &&
     part.type === "file" &&
-    "mimeType" in part &&
-    typeof part.mimeType === "string" &&
-    part.mimeType.startsWith("audio/") &&
+    "mediaType" in part &&
+    typeof part.mediaType === "string" &&
+    part.mediaType.startsWith("audio/") &&
     "data" in part &&
     typeof part.data === "string"
   );
@@ -80,7 +80,7 @@ export function isAudioFilePart(part: unknown): part is AudioFilePart {
  * @param msg - Message to validate
  * @throws Error if message is invalid
  */
-function validateMessage(msg: CoreMessage): void {
+function validateMessage(msg: ModelMessage): void {
   if (
     !msg ||
     typeof msg.role !== "string" ||
@@ -154,7 +154,7 @@ function extractTextContent(textPart: unknown): string {
  * @param msg - Tool message to convert
  * @returns OpenAI-compatible tool message
  */
-function convertToolMessage(msg: CoreMessage): ChatCompletionToolMessageParam {
+function convertToolMessage(msg: ModelMessage): ChatCompletionToolMessageParam {
   return {
     role: "tool",
     content:
@@ -171,10 +171,10 @@ function convertToolMessage(msg: CoreMessage): ChatCompletionToolMessageParam {
  * @returns OpenAI-compatible audio message
  */
 function convertAudioMessage(
-  msg: CoreMessage,
+  msg: ModelMessage,
   filePart: AudioFilePart
 ): ChatCompletionMessageParam {
-  const format = convertMimeTypeToOpenAIAudioFormat(filePart.mimeType);
+  const format = convertMimeTypeToOpenAIAudioFormat(filePart.mediaType);
   const textPart = (msg.content as unknown[])[0];
   const textContent = extractTextContent(textPart);
 
@@ -203,7 +203,7 @@ function convertAudioMessage(
  * @param msg - Regular message to convert
  * @returns OpenAI-compatible message
  */
-function convertRegularMessage(msg: CoreMessage): ChatCompletionMessageParam {
+function convertRegularMessage(msg: ModelMessage): ChatCompletionMessageParam {
   return {
     role: msg.role as "user" | "assistant" | "system",
     content: msg.content,
@@ -215,25 +215,25 @@ function convertRegularMessage(msg: CoreMessage): ChatCompletionMessageParam {
 // =============================================================================
 
 /**
- * Converts an array of CoreMessage objects (from 'ai') to an array of OpenAI ChatCompletionMessageParam objects.
+ * Converts an array of ModelMessage objects (from 'ai') to an array of OpenAI ChatCompletionMessageParam objects.
  *
  * Handles user, assistant, system, and tool roles, including multimodal and tool call content.
  * Supports audio content conversion with proper MIME type handling.
  *
- * @param coreMessages - Array of CoreMessage objects to convert
+ * @param coreMessages - Array of ModelMessage objects to convert
  * @returns Array of ChatCompletionMessageParam objects for OpenAI API
  * @throws Error if input is invalid or message conversion fails
  *
  * @example
  * ```typescript
- * const messages = convertCoreMessagesToOpenAIMessages([
+ * const messages = convertModelMessagesToOpenAIMessages([
  *   { role: "user", content: "Hello" },
  *   { role: "assistant", content: "Hi there!" }
  * ]);
  * ```
  */
-export function convertCoreMessagesToOpenAIMessages(
-  coreMessages: (CoreMessage & { id?: string })[]
+export function convertModelMessagesToOpenAIMessages(
+  coreMessages: (ModelMessage & { id?: string })[]
 ): ChatCompletionMessageParam[] {
   if (!Array.isArray(coreMessages)) {
     throw new Error(ERROR_MESSAGES.INVALID_INPUT);

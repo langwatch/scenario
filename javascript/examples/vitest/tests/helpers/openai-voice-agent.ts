@@ -1,11 +1,11 @@
 import { AgentAdapter, AgentInput, AgentRole } from "@langwatch/scenario";
-import { CoreAssistantMessage, CoreMessage, CoreUserMessage } from "ai";
+import { ModelMessage, UserModelMessage, AssistantModelMessage } from "ai";
 import OpenAI from "openai";
 import {
   ChatCompletion,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions.mjs";
-import { convertCoreMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
+import { convertModelMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
 
 /**
  * Configuration for voice-enabled agents
@@ -35,10 +35,10 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
     this.config = config ?? { voice: "alloy" };
   }
 
-  public async call(input: AgentInput): Promise<CoreMessage | string> {
+  public async call(input: AgentInput): Promise<ModelMessage | string> {
     try {
       // Convert messages to OpenAI format for voice-to-voice model
-      const messages = convertCoreMessagesToOpenAIMessages(input.messages);
+      const messages = convertModelMessagesToOpenAIMessages(input.messages);
       const response = await this.respondWithAudio(messages);
       return this.handleResponse(response);
     } catch (error) {
@@ -104,24 +104,24 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
   /**
    * Creates an audio message with the appropriate role based on the agent's role
    */
-  private createAudioMessage(audioData: string): CoreMessage {
+  private createAudioMessage(audioData: string): ModelMessage {
     this.validateRole(this.role);
 
-    const content = [
+    const content: ModelMessage["content"] = [
       {
         type: "text" as const,
         text: "",
       },
       {
         type: "file" as const,
-        mimeType: "audio/wav" as const,
+        mediaType: "audio/wav" as const,
         data: audioData,
       },
     ];
 
     return this.role === AgentRole.USER || this.config.forceUserRole
-      ? ({ role: "user", content } as CoreUserMessage)
-      : ({ role: "assistant", content } as CoreAssistantMessage);
+      ? ({ role: "user", content } as UserModelMessage)
+      : ({ role: "assistant", content } as AssistantModelMessage);
   }
 
   private validateRole(role: AgentRole) {

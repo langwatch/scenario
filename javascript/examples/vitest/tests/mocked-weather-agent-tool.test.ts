@@ -2,12 +2,12 @@ import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText, tool } from "ai";
 import { describe, it, expect } from "vitest";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Define the weather tool using zod for parameters
 const getCurrentWeather = tool({
   description: "Get the current weather in a given city.",
-  parameters: z.object({
+  inputSchema: z.object({
     city: z.string().describe("The city to get the weather for."),
   }),
   execute: async ({ city }: { city: string }) => {
@@ -45,7 +45,7 @@ describe("Mocked Weather Agent Tool", () => {
     });
 
     const result = await scenario.run({
-      name: "checking the weather",
+      name: "mocked checking the weather",
       description: `
         The user is planning a boat trip from Barcelona to Rome,
         and is wondering what the weather will be like.
@@ -63,7 +63,7 @@ describe("Mocked Weather Agent Tool", () => {
               type: "tool-call",
               toolName: "get_current_weather",
               toolCallId: "call_123",
-              args: getCurrentWeather.parameters.parse({ city: "Paris" }),
+              input: { city: "Paris" },
             },
           ],
         }),
@@ -74,7 +74,7 @@ describe("Mocked Weather Agent Tool", () => {
               type: "tool-result",
               toolName: "get_current_weather",
               toolCallId: "call_123",
-              result: "The weather in Paris is sunny and 75°F.",
+              output: { type: "text", value: "The weather in Paris is sunny and 75°F." },
             },
           ],
         }),

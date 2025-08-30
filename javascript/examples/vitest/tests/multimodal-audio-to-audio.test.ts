@@ -1,6 +1,6 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, { AgentRole } from "@langwatch/scenario";
-import { CoreUserMessage } from "ai";
+import { UserModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import {
   encodeAudioToBase64,
@@ -19,7 +19,8 @@ const setId = "multimodal-audio-test";
  * This example shows how to test an agent that can take audio input
  * from a fixture and respond with audio output.
  */
-describe("Multimodal Audio to Audio Tests", () => {
+// TODO: blocked by https://github.com/vercel/ai/issues/6873 due to v5 not accepting audio/wav yet
+describe.skip("Multimodal Audio to Audio Tests", () => {
   it("should handle audio input", async () => {
     const myAgent = new AudioAgent({
       systemPrompt: `
@@ -50,11 +51,11 @@ describe("Multimodal Audio to Audio Tests", () => {
         },
         {
           type: "file",
-          mimeType: "audio/wav",
+          mediaType: "audio/wav",
           data,
         },
       ],
-    } satisfies CoreUserMessage;
+    } satisfies UserModelMessage;
 
     const audioJudge = scenario.judgeAgent({
       // We to use this model to correctly handle the audio input

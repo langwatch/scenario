@@ -1,5 +1,5 @@
 import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
-import { z } from "zod";
+import { z } from "zod/v4";
 import { AgentInput, JudgeAgentAdapter, AgentRole } from "../domain";
 import { TestingAgentConfig, FinishTestArgs } from "./types";
 import { criterionToParamName } from "./utils";

@@ -1,5 +1,5 @@
 import { LanguageModel } from "ai";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 /** Default temperature for language model inference */
 export const DEFAULT_TEMPERATURE = 0.0;

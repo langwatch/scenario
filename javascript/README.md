@@ -78,7 +78,7 @@ import { describe, it, expect } from "vitest";
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText, tool } from "ai";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 describe("Weather Agent", () => {
   it("should get the weather for a city", async () => {
@@ -103,13 +103,40 @@ describe("Weather Agent", () => {
           tools: { get_current_weather: getCurrentWeather },
         });
 
-        if (response.toolCalls?.length) {
-          // For simplicity, we'll just return the arguments of the first tool call
-          const { toolName, args } = response.toolCalls[0];
-          return {
-            role: "tool",
-            content: [{ type: "tool-result", toolName, result: args }],
-          };
+        if (response.toolCalls && response.toolCalls.length > 0) {
+          const toolCall = response.toolCalls[0];
+          // Agent executes the tool directly and returns both messages
+          const toolResult = await getCurrentWeather.execute(
+            toolCall.input as { city: string },
+            {
+              toolCallId: toolCall.toolCallId,
+              messages: input.messages,
+            }
+          );
+          return [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolName: toolCall.toolName,
+                  toolCallId: toolCall.toolCallId,
+                  input: toolCall.input,
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result",
+                  toolName: toolCall.toolName,
+                  toolCallId: toolCall.toolCallId,
+                  output: { type: "text", value: toolResult as string },
+                },
+              ],
+            },
+          ];
         }
 
         return response.text;

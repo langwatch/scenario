@@ -2,15 +2,15 @@ import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText, tool, ToolCallPart } from "ai";
 import { describe, it, expect } from "vitest";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Define the weather tool using zod for parameters
 const getCurrentWeather = tool({
   description: "Get the current weather in a given city.",
-  parameters: z.object({
+  inputSchema: z.object({
     city: z.string().describe("The city to get the weather for."),
   }),
-  execute: async ({ city }: { city: string }) => {
+  execute: async ({ city }: { city: string }): Promise<string> => {
     // Simulate weather
     const choices = ["sunny", "cloudy", "rainy", "snowy"];
     const temperature = Math.floor(Math.random() * 31);
@@ -41,10 +41,13 @@ const weatherAgent: AgentAdapter = {
     if (response.toolCalls && response.toolCalls.length > 0) {
       const toolCall = response.toolCalls[0];
       // Agent executes the tool directly and returns both messages
-      const toolResult = await getCurrentWeather.execute(toolCall.args, {
-        toolCallId: toolCall.toolCallId,
-        messages: input.messages,
-      });
+      const toolResult = await getCurrentWeather.execute(
+        toolCall.input as { city: string },
+        {
+          toolCallId: toolCall.toolCallId,
+          messages: input.messages,
+        }
+      );
       return [
         {
           role: "assistant",
@@ -53,7 +56,7 @@ const weatherAgent: AgentAdapter = {
               type: "tool-call",
               toolName: toolCall.toolName,
               toolCallId: toolCall.toolCallId,
-              args: toolCall.args,
+              input: toolCall.input,
             },
           ],
         },
@@ -64,7 +67,7 @@ const weatherAgent: AgentAdapter = {
               type: "tool-result",
               toolName: toolCall.toolName,
               toolCallId: toolCall.toolCallId,
-              result: toolResult,
+              output: { type: "text", value: toolResult as string },
             },
           ],
         },
@@ -96,14 +99,17 @@ describe("Weather Agent", () => {
         (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         (state) => {
           const assistantMessage = state.lastAgentMessage();
-          const assistantMessageContent = assistantMessage.content[0] as ToolCallPart;
+          const assistantMessageContent = assistantMessage
+            .content[0] as ToolCallPart;
           const toolCallResult = state.lastToolCall("get_current_weather");
 
-          expect(toolCallResult.content[0].toolName).toBe("get_current_weather");
-          expect(toolCallResult.content[0].result).toContain("Barcelona");
+          expect(toolCallResult.content[0].toolName).toBe(
+            "get_current_weather"
+          );
+          expect(toolCallResult.content[0].output.value).toContain("Barcelona");
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          expect((assistantMessageContent.args as any).city).toBe("Barcelona");
+          expect((assistantMessageContent.input as any).city).toBe("Barcelona");
         },
         scenario.succeed(),
       ],
