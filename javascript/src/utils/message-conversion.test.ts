@@ -41,7 +41,7 @@ describe("convertCoreMessagesToAguiMessages", () => {
 
   it("converts an assistant message with array content", () => {
     const arr = [
-      { type: "tool-call", toolCallId: "t1", toolName: "fn", args: { foo: 1 } },
+      { type: "tool-call", toolCallId: "t1", toolName: "fn", input: { foo: 1 } },
       { type: "json", value: { bar: 2 } },
     ];
     const input = [makeCoreMessage({ role: "assistant", content: arr })];
@@ -64,8 +64,8 @@ describe("convertCoreMessagesToAguiMessages", () => {
 
   it("converts a tool message with multiple parts", () => {
     const arr = [
-      { toolCallId: "t1", result: { foo: "bar" } },
-      { toolCallId: "t2", result: { baz: 42 } },
+      { toolCallId: "t1", output: { type: "json", value: { foo: "bar" } } },
+      { toolCallId: "t2", output: { type: "json", value: { baz: 42 } } },
     ];
     const input = [makeCoreMessage({ role: "tool", content: arr })];
     const result = convertModelMessagesToAguiMessages(input);

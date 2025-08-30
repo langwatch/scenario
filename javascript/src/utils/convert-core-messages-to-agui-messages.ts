@@ -81,7 +81,7 @@ export function convertModelMessagesToAguiMessages(
             id: `${id}-${i}`,
             role: "tool",
             toolCallId: p.toolCallId,
-            content: JSON.stringify(p.output.value),
+            content: JSON.stringify(p.output?.value),
           });
         });
         break;
