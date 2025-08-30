@@ -66,7 +66,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       model: mergedConfig.model,
       messages: reversedMessages,
       temperature: mergedConfig.temperature ?? DEFAULT_TEMPERATURE,
-      maxTokens: mergedConfig.maxTokens,
+      maxOutputTokens: mergedConfig.maxTokens,
     });
 
     const messageContent = completion.text;

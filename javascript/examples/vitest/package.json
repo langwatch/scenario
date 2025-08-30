@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",
-    "ai": ">=4.0.0",
-    "openai": "5.9.0",
-    "vitest": "3.2.4"
+    "ai": ">=5.0.0",
+    "openai": "^5.16.0",
+    "vitest": "^3.2.4"
   }
 }

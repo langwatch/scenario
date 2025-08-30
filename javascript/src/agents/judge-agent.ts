@@ -55,7 +55,7 @@ ${criteriaList}
 function buildContinueTestTool(): Tool {
   return tool({
     description: "Continue the test with the next step",
-    parameters: z.object({}),
+    inputSchema: z.object({}),
   });
 }
 
@@ -64,7 +64,7 @@ function buildFinishTestTool(criteria: string[]): Tool {
 
   return tool({
     description: "Complete the test with a final verdict",
-    parameters: z.object({
+    inputSchema: z.object({
       criteria: z
         .object(
           Object.fromEntries(
@@ -153,7 +153,7 @@ class JudgeAgent extends JudgeAgentAdapter {
       model: mergedConfig.model,
       messages: messages,
       temperature: mergedConfig.temperature ?? 0.0,
-      maxTokens: mergedConfig.maxTokens,
+      maxOutputTokens: mergedConfig.maxTokens,
       tools,
       toolChoice,
     });
@@ -165,7 +165,7 @@ class JudgeAgent extends JudgeAgentAdapter {
 
       switch (toolCall.toolName) {
         case "finish_test": {
-          args = toolCall.args as FinishTestArgs;
+          args = toolCall.input as FinishTestArgs;
 
           const verdict = args.verdict || "inconclusive";
           const reasoning = args.reasoning || "No reasoning provided";

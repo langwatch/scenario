@@ -171,16 +171,15 @@ function formatPart(
     case "tool-call":
       return `(tool call): ${part.toolName} id:${
         part.toolCallId
-      } args:(${JSON.stringify(part.args)})`;
+      } args:(${JSON.stringify(part.input)})`;
     case "tool-result":
       return `(tool result): ${part.toolName} id:${
         part.toolCallId
-      } result:(${JSON.stringify(part.result)})`;
+      } result:(${JSON.stringify(part.output)})`;
     case "reasoning":
       return `(reasoning): ${part.text}`;
-    case "redacted-reasoning":
-      return `(redacted reasoning): ${part.data}`;
     default:
+      part satisfies never;
       return `Unknown content: ${JSON.stringify(part)}`;
   }
 }
