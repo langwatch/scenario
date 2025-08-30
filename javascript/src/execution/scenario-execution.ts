@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
@@ -28,7 +28,7 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
-import convertCoreMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
+import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
   generateScenarioRunId,
@@ -147,7 +147,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * Key: agent index, Value: array of pending messages for that agent
    */
-  private pendingMessages: Map<number, CoreMessage[]> = new Map();
+  private pendingMessages: Map<number, ModelMessage[]> = new Map();
 
   /** Intermediate result set by agents that make final decisions */
   private partialResult: Omit<ScenarioResult, "messages"> | null = null;
@@ -200,9 +200,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /**
    * Gets the complete conversation history as an array of messages.
    *
-   * @returns Array of CoreMessage objects representing the full conversation
+   * @returns Array of ModelMessage objects representing the full conversation
    */
-  get messages(): CoreMessage[] {
+  get messages(): ModelMessage[] {
     return this.state.messages;
   }
 
@@ -354,7 +354,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * }
    * ```
    */
-  async step(): Promise<CoreMessage[] | ScenarioResult> {
+  async step(): Promise<ModelMessage[] | ScenarioResult> {
     const result = await this._step();
     if (result === null) throw new Error("No result from step");
 
@@ -364,7 +364,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async _step(
     goToNextTurn: boolean = true,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
-  ): Promise<CoreMessage[] | ScenarioResult | null> {
+  ): Promise<ModelMessage[] | ScenarioResult | null> {
     if (this.pendingRolesOnTurn.length === 0) {
       if (!goToNextTurn) return null;
 
@@ -420,7 +420,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     idx: number,
     role: AgentRole,
     judgmentRequest: boolean = false
-  ): Promise<CoreMessage[] | ScenarioResult> {
+  ): Promise<ModelMessage[] | ScenarioResult> {
     const agent = this.agents[idx];
     const startTime = Date.now();
     const agentInput: AgentInput = {
@@ -485,7 +485,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - "assistant" messages are routed to AGENT role agents
    * - Other message types are added directly to the conversation
    *
-   * @param message - The CoreMessage to add to the conversation
+   * @param message - The ModelMessage to add to the conversation
    *
    * @example
    * ```typescript
@@ -495,7 +495,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * });
    * ```
    */
-  async message(message: CoreMessage): Promise<void> {
+  async message(message: ModelMessage): Promise<void> {
     if (message.role === "user") {
       await this.scriptCallAgent(AgentRole.USER, message);
     } else if (message.role === "assistant") {
@@ -515,7 +515,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * This method is part of the ScenarioExecutionLike interface used by script steps.
    *
-   * @param content - Optional content for the user's message. Can be a string or CoreMessage.
+   * @param content - Optional content for the user's message. Can be a string or ModelMessage.
    *                 If not provided, the user simulator agent will generate the content.
    *
    * @example
@@ -526,14 +526,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * // Let user simulator generate content
    * await execution.user();
    *
-   * // Use a CoreMessage object
+   * // Use a ModelMessage object
    * await execution.user({
    *   role: "user",
    *   content: "Tell me a joke"
    * });
    * ```
    */
-  async user(content?: string | CoreMessage): Promise<void> {
+  async user(content?: string | ModelMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.USER, content);
   }
 
@@ -546,7 +546,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * This method is part of the ScenarioExecutionLike interface used by script steps.
    *
-   * @param content - Optional content for the agent's response. Can be a string or CoreMessage.
+   * @param content - Optional content for the agent's response. Can be a string or ModelMessage.
    *                 If not provided, the agent under test will generate the response.
    *
    * @example
@@ -557,14 +557,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * // Use provided content
    * await execution.agent("The weather is sunny today!");
    *
-   * // Use a CoreMessage object
+   * // Use a ModelMessage object
    * await execution.agent({
    *   role: "assistant",
    *   content: "I'm here to help you with weather information."
    * });
    * ```
    */
-  async agent(content?: string | CoreMessage): Promise<void> {
+  async agent(content?: string | ModelMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.AGENT, content);
   }
 
@@ -595,7 +595,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * const result = await execution.judge("Please consider the user's satisfaction level");
    * ```
    */
-  async judge(content?: string | CoreMessage): Promise<ScenarioResult | null> {
+  async judge(content?: string | ModelMessage): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
   }
 
@@ -833,7 +833,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    */
   private async scriptCallAgent(
     role: AgentRole,
-    content?: string | CoreMessage,
+    content?: string | ModelMessage,
     judgmentRequest: boolean = false
   ): Promise<ScenarioResult | null> {
     this.consumeUntilRole(role);
@@ -887,7 +887,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           ? ({
               role: role === AgentRole.USER ? "user" : "assistant",
               content,
-            } as CoreMessage)
+            } as ModelMessage)
           : content;
       this.state.addMessage(message);
       this.broadcastMessage(message, index);
@@ -1101,7 +1101,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.MESSAGE_SNAPSHOT,
-      messages: convertCoreMessagesToAguiMessages(this.state.messages),
+      messages: convertModelMessagesToAguiMessages(this.state.messages),
       // Add any other required fields from MessagesSnapshotEventSchema
     } as ScenarioMessageSnapshotEvent);
   }
@@ -1165,7 +1165,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * // Now agents 1 and 2 have this message in their pendingMessages queue
    * ```
    */
-  private broadcastMessage(message: CoreMessage, fromAgentIdx?: number): void {
+  private broadcastMessage(message: ModelMessage, fromAgentIdx?: number): void {
     for (let idx = 0; idx < this.agents.length; idx++) {
       if (idx === fromAgentIdx) continue;
 
@@ -1242,25 +1242,25 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 }
 
 /**
- * Converts agent return types to CoreMessage format.
+ * Converts agent return types to ModelMessage format.
  *
  * This utility function handles the various return types that agents can return
- * and converts them to a standardized CoreMessage format. Agents can return:
+ * and converts them to a standardized ModelMessage format. Agents can return:
  * - A string (converted to a message with the specified role)
- * - An array of CoreMessage objects (returned as-is)
- * - A single CoreMessage object (wrapped in an array)
+ * - An array of ModelMessage objects (returned as-is)
+ * - A single ModelMessage object (wrapped in an array)
  * - Any other type (returns empty array)
  *
- * @param response - The response from an agent (string, CoreMessage, or array of CoreMessage)
+ * @param response - The response from an agent (string, ModelMessage, or array of ModelMessage)
  * @param role - The role to assign if the response is a string ("user" or "assistant")
- * @returns An array of CoreMessage objects
+ * @returns An array of ModelMessage objects
  */
 function convertAgentReturnTypesToMessages(
   response: AgentReturnTypes,
   role: "user" | "assistant"
-): CoreMessage[] {
+): ModelMessage[] {
   if (typeof response === "string")
-    return [{ role, content: response } as CoreMessage];
+    return [{ role, content: response } as ModelMessage];
 
   if (Array.isArray(response)) return response;
 

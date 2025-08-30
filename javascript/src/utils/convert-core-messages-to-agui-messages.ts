@@ -1,22 +1,22 @@
 import { MessagesSnapshotEvent } from "@ag-ui/core";
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 
 import { generateMessageId } from "./ids";
 
 type AgUiMessage = MessagesSnapshotEvent["messages"][number];
 
 /**
- * Converts an array of CoreMessage (from 'ai') to an array of AG-UI compliant messages.
+ * Converts an array of ModelMessage (from 'ai') to an array of AG-UI compliant messages.
  * Handles splitting tool messages, extracting tool calls, and mapping/coercing fields.
- * @param coreMessages - Array of CoreMessage from 'ai'
+ * @param modelMessages - Array of ModelMessage from 'ai'
  * @returns Array of AG-UI messages (user, assistant, system, tool)
  */
-export function convertCoreMessagesToAguiMessages(
-  coreMessages: CoreMessage[]
+export function convertModelMessagesToAguiMessages(
+  modelMessages: ModelMessage[]
 ): AgUiMessage[] {
   const aguiMessages: AgUiMessage[] = [];
 
-  for (const msg of coreMessages) {
+  for (const msg of modelMessages) {
     const id =
       "id" in msg && typeof msg.id === "string" ? msg.id : generateMessageId();
 
@@ -67,7 +67,7 @@ export function convertCoreMessagesToAguiMessages(
             type: "function",
             function: {
               name: c.toolName,
-              arguments: JSON.stringify(c.args),
+              arguments: JSON.stringify(c.input),
             },
           })),
         });
@@ -81,7 +81,7 @@ export function convertCoreMessagesToAguiMessages(
             id: `${id}-${i}`,
             role: "tool",
             toolCallId: p.toolCallId,
-            content: JSON.stringify(p.result),
+            content: JSON.stringify(p.output.value),
           });
         });
         break;
@@ -94,4 +94,4 @@ export function convertCoreMessagesToAguiMessages(
   return aguiMessages;
 }
 
-export default convertCoreMessagesToAguiMessages;
+export default convertModelMessagesToAguiMessages;

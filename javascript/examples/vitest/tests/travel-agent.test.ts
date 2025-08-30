@@ -4,14 +4,20 @@ import scenario, {
   AgentReturnTypes,
   AgentRole,
 } from "@langwatch/scenario";
-import { CoreMessage, generateText, tool } from "ai";
+import { generateText, JSONValue, ModelMessage, tool } from "ai";
 import { describe, it, expect } from "vitest";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Define the weather tool using zod for parameters
-const getCurrentWeather = tool({
+const getCurrentWeather = tool<
+  {
+    city: string;
+    date_range: string;
+  },
+  string
+>({
   description: "Get the current weather in a given city.",
-  parameters: z.object({
+  inputSchema: z.object({
     city: z.string().describe("The city to get the weather for."),
     date_range: z.string().describe("The date range to get the weather for."),
   }),
@@ -32,7 +38,7 @@ const getCurrentWeather = tool({
 
 const getAccomodation = tool({
   description: "Get the accomodation in a given city.",
-  parameters: z.object({
+  inputSchema: z.object({
     city: z.string().describe("The city to get the accomodation for."),
     weather: z
       .enum(["sunny", "cloudy", "rainy", "snowy"] as const)
@@ -74,8 +80,8 @@ const getAccomodation = tool({
 });
 
 const callTravelAgent = async (
-  messages: CoreMessage[],
-  responseMessages: CoreMessage[] = []
+  messages: ModelMessage[],
+  responseMessages: ModelMessage[] = []
 ): Promise<AgentReturnTypes> => {
   const tools = {
     get_current_weather: getCurrentWeather,
@@ -107,10 +113,12 @@ const callTravelAgent = async (
     const toolCall = response.toolCalls[0];
     // Agent executes the tool directly and returns both messages
     const toolFn = tools[toolCall.toolName as keyof typeof tools];
-    const toolResult = await toolFn.execute(toolCall.args, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const toolResult = await toolFn.execute(toolCall.input as any, {
       toolCallId: toolCall.toolCallId,
       messages: messages,
     });
+
     return callTravelAgent(messages, [
       ...responseMessages,
       {
@@ -120,7 +128,7 @@ const callTravelAgent = async (
             type: "tool-call",
             toolName: toolCall.toolName,
             toolCallId: toolCall.toolCallId,
-            args: toolCall.args,
+            input: toolCall.input,
           },
         ],
       },
@@ -131,7 +139,7 @@ const callTravelAgent = async (
             type: "tool-result",
             toolName: toolCall.toolName,
             toolCallId: toolCall.toolCallId,
-            result: toolResult,
+            output: {type: 'json', value: toolResult as JSONValue },
           },
         ],
       },
