@@ -15,6 +15,7 @@ class EventAlertMessageLogger:
     """
 
     _shown_batch_ids: Set[str] = set()
+    _shown_watch_urls: Set[str] = set()
 
     def handle_greeting(self) -> None:
         """
@@ -40,6 +41,10 @@ class EventAlertMessageLogger:
         if self._is_greeting_disabled():
             return
 
+        if set_url in EventAlertMessageLogger._shown_watch_urls:
+            return
+
+        EventAlertMessageLogger._shown_watch_urls.add(set_url)
         self._display_watch_message(set_url)
 
     def _is_greeting_disabled(self) -> bool:
