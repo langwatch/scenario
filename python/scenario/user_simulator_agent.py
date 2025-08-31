@@ -10,7 +10,8 @@ conversation history.
 import logging
 from typing import Optional, cast
 
-from litellm import Choices, completion
+import litellm
+from litellm import Choices
 from litellm.files.main import ModelResponse
 
 from scenario.cache import scenario_cache
@@ -228,7 +229,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 
         response = cast(
             ModelResponse,
-            completion(
+            litellm.completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,

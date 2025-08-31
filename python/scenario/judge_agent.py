@@ -12,7 +12,8 @@ import logging
 import re
 from typing import List, Optional, cast
 
-from litellm import Choices, completion
+import litellm
+from litellm import Choices
 from litellm.files.main import ModelResponse
 
 from scenario.cache import scenario_cache
@@ -356,7 +357,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
 
         response = cast(
             ModelResponse,
-            completion(
+            litellm.completion(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
