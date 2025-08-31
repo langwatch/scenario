@@ -1,5 +1,6 @@
 import warnings
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
+
+from ..types import ChatCompletionMessageParamWithTrace
 from .events import MessageType
 from .messages import (
     SystemMessage,
@@ -12,7 +13,10 @@ from .messages import (
 from typing import List
 from pksuid import PKSUID
 
-def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessageParam]) -> list[MessageType]:
+
+def convert_messages_to_api_client_messages(
+    messages: list[ChatCompletionMessageParamWithTrace],
+) -> list[MessageType]:
     """
     Converts OpenAI ChatCompletionMessageParam messages to API client Message format.
 
@@ -33,7 +37,7 @@ def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessage
 
     for i, message in enumerate(messages):
         # Generate unique ID for each message
-        message_id = message.get("id") or str(PKSUID('scenariomsg'))
+        message_id = message.get("id") or str(PKSUID("scenariomsg"))
 
         role = message.get("role")
         content = message.get("content")
@@ -41,11 +45,13 @@ def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessage
         if role == "user":
             if not content:
                 raise ValueError(f"User message at index {i} missing required content")
-            converted_messages.append(UserMessage(
+            message_ = UserMessage(
                 id=message_id,
                 role="user",
-                content=str(content)
-            ))
+                content=str(content),
+            )
+            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            converted_messages.append(message_)
         elif role == "assistant":
             # Handle tool calls if present
             tool_calls = message.get("tool_calls")
@@ -53,44 +59,54 @@ def convert_messages_to_api_client_messages(messages: list[ChatCompletionMessage
 
             if tool_calls:
                 for tool_call in tool_calls:
-                    api_tool_calls.append(ToolCall(
-                        id=tool_call.get("id", str(PKSUID('scenariotoolcall'))),
-                        type_="function",
-                        function=FunctionCall(
-                            name=tool_call["function"].get("name", "unknown"),
-                            arguments=tool_call["function"].get("arguments", "{}")
+                    api_tool_calls.append(
+                        ToolCall(
+                            id=tool_call.get("id", str(PKSUID("scenariotoolcall"))),
+                            type_="function",
+                            function=FunctionCall(
+                                name=tool_call["function"].get("name", "unknown"),
+                                arguments=tool_call["function"].get("arguments", "{}"),
+                            ),
                         )
-                    ))
+                    )
 
-            converted_messages.append(AssistantMessage(
+            message_ = AssistantMessage(
                 id=message_id,
                 role="assistant",
                 content=str(content),
-                tool_calls=api_tool_calls
-            ))
+                tool_calls=api_tool_calls,
+            )
+            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            converted_messages.append(message_)
         elif role == "system":
             if not content:
-                raise ValueError(f"System message at index {i} missing required content")
-            converted_messages.append(SystemMessage(
-                id=message_id,
-                role="system",
-                content=str(content)
-            ))
+                raise ValueError(
+                    f"System message at index {i} missing required content"
+                )
+            message_ = SystemMessage(id=message_id, role="system", content=str(content))
+            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            converted_messages.append(message_)
         elif role == "tool":
             tool_call_id = message.get("tool_call_id")
             if not tool_call_id:
-                warnings.warn(f"Tool message at index {i} missing required tool_call_id, skipping tool message")
+                warnings.warn(
+                    f"Tool message at index {i} missing required tool_call_id, skipping tool message"
+                )
                 continue
             if not content:
-                warnings.warn(f"Tool message at index {i} missing required content, skipping tool message")
+                warnings.warn(
+                    f"Tool message at index {i} missing required content, skipping tool message"
+                )
                 continue
 
-            converted_messages.append(ToolMessage(
+            message_ = ToolMessage(
                 id=message_id,
                 role="tool",
                 content=str(content),
-                tool_call_id=tool_call_id
-            ))
+                tool_call_id=tool_call_id,
+            )
+            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            converted_messages.append(message_)
         else:
             raise ValueError(f"Unsupported message role '{role}' at index {i}")
 

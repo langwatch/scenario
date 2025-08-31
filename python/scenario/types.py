@@ -8,10 +8,20 @@ from typing import (
     Callable,
     List,
     Optional,
+    TypeAlias,
     Union,
 )
 
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionUserMessageParam
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionFunctionMessageParam,
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionDeveloperMessageParam,
+)
 
 # Prevent circular imports + Pydantic breaking
 if TYPE_CHECKING:
@@ -20,6 +30,48 @@ if TYPE_CHECKING:
     ScenarioStateType = ScenarioState
 else:
     ScenarioStateType = Any
+
+
+# Since Python types do not support intersection, we need to wrap ALL the chat completion
+# message types with the trace_id field
+
+
+class ChatCompletionDeveloperMessageParamWithTrace(ChatCompletionDeveloperMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionSystemMessageParamWithTrace(ChatCompletionSystemMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionUserMessageParamWithTrace(ChatCompletionUserMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionAssistantMessageParamWithTrace(ChatCompletionAssistantMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionToolMessageParamWithTrace(ChatCompletionToolMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionFunctionMessageParamWithTrace(ChatCompletionFunctionMessageParam):
+    trace_id: Optional[str]
+
+
+"""
+A wrapper around ChatCompletionMessageParam that adds a trace_id field to be able to
+tie back each message of the scenario run to a trace.
+"""
+ChatCompletionMessageParamWithTrace: TypeAlias = Union[
+    ChatCompletionDeveloperMessageParamWithTrace,
+    ChatCompletionSystemMessageParamWithTrace,
+    ChatCompletionUserMessageParamWithTrace,
+    ChatCompletionAssistantMessageParamWithTrace,
+    ChatCompletionToolMessageParamWithTrace,
+    ChatCompletionFunctionMessageParamWithTrace,
+]
 
 
 class AgentRole(Enum):
@@ -171,7 +223,7 @@ class ScenarioResult(BaseModel):
 
     success: bool
     # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
-    messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
+    messages: Annotated[List[ChatCompletionMessageParamWithTrace], SkipValidation]
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []

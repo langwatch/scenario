@@ -18,6 +18,7 @@ from typing import (
     Tuple,
     Union,
     TypedDict,
+    cast,
 )
 import time
 import warnings
@@ -42,7 +43,7 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 
-from .types import AgentInput, AgentRole, ScenarioResult, ScriptStep
+from .types import AgentInput, AgentRole, ChatCompletionMessageParamWithTrace, ScenarioResult, ScriptStep
 from ._error_messages import agent_response_not_awaitable
 from .cache import context_scenario
 from .agent_adapter import AgentAdapter
@@ -259,6 +260,8 @@ class ScenarioExecutor:
             )
             ```
         """
+        message = cast(ChatCompletionMessageParamWithTrace, message)
+        message["trace_id"] = self._trace.trace_id
         self._state.messages.append(message)
 
         # Broadcast the message to other agents
@@ -544,7 +547,7 @@ class ScenarioExecutor:
                         AgentInput(
                             # TODO: test thread_id
                             thread_id=self._state.thread_id,
-                            messages=self._state.messages,
+                            messages=cast(List[ChatCompletionMessageParam], self._state.messages),
                             new_messages=self._pending_messages.get(idx, []),
                             judgment_request=request_judgment,
                             scenario_state=self._state,

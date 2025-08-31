@@ -14,6 +14,7 @@ from openai.types.chat import (
 )
 from pydantic import BaseModel
 
+from scenario.types import ChatCompletionMessageParamWithTrace
 from scenario.config import ScenarioConfig
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ class ScenarioState(BaseModel):
     """
 
     description: str
-    messages: List[ChatCompletionMessageParam]
+    messages: List[ChatCompletionMessageParamWithTrace]
     thread_id: str
     current_turn: int
     config: ScenarioConfig
