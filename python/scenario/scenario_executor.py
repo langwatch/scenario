@@ -521,7 +521,7 @@ class ScenarioExecutor:
                     ChatCompletionUserMessageParam(role="user", content=input_message)
                 ]
 
-        with self._trace.span(name=f"{agent.__class__.__name__}.call") as span:
+        with self._trace.span(type="agent", name=f"{agent.__class__.__name__}.call") as span:
             with show_spinner(
                 text=(
                     "Judging..."
