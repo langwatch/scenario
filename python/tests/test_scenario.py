@@ -98,6 +98,10 @@ async def test_scenario_allow_scripted_scenario():
             self,
             input: scenario.AgentInput,
         ) -> scenario.AgentReturnTypes:
+            for message in input.new_messages:
+                if "trace_id" in message:
+                    del message["trace_id"]
+
             assert input.new_messages == [
                 {
                     "role": "user",
@@ -138,6 +142,10 @@ async def test_scenario_allow_scripted_scenario_with_lower_level_openai_messages
             self,
             input: scenario.AgentInput,
         ) -> scenario.AgentReturnTypes:
+            for message in input.new_messages:
+                if "trace_id" in message:
+                    del message["trace_id"]
+
             assert input.new_messages == [
                 {
                     "role": "user",

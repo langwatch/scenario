@@ -33,6 +33,16 @@ class MockAgent(AgentAdapter):
         return {"role": "assistant", "content": "Hey, how can I help you?"}
 
 
+def remove_trace_ids(executor: ScenarioExecutor):
+    for message in executor._state.messages:
+        if "trace_id" in message:
+            del message["trace_id"]
+    for message in executor._pending_messages.values():
+        for msg in message:
+            if "trace_id" in msg:
+                del msg["trace_id"]
+
+
 @pytest.mark.asyncio
 async def test_advance_a_step():
     class MockJudgeAgent(JudgeAgent):
@@ -51,12 +61,14 @@ async def test_advance_a_step():
             MockJudgeAgent(model="none", criteria=["test criteria"]),
         ],
     )
+    executor.reset()
 
     assert executor._state.messages == [], "starts with no messages"
 
     # User
     await executor.step()
 
+    remove_trace_ids(executor)
     assert executor._state.messages == [
         {"role": "user", "content": "Hi, I'm a user"},
     ], "starts with the user message"
@@ -66,6 +78,7 @@ async def test_advance_a_step():
     # Assistent
     await executor.step()
 
+    remove_trace_ids(executor)
     assert executor._state.messages == [
         {"role": "user", "content": "Hi, I'm a user"},
         {"role": "assistant", "content": "Hey, how can I help you?"},
@@ -76,6 +89,7 @@ async def test_advance_a_step():
     # Judge
     await executor.step()
 
+    remove_trace_ids(executor)
     assert executor._state.messages == [
         {"role": "user", "content": "Hi, I'm a user"},
         {"role": "assistant", "content": "Hey, how can I help you?"},
@@ -109,11 +123,13 @@ async def test_sends_the_right_new_messages():
     class MockAgent(AgentAdapter):
         async def call(self, input: AgentInput) -> AgentReturnTypes:
             if input.scenario_state.current_turn == 0:
+                remove_trace_ids(input.scenario_state._executor)
                 assert input.new_messages == [
                     {"role": "user", "content": "Hi, I'm a user"}
                 ]
                 return {"role": "assistant", "content": "Hey, how can I help you?"}
             else:
+                remove_trace_ids(input.scenario_state._executor)
                 assert input.messages == [
                     {"role": "user", "content": "Hi, I'm a user"},
                     {"role": "assistant", "content": "Hey, how can I help you?"},
@@ -130,10 +146,12 @@ async def test_sends_the_right_new_messages():
             input: AgentInput,
         ) -> scenario.AgentReturnTypes:
             if input.scenario_state.current_turn == 0:
+                remove_trace_ids(input.scenario_state._executor)
                 assert input.new_messages == []
                 return "Hi, I'm a user"
 
             if input.scenario_state.current_turn == 1:
+                remove_trace_ids(input.scenario_state._executor)
                 assert input.messages == [
                     {"role": "user", "content": "Hi, I'm a user"},
                     {"role": "assistant", "content": "Hey, how can I help you?"},
@@ -154,6 +172,7 @@ async def test_sends_the_right_new_messages():
             MockJudgeAgent(model="none", criteria=["test criteria"]),
         ],
     )
+    executor.reset()
 
     # Run first turn
     await executor.step()
@@ -177,6 +196,8 @@ async def test_for_tool_calls():
             MockJudgeAgent(model="none", criteria=["test criteria"]),
         ],
     )
+    executor.reset()
+
     executor.add_message(
         {
             "role": "assistant",
@@ -213,11 +234,13 @@ async def test_eliminate_pending_roles_in_order_also_on_scripted_scenarios():
             MockJudgeAgent(model="none", criteria=["test criteria"]),
         ],
     )
+    executor.reset()
+
     await executor.agent()
     assert executor._state.current_turn == 0, "current turn should be 0"
     assert executor._pending_roles_on_turn == [
         AgentRole.AGENT,
-        AgentRole.JUDGE
+        AgentRole.JUDGE,
     ], "user should be removed from the first turn already"
 
     await executor.user()
