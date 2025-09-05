@@ -1,8 +1,7 @@
 from typing import Any, cast
 
 import pytest
-from scenario.types import ScenarioResult
-from openai.types.chat import ChatCompletionUserMessageParam
+from scenario.types import ScenarioResult, ChatCompletionUserMessageParamWithTrace
 
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, AgentRole
@@ -19,8 +18,8 @@ async def test_should_be_able_to_override_scenario_agent():
                 reasoning="",
                 passed_criteria=[],
                 messages=[
-                    ChatCompletionUserMessageParam(
-                        role="user", content="Hello, how can I help you?"
+                    ChatCompletionUserMessageParamWithTrace(
+                        role="user", content="Hello, how can I help you", trace_id=None
                     )
                 ],
             )

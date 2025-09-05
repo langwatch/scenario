@@ -36,7 +36,7 @@ class MockAgent(AgentAdapter):
 def remove_trace_ids(executor: ScenarioExecutor):
     for message in executor._state.messages:
         if "trace_id" in message:
-            del message["trace_id"]
+            del message["trace_id"]  # type: ignore
     for message in executor._pending_messages.values():
         for msg in message:
             if "trace_id" in msg:
