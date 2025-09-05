@@ -1019,7 +1019,7 @@ wheels = [
 
 [[package]]
 name = "langwatch"
-version = "0.2.16"
+version = "0.2.19"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -1035,14 +1035,15 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-instrumentation-crewai" },
     { name = "opentelemetry-sdk" },
+    { name = "pksuid" },
     { name = "pydantic" },
     { name = "python-liquid" },
     { name = "retry" },
     { name = "termcolor" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ae/d3/2c489bf191212429ffe4047c80fd1d61690449b2cdaa7ed8a902a74a5f01/langwatch-0.2.16.tar.gz", hash = "sha256:1a150fae60654a89a8a1d63a498fd2c9eae0bdc052062dc69ff329c72980cd2f", size = 1237651 }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/8c/2bb59cfa693f6c5778e97207627bd4edc21124ae6dd3e15e3e588219e6f6/langwatch-0.2.19.tar.gz", hash = "sha256:3e0861a92a1e13b7362fc91c3c27cda8eec554b92cdf7be00c96805b6ec009a4", size = 1265063 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/95/cfb09abe62144706f0e58897b6716f1be8c2f1165b010657335877a17ac5/langwatch-0.2.16-py3-none-any.whl", hash = "sha256:9a3532af6083b5247c80dbedabceb6725a7e35736cb5b946ca56f7a7417139ea", size = 453470 },
+    { url = "https://files.pythonhosted.org/packages/b0/af/5012ff10a2517db17450b17b27f820c08d7fbfe0c561dc6fc20163d81ea8/langwatch-0.2.19-py3-none-any.whl", hash = "sha256:1ba948d0e10eb83c9033c10b4d56737c035bcb14f2b4c162ba8ea8eb13131a5a", size = 456561 },
 ]
 
 [[package]]
@@ -1099,7 +1100,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "joblib", specifier = ">=1.4.2" },
-    { name = "langwatch", specifier = ">=0.2.0" },
+    { name = "langwatch", specifier = ">=0.2.19" },
     { name = "litellm", specifier = ">=1.49.0" },
     { name = "openai", specifier = ">=1.88.0" },
     { name = "pdoc3", marker = "extra == 'dev'" },
