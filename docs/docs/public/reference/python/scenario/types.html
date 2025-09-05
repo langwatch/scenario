@@ -132,10 +132,20 @@ from typing import (
     Callable,
     List,
     Optional,
+    TypeAlias,
     Union,
 )
 
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionUserMessageParam
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionFunctionMessageParam,
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionDeveloperMessageParam,
+)
 
 # Prevent circular imports + Pydantic breaking
 if TYPE_CHECKING:
@@ -144,6 +154,48 @@ if TYPE_CHECKING:
     ScenarioStateType = ScenarioState
 else:
     ScenarioStateType = Any
+
+
+# Since Python types do not support intersection, we need to wrap ALL the chat completion
+# message types with the trace_id field
+
+
+class ChatCompletionDeveloperMessageParamWithTrace(ChatCompletionDeveloperMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionSystemMessageParamWithTrace(ChatCompletionSystemMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionUserMessageParamWithTrace(ChatCompletionUserMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionAssistantMessageParamWithTrace(ChatCompletionAssistantMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionToolMessageParamWithTrace(ChatCompletionToolMessageParam):
+    trace_id: Optional[str]
+
+
+class ChatCompletionFunctionMessageParamWithTrace(ChatCompletionFunctionMessageParam):
+    trace_id: Optional[str]
+
+
+&#34;&#34;&#34;
+A wrapper around ChatCompletionMessageParam that adds a trace_id field to be able to
+tie back each message of the scenario run to a trace.
+&#34;&#34;&#34;
+ChatCompletionMessageParamWithTrace: TypeAlias = Union[
+    ChatCompletionDeveloperMessageParamWithTrace,
+    ChatCompletionSystemMessageParamWithTrace,
+    ChatCompletionUserMessageParamWithTrace,
+    ChatCompletionAssistantMessageParamWithTrace,
+    ChatCompletionToolMessageParamWithTrace,
+    ChatCompletionFunctionMessageParamWithTrace,
+]
 
 
 class AgentRole(Enum):
@@ -295,7 +347,7 @@ class ScenarioResult(BaseModel):
 
     success: bool
     # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
-    messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
+    messages: Annotated[List[ChatCompletionMessageParamWithTrace], SkipValidation]
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
@@ -806,6 +858,304 @@ different types of agents.</p>
 </dd>
 </dl>
 </dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace"><code class="flex name class">
+<span>class <span class="ident">ChatCompletionAssistantMessageParamWithTrace</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>dict() -&gt; new empty dictionary
+dict(mapping) -&gt; new dictionary initialized from a mapping object's
+(key, value) pairs
+dict(iterable) -&gt; new dictionary initialized as if via:
+d = {}
+for k, v in iterable:
+d[k] = v
+dict(**kwargs) -&gt; new dictionary initialized with the name=value pairs
+in the keyword argument list.
+For example:
+dict(one=1, two=2)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ChatCompletionAssistantMessageParamWithTrace(ChatCompletionAssistantMessageParam):
+    trace_id: Optional[str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.dict</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.audio"><code class="name">var <span class="ident">audio</span> : openai.types.chat.chat_completion_assistant_message_param.Audio | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.content"><code class="name">var <span class="ident">content</span> : str | Iterable[openai.types.chat.chat_completion_content_part_text_param.ChatCompletionContentPartTextParam | openai.types.chat.chat_completion_content_part_refusal_param.ChatCompletionContentPartRefusalParam] | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.function_call"><code class="name">var <span class="ident">function_call</span> : openai.types.chat.chat_completion_assistant_message_param.FunctionCall | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.refusal"><code class="name">var <span class="ident">refusal</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.role"><code class="name">var <span class="ident">role</span> : Literal['assistant']</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.tool_calls"><code class="name">var <span class="ident">tool_calls</span> : Iterable[openai.types.chat.chat_completion_message_tool_call_param.ChatCompletionMessageToolCallParam]</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionAssistantMessageParamWithTrace.trace_id"><code class="name">var <span class="ident">trace_id</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="scenario.types.ChatCompletionDeveloperMessageParamWithTrace"><code class="flex name class">
+<span>class <span class="ident">ChatCompletionDeveloperMessageParamWithTrace</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>dict() -&gt; new empty dictionary
+dict(mapping) -&gt; new dictionary initialized from a mapping object's
+(key, value) pairs
+dict(iterable) -&gt; new dictionary initialized as if via:
+d = {}
+for k, v in iterable:
+d[k] = v
+dict(**kwargs) -&gt; new dictionary initialized with the name=value pairs
+in the keyword argument list.
+For example:
+dict(one=1, two=2)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ChatCompletionDeveloperMessageParamWithTrace(ChatCompletionDeveloperMessageParam):
+    trace_id: Optional[str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.dict</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.content"><code class="name">var <span class="ident">content</span> : str | Iterable[openai.types.chat.chat_completion_content_part_text_param.ChatCompletionContentPartTextParam]</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.role"><code class="name">var <span class="ident">role</span> : Literal['developer']</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.trace_id"><code class="name">var <span class="ident">trace_id</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="scenario.types.ChatCompletionFunctionMessageParamWithTrace"><code class="flex name class">
+<span>class <span class="ident">ChatCompletionFunctionMessageParamWithTrace</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>dict() -&gt; new empty dictionary
+dict(mapping) -&gt; new dictionary initialized from a mapping object's
+(key, value) pairs
+dict(iterable) -&gt; new dictionary initialized as if via:
+d = {}
+for k, v in iterable:
+d[k] = v
+dict(**kwargs) -&gt; new dictionary initialized with the name=value pairs
+in the keyword argument list.
+For example:
+dict(one=1, two=2)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ChatCompletionFunctionMessageParamWithTrace(ChatCompletionFunctionMessageParam):
+    trace_id: Optional[str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.dict</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="scenario.types.ChatCompletionFunctionMessageParamWithTrace.content"><code class="name">var <span class="ident">content</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionFunctionMessageParamWithTrace.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionFunctionMessageParamWithTrace.role"><code class="name">var <span class="ident">role</span> : Literal['function']</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionFunctionMessageParamWithTrace.trace_id"><code class="name">var <span class="ident">trace_id</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="scenario.types.ChatCompletionSystemMessageParamWithTrace"><code class="flex name class">
+<span>class <span class="ident">ChatCompletionSystemMessageParamWithTrace</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>dict() -&gt; new empty dictionary
+dict(mapping) -&gt; new dictionary initialized from a mapping object's
+(key, value) pairs
+dict(iterable) -&gt; new dictionary initialized as if via:
+d = {}
+for k, v in iterable:
+d[k] = v
+dict(**kwargs) -&gt; new dictionary initialized with the name=value pairs
+in the keyword argument list.
+For example:
+dict(one=1, two=2)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ChatCompletionSystemMessageParamWithTrace(ChatCompletionSystemMessageParam):
+    trace_id: Optional[str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.dict</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="scenario.types.ChatCompletionSystemMessageParamWithTrace.content"><code class="name">var <span class="ident">content</span> : str | Iterable[openai.types.chat.chat_completion_content_part_text_param.ChatCompletionContentPartTextParam]</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionSystemMessageParamWithTrace.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionSystemMessageParamWithTrace.role"><code class="name">var <span class="ident">role</span> : Literal['system']</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionSystemMessageParamWithTrace.trace_id"><code class="name">var <span class="ident">trace_id</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="scenario.types.ChatCompletionToolMessageParamWithTrace"><code class="flex name class">
+<span>class <span class="ident">ChatCompletionToolMessageParamWithTrace</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>dict() -&gt; new empty dictionary
+dict(mapping) -&gt; new dictionary initialized from a mapping object's
+(key, value) pairs
+dict(iterable) -&gt; new dictionary initialized as if via:
+d = {}
+for k, v in iterable:
+d[k] = v
+dict(**kwargs) -&gt; new dictionary initialized with the name=value pairs
+in the keyword argument list.
+For example:
+dict(one=1, two=2)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ChatCompletionToolMessageParamWithTrace(ChatCompletionToolMessageParam):
+    trace_id: Optional[str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.dict</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="scenario.types.ChatCompletionToolMessageParamWithTrace.content"><code class="name">var <span class="ident">content</span> : str | Iterable[openai.types.chat.chat_completion_content_part_text_param.ChatCompletionContentPartTextParam]</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionToolMessageParamWithTrace.role"><code class="name">var <span class="ident">role</span> : Literal['tool']</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionToolMessageParamWithTrace.tool_call_id"><code class="name">var <span class="ident">tool_call_id</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionToolMessageParamWithTrace.trace_id"><code class="name">var <span class="ident">trace_id</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+</dl>
+</dd>
+<dt id="scenario.types.ChatCompletionUserMessageParamWithTrace"><code class="flex name class">
+<span>class <span class="ident">ChatCompletionUserMessageParamWithTrace</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>dict() -&gt; new empty dictionary
+dict(mapping) -&gt; new dictionary initialized from a mapping object's
+(key, value) pairs
+dict(iterable) -&gt; new dictionary initialized as if via:
+d = {}
+for k, v in iterable:
+d[k] = v
+dict(**kwargs) -&gt; new dictionary initialized with the name=value pairs
+in the keyword argument list.
+For example:
+dict(one=1, two=2)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ChatCompletionUserMessageParamWithTrace(ChatCompletionUserMessageParam):
+    trace_id: Optional[str]</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.dict</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="scenario.types.ChatCompletionUserMessageParamWithTrace.content"><code class="name">var <span class="ident">content</span> : str | Iterable[openai.types.chat.chat_completion_content_part_text_param.ChatCompletionContentPartTextParam | openai.types.chat.chat_completion_content_part_image_param.ChatCompletionContentPartImageParam | openai.types.chat.chat_completion_content_part_input_audio_param.ChatCompletionContentPartInputAudioParam | openai.types.chat.chat_completion_content_part_param.File]</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionUserMessageParamWithTrace.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionUserMessageParamWithTrace.role"><code class="name">var <span class="ident">role</span> : Literal['user']</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+<dt id="scenario.types.ChatCompletionUserMessageParamWithTrace.trace_id"><code class="name">var <span class="ident">trace_id</span> : str | None</code></dt>
+<dd>
+<div class="desc"><p>The type of the None singleton.</p></div>
+</dd>
+</dl>
+</dd>
 <dt id="scenario.types.ScenarioResult"><code class="flex name class">
 <span>class <span class="ident">ScenarioResult</span></span>
 <span>(</span><span>**data: Any)</span>
@@ -900,7 +1250,7 @@ validated to form a valid model.</p>
 
     success: bool
     # Prevent issues with slightly inconsistent message types for example when comming from Gemini right at the result level
-    messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
+    messages: Annotated[List[ChatCompletionMessageParamWithTrace], SkipValidation]
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
@@ -931,7 +1281,7 @@ validated to form a valid model.</p>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
-<dt id="scenario.types.ScenarioResult.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
+<dt id="scenario.types.ScenarioResult.messages"><code class="name">var <span class="ident">messages</span> : List[<a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace" href="#scenario.types.ChatCompletionDeveloperMessageParamWithTrace">ChatCompletionDeveloperMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionSystemMessageParamWithTrace" href="#scenario.types.ChatCompletionSystemMessageParamWithTrace">ChatCompletionSystemMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionUserMessageParamWithTrace" href="#scenario.types.ChatCompletionUserMessageParamWithTrace">ChatCompletionUserMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace">ChatCompletionAssistantMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionToolMessageParamWithTrace" href="#scenario.types.ChatCompletionToolMessageParamWithTrace">ChatCompletionToolMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace" href="#scenario.types.ChatCompletionFunctionMessageParamWithTrace">ChatCompletionFunctionMessageParamWithTrace</a>]</code></dt>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
@@ -999,6 +1349,64 @@ validated to form a valid model.</p>
 <li><code><a title="scenario.types.AgentRole.AGENT" href="#scenario.types.AgentRole.AGENT">AGENT</a></code></li>
 <li><code><a title="scenario.types.AgentRole.JUDGE" href="#scenario.types.AgentRole.JUDGE">JUDGE</a></code></li>
 <li><code><a title="scenario.types.AgentRole.USER" href="#scenario.types.AgentRole.USER">USER</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace">ChatCompletionAssistantMessageParamWithTrace</a></code></h4>
+<ul class="two-column">
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.audio" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.audio">audio</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.content" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.content">content</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.function_call" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.function_call">function_call</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.name" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.name">name</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.refusal" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.refusal">refusal</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.role" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.role">role</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.tool_calls" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.tool_calls">tool_calls</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace.trace_id" href="#scenario.types.ChatCompletionAssistantMessageParamWithTrace.trace_id">trace_id</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace" href="#scenario.types.ChatCompletionDeveloperMessageParamWithTrace">ChatCompletionDeveloperMessageParamWithTrace</a></code></h4>
+<ul class="">
+<li><code><a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.content" href="#scenario.types.ChatCompletionDeveloperMessageParamWithTrace.content">content</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.name" href="#scenario.types.ChatCompletionDeveloperMessageParamWithTrace.name">name</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.role" href="#scenario.types.ChatCompletionDeveloperMessageParamWithTrace.role">role</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace.trace_id" href="#scenario.types.ChatCompletionDeveloperMessageParamWithTrace.trace_id">trace_id</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace" href="#scenario.types.ChatCompletionFunctionMessageParamWithTrace">ChatCompletionFunctionMessageParamWithTrace</a></code></h4>
+<ul class="">
+<li><code><a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace.content" href="#scenario.types.ChatCompletionFunctionMessageParamWithTrace.content">content</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace.name" href="#scenario.types.ChatCompletionFunctionMessageParamWithTrace.name">name</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace.role" href="#scenario.types.ChatCompletionFunctionMessageParamWithTrace.role">role</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace.trace_id" href="#scenario.types.ChatCompletionFunctionMessageParamWithTrace.trace_id">trace_id</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="scenario.types.ChatCompletionSystemMessageParamWithTrace" href="#scenario.types.ChatCompletionSystemMessageParamWithTrace">ChatCompletionSystemMessageParamWithTrace</a></code></h4>
+<ul class="">
+<li><code><a title="scenario.types.ChatCompletionSystemMessageParamWithTrace.content" href="#scenario.types.ChatCompletionSystemMessageParamWithTrace.content">content</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionSystemMessageParamWithTrace.name" href="#scenario.types.ChatCompletionSystemMessageParamWithTrace.name">name</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionSystemMessageParamWithTrace.role" href="#scenario.types.ChatCompletionSystemMessageParamWithTrace.role">role</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionSystemMessageParamWithTrace.trace_id" href="#scenario.types.ChatCompletionSystemMessageParamWithTrace.trace_id">trace_id</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="scenario.types.ChatCompletionToolMessageParamWithTrace" href="#scenario.types.ChatCompletionToolMessageParamWithTrace">ChatCompletionToolMessageParamWithTrace</a></code></h4>
+<ul class="">
+<li><code><a title="scenario.types.ChatCompletionToolMessageParamWithTrace.content" href="#scenario.types.ChatCompletionToolMessageParamWithTrace.content">content</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionToolMessageParamWithTrace.role" href="#scenario.types.ChatCompletionToolMessageParamWithTrace.role">role</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionToolMessageParamWithTrace.tool_call_id" href="#scenario.types.ChatCompletionToolMessageParamWithTrace.tool_call_id">tool_call_id</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionToolMessageParamWithTrace.trace_id" href="#scenario.types.ChatCompletionToolMessageParamWithTrace.trace_id">trace_id</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="scenario.types.ChatCompletionUserMessageParamWithTrace" href="#scenario.types.ChatCompletionUserMessageParamWithTrace">ChatCompletionUserMessageParamWithTrace</a></code></h4>
+<ul class="">
+<li><code><a title="scenario.types.ChatCompletionUserMessageParamWithTrace.content" href="#scenario.types.ChatCompletionUserMessageParamWithTrace.content">content</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionUserMessageParamWithTrace.name" href="#scenario.types.ChatCompletionUserMessageParamWithTrace.name">name</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionUserMessageParamWithTrace.role" href="#scenario.types.ChatCompletionUserMessageParamWithTrace.role">role</a></code></li>
+<li><code><a title="scenario.types.ChatCompletionUserMessageParamWithTrace.trace_id" href="#scenario.types.ChatCompletionUserMessageParamWithTrace.trace_id">trace_id</a></code></li>
 </ul>
 </li>
 <li>

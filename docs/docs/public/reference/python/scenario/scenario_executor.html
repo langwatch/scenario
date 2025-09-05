@@ -134,6 +134,7 @@ of scenario tests, managing the interaction between user simulators, agents unde
 and judge agents to determine test success or failure.
 &#34;&#34;&#34;
 
+import json
 import sys
 from typing import (
     Awaitable,
@@ -145,6 +146,7 @@ from typing import (
     Tuple,
     Union,
     TypedDict,
+    cast,
 )
 import time
 import warnings
@@ -161,6 +163,7 @@ from scenario._utils import (
     await_if_awaitable,
     get_batch_run_id,
     generate_scenario_run_id,
+    SerializableWithStringFallback,
 )
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -168,7 +171,7 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 
-from .types import AgentInput, AgentRole, ScenarioResult, ScriptStep
+from .types import AgentInput, AgentRole, ChatCompletionMessageParamWithTrace, ScenarioResult, ScriptStep
 from ._error_messages import agent_response_not_awaitable
 from .cache import context_scenario
 from .agent_adapter import AgentAdapter
@@ -189,6 +192,11 @@ from ._events import (
 )
 from rx.subject.subject import Subject
 from rx.core.observable.observable import Observable
+
+import litellm
+import langwatch
+import langwatch.telemetry.context
+from langwatch.telemetry.tracing import LangWatchTrace
 
 
 class ScenarioExecutor:
@@ -229,6 +237,7 @@ class ScenarioExecutor:
     _pending_agents_on_turn: Set[AgentAdapter] = set()
     _agent_times: Dict[int, float] = {}
     _events: Subject
+    _trace: LangWatchTrace
 
     event_bus: ScenarioEventBus
 
@@ -285,7 +294,8 @@ class ScenarioExecutor:
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
-        self.reset()
+        self.batch_run_id = get_batch_run_id()
+        self.scenario_set_id = set_id or &#34;default&#34;
 
         # Create executor&#39;s own event stream
         self._events = Subject()
@@ -293,9 +303,6 @@ class ScenarioExecutor:
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
         self.event_bus.subscribe_to_events(self._events)
-
-        self.batch_run_id = get_batch_run_id()
-        self.scenario_set_id = set_id or &#34;default&#34;
 
     @property
     def events(self) -&gt; Observable:
@@ -381,6 +388,8 @@ class ScenarioExecutor:
             )
             ```
         &#34;&#34;&#34;
+        message = cast(ChatCompletionMessageParamWithTrace, message)
+        message[&#34;trace_id&#34;] = self._trace.trace_id
         self._state.messages.append(message)
 
         # Broadcast the message to other agents
@@ -390,6 +399,21 @@ class ScenarioExecutor:
             if idx not in self._pending_messages:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
+
+        # Update trace with input/output
+        if message[&#34;role&#34;] == &#34;user&#34;:
+            self._trace.update(input={&#34;type&#34;: &#34;text&#34;, &#34;value&#34;: str(message[&#34;content&#34;])})
+        elif message[&#34;role&#34;] == &#34;assistant&#34;:
+            self._trace.update(
+                output={
+                    &#34;type&#34;: &#34;text&#34;,
+                    &#34;value&#34;: str(
+                        message[&#34;content&#34;]
+                        if &#34;content&#34; in message
+                        else json.dumps(message, cls=SerializableWithStringFallback)
+                    ),
+                }
+            )
 
     def add_messages(
         self,
@@ -420,6 +444,21 @@ class ScenarioExecutor:
             self.add_message(message, from_agent_idx)
 
     def _new_turn(self):
+        if hasattr(self, &#34;_trace&#34;) and self._trace is not None:
+            self._trace.__exit__(None, None, None)
+
+        self._trace = langwatch.trace(
+            name=&#34;Scenario Turn&#34;,
+            metadata={
+                &#34;labels&#34;: [&#34;scenario&#34;],
+                &#34;thread_id&#34;: self._state.thread_id,
+                &#34;scenario.name&#34;: self.name,
+                &#34;scenario.batch_id&#34;: self.batch_run_id,
+                &#34;scenario.set_id&#34;: self.scenario_set_id,
+                &#34;scenario.turn&#34;: self._state.current_turn,
+            },
+        ).__enter__()
+
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
             AgentRole.USER,
@@ -588,7 +627,7 @@ class ScenarioExecutor:
 
     async def _call_agent(
         self, idx: int, role: AgentRole, request_judgment: bool = False
-    ) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult]:
+    ) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult, None]:
         agent = self.agents[idx]
 
         if role == AgentRole.USER and self.config.debug:
@@ -610,67 +649,84 @@ class ScenarioExecutor:
                     ChatCompletionUserMessageParam(role=&#34;user&#34;, content=input_message)
                 ]
 
-        with show_spinner(
-            text=(
-                &#34;Judging...&#34;
-                if role == AgentRole.JUDGE
-                else f&#34;{role.value if isinstance(role, AgentRole) else role}:&#34;
-            ),
-            color=(
-                &#34;blue&#34;
-                if role == AgentRole.AGENT
-                else &#34;green&#34; if role == AgentRole.USER else &#34;yellow&#34;
-            ),
-            enabled=self.config.verbose,
-        ):
-            start_time = time.time()
+        with self._trace.span(type=&#34;agent&#34;, name=f&#34;{agent.__class__.__name__}.call&#34;) as span:
+            with show_spinner(
+                text=(
+                    &#34;Judging...&#34;
+                    if role == AgentRole.JUDGE
+                    else f&#34;{role.value if isinstance(role, AgentRole) else role}:&#34;
+                ),
+                color=(
+                    &#34;blue&#34;
+                    if role == AgentRole.AGENT
+                    else &#34;green&#34; if role == AgentRole.USER else &#34;yellow&#34;
+                ),
+                enabled=self.config.verbose,
+            ):
+                start_time = time.time()
 
-            # Prevent pydantic validation warnings which should already be disabled
-            with warnings.catch_warnings():
-                warnings.simplefilter(&#34;ignore&#34;)
-                agent_response = agent.call(
-                    AgentInput(
-                        # TODO: test thread_id
-                        thread_id=self._state.thread_id,
-                        messages=self._state.messages,
-                        new_messages=self._pending_messages.get(idx, []),
-                        judgment_request=request_judgment,
-                        scenario_state=self._state,
+                # Prevent pydantic validation warnings which should already be disabled
+                with warnings.catch_warnings():
+                    warnings.simplefilter(&#34;ignore&#34;)
+
+                    self._trace.autotrack_litellm_calls(litellm)
+
+                    agent_response = agent.call(
+                        AgentInput(
+                            # TODO: test thread_id
+                            thread_id=self._state.thread_id,
+                            messages=cast(List[ChatCompletionMessageParam], self._state.messages),
+                            new_messages=self._pending_messages.get(idx, []),
+                            judgment_request=request_judgment,
+                            scenario_state=self._state,
+                        )
                     )
-                )
-            if not isinstance(agent_response, Awaitable):
-                raise Exception(
-                    agent_response_not_awaitable(agent.__class__.__name__),
-                )
+                if not isinstance(agent_response, Awaitable):
+                    raise Exception(
+                        agent_response_not_awaitable(agent.__class__.__name__),
+                    )
 
-            agent_response = await agent_response
+                agent_response = await agent_response
 
-            if idx not in self._agent_times:
-                self._agent_times[idx] = 0
-            self._agent_times[idx] += time.time() - start_time
+                if idx not in self._agent_times:
+                    self._agent_times[idx] = 0
+                self._agent_times[idx] += time.time() - start_time
 
-            self._pending_messages[idx] = []
-            check_valid_return_type(agent_response, agent.__class__.__name__)
+                self._pending_messages[idx] = []
+                check_valid_return_type(agent_response, agent.__class__.__name__)
 
-            messages = []
-            if isinstance(agent_response, ScenarioResult):
-                # TODO: should be an event
-                return agent_response
-            else:
-                messages = convert_agent_return_types_to_openai_messages(
-                    agent_response,
-                    role=&#34;user&#34; if role == AgentRole.USER else &#34;assistant&#34;,
-                )
+                messages = []
+                if isinstance(agent_response, ScenarioResult):
+                    # TODO: should be an event
+                    span.add_evaluation(
+                        name=f&#34;{agent.__class__.__name__} Judgment&#34;,
+                        status=&#34;processed&#34;,
+                        passed=agent_response.success,
+                        details=agent_response.reasoning,
+                        score=(
+                            len(agent_response.passed_criteria)
+                            / len(agent_response.failed_criteria)
+                            if agent_response.failed_criteria
+                            else 1.0
+                        ),
+                    )
 
-            self.add_messages(messages, from_agent_idx=idx)
+                    return agent_response
+                else:
+                    messages = convert_agent_return_types_to_openai_messages(
+                        agent_response,
+                        role=&#34;user&#34; if role == AgentRole.USER else &#34;assistant&#34;,
+                    )
 
-            if messages and self.config.verbose:
-                print_openai_messages(
-                    self._scenario_name(),
-                    [m for m in messages if m[&#34;role&#34;] != &#34;system&#34;],
-                )
+                self.add_messages(messages, from_agent_idx=idx)
 
-            return messages
+                if messages and self.config.verbose:
+                    print_openai_messages(
+                        self._scenario_name(),
+                        [m for m in messages if m[&#34;role&#34;] != &#34;system&#34;],
+                    )
+
+                return messages
 
     def _scenario_name(self):
         if self.config.verbose == 2:
@@ -945,6 +1001,7 @@ class ScenarioExecutor:
 
         # Signal end of event stream
         self._events.on_completed()
+        self._trace.__exit__(None, None, None)
 
 
 async def run(
@@ -1352,6 +1409,7 @@ Overrides global configuration for this scenario.</dd>
     _pending_agents_on_turn: Set[AgentAdapter] = set()
     _agent_times: Dict[int, float] = {}
     _events: Subject
+    _trace: LangWatchTrace
 
     event_bus: ScenarioEventBus
 
@@ -1408,7 +1466,8 @@ Overrides global configuration for this scenario.</dd>
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
-        self.reset()
+        self.batch_run_id = get_batch_run_id()
+        self.scenario_set_id = set_id or &#34;default&#34;
 
         # Create executor&#39;s own event stream
         self._events = Subject()
@@ -1416,9 +1475,6 @@ Overrides global configuration for this scenario.</dd>
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
         self.event_bus.subscribe_to_events(self._events)
-
-        self.batch_run_id = get_batch_run_id()
-        self.scenario_set_id = set_id or &#34;default&#34;
 
     @property
     def events(self) -&gt; Observable:
@@ -1504,6 +1560,8 @@ Overrides global configuration for this scenario.</dd>
             )
             ```
         &#34;&#34;&#34;
+        message = cast(ChatCompletionMessageParamWithTrace, message)
+        message[&#34;trace_id&#34;] = self._trace.trace_id
         self._state.messages.append(message)
 
         # Broadcast the message to other agents
@@ -1513,6 +1571,21 @@ Overrides global configuration for this scenario.</dd>
             if idx not in self._pending_messages:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
+
+        # Update trace with input/output
+        if message[&#34;role&#34;] == &#34;user&#34;:
+            self._trace.update(input={&#34;type&#34;: &#34;text&#34;, &#34;value&#34;: str(message[&#34;content&#34;])})
+        elif message[&#34;role&#34;] == &#34;assistant&#34;:
+            self._trace.update(
+                output={
+                    &#34;type&#34;: &#34;text&#34;,
+                    &#34;value&#34;: str(
+                        message[&#34;content&#34;]
+                        if &#34;content&#34; in message
+                        else json.dumps(message, cls=SerializableWithStringFallback)
+                    ),
+                }
+            )
 
     def add_messages(
         self,
@@ -1543,6 +1616,21 @@ Overrides global configuration for this scenario.</dd>
             self.add_message(message, from_agent_idx)
 
     def _new_turn(self):
+        if hasattr(self, &#34;_trace&#34;) and self._trace is not None:
+            self._trace.__exit__(None, None, None)
+
+        self._trace = langwatch.trace(
+            name=&#34;Scenario Turn&#34;,
+            metadata={
+                &#34;labels&#34;: [&#34;scenario&#34;],
+                &#34;thread_id&#34;: self._state.thread_id,
+                &#34;scenario.name&#34;: self.name,
+                &#34;scenario.batch_id&#34;: self.batch_run_id,
+                &#34;scenario.set_id&#34;: self.scenario_set_id,
+                &#34;scenario.turn&#34;: self._state.current_turn,
+            },
+        ).__enter__()
+
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
             AgentRole.USER,
@@ -1711,7 +1799,7 @@ Overrides global configuration for this scenario.</dd>
 
     async def _call_agent(
         self, idx: int, role: AgentRole, request_judgment: bool = False
-    ) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult]:
+    ) -&gt; Union[List[ChatCompletionMessageParam], ScenarioResult, None]:
         agent = self.agents[idx]
 
         if role == AgentRole.USER and self.config.debug:
@@ -1733,67 +1821,84 @@ Overrides global configuration for this scenario.</dd>
                     ChatCompletionUserMessageParam(role=&#34;user&#34;, content=input_message)
                 ]
 
-        with show_spinner(
-            text=(
-                &#34;Judging...&#34;
-                if role == AgentRole.JUDGE
-                else f&#34;{role.value if isinstance(role, AgentRole) else role}:&#34;
-            ),
-            color=(
-                &#34;blue&#34;
-                if role == AgentRole.AGENT
-                else &#34;green&#34; if role == AgentRole.USER else &#34;yellow&#34;
-            ),
-            enabled=self.config.verbose,
-        ):
-            start_time = time.time()
+        with self._trace.span(type=&#34;agent&#34;, name=f&#34;{agent.__class__.__name__}.call&#34;) as span:
+            with show_spinner(
+                text=(
+                    &#34;Judging...&#34;
+                    if role == AgentRole.JUDGE
+                    else f&#34;{role.value if isinstance(role, AgentRole) else role}:&#34;
+                ),
+                color=(
+                    &#34;blue&#34;
+                    if role == AgentRole.AGENT
+                    else &#34;green&#34; if role == AgentRole.USER else &#34;yellow&#34;
+                ),
+                enabled=self.config.verbose,
+            ):
+                start_time = time.time()
 
-            # Prevent pydantic validation warnings which should already be disabled
-            with warnings.catch_warnings():
-                warnings.simplefilter(&#34;ignore&#34;)
-                agent_response = agent.call(
-                    AgentInput(
-                        # TODO: test thread_id
-                        thread_id=self._state.thread_id,
-                        messages=self._state.messages,
-                        new_messages=self._pending_messages.get(idx, []),
-                        judgment_request=request_judgment,
-                        scenario_state=self._state,
+                # Prevent pydantic validation warnings which should already be disabled
+                with warnings.catch_warnings():
+                    warnings.simplefilter(&#34;ignore&#34;)
+
+                    self._trace.autotrack_litellm_calls(litellm)
+
+                    agent_response = agent.call(
+                        AgentInput(
+                            # TODO: test thread_id
+                            thread_id=self._state.thread_id,
+                            messages=cast(List[ChatCompletionMessageParam], self._state.messages),
+                            new_messages=self._pending_messages.get(idx, []),
+                            judgment_request=request_judgment,
+                            scenario_state=self._state,
+                        )
                     )
-                )
-            if not isinstance(agent_response, Awaitable):
-                raise Exception(
-                    agent_response_not_awaitable(agent.__class__.__name__),
-                )
+                if not isinstance(agent_response, Awaitable):
+                    raise Exception(
+                        agent_response_not_awaitable(agent.__class__.__name__),
+                    )
 
-            agent_response = await agent_response
+                agent_response = await agent_response
 
-            if idx not in self._agent_times:
-                self._agent_times[idx] = 0
-            self._agent_times[idx] += time.time() - start_time
+                if idx not in self._agent_times:
+                    self._agent_times[idx] = 0
+                self._agent_times[idx] += time.time() - start_time
 
-            self._pending_messages[idx] = []
-            check_valid_return_type(agent_response, agent.__class__.__name__)
+                self._pending_messages[idx] = []
+                check_valid_return_type(agent_response, agent.__class__.__name__)
 
-            messages = []
-            if isinstance(agent_response, ScenarioResult):
-                # TODO: should be an event
-                return agent_response
-            else:
-                messages = convert_agent_return_types_to_openai_messages(
-                    agent_response,
-                    role=&#34;user&#34; if role == AgentRole.USER else &#34;assistant&#34;,
-                )
+                messages = []
+                if isinstance(agent_response, ScenarioResult):
+                    # TODO: should be an event
+                    span.add_evaluation(
+                        name=f&#34;{agent.__class__.__name__} Judgment&#34;,
+                        status=&#34;processed&#34;,
+                        passed=agent_response.success,
+                        details=agent_response.reasoning,
+                        score=(
+                            len(agent_response.passed_criteria)
+                            / len(agent_response.failed_criteria)
+                            if agent_response.failed_criteria
+                            else 1.0
+                        ),
+                    )
 
-            self.add_messages(messages, from_agent_idx=idx)
+                    return agent_response
+                else:
+                    messages = convert_agent_return_types_to_openai_messages(
+                        agent_response,
+                        role=&#34;user&#34; if role == AgentRole.USER else &#34;assistant&#34;,
+                    )
 
-            if messages and self.config.verbose:
-                print_openai_messages(
-                    self._scenario_name(),
-                    [m for m in messages if m[&#34;role&#34;] != &#34;system&#34;],
-                )
+                self.add_messages(messages, from_agent_idx=idx)
 
-            return messages
+                if messages and self.config.verbose:
+                    print_openai_messages(
+                        self._scenario_name(),
+                        [m for m in messages if m[&#34;role&#34;] != &#34;system&#34;],
+                    )
+
+                return messages
 
     def _scenario_name(self):
         if self.config.verbose == 2:
@@ -2067,7 +2172,8 @@ Overrides global configuration for this scenario.</dd>
         self._emit_event(event)
 
         # Signal end of event stream
-        self._events.on_completed()</code></pre>
+        self._events.on_completed()
+        self._trace.__exit__(None, None, None)</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
@@ -2199,6 +2305,8 @@ result = await scenario.run(
         )
         ```
     &#34;&#34;&#34;
+    message = cast(ChatCompletionMessageParamWithTrace, message)
+    message[&#34;trace_id&#34;] = self._trace.trace_id
     self._state.messages.append(message)
 
     # Broadcast the message to other agents
@@ -2207,7 +2315,22 @@ result = await scenario.run(
             continue
         if idx not in self._pending_messages:
             self._pending_messages[idx] = []
-        self._pending_messages[idx].append(message)</code></pre>
+        self._pending_messages[idx].append(message)
+
+    # Update trace with input/output
+    if message[&#34;role&#34;] == &#34;user&#34;:
+        self._trace.update(input={&#34;type&#34;: &#34;text&#34;, &#34;value&#34;: str(message[&#34;content&#34;])})
+    elif message[&#34;role&#34;] == &#34;assistant&#34;:
+        self._trace.update(
+            output={
+                &#34;type&#34;: &#34;text&#34;,
+                &#34;value&#34;: str(
+                    message[&#34;content&#34;]
+                    if &#34;content&#34; in message
+                    else json.dumps(message, cls=SerializableWithStringFallback)
+                ),
+            }
+        )</code></pre>
 </details>
 </dd>
 <dt id="scenario.scenario_executor.ScenarioExecutor.add_messages"><code class="name flex">

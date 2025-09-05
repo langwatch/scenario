@@ -142,6 +142,7 @@ from openai.types.chat import (
 )
 from pydantic import BaseModel
 
+from scenario.types import ChatCompletionMessageParamWithTrace
 from scenario.config import ScenarioConfig
 
 if TYPE_CHECKING:
@@ -198,7 +199,7 @@ class ScenarioState(BaseModel):
     &#34;&#34;&#34;
 
     description: str
-    messages: List[ChatCompletionMessageParam]
+    messages: List[ChatCompletionMessageParamWithTrace]
     thread_id: str
     current_turn: int
     config: ScenarioConfig
@@ -454,7 +455,7 @@ validated to form a valid model.</p>
     &#34;&#34;&#34;
 
     description: str
-    messages: List[ChatCompletionMessageParam]
+    messages: List[ChatCompletionMessageParamWithTrace]
     thread_id: str
     current_turn: int
     config: ScenarioConfig
@@ -607,7 +608,7 @@ validated to form a valid model.</p>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
-<dt id="scenario.scenario_state.ScenarioState.messages"><code class="name">var <span class="ident">messages</span> : List[openai.types.chat.chat_completion_developer_message_param.ChatCompletionDeveloperMessageParam | openai.types.chat.chat_completion_system_message_param.ChatCompletionSystemMessageParam | openai.types.chat.chat_completion_user_message_param.ChatCompletionUserMessageParam | openai.types.chat.chat_completion_assistant_message_param.ChatCompletionAssistantMessageParam | openai.types.chat.chat_completion_tool_message_param.ChatCompletionToolMessageParam | openai.types.chat.chat_completion_function_message_param.ChatCompletionFunctionMessageParam]</code></dt>
+<dt id="scenario.scenario_state.ScenarioState.messages"><code class="name">var <span class="ident">messages</span> : List[<a title="scenario.types.ChatCompletionDeveloperMessageParamWithTrace" href="types.html#scenario.types.ChatCompletionDeveloperMessageParamWithTrace">ChatCompletionDeveloperMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionSystemMessageParamWithTrace" href="types.html#scenario.types.ChatCompletionSystemMessageParamWithTrace">ChatCompletionSystemMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionUserMessageParamWithTrace" href="types.html#scenario.types.ChatCompletionUserMessageParamWithTrace">ChatCompletionUserMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionAssistantMessageParamWithTrace" href="types.html#scenario.types.ChatCompletionAssistantMessageParamWithTrace">ChatCompletionAssistantMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionToolMessageParamWithTrace" href="types.html#scenario.types.ChatCompletionToolMessageParamWithTrace">ChatCompletionToolMessageParamWithTrace</a> | <a title="scenario.types.ChatCompletionFunctionMessageParamWithTrace" href="types.html#scenario.types.ChatCompletionFunctionMessageParamWithTrace">ChatCompletionFunctionMessageParamWithTrace</a>]</code></dt>
 <dd>
 <div class="desc"><p>The type of the None singleton.</p></div>
 </dd>
