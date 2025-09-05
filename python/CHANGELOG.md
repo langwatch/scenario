@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.10](https://github.com/langwatch/scenario/compare/python/v0.7.9...python/v0.7.10) (2025-09-05)
+
+
+### Features
+
+* add langwatch tracing for scenarios python ([#129](https://github.com/langwatch/scenario/issues/129)) ([a349c83](https://github.com/langwatch/scenario/commit/a349c83792140b6fc2e81518fb9567350701b1a4))
+
 ## [0.7.9](https://github.com/langwatch/scenario/compare/python/v0.7.8...python/v0.7.9) (2025-08-29)
 
 
