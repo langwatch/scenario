@@ -13,7 +13,7 @@ const getLangWatchMCP = tool({
 
 load_dotenv()
 
-import chainlit as cl
+import chainlit as cl 
 from openai import OpenAI
 import langwatch
 
@@ -55,6 +55,37 @@ async def main(message: cl.Message):
 `;
   },
 });
+
+// Claude Code Agent WIP, lots to do here
+const claudeCodeAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const { exec } = await import("child_process");
+    const { promisify } = await import("util");
+    const execAsync = promisify(exec);
+
+    const userMessage = `--output-format json -p --dangerously-skip-permissions "add langwatch tracing to the is code: ${
+      input.messages[input.messages.length - 1].content
+    }"`;
+
+    try {
+      // Call Claude CLI with the user's message
+      const { stdout, stderr } = await execAsync(
+        `claude "${userMessage.replace(/"/g, '\\"')}"`
+      );
+
+      if (stderr) {
+        return `Error calling Claude CLI: ${stderr}`;
+      }
+
+      return stdout.trim();
+    } catch (error) {
+      return `Failed to execute Claude CLI: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`;
+    }
+  },
+};
 
 const codeAgent: AgentAdapter = {
   role: AgentRole.AGENT,
@@ -189,6 +220,46 @@ How can I add LangWatch tracing to this?`),
             expect(toolResultContent.result).toContain("import langwatch");
             expect(toolResultContent.result).toContain("@langwatch.trace()");
           }
+        },
+        scenario.succeed(),
+      ],
+      setId: "javascript-examples",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should use Claude CLI to provide LangWatch integration help", async () => {
+    const result = await scenario.run({
+      name: "Claude CLI LangWatch integration",
+      description: `
+        The user wants to add LangWatch to their Chainlit app and is asking Claude CLI for help.
+      `,
+      agents: [
+        claudeCodeAgent,
+        scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
+        scenario.judgeAgent({
+          model: openai("gpt-4.1"),
+          criteria: [
+            "Agent should provide helpful guidance about LangWatch integration",
+            "Response should be relevant to the user's Chainlit code",
+            "Agent should not error out when calling Claude CLI",
+          ],
+        }),
+      ],
+      script: [
+        scenario.user(
+          "How can I add LangWatch tracing to my Chainlit application?"
+        ),
+        scenario.agent(),
+        (state) => {
+          const lastMessage = state.lastAgentMessage();
+          const content =
+            typeof lastMessage.content === "string" ? lastMessage.content : "";
+
+          // Ensure Claude CLI didn't fail
+          expect(content).not.toContain("Failed to execute Claude CLI");
+          expect(content).not.toContain("Error calling Claude CLI");
         },
         scenario.succeed(),
       ],
