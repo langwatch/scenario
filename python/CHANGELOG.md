@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.11](https://github.com/langwatch/scenario/compare/python/v0.7.10...python/v0.7.11) (2025-09-15)
+
+
+### Bug Fixes
+
+* not opening browser window if ScenarioConfig() was not used before ([7175537](https://github.com/langwatch/scenario/commit/71755372157a439a9b120f988d61c284ab5cb821))
+
 ## [0.7.10](https://github.com/langwatch/scenario/compare/python/v0.7.9...python/v0.7.10) (2025-09-05)
 
 
