@@ -855,9 +855,18 @@ describe("Tool Failure Simulation", () => {
 ```
 
 ```python [python]
+"""
+Example test demonstrating tool failure simulation with real LLM tool calling.
+
+This example shows how to test agent resilience by simulating tool failures,
+timeouts, and other error conditions while using actual LLM tool calling.
+"""
+
 import pytest
 import scenario
 from unittest.mock import patch
+import litellm
+import json
 
 
 def call_external_service(endpoint: str) -> str:
@@ -867,35 +876,107 @@ def call_external_service(endpoint: str) -> str:
 
 
 class ResilientAgent(scenario.AgentAdapter):
-    """Agent that handles external service failures gracefully."""
+    """Agent that uses real LLM tool calling and handles external service failures gracefully."""
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        user_message = input.last_new_user_message_str()
+        # Define the external service tool schema for the LLM
+        tool_schemas = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "call_external_service",
+                    "description": "Call an external service API endpoint",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "endpoint": {
+                                "type": "string",
+                                "description": "The API endpoint to call",
+                            }
+                        },
+                        "required": ["endpoint"],
+                    },
+                },
+            }
+        ]
 
-        if "call" in user_message.lower() and "service" in user_message.lower():
-            try:
-                result = call_external_service("/api/data")
-                return f"Service call result: {result}"
-            except Exception as e:
-                return f"I encountered an error calling the service: {str(e)}. Let me try a different approach."
+        # Let the LLM decide when and how to call the external service tool
+        response = litellm.completion(
+            model="openai/gpt-4o-mini",
+            messages=input.messages,
+            tools=tool_schemas,
+            tool_choice="auto",
+        )
 
-        return "I can help you call external services."
+        message = response.choices[0].message
+
+        # Handle any tool calls the LLM decided to make
+        if message.tool_calls:
+            tool_responses = []
+
+            for tool_call in message.tool_calls:
+                tool_name = tool_call.function.name
+                # LLM provides the arguments (endpoint) extracted from user input
+                args = json.loads(tool_call.function.arguments)
+
+                # Execute the appropriate tool function
+                if tool_name == "call_external_service":
+                    try:
+                        # Call the actual external service tool with LLM-extracted parameters
+                        # This is where our failure simulation takes effect
+                        tool_result = call_external_service(**args)
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": str(tool_result),
+                            }
+                        )
+                    except Exception as e:
+                        # Handle service call errors gracefully - this is what we're testing
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": f"Error: {str(e)}",
+                            }
+                        )
+
+            # If tools were called, get the LLM's final response based on service results
+            if tool_responses:
+                follow_up_response = litellm.completion(
+                    model="openai/gpt-4o-mini",
+                    messages=input.messages + [message] + tool_responses,
+                )
+                return follow_up_response.choices[0].message.content or ""
+
+        # Return the LLM's direct response if no tools were called
+        return message.content or ""
 
 
 def check_error_in_message(state: scenario.ScenarioState) -> None:
-    """Check that the agent's message contains error information."""
+    """Check that the agent's message contains error or timeout information."""
     last_msg = state.last_message()
     if last_msg["role"] == "assistant":
         content = last_msg.get("content", "")
-        assert "error" in content.lower()
+        # Check for various error indicators the LLM might use
+        error_indicators = ["error", "timeout", "timed out", "failed", "issue"]
+        assert any(indicator in content.lower() for indicator in error_indicators)
 
 
 def check_rate_limit_in_message(state: scenario.ScenarioState) -> None:
-    """Check that the agent's message contains rate limit error."""
+    """Check that the agent's message contains rate limit error information."""
     last_msg = state.last_message()
     if last_msg["role"] == "assistant":
         content = last_msg.get("content", "")
-        assert "Rate limit exceeded" in content
+        # Check for various rate limit indicators the LLM might use
+        rate_limit_indicators = [
+            "rate limit",
+            "exceeded",
+            "limit exceeded",
+            "too many requests",
+        ]
+        assert any(indicator in content.lower() for indicator in rate_limit_indicators)
 
 
 def check_success_in_message(state: scenario.ScenarioState) -> None:
@@ -903,7 +984,14 @@ def check_success_in_message(state: scenario.ScenarioState) -> None:
     last_msg = state.last_message()
     if last_msg["role"] == "assistant":
         content = last_msg.get("content", "")
-        assert "Service call successful" in content
+        # Check for various success indicators the LLM might use
+        success_indicators = [
+            "successful",
+            "success",
+            "completed",
+            "call was successful",
+        ]
+        assert any(indicator in content.lower() for indicator in success_indicators)
 
 
 @pytest.mark.agent_test
@@ -923,9 +1011,11 @@ async def test_tool_timeout_simulation():
                 scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
-                scenario.user("Call the external service"),
+                scenario.user("Call the external service at endpoint /api/data"),
                 scenario.agent(),
-                lambda state: mock_service.assert_called_once_with("/api/data"),
+                # Verify the mock was called with specific endpoint extracted by the LLM
+                # This proves the LLM correctly extracted "/api/data" from the user message
+                lambda state: mock_service.assert_called_once_with(endpoint="/api/data"),
                 check_error_in_message,
                 scenario.succeed(),
             ],
@@ -951,9 +1041,11 @@ async def test_tool_rate_limit_simulation():
                 scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
-                scenario.user("Call the external service"),
+                scenario.user("Call the external service at endpoint /api/data"),
                 scenario.agent(),
-                lambda state: mock_service.assert_called_once_with("/api/data"),
+                # Verify the mock was called with specific endpoint extracted by the LLM
+                # This proves the LLM correctly extracted "/api/data" from the user message
+                lambda state: mock_service.assert_called_once_with(endpoint="/api/data"),
                 check_rate_limit_in_message,
                 scenario.succeed(),
             ],
@@ -979,9 +1071,11 @@ async def test_tool_success_simulation():
                 scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
-                scenario.user("Call the external service"),
+                scenario.user("Call the external service at endpoint /api/data"),
                 scenario.agent(),
-                lambda state: mock_service.assert_called_once_with("/api/data"),
+                # Verify the mock was called with specific endpoint extracted by the LLM
+                # This proves the LLM correctly extracted "/api/data" from the user message
+                lambda state: mock_service.assert_called_once_with(endpoint="/api/data"),
                 check_success_in_message,
                 scenario.succeed(),
             ],

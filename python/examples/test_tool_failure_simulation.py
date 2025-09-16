@@ -156,7 +156,11 @@ async def test_tool_timeout_simulation():
             script=[
                 scenario.user("Call the external service at endpoint /api/data"),
                 scenario.agent(),
-                lambda state: mock_service.assert_called_once(),
+                # Verify the mock was called with specific endpoint extracted by the LLM
+                # This proves the LLM correctly extracted "/api/data" from the user message
+                lambda state: mock_service.assert_called_once_with(
+                    endpoint="/api/data"
+                ),
                 check_error_in_message,
                 scenario.succeed(),
             ],
@@ -184,7 +188,11 @@ async def test_tool_rate_limit_simulation():
             script=[
                 scenario.user("Call the external service at endpoint /api/data"),
                 scenario.agent(),
-                lambda state: mock_service.assert_called_once(),
+                # Verify the mock was called with specific endpoint extracted by the LLM
+                # This proves the LLM correctly extracted "/api/data" from the user message
+                lambda state: mock_service.assert_called_once_with(
+                    endpoint="/api/data"
+                ),
                 check_rate_limit_in_message,
                 scenario.succeed(),
             ],
@@ -212,7 +220,11 @@ async def test_tool_success_simulation():
             script=[
                 scenario.user("Call the external service at endpoint /api/data"),
                 scenario.agent(),
-                lambda state: mock_service.assert_called_once(),
+                # Verify the mock was called with specific endpoint extracted by the LLM
+                # This proves the LLM correctly extracted "/api/data" from the user message
+                lambda state: mock_service.assert_called_once_with(
+                    endpoint="/api/data"
+                ),
                 check_success_in_message,
                 scenario.succeed(),
             ],
