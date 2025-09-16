@@ -1,58 +1,102 @@
 """
-Example test demonstrating LLM provider mocking.
+Example test demonstrating LLM provider mocking using dependency injection.
 
-This example shows how to mock LLM provider APIs for testing agent flow
-without actual LLM calls. However, Scenario's caching system is often
-a better solution for deterministic, cost-effective testing.
+This example shows how to mock LLM responses by injecting a mock LLM client
+into the agent, avoiding global mocking that affects the entire framework.
 """
 
 import pytest
 import scenario
-from unittest.mock import patch
+from unittest.mock import Mock
+
+
+class MockLLM:
+    """Mock LLM client that returns deterministic responses."""
+
+    def __init__(self):
+        self.call_count = 0
+        self.last_messages = None
+        self.last_model = None
+
+    def completion(self, model: str, messages: list) -> Mock:
+        """Mock completion method that returns deterministic responses."""
+        self.call_count += 1
+        self.last_messages = messages
+        self.last_model = model
+
+        # Create mock response structure
+        mock_response = Mock()
+        mock_message = Mock()
+        mock_message.content = "I can help you with that request."
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+
+        return mock_response
 
 
 class ChatAgent(scenario.AgentAdapter):
-    """Simple chat agent that directly returns responses (simulating LLM behavior)."""
+    """Chat agent that accepts an LLM client (real or mock) via dependency injection."""
+
+    def __init__(self, llm_client=None):
+        self.llm_client = llm_client
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        user_message = input.last_new_user_message_str()
+        # Use the injected LLM client (could be real litellm or our mock)
+        response = self.llm_client.completion(
+            model="openai/gpt-4o-mini",
+            messages=input.messages,
+        )
 
-        # Simple agent logic without actual LLM calls
-        if "hello" in user_message.lower():
-            return "I can help you with that request."
-
-        return "I'm here to help!"
+        return response.choices[0].message.content or ""
 
 
-def check_agent_response(state: scenario.ScenarioState) -> None:
-    """Check that the agent responded with expected content."""
+def check_specific_response(state: scenario.ScenarioState) -> None:
+    """Check that the agent responded with expected mocked content."""
     last_msg = state.last_message()
     if last_msg["role"] == "assistant":
         content = last_msg.get("content", "")
         assert content == "I can help you with that request."
 
 
+def check_mock_was_called_correctly(mock_llm: MockLLM) -> bool:
+    """Check that the mock LLM was called with expected parameters."""
+    return (
+        mock_llm.call_count == 1
+        and mock_llm.last_model == "openai/gpt-4o-mini"
+        and len(mock_llm.last_messages) == 1
+        and mock_llm.last_messages[0]["role"] == "user"
+        and "Hello there!" in mock_llm.last_messages[0]["content"]
+    )
+
+
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_llm_provider_mocking():
-    """Test agent behavior without actual LLM calls."""
+    """Test agent behavior using a mock LLM client."""
 
-    # This example shows testing agent logic without LLM provider mocking
-    # In practice, Scenario's caching system is often better than mocking LLMs
+    # Create our mock LLM client
+    mock_llm = MockLLM()
 
     result = await scenario.run(
         name="llm mock test",
-        description="Test agent behavior with deterministic responses",
+        description="Test agent behavior with mock LLM client",
         agents=[
-            ChatAgent(),
+            ChatAgent(llm_client=mock_llm),
             scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
         ],
         script=[
-            scenario.user("Hello"),
+            scenario.user("Hello there!"),
             scenario.agent(),
-            check_agent_response,
+            # Verify the mock LLM was called with expected parameters
+            lambda state: check_mock_was_called_correctly(mock_llm),
+            # Verify we got the expected mocked response
+            check_specific_response,
             scenario.succeed(),
         ],
     )
 
     assert result.success
+    # Additional verification outside the scenario
+    assert mock_llm.call_count == 1
+    assert mock_llm.last_model == "openai/gpt-4o-mini"
