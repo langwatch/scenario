@@ -128,77 +128,59 @@ describe("Tool Call Mocking", () => {
 import pytest
 import scenario
 from unittest.mock import patch
-import litellm
-import json
+
 
 def fetch_user_data(user_id: str) -> dict:
     """Fetch user data from external API."""
     # This would normally make an API call
-    return {"name": "John", "points": 100, "email": "john@example.com"}
+    raise NotImplementedError("This should be mocked in tests")
+
 
 class UserDataAgent(scenario.AgentAdapter):
+    """Simple agent that fetches user data using a tool."""
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        tools = [fetch_user_data]
+        user_message = input.last_new_user_message_str()
 
-        response = litellm.completion(
-            model="openai/gpt-4o",
-            messages=input.messages,
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.__name__,
-                        "description": "Fetch user data from external API",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"user_id": {"type": "string", "description": "The user ID to fetch data for"}},
-                            "required": ["user_id"],
-                        },
-                    },
-                }
-                for tool in tools
-            ],
-            tool_choice="auto",
-        )
+        # Simple agent logic - if user asks for user data with ID, call the tool
+        if "user data" in user_message.lower() and "123" in user_message:
+            try:
+                result = fetch_user_data("123")
+                return f"User data: {result['name']} has {result['points']} points."
+            except Exception as e:
+                return f"Error fetching user data: {str(e)}"
 
-        message = response.choices[0].message
+        return "I can help you fetch user data. Please provide a user ID."
 
-        if message.tool_calls:
-            tool_call = message.tool_calls[0]
-            tool_name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
-            tool_func = next(t for t in tools if t.__name__ == tool_name)
-            tool_result = tool_func(**args)
-            return f"User data: {tool_result['name']} has {tool_result['points']} points."
-
-        return message.content or ""
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_tool_call_mocking():
-    with patch("__main__.fetch_user_data") as mock_fetch:
+    """Test mocking a tool function to control agent behavior."""
+
+    with patch("test_simple_tool_mocking.fetch_user_data") as mock_fetch:
+        # Setup mock return value
         mock_fetch.return_value = {
             "name": "Alice",
             "points": 150,
-            "email": "alice@example.com"
+            "email": "alice@example.com",
         }
 
         result = await scenario.run(
             name="user data tool test",
-            description="Test agent's ability to fetch user data via tool",
+            description="Test agent's ability to fetch user data via mocked tool",
             agents=[
                 UserDataAgent(),
-                scenario.UserSimulatorAgent(),
+                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
                 scenario.user("Show me user data for ID 123"),
                 scenario.agent(),
+                lambda state: mock_fetch.assert_called_once_with("123"),
                 scenario.succeed(),
             ],
         )
 
-        # Verify the mock was called with correct parameters
-        mock_fetch.assert_called_once_with(user_id="123")
         assert result.success
 ```
 
