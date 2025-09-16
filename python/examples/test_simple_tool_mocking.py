@@ -1,5 +1,5 @@
 """
-Example test demonstrating PROPER tool function mocking with real tool calling.
+Example test demonstrating tool function mocking with real tool calling.
 
 This example shows how to mock tool functions while using actual
 LLM tool calling mechanisms, not hardcoded logic.
@@ -22,8 +22,6 @@ class UserDataAgent(scenario.AgentAdapter):
     """Agent that uses actual LLM tool calling, not hardcoded logic."""
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        tools = [fetch_user_data]
-
         # Define tool schema for LLM
         tool_schemas = [
             {
