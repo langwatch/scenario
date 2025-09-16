@@ -584,9 +584,18 @@ describe("API Service Mocking", () => {
 ```
 
 ```python [python]
+"""
+Example test demonstrating Level 2: API/Service Mocking with real LLM tool calling.
+
+This example shows how to mock HTTP calls within tools while using actual
+LLM tool calling mechanisms to test realistic agent behavior.
+"""
+
 import pytest
 import scenario
 from unittest.mock import patch, AsyncMock
+import litellm
+import json
 import httpx
 
 
@@ -598,34 +607,94 @@ async def fetch_user_data(user_id: str) -> dict:
 
 
 class UserDataAgent(scenario.AgentAdapter):
-    """Agent that fetches user data from an external API."""
+    """Agent that uses real LLM tool calling to fetch data from external APIs."""
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        user_message = input.last_new_user_message_str()
+        # Define the API tool schema for the LLM
+        tool_schemas = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "fetch_user_data",
+                    "description": "Fetch user data from external API by user ID",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "user_id": {
+                                "type": "string",
+                                "description": "The unique identifier for the user",
+                            }
+                        },
+                        "required": ["user_id"],
+                    },
+                },
+            }
+        ]
 
-        # Simple agent logic - if user asks for user data with ID, call the API
-        if "user data" in user_message.lower() and "123" in user_message:
-            try:
-                result = await fetch_user_data("123")
-                return f"User: {result['name']} ({result['email']})"
-            except Exception as e:
-                return f"Error fetching user data: {str(e)}"
+        # Let the LLM decide when and how to call the API tool
+        # The LLM will extract user_id from the user's natural language request
+        response = litellm.completion(
+            model="openai/gpt-4o-mini",
+            messages=input.messages,
+            tools=tool_schemas,
+            tool_choice="auto",  # LLM decides when to use tools
+        )
 
-        return "I can help you fetch user data. Please provide a user ID."
+        message = response.choices[0].message
+
+        # Handle any tool calls the LLM decided to make
+        if message.tool_calls:
+            tool_responses = []
+
+            for tool_call in message.tool_calls:
+                tool_name = tool_call.function.name
+                # LLM provides the arguments (user_id) extracted from user input
+                args = json.loads(tool_call.function.arguments)
+
+                # Execute the appropriate tool function
+                if tool_name == "fetch_user_data":
+                    try:
+                        # Call the actual API tool with LLM-extracted parameters
+                        # This is where our HTTP mocking takes effect
+                        tool_result = await fetch_user_data(**args)
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": json.dumps(tool_result),
+                            }
+                        )
+                    except Exception as e:
+                        # Handle API call errors gracefully
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": f"Error: {str(e)}",
+                            }
+                        )
+
+            # If tools were called, get the LLM's final response based on API results
+            if tool_responses:
+                follow_up_response = litellm.completion(
+                    model="openai/gpt-4o-mini",
+                    messages=input.messages + [message] + tool_responses,
+                )
+                return follow_up_response.choices[0].message.content or ""
+
+        # Return the LLM's direct response if no tools were called
+        return message.content or ""
 
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_api_service_mocking():
-    """Test mocking HTTP calls within tools."""
+    """Test mocking HTTP calls within tools while using real LLM tool calling."""
 
-    # Mock response data
-    mock_response_data = {
-        "id": "123",
-        "name": "Alice",
-        "email": "alice@example.com"
-    }
+    # Mock response data that the "API" will return
+    mock_response_data = {"id": "123", "name": "Alice", "email": "alice@example.com"}
 
+    # Mock the HTTP client at the service level, not the agent level
     with patch("httpx.AsyncClient") as mock_client_class:
         # Setup the mock client and response
         mock_client = AsyncMock()
@@ -643,9 +712,18 @@ async def test_api_service_mocking():
                 scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
+                # User makes a natural language request
                 scenario.user("Get user data for ID 123"),
+                # Agent uses LLM to understand request and call appropriate tools
                 scenario.agent(),
-                lambda state: mock_client.get.assert_called_once_with("https://api.example.com/users/123"),
+                # Verify the HTTP mock was called with specific URL extracted by the LLM
+                # This proves the LLM correctly:
+                # 1. Decided to use the fetch_user_data tool
+                # 2. Extracted "123" as the user_id parameter from natural language
+                # 3. Tool constructed the correct API URL with that parameter
+                lambda state: mock_client.get.assert_called_once_with(
+                    "https://api.example.com/users/123"
+                ),
                 scenario.succeed(),
             ],
         )
