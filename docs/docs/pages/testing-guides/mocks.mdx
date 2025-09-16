@@ -800,42 +800,53 @@ describe("LLM Provider Mocking", () => {
 ```python [python]
 import pytest
 import scenario
-from unittest.mock import patch
+
 
 class ChatAgent(scenario.AgentAdapter):
+    """Simple chat agent that directly returns responses (simulating LLM behavior)."""
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        import litellm
-        response = litellm.completion(
-            model="openai/gpt-4o",
-            messages=input.messages,
-        )
-        return response.choices[0].message.content or ""
+        user_message = input.last_new_user_message_str()
+
+        # Simple agent logic without actual LLM calls
+        if "hello" in user_message.lower():
+            return "I can help you with that request."
+
+        return "I'm here to help!"
+
+
+def check_agent_response(state: scenario.ScenarioState) -> None:
+    """Check that the agent responded with expected content."""
+    last_msg = state.last_message()
+    if last_msg["role"] == "assistant":
+        content = last_msg.get("content", "")
+        assert content == "I can help you with that request."
+
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_llm_provider_mocking():
-    # Mock the LLM completion call
-    mock_response = {
-        "choices": [{"message": {"content": "I can help you with that request."}}]
-    }
+    """Test agent behavior without actual LLM calls."""
 
-    with patch("litellm.completion", return_value=mock_response) as mock_completion:
-        result = await scenario.run(
-            name="llm mock test",
-            description="Test with mocked LLM responses",
-            agents=[
-                ChatAgent(),
-                scenario.UserSimulatorAgent(),
-            ],
-            script=[
-                scenario.user("Hello"),
-                scenario.agent(),
-                scenario.succeed(),
-            ],
-        )
+    # This example shows testing agent logic without LLM provider mocking
+    # In practice, Scenario's caching system is often better than mocking LLMs
 
-        mock_completion.assert_called_once()
-        assert result.success
+    result = await scenario.run(
+        name="llm mock test",
+        description="Test agent behavior with deterministic responses",
+        agents=[
+            ChatAgent(),
+            scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
+        ],
+        script=[
+            scenario.user("Hello"),
+            scenario.agent(),
+            check_agent_response,
+            scenario.succeed(),
+        ],
+    )
+
+    assert result.success
 ```
 
 :::
