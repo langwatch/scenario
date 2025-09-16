@@ -140,7 +140,11 @@ async def test_database_service_mocking():
                 scenario.user("Save a new user named John with email john@example.com"),
                 # Agent uses LLM to understand request and call appropriate tools
                 scenario.agent(),
-                # Verify the database mock was called with parameters extracted by the LLM
+                # Verify the database mock was called with specific parameters extracted by the LLM
+                # This proves the LLM correctly:
+                # 1. Decided to use the save_user tool
+                # 2. Extracted "John" as the name parameter from natural language
+                # 3. Extracted "john@example.com" as the email parameter
                 lambda state: mock_db_client.save_user.assert_called_once_with(
                     "John", "john@example.com"
                 ),

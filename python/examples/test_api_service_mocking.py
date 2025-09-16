@@ -130,7 +130,11 @@ async def test_api_service_mocking():
                 scenario.user("Get user data for ID 123"),
                 # Agent uses LLM to understand request and call appropriate tools
                 scenario.agent(),
-                # Verify the HTTP mock was called with the URL extracted by the LLM
+                # Verify the HTTP mock was called with specific URL extracted by the LLM
+                # This proves the LLM correctly:
+                # 1. Decided to use the fetch_user_data tool
+                # 2. Extracted "123" as the user_id parameter from natural language
+                # 3. Tool constructed the correct API URL with that parameter
                 lambda state: mock_client.get.assert_called_once_with(
                     "https://api.example.com/users/123"
                 ),
