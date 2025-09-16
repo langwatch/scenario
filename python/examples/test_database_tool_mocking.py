@@ -120,7 +120,7 @@ async def test_database_service_mocking():
         # Setup the mock database client and response
         mock_db_client = Mock()
         mock_db_class.return_value = mock_db_client
-        
+
         # Mock what the database would return
         mock_db_client.save_user.return_value = {
             "id": 123,

@@ -1,8 +1,17 @@
 """
-Example test demonstrating tool function mocking with real tool calling.
+Example test demonstrating Level 1: Tool Function Mocking with real LLM tool calling.
 
-This example shows how to mock tool functions while using actual
-LLM tool calling mechanisms, not hardcoded logic.
+This example shows how to mock tool functions while using actual LLM tool calling
+mechanisms. This is the most common mocking pattern for modern agents.
+
+What we're testing:
+- Agent reasoning and tool selection logic
+- LLM's ability to extract parameters from natural language
+- Tool orchestration and response handling
+
+What we're NOT testing:
+- The actual tool implementation (that's mocked out)
+- External API calls or database connections
 """
 
 import pytest
@@ -97,8 +106,9 @@ class UserDataAgent(scenario.AgentAdapter):
 async def test_simple_tool_mocking():
     """Test mocking tools while using real LLM tool calling."""
 
+    # Level 1: Mock the tool function itself, not any internal dependencies
     with patch("test_simple_tool_mocking.fetch_user_data") as mock_fetch:
-        # Setup mock return value
+        # Setup mock return value - what the tool should return when called
         mock_fetch.return_value = {
             "name": "Alice",
             "points": 150,
@@ -115,8 +125,10 @@ async def test_simple_tool_mocking():
             script=[
                 scenario.user("Show me user data for ID 123"),
                 scenario.agent(),
-                # Verify the mock was called (LLM should extract "123" from user message)
-                lambda state: mock_fetch.assert_called_once(),
+                # Verify the mock was called - proves the LLM correctly:
+                # 1. Decided to use the fetch_user_data tool
+                # 2. Extracted "123" as the user_id parameter from natural language
+                lambda state: mock_fetch.assert_called_once_with(user_id="123"),
                 scenario.succeed(),
             ],
         )

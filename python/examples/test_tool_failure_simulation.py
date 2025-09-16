@@ -34,7 +34,7 @@ class ResilientAgent(scenario.AgentAdapter):
                         "properties": {
                             "endpoint": {
                                 "type": "string",
-                                "description": "The API endpoint to call"
+                                "description": "The API endpoint to call",
                             }
                         },
                         "required": ["endpoint"],
@@ -56,12 +56,12 @@ class ResilientAgent(scenario.AgentAdapter):
         # Handle any tool calls the LLM decided to make
         if message.tool_calls:
             tool_responses = []
-            
+
             for tool_call in message.tool_calls:
                 tool_name = tool_call.function.name
                 # LLM provides the arguments (endpoint) extracted from user input
                 args = json.loads(tool_call.function.arguments)
-                
+
                 # Execute the appropriate tool function
                 if tool_name == "call_external_service":
                     try:
@@ -113,7 +113,12 @@ def check_rate_limit_in_message(state: scenario.ScenarioState) -> None:
     if last_msg["role"] == "assistant":
         content = last_msg.get("content", "")
         # Check for various rate limit indicators the LLM might use
-        rate_limit_indicators = ["rate limit", "exceeded", "limit exceeded", "too many requests"]
+        rate_limit_indicators = [
+            "rate limit",
+            "exceeded",
+            "limit exceeded",
+            "too many requests",
+        ]
         assert any(indicator in content.lower() for indicator in rate_limit_indicators)
 
 
@@ -123,7 +128,12 @@ def check_success_in_message(state: scenario.ScenarioState) -> None:
     if last_msg["role"] == "assistant":
         content = last_msg.get("content", "")
         # Check for various success indicators the LLM might use
-        success_indicators = ["successful", "success", "completed", "call was successful"]
+        success_indicators = [
+            "successful",
+            "success",
+            "completed",
+            "call was successful",
+        ]
         assert any(indicator in content.lower() for indicator in success_indicators)
 
 
