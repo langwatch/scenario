@@ -412,81 +412,69 @@ describe("API Service Mocking", () => {
 import pytest
 import scenario
 from unittest.mock import patch, AsyncMock
-import litellm
-import json
 import httpx
 
-# Real tool implementation that makes HTTP calls
+
 async def fetch_user_data(user_id: str) -> dict:
     """Fetch user data from external API."""
-    response = await httpx.get(f"https://api.example.com/users/{user_id}")
-    return response.json()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"https://api.example.com/users/{user_id}")
+        return response.json()
+
 
 class UserDataAgent(scenario.AgentAdapter):
+    """Agent that fetches user data from an external API."""
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        tools = [fetch_user_data]
+        user_message = input.last_new_user_message_str()
 
-        response = litellm.completion(
-            model="openai/gpt-4o",
-            messages=input.messages,
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "fetch_user_data",
-                        "description": "Fetch user data from external API",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"user_id": {"type": "string"}},
-                            "required": ["user_id"],
-                        },
-                    },
-                }
-            ],
-            tool_choice="auto",
-        )
+        # Simple agent logic - if user asks for user data with ID, call the API
+        if "user data" in user_message.lower() and "123" in user_message:
+            try:
+                result = await fetch_user_data("123")
+                return f"User: {result['name']} ({result['email']})"
+            except Exception as e:
+                return f"Error fetching user data: {str(e)}"
 
-        message = response.choices[0].message
+        return "I can help you fetch user data. Please provide a user ID."
 
-        if message.tool_calls:
-            tool_call = message.tool_calls[0]
-            args = json.loads(tool_call.function.arguments)
-            result = await fetch_user_data(**args)
-            return f"User: {result['name']} ({result['email']})"
-
-        return message.content or ""
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_api_service_mocking():
-    # Mock the entire httpx.get function
+    """Test mocking HTTP calls within tools."""
+
+    # Mock response data
     mock_response_data = {
         "id": "123",
         "name": "Alice",
         "email": "alice@example.com"
     }
 
-    with patch("httpx.get") as mock_get:
+    with patch("httpx.AsyncClient") as mock_client_class:
+        # Setup the mock client and response
+        mock_client = AsyncMock()
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
         mock_response = AsyncMock()
         mock_response.json.return_value = mock_response_data
-        mock_get.return_value = mock_response
+        mock_client.get.return_value = mock_response
 
         result = await scenario.run(
             name="api service test",
-            description="Test tool's HTTP integration",
+            description="Test tool's HTTP integration with mocked API calls",
             agents=[
                 UserDataAgent(),
-                scenario.UserSimulatorAgent(),
+                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
                 scenario.user("Get user data for ID 123"),
                 scenario.agent(),
+                lambda state: mock_client.get.assert_called_once_with("https://api.example.com/users/123"),
                 scenario.succeed(),
             ],
         )
 
-        # Verify the HTTP call was made correctly
-        mock_get.assert_called_once_with("https://api.example.com/users/123")
         assert result.success
 ```
 
@@ -617,58 +605,61 @@ describe("Tool Failure Simulation", () => {
 import pytest
 import scenario
 from unittest.mock import patch
-import litellm
-import json
+
 
 def call_external_service(endpoint: str) -> str:
     """Call an external service."""
     # This would normally make an external API call
-    return f"Called {endpoint} successfully"
+    raise NotImplementedError("This should be mocked in tests")
+
 
 class ResilientAgent(scenario.AgentAdapter):
+    """Agent that handles external service failures gracefully."""
+
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        tools = [call_external_service]
+        user_message = input.last_new_user_message_str()
 
-        try:
-            response = litellm.completion(
-                model="openai/gpt-4o",
-                messages=input.messages,
-                tools=[
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "call_external_service",
-                            "description": "Call an external service",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {"endpoint": {"type": "string", "description": "The service endpoint to call"}},
-                                "required": ["endpoint"],
-                            },
-                        },
-                    }
-                ],
-                tool_choice="auto",
-            )
+        if "call" in user_message.lower() and "service" in user_message.lower():
+            try:
+                result = call_external_service("/api/data")
+                return f"Service call result: {result}"
+            except Exception as e:
+                return f"I encountered an error calling the service: {str(e)}. Let me try a different approach."
 
-            message = response.choices[0].message
+        return "I can help you call external services."
 
-            if message.tool_calls:
-                tool_call = message.tool_calls[0]
-                args = json.loads(tool_call.function.arguments)
-                try:
-                    result = call_external_service(**args)
-                    return f"Service call result: {result}"
-                except Exception as e:
-                    return f"I encountered an error calling the service: {str(e)}. Let me try a different approach."
 
-            return message.content or ""
-        except Exception as e:
-            return f"I encountered an error: {str(e)}. Let me try a different approach."
+def check_error_in_message(state: scenario.ScenarioState) -> None:
+    """Check that the agent's message contains error information."""
+    last_msg = state.last_message()
+    if last_msg["role"] == "assistant":
+        content = last_msg.get("content", "")
+        assert "error" in content.lower()
+
+
+def check_rate_limit_in_message(state: scenario.ScenarioState) -> None:
+    """Check that the agent's message contains rate limit error."""
+    last_msg = state.last_message()
+    if last_msg["role"] == "assistant":
+        content = last_msg.get("content", "")
+        assert "Rate limit exceeded" in content
+
+
+def check_success_in_message(state: scenario.ScenarioState) -> None:
+    """Check that the agent's message contains success information."""
+    last_msg = state.last_message()
+    if last_msg["role"] == "assistant":
+        content = last_msg.get("content", "")
+        assert "Service call successful" in content
+
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_tool_timeout_simulation():
-    with patch("__main__.call_external_service") as mock_service:
+    """Test agent's ability to handle tool timeouts."""
+
+    with patch("test_tool_failure_simulation.call_external_service") as mock_service:
+        # Simulate timeout error
         mock_service.side_effect = Exception("Request timeout")
 
         result = await scenario.run(
@@ -676,22 +667,27 @@ async def test_tool_timeout_simulation():
             description="Test agent's ability to handle tool timeouts",
             agents=[
                 ResilientAgent(),
-                scenario.UserSimulatorAgent(),
+                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
                 scenario.user("Call the external service"),
                 scenario.agent(),
+                lambda state: mock_service.assert_called_once_with("/api/data"),
+                check_error_in_message,
                 scenario.succeed(),
             ],
         )
 
-        mock_service.assert_called_once()
         assert result.success
+
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_tool_rate_limit_simulation():
-    with patch("__main__.call_external_service") as mock_service:
+    """Test agent's ability to handle rate limits."""
+
+    with patch("test_tool_failure_simulation.call_external_service") as mock_service:
+        # Simulate rate limit error
         mock_service.side_effect = Exception("Rate limit exceeded")
 
         result = await scenario.run(
@@ -699,22 +695,27 @@ async def test_tool_rate_limit_simulation():
             description="Test agent's ability to handle rate limits",
             agents=[
                 ResilientAgent(),
-                scenario.UserSimulatorAgent(),
+                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
                 scenario.user("Call the external service"),
                 scenario.agent(),
+                lambda state: mock_service.assert_called_once_with("/api/data"),
+                check_rate_limit_in_message,
                 scenario.succeed(),
             ],
         )
 
-        mock_service.assert_called_once()
         assert result.success
+
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
 async def test_tool_success_simulation():
-    with patch("__main__.call_external_service") as mock_service:
+    """Test agent's ability to handle successful tool calls."""
+
+    with patch("test_tool_failure_simulation.call_external_service") as mock_service:
+        # Simulate successful service call
         mock_service.return_value = "Service call successful"
 
         result = await scenario.run(
@@ -722,16 +723,17 @@ async def test_tool_success_simulation():
             description="Test agent's ability to handle successful tool calls",
             agents=[
                 ResilientAgent(),
-                scenario.UserSimulatorAgent(),
+                scenario.UserSimulatorAgent(model="openai/gpt-4o-mini"),
             ],
             script=[
                 scenario.user("Call the external service"),
                 scenario.agent(),
+                lambda state: mock_service.assert_called_once_with("/api/data"),
+                check_success_in_message,
                 scenario.succeed(),
             ],
         )
 
-        mock_service.assert_called_once()
         assert result.success
 ```
 
