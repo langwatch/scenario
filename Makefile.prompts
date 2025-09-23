@@ -1,0 +1,27 @@
+# Prompt Management Makefile
+# This file contains prompt build commands
+
+.PHONY: help-prompts build
+
+# Show help for prompt commands
+help-prompts:
+	@echo "Prompt Management Commands:"
+	@echo ""
+	@echo "  make -f Makefile.prompts build       # Build prompts from YAML files"
+	@echo ""
+
+# Build prompts from YAML files
+build:
+	@echo "Building prompts from YAML files..."
+	pnpm -F @langwatch/scenario run build:prompts
+	cp prompts/generated.json javascript/src/prompts/generated.json
+	cp prompts/generated.json python/scenario/prompts/generated.json
+
+clean:
+	@echo "Cleaning prompts..."
+	rm -f prompts/generated.json
+	rm -f javascript/src/prompts/generated.json
+	rm -f python/scenario/prompts/generated.json
+
+# Default target
+help: help-prompts

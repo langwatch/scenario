@@ -19,7 +19,8 @@
     "lint": "eslint .",
     "examples:vitest:run": "(cd examples/vitest && pnpm install) && pnpm -F vitest-example run test",
     "prepublishOnly": "pnpm run build",
-    "generate:api-reference": "npx typedoc src --out api-reference-docs && rm -rf ../docs/docs/public/reference/javascript/scenario && mv api-reference-docs ../docs/docs/public/reference/javascript/scenario"
+    "generate:api-reference": "npx typedoc src --out api-reference-docs && rm -rf ../docs/docs/public/reference/javascript/scenario && mv api-reference-docs ../docs/docs/public/reference/javascript/scenario",
+    "build:prompts": "tsx ./scripts/build-prompts.ts"
   },
   "publishConfig": {
     "access": "public"
@@ -67,7 +68,8 @@
     "tsx": "^4.19.4",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.32.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "yaml": "2.8.1"
   },
   "exports": {
     ".": {
@@ -97,7 +99,7 @@
     }
   },
   "peerDependencies": {
-    "vitest": ">=3.2.4",
-    "ai": ">=5.0.0"
+    "ai": ">=5.0.0",
+    "vitest": ">=3.2.4"
   }
 }

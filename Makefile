@@ -1,11 +1,17 @@
 .PHONY: help
 
+# Include prompt management
+include Makefile.prompts
+
 # Default target - show help
 help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "Directory forwarding syntax:"
 	@echo "  make <directory>/<target> [args]"
+	@echo ""
+	@echo "Prompt management:"
+	@echo "  make prompts/build       # Build prompts from YAML files"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make python/test"
@@ -14,6 +20,7 @@ help:
 	@echo "  make python/build"
 	@echo "  make python/typecheck"
 	@echo "  make python/pdocs"
+	@echo "  make prompts/sync"
 
 	@echo "  make python/test tests/test_specific.py"
 
@@ -24,6 +31,10 @@ help:
 # Handle directory/target patterns
 python/%:
 	$(MAKE) -C python $* $(filter-out $@,$(MAKECMDGOALS))
+
+# Prompt management commands (delegated to Makefile.prompts)
+prompts/%:
+	$(MAKE) -f Makefile.prompts $(patsubst prompts/%,%,$@)
 
 # Build docs with optional language selection
 # Usage: make build-docs [js] [py]
