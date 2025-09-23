@@ -16,6 +16,7 @@
     "watch": "pnpm run build -- --watch src",
     "test": "vitest",
     "test:ci": "vitest run",
+    "test:scenario": "vitest run --config vitest.scenario.config.ts",
     "lint": "eslint .",
     "examples:vitest:run": "(cd examples/vitest && pnpm install) && pnpm -F vitest-example run test",
     "prepublishOnly": "pnpm run build",
