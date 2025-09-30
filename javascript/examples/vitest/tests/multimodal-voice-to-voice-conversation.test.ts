@@ -1,10 +1,16 @@
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
-import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
+import scenario, {
+  AgentInput,
+  AgentRole,
+  judgeAgent,
+  JudgeAgentAdapter,
+} from "@langwatch/scenario";
 import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
 import { messageRoleReversal } from "../../../src/agents/utils";
+import { sanitizeMessagesForV5 } from "./helpers/sanitize-messages-for-v5";
 
 /**
  * Audio agent that responds with audio using OpenAI's voice-to-voice model
@@ -63,16 +69,26 @@ class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
 const setId = "full-audio-conversation-test";
 
 // TODO: blocked by https://github.com/vercel/ai/issues/6873 due to v5 not accepting audio/wav yet
-describe.skip("Multimodal Voice-to-Voice Conversation Tests", () => {
+describe("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
     const audioUserSimulator = new AudioUserSimulatorAgent();
     const audioAgent = new MyAgent();
 
     // Judge that can evaluate audio conversations
     const conversationJudge = scenario.judgeAgent({
-      model: openai("gpt-4o-audio-preview"),
+      model: openai("gpt-4o"),
       criteria: ["The conversation flows naturally between user and agent"],
     });
+
+    // Override call method to handle audio
+    const originalCall = conversationJudge.call.bind(conversationJudge);
+    conversationJudge.call = async (input: AgentInput) => {
+      const sanitizedInput = {
+        ...input,
+        messages: await sanitizeMessagesForV5(input.messages),
+      };
+      return originalCall(sanitizedInput);
+    };
 
     // Run the scenario
     const result = await scenario.run({
