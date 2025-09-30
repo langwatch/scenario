@@ -2,6 +2,11 @@ import { CoreMessage } from "ai";
 import OpenAI from "openai";
 
 /**
+ * Cache of audio transcriptions
+ */
+const cache = new Map<string, string>();
+
+/**
  * Sanitizes messages for AI SDK v5 compatibility by converting audio file parts to text
  */
 export async function sanitizeMessagesForV5(
@@ -18,7 +23,11 @@ export async function sanitizeMessagesForV5(
           message.content.map(async (part) => {
             if (part.type === "text") return part.text;
             if (part.type === "file" && part.mediaType?.startsWith("audio/")) {
-              return await transcribeAudio(part.data as string);
+              const cached = cache.get(part.data as string);
+              if (cached) return cached;
+              const transcription = await transcribeAudio(part.data as string);
+              cache.set(part.data as string, transcription);
+              return transcription;
             }
             return "";
           })
@@ -42,7 +51,6 @@ async function transcribeAudio(audioData: string): Promise<string> {
       }),
       language: "en",
     });
-    console.log("Transcription response", response);
     return response.text;
   } catch (error) {
     console.error("Error transcribing audio", error);

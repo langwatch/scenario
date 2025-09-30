@@ -65,10 +65,20 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
     const transcript = response.choices[0].message?.audio?.transcript;
 
     if (audioData) {
-      console.log(`${this.constructor.name} AUDIO RESPONSE`, transcript);
+      console.log(
+        `
+${this.constructor.name} AUDIO RESPONSE
+       `,
+        transcript
+      );
       return this.createAudioMessage(audioData);
     } else if (transcript) {
-      console.log(`${this.constructor.name} TEXT FALLBACK`, transcript);
+      console.log(
+        `
+${this.constructor.name} TEXT FALLBACK
+       `,
+        transcript
+      );
       return transcript;
     } else {
       throw new Error(`${this.constructor.name} failed to generate a response`);

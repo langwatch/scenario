@@ -19,7 +19,7 @@ interface AudioSegment {
  * @param outputFilePath - Path where the concatenated audio file should be saved
  */
 export async function saveConversationAudio(
-  result: ScenarioResult,
+  result: Pick<ScenarioResult, "messages">,
   outputFilePath: string,
   // Useful for debugging
   keepTempFiles: boolean = false

@@ -1,11 +1,6 @@
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
-import scenario, {
-  AgentInput,
-  AgentRole,
-  judgeAgent,
-  JudgeAgentAdapter,
-} from "@langwatch/scenario";
+import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
 import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
@@ -22,7 +17,7 @@ class MyAgent extends OpenAiVoiceAgent {
     super({
       systemPrompt: `You are a helpful and engaging AI assistant.
       Respond naturally and conversationally since this is an audio conversation.
-      Be informative but keep your responses concise and engaging.
+      Be informative but keep your responses short, concise and engaging.
       Adapt your speaking style to be natural for audio.`,
       voice: "echo",
     });
@@ -68,7 +63,14 @@ class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
 // Use setId to group together for visualizing in the UI
 const setId = "full-audio-conversation-test";
 
-// TODO: blocked by https://github.com/vercel/ai/issues/6873 due to v5 not accepting audio/wav yet
+// Save the conversation as an audio file
+const outputPath = path.join(
+  process.cwd(),
+  "tmp",
+  "audio_conversations",
+  "full-conversation.wav"
+);
+
 describe("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
     const audioUserSimulator = new AudioUserSimulatorAgent();
@@ -96,21 +98,22 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
       description:
         "Complete audio conversation between user simulator and agent over multiple turns",
       agents: [audioAgent, audioUserSimulator, conversationJudge],
-      script: [scenario.proceed(6), scenario.judge()],
+      script: [
+        // proceed for 4 turns
+        scenario.proceed(2),
+        // save the audio from the messages from the context
+        async (ctx) => {
+          console.log("saving audio from context", ctx);
+          await saveConversationAudio(ctx, outputPath);
+        },
+        // judge the conversation
+        scenario.judge(),
+      ],
       setId,
     });
 
     try {
       console.log("FULL AUDIO CONVERSATION RESULT", result);
-
-      // Save the conversation as an audio file
-      const outputPath = path.join(
-        process.cwd(),
-        "tmp",
-        "audio_conversations",
-        "full-conversation.wav"
-      );
-      await saveConversationAudio(result, outputPath);
 
       expect(result.success).toBe(true);
     } catch (error) {
