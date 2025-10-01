@@ -1,13 +1,37 @@
+/**
+ * Message Sanitization for AI SDK v5
+ *
+ * AI SDK v5 doesn't support audio file parts in message content,
+ * so this utility converts audio data to text transcriptions using Whisper.
+ *
+ * Use this when passing audio conversations to judge agents or other
+ * components that expect text-only content.
+ *
+ * Features:
+ * - Automatic audio transcription via OpenAI Whisper
+ * - Caching to avoid re-transcribing the same audio
+ * - Graceful fallback for transcription errors
+ */
 import { CoreMessage } from "ai";
 import OpenAI from "openai";
 
 /**
- * Cache of audio transcriptions
+ * Cache mapping base64 audio data to transcribed text
+ * Avoids re-transcribing the same audio multiple times
  */
 const cache = new Map<string, string>();
 
 /**
- * Sanitizes messages for AI SDK v5 compatibility by converting audio file parts to text
+ * Converts audio parts in messages to text transcriptions
+ *
+ * Process:
+ * 1. Scans all message content for audio file parts
+ * 2. Transcribes audio using OpenAI Whisper (with caching)
+ * 3. Replaces audio parts with transcribed text
+ * 4. Returns sanitized messages compatible with AI SDK v5
+ *
+ * @param messages - Original messages potentially containing audio
+ * @returns Messages with audio converted to text transcriptions
  */
 export async function sanitizeMessagesForV5(
   messages: CoreMessage[]
@@ -41,9 +65,16 @@ export async function sanitizeMessagesForV5(
   );
 }
 
+/**
+ * Transcribes audio data to text using OpenAI Whisper
+ *
+ * @param audioData - Base64-encoded audio data
+ * @returns Transcribed text, or error placeholder if transcription fails
+ */
 async function transcribeAudio(audioData: string): Promise<string> {
   try {
     const openaiClient = new OpenAI();
+    // Convert base64 audio to File object for Whisper API
     const response = await openaiClient.audio.transcriptions.create({
       model: "whisper-1",
       file: new File([Buffer.from(audioData, "base64")], "audio.wav", {

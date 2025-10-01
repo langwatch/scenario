@@ -1,3 +1,14 @@
+/**
+ * OpenAI Voice Agent Tests
+ *
+ * This test suite demonstrates how to test voice-enabled agents that:
+ * - Accept audio input (WAV files)
+ * - Generate audio responses
+ * - Handle multi-turn audio conversations
+ *
+ * These tests show patterns for working with the OpenAI audio API and
+ * verifying audio content in agent responses.
+ */
 import * as fs from "fs";
 import * as path from "path";
 import { AgentInput, AgentRole } from "@langwatch/scenario";
@@ -8,6 +19,7 @@ import { OpenAiVoiceAgent } from "./openai-voice-agent";
 
 /**
  * Test agent that responds with audio
+ * Uses OpenAI's voice-to-voice model to generate brief audio greetings
  */
 class TestVoiceAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;
@@ -23,10 +35,12 @@ class TestVoiceAgent extends OpenAiVoiceAgent {
 
 describe("OpenAiVoiceAgent", () => {
   it("should accept and receive audio", async () => {
+    // Setup: Create agent and load audio fixture
     const agent = new TestVoiceAgent();
     const audioFixture = getFixturePath("male_or_female_voice.wav");
     const audioData = encodeAudioToBase64(audioFixture);
 
+    // Create multimodal input with both text and audio
     const input: AgentInput = {
       messages: [
         {
@@ -46,21 +60,23 @@ describe("OpenAiVoiceAgent", () => {
       ],
     };
 
+    // Call agent with audio input
     const response = await agent.call(input);
 
+    // Verify response structure
     expect(response).toBeDefined();
     expect(typeof response).toBe("object");
     expect(response).toHaveProperty("role");
     expect(response).toHaveProperty("content");
     expect(Array.isArray(response.content)).toBe(true);
 
-    // Check if response contains audio
+    // Verify response contains audio data
     const hasAudio = response.content.some(
       (part: any) => part.type === "file" && part.mediaType === "audio/wav"
     );
     expect(hasAudio).toBe(true);
 
-    // Save audio to tmp file
+    // Optional: Save audio response to disk for manual verification
     const tmpDir = path.join(__dirname, "..", "..", "tmp");
     if (!fs.existsSync(tmpDir)) {
       fs.mkdirSync(tmpDir, { recursive: true });
@@ -79,13 +95,14 @@ describe("OpenAiVoiceAgent", () => {
   });
 
   it.only("should handle multi-turn audio conversation", async () => {
+    // Setup: Create agent and load two audio fixtures for multi-turn conversation
     const agent = new TestVoiceAgent();
     const audioFixture = getFixturePath("male_or_female_voice.wav");
     const audioFixture2 = getFixturePath("why_not_explain_yourself.wav");
     const audioData = encodeAudioToBase64(audioFixture);
     const audioData2 = encodeAudioToBase64(audioFixture2);
 
-    // First message
+    // Initialize conversation with first user message
     const messages: AgentInput["messages"] = [
       {
         role: "user",
@@ -103,15 +120,15 @@ describe("OpenAiVoiceAgent", () => {
       },
     ];
 
-    // First agent response
+    // Turn 1: Get first agent response
     const firstResponse = await agent.call({ messages });
     expect(firstResponse).toBeDefined();
     expect(typeof firstResponse).toBe("object");
 
-    // Add agent response to conversation
+    // Add agent's first response to conversation history
     messages.push(firstResponse as any);
 
-    // Add second user message
+    // Turn 2: Add second user message to continue the conversation
     messages.push({
       role: "user",
       content: [
@@ -127,12 +144,12 @@ describe("OpenAiVoiceAgent", () => {
       ],
     });
 
-    // Second agent response
+    // Turn 2: Get second agent response
     const secondResponse = await agent.call({ messages });
     expect(secondResponse).toBeDefined();
     expect(typeof secondResponse).toBe("object");
 
-    // Verify both responses contain audio
+    // Verify both responses contain audio data
     const firstHasAudio = (firstResponse as any).content.some(
       (part: any) => part.type === "file" && part.mediaType === "audio/wav"
     );
@@ -143,12 +160,13 @@ describe("OpenAiVoiceAgent", () => {
     expect(firstHasAudio).toBe(true);
     expect(secondHasAudio).toBe(true);
 
-    // Save both audio responses to tmp files
+    // Optional: Save both audio responses for manual review
     const tmpDir = path.join(__dirname, "..", "..", "tmp");
     if (!fs.existsSync(tmpDir)) {
       fs.mkdirSync(tmpDir, { recursive: true });
     }
 
+    // Helper function to extract and save audio from response
     const saveAudioResponse = (response: any, filename: string) => {
       const audioPart = response.content.find(
         (part: any) => part.type === "file" && part.mediaType === "audio/wav"
@@ -165,7 +183,7 @@ describe("OpenAiVoiceAgent", () => {
     saveAudioResponse(firstResponse, "conversation-turn-1.wav");
     saveAudioResponse(secondResponse, "conversation-turn-2.wav");
 
-    // Verify we have 3 messages total (2 user + 1 agent response)
+    // Verify conversation history structure (2 user messages + 1 agent response in messages array)
     expect(messages.length).toBe(3);
   });
 });

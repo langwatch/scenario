@@ -1,14 +1,32 @@
+/**
+ * Multimodal Voice-to-Voice Conversation Tests
+ *
+ * This test suite demonstrates a complete audio-to-audio conversation flow where:
+ * - A user simulator agent generates audio questions
+ * - A main agent responds with audio answers
+ * - Both communicate entirely through voice (no text)
+ * - The conversation is judged for quality
+ * - The full audio is saved for review
+ *
+ * This showcases:
+ * - Custom agent implementations with voice capabilities
+ * - Multi-turn voice conversations
+ * - Audio message handling and persistence
+ * - Judge agent integration with audio transcription
+ * - Role reversal for user simulation
+ */
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
 import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
 import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
-import { messageRoleReversal } from "../../../src/agents/utils";
 import { sanitizeMessagesForV5 } from "./helpers/sanitize-messages-for-v5";
+import { messageRoleReversal } from "../../../src/agents/utils";
 
 /**
- * Audio agent that responds with audio using OpenAI's voice-to-voice model
+ * Main agent that responds with helpful audio answers
+ * Uses "echo" voice for a distinct sound
  */
 class MyAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;
@@ -25,8 +43,14 @@ class MyAgent extends OpenAiVoiceAgent {
 }
 
 /**
- * Custom user simulation agent that generates audio responses
- * for full audio-to-audio conversations
+ * User simulator that generates audio questions
+ *
+ * This agent:
+ * - Plays the role of a curious user asking questions
+ * - Generates audio responses (not text)
+ * - Uses role reversal to properly simulate user behavior
+ * - Automatically ends conversation after 2 exchanges
+ * - Uses "nova" voice to differentiate from main agent
  */
 class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.USER;
@@ -50,7 +74,10 @@ class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
 
   public async call(input: AgentInput): Promise<ModelMessage | string> {
     /**
-     * We need to reverse the messages roles here so that agent can impersonate the user.
+     * Role reversal is critical here:
+     * - The agent sees "user" messages as if they're from the assistant
+     * - This allows the agent to respond AS the user
+     * - Without this, the conversation flow would be backwards
      */
     const messages = messageRoleReversal(input.messages);
     return super.call({
@@ -60,10 +87,10 @@ class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
   }
 }
 
-// Use setId to group together for visualizing in the UI
+// Group related test runs together in the UI
 const setId = "full-audio-conversation-test";
 
-// Save the conversation as an audio file
+// Output path for the full conversation audio file
 const outputPath = path.join(
   process.cwd(),
   "tmp",
@@ -73,16 +100,18 @@ const outputPath = path.join(
 
 describe("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
+    // Initialize both agents for the conversation
     const audioUserSimulator = new AudioUserSimulatorAgent();
     const audioAgent = new MyAgent();
 
-    // Judge that can evaluate audio conversations
+    // Create judge agent to evaluate conversation quality
     const conversationJudge = scenario.judgeAgent({
       model: openai("gpt-4o"),
       criteria: ["The conversation flows naturally between user and agent"],
     });
 
-    // Override call method to handle audio
+    // Wrap judge's call method to sanitize audio before judging
+    // Judge agents can't process audio directly, so we transcribe it first
     const originalCall = conversationJudge.call.bind(conversationJudge);
     conversationJudge.call = async (input: AgentInput) => {
       const sanitizedInput = {
@@ -92,21 +121,23 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
       return originalCall(sanitizedInput);
     };
 
-    // Run the scenario
+    // Execute the full audio conversation scenario
     const result = await scenario.run({
       name: "full audio-to-audio conversation",
       description:
         "Complete audio conversation between user simulator and agent over multiple turns",
       agents: [audioAgent, audioUserSimulator, conversationJudge],
       script: [
-        // proceed for 4 turns
+        // Step 1: Run 2 conversation turns between user simulator and agent
         scenario.proceed(2),
-        // save the audio from the messages from the context
+
+        // Step 2: Save the full conversation as a single audio file
         async (ctx) => {
           console.log("saving audio from context", ctx);
           await saveConversationAudio(ctx, outputPath);
         },
-        // judge the conversation
+
+        // Step 3: Have judge evaluate the conversation quality
         scenario.judge(),
       ],
       setId,
@@ -122,7 +153,14 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
     }
   });
 
-  // Ideas for future tests
+  /**
+   * Future test ideas to expand audio conversation coverage:
+   * - Longer multi-turn conversations (5+ exchanges)
+   * - Emotional or empathetic audio responses
+   * - Technical topic discussions requiring accuracy
+   * - Handling interruptions or clarifications
+   * - Multi-speaker scenarios (3+ participants)
+   */
   it.todo("should handle longer audio conversations");
   it.todo("should handle audio conversation with emotional content");
   it.todo("should handle audio conversation with technical topics");

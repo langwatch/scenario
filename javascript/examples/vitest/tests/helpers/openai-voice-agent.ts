@@ -1,3 +1,26 @@
+/**
+ * OpenAI Voice Agent - Base class for voice-to-voice AI agents
+ *
+ * This module provides a base class for creating agents that can:
+ * - Accept audio input (voice messages from users)
+ * - Generate audio output (voice responses)
+ * - Handle multi-turn voice conversations
+ *
+ * Uses OpenAI's gpt-4o-audio-preview model which supports voice-to-voice interaction.
+ *
+ * Example usage:
+ * ```typescript
+ * class MyVoiceAgent extends OpenAiVoiceAgent {
+ *   role = AgentRole.AGENT;
+ *   constructor() {
+ *     super({
+ *       systemPrompt: "You are a helpful assistant",
+ *       voice: "alloy"
+ *     });
+ *   }
+ * }
+ * ```
+ */
 import { AgentAdapter, AgentInput, AgentRole } from "@langwatch/scenario";
 import { ModelMessage, UserModelMessage, AssistantModelMessage } from "ai";
 import OpenAI from "openai";
@@ -8,23 +31,32 @@ import {
 import { convertModelMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
 
 /**
- * Configuration for voice-enabled agents
+ * Configuration options for voice-enabled agents
  */
 interface VoiceAgentConfig {
+  /** System prompt to guide the agent's behavior */
   systemPrompt?: string;
+  /** OpenAI voice to use for audio generation */
   voice?: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
   /**
-   * Sometimes, the judge agent will refuse to acknowledge audio parts
-   * from the assistant, so we can force the role to be user when responding.
+   * Force the agent's response to use "user" role instead of "assistant"
    *
-   * This is a weird edge case, but is sometimes required with OpenAI API.
+   * Some judge agents may reject audio parts from the assistant role.
+   * This is a workaround for that edge case with the OpenAI API.
    */
   forceUserRole?: boolean;
 }
 
 /**
  * Abstract base class for voice-enabled agents using OpenAI's voice-to-voice model
- * Handles common audio generation and response processing logic
+ *
+ * This class handles:
+ * - Converting messages to OpenAI format
+ * - Calling the OpenAI audio API
+ * - Processing audio responses
+ * - Creating properly formatted audio messages
+ *
+ * Subclasses must define the `role` property (AGENT or USER)
  */
 export abstract class OpenAiVoiceAgent extends AgentAdapter {
   private readonly openai = new OpenAI();
@@ -35,6 +67,11 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
     this.config = config ?? { voice: "alloy" };
   }
 
+  /**
+   * Main entry point - processes input and generates audio response
+   * @param input - Agent input containing conversation messages
+   * @returns Audio message or text fallback
+   */
   public async call(input: AgentInput): Promise<ModelMessage | string> {
     try {
       // Convert messages to OpenAI format for voice-to-voice model
@@ -52,12 +89,15 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
   }
 
   /**
-   * Handles the response from the OpenAI API.
-   * If the response contains audio data, it creates an audio message.
-   * Else/if the response contains a transcript, it returns the transcript.
-   * If the response does not contain audio data or a transcript, it throws an error.
-   * @param response - The response from the OpenAI API.
-   * @returns The response from the OpenAI API.
+   * Processes OpenAI API response and extracts audio or text
+   *
+   * Priority order:
+   * 1. Audio data - creates audio message with base64 WAV data
+   * 2. Text transcript - returns as plain text fallback
+   * 3. Neither - throws error
+   *
+   * @param response - The raw ChatCompletion response from OpenAI
+   * @returns Audio message or text string
    */
   private handleResponse(response: ChatCompletion) {
     // Extract audio data and transcript
@@ -86,7 +126,13 @@ ${this.constructor.name} TEXT FALLBACK
   }
 
   /**
-   * Responds with audio using OpenAI's voice-to-voice model
+   * Calls OpenAI's audio-enabled model to generate voice response
+   *
+   * Uses gpt-4o-audio-preview with:
+   * - Text and audio modalities
+   * - WAV format output
+   * - Configured voice (alloy, nova, echo, etc.)
+   * - Optional system prompt
    */
   private async respondWithAudio(
     messages: ChatCompletionMessageParam[]
@@ -102,6 +148,9 @@ ${this.constructor.name} TEXT FALLBACK
     });
   }
 
+  /**
+   * Builds system message from config if present
+   */
   private get systemMessage(): ChatCompletionMessageParam | undefined {
     if (!this.config.systemPrompt) return undefined;
 
@@ -112,7 +161,15 @@ ${this.constructor.name} TEXT FALLBACK
   }
 
   /**
-   * Creates an audio message with the appropriate role based on the agent's role
+   * Creates a properly formatted audio message for the conversation
+   *
+   * The message includes:
+   * - Empty text part (required structure)
+   * - File part with base64 WAV data
+   * - Correct role (user or assistant) based on agent configuration
+   *
+   * @param audioData - Base64-encoded WAV audio data
+   * @returns Formatted ModelMessage ready for conversation
    */
   private createAudioMessage(audioData: string): ModelMessage {
     this.validateRole(this.role);
@@ -134,6 +191,10 @@ ${this.constructor.name} TEXT FALLBACK
       : ({ role: "assistant", content } as AssistantModelMessage);
   }
 
+  /**
+   * Ensures the agent role is valid for voice operations
+   * Only AGENT and USER roles are supported (not the raw "user"/"assistant" strings)
+   */
   private validateRole(role: AgentRole) {
     if (["user", "assistant"].includes(role)) {
       throw new Error(
