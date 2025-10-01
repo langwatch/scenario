@@ -69,7 +69,7 @@ The examples above rely on several helper utilities that handle the complexity o
 
 - **[OpenAiVoiceAgent](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/openai-voice-agent.ts)** - Abstract base class that handles the OpenAI voice API calls, message conversion, and response processing. Used by both the agent and user simulator in voice-to-voice conversations.
 
-- **[messageRoleReversal](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Utility function that swaps user ↔ assistant roles in messages (excluding tool calls) so the voice user simulator can speak as the user.
+- **[messageRoleReversal](https://github.com/langwatch/scenario/blob/main/javascript/src/agents/utils.ts)** - Utility function that swaps user ↔ assistant roles in messages (excluding tool calls) so the voice user simulator can speak as the user.
 
 - **[saveConversationAudio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Saves audio responses to files for debugging and analysis.
 
