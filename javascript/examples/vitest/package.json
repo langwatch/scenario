@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "pnpm exec vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "keywords": [],
   "author": "",

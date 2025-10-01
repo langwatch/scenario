@@ -39,6 +39,7 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: javascript
 
+      # Covers typecheck
       - name: Build
         run: pnpm run build
         working-directory: javascript
@@ -49,6 +50,19 @@ jobs:
 
       - name: Tests
         run: pnpm run test
+        working-directory: javascript
+
+      # Examples
+      - name: Lint (Examples)
+        run: pnpm -F vitest-example lint
+        working-directory: javascript
+
+      - name: Type check
+        run: pnpm run typecheck
+        working-directory: javascript
+
+      - name: Type check (Examples)
+        run: pnpm -F vitest-example typecheck
         working-directory: javascript
 
       - name: Test (Examples)

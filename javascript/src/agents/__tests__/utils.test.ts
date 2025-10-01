@@ -72,13 +72,26 @@ describe("messageRoleReversal", () => {
       role: "assistant" as const,
       content: [
         { type: "text", text: "I'll calculate that for you" },
-        { type: "tool-call", toolCallId: "1", toolName: "calculator", args: { expression: "2+2" } }
-      ]
+        {
+          type: "tool-call",
+          toolCallId: "1",
+          toolName: "calculator",
+          input: { expression: "2+2" },
+        },
+      ],
     };
 
     const toolMessage = {
       role: "tool" as const,
-      content: [{ type: "tool-result", toolCallId: "1", toolName: "calculator", result: 4 }]
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "1",
+          toolName: "calculator",
+          result: 4,
+          output: { type: "json", value: 4 },
+        },
+      ],
     };
 
     const messages: CoreMessage[] = [
@@ -103,12 +116,26 @@ describe("messageRoleReversal", () => {
   it("should handle multiple segments - preserve tool segments, reverse simple segments", () => {
     const assistantWithToolCall = {
       role: "assistant" as const,
-      content: [{ type: "tool-call", toolCallId: "2", toolName: "calc", args: { expr: "5*6" } }]
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "2",
+          toolName: "calc",
+          input: { expr: "5*6" },
+        },
+      ],
     };
 
     const toolMessage = {
       role: "tool" as const,
-      content: [{ type: "tool-result", toolCallId: "2", result: 30 }]
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "2",
+          toolName: "calc",
+          output: { type: "json", value: 30 },
+        },
+      ],
     };
 
     const messages: CoreMessage[] = [
@@ -165,12 +192,17 @@ describe("messageRoleReversal", () => {
   it("should handle segment with only tool messages", () => {
     const toolMessage = {
       role: "tool" as const,
-      content: [{ type: "tool-result", toolCallId: "1", result: "test" }]
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "1",
+          toolName: "test",
+          output: { type: "json", value: "test" },
+        },
+      ],
     };
 
-    const messages: CoreMessage[] = [
-      toolMessage as CoreMessage,
-    ];
+    const messages: CoreMessage[] = [toolMessage as CoreMessage];
 
     const result = messageRoleReversal(messages);
 
@@ -181,7 +213,7 @@ describe("messageRoleReversal", () => {
   it("should handle assistant message with array content but no tool calls", () => {
     const assistantWithTextOnly = {
       role: "assistant" as const,
-      content: [{ type: "text", text: "Just text content" }]
+      content: [{ type: "text", text: "Just text content" }],
     };
 
     const messages: CoreMessage[] = [
@@ -200,12 +232,26 @@ describe("messageRoleReversal", () => {
   it("should create new segment after each tool message", () => {
     const toolMessage1 = {
       role: "tool" as const,
-      content: [{ type: "tool-result", result: "result1" }]
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "1",
+          toolName: "test",
+          output: { type: "json", value: "result1" },
+        },
+      ],
     };
 
     const toolMessage2 = {
       role: "tool" as const,
-      content: [{ type: "tool-result", result: "result2" }]
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "2",
+          toolName: "test",
+          output: { type: "json", value: "result2" },
+        },
+      ],
     };
 
     const messages: CoreMessage[] = [
@@ -258,11 +304,14 @@ describe("criterionToParamName", () => {
   });
 
   it("should truncate to 70 characters", () => {
-    const longCriterion = "This is a very long criterion name that should be truncated because it exceeds the maximum length limit of seventy characters";
+    const longCriterion =
+      "This is a very long criterion name that should be truncated because it exceeds the maximum length limit of seventy characters";
     const result = criterionToParamName(longCriterion);
 
     expect(result.length).toBe(70);
-    expect(result).toBe("this_is_a_very_long_criterion_name_that_should_be_truncated_because_it");
+    expect(result).toBe(
+      "this_is_a_very_long_criterion_name_that_should_be_truncated_because_it"
+    );
   });
 
   it("should handle empty string", () => {
