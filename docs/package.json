@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "generate:examples": "node scripts/generate-examples.js",
-    "dev": "pnpm generate:examples && vocs dev",
+    "generate:mdx-examples": "node scripts/generate-mdx-examples.js",
+    "dev": "pnpm generate:mdx-examples && vocs dev",
     "build": "vocs build",
     "preview": "vocs preview",
     "build:preview": "pnpm build && vocs preview"

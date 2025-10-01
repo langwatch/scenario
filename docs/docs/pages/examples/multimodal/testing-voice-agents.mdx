@@ -61,6 +61,8 @@ Below is the actual audio produced by the **voice-to-voice** test above. Click p
 
 The examples above rely on several helper utilities that handle the complexity of working with OpenAI's voice models:
 
+- **[wrapJudgeForAudio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/wrap-judge-for-audio.ts)** - Wraps a judge agent to automatically transcribe audio messages to text before evaluation. Required because judge agents can't process audio directly - this utility uses OpenAI Whisper to convert any audio content in messages to text transcriptions.
+
 - **[encodeAudioToBase64](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-encoding.ts)** - Converts audio files to base64-encoded strings for transmission in messages. Used to prepare audio fixtures for testing.
 
 - **[getFixturePath](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/fixture-utils.ts)** - Utility to resolve paths to test fixtures (like audio files) relative to the test directory.
