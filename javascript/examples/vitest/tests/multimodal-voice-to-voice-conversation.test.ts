@@ -20,8 +20,11 @@ import { openai } from "@ai-sdk/openai";
 import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
 import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
-import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
-import { sanitizeMessagesForV5 } from "./helpers/sanitize-messages-for-v5";
+import {
+  OpenAiVoiceAgent,
+  saveConversationAudio,
+  wrapJudgeForAudio,
+} from "./helpers";
 import { messageRoleReversal } from "../../../src/agents/utils";
 
 /**
@@ -105,21 +108,13 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
     const audioAgent = new MyAgent();
 
     // Create judge agent to evaluate conversation quality
-    const conversationJudge = scenario.judgeAgent({
-      model: openai("gpt-4o"),
-      criteria: ["The conversation flows naturally between user and agent"],
-    });
-
-    // Wrap judge's call method to sanitize audio before judging
-    // Judge agents can't process audio directly, so we transcribe it first
-    const originalCall = conversationJudge.call.bind(conversationJudge);
-    conversationJudge.call = async (input: AgentInput) => {
-      const sanitizedInput = {
-        ...input,
-        messages: await sanitizeMessagesForV5(input.messages),
-      };
-      return originalCall(sanitizedInput);
-    };
+    // Wrap with audio handler to transcribe audio before judging
+    const conversationJudge = wrapJudgeForAudio(
+      scenario.judgeAgent({
+        model: openai("gpt-4o"),
+        criteria: ["The conversation flows naturally between user and agent"],
+      })
+    );
 
     // Execute the full audio conversation scenario
     const result = await scenario.run({
