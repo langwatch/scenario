@@ -1,6 +1,16 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import type { ReactNode } from "react";
 
+/**
+ * CustomCodeGroup component
+ *
+ * A tabbed code group component that renders multiple code examples in tabs.
+ * Uses Radix UI tabs with Vocs styling classes for consistent appearance.
+ *
+ * @param props - The props for the CustomCodeGroup component
+ * @param props.children - CodeTab components to render as tabs
+ * @returns A tabbed interface for code examples
+ */
 export function CustomCodeGroup({ children }: { children: ReactNode }) {
   const childArray = Array.isArray(children) ? children : [children];
 
