@@ -5,7 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "pnpm exec vitest"
+    "test": "pnpm exec vitest",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
