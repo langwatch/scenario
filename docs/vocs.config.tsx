@@ -167,6 +167,10 @@ export default defineConfig({
       text: "Examples & Guides",
       items: [
         {
+          text: "Testing Remote Agents",
+          link: "/examples/testing-remote-agents",
+        },
+        {
           text: "Tool calling",
           link: "/testing-guides/tool-calling",
         },
@@ -177,6 +181,14 @@ export default defineConfig({
         {
           text: "Mocks",
           link: "/testing-guides/mocks",
+        },
+        {
+          text: "Blackbox Testing",
+          link: "/testing-guides/blackbox-testing",
+        },
+        {
+          text: "Domain-Driven TDD",
+          link: "/testing-guides/domain-driven-tdd",
         },
         {
           text: "Multimodal",

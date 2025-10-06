@@ -1,0 +1,360 @@
+import { RefLink } from "../../components/RefLink";
+
+# Testing Remote Agents [Adapters for HTTP-deployed agents]
+
+When your agent is deployed as an HTTP service, test it with Scenario by creating adapters that make HTTP requests. This guide shows patterns for different API response types.
+
+## AgentAdapter Interface
+
+Scenario's `AgentAdapter` interface requires a `call` method that:
+
+- Receives `AgentInput` containing message history and thread ID
+- Returns a string (agent's response text) or an array of messages
+
+Your adapter translates between Scenario's format and your agent's HTTP API.
+
+## Basic JSON Response
+
+Most REST APIs return JSON. Extract the response field your agent uses:
+
+:::code-group
+
+```typescript [typescript]
+import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
+
+// Base URL for your agent endpoint
+const baseUrl = "http://localhost:3000";
+
+const jsonAgentAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Extract the most recent user message from the conversation
+    const lastMessage = input.messages[input.messages.length - 1];
+
+    // Handle both string content and multipart content (images, files, etc.)
+    const content =
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : lastMessage.content[0].text;
+
+    // Make HTTP POST request to your agent's endpoint
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: content }),
+    });
+
+    // Parse JSON response and return the agent's message
+    const result = await response.json();
+    return result.response; // Adjust field name to match your API
+  },
+};
+
+// Use in scenario test
+const result = await scenario.run({
+  agents: [scenario.userSimulatorAgent(), jsonAgentAdapter],
+  // ... rest of scenario config
+});
+```
+
+```python [python]
+import scenario
+import aiohttp
+
+# Base URL for your agent endpoint
+base_url = "http://localhost:3000"
+
+
+class JsonAgentAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Extract the most recent user message from the conversation
+        last_message = input.messages[-1]
+
+        # Handle both string content and multipart content (images, files, etc.)
+        content = (
+            last_message["content"]
+            if isinstance(last_message["content"], str)
+            else last_message["content"][0]["text"]
+        )
+
+        # Make HTTP POST request to your agent's endpoint
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat",
+                json={"message": content},
+            ) as response:
+                # Parse JSON response and return the agent's message
+                result = await response.json()
+                return result["response"]  # Adjust field name to match your API
+
+
+# Use in scenario test
+result = await scenario.run(
+    agents=[
+        scenario.UserSimulatorAgent(),
+        JsonAgentAdapter(),
+    ],
+    # ... rest of scenario config
+)
+```
+
+:::
+
+## Streaming Responses
+
+For agents that stream responses, collect chunks and return the complete text:
+
+:::code-group
+
+```typescript [typescript]
+const streamingAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Request streaming response from your agent
+    const response = await fetch(`${baseUrl}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: input.messages }),
+    });
+
+    // Collect all chunks into a single response
+    let fullResponse = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break; // Stream complete
+
+        // Decode chunk and append to full response
+        fullResponse += decoder.decode(value, { stream: true });
+      }
+    }
+
+    // Return complete response after all chunks received
+    return fullResponse;
+  },
+};
+```
+
+```python [python]
+class StreamingAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Request streaming response from your agent
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat/stream",
+                json={"messages": input.messages},
+            ) as response:
+                # Collect all chunks into a single response
+                full_response = ""
+                async for chunk in response.content.iter_any():
+                    full_response += chunk.decode()
+
+                # Return complete response after all chunks received
+                return full_response
+```
+
+:::
+
+## Server-Sent Events (SSE)
+
+Parse SSE format to extract streamed data:
+
+:::code-group
+
+```typescript [typescript]
+const sseAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Request SSE stream from your agent
+    const response = await fetch(`${baseUrl}/chat/sse`, {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream", // Indicate we expect SSE format
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messages: input.messages }),
+    });
+
+    let fullResponse = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break; // Stream complete
+
+        // Decode chunk and split into lines
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        // Parse SSE format: "data: {...}\n"
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6); // Remove "data: " prefix
+
+            // Check for SSE stream end marker
+            if (data !== "[DONE]") {
+              // Parse JSON and extract content field
+              fullResponse += JSON.parse(data).content;
+            }
+          }
+        }
+      }
+    }
+
+    // Return complete response after stream ends
+    return fullResponse;
+  },
+};
+```
+
+```python [python]
+import json
+
+
+class SSEAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Request SSE stream from your agent
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat/sse",
+                headers={"Accept": "text/event-stream"},  # Indicate we expect SSE format
+                json={"messages": input.messages},
+            ) as response:
+                # Collect all SSE events into a single response
+                full_response = ""
+
+                # Read stream line by line
+                async for line in response.content:
+                    line_str = line.decode().strip()
+
+                    # Parse SSE format: "data: {...}\n"
+                    if line_str.startswith("data: "):
+                        data = line_str[6:]  # Remove "data: " prefix
+
+                        # Check for SSE stream end marker
+                        if data != "[DONE]":
+                            # Parse JSON and extract content field
+                            full_response += json.loads(data)["content"]
+
+                # Return complete response after stream ends
+                return full_response
+```
+
+:::
+
+## Thread Management
+
+### Stateless: Full Message History
+
+Send the complete conversation history with each request. The server processes all messages every time (no state stored between requests):
+
+:::code-group
+
+```typescript [typescript]
+const statelessAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Send full message history - server doesn't maintain state
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: input.messages, // Complete conversation history
+      }),
+    });
+    return (await response.json()).response;
+  },
+};
+```
+
+```python [python]
+class StatelessAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Send full message history - server doesn't maintain state
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat",
+                json={"messages": input.messages},  # Complete conversation history
+            ) as response:
+                result = await response.json()
+                return result["response"]
+```
+
+:::
+
+### Stateful: Thread ID
+
+Send only the latest message and a thread ID. The server maintains conversation history using the thread ID:
+
+:::code-group
+
+```typescript [typescript]
+const statefulAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Extract only the latest message
+    const lastMessage = input.messages[input.messages.length - 1];
+    const content =
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : lastMessage.content[0].text;
+
+    // Send only the new message + thread ID
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: content, // Only the latest message
+        threadId: input.threadId, // Server uses this to look up history
+      }),
+    });
+    return (await response.json()).response;
+  },
+};
+```
+
+```python [python]
+class StatefulAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Extract only the latest message
+        last_message = input.messages[-1]
+        content = (
+            last_message["content"]
+            if isinstance(last_message["content"], str)
+            else last_message["content"][0]["text"]
+        )
+
+        # Send only the new message + thread ID
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat",
+                json={
+                    "message": content,  # Only the latest message
+                    "thread_id": input.thread_id,  # Server uses this to look up history
+                },
+            ) as response:
+                result = await response.json()
+                return result["response"]
+```
+
+:::
+
+## Complete Example
+
+See [booking-agent-scenario-demo](https://github.com/langwatch/booking-agent-scenario-demo) for a production example showing:
+
+- HTTP endpoint testing with real server
+- Stateful conversation management
+- Database integration
+- Multi-turn booking flow
+
+## See Also
+
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy
+- [Writing Scenarios](/basics/writing-scenarios) - Crafting scenarios
+- [Mocks](/testing-guides/mocks) - When to mock vs. test real endpoints
