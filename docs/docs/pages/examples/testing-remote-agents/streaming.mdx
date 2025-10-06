@@ -1,0 +1,112 @@
+import { RefLink } from "../../../components/RefLink";
+import StreamingTestExample from "../../_generated/examples/testing-remote-agents-streaming.test.mdx";
+
+# Streaming Response Pattern
+
+Test agents that stream responses in chunks using HTTP chunked transfer encoding. This provides progressive output as the LLM generates text.
+
+## When to Use
+
+- Long-form responses where you want progressive output
+- Better perceived performance for users
+- Agents that use streaming LLM APIs
+- Real-time feel for generated content
+
+## Complete Working Example
+
+This example demonstrates:
+
+- Creating a server that streams real LLM responses using `streamText`
+- Building an adapter that collects chunks into complete response
+- Proper stream reading with `ReadableStream` API
+- Full scenario test with streaming
+
+<StreamingTestExample />
+
+## Key Points
+
+1. **Server streams chunks**: Uses `streamText` to get real LLM streaming
+2. **Transfer-Encoding: chunked**: HTTP header for streaming
+3. **Collect all chunks**: Adapter reads stream completely before returning
+4. **TextDecoder**: Properly decode binary chunks to text
+5. **Return complete response**: Scenario expects full text, not chunks
+
+## Adapter Pattern
+
+The adapter collects all streamed chunks:
+
+```typescript
+const streamingAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Request streaming response
+    const response = await fetch(`${baseUrl}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: input.messages }),
+    });
+
+    // Collect chunks
+    let fullResponse = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullResponse += decoder.decode(value, { stream: true });
+      }
+    }
+
+    return fullResponse;
+  },
+};
+```
+
+## Why Not Return Chunks?
+
+Scenario expects complete responses because:
+
+- **Judge needs full context**: Can't evaluate partial responses
+- **Message history**: Stores complete messages
+- **Simplicity**: One response per turn
+
+If you need to test streaming behavior specifically (latency, chunk timing), consider integration tests outside Scenario.
+
+## Testing Your Own Agent
+
+To test your streaming agent:
+
+```typescript
+const myStreamingAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await fetch("https://my-agent.com/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: input.messages }),
+    });
+
+    let result = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        result += decoder.decode(value, { stream: true });
+      }
+    }
+
+    return result;
+  },
+};
+```
+
+## See Also
+
+- [SSE Pattern](/examples/testing-remote-agents/sse) - For Server-Sent Events format
+- [JSON Pattern](/examples/testing-remote-agents/json) - For complete responses
+- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All patterns

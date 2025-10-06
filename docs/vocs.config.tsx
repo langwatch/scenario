@@ -168,7 +168,28 @@ export default defineConfig({
       items: [
         {
           text: "Testing Remote Agents",
-          link: "/examples/testing-remote-agents",
+          items: [
+            {
+              text: "Overview",
+              link: "/examples/testing-remote-agents",
+            },
+            {
+              text: "JSON Response",
+              link: "/examples/testing-remote-agents/json",
+            },
+            {
+              text: "Streaming",
+              link: "/examples/testing-remote-agents/streaming",
+            },
+            {
+              text: "Server-Sent Events (SSE)",
+              link: "/examples/testing-remote-agents/sse",
+            },
+            {
+              text: "Stateful (Thread ID)",
+              link: "/examples/testing-remote-agents/stateful",
+            },
+          ],
         },
         {
           text: "Tool calling",

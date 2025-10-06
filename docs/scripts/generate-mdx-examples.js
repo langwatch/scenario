@@ -101,6 +101,10 @@ const examples = [
     sourcePath:
       "javascript/examples/vitest/tests/testing-remote-agents-stateful.test.ts",
   },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-sse.test.ts",
+  },
 ];
 
 /**

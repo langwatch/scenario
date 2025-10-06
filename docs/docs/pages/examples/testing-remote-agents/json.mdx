@@ -1,0 +1,98 @@
+import { RefLink } from "../../../components/RefLink";
+import JsonTestExample from "../../_generated/examples/testing-remote-agents-json.test.mdx";
+
+# JSON Response Pattern
+
+Test agents that return complete JSON responses via HTTP POST requests. This is the most common pattern for REST APIs.
+
+## When to Use
+
+- Standard REST APIs
+- Agents that return complete responses (not streaming)
+- Simple request/response pattern
+- Most production deployments
+
+## Complete Working Example
+
+This example demonstrates:
+
+- Creating a test HTTP server with real LLM (OpenAI GPT-4o-mini)
+- Building an adapter that POSTs messages and parses JSON
+- Running a full scenario test with user simulator and judge
+- Proper server setup and teardown
+
+<JsonTestExample />
+
+## Key Points
+
+1. **Extract last message**: Get the most recent user message from conversation history
+2. **Handle content types**: Support both string and multipart content (images, files)
+3. **HTTP POST**: Make standard HTTP request with JSON body
+4. **Parse response**: Extract the agent's message from JSON response
+5. **Adjust field names**: Change `result.response` to match your API (could be `result.message`, `result.text`, etc.)
+
+## Adapter Pattern
+
+The adapter is the bridge between Scenario and your HTTP API:
+
+```typescript
+const jsonAgentAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // 1. Extract latest message
+    const lastMessage = input.messages[input.messages.length - 1];
+    const content =
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : (lastMessage.content.find((part) => part.type === "text") as any)
+            ?.text || "";
+
+    // 2. Make HTTP request
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: content }),
+    });
+
+    // 3. Parse and return
+    const result = await response.json();
+    return result.response; // Adjust to match your API
+  },
+};
+```
+
+## Testing Your Own Agent
+
+To test your deployed agent:
+
+1. **Replace the server URL**: Change `baseUrl` to your agent's URL
+2. **Adjust request format**: Match your API's expected JSON structure
+3. **Update response parsing**: Extract the message from your API's response format
+4. **Add authentication**: Include headers like `Authorization` if needed
+
+```typescript
+const myAgentAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await fetch("https://my-agent.com/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.API_KEY}`,
+      },
+      body: JSON.stringify({
+        prompt: input.messages[input.messages.length - 1].content,
+      }),
+    });
+
+    const result = await response.json();
+    return result.output; // Your API's response field
+  },
+};
+```
+
+## See Also
+
+- [Streaming Pattern](/examples/testing-remote-agents/streaming) - For chunked responses
+- [Stateful Pattern](/examples/testing-remote-agents/stateful) - For server-side conversation state
+- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All patterns

@@ -1,7 +1,6 @@
 import { expect } from "vitest";
-import { ScenarioResult } from "@langwatch/scenario";
 
-export function expectResultsSuccess(result: ScenarioResult) {
+export function expectResultsSuccess(result: { success: boolean }) {
   try {
     expect(result.success).toBe(true);
   } catch (error) {
