@@ -89,6 +89,18 @@ const examples = [
     sourcePath:
       "javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts",
   },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-json.test.ts",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-streaming.test.ts",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-stateful.test.ts",
+  },
 ];
 
 /**

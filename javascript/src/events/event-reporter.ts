@@ -59,6 +59,7 @@ export class EventReporter {
       } else {
         const errorText = await response.text();
         this.logger.error(`[${event.type}] Event POST failed:`, {
+          endpoint: this.eventsEndpoint.href,
           status: response.status,
           statusText: response.statusText,
           error: errorText,
