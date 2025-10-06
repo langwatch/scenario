@@ -9,11 +9,42 @@ import VoiceToVoiceExample from "../../_generated/examples/multimodal-voice-to-v
 Scenario lets you write **end-to-end tests** for agents that listen to audio, think, and respond with either text _or_ audio.
 This page shows three common patterns and how to test them.
 
+## Video Demo
+
+_This video shows a complete example of a black box test for a voice-to-voice
+conversation between an agent and a user simulator. For other types of test,
+see below._
+
+<div
+  style={{
+    position: "relative",
+    paddingBottom: "56.25%",
+    height: 0,
+    overflow: "hidden",
+    marginBottom: "2rem",
+  }}
+>
+  <iframe
+    style={{
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width: "100%",
+      height: "100%",
+    }}
+    src="https://www.youtube.com/embed/923Y81jy_Xo"
+    title="YouTube video player"
+    frameBorder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+    allowFullScreen
+  />
+</div>
+
 ## Overview
 
 1. **Audio ➜ Text** – the agent receives an audio file (e.g. WAV) and replies with a textual answer.
 2. **Audio ➜ Audio** – the agent listens and replies _in audio_ (great for voice assistants).
-3. **Voice-to-Voice Conversation** – both the user simulator _and_ the agent speak over multiple turns (came out **before** OpenAI’s real-time audio API and still works today).
+3. **Voice-to-Voice Conversation** – both the user simulator _and_ the agent speak over multiple turns (came out **before** OpenAI's real-time audio API and still works today).
 
 ## Use-case comparison
 
