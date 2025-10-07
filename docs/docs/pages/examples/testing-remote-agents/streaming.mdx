@@ -1,5 +1,6 @@
 import { RefLink } from "../../../components/RefLink";
-import StreamingTestExample from "../../_generated/examples/testing-remote-agents-streaming.test.mdx";
+import StreamingTestExampleTS from "../../_generated/examples/testing-remote-agents-streaming.test.mdx";
+import StreamingTestExamplePy from "../../_generated/examples/test_testing_remote_agents_streaming.mdx";
 
 # Streaming Response Pattern
 
@@ -16,12 +17,16 @@ Test agents that stream responses in chunks using HTTP chunked transfer encoding
 
 This example demonstrates:
 
-- Creating a server that streams real LLM responses using `streamText`
+- Creating a server that streams real LLM responses
 - Building an adapter that collects chunks into complete response
-- Proper stream reading with `ReadableStream` API
+- Proper stream reading with appropriate APIs
 - Full scenario test with streaming
 
-<StreamingTestExample />
+:::code-group
+
+<StreamingTestExampleTS data-title="TypeScript" />
+<StreamingTestExamplePy data-title="Python" />
+:::
 
 ## Key Points
 

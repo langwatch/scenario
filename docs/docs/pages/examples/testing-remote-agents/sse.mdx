@@ -1,5 +1,6 @@
 import { RefLink } from "../../../components/RefLink";
-import SSETestExample from "../../_generated/examples/testing-remote-agents-sse.test.mdx";
+import SSETestExampleTS from "../../_generated/examples/testing-remote-agents-sse.test.mdx";
+import SSETestExamplePy from "../../_generated/examples/test_testing_remote_agents_sse.mdx";
 
 # Server-Sent Events (SSE) Pattern
 
@@ -36,7 +37,11 @@ This example demonstrates:
 - Proper line buffering for incomplete chunks
 - Handling the `[DONE]` completion marker
 
-<SSETestExample />
+:::code-group
+
+<SSETestExampleTS data-title="TypeScript" />
+<SSETestExamplePy data-title="Python" />
+:::
 
 ## Key Points
 
