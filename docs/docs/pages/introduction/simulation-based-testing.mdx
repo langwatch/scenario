@@ -1,3 +1,8 @@
+---
+title: Simulation-Based Testing for AI Agents
+description: Why simulation-based testing is essential for AI agents. Learn the testing pyramid for agents and how simulations catch edge cases traditional testing misses.
+---
+
 # Simulation-Based Testing [Multi-agent applications require a new approach to testing]
 
 Traditional evaluation methods, designed for static, single-turn LLMs, are not enough. Agents are stateful, dynamic systems. They make decisions over time, recover from errors, and adapt to new information. To build robust, autonomous agents, we need to evaluate them with the same rigor we use to design their architecture.
@@ -11,9 +16,10 @@ Most evaluations are based on dataset, with a static set of cases, those are har
 Agents, however, aren't simple input-output functions. They are processes. An agent behaves like a program, executing a sequence of operations, using tools, and maintaining state.
 
 ### Evaluation dataset (single input-output pairs):
-| query | expected_answer |
-|-------|------------------|
-| What is your refund policy? | We offer a 30-day money-back guarantee on all purchases. |
+
+| query                            | expected_answer                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| What is your refund policy?      | We offer a 30-day money-back guarantee on all purchases.                                                     |
 | How do I cancel my subscription? | You can cancel your subscription by logging into your account and clicking the "Cancel Subscription" button. |
 
 ❌ Doesn't consider the conversational flow\
@@ -23,6 +29,7 @@ Agents, however, aren't simple input-output functions. They are processes. An ag
 ❌ Hard to come up with a good dataset
 
 ### Agent simulation (full multi-turn descriptions):
+
 ```python
 script=[
   scenario.user("hey I have a problem with my order"),

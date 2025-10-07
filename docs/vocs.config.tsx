@@ -8,17 +8,112 @@ const basePath = process.env.BASE_PATH ?? "";
 
 export default defineConfig({
   title: "Scenario",
-  description: "Agent Testing Framework",
+  titleTemplate: "%s – Scenario",
+  description:
+    "Test AI agents with simulation-based testing. LLM-powered user simulators for validating agent behavior, tool calling, and multi-turn conversations.",
+  baseUrl,
+  basePath,
   logoUrl: "/images/logo.png",
   iconUrl: "/favicon.ico",
   ogImageUrl:
-    "https://langwatch.mintlify.app/api/og?division=Documentation&mode=system&title=%title&description=%description&logoLight=https://scenario.langwatch.ai/images/logo.png&logoDark=https://scenario.langwatch.ai/images/logo.png&primaryColor=%232D1720&lightColor=%23EDC790&darkColor=%23EDC790&amp;w=1200&amp;q=100",
-  head: (
-    <>
-      <meta property="og:image:width" content="1200" />
-      <meta property="og:image:height" content="630" />
-    </>
-  ),
+    "https://langwatch.mintlify.app/api/og?division=Documentation&mode=system&title=%title&description=%description&logoLight=https://scenario.langwatch.ai/images/logo.png&logoDark=https://scenario.langwatch.ai/images/logo.png&primaryColor=%232D1720&lightColor=%23EDC790&darkColor=%23EDC790&w=1200&q=100",
+  head({ path }) {
+    const canonicalUrl = `${baseUrl}${path}`;
+
+    return (
+      <>
+        {/* Core SEO */}
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Scenario" />
+
+        {/* Twitter/Social */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:site" content="@langwatchai" />
+        <meta name="twitter:creator" content="@langwatchai" />
+
+        {/* Author & Keywords */}
+        <meta name="author" content="LangWatch" />
+        <meta
+          name="keywords"
+          content="agent testing, AI agent testing, LLM testing, simulation testing, test AI agents, LangGraph testing, CrewAI testing, Pydantic AI testing, agent framework, agent evaluation"
+        />
+
+        {/* Performance */}
+        <link rel="preconnect" href="https://langwatch.mintlify.app" />
+        <link rel="preconnect" href="https://api.github.com" />
+        <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+
+        {/* Mobile optimization */}
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="Scenario" />
+
+        {/* Structured Data - Homepage */}
+        {path === "/" && (
+          <script type="application/ld+json">
+            {JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SoftwareApplication",
+              name: "Scenario",
+              applicationCategory: "DeveloperApplication",
+              description: "Agent Testing Framework for AI Agents",
+              url: baseUrl,
+              operatingSystem: ["Python", "TypeScript", "JavaScript"],
+              offers: {
+                "@type": "Offer",
+                price: "0",
+                priceCurrency: "USD",
+              },
+              author: {
+                "@type": "Organization",
+                name: "LangWatch",
+                url: "https://langwatch.ai",
+              },
+              sameAs: [
+                "https://github.com/langwatch/scenario",
+                "https://x.com/langwatchai",
+                "https://discord.gg/kT4PhDS2gH",
+              ],
+            })}
+          </script>
+        )}
+
+        {/* Breadcrumb Schema */}
+        {path !== "/" && (
+          <script type="application/ld+json">
+            {JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                {
+                  "@type": "ListItem",
+                  position: 1,
+                  name: "Home",
+                  item: baseUrl,
+                },
+                ...path
+                  .split("/")
+                  .filter(Boolean)
+                  .map((segment, index, arr) => ({
+                    "@type": "ListItem",
+                    position: index + 2,
+                    name: segment
+                      .replace(/-/g, " ")
+                      .replace(/\b\w/g, (l) => l.toUpperCase()),
+                    item: `${baseUrl}/${arr.slice(0, index + 1).join("/")}`,
+                  })),
+              ],
+            })}
+          </script>
+        )}
+
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+      </>
+    );
+  },
   theme: {
     accentColor: {
       light: "#ce2c31",
@@ -260,8 +355,6 @@ export default defineConfig({
       ],
     },
   ],
-  basePath,
-  baseUrl,
   topNav: [
     {
       element: LanguageSelectorPortal(),
