@@ -151,6 +151,15 @@ export default defineConfig({
       ],
     },
     {
+      text: "Advanced",
+      items: [
+        {
+          text: "Custom Clients",
+          link: "/advanced/custom-clients",
+        },
+      ],
+    },
+    {
       text: "Best Practices",
       items: [
         {

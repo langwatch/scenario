@@ -93,6 +93,33 @@ result = await scenario.run(
 | `cache_key`     | str                | None    | Key for caching scenario results (for deterministic behavior) |
 | `debug`         | bool               | False   | Enable debug mode for step-by-step execution                  |
 
+### Advanced: Using ModelConfig
+
+When `default_model` is a `ModelConfig` object, you can pass any `litellm.completion` parameter:
+
+```python
+from scenario import ModelConfig
+import scenario
+
+scenario.configure(
+    default_model=ModelConfig(
+        model="openai/gpt-4o",
+        temperature=0.0,
+        timeout=60,
+        headers={"X-Custom-Header": "value"},
+    )
+)
+```
+
+This applies to all `UserSimulatorAgent` and `JudgeAgent` instances. You can also override these per-agent:
+
+```python
+scenario.JudgeAgent(
+    criteria=["Agent responds helpfully"],
+    timeout=30,  # Override global timeout
+)
+```
+
 See the [ScenarioConfig class reference](https://github.com/langwatch/scenario/blob/main/python/scenario/config.py) for more details.
 
 ---

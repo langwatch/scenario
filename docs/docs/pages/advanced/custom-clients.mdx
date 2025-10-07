@@ -1,0 +1,46 @@
+import AzureExample from "../_generated/examples/test_azure_api_gateway.mdx";
+
+# Custom Clients [Advanced configuration for custom LLM clients and parameters]
+
+For advanced use cases, you can pass custom clients and additional parameters to Scenario's built-in agents.
+
+## Custom Parameters
+
+Pass any `litellm.completion` parameter directly to `UserSimulatorAgent` or `JudgeAgent`:
+
+```python
+import scenario
+
+scenario.JudgeAgent(
+    criteria=["Agent responds helpfully"],
+    model="openai/gpt-4o",
+    headers={"X-Custom-Header": "value"},
+    timeout=60,
+    num_retries=3,
+)
+```
+
+## Custom OpenAI Client
+
+For services like Azure API Gateway, pass a custom `OpenAI` client with custom headers and query parameters:
+
+<AzureExample />
+
+## Global Configuration
+
+You can also set custom parameters globally via `ModelConfig`:
+
+```python
+from scenario import ModelConfig
+import scenario
+
+scenario.configure(
+    default_model=ModelConfig(
+        model="openai/gpt-4o",
+        timeout=60,
+        headers={"X-Custom-Header": "value"},
+    )
+)
+```
+
+Agent-specific parameters override global defaults.

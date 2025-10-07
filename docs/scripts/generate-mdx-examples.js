@@ -10,6 +10,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { examples } from "./mdx-examples-manifest.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,24 +73,6 @@ function getLanguageFromExtension(filePath) {
 function getNameFromPath(filePath) {
   return path.basename(filePath, path.extname(filePath));
 }
-
-/**
- * Configuration for which examples to generate
- */
-const examples = [
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/multimodal-voice-to-voice-conversation.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts",
-  },
-];
 
 /**
  * Generate an MDX snippet file containing just a code block
