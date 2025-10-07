@@ -65,7 +65,7 @@ class ScenarioConfig(BaseModel):
     @classmethod
     def configure(
         cls,
-        default_model: Optional[str] = None,
+        default_model: Optional[Union[str, ModelConfig]] = None,
         max_turns: Optional[int] = None,
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,

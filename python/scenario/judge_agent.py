@@ -105,6 +105,7 @@ class JudgeAgent(AgentAdapter):
     max_tokens: Optional[int]
     criteria: List[str]
     system_prompt: Optional[str]
+    _extra_params: dict
 
     def __init__(
         self,
@@ -116,6 +117,7 @@ class JudgeAgent(AgentAdapter):
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
+        **extra_params,
     ):
         """
         Initialize a judge agent with evaluation criteria.
@@ -159,8 +161,12 @@ class JudgeAgent(AgentAdapter):
                 system_prompt="You are a senior software engineer reviewing code for production use."
             )
             ```
+
+        Note:
+            Advanced usage: Additional parameters can be passed as keyword arguments
+            (e.g., headers, timeout, client) for specialized configurations. These are
+            experimental and may not be supported in future versions.
         """
-        # Override the default system prompt for the judge agent
         self.criteria = criteria or []
         self.api_base = api_base
         self.api_key = api_key
@@ -191,9 +197,22 @@ class JudgeAgent(AgentAdapter):
             self.max_tokens = (
                 max_tokens or ScenarioConfig.default_config.default_model.max_tokens
             )
+            # Extract extra params from ModelConfig
+            config_dict = ScenarioConfig.default_config.default_model.model_dump(
+                exclude_none=True
+            )
+            config_dict.pop("model", None)
+            config_dict.pop("api_base", None)
+            config_dict.pop("api_key", None)
+            config_dict.pop("temperature", None)
+            config_dict.pop("max_tokens", None)
+            # Merge: config extras < agent extra_params
+            self._extra_params = {**config_dict, **extra_params}
+        else:
+            self._extra_params = extra_params
 
         if not hasattr(self, "model"):
-            raise Exception(agent_not_configured_error_message("TestingAgent"))
+            raise Exception(agent_not_configured_error_message("JudgeAgent"))
 
     @scenario_cache()
     async def call(
@@ -370,6 +389,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     if (is_last_message or enforce_judgment) and has_criteria
                     else "required"
                 ),
+                **self._extra_params,
             ),
         )
 

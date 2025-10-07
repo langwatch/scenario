@@ -6,7 +6,7 @@ user simulator and judge agents in the Scenario framework.
 """
 
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ModelConfig(BaseModel):
@@ -15,6 +15,9 @@ class ModelConfig(BaseModel):
 
     This class encapsulates all the parameters needed to configure an LLM model
     for use with user simulator and judge agents in the Scenario framework.
+
+    The ModelConfig accepts any additional parameters that litellm supports,
+    including headers, timeout, client, and other provider-specific options.
 
     Attributes:
         model: The model identifier (e.g., "openai/gpt-4.1", "anthropic/claude-3-sonnet")
@@ -25,6 +28,7 @@ class ModelConfig(BaseModel):
 
     Example:
         ```
+        # Basic configuration
         model_config = ModelConfig(
             model="openai/gpt-4.1",
             api_base="https://api.openai.com/v1",
@@ -32,8 +36,28 @@ class ModelConfig(BaseModel):
             temperature=0.1,
             max_tokens=1000
         )
+
+        # With custom headers and timeout
+        model_config = ModelConfig(
+            model="openai/gpt-4",
+            headers={"X-Custom-Header": "value"},
+            timeout=60,
+            num_retries=3
+        )
+
+        # With custom OpenAI client
+        from openai import OpenAI
+        model_config = ModelConfig(
+            model="openai/gpt-4",
+            client=OpenAI(
+                base_url="https://custom.com",
+                default_headers={"X-Auth": "token"}
+            )
+        )
         ```
     """
+
+    model_config = ConfigDict(extra="allow")
 
     model: str
     api_base: Optional[str] = None
