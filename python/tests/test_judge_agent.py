@@ -8,11 +8,19 @@ from scenario.cache import context_scenario
 from scenario.scenario_executor import ScenarioExecutor
 
 
+class FakeOpenAIClient:
+    """Fake client for testing without requiring API keys."""
+
+    def __init__(self, base_url=None, default_headers=None):
+        self.base_url = base_url
+        self.default_headers = default_headers
+
+
 @pytest.mark.asyncio
 async def test_judge_agent_merges_global_config_and_agent_params():
     """JudgeAgent merges ModelConfig defaults with agent-specific overrides, including custom client."""
     # Setup custom client
-    custom_client = OpenAI(
+    custom_client = FakeOpenAIClient(
         base_url="https://custom.com", default_headers={"X-Global": "global-value"}
     )
 
