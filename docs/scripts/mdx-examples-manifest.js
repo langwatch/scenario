@@ -13,6 +13,33 @@ export const examples = [
   },
   {
     sourcePath: "python/examples/test_azure_api_gateway.py",
-    label: "test_azure_api_gateway.py",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-streaming.test.ts",
+  },
+  {
+    sourcePath: "python/examples/test_testing_remote_agents_streaming.py",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-json.test.ts",
+  },
+  {
+    sourcePath: "python/examples/test_testing_remote_agents_json.py",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-sse.test.ts",
+  },
+  {
+    sourcePath: "python/examples/test_testing_remote_agents_sse.py",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/testing-remote-agents-stateful.test.ts",
+  },
+  {
+    sourcePath: "python/examples/test_testing_remote_agents_stateful.py",
   },
 ];
