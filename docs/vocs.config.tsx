@@ -2,6 +2,7 @@ import { defineConfig } from "vocs";
 import { GithubStars } from "./docs/components/GithubStars";
 import { LanguageSelectorPortal } from "./docs/components/LanguageSelectorPortal";
 import tailwindcss from "@tailwindcss/vite";
+import sitemap from "vite-plugin-sitemap";
 
 const baseUrl = process.env.BASE_URL ?? "http://localhost:5173";
 const basePath = process.env.BASE_PATH ?? "";
@@ -398,6 +399,6 @@ export default defineConfig({
     },
   ],
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss(), sitemap()],
   },
 });
