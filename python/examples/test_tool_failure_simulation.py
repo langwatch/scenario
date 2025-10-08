@@ -51,7 +51,7 @@ class ResilientAgent(scenario.AgentAdapter):
             tool_choice="auto",
         )
 
-        message = response.choices[0].message
+        message = response.choices[0].message  # type: ignore[attr-defined]  # litellm response has dynamic attributes
 
         # Handle any tool calls the LLM decided to make
         if message.tool_calls:
@@ -91,7 +91,7 @@ class ResilientAgent(scenario.AgentAdapter):
                     model="openai/gpt-4o-mini",
                     messages=input.messages + [message] + tool_responses,
                 )
-                return follow_up_response.choices[0].message.content or ""
+                return follow_up_response.choices[0].message.content or ""  # type: ignore[attr-defined]  # litellm response has dynamic attributes
 
         # Return the LLM's direct response if no tools were called
         return message.content or ""
@@ -104,7 +104,8 @@ def check_error_in_message(state: scenario.ScenarioState) -> None:
         content = last_msg.get("content", "")
         # Check for various error indicators the LLM might use
         error_indicators = ["error", "timeout", "timed out", "failed", "issue"]
-        assert any(indicator in content.lower() for indicator in error_indicators)
+        content_str = content if isinstance(content, str) else str(content)
+        assert any(indicator in content_str.lower() for indicator in error_indicators)
 
 
 def check_rate_limit_in_message(state: scenario.ScenarioState) -> None:
@@ -119,7 +120,10 @@ def check_rate_limit_in_message(state: scenario.ScenarioState) -> None:
             "limit exceeded",
             "too many requests",
         ]
-        assert any(indicator in content.lower() for indicator in rate_limit_indicators)
+        content_str = content if isinstance(content, str) else str(content)
+        assert any(
+            indicator in content_str.lower() for indicator in rate_limit_indicators
+        )
 
 
 def check_success_in_message(state: scenario.ScenarioState) -> None:
@@ -134,7 +138,8 @@ def check_success_in_message(state: scenario.ScenarioState) -> None:
             "completed",
             "call was successful",
         ]
-        assert any(indicator in content.lower() for indicator in success_indicators)
+        content_str = content if isinstance(content, str) else str(content)
+        assert any(indicator in content_str.lower() for indicator in success_indicators)
 
 
 @pytest.mark.agent_test

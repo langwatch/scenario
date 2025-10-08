@@ -43,6 +43,7 @@ class ChatAgent(scenario.AgentAdapter):
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Use the injected LLM client (could be real litellm or our mock)
+        assert self.llm_client is not None, "LLM client must be provided"
         response = self.llm_client.completion(
             model="openai/gpt-4o-mini",
             messages=input.messages,
@@ -59,15 +60,14 @@ def check_specific_response(state: scenario.ScenarioState) -> None:
         assert content == "I can help you with that request."
 
 
-def check_mock_was_called_correctly(mock_llm: MockLLM) -> bool:
+def check_mock_was_called_correctly(mock_llm: MockLLM) -> None:
     """Check that the mock LLM was called with expected parameters."""
-    return (
-        mock_llm.call_count == 1
-        and mock_llm.last_model == "openai/gpt-4o-mini"
-        and len(mock_llm.last_messages) == 1
-        and mock_llm.last_messages[0]["role"] == "user"
-        and "Hello there!" in mock_llm.last_messages[0]["content"]
-    )
+    assert mock_llm.last_messages is not None, "Mock was not called"
+    assert mock_llm.call_count == 1
+    assert mock_llm.last_model == "openai/gpt-4o-mini"
+    assert len(mock_llm.last_messages) == 1
+    assert mock_llm.last_messages[0]["role"] == "user"
+    assert "Hello there!" in mock_llm.last_messages[0]["content"]
 
 
 @pytest.mark.agent_test

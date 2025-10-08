@@ -54,7 +54,7 @@ class UserDataAgent(scenario.AgentAdapter):
             tool_choice="auto",  # LLM decides when to use tools
         )
 
-        message = response.choices[0].message
+        message = response.choices[0].message  # type: ignore[attr-defined]  # litellm response has dynamic attributes
 
         # Handle any tool calls the LLM decided to make
         if message.tool_calls:
@@ -94,7 +94,7 @@ class UserDataAgent(scenario.AgentAdapter):
                     model="openai/gpt-4o-mini",
                     messages=input.messages + [message] + tool_responses,
                 )
-                return follow_up_response.choices[0].message.content or ""
+                return follow_up_response.choices[0].message.content or ""  # type: ignore[attr-defined]  # litellm response has dynamic attributes
 
         # Return the LLM's direct response if no tools were called
         return message.content or ""
