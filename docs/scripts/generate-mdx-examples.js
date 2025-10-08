@@ -82,52 +82,6 @@ function getNameFromPath(filePath) {
 }
 
 /**
- * Configuration for which examples to generate
- */
-const examples = [
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/multimodal-voice-to-voice-conversation.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/testing-remote-agents-json.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/testing-remote-agents-streaming.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/testing-remote-agents-stateful.test.ts",
-  },
-  {
-    sourcePath:
-      "javascript/examples/vitest/tests/testing-remote-agents-sse.test.ts",
-  },
-  {
-    sourcePath: "python/examples/test_testing_remote_agents_json.py",
-  },
-  {
-    sourcePath: "python/examples/test_testing_remote_agents_streaming.py",
-  },
-  {
-    sourcePath: "python/examples/test_testing_remote_agents_sse.py",
-  },
-  {
-    sourcePath: "python/examples/test_testing_remote_agents_stateful.py",
-  },
-];
-
-/**
  * Generate an MDX snippet file containing just a code block
  * These can be imported/transcluded into other MDX files
  */
