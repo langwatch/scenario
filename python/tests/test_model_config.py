@@ -46,10 +46,10 @@ def test_modelconfig_accepts_extra_litellm_params():
     config = ModelConfig(
         model="openai/gpt-4",
         api_base="https://custom.com",
-        headers={"X-Custom-Header": "test-value"},
-        timeout=60,
-        num_retries=3,
-        client=custom_client,
+        headers={"X-Custom-Header": "test-value"},  # type: ignore  # extra param via ConfigDict(extra="allow")
+        timeout=60,  # type: ignore  # extra param via ConfigDict(extra="allow")
+        num_retries=3,  # type: ignore  # extra param via ConfigDict(extra="allow")
+        client=custom_client,  # type: ignore  # extra param via ConfigDict(extra="allow")
     )
 
     assert config.model == "openai/gpt-4"

@@ -1,0 +1,37 @@
+---
+globs: *.py
+alwaysApply: false
+---
+
+# Python Type Safety and Code Quality Rules
+
+## Type Annotations
+- Always use explicit type annotations for function parameters, return types, and class attributes
+- Use `typing` module imports for complex types (List, Dict, Optional, Union, etc.)
+- Prefer `list[T]` and `dict[K, V]` syntax over `List[T]` and `Dict[K, V]` for Python 3.9+
+
+## Type Ignore Comments
+- When using `# type: ignore`, always include a specific comment explaining why the ignore is necessary
+- Format: `# type: ignore[error-code]  # Explanation of why this is safe/necessary`
+- Examples:
+  - `# type: ignore[import]  # Third-party library has no type stubs`
+  - `# type: ignore[attr-defined]  # Dynamic attribute added at runtime`
+  - `# type: ignore[override]  # Intentional signature change for compatibility`
+
+## Pyright Compliance
+- Code must pass pyright type checking without errors
+- Use `pyright --strict` mode for maximum type safety
+- Address all type errors rather than ignoring them when possible
+- Use proper type narrowing with isinstance() checks, assert statements, or type guards
+
+## Strong Typing Practices
+- Avoid `Any` type unless absolutely necessary - use specific types or generics instead
+- Use `Final` for constants that should not be reassigned
+- Use `@overload` for functions with multiple valid signatures
+- Implement `__slots__` for data classes when appropriate for performance
+- Use `NewType` for creating distinct types from existing ones when domain modeling requires it
+
+## Error Handling
+- Use specific exception types rather than bare `except:` clauses
+- Type annotate custom exception classes
+- Use `NoReturn` type hint for functions that always raise exceptions

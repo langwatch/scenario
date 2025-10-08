@@ -14,8 +14,8 @@ async def test_user_simulator_agent_merges_global_config_and_agent_params():
     ScenarioConfig.default_config = ScenarioConfig(
         default_model=ModelConfig(
             model="openai/gpt-4",
-            headers={"X-Auth": "token-123"},
-            max_retries=5,
+            headers={"X-Auth": "token-123"},  # type: ignore  # extra param via ConfigDict(extra="allow")
+            max_retries=5,  # type: ignore  # extra param via ConfigDict(extra="allow")
         )
     )
 

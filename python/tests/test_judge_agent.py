@@ -29,9 +29,9 @@ async def test_judge_agent_merges_global_config_and_agent_params():
         default_model=ModelConfig(
             model="openai/gpt-4",
             api_base="https://custom.com",
-            headers={"X-Global": "global-value"},
-            timeout=30,
-            client=custom_client,
+            headers={"X-Global": "global-value"},  # type: ignore  # extra param via ConfigDict(extra="allow")
+            timeout=30,  # type: ignore  # extra param via ConfigDict(extra="allow")
+            client=custom_client,  # type: ignore  # extra param via ConfigDict(extra="allow")
         )
     )
 

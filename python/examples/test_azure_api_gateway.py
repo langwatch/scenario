@@ -59,12 +59,16 @@ def create_custom_openai_client():
     return OpenAI(
         base_url=base_url,  # Override default OpenAI endpoint
         default_query={"api-version": api_version},  # Add API version to all requests
-        default_headers={
-            # Custom header for APIM authentication
-            # Note: The header name can be anything your gateway expects
-            # Common examples: "Ocp-Apim-Subscription-Key", "X-API-Key", "Authorization"
-            header_key_name: header_key_value,
-        },
+        default_headers=(
+            {
+                # Custom header for APIM authentication
+                # Note: The header name can be anything your gateway expects
+                # Common examples: "Ocp-Apim-Subscription-Key", "X-API-Key", "Authorization"
+                header_key_name: header_key_value,
+            }
+            if header_key_name and header_key_value
+            else None
+        ),
     )
 
 
@@ -102,7 +106,7 @@ async def test_azure_gateway_with_custom_client():
             # Extract the last user message from the conversation history
             user_message = input.last_new_user_message_str()
             # Return a simple response demonstrating the agent received the message
-            return f"I understand you're asking about: {user_message}"
+            return f"I don't know anything about {user_message}, but I will try to find out."
 
     # Run the scenario with all three agents
     result = await scenario.run(
@@ -118,7 +122,10 @@ async def test_azure_gateway_with_custom_client():
             # IMPORTANT: Pass custom_client here too so evaluation also uses your gateway
             scenario.JudgeAgent(
                 model="gpt-4o-mini",
-                criteria=["Agent provides helpful response"],
+                criteria=[
+                    "The agent responds to the user's message",
+                    "The agent offers to help if they don't know the answer",
+                ],
                 client=custom_client,
             ),
         ],
@@ -126,7 +133,7 @@ async def test_azure_gateway_with_custom_client():
         script=[
             scenario.user(),  # UserSimulatorAgent generates a user message
             scenario.agent(),  # MockAgent responds to the user
-            scenario.succeed(),  # JudgeAgent evaluates if criteria are met
+            scenario.judge(),  # JudgeAgent evaluates if criteria are met
         ],
         set_id="python-examples",  # Group related test runs together in reporting
     )
