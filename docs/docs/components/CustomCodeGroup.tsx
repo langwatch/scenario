@@ -1,5 +1,5 @@
 import * as Tabs from "@radix-ui/react-tabs";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useLanguageStore } from "../stores/languageStore";
 import type { ProgrammingLanguage } from "../stores/types";
 
@@ -40,25 +40,30 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
   const { language: selectedLanguage, setLanguage } = useLanguageStore();
   const childArray = Array.isArray(children) ? children : [children];
 
-  const tabs = childArray.map((child: React.ReactElement<CodeTabProps>) => ({
-    title: child.props.title,
-    content: child.props.children,
-    language: child.props.language,
-  }));
+  const tabs = useMemo(
+    () =>
+      childArray.map((child: React.ReactElement<CodeTabProps>) => ({
+        title: child.props.title,
+        content: child.props.children,
+        language: child.props.language,
+      })),
+    [childArray]
+  );
 
-  // Derive active tab directly from store language - no local state needed
-  const activeTab = tabs.find((tab) => tab.language === selectedLanguage);
-  const activeTabValue = activeTab?.title ?? tabs[0]?.title;
+  // Use language as the active tab value directly
+  const activeTabValue = useMemo(() => {
+    const hasSelectedLanguage = tabs.some(
+      (tab) => tab.language === selectedLanguage
+    );
+    return hasSelectedLanguage ? selectedLanguage : tabs[0]?.language;
+  }, [tabs, selectedLanguage]);
 
   /**
    * Handle tab clicks - update global language store
    * Store change triggers re-render with new derived activeTabValue
    */
   const handleValueChange = (value: string) => {
-    const clickedTab = tabs.find((tab) => tab.title === value);
-    if (clickedTab) {
-      setLanguage(clickedTab.language);
-    }
+    setLanguage(value as ProgrammingLanguage);
   };
 
   return (
@@ -68,23 +73,21 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
       onValueChange={handleValueChange}
     >
       <Tabs.List className="vocs_Tabs_list">
-        {tabs.map(({ title, language }, i) => (
+        {tabs.map(({ title, language }) => (
           <Tabs.Trigger
-            key={title || String(i)}
-            value={title || String(i)}
+            key={language}
+            value={language}
             className="vocs_Tabs_trigger"
-            data-language={language}
           >
             {title}
           </Tabs.Trigger>
         ))}
       </Tabs.List>
-      {tabs.map(({ title, content, language }, i) => (
+      {tabs.map(({ content, language }) => (
         <Tabs.Content
-          key={title || String(i)}
-          value={title || String(i)}
+          key={language}
+          value={language}
           className="vocs_Tabs_content"
-          data-language={language}
         >
           {content}
         </Tabs.Content>
