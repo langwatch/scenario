@@ -1,11 +1,20 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import type { ReactNode } from "react";
+import { useLanguageStore } from "../stores/languageStore";
+import type { ProgrammingLanguage } from "../stores/types";
+
+interface CodeTabProps {
+  title: string;
+  children: ReactNode;
+  language: ProgrammingLanguage;
+}
 
 /**
  * CustomCodeGroup component
  *
  * A tabbed code group component that renders multiple code examples in tabs.
  * Uses Radix UI tabs with Vocs styling classes for consistent appearance.
+ * Automatically switches tabs based on global language selection from Zustand store.
  *
  * Note: If you are using imported mdx files, you must use the CustomCodeGroup
  * component.
@@ -15,10 +24,10 @@ import type { ReactNode } from "react";
  * Usage:
  * ```typescript
  * <CustomCodeGroup>
- *   <CodeTab title="TypeScript">
+ *   <CodeTab title="TypeScript" language="typescript">
  *     <SSETestExampleTS />
  *   </CodeTab>
- *   <CodeTab title="Python">
+ *   <CodeTab title="Python" language="python">
  *     <SSETestExamplePy />
  *   </CodeTab>
  * </CustomCodeGroup>
@@ -28,34 +37,54 @@ import type { ReactNode } from "react";
  * @returns A tabbed interface for code examples
  */
 export function CustomCodeGroup({ children }: { children: ReactNode }) {
+  const { language: selectedLanguage, setLanguage } = useLanguageStore();
   const childArray = Array.isArray(children) ? children : [children];
 
-  const tabs = childArray.map((child: any) => ({
+  const tabs = childArray.map((child: React.ReactElement<CodeTabProps>) => ({
     title: child.props.title,
     content: child.props.children,
+    language: child.props.language,
   }));
+
+  // Derive active tab directly from store language - no local state needed
+  const activeTab = tabs.find((tab) => tab.language === selectedLanguage);
+  const activeTabValue = activeTab?.title ?? tabs[0]?.title;
+
+  /**
+   * Handle tab clicks - update global language store
+   * Store change triggers re-render with new derived activeTabValue
+   */
+  const handleValueChange = (value: string) => {
+    const clickedTab = tabs.find((tab) => tab.title === value);
+    if (clickedTab) {
+      setLanguage(clickedTab.language);
+    }
+  };
 
   return (
     <Tabs.Root
       className="vocs_CodeGroup vocs_Tabs"
-      defaultValue={tabs[0]?.title}
+      value={activeTabValue}
+      onValueChange={handleValueChange}
     >
       <Tabs.List className="vocs_Tabs_list">
-        {tabs.map(({ title }, i) => (
+        {tabs.map(({ title, language }, i) => (
           <Tabs.Trigger
-            key={title || i}
-            value={title || i}
+            key={title || String(i)}
+            value={title || String(i)}
             className="vocs_Tabs_trigger"
+            data-language={language}
           >
             {title}
           </Tabs.Trigger>
         ))}
       </Tabs.List>
-      {tabs.map(({ title, content }, i) => (
+      {tabs.map(({ title, content, language }, i) => (
         <Tabs.Content
-          key={title || i}
-          value={title || i}
+          key={title || String(i)}
+          value={title || String(i)}
           className="vocs_Tabs_content"
+          data-language={language}
         >
           {content}
         </Tabs.Content>
@@ -75,5 +104,4 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
  * @param props.children - The children of the code tab
  * @returns The children of the code tab
  */
-export const CodeTab = (props: { title: string; children: ReactNode }) =>
-  props.children;
+export const CodeTab = (props: CodeTabProps) => props.children;
