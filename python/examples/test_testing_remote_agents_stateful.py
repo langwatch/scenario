@@ -13,7 +13,8 @@ import aiohttp
 import pytest
 import scenario
 from openai import AsyncOpenAI
-from typing import Dict, List
+from openai.types.chat import ChatCompletionMessageParam
+from typing import Dict, List, Any
 
 # Base URL for the test server (set during server startup)
 base_url = ""
@@ -35,11 +36,14 @@ class StatefulAgentAdapter(scenario.AgentAdapter):
         last_message = input.messages[-1]
 
         # Handle both string content and multipart content (images, files, etc.)
-        content = (
-            last_message["content"]
-            if isinstance(last_message["content"], str)
-            else last_message["content"][0]["text"]
-        )
+        msg_content = last_message.get("content", "")
+        if isinstance(msg_content, str):
+            content = msg_content
+        elif msg_content:
+            content_list = list(msg_content)
+            content = content_list[0].get("text", "") if content_list else ""
+        else:
+            content = ""
 
         # Send only new message + thread ID
         async with aiohttp.ClientSession() as session:
@@ -58,7 +62,7 @@ class StatefulAgentAdapter(scenario.AgentAdapter):
 client = AsyncOpenAI()
 
 # Server-side conversation storage (in production, use a database)
-conversations: Dict[str, List[Dict[str, str]]] = {}
+conversations: Dict[str, List[Any]] = {}
 
 
 async def stateful_handler(request: web.Request) -> web.Response:
@@ -97,7 +101,8 @@ async def stateful_handler(request: web.Request) -> web.Response:
     assistant_message = response.choices[0].message.content
 
     # Add assistant response to history
-    history.append({"role": "assistant", "content": assistant_message})
+    if assistant_message is not None:
+        history.append({"role": "assistant", "content": assistant_message})
 
     # Store updated history
     conversations[thread_id] = history
@@ -129,7 +134,9 @@ async def test_server():
     await site.start()
 
     # Get the actual port assigned
-    port = site._server.sockets[0].getsockname()[1]
+    server = site._server
+    assert server is not None
+    port = server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
     base_url = f"http://localhost:{port}"
 
     yield

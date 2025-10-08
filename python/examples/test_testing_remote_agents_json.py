@@ -32,11 +32,14 @@ class JsonAgentAdapter(scenario.AgentAdapter):
         last_message = input.messages[-1]
 
         # Handle both string content and multipart content (images, files, etc.)
-        content = (
-            last_message["content"]
-            if isinstance(last_message["content"], str)
-            else last_message["content"][0]["text"]
-        )
+        msg_content = last_message.get("content", "")
+        if isinstance(msg_content, str):
+            content = msg_content
+        elif msg_content:
+            content_list = list(msg_content)
+            content = content_list[0].get("text", "") if content_list else ""
+        else:
+            content = ""
 
         # Make HTTP POST request to your agent's endpoint
         async with aiohttp.ClientSession() as session:
@@ -99,7 +102,9 @@ async def test_server():
     await site.start()
 
     # Get the actual port assigned
-    port = site._server.sockets[0].getsockname()[1]
+    server = site._server
+    assert server is not None
+    port = server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
     base_url = f"http://localhost:{port}"
 
     yield

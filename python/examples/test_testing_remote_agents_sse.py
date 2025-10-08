@@ -148,7 +148,9 @@ async def test_server():
     await site.start()
 
     # Get the actual port assigned
-    port = site._server.sockets[0].getsockname()[1]
+    server = site._server
+    assert server is not None
+    port = server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
     base_url = f"http://localhost:{port}"
 
     yield
