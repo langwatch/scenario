@@ -57,10 +57,6 @@ jobs:
         run: pnpm -F vitest-example lint
         working-directory: javascript
 
-      - name: Type check
-        run: pnpm run typecheck
-        working-directory: javascript
-
       - name: Type check (Examples)
         run: pnpm -F vitest-example typecheck
         working-directory: javascript

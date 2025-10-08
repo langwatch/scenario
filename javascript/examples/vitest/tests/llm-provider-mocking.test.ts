@@ -1,6 +1,6 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { generateText } from "ai";
+import { generateText, ToolSet, GenerateTextResult } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
 // Mock the generateText function
@@ -30,7 +30,7 @@ describe("LLM Provider Mocking", () => {
     // Mock the LLM response
     mockGenerateText.mockResolvedValue({
       text: "I can help you with that request.",
-    } as any);
+    } as GenerateTextResult<ToolSet, unknown>);
 
     const result = await scenario.run({
       name: "llm mock test",
