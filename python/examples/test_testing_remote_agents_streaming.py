@@ -10,6 +10,7 @@ import json
 from aiohttp import web
 import aiohttp
 import pytest
+import pytest_asyncio
 import scenario
 from openai import AsyncOpenAI
 
@@ -59,13 +60,11 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
     data = await request.json()
     messages = data["messages"]
 
-    # Determine last user message
+    # Determine last user message content
     last_msg = messages[-1]
-    content = (
-        last_msg["content"]
-        if isinstance(last_msg["content"], str)
-        else last_msg["content"][0].get("text", "")
-    )
+    content = last_msg["content"]
+    if not isinstance(content, str):
+        content = ""
 
     # Set up streaming response
     response = web.StreamResponse()
@@ -96,7 +95,7 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
     return response
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_server():
     """
     Start a test HTTP server before tests and shut it down after.

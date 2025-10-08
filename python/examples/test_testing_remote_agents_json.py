@@ -2,16 +2,13 @@
 Example: Testing an agent that returns JSON responses
 
 This test demonstrates handling agents that return complete JSON responses via HTTP POST.
-The server uses a real LLM (OpenAI GPT-4o-mini) to generate responses.
 """
 
-import asyncio
-import json
 from aiohttp import web
 import aiohttp
 import pytest
+import pytest_asyncio
 import scenario
-from openai import AsyncOpenAI
 
 # Base URL for the test server (set during server startup)
 base_url = ""
@@ -28,61 +25,44 @@ class JsonAgentAdapter(scenario.AgentAdapter):
     """
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        # Extract the most recent user message from the conversation
+        # Extract the most recent user message content
         last_message = input.messages[-1]
+        content = last_message["content"]  # type: ignore[typeddict-item]
 
-        # Handle both string content and multipart content (images, files, etc.)
-        msg_content = last_message.get("content", "")
-        if isinstance(msg_content, str):
-            content = msg_content
-        elif msg_content:
-            content_list = list(msg_content)
-            content = content_list[0].get("text", "") if content_list else ""
-        else:
-            content = ""
+        # For this example, we assume content is a string
+        if not isinstance(content, str):
+            raise ValueError("This example only handles string content")
 
         # Make HTTP POST request to your agent's endpoint
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{base_url}/chat",
                 json={"message": content},
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 # Parse JSON response and return the agent's message
                 result = await response.json()
-                return result["response"]  # Adjust field name to match your API
-
-
-# OpenAI client for LLM
-client = AsyncOpenAI()
+                return result["response"]
 
 
 async def chat_handler(request: web.Request) -> web.Response:
     """
-    HTTP endpoint that receives a message and returns an LLM response.
+    HTTP endpoint that receives a message and returns a response.
 
-    This simulates a production agent endpoint that uses a real LLM.
+    This simulates a production agent endpoint.
     """
     data = await request.json()
     message = data["message"]
 
-    # Generate response using real LLM
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful weather assistant. Provide brief, friendly responses. Pretend like you have access to a weather API and make up the weather.",
-            },
-            {"role": "user", "content": message},
-        ],
-        temperature=0.7,
-    )
+    # In a real application, you would call your LLM here
+    # For this example, we return a simple response
+    response_text = f"The weather is sunny and 72°F. Your query was: {message}"
 
     # Return JSON response
-    return web.json_response({"response": response.choices[0].message.content})
+    return web.json_response({"response": response_text})
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_server():
     """
     Start a test HTTP server before tests and shut it down after.

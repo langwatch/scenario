@@ -1,8 +1,8 @@
 """
-Example: Testing an agent that returns Server-Sent Events (SSE)
+Example: Testing an agent that streams OpenAI responses via SSE
 
-This demonstrates the SSE format commonly used by OpenAI and similar APIs.
-Each chunk is sent as "data: {json}\n\n" and the stream ends with "data: [DONE]\n\n".
+The handler forwards OpenAI's native chunk format directly.
+The adapter parses the SSE stream and extracts content from OpenAI chunks.
 """
 
 import asyncio
@@ -10,6 +10,7 @@ import json
 from aiohttp import web
 import aiohttp
 import pytest
+import pytest_asyncio
 import scenario
 from openai import AsyncOpenAI
 
@@ -19,13 +20,9 @@ base_url = ""
 
 class SSEAgentAdapter(scenario.AgentAdapter):
     """
-    Adapter for testing agents that use Server-Sent Events format.
+    Adapter for testing agents that stream OpenAI responses via SSE.
 
-    This adapter:
-    1. Makes an HTTP POST request expecting SSE format
-    2. Parses "data: {json}" lines as they arrive
-    3. Handles the "[DONE]" completion marker
-    4. Returns the complete response
+    Parses SSE stream, extracts content from OpenAI chunk format, and returns complete response.
     """
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
@@ -54,18 +51,21 @@ class SSEAgentAdapter(scenario.AgentAdapter):
                     )  # Keep incomplete line in buffer
 
                     # Parse SSE format: "data: {...}\n"
-                    for line in lines[:-1]:  # Process all complete lines
+                    for line in lines[:-1]:
                         if line.startswith("data: "):
                             data = line[6:]  # Remove "data: " prefix
-
-                            # Check for SSE stream end marker
                             if data != "[DONE]":
                                 try:
-                                    # Parse JSON and extract content field
-                                    parsed = json.loads(data)
-                                    full_response += parsed["content"]
-                                except (json.JSONDecodeError, KeyError):
-                                    # Skip malformed JSON
+                                    # Parse OpenAI chunk structure
+                                    chunk = json.loads(data)
+                                    content = (
+                                        chunk.get("choices", [{}])[0]
+                                        .get("delta", {})
+                                        .get("content")
+                                    )
+                                    if content:
+                                        full_response += content
+                                except (json.JSONDecodeError, KeyError, IndexError):
                                     pass
 
                 # Return complete response after stream ends
@@ -78,20 +78,16 @@ client = AsyncOpenAI()
 
 async def sse_handler(request: web.Request) -> web.StreamResponse:
     """
-    HTTP endpoint that streams LLM responses in SSE format.
-
-    Each chunk is sent as "data: {json}\n\n" and ends with "data: [DONE]\n\n".
+    HTTP endpoint that forwards OpenAI streaming chunks in SSE format.
     """
     data = await request.json()
     messages = data["messages"]
 
-    # Determine last user message
+    # Determine last user message content
     last_msg = messages[-1]
-    content = (
-        last_msg["content"]
-        if isinstance(last_msg["content"], str)
-        else last_msg["content"][0].get("text", "")
-    )
+    content = last_msg["content"]
+    if not isinstance(content, str):
+        content = ""
 
     # Set up SSE response headers
     response = web.StreamResponse()
@@ -114,12 +110,10 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
         stream=True,
     )
 
-    # Stream chunks in SSE format
+    # Forward OpenAI chunks in SSE format
     async for chunk in stream:
-        if chunk.choices[0].delta.content:
-            # SSE format: "data: {json}\n\n"
-            sse_data = json.dumps({"content": chunk.choices[0].delta.content})
-            await response.write(f"data: {sse_data}\n\n".encode("utf-8"))
+        chunk_dict = chunk.model_dump()
+        await response.write(f"data: {json.dumps(chunk_dict)}\n\n".encode("utf-8"))
 
     # Send completion marker
     await response.write(b"data: [DONE]\n\n")
@@ -128,7 +122,7 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
     return response
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_server():
     """
     Start a test HTTP server before tests and shut it down after.
@@ -162,14 +156,9 @@ async def test_server():
 @pytest.mark.asyncio
 async def test_sse_response(test_server):
     """
-    Test agent via HTTP endpoint with SSE format.
+    Test agent that streams OpenAI responses via SSE.
 
-    This test verifies:
-    - Adapter correctly parses SSE format
-    - "data: {json}" lines are properly handled
-    - [DONE] marker signals completion
-    - Agent provides relevant weather information
-    - Full scenario flow works with SSE
+    Verifies adapter parses OpenAI chunks and extracts complete response.
     """
     result = await scenario.run(
         name="SSE weather response",

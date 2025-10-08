@@ -11,6 +11,7 @@ import json
 from aiohttp import web
 import aiohttp
 import pytest
+import pytest_asyncio
 import scenario
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
@@ -32,26 +33,21 @@ class StatefulAgentAdapter(scenario.AgentAdapter):
     """
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        # Extract only the latest message
+        # Extract the most recent user message content
         last_message = input.messages[-1]
+        content = last_message["content"]  # type: ignore[typeddict-item]
 
-        # Handle both string content and multipart content (images, files, etc.)
-        msg_content = last_message.get("content", "")
-        if isinstance(msg_content, str):
-            content = msg_content
-        elif msg_content:
-            content_list = list(msg_content)
-            content = content_list[0].get("text", "") if content_list else ""
-        else:
-            content = ""
+        # For this example, we assume content is a string
+        if not isinstance(content, str):
+            raise ValueError("This example only handles string content")
 
         # Send only new message + thread ID
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{base_url}/chat",
                 json={
-                    "message": content,  # Only latest message
-                    "threadId": input.thread_id,  # Server uses this to look up history
+                    "message": content,
+                    "threadId": input.thread_id,
                 },
             ) as response:
                 result = await response.json()
@@ -111,7 +107,7 @@ async def stateful_handler(request: web.Request) -> web.Response:
     return web.json_response({"response": assistant_message})
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_server():
     """
     Start a test HTTP server before tests and shut it down after.
@@ -167,7 +163,7 @@ async def test_stateful_conversation(test_server):
             scenario.JudgeAgent(
                 model="openai/gpt-4o-mini",
                 criteria=[
-                    "Agent should remember previous context",
+                    "Agent should remember context from message to message",
                     "Agent should provide relevant follow-up information",
                 ],
             ),
@@ -175,7 +171,7 @@ async def test_stateful_conversation(test_server):
         script=[
             scenario.user("What's the weather like in London?"),
             scenario.agent(),
-            scenario.user("And in Paris?"),
+            scenario.user("Is that normal weather here?"),
             scenario.agent(),
             scenario.judge(),
         ],
