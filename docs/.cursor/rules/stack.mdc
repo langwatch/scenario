@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 # Stack Rules
 
 ## Package Manager
@@ -37,24 +36,3 @@ alwaysApply: true
 - Generate examples from test files to ensure accuracy
 - Use proper syntax highlighting with language tags
 - Include GitHub source links in generated examples
-
-## SEO Best Practices
-- Use descriptive, keyword-rich page titles
-- Include meta descriptions for all pages
-- Implement proper heading hierarchy
-- Use semantic HTML elements
-- Optimize images with alt text
-- Create XML sitemaps
-- Use structured data when applicable
-- Ensure fast loading times
-- Implement proper internal linking
-- Use canonical URLs to avoid duplicate content
-
-## Content Structure
-- Write clear, scannable content with proper headings
-- Use code blocks with proper language highlighting
-- Include practical examples and use cases
-- Maintain consistent tone and style
-- Optimize for both users and search engines
-- Use descriptive link text
-- Include relevant keywords naturally in content

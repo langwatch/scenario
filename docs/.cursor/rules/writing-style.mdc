@@ -1,0 +1,14 @@
+---
+globs: *.mdx
+alwaysApply: false
+---
+# Writing Style
+
+## Content Structure
+- Write clear, scannable content with proper headings
+- Use code blocks with proper language highlighting
+- Include practical examples and use cases
+- Maintain consistent tone and style
+- Optimize for both users and search engines
+- Use descriptive link text
+- Include relevant keywords naturally in content
