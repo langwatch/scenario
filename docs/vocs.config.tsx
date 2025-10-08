@@ -164,11 +164,52 @@ export default defineConfig({
           text: "The Vibe-Eval Loop",
           link: "/best-practices/the-vibe-eval-loop",
         },
+        {
+          text: "Domain-Driven TDD",
+          link: "/best-practices/domain-driven-tdd",
+        },
       ],
     },
     {
       text: "Examples & Guides",
       items: [
+        {
+          text: "Tool calling",
+          link: "/testing-guides/tool-calling",
+        },
+        {
+          text: "Fixtures",
+          link: "/testing-guides/fixtures",
+        },
+        {
+          text: "Mocks",
+          link: "/testing-guides/mocks",
+        },
+        {
+          text: "Blackbox Testing",
+          link: "/testing-guides/blackbox-testing",
+        },
+        {
+          text: "Multimodal",
+          items: [
+            {
+              text: "Overview",
+              link: "/examples/multimodal/overview",
+            },
+            {
+              text: "Voice Agents",
+              link: "/examples/multimodal/testing-voice-agents",
+            },
+            {
+              text: "Images",
+              link: "/examples/multimodal/multimodal-images",
+            },
+            {
+              text: "Files (coming soon)",
+              link: "/examples/multimodal/multimodal-files",
+            },
+          ],
+        },
         {
           text: "Testing Remote Agents",
           items: [
@@ -191,47 +232,6 @@ export default defineConfig({
             {
               text: "Stateful (Thread ID)",
               link: "/examples/testing-remote-agents/stateful",
-            },
-          ],
-        },
-        {
-          text: "Tool calling",
-          link: "/testing-guides/tool-calling",
-        },
-        {
-          text: "Fixtures",
-          link: "/testing-guides/fixtures",
-        },
-        {
-          text: "Mocks",
-          link: "/testing-guides/mocks",
-        },
-        {
-          text: "Blackbox Testing",
-          link: "/testing-guides/blackbox-testing",
-        },
-        {
-          text: "Domain-Driven TDD",
-          link: "/testing-guides/domain-driven-tdd",
-        },
-        {
-          text: "Multimodal",
-          items: [
-            {
-              text: "Overview",
-              link: "/examples/multimodal/overview",
-            },
-            {
-              text: "Voice Agents",
-              link: "/examples/multimodal/testing-voice-agents",
-            },
-            {
-              text: "Images",
-              link: "/examples/multimodal/multimodal-images",
-            },
-            {
-              text: "Files (coming soon)",
-              link: "/examples/multimodal/multimodal-files",
             },
           ],
         },
