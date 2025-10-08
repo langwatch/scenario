@@ -1,0 +1,60 @@
+---
+alwaysApply: true
+---
+
+# Stack Rules
+
+## Package Manager
+- Always use `pnpm` as the package manager
+- Use `pnpm install` instead of `npm install` or `yarn install`
+- Reference `pnpm` commands in documentation and scripts
+
+## Styling
+- Use Tailwind CSS for all styling
+- Follow Tailwind's utility-first approach
+- Use Tailwind classes instead of custom CSS when possible
+- Import Tailwind in styles.css with `@import "tailwindcss"`
+- Leverage Vocs CSS variables for theming: `var(--vocs-color_*)`
+- Use responsive design patterns with Tailwind breakpoints
+
+## Documentation Framework
+- Use Vocs for documentation generation
+- Structure content in `docs/pages/` directory using MDX files
+- Configure via `vocs.config.ts` in project root
+- Use file-based routing for documentation pages
+- Place static assets in `docs/public/` directory
+- Implement proper SEO with:
+  - Descriptive page titles using `titleTemplate`
+  - Meta descriptions via `description` config
+  - Open Graph images with `ogImageUrl`
+  - Proper heading hierarchy (h1, h2, h3)
+  - Semantic HTML structure
+
+## Code Examples Generation
+- Use `@generate-mdx-examples.js` script to auto-generate code examples
+- Import generated examples in MDX files for consistency
+- Keep examples in sync with actual test files
+- Generate examples from test files to ensure accuracy
+- Use proper syntax highlighting with language tags
+- Include GitHub source links in generated examples
+
+## SEO Best Practices
+- Use descriptive, keyword-rich page titles
+- Include meta descriptions for all pages
+- Implement proper heading hierarchy
+- Use semantic HTML elements
+- Optimize images with alt text
+- Create XML sitemaps
+- Use structured data when applicable
+- Ensure fast loading times
+- Implement proper internal linking
+- Use canonical URLs to avoid duplicate content
+
+## Content Structure
+- Write clear, scannable content with proper headings
+- Use code blocks with proper language highlighting
+- Include practical examples and use cases
+- Maintain consistent tone and style
+- Optimize for both users and search engines
+- Use descriptive link text
+- Include relevant keywords naturally in content

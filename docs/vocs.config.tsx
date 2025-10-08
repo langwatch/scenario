@@ -7,10 +7,10 @@ const baseUrl = process.env.BASE_URL ?? "http://localhost:5173";
 const basePath = process.env.BASE_PATH ?? "";
 
 export default defineConfig({
-  title: "Scenario",
+  title: "Scenario: Agent Testing with Simulation-Based Workflows",
   titleTemplate: "%s – Scenario",
   description:
-    "Test AI agents with simulation-based testing. LLM-powered user simulators for validating agent behavior, tool calling, and multi-turn conversations.",
+    "Test AI agents with simulation-based testing. LLM-powered user simulators validate agent behavior, tool calling, and multi-turn conversations in LangGraph, CrewAI, Pydantic AI.",
   baseUrl,
   basePath,
   logoUrl: "/images/logo.png",
@@ -79,6 +79,40 @@ export default defineConfig({
             })}
           </script>
         )}
+
+        {/* Organization Schema */}
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            name: "LangWatch",
+            url: "https://langwatch.ai",
+            logo: "https://scenario.langwatch.ai/images/logo.png",
+            sameAs: [
+              "https://github.com/langwatch/scenario",
+              "https://x.com/langwatchai",
+              "https://discord.gg/kT4PhDS2gH",
+            ],
+          })}
+        </script>
+
+        {/* WebSite Schema with SearchAction */}
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "Scenario Documentation",
+            url: baseUrl,
+            potentialAction: {
+              "@type": "SearchAction",
+              target: {
+                "@type": "EntryPoint",
+                urlTemplate: `${baseUrl}/?search={search_term_string}`,
+              },
+              "query-input": "required name=search_term_string",
+            },
+          })}
+        </script>
 
         {/* Breadcrumb Schema */}
         {path !== "/" && (
