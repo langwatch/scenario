@@ -15,4 +15,46 @@ export const examples = [
     sourcePath: "python/examples/test_azure_api_gateway.py",
     label: "test_azure_api_gateway.py",
   },
+  // Mocking examples - Python
+  {
+    sourcePath: "python/examples/test_simple_tool_mocking.py",
+    label: "python",
+  },
+  {
+    sourcePath: "python/examples/test_database_tool_mocking.py",
+    label: "python",
+  },
+  {
+    sourcePath: "python/examples/test_api_service_mocking.py",
+    label: "python",
+  },
+  {
+    sourcePath: "python/examples/test_tool_failure_simulation.py",
+    label: "python",
+  },
+  {
+    sourcePath: "python/examples/test_llm_provider_mocking.py",
+    label: "python",
+  },
+  // Mocking examples - TypeScript
+  {
+    sourcePath: "javascript/examples/vitest/tests/simple-tool-mocking.test.ts",
+    label: "typescript",
+  },
+  {
+    sourcePath: "javascript/examples/vitest/tests/database-tool-mocking.test.ts",
+    label: "typescript",
+  },
+  {
+    sourcePath: "javascript/examples/vitest/tests/api-service-mocking.test.ts",
+    label: "typescript",
+  },
+  {
+    sourcePath: "javascript/examples/vitest/tests/tool-failure-simulation.test.ts",
+    label: "typescript",
+  },
+  {
+    sourcePath: "javascript/examples/vitest/tests/llm-provider-mocking.test.ts",
+    label: "typescript",
+  },
 ];
