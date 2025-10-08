@@ -399,6 +399,14 @@ export default defineConfig({
     },
   ],
   vite: {
-    plugins: [tailwindcss(), sitemap()],
+    plugins: [
+      tailwindcss(),
+      sitemap({
+        hostname: baseUrl,
+        generateRobotsTxt: false,
+        outDir: "docs/dist",
+        readable: true,
+      }),
+    ],
   },
 });
