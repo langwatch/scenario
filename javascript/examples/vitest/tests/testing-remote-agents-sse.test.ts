@@ -1,8 +1,8 @@
-import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { describe, it, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "http";
 import { openai } from "@ai-sdk/openai";
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { streamText } from "ai";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import { expectResultsSuccess } from "./helpers/expect-results-success";
 
 /**

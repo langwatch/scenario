@@ -1,8 +1,8 @@
-import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "http";
 import { openai } from "@ai-sdk/openai";
+import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { generateText } from "ai";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 /**
  * Example: Testing an agent via HTTP endpoint with JSON responses
@@ -93,8 +93,8 @@ describe("Testing Remote Agents - JSON Response", () => {
         const content =
           typeof lastMessage.content === "string"
             ? lastMessage.content
-            : (lastMessage.content.find((part) => part.type === "text") as any)
-                ?.text || "";
+            : lastMessage.content.find((part) => part.type === "text")?.text ??
+              "";
 
         // Make HTTP POST request to your agent's endpoint
         const response = await fetch(`${baseUrl}/chat`, {

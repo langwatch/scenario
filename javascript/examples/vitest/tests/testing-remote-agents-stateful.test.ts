@@ -1,8 +1,8 @@
-import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "http";
 import { openai } from "@ai-sdk/openai";
+import scenario, { AgentRole, type AgentAdapter } from "@langwatch/scenario";
 import { generateText, CoreMessage } from "ai";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 /**
  * Example: Testing a stateful agent that maintains conversation history
@@ -30,7 +30,7 @@ beforeAll(async () => {
           const { message, threadId } = JSON.parse(body);
 
           // Retrieve or initialize conversation history
-          let history = conversations.get(threadId) || [];
+          const history = conversations.get(threadId) || [];
 
           // Add user message to history
           const userMessage: CoreMessage = {
@@ -106,8 +106,8 @@ describe("Testing Remote Agents - Stateful with Thread ID", () => {
         const content =
           typeof lastMessage.content === "string"
             ? lastMessage.content
-            : (lastMessage.content.find((part) => part.type === "text") as any)
-                ?.text || "";
+            : lastMessage.content.find((part) => part.type === "text")?.text ??
+              "";
 
         // Send only the new message + thread ID
         const response = await fetch(`${baseUrl}/chat`, {
