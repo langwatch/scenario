@@ -41,7 +41,7 @@ def test_modelconfig_accepts_extra_litellm_params():
     """ModelConfig accepts arbitrary litellm parameters via extra='allow'."""
     from openai import OpenAI
 
-    custom_client = OpenAI(base_url="https://custom.com")
+    custom_client = MagicMock(spec=OpenAI)
 
     config = ModelConfig(
         model="openai/gpt-4",
