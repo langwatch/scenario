@@ -1,3 +1,8 @@
+---
+title: Blackbox Testing - Test Agents via Public Interfaces
+description: Test AI agents through their public interfaces without mocking. Learn how to use HTTP adapters for production-like testing with real databases, authentication, and infrastructure.
+---
+
 import { RefLink } from "../../components/RefLink";
 
 # Blackbox Testing [Testing via public interfaces]
@@ -6,7 +11,7 @@ Blackbox testing examines software functionality without inspecting internal imp
 
 ## For Scenario Users
 
-In Scenario, blackbox testing means your adapter calls the agent's **public interface**—the same HTTP endpoint, CLI command, or SDK method that users interact with—rather than directly instantiating agent classes or mocking internal components.
+In Scenario, blackbox testing means your [adapter](/agent-integration) calls the agent's **public interface**—the same [HTTP endpoint](/examples/testing-remote-agents), CLI command, or SDK method that users interact with—rather than directly instantiating agent classes or [mocking](/testing-guides/mocks) internal components.
 
 This tests your agent as it runs in production: with real databases, authentication, middleware, and infrastructure.
 
@@ -45,6 +50,7 @@ import aiohttp
 
 
 # ✅ Blackbox: adapter calls real HTTP endpoint (no mocking)
+# See /examples/testing-remote-agents for more HTTP adapter patterns
 class BlackboxAdapter(scenario.AgentAdapter):
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         # Make real HTTP request to actual agent server
@@ -69,7 +75,7 @@ await scenario.run(
 
 :::
 
-Compare with mocked testing where you might mock tool functions or bypass HTTP entirely. Blackbox tests the complete stack.
+Compare with [mocked testing](/testing-guides/mocks) where you might mock tool functions or bypass HTTP entirely. Blackbox tests the complete stack.
 
 ## When to Use
 
@@ -79,7 +85,9 @@ Compare with mocked testing where you might mock tool functions or bypass HTTP e
 
 ## See Also
 
-- [Testing Remote Agents](/examples/testing-remote-agents) - HTTP adapter patterns
+- [Testing Remote Agents](/examples/testing-remote-agents) - HTTP adapter patterns (JSON, SSE, streaming, stateful)
+- [Agent Integration](/agent-integration) - Core adapter interface and framework-specific integrations
 - [Domain-Driven TDD](/testing-guides/domain-driven-tdd) - Using blackbox tests to drive implementation
-- [Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) - Where blackbox tests fit
+- [Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) - Where blackbox tests fit in your testing strategy
 - [Mocks](/testing-guides/mocks) - When to mock vs. test real systems
+- [Writing Scenarios](/basics/writing-scenarios) - Creating effective test scenarios

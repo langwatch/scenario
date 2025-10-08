@@ -1,10 +1,15 @@
+---
+title: Streaming Pattern - HTTP Chunked Transfer Testing
+description: Test AI agents with HTTP chunked transfer encoding streaming. Learn how to handle progressive output for long-form responses and real-time LLM generation.
+---
+
 import { RefLink } from "../../../components/RefLink";
 import StreamingTestExampleTS from "../../_generated/examples/testing-remote-agents-streaming.test.mdx";
 import StreamingTestExamplePy from "../../_generated/examples/test_testing_remote_agents_streaming.mdx";
 
 # Streaming Response Pattern
 
-Test agents that stream responses in chunks using HTTP chunked transfer encoding. This provides progressive output as the LLM generates text.
+Test [agents](/agent-integration) that stream responses in chunks using HTTP chunked transfer encoding. This provides progressive output as the LLM generates text. See [Blackbox Testing](/testing-guides/blackbox-testing) for the testing philosophy.
 
 ## When to Use
 
@@ -38,7 +43,7 @@ This example demonstrates:
 
 ## Adapter Pattern
 
-The adapter collects all streamed chunks:
+The [adapter](/agent-integration) collects all streamed chunks:
 
 ```typescript
 const streamingAdapter: AgentAdapter = {
@@ -73,8 +78,8 @@ const streamingAdapter: AgentAdapter = {
 
 Scenario expects complete responses because:
 
-- **Judge needs full context**: Can't evaluate partial responses
-- **Message history**: Stores complete messages
+- **[Judge](/basics/judges) needs full context**: Can't evaluate partial responses
+- **Message history**: Stores complete messages for [conversation context](/basics/concepts)
 - **Simplicity**: One response per turn
 
 If you need to test streaming behavior specifically (latency, chunk timing), consider integration tests outside Scenario.
@@ -112,6 +117,9 @@ const myStreamingAdapter: AgentAdapter = {
 
 ## See Also
 
-- [SSE Pattern](/examples/testing-remote-agents/sse) - For Server-Sent Events format
-- [JSON Pattern](/examples/testing-remote-agents/json) - For complete responses
-- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All patterns
+- [SSE Pattern](/examples/testing-remote-agents/sse) - For Server-Sent Events streaming format
+- [JSON Pattern](/examples/testing-remote-agents/json) - For complete non-streaming responses
+- [Stateful Pattern](/examples/testing-remote-agents/stateful) - For server-side conversation state
+- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All HTTP adapter patterns
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy
+- [Agent Integration](/agent-integration) - Core adapter interface

@@ -1,12 +1,17 @@
+---
+title: Testing Remote Agents - HTTP Adapter Patterns
+description: Learn how to test HTTP-deployed AI agents with Scenario. Adapter patterns for JSON, streaming, SSE, and stateful APIs. Production-ready examples for REST endpoints.
+---
+
 import { RefLink } from "../../components/RefLink";
 
 # Testing Remote Agents [Adapters for HTTP-deployed agents]
 
-When your agent is deployed as an HTTP service, test it with Scenario by creating adapters that make HTTP requests. This guide shows patterns for different API response types.
+When your agent is deployed as an HTTP service, test it with Scenario by creating [adapters](/agent-integration) that make HTTP requests. This guide shows patterns for different API response types. For testing philosophy, see [Blackbox Testing](/testing-guides/blackbox-testing).
 
 ## AgentAdapter Interface
 
-Scenario's `AgentAdapter` interface requires a `call` method that:
+Scenario's [AgentAdapter](/agent-integration) interface requires a `call` method that:
 
 - Receives `AgentInput` containing message history and thread ID
 - Returns a string (agent's response text) or an array of messages
@@ -52,6 +57,8 @@ See [booking-agent-scenario-demo](https://github.com/langwatch/booking-agent-sce
 
 ## See Also
 
-- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy
-- [Writing Scenarios](/basics/writing-scenarios) - Crafting scenarios
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy for production-like tests
+- [Agent Integration](/agent-integration) - Core adapter interface and framework integrations
+- [Writing Scenarios](/basics/writing-scenarios) - Crafting effective test scenarios
 - [Mocks](/testing-guides/mocks) - When to mock vs. test real endpoints
+- [Domain-Driven TDD](/testing-guides/domain-driven-tdd) - Building agents with test-first approach

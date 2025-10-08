@@ -1,10 +1,15 @@
+---
+title: SSE Pattern - Testing Agents with Server-Sent Events
+description: Test AI agents using Server-Sent Events (SSE) streaming format. Learn how to handle data: prefixed lines, [DONE] markers, and OpenAI-compatible streaming APIs.
+---
+
 import { RefLink } from "../../../components/RefLink";
 import SSETestExampleTS from "../../_generated/examples/testing-remote-agents-sse.test.mdx";
 import SSETestExamplePy from "../../_generated/examples/test_testing_remote_agents_sse.mdx";
 
 # Server-Sent Events (SSE) Pattern
 
-Test agents that stream responses using Server-Sent Events format. SSE uses `data:` prefixed lines and ends with `data: [DONE]`.
+Test [agents](/agent-integration) that stream responses using Server-Sent Events format. SSE uses `data:` prefixed lines and ends with `data: [DONE]`. See [Blackbox Testing](/testing-guides/blackbox-testing) for the testing philosophy.
 
 ## When to Use
 
@@ -53,7 +58,7 @@ This example demonstrates:
 
 ## Adapter Pattern
 
-The adapter parses SSE format with proper buffering:
+The [adapter](/agent-integration) parses SSE format with proper buffering:
 
 ```typescript
 const sseAdapter: AgentAdapter = {
@@ -173,6 +178,9 @@ const mySSEAdapter: AgentAdapter = {
 
 ## See Also
 
-- [Streaming Pattern](/examples/testing-remote-agents/streaming) - For chunked transfer encoding
-- [JSON Pattern](/examples/testing-remote-agents/json) - For complete responses
-- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All patterns
+- [Streaming Pattern](/examples/testing-remote-agents/streaming) - For chunked transfer encoding without SSE format
+- [JSON Pattern](/examples/testing-remote-agents/json) - For complete non-streaming responses
+- [Stateful Pattern](/examples/testing-remote-agents/stateful) - For server-side conversation state
+- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All HTTP adapter patterns
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy
+- [Agent Integration](/agent-integration) - Core adapter interface
