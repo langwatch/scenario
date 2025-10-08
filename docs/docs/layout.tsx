@@ -17,7 +17,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {mounted &&
         createPortal(
           <LanguageSelector />,
-          document.getElementById("language-selector-portal")
+          document.getElementById("language-selector-portal") as Element
         )}
       {children}
       <GithubStarsScript repo="langwatch/scenario" />

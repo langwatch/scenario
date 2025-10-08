@@ -1,0 +1,126 @@
+---
+title: Domain-Driven TDD - Build Agents with Test-First Development
+description: Use TDD and Domain-Driven Design principles to build AI agents. Write scenarios in business language first, implement minimally, then refactor to reveal domain concepts.
+---
+
+import { RefLink } from "../../components/RefLink";
+
+# Domain-Driven TDD [Using scenarios to drive implementation]
+
+Combines [Test-Driven Development](https://martinfowler.com/bliki/TestDrivenDevelopment.html) with [Domain-Driven Design](https://martinfowler.com/bliki/DomainDrivenDesign.html): write [scenarios](/basics/writing-scenarios) in business language first, watch them fail, implement minimally, then refactor to reveal domain concepts.
+
+## The Red-Green-Refactor Cycle
+
+_The following example shows how to use scenarios to drive implementation for an agent that books flights._
+
+### 🔴 Red: Write Failing Scenario
+
+Define what your agent should accomplish:
+
+```typescript
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+it("should book a flight", async () => {
+  // Define business requirement as a scenario
+  const result = await scenario.run({
+    name: "Book flight from NYC to London",
+    description: "User books a flight and receives confirmation",
+    agents: [
+      scenario.userSimulatorAgent(), // Simulates user
+      httpAgentAdapter, // Doesn't exist yet! This will fail first.
+      scenario.judgeAgent({
+        // See /basics/concepts#the-judge-agent for judge configuration
+        criteria: ["Agent should confirm booking with flight details"],
+      }),
+    ],
+  });
+
+  // Test will fail because httpAgentAdapter doesn't exist
+  expect(result.success).toBe(true);
+});
+```
+
+Run test. Fails: `Error: connect ECONNREFUSED`. This tells you what to build. See [Testing Remote Agents](/examples/testing-remote-agents) for HTTP adapter patterns.
+
+### 🟢 Green: Implement Minimally
+
+Build just enough to pass:
+
+```typescript
+import { createServer } from "http";
+
+// Create minimal HTTP endpoint that makes the test pass
+const server = createServer((req, res) => {
+  // Hardcoded response - just enough to satisfy the scenario
+  const response = "Your flight from JFK to LHR is confirmed.";
+
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ response }));
+});
+
+// Start server on port 3000
+server.listen(3000);
+```
+
+Test passes. ✅
+
+### 🔄 Refactor: Extract Domain
+
+Now reveal domain concepts:
+
+```typescript
+// Domain patterns emerge as you refactor:
+
+// Value objects - enforce business rules
+class AirportCode {
+  constructor(private code: string) {
+    if (!/^[A-Z]{3}$/.test(code)) throw new Error("Invalid airport code");
+  }
+}
+
+// Entities - represent business concepts
+class FlightBooking {
+  constructor(public origin: AirportCode, public destination: AirportCode) {}
+}
+
+// Services - encapsulate business logic
+class BookingService {
+  async createBooking(booking: FlightBooking) {
+    // Business rules, validation, persistence
+    return await this.repository.save(booking);
+  }
+}
+```
+
+Tests still pass. Domain model emerged from the scenario.
+
+## What Emerges From Scenarios
+
+As you write more scenarios, domain patterns appear:
+
+- **Value objects**: AirportCode, PassengerCount
+- **Entities**: FlightBooking, Customer
+- **Aggregates**: Booking (contains Flight, Passenger, Payment)
+- **Domain services**: BookingService, CancellationService
+- **Events**: BookingConfirmed, PaymentProcessed
+
+Let scenarios drive what needs exists, don't design upfront.
+
+## Example Repository
+
+[booking-agent-scenario-demo](https://github.com/langwatch/booking-agent-scenario-demo) demonstrates this workflow:
+
+- Scenarios written first in `setup-scenarios.ts`
+- Implementation in `src/agent/`
+- Domain model extracted during refactoring
+- Database and tools added as scenarios require
+
+## See Also
+
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing via public interfaces without mocks
+- [Testing Remote Agents](/examples/testing-remote-agents) - HTTP adapter patterns for deployed agents
+- [Writing Scenarios](/basics/writing-scenarios) - Crafting effective test scenarios
+- [Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) - Overall testing strategy
+- [Agent Integration](/agent-integration) - Adapter patterns for different frameworks
+- [Judge Agent](/basics/concepts#the-judge-agent) - Configuring evaluation criteria

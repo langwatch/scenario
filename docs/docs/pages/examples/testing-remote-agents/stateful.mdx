@@ -1,0 +1,241 @@
+---
+title: Stateful Pattern - Testing Agents with Thread IDs
+description: Test AI agents with server-side conversation history management. Learn how to handle thread IDs, stateful APIs, multi-device sync, and database-backed chat history.
+---
+
+import { RefLink } from "../../../components/RefLink";
+import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
+import StatefulTestExampleTS from "../../_generated/examples/testing-remote-agents-stateful.test.mdx";
+import StatefulTestExamplePy from "../../_generated/examples/test_testing_remote_agents_stateful.mdx";
+
+# Stateful Pattern with Thread ID
+
+Test [agents](/agent-integration) that maintain conversation history server-side using thread identifiers. The [adapter](/agent-integration) sends only the latest message plus a thread ID, and the server looks up the full history. See [Blackbox Testing](/testing-guides/blackbox-testing) for the testing philosophy.
+
+## When to Use
+
+- Server manages conversation state
+- Multi-device sync (mobile, web, desktop)
+- Reduced bandwidth (only send new messages)
+- Backend controls conversation storage
+- Database-backed chat history
+
+## Stateless vs. Stateful
+
+### Stateless (Full History)
+
+```typescript
+// Client sends ALL messages every time
+POST / chat;
+{
+  messages: [msg1, msg2, msg3, msg4];
+}
+```
+
+### Stateful (Thread ID)
+
+```typescript
+// Client sends only NEW message + thread ID
+POST /chat
+{ message: "latest message", threadId: "thread-123" }
+// Server looks up [msg1, msg2, msg3] using threadId
+```
+
+## Complete Working Example
+
+This example demonstrates:
+
+- Server maintaining conversation history in a `Map`
+- Adapter sending only latest message + thread ID
+- Real LLM using full conversation context
+- Multi-turn scenario showing context retention
+
+<CustomCodeGroup>
+  <CodeTab title="TypeScript">
+    <StatefulTestExampleTS />
+  </CodeTab>
+  <CodeTab title="Python">
+    <StatefulTestExamplePy />
+  </CodeTab>
+</CustomCodeGroup>
+
+## Key Points
+
+1. **Server stores history**: Uses thread ID to maintain conversation state
+2. **Adapter sends minimal data**: Only latest message + thread ID
+3. **LLM gets full context**: Server provides complete history to LLM
+4. **Multi-turn context**: Follow-up questions work because server remembers
+5. **Thread management**: Server creates/updates history per thread ID
+
+## Adapter Pattern
+
+The [adapter](/agent-integration) extracts latest message and includes thread ID:
+
+```typescript
+const statefulAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Extract only the latest message
+    const lastMessage = input.messages[input.messages.length - 1];
+    const content =
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : (lastMessage.content.find((part) => part.type === "text") as any)
+            ?.text || "";
+
+    // Send only new message + thread ID
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: content, // Only latest message
+        threadId: input.threadId, // Server uses this to look up history
+      }),
+    });
+
+    return (await response.json()).response;
+  },
+};
+```
+
+## Server Implementation Pattern
+
+The server maintains history by thread ID:
+
+```typescript
+// Server-side conversation storage
+const conversations = new Map<string, CoreMessage[]>();
+
+app.post("/chat", async (req, res) => {
+  const { message, threadId } = req.body;
+
+  // Retrieve or initialize conversation history
+  let history = conversations.get(threadId) || [];
+
+  // Add user message
+  history.push({ role: "user", content: message });
+
+  // Generate response with FULL history
+  const result = await generateText({
+    model: openai("gpt-4o-mini"),
+    messages: [systemMessage, ...history],
+  });
+
+  // Add assistant response
+  history.push({ role: "assistant", content: result.text });
+
+  // Store updated history
+  conversations.set(threadId, history);
+
+  res.json({ response: result.text });
+});
+```
+
+## Testing Context Retention
+
+Stateful tests should verify the server maintains context. Use [scripted simulations](/basics/scripted-simulations) to control the conversation flow:
+
+```typescript
+const result = await scenario.run({
+  agents: [
+    scenario.userSimulatorAgent(),
+    statefulAdapter,
+    scenario.judgeAgent({
+      criteria: [
+        "Agent should provide initial information",
+        "Agent should answer follow-up with context from previous answer",
+        "Agent should maintain conversational continuity",
+      ],
+    }),
+  ],
+  script: [
+    scenario.user("Tell me about Paris"),
+    scenario.agent(),
+    scenario.user("How long should I stay there?"), // Requires context!
+    scenario.agent(),
+    scenario.judge(),
+  ],
+});
+```
+
+The second question ("How long should I stay **there**?") only makes sense with context from the first answer.
+
+## Testing Your Own Stateful Agent
+
+```typescript
+const myStatefulAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const lastMessage = input.messages[input.messages.length - 1];
+    const content =
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : lastMessage.content[0].text;
+
+    const response = await fetch("https://my-agent.com/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.API_KEY}`,
+      },
+      body: JSON.stringify({
+        message: content,
+        sessionId: input.threadId, // Your API might call it sessionId, conversationId, etc.
+      }),
+    });
+
+    return (await response.json()).reply;
+  },
+};
+```
+
+## Production Considerations
+
+### Database Storage
+
+Instead of in-memory `Map`, use a database:
+
+```typescript
+// Get history from database
+const history = await db.conversations.find({ threadId });
+
+// Save updated history
+await db.conversations.update({ threadId }, { messages: newHistory });
+```
+
+### Cleanup
+
+Implement conversation expiry:
+
+```typescript
+// Delete old conversations
+await db.conversations.deleteMany({
+  updatedAt: { $lt: Date.now() - 7 * 24 * 60 * 60 * 1000 }, // 7 days
+});
+```
+
+### Authentication
+
+Associate threads with users:
+
+```typescript
+const { message, threadId } = req.body;
+const userId = req.user.id; // From auth middleware
+
+// Ensure thread belongs to user
+const conversation = await db.conversations.findOne({
+  threadId,
+  userId,
+});
+```
+
+## See Also
+
+- [JSON Pattern](/examples/testing-remote-agents/json) - For stateless agents without thread management
+- [Streaming Pattern](/examples/testing-remote-agents/streaming) - For chunked transfer encoding
+- [SSE Pattern](/examples/testing-remote-agents/sse) - For Server-Sent Events streaming
+- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All HTTP adapter patterns
+- [Domain-Driven TDD](/best-practices/domain-driven-tdd) - Building stateful systems with TDD
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy
+- [Agent Integration](/agent-integration) - Core adapter interface
+- [Scripted Simulations](/basics/scripted-simulations) - Controlling conversation flow

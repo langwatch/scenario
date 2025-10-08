@@ -1,9 +1,5 @@
 import { openai } from "@ai-sdk/openai";
-import scenario, {
-  type AgentAdapter,
-  AgentReturnTypes,
-  AgentRole,
-} from "@langwatch/scenario";
+import scenario, { AgentRole, type AgentAdapter } from "@langwatch/scenario";
 import { generateText, JSONValue, ModelMessage, tool } from "ai";
 import { describe, it, expect } from "vitest";
 import { z } from "zod/v4";
@@ -82,7 +78,7 @@ const getAccomodation = tool({
 const callTravelAgent = async (
   messages: ModelMessage[],
   responseMessages: ModelMessage[] = []
-): Promise<AgentReturnTypes> => {
+) => {
   const tools = {
     get_current_weather: getCurrentWeather,
     get_accomodation: getAccomodation,
@@ -139,7 +135,7 @@ const callTravelAgent = async (
             type: "tool-result",
             toolName: toolCall.toolName,
             toolCallId: toolCall.toolCallId,
-            output: {type: 'json', value: toolResult as JSONValue },
+            output: { type: "json", value: toolResult as JSONValue },
           },
         ],
       },

@@ -1,3 +1,8 @@
+---
+title: Testing Voice AI Agents - Audio Testing Guide
+description: Test voice-enabled AI agents with audio fixtures. Validate speech-to-text, text-to-speech, and conversational voice agents.
+---
+
 import { RefLink } from "../../../components/RefLink";
 import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
 import AudioToTextExample from "../../_generated/examples/multimodal-audio-to-text.test.mdx";
@@ -15,26 +20,11 @@ _This video shows a complete example of a black box test for a voice-to-voice
 conversation between an agent and a user simulator. For other types of test,
 see below._
 
-<div
-  style={{
-    position: "relative",
-    paddingBottom: "56.25%",
-    height: 0,
-    overflow: "hidden",
-    marginBottom: "2rem",
-  }}
->
+<div className="relative pb-[56.25%] h-0 overflow-hidden mb-8">
   <iframe
-    style={{
-      position: "absolute",
-      top: 0,
-      left: 0,
-      width: "100%",
-      height: "100%",
-    }}
+    className="absolute top-0 left-0 w-full h-full border-0"
     src="https://www.youtube.com/embed/923Y81jy_Xo"
     title="YouTube video player"
-    frameBorder="0"
     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
     allowFullScreen
   />
@@ -83,7 +73,7 @@ export OPENAI_API_KEY="sk-…"
 
 Below is the actual audio produced by the **voice-to-voice** test above. Click play to hear the agent and user simulator exchanging ideas.
 
-<audio controls style={{ width: "100%" }}>
+<audio controls className="w-full">
   <source src="/audio/full-conversation-3.wav" type="audio/wav" />
   Your browser does not support the audio element.
 </audio>

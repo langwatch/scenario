@@ -1,3 +1,8 @@
+---
+title: Testing AI Agent Tool Calls & Function Calling
+description: Test and validate agent tool usage. Assert on function calls, mock tool responses, verify tool call arguments, and test tool calling flows.
+---
+
 # Testing Tool Calls in Scenarios
 
 Tool calls are a core part of modern agent workflows. This guide covers how to write scenario tests that verify tool usage, how to assert on tool call behavior, and how to mock or script tool call results for robust, deterministic tests.
@@ -9,6 +14,7 @@ To verify that your agent makes the correct tool call, use the `state.has_tool_c
 **Example: Check that a weather agent calls the weather API**
 
 :::code-group
+
 ```python [python]
 @pytest.mark.agent_test
 @pytest.mark.asyncio
@@ -70,12 +76,13 @@ describe("Weather Agent", () => {
         scenario.agent(),
         (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.succeed(),
-      ], 
+      ],
     });
     expect(result.success).toBe(true);
   });
 });
 ```
+
 :::
 
 ## Asserting Tool Call Arguments
@@ -83,6 +90,7 @@ describe("Weather Agent", () => {
 Sometimes you need to check not just that a tool was called, but that it was called with the correct arguments.
 
 :::code-group
+
 ```python [python]
 def check_tool_call_args(state):
     tool_calls = state.latest_agent_message().tool_calls
@@ -117,6 +125,7 @@ const response = await scenario.run({
   ],
 });
 ```
+
 :::
 
 ## Evaluating Tool Calls with JudgeAgent Criteria
@@ -124,6 +133,7 @@ const response = await scenario.run({
 For more nuanced or subjective tool call evaluation, use JudgeAgent with natural language criteria.
 
 :::code-group
+
 ```python [python]
 result = await scenario.run(
     ...,
@@ -161,6 +171,7 @@ const result = await scenario.run({
   ],
 });
 ```
+
 :::
 
 ## Mocking or Scripting Tool Call Results
@@ -168,6 +179,7 @@ const result = await scenario.run({
 To make your tests deterministic and avoid backend setup, inject a tool response directly using `scenario.message()`.
 
 :::code-group
+
 ```python [python]
 import pytest
 import scenario
@@ -353,6 +365,7 @@ const result = await scenario.run({
   ],
 });
 ```
+
 :::
 
 ## Summary of Tool Call Testing Approaches

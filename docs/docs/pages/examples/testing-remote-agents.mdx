@@ -1,0 +1,64 @@
+---
+title: Testing Remote Agents - HTTP Adapter Patterns
+description: Learn how to test HTTP-deployed AI agents with Scenario. Adapter patterns for JSON, streaming, SSE, and stateful APIs. Production-ready examples for REST endpoints.
+---
+
+import { RefLink } from "../../components/RefLink";
+
+# Testing Remote Agents [Adapters for HTTP-deployed agents]
+
+When your agent is deployed as an HTTP service, test it with Scenario by creating [adapters](/agent-integration) that make HTTP requests. This guide shows patterns for different API response types. For testing philosophy, see [Blackbox Testing](/testing-guides/blackbox-testing).
+
+## AgentAdapter Interface
+
+Scenario's [AgentAdapter](/agent-integration) interface requires a `call` method that:
+
+- Receives `AgentInput` containing message history and thread ID
+- Returns a string (agent's response text) or an array of messages
+
+Your adapter translates between Scenario's format and your agent's HTTP API.
+
+## Patterns
+
+Choose the pattern that matches your agent's API:
+
+### [JSON Response](/examples/testing-remote-agents/json)
+
+Most common pattern for REST APIs that return complete JSON responses.
+
+**When to use:** Standard request/response APIs, no streaming needed.
+
+### [Streaming Response](/examples/testing-remote-agents/streaming)
+
+For agents that stream responses in chunks using HTTP chunked transfer encoding.
+
+**When to use:** Long-form responses, progressive output display, better perceived performance.
+
+### [Server-Sent Events (SSE)](/examples/testing-remote-agents/sse)
+
+For agents using SSE format with `data:` prefixed lines and `[DONE]` markers.
+
+**When to use:** OpenAI-style streaming APIs, EventSource-compatible endpoints.
+
+### [Stateful with Thread ID](/examples/testing-remote-agents/stateful)
+
+For agents that maintain conversation history server-side using thread identifiers.
+
+**When to use:** Server manages state, mobile apps, multi-device sync.
+
+## Complete Example
+
+See [booking-agent-scenario-demo](https://github.com/langwatch/booking-agent-scenario-demo) for a production example showing:
+
+- HTTP endpoint testing with real server
+- Stateful conversation management
+- Database integration
+- Multi-turn booking flow
+
+## See Also
+
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy for production-like tests
+- [Agent Integration](/agent-integration) - Core adapter interface and framework integrations
+- [Writing Scenarios](/basics/writing-scenarios) - Crafting effective test scenarios
+- [Mocks](/testing-guides/mocks) - When to mock vs. test real endpoints
+- [Domain-Driven TDD](/best-practices/domain-driven-tdd) - Building agents with test-first approach

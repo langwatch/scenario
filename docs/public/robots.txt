@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# Exclude specific paths
+Disallow: /404
+
+# Sitemap location (Vocs generates this automatically)
+Sitemap: https://scenario.langwatch.ai/sitemap.xml
+
+# Crawl-delay for politeness
+Crawl-delay: 0.5
+

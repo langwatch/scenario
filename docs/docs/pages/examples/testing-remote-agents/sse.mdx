@@ -1,0 +1,190 @@
+---
+title: SSE Pattern - Testing Agents with Server-Sent Events
+description: "Test AI agents using Server-Sent Events (SSE) streaming format. Learn how to handle data: prefixed lines, [DONE] markers, and OpenAI-compatible streaming APIs."
+---
+
+import { RefLink } from "../../../components/RefLink";
+import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
+import SSETestExampleTS from "../../_generated/examples/testing-remote-agents-sse.test.mdx";
+import SSETestExamplePy from "../../_generated/examples/test_testing_remote_agents_sse.mdx";
+
+# Server-Sent Events (SSE) Pattern
+
+Test [agents](/agent-integration) that stream responses using Server-Sent Events format. SSE uses `data:` prefixed lines and ends with `data: [DONE]`. See [Blackbox Testing](/testing-guides/blackbox-testing) for the testing philosophy.
+
+## When to Use
+
+- OpenAI-style streaming APIs
+- EventSource-compatible endpoints
+- Legacy systems using SSE
+- Specific frameworks that chose SSE over chunked transfer
+
+## SSE Format
+
+Server-Sent Events send data in this format:
+
+```
+data: {"content": "Hello"}
+
+data: {"content": " world"}
+
+data: [DONE]
+
+```
+
+Each line starts with `data: `, followed by JSON or the completion marker `[DONE]`.
+
+## Complete Working Example
+
+This example demonstrates:
+
+- Creating a server that streams in SSE format with real LLM
+- Building an adapter that parses SSE protocol
+- Proper line buffering for incomplete chunks
+- Handling the `[DONE]` completion marker
+
+<CustomCodeGroup>
+  <CodeTab title="TypeScript">
+    <SSETestExampleTS />
+  </CodeTab>
+  <CodeTab title="Python">
+    <SSETestExamplePy />
+  </CodeTab>
+</CustomCodeGroup>
+
+## Key Points
+
+1. **SSE Headers**: `Content-Type: text/event-stream` and `Cache-Control: no-cache`
+2. **Line buffering**: Handle incomplete lines across chunks
+3. **Parse `data:` prefix**: Extract JSON after the prefix
+4. **[DONE] marker**: Signals end of stream
+5. **Error handling**: Skip malformed JSON lines gracefully
+
+## Adapter Pattern
+
+The [adapter](/agent-integration) parses SSE format with proper buffering:
+
+```typescript
+const sseAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await fetch(`${baseUrl}/chat/sse`, {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream", // Request SSE format
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messages: input.messages }),
+    });
+
+    let fullResponse = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = ""; // Buffer for incomplete lines
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Add to buffer
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete lines
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data !== "[DONE]") {
+              try {
+                fullResponse += JSON.parse(data).content;
+              } catch (e) {
+                // Skip malformed JSON
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return fullResponse;
+  },
+};
+```
+
+## Line Buffering
+
+SSE chunks may split lines mid-way. The adapter handles this by:
+
+1. **Maintaining a buffer**: Incomplete lines stay in buffer
+2. **Splitting on newlines**: Process complete lines
+3. **Keeping last line**: Pop() leaves incomplete line for next chunk
+
+Without buffering, you might get:
+
+```
+Chunk 1: "data: {\"content\""
+Chunk 2: ": \"Hello\"}\n"
+```
+
+With buffering:
+
+```
+Buffer after chunk 1: "data: {\"content\": \"Hello\"}\n"
+Process after chunk 2: Complete line parsed correctly
+```
+
+## Testing Your Own SSE Agent
+
+```typescript
+const mySSEAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await fetch("https://my-agent.com/sse", {
+      method: "POST",
+      headers: { Accept: "text/event-stream" },
+      body: JSON.stringify({ query: input.messages }),
+    });
+
+    let result = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data !== "[DONE]") {
+              const parsed = JSON.parse(data);
+              // Adjust field name to match your API
+              result += parsed.text || parsed.content || parsed.delta;
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  },
+};
+```
+
+## See Also
+
+- [Streaming Pattern](/examples/testing-remote-agents/streaming) - For chunked transfer encoding without SSE format
+- [JSON Pattern](/examples/testing-remote-agents/json) - For complete non-streaming responses
+- [Stateful Pattern](/examples/testing-remote-agents/stateful) - For server-side conversation state
+- [Testing Remote Agents Overview](/examples/testing-remote-agents) - All HTTP adapter patterns
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing philosophy
+- [Agent Integration](/agent-integration) - Core adapter interface

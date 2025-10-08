@@ -67,6 +67,13 @@ function getLanguageFromExtension(filePath) {
   return languageMap[ext] || "text";
 }
 
+const languageCommentPrefix = {
+  typescript: "//",
+  python: "#",
+  javascript: "//",
+  go: "//",
+};
+
 /**
  * Get name from file path (filename without extension)
  */
@@ -98,8 +105,9 @@ function generateExample(example) {
 
   // Generate simple code fence without additional MDX processing
   // This will be rendered as-is when imported
+  const commentPrefix = languageCommentPrefix[language];
   const mdxContent = `\`\`\`${language} [${displayLabel}]
-// Source: ${githubUrl}
+${commentPrefix} Source: ${githubUrl}
 ${code}
 \`\`\`
 `;

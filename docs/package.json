@@ -20,11 +20,13 @@
     "react-router": "^7.6.2",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.10",
-    "vocs": "github:langwatch/vocs#build"
+    "vocs": "github:langwatch/vocs#build",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@types/react": "latest",
     "@types/react-dom": "^19.1.6",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vite-plugin-sitemap": "^0.8.2"
   }
 }

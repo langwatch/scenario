@@ -1,0 +1,34 @@
+---
+globs: *.mdx
+alwaysApply: false
+---
+
+# SEO and Internal Linking
+
+## Internal Linking Strategy
+- Always link to related pages within the documentation when mentioning concepts, features, or topics covered elsewhere
+- Use descriptive anchor text that clearly indicates what the linked page contains
+- Create a wiki-like experience where users can easily navigate between related topics
+- Link to both parent/overview pages and specific detailed pages as appropriate
+
+## SEO Best Practices
+- Use meaningful, descriptive headings (H1, H2, H3) that reflect the content hierarchy
+- Include relevant keywords naturally in headings and content
+- Write clear, concise meta descriptions for each page
+- Use descriptive file names and URL slugs
+- Ensure proper heading structure (don't skip heading levels)
+- Add alt text to images that describes their content and purpose
+- Use descriptive, keyword-rich page titles
+- Create XML sitemaps
+- Use structured data when applicable
+- Ensure fast loading times
+- Implement proper internal linking
+- Use canonical URLs to avoid duplicate content
+
+## Link Examples
+- When mentioning "authentication", link to `/docs/authentication`
+- When referencing "API endpoints", link to `/docs/api-reference`
+- When discussing "configuration options", link to `/docs/configuration`
+- Cross-reference related tutorials, guides, and reference materials
+
+Remember: Every mention of a documented feature should be an opportunity to help users discover more relevant information.

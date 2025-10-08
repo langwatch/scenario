@@ -17,7 +17,7 @@
     "test": "vitest",
     "test:ci": "vitest run",
     "lint": "eslint .",
-    "examples:vitest:run": "(cd examples/vitest && pnpm install) && pnpm -F vitest-example run test",
+    "examples:vitest:run": "(cd examples/vitest && pnpm install) && SCENARIO_HEADLESS=true pnpm -F vitest-example run test",
     "prepublishOnly": "pnpm run build",
     "generate:api-reference": "npx typedoc src --out api-reference-docs && rm -rf ../docs/docs/public/reference/javascript/scenario && mv api-reference-docs ../docs/docs/public/reference/javascript/scenario"
   },

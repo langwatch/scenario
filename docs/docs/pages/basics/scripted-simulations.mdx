@@ -1,3 +1,8 @@
+---
+title: Scripted Simulations - Precise Control
+description: Control exact conversation flow with scripted simulations. Orchestrate agent interactions, custom assertions, and deterministic test scenarios.
+---
+
 import { RefLink } from "../../components/RefLink";
 
 # Scripted Simulations [Precise control over the conversation flow]
@@ -99,8 +104,11 @@ const script = [
   scenario.message({
     role: "user",
     content: [
-        { type: "text", text: "I want to cancel my subscription" },
-        { type: "image_url", image_url: { url: "https://example.com/image.png" } },
+      { type: "text", text: "I want to cancel my subscription" },
+      {
+        type: "image_url",
+        image_url: { url: "https://example.com/image.png" },
+      },
     ],
   }),
 ];
@@ -134,16 +142,25 @@ script=[
 ```
 
 ```typescript [typescript]
-
 const script = [
   scenario.user("Help me with billing"),
   scenario.agent(),
-  scenario.agent("I'll help you with billing. Can you provide your account number?"),
+  scenario.agent(
+    "I'll help you with billing. Can you provide your account number?"
+  ),
   scenario.message({
     role: "assistant",
     content: [
-      { type: "text", text: "I'll help you with billing. Can you provide your account number?" },
-      { type: "tool-call", toolCallId: "lookup_account", toolName: "lookup_account", args: { account_number: "123456" } },
+      {
+        type: "text",
+        text: "I'll help you with billing. Can you provide your account number?",
+      },
+      {
+        type: "tool-call",
+        toolCallId: "lookup_account",
+        toolName: "lookup_account",
+        args: { account_number: "123456" },
+      },
     ],
   }),
 ];
@@ -218,7 +235,12 @@ const script = [
     role: "assistant",
     content: [
       { type: "text", text: "Let me look that up for you" },
-      { type: "tool-call", toolCallId: "call_123", toolName: "search_database", args: { query: "user question" } },
+      {
+        type: "tool-call",
+        toolCallId: "call_123",
+        toolName: "search_database",
+        args: { query: "user question" },
+      },
     ],
   }),
 
@@ -227,12 +249,19 @@ const script = [
     role: "tool",
     toolCallId: "call_123",
     content: [
-      { type: "tool-result", toolCallId: "call_123", result: { results: ["result1", "result2"] } },
+      {
+        type: "tool-result",
+        toolCallId: "call_123",
+        result: { results: ["result1", "result2"] },
+      },
     ],
   }),
 
   // System message
-  message({ role: "system", content: "The user is now in a hurry and needs quick responses" }),
+  message({
+    role: "system",
+    content: "The user is now in a hurry and needs quick responses",
+  }),
 
   // Multimodal user message
   message({
@@ -534,9 +563,15 @@ result = await scenario.run(
 const script = [
   // Set up previous conversation context
   scenario.message({ role: "user", content: "I'd like to book a flight" }),
-  scenario.message({ role: "assistant", content: "I'd be happy to help. Where would you like to go?" }),
+  scenario.message({
+    role: "assistant",
+    content: "I'd be happy to help. Where would you like to go?",
+  }),
   scenario.message({ role: "user", content: "I want to go to Paris" }),
-  scenario.message({ role: "assistant", content: "Great! When would you like to travel?" }),
+  scenario.message({
+    role: "assistant",
+    content: "Great! When would you like to travel?",
+  }),
 
   // Continue with new interaction
   scenario.user("Actually, can you also help me find hotels?"),
@@ -546,11 +581,14 @@ const script = [
 
 const result = await scenario.run({
   name: "mid-conversation booking",
-  description: "User is in the middle of booking a flight and now wants to add hotels",
+  description:
+    "User is in the middle of booking a flight and now wants to add hotels",
   agents: [
     travelAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({ criteria: ["Agent handles additional requests smoothly"] }),
+    scenario.judgeAgent({
+      criteria: ["Agent handles additional requests smoothly"],
+    }),
   ],
   script,
 });
@@ -650,8 +688,11 @@ function logTurnProgress(state: scenario.ScenarioState) {
 function safetyCheck(state: scenario.ScenarioState) {
   const lastMsg = state.lastMessage();
   if (lastMsg.role === "assistant") {
-    const content = typeof lastMsg.content === "string" ? lastMsg.content.toLowerCase() : "";
-    if (["harmful", "dangerous", "illegal"].some(word => content.includes(word))) {
+    const content =
+      typeof lastMsg.content === "string" ? lastMsg.content.toLowerCase() : "";
+    if (
+      ["harmful", "dangerous", "illegal"].some((word) => content.includes(word))
+    ) {
       throw new Error("Safety violation detected");
     }
   }
@@ -705,17 +746,24 @@ script=[
 function dynamicScriptLogic(state: scenario.ScenarioState) {
   const lastMsg = state.lastMessage().content;
   // If any message has a toolCallId, inject a tool error
-  if (state.messages.some(m => m.toolCallId)) {
+  if (state.messages.some((m) => m.toolCallId)) {
     state.addMessage({
       role: "tool",
       toolCallId: "test_call_123",
       content: [
-        { type: "tool-result", toolCallId: "test_call_123", result: { error: "Service unavailable" } },
+        {
+          type: "tool-result",
+          toolCallId: "test_call_123",
+          result: { error: "Service unavailable" },
+        },
       ],
     });
   }
   // Continue based on agent's response to the error
-  if (typeof lastMsg === "string" && lastMsg.toLowerCase().includes("apologize")) {
+  if (
+    typeof lastMsg === "string" &&
+    lastMsg.toLowerCase().includes("apologize")
+  ) {
     state.addMessage({
       role: "user",
       content: "Is there another way to help me?",
@@ -727,7 +775,7 @@ const script = [
   scenario.user("I need current data"),
   scenario.agent(),
   dynamicScriptLogic, // Inject tool error
-  scenario.agent(),   // See how agent handles error
+  scenario.agent(), // See how agent handles error
   scenario.judge(),
 ];
 ```
@@ -771,7 +819,10 @@ const script = [
   // Verify initial response
   (state) => {
     const content = state.lastMessage().content;
-    if (typeof content !== "string" || !content.toLowerCase().includes("help")) {
+    if (
+      typeof content !== "string" ||
+      !content.toLowerCase().includes("help")
+    ) {
       throw new Error("Agent did not offer help");
     }
   },
@@ -823,11 +874,7 @@ script=[
 
 ```typescript [typescript]
 // Start with basic flow
-const script = [
-  scenario.user("Hello"),
-  scenario.agent(),
-  scenario.succeed(),
-];
+const script = [scenario.user("Hello"), scenario.agent(), scenario.succeed()];
 
 // Then add validation
 const scriptWithValidation = [
@@ -835,7 +882,10 @@ const scriptWithValidation = [
   scenario.agent(),
   (state) => {
     const content = state.lastMessage().content;
-    if (typeof content !== "string" || !content.toLowerCase().includes("hello")) {
+    if (
+      typeof content !== "string" ||
+      !content.toLowerCase().includes("hello")
+    ) {
       throw new Error("Agent did not greet properly");
     }
   },
@@ -865,7 +915,9 @@ def verify_agent_asks_for_clarification(state: scenario.ScenarioState) -> None:
 function ensureNoPiiLeaked(state: scenario.ScenarioState) {
   const content = state.lastMessage().content;
   if (typeof content === "string" && content.includes("George")) {
-    throw new Error("Agent should not mention the user's real name in responses");
+    throw new Error(
+      "Agent should not mention the user's real name in responses"
+    );
   }
 }
 
@@ -873,7 +925,9 @@ function verifyAgentAsksForClarification(state: scenario.ScenarioState) {
   const content = state.lastMessage().content;
   if (
     typeof content !== "string" ||
-    !["what", "which", "how", "when", "where"].some(word => content.toLowerCase().includes(word))
+    !["what", "which", "how", "when", "where"].some((word) =>
+      content.toLowerCase().includes(word)
+    )
   ) {
     throw new Error("Agent should ask clarifying questions");
   }
@@ -924,7 +978,10 @@ const betterScript = [
   scenario.agent(), // Let agent respond naturally
   (state) => {
     const content = state.lastMessage().content;
-    if (typeof content !== "string" || !content.toLowerCase().includes("account")) {
+    if (
+      typeof content !== "string" ||
+      !content.toLowerCase().includes("account")
+    ) {
       throw new Error("Agent did not mention account");
     }
   },
@@ -977,9 +1034,17 @@ script=[
 ```typescript [typescript]
 async function llmEvaluator(state: scenario.ScenarioState) {
   // Use LLM to evaluate response quality
-  const conversation = state.messages.slice(-4).map(
-    msg => `${msg.role}: ${typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content)}`
-  ).join("\n");
+  const conversation = state.messages
+    .slice(-4)
+    .map(
+      (msg) =>
+        `${msg.role}: ${
+          typeof msg.content === "string"
+            ? msg.content
+            : JSON.stringify(msg.content)
+        }`
+    )
+    .join("\n");
 
   const evaluationPrompt = `
     Evaluate this customer service conversation:
@@ -1037,8 +1102,11 @@ async function verifyDatabaseUpdate(state: scenario.ScenarioState) {
   // Extract customer ID from conversation
   const messagesText = JSON.stringify(state.messages);
   // This would be actual database check
-  const customerUpdated = await checkCustomerRecordUpdated("extracted_from_conversation");
-  if (!customerUpdated) throw new Error("Agent should have updated customer record");
+  const customerUpdated = await checkCustomerRecordUpdated(
+    "extracted_from_conversation"
+  );
+  if (!customerUpdated)
+    throw new Error("Agent should have updated customer record");
 }
 
 const script = [

@@ -1,3 +1,8 @@
+---
+title: Test Mastra Agents
+description: Test Mastra framework agents. Validate workflows, tool integration, memory, and agent orchestration with simulation-based testing.
+---
+
 import { RefLink } from "../../components/RefLink";
 
 # Mastra Integration [Learn how to integrate Mastra agents with the Scenario testing framework]
@@ -9,17 +14,17 @@ import { RefLink } from "../../components/RefLink";
 Given a Mastra agent with tools and memory:
 
 ```typescript
-import { Agent } from '@mastra/core/agent';
-import { Memory } from '@mastra/memory';
-import { LibSQLStore } from '@mastra/libsql';
+import { Agent } from "@mastra/core/agent";
+import { Memory } from "@mastra/memory";
+import { LibSQLStore } from "@mastra/libsql";
 
 export const weatherAgent = new Agent({
-  name: 'Weather Agent',
-  instructions: 'You are a helpful weather assistant...',
-  model: openai('gpt-4o-mini'),
+  name: "Weather Agent",
+  instructions: "You are a helpful weather assistant...",
+  model: openai("gpt-4o-mini"),
   tools: { weatherTool },
   memory: new Memory({
-    storage: new LibSQLStore({ url: 'file:../mastra.db' }),
+    storage: new LibSQLStore({ url: "file:../mastra.db" }),
   }),
 });
 ```
