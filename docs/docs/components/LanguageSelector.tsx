@@ -25,7 +25,7 @@ export const LanguageSelector = (): ReactElement | null => {
         onChange={(e) =>
           handleLanguageChange(e.target.value as ProgrammingLanguage)
         }
-        className="px-3 py-2 text-sm font-medium bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors cursor-pointer min-w-[120px] pr-8"
+        className="px-3 py-2 text-sm font-medium border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors cursor-pointer min-w-[120px] pr-8"
         style={{
           appearance: "none",
           WebkitAppearance: "none",
@@ -54,13 +54,16 @@ export const LanguageSelector = (): ReactElement | null => {
 };
 
 function buildOptions() {
-  const options: { value: ProgrammingLanguage; label: string }[] = [
+  const options: {
+    value: ProgrammingLanguage;
+    label: string;
+  }[] = [
     { value: "python", label: "Python" },
     { value: "typescript", label: "TypeScript" },
     { value: "go", label: "Go" },
   ];
   return options.map((option) => (
-    <option key={option.value} value={option.value}>
+    <option key={option.value} value={option.value} id={option.value}>
       {option.label}
     </option>
   ));
