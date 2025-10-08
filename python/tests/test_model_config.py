@@ -35,3 +35,29 @@ async def test_user_simulator_agent_uses_modelconfig_api_base():
             mock_completion.call_args.kwargs["api_base"]
             == "https://custom-api-base.example.com"
         )
+
+
+def test_modelconfig_accepts_extra_litellm_params():
+    """ModelConfig accepts arbitrary litellm parameters via extra='allow'."""
+    from openai import OpenAI
+
+    custom_client = MagicMock(spec=OpenAI)
+
+    config = ModelConfig(
+        model="openai/gpt-4",
+        api_base="https://custom.com",
+        headers={"X-Custom-Header": "test-value"},  # type: ignore  # extra param via ConfigDict(extra="allow")
+        timeout=60,  # type: ignore  # extra param via ConfigDict(extra="allow")
+        num_retries=3,  # type: ignore  # extra param via ConfigDict(extra="allow")
+        client=custom_client,  # type: ignore  # extra param via ConfigDict(extra="allow")
+    )
+
+    assert config.model == "openai/gpt-4"
+    assert config.api_base == "https://custom.com"
+
+    # Verify extra params are stored
+    dump = config.model_dump()
+    assert dump["headers"] == {"X-Custom-Header": "test-value"}
+    assert dump["timeout"] == 60
+    assert dump["num_retries"] == 3
+    assert dump["client"] == custom_client

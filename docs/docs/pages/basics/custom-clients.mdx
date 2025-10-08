@@ -1,0 +1,70 @@
+# Custom Clients [Advanced configuration for custom LLM clients and parameters]
+
+For advanced use cases, you can pass custom clients and additional parameters to Scenario's built-in agents.
+
+## Custom Parameters
+
+Pass any `litellm.completion` parameter directly to `UserSimulatorAgent` or `JudgeAgent`:
+
+```python
+import scenario
+
+scenario.JudgeAgent(
+    criteria=["Agent responds helpfully"],
+    model="openai/gpt-4o",
+    headers={"X-Custom-Header": "value"},
+    timeout=60,
+    num_retries=3,
+)
+```
+
+## Custom OpenAI Client
+
+For services like Azure API Gateway, pass a custom `OpenAI` client:
+
+```python
+from openai import OpenAI
+import scenario
+
+custom_client = OpenAI(
+    api_key="your-key",
+    base_url="https://gateway.azure-api.net",
+    default_query={"api-version": "2024-05-01-preview"},
+    default_headers={"X-Gateway-Key": "value"},
+)
+
+result = await scenario.run(
+    name="test with custom client",
+    agents=[
+        my_agent,
+        scenario.UserSimulatorAgent(model="gpt-4o", client=custom_client),
+        scenario.JudgeAgent(
+            criteria=["Agent is helpful"],
+            model="gpt-4o",
+            client=custom_client,
+        ),
+    ],
+    # ... rest of config
+)
+```
+
+See [examples/test_azure_api_gateway.py](https://github.com/langwatch/scenario/blob/main/python/examples/test_azure_api_gateway.py) for a complete example.
+
+## Global Configuration
+
+You can also set custom parameters globally via `ModelConfig`:
+
+```python
+from scenario import ModelConfig
+import scenario
+
+scenario.configure(
+    default_model=ModelConfig(
+        model="openai/gpt-4o",
+        timeout=60,
+        headers={"X-Custom-Header": "value"},
+    )
+)
+```
+
+Agent-specific parameters override global defaults.

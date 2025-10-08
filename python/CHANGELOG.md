@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.12](https://github.com/langwatch/scenario/compare/python/v0.7.11...python/v0.7.12) (2025-10-08)
+
+
+### Features
+
+* allow extras for model config ([#138](https://github.com/langwatch/scenario/issues/138)) ([3f23415](https://github.com/langwatch/scenario/commit/3f2341574ccfe05f9b18e5110fcea9a1817033e5))
+
 ## [0.7.11](https://github.com/langwatch/scenario/compare/python/v0.7.10...python/v0.7.11) (2025-09-15)
 
 
