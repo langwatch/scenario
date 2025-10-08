@@ -4,6 +4,7 @@ description: Test AI agents that return complete JSON responses via HTTP POST. M
 ---
 
 import { RefLink } from "../../../components/RefLink";
+import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
 import JsonTestExampleTS from "../../_generated/examples/testing-remote-agents-json.test.mdx";
 import JsonTestExamplePy from "../../_generated/examples/test_testing_remote_agents_json.mdx";
 
@@ -27,11 +28,14 @@ This example demonstrates:
 - Running a full scenario test with user simulator and judge
 - Proper server setup and teardown
 
-:::code-group
-
-<JsonTestExampleTS data-title="TypeScript" />
-<JsonTestExamplePy data-title="Python" />
-:::
+<CustomCodeGroup>
+  <CodeTab title="TypeScript">
+    <JsonTestExampleTS />
+  </CodeTab>
+  <CodeTab title="Python">
+    <JsonTestExamplePy />
+  </CodeTab>
+</CustomCodeGroup>
 
 ## Key Points
 

@@ -7,6 +7,22 @@ import type { ReactNode } from "react";
  * A tabbed code group component that renders multiple code examples in tabs.
  * Uses Radix UI tabs with Vocs styling classes for consistent appearance.
  *
+ * Note: If you are using imported mdx files, you must use the CustomCodeGroup
+ * component.
+ *
+ * Otherwise, you can use the :::code-group::: directive.
+ *
+ * Usage:
+ * ```typescript
+ * <CustomCodeGroup>
+ *   <CodeTab title="TypeScript">
+ *     <SSETestExampleTS />
+ *   </CodeTab>
+ *   <CodeTab title="Python">
+ *     <SSETestExamplePy />
+ *   </CodeTab>
+ * </CustomCodeGroup>
+ * ```
  * @param props - The props for the CustomCodeGroup component
  * @param props.children - CodeTab components to render as tabs
  * @returns A tabbed interface for code examples

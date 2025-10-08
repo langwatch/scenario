@@ -3,6 +3,9 @@ import { GithubStars } from "./docs/components/GithubStars";
 import { LanguageSelectorPortal } from "./docs/components/LanguageSelectorPortal";
 import tailwindcss from "@tailwindcss/vite";
 
+const baseUrl = process.env.BASE_URL ?? "http://localhost:5173";
+const basePath = process.env.BASE_PATH ?? "";
+
 export default defineConfig({
   title: "Scenario",
   description: "Agent Testing Framework",
@@ -239,21 +242,17 @@ export default defineConfig({
       items: [
         {
           text: "Python",
-          link: `${process.env.BASE_URL ?? "http://localhost:5173"}${
-            process.env.BASE_PATH ?? ""
-          }/reference/python/scenario/index.html`,
+          link: `${baseUrl}${basePath}/reference/python/scenario/index.html`,
         },
         {
           text: "TypeScript",
-          link: `${process.env.BASE_URL ?? "http://localhost:5173"}${
-            process.env.BASE_PATH ?? ""
-          }/reference/javascript/scenario/index.html`,
+          link: `${baseUrl}${basePath}/reference/javascript/scenario/index.html`,
         },
       ],
     },
   ],
-  basePath: process.env.BASE_PATH,
-  baseUrl: process.env.BASE_URL,
+  basePath,
+  baseUrl,
   topNav: [
     {
       element: LanguageSelectorPortal(),

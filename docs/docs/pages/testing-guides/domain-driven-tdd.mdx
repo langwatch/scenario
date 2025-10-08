@@ -30,7 +30,7 @@ it("should book a flight", async () => {
       scenario.userSimulatorAgent(), // Simulates user
       httpAgentAdapter, // Doesn't exist yet! This will fail first.
       scenario.judgeAgent({
-        // See /basics/judges for judge configuration
+        // See /basics/concepts#the-judge-agent for judge configuration
         criteria: ["Agent should confirm booking with flight details"],
       }),
     ],
@@ -123,4 +123,4 @@ Let scenarios drive what needs exists, don't design upfront.
 - [Writing Scenarios](/basics/writing-scenarios) - Crafting effective test scenarios
 - [Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) - Overall testing strategy
 - [Agent Integration](/agent-integration) - Adapter patterns for different frameworks
-- [Judges](/basics/judges) - Configuring evaluation criteria
+- [Judge Agent](/basics/concepts#the-judge-agent) - Configuring evaluation criteria

@@ -6,6 +6,7 @@
   "scripts": {
     "generate:mdx-examples": "node scripts/generate-mdx-examples.js",
     "dev": "pnpm generate:mdx-examples && vocs dev",
+    "prebuild": "pnpm generate:mdx-examples",
     "build": "vocs build",
     "preview": "vocs preview",
     "build:preview": "pnpm build && vocs preview"
