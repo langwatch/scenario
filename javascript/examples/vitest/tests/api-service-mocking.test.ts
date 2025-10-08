@@ -4,19 +4,38 @@ import { generateText, tool } from "ai";
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod/v4";
 
-// Mock the fetch function that tools will use
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+/**
+ * API Service Mocking Example (Level 2)
+ *
+ * This example demonstrates Level 2 mocking: mocking HTTP calls within tools.
+ * Unlike Level 1 (mocking the tool function), here we mock at the service layer.
+ *
+ * When to use this:
+ * - You want to test the tool's implementation (not just the agent's tool usage)
+ * - You need to simulate different API responses (errors, timeouts, etc.)
+ * - You're testing integration with third-party services
+ *
+ * Key concepts:
+ * - Mock the service/API client within the tool
+ * - Tool implementation stays real - only the service call is mocked
+ * - Tests both agent reasoning AND tool implementation
+ */
 
-// Real tool implementation that makes HTTP calls
+// Mock an API client that tools will use
+const apiClient = {
+  getUser: vi.fn(),
+};
+
+// Real tool implementation - uses the API client
+// We'll mock the API client, not the tool itself
 const fetchUserDataTool = tool({
   description: "Fetch user data from external API",
   inputSchema: z.object({
     userId: z.string().describe("The user ID to fetch data for"),
   }),
   execute: async ({ userId }) => {
-    const response = await fetch(`https://api.example.com/users/${userId}`);
-    const data = await response.json();
+    // This calls our API client which we'll mock
+    const data = await apiClient.getUser(userId);
     return data;
   },
 });
@@ -35,31 +54,26 @@ const userDataAgent: AgentAdapter = {
 };
 
 describe("API Service Mocking", () => {
-  it("should mock HTTP calls within tools", async () => {
-    // Mock the actual HTTP call
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          id: "123",
-          name: "Alice",
-          email: "alice@example.com",
-        }),
+  it("should mock API calls within tools", async () => {
+    // Mock the API client's response
+    // This simulates what the real API would return
+    apiClient.getUser.mockResolvedValue({
+      id: "123",
+      name: "Alice",
+      email: "alice@example.com",
     });
 
     const result = await scenario.run({
       name: "api service test",
-      description: "Test tool's HTTP integration",
+      description: "Test tool's API integration",
       agents: [userDataAgent, scenario.userSimulatorAgent()],
       script: [
         scenario.user("Get user data for ID 123"),
         scenario.agent(),
         (state) => {
-          // Verify the HTTP call was made correctly
-          expect(mockFetch).toHaveBeenCalledWith(
-            "https://api.example.com/users/123"
-          );
+          // Verify the API client was called with correct ID
+          // This tests both the agent AND the tool implementation
+          expect(apiClient.getUser).toHaveBeenCalledWith("123");
         },
         scenario.succeed(),
       ],

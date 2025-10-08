@@ -37,7 +37,7 @@ export default withScenario(
       // (Optional) Use Scenario's custom reporter for better test output
       // Provides detailed information about agent interactions,
       // conversation flows, and test results
-      // reporters: ["default", new VitestReporter()],
+      reporters: ["default", new VitestReporter()],
       watch: false,
     },
   })
