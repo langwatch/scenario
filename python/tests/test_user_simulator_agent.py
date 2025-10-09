@@ -66,3 +66,53 @@ async def test_user_simulator_agent_merges_global_config_and_agent_params():
         context_scenario.reset(token)
         # Cleanup
         ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_user_simulator_agent_with_string_default_model_config():
+    """UserSimulatorAgent should initialize _extra_params when default_model is a string."""
+    # Setup global config with string default_model
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+
+    user_sim = UserSimulatorAgent(
+        temperature=0.7,
+    )
+
+    # Create mock input
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Test scenario"
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[],
+        new_messages=[],
+        scenario_state=mock_scenario_state,
+    )
+
+    # Mock litellm.completion response
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = "test user message"
+
+    # Mock scenario context for cache decorator
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    try:
+        with patch(
+            "scenario.user_simulator_agent.litellm.completion",
+            return_value=mock_response,
+        ) as mock_completion:
+            # This should not raise AttributeError: 'UserSimulatorAgent' object has no attribute '_extra_params'
+            await user_sim.call(agent_input)
+
+            assert mock_completion.called
+            call_kwargs = mock_completion.call_args.kwargs
+            assert call_kwargs["model"] == "openai/gpt-4"
+            assert call_kwargs["temperature"] == 0.7
+    finally:
+        context_scenario.reset(token)
+        # Cleanup
+        ScenarioConfig.default_config = None
