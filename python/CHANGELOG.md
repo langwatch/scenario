@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.13](https://github.com/langwatch/scenario/compare/python/v0.7.12...python/v0.7.13) (2025-10-09)
+
+
+### Bug Fixes
+
+* extra params bug ([#143](https://github.com/langwatch/scenario/issues/143)) ([d9fb441](https://github.com/langwatch/scenario/commit/d9fb441e5bb3d9bff9bbda44c4e258e552e01c15))
+* update mocking examples ([#133](https://github.com/langwatch/scenario/issues/133)) ([95cb4e0](https://github.com/langwatch/scenario/commit/95cb4e09ff4a8b8ac895486a9f0f0f4345771054))
+
+
+### Miscellaneous
+
+* add black box testing examples ([#137](https://github.com/langwatch/scenario/issues/137)) ([87fec91](https://github.com/langwatch/scenario/commit/87fec9114b17f5c4b27f054e7adc074de8b761f3))
+
 ## [0.7.12](https://github.com/langwatch/scenario/compare/python/v0.7.11...python/v0.7.12) (2025-10-08)
 
 
