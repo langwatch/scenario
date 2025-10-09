@@ -55,7 +55,7 @@ jobs:
         run: uv run pyright .
         working-directory: python
 
-      - name: Run examples
+      - name: Test (Examples)
         run: uv run pytest examples/ -v --tb=short
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
