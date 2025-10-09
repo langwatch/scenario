@@ -5,9 +5,32 @@ This module provides utilities for resolving model configuration parameters
 by merging explicit arguments with global default configurations.
 """
 
+from dataclasses import dataclass
 from typing import Optional
 
 from scenario.config import ModelConfig, ScenarioConfig
+
+
+@dataclass
+class ResolvedModelConfig:
+    """
+    Resolved model configuration with all parameters merged from explicit args and defaults.
+
+    Attributes:
+        model: The resolved model identifier
+        api_base: The resolved API base URL (if any)
+        api_key: The resolved API key (if any)
+        temperature: The resolved temperature value (if any)
+        max_tokens: The resolved max tokens value (if any)
+        extra_params: Additional parameters for the model provider
+    """
+
+    model: str
+    api_base: Optional[str]
+    api_key: Optional[str]
+    temperature: Optional[float]
+    max_tokens: Optional[int]
+    extra_params: dict
 
 
 def resolve_model_config(
@@ -18,7 +41,7 @@ def resolve_model_config(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     **extra_kwargs,
-) -> tuple[str, Optional[str], Optional[str], Optional[float], Optional[int], dict]:
+) -> ResolvedModelConfig:
     """
     Resolve model configuration by merging explicit params with global config.
 
@@ -37,8 +60,7 @@ def resolve_model_config(
                         (e.g., timeout, headers, client, etc.)
 
     Returns:
-        Tuple of (model, api_base, api_key, temperature, max_tokens, extra_params)
-        with values resolved from explicit params and global config.
+        ResolvedModelConfig with all values resolved from explicit params and global config.
 
     Raises:
         ValueError: If no model is configured either explicitly or in global config
@@ -55,12 +77,19 @@ def resolve_model_config(
         )
 
         # Resolve with overrides
-        resolved = resolve_model_config(
+        config = resolve_model_config(
             model=None,  # Use config default
             temperature=0.0,  # Override (important: 0.0 is valid!)
             timeout=60  # Override extra param
         )
-        # Result: ("openai/gpt-4", None, None, 0.0, None, {"timeout": 60})
+        # Result: ResolvedModelConfig(
+        #   model="openai/gpt-4",
+        #   api_base=None,
+        #   api_key=None,
+        #   temperature=0.0,
+        #   max_tokens=None,
+        #   extra_params={"timeout": 60}
+        # )
         ```
 
     Note:
@@ -110,11 +139,11 @@ def resolve_model_config(
             "Model must be configured either explicitly or in ScenarioConfig.default_config"
         )
 
-    return (
-        resolved_model,
-        resolved_api_base,
-        resolved_api_key,
-        resolved_temp,
-        resolved_max_tokens,
-        resolved_extra,
+    return ResolvedModelConfig(
+        model=resolved_model,
+        api_base=resolved_api_base,
+        api_key=resolved_api_key,
+        temperature=resolved_temp,
+        max_tokens=resolved_max_tokens,
+        extra_params=resolved_extra,
     )

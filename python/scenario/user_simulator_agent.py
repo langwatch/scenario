@@ -187,14 +187,7 @@ class UserSimulatorAgent(AgentAdapter):
         self.interrupt_probability = interrupt_probability
 
         try:
-            (
-                self.model,
-                self.api_base,
-                self.api_key,
-                self.temperature,
-                self.max_tokens,
-                self._extra_params,
-            ) = resolve_model_config(
+            config = resolve_model_config(
                 model=model,
                 api_base=api_base,
                 api_key=api_key,
@@ -202,6 +195,12 @@ class UserSimulatorAgent(AgentAdapter):
                 max_tokens=max_tokens,
                 **extra_params,
             )
+            self.model = config.model
+            self.api_base = config.api_base
+            self.api_key = config.api_key
+            self.temperature = config.temperature
+            self.max_tokens = config.max_tokens
+            self._extra_params = config.extra_params
         except ValueError:
             raise Exception(agent_not_configured_error_message("UserSimulatorAgent"))
 
