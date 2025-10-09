@@ -39,6 +39,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: docs
 
+      - name: Lint
+        run: pnpm eslint .
+
       - name: Build
         run: pnpm run build
         working-directory: docs

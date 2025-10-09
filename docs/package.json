@@ -9,7 +9,8 @@
     "prebuild": "pnpm generate:mdx-examples",
     "build": "vocs build",
     "preview": "vocs preview",
-    "build:preview": "pnpm build && vocs preview"
+    "build:preview": "pnpm build && vocs preview",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@radix-ui/react-tabs": "^1.1.1",
