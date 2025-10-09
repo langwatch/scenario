@@ -105,6 +105,7 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
  * @param props - The props for the CodeTab component
  * @param props.title - The title of the code tab
  * @param props.children - The children of the code tab
+ * @param props.language - The language of the code tab
  * @returns The children of the code tab
  */
 export const CodeTab = (props: CodeTabProps) => props.children;
