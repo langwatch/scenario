@@ -19,7 +19,7 @@ class LovableAgent:
 
     def __init__(self, template_path: str):
         agent = Agent(
-            "anthropic:claude-3-5-sonnet-latest",
+            "openai:gpt-4.1",
             system_prompt=f"""
         You are a coding assistant specialized in building whole new websites from scratch.
 

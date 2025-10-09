@@ -4,7 +4,7 @@ from examples.lovable_clone.lovable_agent import LovableAgent
 import scenario
 
 scenario.configure(
-    default_model="anthropic/claude-3-5-sonnet-latest",
+    default_model="openai/gpt-4.1",
 )
 
 
