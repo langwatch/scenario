@@ -65,7 +65,7 @@ def check_mock_was_called_correctly(mock_llm: MockLLM) -> None:
     assert mock_llm.last_messages is not None, "Mock was not called"
     assert mock_llm.call_count == 1
     assert mock_llm.last_model == "openai/gpt-4o-mini"
-    assert len(mock_llm.last_messages) == 1
+    assert len(mock_llm.last_messages) == 2
     assert mock_llm.last_messages[0]["role"] == "user"
     assert "Hello there!" in mock_llm.last_messages[0]["content"]
 
