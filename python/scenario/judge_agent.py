@@ -181,6 +181,7 @@ class JudgeAgent(AgentAdapter):
             ScenarioConfig.default_config.default_model, str
         ):
             self.model = model or ScenarioConfig.default_config.default_model
+            self._extra_params = extra_params
         elif ScenarioConfig.default_config is not None and isinstance(
             ScenarioConfig.default_config.default_model, ModelConfig
         ):
