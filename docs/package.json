@@ -10,9 +10,7 @@
     "build": "vocs build",
     "preview": "vocs preview",
     "build:preview": "pnpm build && vocs preview",
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "lint:mdx": "node scripts/lint-mdx.js"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@radix-ui/react-tabs": "^1.1.1",

@@ -2,9 +2,10 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { useMemo, type ReactNode } from "react";
 import { useLanguageStore } from "../stores/languageStore";
 import type { ProgrammingLanguage } from "../stores/types";
+import { LANGUAGE_TITLE_MAP } from "../constants";
 
 interface CodeTabProps {
-  title: string;
+  title?: string;
   children: ReactNode;
   language: ProgrammingLanguage;
 }
@@ -42,11 +43,13 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
 
   const tabs = useMemo(
     () =>
-      childArray.map((child: React.ReactElement<CodeTabProps>) => ({
-        title: child.props.title,
-        content: child.props.children,
-        language: child.props.language,
-      })),
+      childArray
+        .map((child: React.ReactElement<CodeTabProps>) => ({
+          title: child.props.title ?? LANGUAGE_TITLE_MAP[child.props.language],
+          content: child.props.children,
+          language: child.props.language,
+        }))
+        .sort((a, b) => a.language.localeCompare(b.language)),
     [childArray]
   );
 
@@ -103,7 +106,7 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
  * to makes sure we have a consistent interface for the code tabs.
  *
  * @param props - The props for the CodeTab component
- * @param props.title - The title of the code tab
+ * @param props.title - (Optional) The title of the code tab. Defaults to the language.
  * @param props.children - The children of the code tab
  * @param props.language - The language of the code tab
  * @returns The children of the code tab

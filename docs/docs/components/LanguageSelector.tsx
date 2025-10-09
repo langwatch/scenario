@@ -1,6 +1,7 @@
 import { type ReactElement } from "react";
 import { useLanguageStore } from "../stores/languageStore";
 import type { ProgrammingLanguage } from "../stores/types";
+import { LANGUAGE_TITLE_MAP } from "../constants";
 
 /**
  * Language selector dropdown component
@@ -54,17 +55,9 @@ export const LanguageSelector = (): ReactElement | null => {
 };
 
 function buildOptions() {
-  const options: {
-    value: ProgrammingLanguage;
-    label: string;
-  }[] = [
-    { value: "python", label: "Python" },
-    { value: "typescript", label: "TypeScript" },
-    { value: "go", label: "Go" },
-  ];
-  return options.map((option) => (
-    <option key={option.value} value={option.value} id={option.value}>
-      {option.label}
+  return Object.entries(LANGUAGE_TITLE_MAP).map((option) => (
+    <option key={option[0]} value={option[0]} id={option[0]}>
+      {option[1]}
     </option>
   ));
 }
