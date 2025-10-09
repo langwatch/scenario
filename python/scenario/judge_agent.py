@@ -19,6 +19,7 @@ from litellm.files.main import ModelResponse
 from scenario.cache import scenario_cache
 from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
+from scenario.config.model_config_resolver import resolve_model_config
 
 from ._error_messages import agent_not_configured_error_message
 from ._judge import JudgeUtils, judge_span_digest_formatter
@@ -222,7 +223,7 @@ class JudgeAgent(AgentAdapter):
     model: str
     api_base: Optional[str]
     api_key: Optional[str]
-    temperature: float
+    temperature: Optional[float]
     max_tokens: Optional[int]
     criteria: List[str]
     system_prompt: Optional[str]
@@ -238,7 +239,7 @@ class JudgeAgent(AgentAdapter):
         model: Optional[str] = None,
         api_base: Optional[str] = None,
         api_key: Optional[str] = None,
-        temperature: float = 0.0,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         span_collector: Optional[JudgeSpanCollector] = None,
@@ -305,10 +306,6 @@ class JudgeAgent(AgentAdapter):
             experimental and may not be supported in future versions.
         """
         self.criteria = criteria or []
-        self.api_base = api_base
-        self.api_key = api_key
-        self.temperature = temperature
-        self.max_tokens = max_tokens
         self.system_prompt = system_prompt
         self._span_collector = span_collector or judge_span_collector
         self._token_threshold = token_threshold
@@ -319,45 +316,23 @@ class JudgeAgent(AgentAdapter):
         self.include_timeline = include_timeline
         self.include_traces = include_traces
 
-        if model:
-            self.model = model
-
-        if ScenarioConfig.default_config is not None and isinstance(
-            ScenarioConfig.default_config.default_model, str
-        ):
-            self.model = model or ScenarioConfig.default_config.default_model
-            self._extra_params = extra_params
-        elif ScenarioConfig.default_config is not None and isinstance(
-            ScenarioConfig.default_config.default_model, ModelConfig
-        ):
-            self.model = model or ScenarioConfig.default_config.default_model.model
-            self.api_base = (
-                api_base or ScenarioConfig.default_config.default_model.api_base
+        try:
+            (
+                self.model,
+                self.api_base,
+                self.api_key,
+                self.temperature,
+                self.max_tokens,
+                self._extra_params,
+            ) = resolve_model_config(
+                model=model,
+                api_base=api_base,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **extra_params,
             )
-            self.api_key = (
-                api_key or ScenarioConfig.default_config.default_model.api_key
-            )
-            self.temperature = (
-                temperature or ScenarioConfig.default_config.default_model.temperature
-            )
-            self.max_tokens = (
-                max_tokens or ScenarioConfig.default_config.default_model.max_tokens
-            )
-            # Extract extra params from ModelConfig
-            config_dict = ScenarioConfig.default_config.default_model.model_dump(
-                exclude_none=True
-            )
-            config_dict.pop("model", None)
-            config_dict.pop("api_base", None)
-            config_dict.pop("api_key", None)
-            config_dict.pop("temperature", None)
-            config_dict.pop("max_tokens", None)
-            # Merge: config extras < agent extra_params
-            self._extra_params = {**config_dict, **extra_params}
-        else:
-            self._extra_params = extra_params
-
-        if not hasattr(self, "model"):
+        except ValueError:
             raise Exception(agent_not_configured_error_message("JudgeAgent"))
 
     # --------------------------------------------- voice auto-detection (§4.3)

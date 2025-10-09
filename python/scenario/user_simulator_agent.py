@@ -19,6 +19,7 @@ from scenario.cache import scenario_cache
 from scenario.agent_adapter import AgentAdapter
 from scenario._utils.utils import reverse_roles
 from scenario.config import ModelConfig, ScenarioConfig
+from scenario.config.model_config_resolver import resolve_model_config
 
 from ._error_messages import agent_not_configured_error_message
 from .types import AgentInput, AgentReturnTypes, AgentRole
@@ -113,7 +114,7 @@ class UserSimulatorAgent(AgentAdapter):
     model: str
     api_base: Optional[str]
     api_key: Optional[str]
-    temperature: float
+    temperature: Optional[float]
     max_tokens: Optional[int]
     system_prompt: Optional[str]
     _extra_params: dict
@@ -174,12 +175,6 @@ class UserSimulatorAgent(AgentAdapter):
             (e.g., headers, timeout, client) for specialized configurations. These are
             experimental and may not be supported in future versions.
         """
-        _temp_was_set = temperature is not None
-
-        self.api_base = api_base
-        self.api_key = api_key
-        self.temperature = temperature if _temp_was_set else 0.0
-        self.max_tokens = max_tokens
         self.system_prompt = system_prompt
         # Voice support (§4.2): when voice is set, generated text is run through
         # TTS (cache key = (text, voice) per locked decision) and audio_effects
@@ -191,46 +186,23 @@ class UserSimulatorAgent(AgentAdapter):
             raise ValueError("interrupt_probability must be in [0, 1]")
         self.interrupt_probability = interrupt_probability
 
-        if model:
-            self.model = model
-
-        if ScenarioConfig.default_config is not None and isinstance(
-            ScenarioConfig.default_config.default_model, str
-        ):
-            self.model = model or ScenarioConfig.default_config.default_model
-            self._extra_params = extra_params
-        elif ScenarioConfig.default_config is not None and isinstance(
-            ScenarioConfig.default_config.default_model, ModelConfig
-        ):
-            self.model = model or ScenarioConfig.default_config.default_model.model
-            self.api_base = (
-                api_base or ScenarioConfig.default_config.default_model.api_base
+        try:
+            (
+                self.model,
+                self.api_base,
+                self.api_key,
+                self.temperature,
+                self.max_tokens,
+                self._extra_params,
+            ) = resolve_model_config(
+                model=model,
+                api_base=api_base,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **extra_params,
             )
-            self.api_key = (
-                api_key or ScenarioConfig.default_config.default_model.api_key
-            )
-            if not _temp_was_set:
-                self.temperature = (
-                    ScenarioConfig.default_config.default_model.temperature or 0.0
-                )
-            self.max_tokens = (
-                max_tokens or ScenarioConfig.default_config.default_model.max_tokens
-            )
-            # Extract extra params from ModelConfig
-            config_dict = ScenarioConfig.default_config.default_model.model_dump(
-                exclude_none=True
-            )
-            config_dict.pop("model", None)
-            config_dict.pop("api_base", None)
-            config_dict.pop("api_key", None)
-            config_dict.pop("temperature", None)
-            config_dict.pop("max_tokens", None)
-            # Merge: config extras < agent extra_params
-            self._extra_params = {**config_dict, **extra_params}
-        else:
-            self._extra_params = extra_params
-
-        if not hasattr(self, "model"):
+        except ValueError:
             raise Exception(agent_not_configured_error_message("UserSimulatorAgent"))
 
     async def call(
