@@ -33,10 +33,8 @@ export default defineConfig([
     processor: mdx.createRemarkProcessor(),
     rules: {
       ...mdx.flat.rules,
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": "off",
     },
-  },
-  {
-    files: ["**/*.mdx/*.{js,ts,jsx,tsx}"], // Code blocks inside MDX
-    ...tseslint.configs.recommended,
   },
 ]);

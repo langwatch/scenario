@@ -77,10 +77,10 @@ Mock tool execution functions to test your agent's tool usage behavior. This is 
 #### API Data Fetching Tools
 
 <CustomCodeGroup>
-  <CodeTab title="typescript" fll>
+  <CodeTab title="typescript" language="typescript">
     <SimpleToolMockingTS />
   </CodeTab>
-  <CodeTab title="python">
+  <CodeTab title="python" language="python">
     <SimpleToolMockingPy />
   </CodeTab>
 </CustomCodeGroup>
@@ -88,10 +88,10 @@ Mock tool execution functions to test your agent's tool usage behavior. This is 
 #### Database Operations Tools
 
 <CustomCodeGroup>
-  <CodeTab title="typescript">
+  <CodeTab title="typescript" language="typescript">
     <DatabaseToolMockingTS />
   </CodeTab>
-  <CodeTab title="python">
+  <CodeTab title="python" language="python">
     <DatabaseToolMockingPy />
   </CodeTab>
 </CustomCodeGroup>
@@ -101,10 +101,10 @@ Mock tool execution functions to test your agent's tool usage behavior. This is 
 Mock HTTP calls, database connections, and external services within your tools to test the interface between your agent system and external dependencies.
 
 <CustomCodeGroup>
-  <CodeTab title="typescript">
+  <CodeTab title="typescript" language="typescript">
     <ApiServiceMockingTS />
   </CodeTab>
-  <CodeTab title="python">
+  <CodeTab title="python" language="python">
     <ApiServiceMockingPy />
   </CodeTab>
 </CustomCodeGroup>
@@ -120,10 +120,10 @@ For more advanced HTTP mocking, you can use network-level interception libraries
 Mock tool failures to test how your agent handles errors, timeouts, and edge cases. You can simulate failures at both the tool level and the service level.
 
 <CustomCodeGroup>
-  <CodeTab title="typescript">
+  <CodeTab title="typescript" language="typescript">
     <ToolFailureSimulationTS />
   </CodeTab>
-  <CodeTab title="python">
+  <CodeTab title="python" language="python">
     <ToolFailureSimulationPy />
   </CodeTab>
 </CustomCodeGroup>
@@ -133,10 +133,10 @@ Mock tool failures to test how your agent handles errors, timeouts, and edge cas
 For testing agent flow without actual LLM calls, you can mock the model provider APIs. However, Scenario's [caching system](../basics/cache) is often a better solution for deterministic, cost-effective testing.
 
 <CustomCodeGroup>
-  <CodeTab title="typescript">
+  <CodeTab title="typescript" language="typescript">
     <LlmProviderMockingTS />
   </CodeTab>
-  <CodeTab title="python">
+  <CodeTab title="python" language="python">
     <LlmProviderMockingPy />
   </CodeTab>
 </CustomCodeGroup>

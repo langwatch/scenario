@@ -41,6 +41,7 @@ jobs:
 
       - name: Lint
         run: pnpm eslint .
+        working-directory: docs
 
       - name: Build
         run: pnpm run build
