@@ -26,54 +26,38 @@ export function CollapsibleCodeGroup({
   return (
     <div className="relative">
       <div
+        className="overflow-auto"
         style={{
           maxHeight: isExpanded ? "none" : `${defaultHeight}px`,
-          overflow: "hidden",
-          position: "relative",
         }}
       >
         <CustomCodeGroup>{children}</CustomCodeGroup>
         {!isExpanded && (
           <div
+            className="absolute bottom-0 left-0 right-0 h-[120px] pointer-events-none"
             style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: "120px",
               background:
                 "linear-gradient(to bottom, transparent, var(--vocs-color_background) 70%)",
-              pointerEvents: "none",
             }}
           />
         )}
       </div>
       <button
         onClick={() => setIsExpanded(!isExpanded)}
+        className={`
+          relative z-10 px-4 py-2 rounded-md cursor-pointer
+          text-sm font-medium transition-all duration-200
+          ${isExpanded ? "mt-4" : "-mt-2"}
+          hover:bg-[var(--vocs-color_background3)]
+        `}
         style={{
-          marginTop: isExpanded ? "1rem" : "-0.5rem",
-          padding: "0.5rem 1rem",
           background: "var(--vocs-color_background2)",
           border: "1px solid var(--vocs-color_border)",
-          borderRadius: "0.375rem",
-          cursor: "pointer",
-          fontSize: "0.875rem",
-          fontWeight: 500,
           color: "var(--vocs-color_text)",
-          transition: "all 0.2s",
-          position: "relative",
-          zIndex: 10,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--vocs-color_background3)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "var(--vocs-color_background2)";
         }}
       >
-        {isExpanded ? "Show less ▲" : "Show more ▼"}
+        {isExpanded ? "Collapse ▲" : "Expand ▼"}
       </button>
     </div>
   );
 }
-

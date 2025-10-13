@@ -192,7 +192,7 @@ class OpenAiVoiceAgent(scenario.AgentAdapter):
         else:
             raise Exception(f"{self.__class__.__name__} failed to generate a response")
 
-    def _create_audio_message(self, audio_data: str) -> dict[str, Any]:
+    def _create_audio_message(self, audio_data: str) -> ChatCompletionMessageParam:
         """
         Create a properly formatted audio message for the conversation
 
@@ -207,7 +207,7 @@ class OpenAiVoiceAgent(scenario.AgentAdapter):
             else "assistant"
         )
 
-        return {
+        return {  # type: ignore[return-value]  # Custom audio message format with 'file' type extends standard OpenAI message structure
             "role": role,
             "content": [
                 {"type": "text", "text": ""},

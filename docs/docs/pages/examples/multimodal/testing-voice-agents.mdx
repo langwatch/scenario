@@ -9,6 +9,7 @@ import AudioToTextExample from "../../_generated/examples/multimodal-audio-to-te
 import AudioToAudioExample from "../../_generated/examples/multimodal-audio-to-audio.test.mdx";
 import VoiceToVoiceExample from "../../_generated/examples/multimodal-voice-to-voice-conversation.test.mdx";
 import VoiceToVoiceExamplePython from "../../_generated/examples/test_voice_to_voice_conversation.mdx";
+import VoiceToVoiceExampleJavaScript from "../../_generated/examples/multimodal-voice-to-voice-conversation.test.mdx";
 
 # Testing Voice Agents [Evaluate your voice agent with Scenario]
 
@@ -78,22 +79,31 @@ uv pip install scenario-sdk openai
 </CodeTab>
 </CustomCodeGroup>
 
-## Code Walk-through
+## Code Walk-throughs
 
-<CollapsibleCodeGroup defaultHeight={600}>
-  <CodeTab title="audio ➜ text (typescript)" language="typescript">
+### Audio ➜ Text
+
+<CollapsibleCodeGroup defaultHeight={400}>
+  <CodeTab language="typescript">
     <AudioToTextExample />
   </CodeTab>
-  <CodeTab title="audio ➜ audio (typescript)" language="typescript">
+</CollapsibleCodeGroup>
+
+### Audio ➜ Audio
+
+<CollapsibleCodeGroup defaultHeight={400}>
+  <CodeTab language="typescript">
     <AudioToAudioExample />
   </CodeTab>
-  <CodeTab
-    title="voice-to-voice conversation (typescript)"
-    language="typescript"
-  >
+</CollapsibleCodeGroup>
+
+### Voice-to-Voice Conversation
+
+<CollapsibleCodeGroup defaultHeight={600}>
+  <CodeTab language="typescript">
     <VoiceToVoiceExample />
   </CodeTab>
-  <CodeTab title="voice-to-voice conversation (python)" language="python">
+  <CodeTab language="python">
     <VoiceToVoiceExamplePython />
   </CodeTab>
 </CollapsibleCodeGroup>

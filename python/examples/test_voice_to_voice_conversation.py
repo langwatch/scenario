@@ -17,6 +17,7 @@ This showcases:
 """
 
 import os
+from typing import ClassVar
 import pytest
 import scenario
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole
@@ -30,7 +31,7 @@ class MyAgent(OpenAiVoiceAgent):
     Uses "echo" voice for a distinct sound
     """
 
-    role: AgentRole = AgentRole.AGENT
+    role: ClassVar[AgentRole] = AgentRole.AGENT
 
     def __init__(self):
         super().__init__(
@@ -54,7 +55,7 @@ class AudioUserSimulatorAgent(OpenAiVoiceAgent):
     - Uses "nova" voice to differentiate from main agent
     """
 
-    role: AgentRole = AgentRole.USER
+    role: ClassVar[AgentRole] = AgentRole.USER
 
     def __init__(self):
         super().__init__(
