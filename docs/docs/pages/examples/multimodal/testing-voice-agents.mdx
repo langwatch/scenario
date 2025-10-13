@@ -4,9 +4,11 @@ description: Test voice-enabled AI agents with audio fixtures. Validate speech-t
 ---
 
 import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
+import { CollapsibleCodeGroup } from "../../../components/CollapsibleCodeGroup";
 import AudioToTextExample from "../../_generated/examples/multimodal-audio-to-text.test.mdx";
 import AudioToAudioExample from "../../_generated/examples/multimodal-audio-to-audio.test.mdx";
 import VoiceToVoiceExample from "../../_generated/examples/multimodal-voice-to-voice-conversation.test.mdx";
+import VoiceToVoiceExamplePython from "../../_generated/examples/test_voice_to_voice_conversation.mdx";
 
 # Testing Voice Agents [Evaluate your voice agent with Scenario]
 
@@ -45,7 +47,10 @@ see below._
 
 ## Prerequisites & Setup
 
-Before running the examples you’ll need a couple of things in place:
+Before running the examples you'll need a couple of things in place:
+
+<CustomCodeGroup>
+<CodeTab language="typescript">
 
 1. **Node.js ≥ 18** – the OpenAI `gpt-4o` voice model uses modern `fetch`.
 2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
@@ -54,9 +59,28 @@ Before running the examples you’ll need a couple of things in place:
 export OPENAI_API_KEY="sk-…"
 ```
 
+</CodeTab>
+<CodeTab language="python">
+
+1. **Python ≥ 3.10** – required for modern async/await and type hints.
+2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
+
+```bash
+export OPENAI_API_KEY="sk-…"
+```
+
+3. Install dependencies using `uv`:
+
+```bash
+uv pip install scenario-sdk openai
+```
+
+</CodeTab>
+</CustomCodeGroup>
+
 ## Code Walk-through
 
-<CustomCodeGroup>
+<CollapsibleCodeGroup defaultHeight={600}>
   <CodeTab title="audio ➜ text (typescript)" language="typescript">
     <AudioToTextExample />
   </CodeTab>
@@ -69,7 +93,10 @@ export OPENAI_API_KEY="sk-…"
   >
     <VoiceToVoiceExample />
   </CodeTab>
-</CustomCodeGroup>
+  <CodeTab title="voice-to-voice conversation (python)" language="python">
+    <VoiceToVoiceExamplePython />
+  </CodeTab>
+</CollapsibleCodeGroup>
 
 ## Listen to a real conversation
 
@@ -83,6 +110,9 @@ Below is the actual audio produced by the **voice-to-voice** test above. Click p
 ## Helper utilities & caveats
 
 The examples above rely on several helper utilities that handle the complexity of working with OpenAI's voice models:
+
+<CustomCodeGroup>
+<CodeTab language="typescript">
 
 - **[wrapJudgeForAudio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/wrap-judge-for-audio.ts)** - Wraps a judge agent to automatically transcribe audio messages to text before evaluation. Required because judge agents can't process audio directly - this utility uses OpenAI Whisper to convert any audio content in messages to text transcriptions.
 
@@ -102,26 +132,39 @@ The examples above rely on several helper utilities that handle the complexity o
 
 - **[getAudioSegments](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-conversation.ts)** - Extracts individual audio segments from a conversation for analysis.
 
+</CodeTab>
+<CodeTab language="python">
+
+- **[wrap_judge_for_audio](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/judge_audio_wrapper.py)** - Wraps a judge agent to automatically transcribe audio messages to text before evaluation. Uses OpenAI Whisper to convert audio content in messages to text transcriptions.
+
+- **[OpenAiVoiceAgent](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/openai_voice_agent.py)** - Base class for voice-enabled agents. Handles OpenAI API calls, message conversion (forcing audio messages to `role='user'` per OpenAI's requirements), and response processing.
+
+- **[save_conversation_audio](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/audio_helpers.py)** - Saves audio conversations to WAV files for debugging and analysis.
+
+- **[concatenate_wav_files](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/audio_helpers.py)** - Combines multiple WAV files into a single continuous audio recording.
+
+- **[reverse_roles](https://github.com/langwatch/scenario/blob/main/python/scenario/_utils/utils.py)** - Utility function that swaps user ↔ assistant roles in messages for user simulator agents.
+
+</CodeTab>
+</CustomCodeGroup>
+
 These helpers handle the technical details like audio encoding, file management, message format conversion, and managing the OpenAI API's specific requirements for voice models.
 
-💡 **Caveat**: When the assistant responds with audio, some judge models may ignore the audio chunk unless the role is set to `"user"`. Pass `forceUserRole: true` to `OpenAiVoiceAgent` when you hit that edge-case.
+💡 **Caveat**: When the assistant responds with audio, OpenAI requires audio messages to use `role='user'`. The helpers handle this automatically, but if needed you can pass `forceUserRole: true` (TypeScript) or `force_user_role=True` (Python) to `OpenAiVoiceAgent`.
 
 ## Troubleshooting & FAQs
 
 **Judge ignores assistant audio**
-Some judge models drop the audio chunk when it comes from the _assistant_ role. Pass `forceUserRole: true` to `OpenAiVoiceAgent`—this wraps the audio in a `"user"` message so the judge evaluates it correctly.
+The helper utilities automatically handle this by forcing audio messages to `role='user'` (OpenAI requirement). If you still encounter issues, ensure you're using `wrap_judge_for_audio` (Python) or `wrapJudgeForAudio` (TypeScript) to wrap your judge agents.
 
 **Tests time-out or hang**
-Voice models are slower than text-only ones. Bump Vitest’s timeout (`--timeout 60000`) or reduce concurrency (`VITEST_MAX_WORKERS=1`) when running in CI.
+Voice models are slower than text-only ones. For TypeScript, bump Vitest's timeout (`--timeout 60000`) or reduce concurrency (`VITEST_MAX_WORKERS=1`). For Python, use `@pytest.mark.timeout(120)` or configure timeout in `pytest.ini`.
 
-**“Unsupported media type” errors**
-`convertCoreMessagesToOpenAIMessages` currently supports WAV/MP3.
+**"Unsupported media type" errors**
+The helpers currently support WAV and MP3 formats. Ensure your audio files are in one of these formats.
 
 **CI machines without audio hardware**
 All examples work headlessly—no speakers or microphone required.
-
-**Python equivalent?**
-Coming soon!
 
 💸 **Cost tip**: each voice request is billed the same as a standard GPT-4 audio-preview call. Keep fixture lengths and turn counts reasonable.
 
@@ -129,8 +172,14 @@ Coming soon!
 
 Browse the full tests in the repo:
 
+**TypeScript:**
+
 - [audio ➜ text](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts)
 - [audio ➜ audio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts)
 - [voice-to-voice conversation](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-voice-to-voice-conversation.test.ts)
+
+**Python:**
+
+- [voice-to-voice conversation](https://github.com/langwatch/scenario/blob/main/python/examples/test_voice_to_voice_conversation.py) with [helper utilities](https://github.com/langwatch/scenario/tree/main/python/examples/helpers)
 
 Need more? See the [fixtures guide](/testing-guides/fixtures) and [agent docs](/agent-integration).

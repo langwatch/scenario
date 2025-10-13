@@ -4,6 +4,9 @@ export const examples = [
       "javascript/examples/vitest/tests/multimodal-voice-to-voice-conversation.test.ts",
   },
   {
+    sourcePath: "python/examples/test_voice_to_voice_conversation.py",
+  },
+  {
     sourcePath:
       "javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts",
   },
@@ -69,7 +72,8 @@ export const examples = [
     label: "typescript",
   },
   {
-    sourcePath: "javascript/examples/vitest/tests/database-tool-mocking.test.ts",
+    sourcePath:
+      "javascript/examples/vitest/tests/database-tool-mocking.test.ts",
     label: "typescript",
   },
   {
@@ -77,7 +81,8 @@ export const examples = [
     label: "typescript",
   },
   {
-    sourcePath: "javascript/examples/vitest/tests/tool-failure-simulation.test.ts",
+    sourcePath:
+      "javascript/examples/vitest/tests/tool-failure-simulation.test.ts",
     label: "typescript",
   },
   {
