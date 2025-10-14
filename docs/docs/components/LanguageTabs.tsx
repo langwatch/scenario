@@ -1,5 +1,5 @@
 import * as Tabs from "@radix-ui/react-tabs";
-import { useMemo, type ReactNode } from "react";
+import React, { useMemo, type ReactNode } from "react";
 import { useLanguageStore } from "../stores/languageStore";
 import type { ProgrammingLanguage } from "../stores/types";
 import { LANGUAGE_TITLE_MAP } from "../constants";
@@ -46,13 +46,10 @@ export function LanguageTabs({ children }: { children: ReactNode }) {
 
   const tabs = useMemo(
     () =>
-      childArray
-        .map((child: React.ReactElement<BaseTabProps>) => ({
-          title: child.props.title ?? LANGUAGE_TITLE_MAP[child.props.language],
-          content: child.props.children,
-          language: child.props.language,
-        }))
-        .sort((a, b) => a.language.localeCompare(b.language)),
+      childArray.map((child: React.ReactElement<BaseTabProps>) => ({
+        title: child.props.title ?? LANGUAGE_TITLE_MAP[child.props.language],
+        language: child.props.language,
+      })),
     [childArray]
   );
 
@@ -91,21 +88,21 @@ export function LanguageTabs({ children }: { children: ReactNode }) {
           </Tabs.Trigger>
         ))}
       </Tabs.List>
-      {tabs.map(({ language, content }) => {
-        return (
-          <Tabs.Content key={language} value={language}>
-            {content}
-          </Tabs.Content>
-        );
-      })}
+      {children}
     </Tabs.Root>
   );
 }
 
-const CodeTabComponent = (props: CodeTabProps) => props.children;
+const CodeTabComponent = ({ language, children }: CodeTabProps) => (
+  <Tabs.Content value={language}>{children}</Tabs.Content>
+);
 CodeTabComponent.displayName = "LanguageTabs.CodeTab";
 LanguageTabs.CodeTab = CodeTabComponent;
 
-const MarkdownTabComponent = (props: MarkdownTabProps) => props.children;
+const MarkdownTabComponent = ({ language, children }: MarkdownTabProps) => (
+  <Tabs.Content value={language} className="p-5">
+    {children}
+  </Tabs.Content>
+);
 MarkdownTabComponent.displayName = "LanguageTabs.MarkdownTab";
 LanguageTabs.MarkdownTab = MarkdownTabComponent;
