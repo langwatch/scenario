@@ -86,15 +86,13 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
           </Tabs.Trigger>
         ))}
       </Tabs.List>
-      {tabs.map(({ content, language }) => (
-        <Tabs.Content
-          key={language}
-          value={language}
-          className="vocs_Tabs_content"
-        >
-          {content}
-        </Tabs.Content>
-      ))}
+      {tabs.map(({ language, content }) => {
+        return (
+          <Tabs.Content key={language} value={language}>
+            {content}
+          </Tabs.Content>
+        );
+      })}
     </Tabs.Root>
   );
 }
