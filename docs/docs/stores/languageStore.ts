@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ProgrammingLanguage } from "./types";
-import { LANGUAGE_STORAGE_KEY, LANGUAGE_CHANGE_EVENT } from "./types";
+import {
+  LANGUAGE_STORAGE_KEY,
+  LANGUAGE_CHANGE_EVENT,
+  PROGRAMMING_LANGUAGES,
+} from "../constants";
 
 /**
  * Language store state interface
@@ -52,6 +56,22 @@ export const useLanguageStore = create<LanguageStore>()(
     }),
     {
       name: LANGUAGE_STORAGE_KEY,
+      storage: {
+        getItem: (name) => {
+          const value = localStorage.getItem(name);
+          if (PROGRAMMING_LANGUAGES.includes(value as ProgrammingLanguage)) {
+            return {
+              state: { language: value as ProgrammingLanguage },
+              version: 0,
+            };
+          }
+          return null;
+        },
+        setItem: (name, value) => {
+          localStorage.setItem(name, value.state.language);
+        },
+        removeItem: (name) => localStorage.removeItem(name),
+      },
     }
   )
 );
@@ -66,9 +86,8 @@ export const useLanguageStore = create<LanguageStore>()(
  * other components still using the event-based pattern.
  */
 if (typeof window !== "undefined") {
-  // Store → Events: Emit events when store changes
+  // Store → Event: Emit for Vocs native CodeGroup
   useLanguageStore.subscribe((state, prevState) => {
-    // Only emit event if language actually changed
     if (state.language !== prevState.language) {
       window.dispatchEvent(
         new CustomEvent(LANGUAGE_CHANGE_EVENT, {
@@ -78,30 +97,13 @@ if (typeof window !== "undefined") {
     }
   });
 
-  // Events → Store: Update store when legacy components emit events
-  const handleCustomStorageChange = (e: CustomEvent) => {
+  // Event → Store: Update from Vocs native CodeGroup
+  window.addEventListener(LANGUAGE_CHANGE_EVENT, ((e: CustomEvent) => {
     const newValue = e.detail.value;
     if (!newValue) return;
-    const currentState = useLanguageStore.getState();
-    // Only update if different to avoid circular updates
-    if (currentState.language !== newValue) {
-      currentState.setLanguage(newValue as ProgrammingLanguage);
+    const current = useLanguageStore.getState();
+    if (current.language !== newValue) {
+      current.setLanguage(newValue as ProgrammingLanguage);
     }
-  };
-
-  // Listen for storage changes from other browser tabs
-  const handleStorageChange = (e: StorageEvent) => {
-    if (e.key === LANGUAGE_STORAGE_KEY && e.newValue) {
-      const currentState = useLanguageStore.getState();
-      if (currentState.language !== e.newValue) {
-        currentState.setLanguage(e.newValue as ProgrammingLanguage);
-      }
-    }
-  };
-
-  window.addEventListener(
-    LANGUAGE_CHANGE_EVENT,
-    handleCustomStorageChange as EventListener
-  );
-  window.addEventListener("storage", handleStorageChange);
+  }) as EventListener);
 }
