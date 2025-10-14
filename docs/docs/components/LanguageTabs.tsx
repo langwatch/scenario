@@ -4,47 +4,50 @@ import { useLanguageStore } from "../stores/languageStore";
 import type { ProgrammingLanguage } from "../stores/types";
 import { LANGUAGE_TITLE_MAP } from "../constants";
 
-interface CodeTabProps {
+interface BaseTabProps {
   title?: string;
   children: ReactNode;
   language: ProgrammingLanguage;
 }
 
+type CodeTabProps = BaseTabProps;
+
+type MarkdownTabProps = BaseTabProps;
+
 /**
- * CustomCodeGroup component
+ * LanguageTabs component
  *
- * A tabbed code group component that renders multiple code examples in tabs.
+ * A tabbed component that renders language-specific content in tabs.
  * Uses Radix UI tabs with Vocs styling classes for consistent appearance.
  * Automatically switches tabs based on global language selection from Zustand store.
  *
- * Note: If you are using imported mdx files, you must use the CustomCodeGroup
- * component.
- *
- * Otherwise, you can use the :::code-group::: directive.
+ * Supports two types of tabs:
+ * - CodeTab: For code examples (uses code group styling)
+ * - MarkdownTab: For markdown content (uses standard tab styling)
  *
  * Usage:
  * ```typescript
- * <CustomCodeGroup>
- *   <CodeTab title="TypeScript" language="typescript">
- *     <SSETestExampleTS />
- *   </CodeTab>
- *   <CodeTab title="Python" language="python">
- *     <SSETestExamplePy />
- *   </CodeTab>
- * </CustomCodeGroup>
+ * <LanguageTabs>
+ *   <LanguageTabs.CodeTab language="typescript">
+ *     <ImportedCodeExample />
+ *   </LanguageTabs.CodeTab>
+ *   <LanguageTabs.MarkdownTab language="python">
+ *     <div>Setup instructions...</div>
+ *   </LanguageTabs.MarkdownTab>
+ * </LanguageTabs>
  * ```
- * @param props - The props for the CustomCodeGroup component
- * @param props.children - CodeTab components to render as tabs
- * @returns A tabbed interface for code examples
+ * @param props - The props for the LanguageTabs component
+ * @param props.children - Tab components to render
+ * @returns A tabbed interface for language-specific content
  */
-export function CustomCodeGroup({ children }: { children: ReactNode }) {
+export function LanguageTabs({ children }: { children: ReactNode }) {
   const { language: selectedLanguage, setLanguage } = useLanguageStore();
   const childArray = Array.isArray(children) ? children : [children];
 
   const tabs = useMemo(
     () =>
       childArray
-        .map((child: React.ReactElement<CodeTabProps>) => ({
+        .map((child: React.ReactElement<BaseTabProps>) => ({
           title: child.props.title ?? LANGUAGE_TITLE_MAP[child.props.language],
           content: child.props.children,
           language: child.props.language,
@@ -53,7 +56,6 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
     [childArray]
   );
 
-  // Use language as the active tab value directly
   const activeTabValue = useMemo(() => {
     const hasSelectedLanguage = tabs.some(
       (tab) => tab.language === selectedLanguage
@@ -61,17 +63,20 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
     return hasSelectedLanguage ? selectedLanguage : tabs[0]?.language;
   }, [tabs, selectedLanguage]);
 
-  /**
-   * Handle tab clicks - update global language store
-   * Store change triggers re-render with new derived activeTabValue
-   */
+  // Use code group styling only if all children are CodeTab components
+  const isCodeGroup = childArray.every(
+    (child: React.ReactElement) =>
+      (child.type as { displayName?: string })?.displayName ===
+      "LanguageTabs.CodeTab"
+  );
+
   const handleValueChange = (value: string) => {
     setLanguage(value as ProgrammingLanguage);
   };
 
   return (
     <Tabs.Root
-      className="vocs_CodeGroup vocs_Tabs"
+      className={isCodeGroup ? "vocs_CodeGroup vocs_Tabs" : "vocs_Tabs"}
       value={activeTabValue}
       onValueChange={handleValueChange}
     >
@@ -97,16 +102,10 @@ export function CustomCodeGroup({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * CodeTab component
- *
- * This component is used to define the signature of the code tab
- * to makes sure we have a consistent interface for the code tabs.
- *
- * @param props - The props for the CodeTab component
- * @param props.title - (Optional) The title of the code tab. Defaults to the language.
- * @param props.children - The children of the code tab
- * @param props.language - The language of the code tab
- * @returns The children of the code tab
- */
-export const CodeTab = (props: CodeTabProps) => props.children;
+const CodeTabComponent = (props: CodeTabProps) => props.children;
+CodeTabComponent.displayName = "LanguageTabs.CodeTab";
+LanguageTabs.CodeTab = CodeTabComponent;
+
+const MarkdownTabComponent = (props: MarkdownTabProps) => props.children;
+MarkdownTabComponent.displayName = "LanguageTabs.MarkdownTab";
+LanguageTabs.MarkdownTab = MarkdownTabComponent;

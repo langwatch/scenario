@@ -3,7 +3,7 @@ title: SSE Pattern - Testing Agents with Server-Sent Events
 description: "Test AI agents using Server-Sent Events (SSE) streaming format. Learn how to handle data: prefixed lines, [DONE] markers, and OpenAI-compatible streaming APIs."
 ---
 
-import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
+import { LanguageTabs } from "../../../components/LanguageTabs";
 import SSETestExampleTS from "../../_generated/examples/testing-remote-agents-sse.test.mdx";
 import SSETestExamplePy from "../../_generated/examples/test_testing_remote_agents_sse.mdx";
 
@@ -42,14 +42,14 @@ This example demonstrates:
 - Proper line buffering for incomplete chunks
 - Handling the `[DONE]` completion marker
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <SSETestExampleTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <SSETestExamplePy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 ## Key Points
 

@@ -3,7 +3,7 @@ title: JSON Response Pattern - HTTP Testing for Agents
 description: Test AI agents that return complete JSON responses via HTTP POST. Most common REST API pattern for stateless agent testing with complete responses.
 ---
 
-import { CustomCodeGroup, CodeTab } from "../../../components/CustomCodeGroup";
+import { LanguageTabs } from "../../../components/LanguageTabs";
 import JsonTestExampleTS from "../../_generated/examples/testing-remote-agents-json.test.mdx";
 import JsonTestExamplePy from "../../_generated/examples/test_testing_remote_agents_json.mdx";
 
@@ -27,14 +27,14 @@ This example demonstrates:
 - Running a full scenario test with user simulator and judge
 - Proper server setup and teardown
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <JsonTestExampleTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <JsonTestExamplePy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 ## Key Points
 

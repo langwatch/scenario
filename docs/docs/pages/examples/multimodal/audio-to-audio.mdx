@@ -1,0 +1,103 @@
+---
+title: Audio → Audio Testing
+description: Test agents that receive audio and respond with audio. Perfect for voice assistants and conversational AI.
+---
+
+import { LanguageTabs } from "../../../components/LanguageTabs";
+import { CollapsibleCodeGroup } from "../../../components/CollapsibleCodeGroup";
+import AudioToAudioExample from "../../_generated/examples/multimodal-audio-to-audio.test.mdx";
+
+# Audio → Audio Testing
+
+Test agents that listen to audio input and reply with audio responses. This pattern is ideal for voice assistants, conversational AI, and any agent that needs to respond in a natural spoken voice.
+
+## Prerequisites & Setup
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+<div className="p-5">
+
+1. **Node.js ≥ 18** – the OpenAI `gpt-4o` voice model uses modern `fetch`.
+2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
+
+```bash
+export OPENAI_API_KEY="sk-…"
+```
+
+</div>
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+<div className="p-5">
+
+1. **Python ≥ 3.10** – required for modern async/await and type hints.
+2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
+
+```bash
+export OPENAI_API_KEY="sk-…"
+```
+
+3. Install dependencies using `uv`:
+
+```bash
+uv pip install scenario-sdk openai
+```
+
+</div>
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+## Code Example
+
+<CollapsibleCodeGroup defaultHeight={400}>
+  <LanguageTabs.CodeTab language="typescript">
+    <AudioToAudioExample />
+  </LanguageTabs.CodeTab>
+</CollapsibleCodeGroup>
+
+## Helper Utilities
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+- **[wrapJudgeForAudio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/wrap-judge-for-audio.ts)** - Wraps a judge agent to automatically transcribe audio messages to text before evaluation. Required because judge agents can't process audio directly.
+
+- **[encodeAudioToBase64](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-encoding.ts)** - Converts audio files to base64-encoded strings for transmission in messages.
+
+- **[getFixturePath](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/fixture-utils.ts)** - Utility to resolve paths to test fixtures relative to the test directory.
+
+- **[convertCoreMessagesToOpenAIMessages](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/convert-core-messages-to-openai.ts)** - Converts Scenario's CoreMessage format to OpenAI's ChatCompletion format.
+
+- **[OpenAiVoiceAgent](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/openai-voice-agent.ts)** - Base class that handles OpenAI voice API calls, message conversion, and response processing.
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+- **[wrap_judge_for_audio](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/judge_audio_wrapper.py)** - Wraps a judge agent to automatically transcribe audio messages to text before evaluation using OpenAI Whisper.
+
+- **[OpenAiVoiceAgent](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/openai_voice_agent.py)** - Base class for voice-enabled agents that handles API calls and message conversion.
+
+- **[save_conversation_audio](https://github.com/langwatch/scenario/blob/main/python/examples/helpers/audio_helpers.py)** - Saves audio responses to files for debugging and analysis.
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+:::warning
+**Caveat**:
+
+When the assistant responds with audio, OpenAI requires audio messages to use `role='user'`.
+
+The helpers handle this automatically, but if needed you can pass `forceUserRole: true` (TypeScript) or `force_user_role=True` (Python) to `OpenAiVoiceAgent`.
+:::
+
+## Complete Source
+
+Browse the full test in the repo:
+
+- [TypeScript: audio → audio test](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts)
+
+## Related Guides
+
+- [Audio → Text Testing](/examples/multimodal/audio-to-text) - Agent responds with text instead of audio
+- [Voice-to-Voice Conversations](/examples/multimodal/voice-to-voice) - Multi-turn voice conversations
+- [Testing Voice Agents Overview](/examples/multimodal/testing-voice-agents) - Main voice testing guide
+- [Fixtures Guide](/testing-guides/fixtures) - Learn about test fixtures

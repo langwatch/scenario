@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CustomCodeGroup } from "./CustomCodeGroup";
+import { LanguageTabs } from "./LanguageTabs";
 
 interface CollapsibleCodeGroupProps {
   children: ReactNode;
@@ -9,11 +9,11 @@ interface CollapsibleCodeGroupProps {
 /**
  * CollapsibleCodeGroup component
  *
- * Wraps CustomCodeGroup to provide collapsible functionality for long code examples.
+ * Wraps LanguageTabs to provide collapsible functionality for long code examples.
  * Shows a preview of the code with a "Show more" / "Show less" button.
  *
  * @param props - The props for the CollapsibleCodeGroup component
- * @param props.children - CodeTab components to render as tabs
+ * @param props.children - Tab components to render as tabs
  * @param props.defaultHeight - Maximum height in pixels before showing "Show more" button (default: 600)
  * @returns A collapsible tabbed interface for code examples
  */
@@ -31,7 +31,7 @@ export function CollapsibleCodeGroup({
           maxHeight: isExpanded ? "none" : `${defaultHeight}px`,
         }}
       >
-        <CustomCodeGroup>{children}</CustomCodeGroup>
+        <LanguageTabs>{children}</LanguageTabs>
         {!isExpanded && (
           <div
             className="absolute bottom-0 left-0 right-0 h-[120px] pointer-events-none"

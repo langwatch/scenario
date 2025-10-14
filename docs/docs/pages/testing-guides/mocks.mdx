@@ -3,7 +3,7 @@ title: Mocking External APIs in Agent Tests
 description: Mock external dependencies for fast, reliable agent tests. Isolate agent behavior from third-party services with tool mocking patterns.
 ---
 
-import { CustomCodeGroup, CodeTab } from "../../components/CustomCodeGroup";
+import { LanguageTabs } from "../../components/LanguageTabs";
 import SimpleToolMockingTS from "../_generated/examples/simple-tool-mocking.test.mdx";
 import SimpleToolMockingPy from "../_generated/examples/test_simple_tool_mocking.mdx";
 import DatabaseToolMockingTS from "../_generated/examples/database-tool-mocking.test.mdx";
@@ -76,38 +76,38 @@ Mock tool execution functions to test your agent's tool usage behavior. This is 
 
 #### API Data Fetching Tools
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <SimpleToolMockingTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <SimpleToolMockingPy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 #### Database Operations Tools
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <DatabaseToolMockingTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <DatabaseToolMockingPy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 ### 2. API/Service Mocking (Level 2)
 
 Mock HTTP calls, database connections, and external services within your tools to test the interface between your agent system and external dependencies.
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <ApiServiceMockingTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <ApiServiceMockingPy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 :::tip
 **Network-Level Interception**
@@ -119,27 +119,27 @@ For more advanced HTTP mocking, you can use network-level interception libraries
 
 Mock tool failures to test how your agent handles errors, timeouts, and edge cases. You can simulate failures at both the tool level and the service level.
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <ToolFailureSimulationTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <ToolFailureSimulationPy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 ### 4. LLM Provider Mocking (Level 2)
 
 For testing agent flow without actual LLM calls, you can mock the model provider APIs. However, Scenario's [caching system](../basics/cache) is often a better solution for deterministic, cost-effective testing.
 
-<CustomCodeGroup>
-  <CodeTab language="typescript">
+<LanguageTabs>
+  <LanguageTabs.CodeTab language="typescript">
     <LlmProviderMockingTS />
-  </CodeTab>
-  <CodeTab language="python">
+  </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
     <LlmProviderMockingPy />
-  </CodeTab>
-</CustomCodeGroup>
+  </LanguageTabs.CodeTab>
+</LanguageTabs>
 
 :::tip
 **Consider Caching Instead**

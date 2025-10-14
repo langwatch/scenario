@@ -34,6 +34,7 @@
     "eslint-plugin-react": "^7.37.5",
     "globals": "^16.4.0",
     "jiti": "^2.6.1",
+    "prettier": "^3.6.2",
     "typescript": "latest",
     "typescript-eslint": "^8.46.0",
     "vite-plugin-sitemap": "^0.8.2"
