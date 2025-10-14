@@ -5,7 +5,6 @@ description: Test multi-turn voice conversations where both user simulator and a
 
 import { Callout } from "vocs/components";
 import { LanguageTabs } from "../../../components/LanguageTabs";
-import { CollapsibleCodeGroup } from "../../../components/CollapsibleCodeGroup";
 import VoiceToVoiceExamplePython from "../../_generated/examples/test_voice_to_voice_conversation.mdx";
 import VoiceToVoiceExampleJavaScript from "../../_generated/examples/multimodal-voice-to-voice-conversation.test.mdx";
 
@@ -61,14 +60,14 @@ uv pip install scenario-sdk openai
 
 ## Code Example
 
-<CollapsibleCodeGroup defaultHeight={600}>
+<LanguageTabs collapsible>
   <LanguageTabs.CodeTab language="typescript">
     <VoiceToVoiceExampleJavaScript />
   </LanguageTabs.CodeTab>
   <LanguageTabs.CodeTab language="python">
     <VoiceToVoiceExamplePython />
   </LanguageTabs.CodeTab>
-</CollapsibleCodeGroup>
+</LanguageTabs>
 
 ## Listen to a Real Conversation
 

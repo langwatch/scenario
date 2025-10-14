@@ -3,6 +3,7 @@ import React, { useMemo, type ReactNode } from "react";
 import { useLanguageStore } from "../stores/languageStore";
 import type { ProgrammingLanguage } from "../stores/types";
 import { LANGUAGE_TITLE_MAP } from "../constants";
+import { Collapsible } from "./Collapsible";
 
 interface BaseTabProps {
   title?: string;
@@ -27,7 +28,7 @@ type MarkdownTabProps = BaseTabProps;
  *
  * Usage:
  * ```typescript
- * <LanguageTabs>
+ * <LanguageTabs collapsible>
  *   <LanguageTabs.CodeTab language="typescript">
  *     <ImportedCodeExample />
  *   </LanguageTabs.CodeTab>
@@ -38,9 +39,16 @@ type MarkdownTabProps = BaseTabProps;
  * ```
  * @param props - The props for the LanguageTabs component
  * @param props.children - Tab components to render
+ * @param props.collapsible - Whether to wrap in collapsible wrapper
  * @returns A tabbed interface for language-specific content
  */
-export function LanguageTabs({ children }: { children: ReactNode }) {
+export function LanguageTabs({
+  children,
+  collapsible,
+}: {
+  children: ReactNode;
+  collapsible?: boolean;
+}) {
   const { language: selectedLanguage, setLanguage } = useLanguageStore();
   const childArray = Array.isArray(children) ? children : [children];
 
@@ -71,7 +79,7 @@ export function LanguageTabs({ children }: { children: ReactNode }) {
     setLanguage(value as ProgrammingLanguage);
   };
 
-  return (
+  const tabsContent = (
     <Tabs.Root
       className={isCodeGroup ? "vocs_CodeGroup vocs_Tabs" : "vocs_Tabs"}
       value={activeTabValue}
@@ -91,6 +99,12 @@ export function LanguageTabs({ children }: { children: ReactNode }) {
       {children}
     </Tabs.Root>
   );
+
+  if (collapsible) {
+    return <Collapsible>{tabsContent}</Collapsible>;
+  }
+
+  return tabsContent;
 }
 
 const CodeTabComponent = ({ language, children }: CodeTabProps) => (

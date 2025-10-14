@@ -1,26 +1,20 @@
 import { useState, type ReactNode } from "react";
-import { LanguageTabs } from "./LanguageTabs";
 
-interface CollapsibleCodeGroupProps {
+interface CollapsibleProps {
   children: ReactNode;
-  defaultHeight?: number;
 }
 
 /**
- * CollapsibleCodeGroup component
+ * Collapsible component
  *
- * Wraps LanguageTabs to provide collapsible functionality for long code examples.
- * Shows a preview of the code with a "Show more" / "Show less" button.
+ * Wraps any content to provide collapsible functionality.
+ * Shows a preview of the content with an "Expand" / "Collapse" button.
  *
- * @param props - The props for the CollapsibleCodeGroup component
- * @param props.children - Tab components to render as tabs
- * @param props.defaultHeight - Maximum height in pixels before showing "Show more" button (default: 600)
- * @returns A collapsible tabbed interface for code examples
+ * @param props - The props for the Collapsible component
+ * @param props.children - Content to render
+ * @returns A collapsible wrapper for content
  */
-export function CollapsibleCodeGroup({
-  children,
-  defaultHeight = 600,
-}: CollapsibleCodeGroupProps) {
+export function Collapsible({ children }: CollapsibleProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -28,10 +22,10 @@ export function CollapsibleCodeGroup({
       <div
         className="overflow-auto"
         style={{
-          maxHeight: isExpanded ? "none" : `${defaultHeight}px`,
+          maxHeight: isExpanded ? "none" : "600px",
         }}
       >
-        <LanguageTabs>{children}</LanguageTabs>
+        {children}
         {!isExpanded && (
           <div
             className="absolute bottom-0 left-0 right-0 h-[120px] pointer-events-none"

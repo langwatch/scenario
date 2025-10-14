@@ -4,7 +4,6 @@ description: Test agents that receive audio and respond with audio. Perfect for 
 ---
 
 import { LanguageTabs } from "../../../components/LanguageTabs";
-import { CollapsibleCodeGroup } from "../../../components/CollapsibleCodeGroup";
 import AudioToAudioExample from "../../_generated/examples/multimodal-audio-to-audio.test.mdx";
 
 # Audio → Audio Testing
@@ -54,11 +53,11 @@ uv pip install scenario-sdk openai
 
 ## Code Example
 
-<CollapsibleCodeGroup defaultHeight={400}>
+<LanguageTabs collapsible>
   <LanguageTabs.CodeTab language="typescript">
     <AudioToAudioExample />
   </LanguageTabs.CodeTab>
-</CollapsibleCodeGroup>
+</LanguageTabs>
 
 ## Helper Utilities
 
