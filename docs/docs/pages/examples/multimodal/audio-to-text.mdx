@@ -13,36 +13,42 @@ Test agents that receive audio files (like WAV or MP3) and respond with textual 
 
 ## Prerequisites & Setup
 
+**Common requirements:**
+
+- **OPENAI_API_KEY** with access to `gpt-4o-audio-preview`
+
+```bash
+export OPENAI_API_KEY="sk-…"
+```
+
+**Language-specific setup:**
+
 <LanguageTabs>
 <LanguageTabs.MarkdownTab language="typescript">
-<div className="p-5">
 
-1. **Node.js ≥ 18** – the OpenAI `gpt-4o` voice model uses modern `fetch`.
-2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
+**Node.js ≥ 18** required for modern `fetch` API.
+
+<br />
+
+Install dependencies:
 
 ```bash
-export OPENAI_API_KEY="sk-…"
+npm install scenario-sdk openai
 ```
 
-</div>
 </LanguageTabs.MarkdownTab>
 <LanguageTabs.MarkdownTab language="python">
-<div className="p-5">
 
-1. **Python ≥ 3.10** – required for modern async/await and type hints.
-2. **OPENAI_API_KEY** – export an API key that has access to `gpt-4o-audio-preview`:
+**Python ≥ 3.10** required for modern async/await.
 
-```bash
-export OPENAI_API_KEY="sk-…"
-```
+<br />
 
-3. Install dependencies using `uv`:
+Install dependencies:
 
 ```bash
 uv pip install scenario-sdk openai
 ```
 
-</div>
 </LanguageTabs.MarkdownTab>
 </LanguageTabs>
 
