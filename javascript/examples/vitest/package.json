@@ -15,7 +15,8 @@
   "devDependencies": {
     "dotenv": "^16.5.0",
     "dotenv-cli": "^8.0.0",
-    "nanoid-cli": "^1.0.1"
+    "nanoid-cli": "^1.0.1",
+    "vitest-mock-extended": "3.1.0"
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",
