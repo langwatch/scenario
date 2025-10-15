@@ -75,7 +75,7 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
   if (!cfg.description) {
     throw new Error("Scenario description is required");
   }
-  if ((cfg.maxTurns || 10) < 1) {
+  if (cfg.maxTurns && cfg.maxTurns < 1) {
     throw new Error("Max turns must be at least 1");
   }
   if (cfg.agents.length === 0) {
