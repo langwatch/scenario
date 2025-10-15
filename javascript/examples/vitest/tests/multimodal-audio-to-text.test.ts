@@ -89,7 +89,7 @@ describe("Multimodal Audio to Text Tests", () => {
       scenario.judgeAgent({
         model: openai("gpt-5"),
         criteria: [
-          "The agent correctly guesses it's a male voice",
+          "The agent guesses it's a male voice",
           "The agent repeats the question",
           "The agent says what format the input was in (audio or text)",
         ],

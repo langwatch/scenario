@@ -50,7 +50,9 @@ export const agent = (content?: string | CoreMessage): ScriptStep => {
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
 export const judge = (content?: string | CoreMessage): ScriptStep => {
-  return (_state, executor) => executor.judge(content);
+  return async (_state, executor) => {
+    await executor.judge(content);
+  };
 };
 
 /**
@@ -86,7 +88,9 @@ export const proceed = (
   onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
   onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>
 ): ScriptStep => {
-  return (_state, executor) => executor.proceed(turns, onTurn, onStep);
+  return async (_state, executor) => {
+    await executor.proceed(turns, onTurn, onStep);
+  };
 };
 
 /**
@@ -98,7 +102,9 @@ export const proceed = (
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
 export const succeed = (reasoning?: string): ScriptStep => {
-  return (_state, executor) => executor.succeed(reasoning);
+  return async (_state, executor) => {
+    await executor.succeed(reasoning);
+  };
 };
 
 /**
@@ -110,5 +116,7 @@ export const succeed = (reasoning?: string): ScriptStep => {
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
 export const fail = (reasoning?: string): ScriptStep => {
-  return (_state, executor) => executor.fail(reasoning);
+  return async (_state, executor) => {
+    await executor.fail(reasoning);
+  };
 };

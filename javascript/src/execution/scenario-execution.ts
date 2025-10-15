@@ -125,6 +125,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
 
+  /** The final result of the scenario execution, set when a conclusion is reached */
+  private _result?: ScenarioResult;
+
   /** Logger for debugging and monitoring */
   private logger = new Logger("scenario.execution.ScenarioExecution");
 
@@ -214,6 +217,44 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
+   * Gets the result of the scenario execution if it has been set.
+   *
+   * @returns The scenario result or undefined if not yet set
+   */
+  get result(): ScenarioResult | undefined {
+    return this._result;
+  }
+
+  /**
+   * Sets the result of the scenario execution.
+   * This is called when the scenario reaches a conclusion (success or failure).
+   * Automatically includes messages, totalTime, and agentTime from the current execution context.
+   *
+   * @param result - The final scenario result (without messages/timing, which will be added automatically)
+   */
+  private setResult(
+    result: Omit<ScenarioResult, "messages" | "totalTime" | "agentTime">
+  ): void {
+    const agentRoleAgentsIdx = this.agents
+      .map((agent, i) => ({ agent, idx: i }))
+      .filter(({ agent }) => agent.role === AgentRole.AGENT)
+      .map(({ idx }) => idx);
+
+    const agentTimes = agentRoleAgentsIdx.map(
+      (i) => this.agentTimes.get(i) || 0
+    );
+
+    const totalAgentTime = agentTimes.reduce((sum, time) => sum + time, 0);
+
+    this._result = {
+      ...result,
+      messages: this.state.messages,
+      totalTime: this.totalTime,
+      agentTime: totalAgentTime,
+    };
+  }
+
+  /**
    * The total elapsed time for the scenario execution.
    */
   private get totalTime(): number {
@@ -266,25 +307,23 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       for (let i = 0; i < this.config.script.length; i++) {
         const scriptStep = this.config.script[i];
 
-        const result = await this.executeScriptStep(scriptStep, i);
+        await this.executeScriptStep(scriptStep, i);
 
-        if (result && typeof result === "object" && "success" in result) {
+        if (this.result) {
           this.emitRunFinished({
             scenarioRunId,
-            status: result.success
+            status: this.result.success
               ? ScenarioRunStatus.SUCCESS
               : ScenarioRunStatus.FAILED,
-            result: result as ScenarioResult,
+            result: this.result,
           });
 
-          return result as ScenarioResult;
+          return this.result;
         }
       }
 
-      this.emitRunFinished({ scenarioRunId, status: ScenarioRunStatus.FAILED });
-
-      // If no conclusion reached, return max turns error
-      return this.reachedMaxTurns(
+      // If no conclusion reached, set max turns error
+      this.reachedMaxTurns(
         [
           "Reached end of script without conclusion, add one of the following to the end of the script:",
           "- `Scenario.proceed()` to let the simulation continue to play out",
@@ -292,21 +331,25 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
         ].join("\n")
       );
+
+      this.emitRunFinished({ scenarioRunId, status: ScenarioRunStatus.FAILED });
+
+      return this.result!;
     } catch (error) {
       const errorInfo = extractErrorInfo(error);
-      const errorResult: ScenarioResult = {
+
+      this.setResult({
         success: false,
-        messages: this.state.messages,
         reasoning: `Scenario failed with error: ${errorInfo.message}`,
         metCriteria: [],
         unmetCriteria: [],
         error: JSON.stringify(errorInfo),
-      };
+      });
 
       this.emitRunFinished({
         scenarioRunId,
         status: ScenarioRunStatus.ERROR,
-        result: errorResult,
+        result: this.result!,
       });
 
       // Re-throw the error in case it was a vitest assertion error
@@ -328,49 +371,43 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Progress to the next turn if needed
    * - Find the next agent that should act
    * - Execute that agent's response
-   * - Return either new messages or a final scenario result
+   * - Set the result if the scenario concludes
    *
    * Note: This method is primarily for debugging or custom execution flows. Most users
    * will use `execute()` to run the entire scenario automatically.
    *
-   * @returns A promise that resolves with either:
-   *   - Array of new messages added during the agent interaction, or
-   *   - A final ScenarioResult if the interaction concludes the scenario
-   * @throws Error if no result is returned from the step
+   * After calling this method, check `this.result` to see if the scenario has concluded.
    *
    * @example
    * ```typescript
    * const execution = new ScenarioExecution(config, script);
    *
    * // Execute one agent interaction at a time
-   * const messages = await execution.step();
-   * if (Array.isArray(messages)) {
-   *   console.log('New messages:', messages);
-   * } else {
-   *   console.log('Scenario finished:', messages.success);
+   * await execution.step();
+   * if (execution.result) {
+   *   console.log('Scenario finished:', execution.result.success);
    * }
    * ```
    */
-  async step(): Promise<ModelMessage[] | ScenarioResult> {
-    const result = await this._step();
-    if (result === null) throw new Error("No result from step");
-
-    return result;
+  async step(): Promise<void> {
+    await this._step();
   }
 
   private async _step(
     goToNextTurn: boolean = true,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
-  ): Promise<ModelMessage[] | ScenarioResult | null> {
+  ): Promise<void> {
     if (this.pendingRolesOnTurn.length === 0) {
-      if (!goToNextTurn) return null;
+      if (!goToNextTurn) return;
 
       this.newTurn();
 
       if (onTurn) await onTurn(this.state);
 
-      if (this.state.currentTurn >= this.config.maxTurns)
-        return this.reachedMaxTurns();
+      if (this.state.currentTurn >= this.config.maxTurns) {
+        this.reachedMaxTurns();
+        return;
+      }
     }
 
     const currentRole = this.pendingRolesOnTurn[0];
@@ -382,7 +419,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     this.removePendingAgent(nextAgent);
 
-    return await this.callAgent(idx, currentRole);
+    await this.callAgent(idx, currentRole);
   }
 
   /**
@@ -402,22 +439,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * After the agent responds:
    * - Performance timing is recorded
    * - Pending messages for this agent are cleared (they've been processed)
-   * - If the agent returns a ScenarioResult, it's returned immediately
+   * - If the agent returns a ScenarioResult, it's set on this.result
    * - Otherwise, the agent's messages are added to the conversation and broadcast
    *
    * @param idx - The index of the agent in the agents array
    * @param role - The role the agent is being asked to play (USER, AGENT, or JUDGE)
    * @param judgmentRequest - Whether this is a judgment request (for judge agents)
-   * @returns A promise that resolves with either:
-   *   - Array of messages if the agent generated a response, or
-   *   - ScenarioResult if the agent made a final decision
    * @throws Error if the agent call fails
    */
   private async callAgent(
     idx: number,
     role: AgentRole,
     judgmentRequest: boolean = false
-  ): Promise<ModelMessage[] | ScenarioResult> {
+  ): Promise<void> {
     const agent = this.agents[idx];
     const startTime = Date.now();
     const agentInput: AgentInput = {
@@ -442,7 +476,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         typeof agentResponse === "object" &&
         "success" in agentResponse
       ) {
-        return agentResponse as ScenarioResult;
+        // JudgeResult is automatically augmented with messages by setResult
+        this.setResult(agentResponse);
+        return;
       }
 
       const currentAgentTime = this.agentTimes.get(idx) ?? 0;
@@ -457,8 +493,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.state.addMessage(message);
         this.broadcastMessage(message, idx);
       }
-
-      return messages;
     } catch (error) {
       this.logger.error(
         `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
@@ -649,22 +683,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         initialTurn === null ||
         (this.state.currentTurn != null &&
           this.state.currentTurn + 1 < initialTurn + turns);
-      const nextMessage = await this._step(goToNextTurn, onTurn);
+      await this._step(goToNextTurn, onTurn);
 
       if (initialTurn === null) initialTurn = this.state.currentTurn;
 
-      if (nextMessage === null) {
-        return null;
+      if (this.result) {
+        return this.result;
       }
 
       if (onStep) await onStep(this.state);
 
-      if (
-        nextMessage !== null &&
-        typeof nextMessage === "object" &&
-        "success" in nextMessage
-      )
-        return nextMessage;
+      if (!goToNextTurn) {
+        return null;
+      }
     }
   }
 
@@ -692,14 +723,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async succeed(reasoning?: string): Promise<ScenarioResult> {
-    return {
+    this.setResult({
       success: true,
-      messages: this.state.messages,
       reasoning:
         reasoning || "Scenario marked as successful with Scenario.succeed()",
       metCriteria: [],
       unmetCriteria: [],
-    };
+    });
+    return this.result!;
   }
 
   /**
@@ -726,13 +757,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async fail(reasoning?: string): Promise<ScenarioResult> {
-    return {
+    this.setResult({
       success: false,
-      messages: this.state.messages,
       reasoning: reasoning || "Scenario marked as failed with Scenario.fail()",
       metCriteria: [],
       unmetCriteria: [],
-    };
+    });
+    return this.result!;
   }
 
   /**
@@ -770,7 +801,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Progress to a new turn if no agent is available
    * - Execute the agent with the provided content or let it generate content
    * - Handle judgment requests for judge agents
-   * - Return a final result if the agent makes a decision
+   * - Set the result if the agent makes a decision
    *
    * @param role - The role of the agent to call (USER, AGENT, or JUDGE)
    * @param content - Optional content to use instead of letting the agent generate it
@@ -843,15 +874,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       return null;
     }
 
-    const result = await this.callAgent(index, role, judgmentRequest);
-    if (result && typeof result === "object" && "success" in result) {
-      return result as ScenarioResult;
-    }
+    await this.callAgent(index, role, judgmentRequest);
 
-    // The result is a set of messages, which have already been added to the state
-    // by callAgent, so we don't need to do anything with them here.
-
-    return null;
+    // The result may have been set by callAgent if the agent made a decision
+    return this.result ?? null;
   }
 
   /**
@@ -868,6 +894,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Starts the first turn
    * - Records the start time for performance tracking
    * - Clears any pending messages
+   * - Clears the result from any previous execution
    */
   private reset(): void {
     this.state = new ScenarioExecutionState(this.config);
@@ -877,6 +904,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.state.currentTurn = 0;
     this.totalStartTime = Date.now();
     this.pendingMessages.clear();
+    this._result = undefined;
   }
 
   private nextAgentForRole(role: AgentRole): {
@@ -962,7 +990,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * This method is called when the scenario execution reaches the maximum number
    * of turns without reaching a conclusion. It creates a failure result with
-   * appropriate reasoning and includes performance metrics.
+   * appropriate reasoning and includes performance metrics, then sets it on this.result.
    *
    * The result includes:
    * - All messages from the conversation
@@ -972,23 +1000,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Total execution time and agent response times
    *
    * @param errorMessage - Optional custom error message to use instead of the default
-   * @returns A ScenarioResult indicating failure due to reaching max turns
    */
-  private reachedMaxTurns(errorMessage?: string): ScenarioResult {
-    const agentRoleAgentsIdx = this.agents
-      .map((agent, i) => ({ agent, idx: i }))
-      .filter(({ agent }) => agent.role === AgentRole.AGENT)
-      .map(({ idx }) => idx);
-
-    const agentTimes = agentRoleAgentsIdx.map(
-      (i) => this.agentTimes.get(i) || 0
-    );
-
-    const totalAgentTime = agentTimes.reduce((sum, time) => sum + time, 0);
-
-    return {
+  private reachedMaxTurns(errorMessage?: string): void {
+    this.setResult({
       success: false,
-      messages: this.state.messages,
       reasoning:
         errorMessage ||
         `Reached maximum turns (${
@@ -996,9 +1011,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         }) without conclusion`,
       metCriteria: [],
       unmetCriteria: this.getJudgeAgent()?.criteria ?? [],
-      totalTime: this.totalTime,
-      agentTime: totalAgentTime,
-    };
+    });
   }
 
   private getJudgeAgent(): JudgeAgentAdapter | null {
@@ -1212,7 +1225,8 @@ function convertAgentReturnTypesToMessages(
 
   if (Array.isArray(response)) return response;
 
-  if (typeof response === "object" && "role" in response) return [response];
+  if (response && typeof response === "object" && "role" in response)
+    return [response];
 
   return [];
 }

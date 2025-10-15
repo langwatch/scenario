@@ -157,4 +157,4 @@ export interface ScenarioExecutionLike {
 export type ScriptStep = (
   state: ScenarioExecutionStateLike,
   executor: ScenarioExecutionLike
-) => Promise<void | ScenarioResult | null> | void | ScenarioResult | null;
+) => Promise<void> | void;

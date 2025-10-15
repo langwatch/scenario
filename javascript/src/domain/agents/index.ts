@@ -1,6 +1,8 @@
 import { CoreMessage } from "ai";
-import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
+import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
+import { AgentReturnTypes } from "./types/agent-return.types";
+export * from "./types/agent-return.types";
 
 export enum AgentRole {
   USER = "User",
@@ -47,16 +49,6 @@ export interface AgentInput {
    */
   scenarioConfig: ScenarioConfig;
 }
-
-/**
- * The possible return types from an agent's `call` method.
- * Can be a simple string, a single message, an array of messages, or a ScenarioResult.
- */
-export type AgentReturnTypes =
-  | string
-  | CoreMessage
-  | CoreMessage[]
-  | ScenarioResult;
 
 /**
  * Abstract base class for integrating custom agents with the Scenario framework.
