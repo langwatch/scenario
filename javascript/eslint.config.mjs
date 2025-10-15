@@ -56,6 +56,10 @@ export default defineConfig([
     files: ["**/*.{js,mjs,cjs,ts}"],
     languageOptions: { globals: globals.browser },
   },
+  {
+    files: ["**/*.config.{js,mjs,cjs,ts}", "eslint.config.mjs"],
+    languageOptions: { globals: globals.node },
+  },
   tseslint.configs.recommended,
   {
     files: ["**/*.ts"],

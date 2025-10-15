@@ -60,7 +60,7 @@ describe("Tool Call Mocking", () => {
       script: [
         scenario.user("Show me user data for ID 123"),
         scenario.agent(),
-        (state) => {
+        (_state) => {
           // Verify the agent called the tool with the correct parameters
           // This proves the agent correctly extracted "123" from the user's message
           expect(fetchUserDataMock).toHaveBeenCalled();

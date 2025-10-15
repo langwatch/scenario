@@ -70,7 +70,7 @@ describe("API Service Mocking", () => {
       script: [
         scenario.user("Get user data for ID 123"),
         scenario.agent(),
-        (state) => {
+        (_state) => {
           // Verify the API client was called with correct ID
           // This tests both the agent AND the tool implementation
           expect(apiClient.getUser).toHaveBeenCalledWith("123");

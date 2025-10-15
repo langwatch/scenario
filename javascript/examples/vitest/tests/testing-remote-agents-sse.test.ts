@@ -68,6 +68,7 @@ beforeAll(async () => {
           res.write("data: [DONE]\n\n");
           res.end();
         } catch (error) {
+          console.error(error);
           res.writeHead(500);
           res.end("Error");
         }
@@ -140,7 +141,7 @@ describe("Testing Remote Agents - Server-Sent Events", () => {
                     // Parse JSON and extract content field
                     const parsed = JSON.parse(data);
                     fullResponse += parsed.content;
-                  } catch (e) {
+                  } catch (_e) {
                     // Skip malformed JSON
                   }
                 }

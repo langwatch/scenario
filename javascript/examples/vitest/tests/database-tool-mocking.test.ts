@@ -73,7 +73,7 @@ describe("Database Tool Mocking", () => {
       script: [
         scenario.user("Save a new user named John with email john@example.com"),
         scenario.agent(),
-        (state) => {
+        (_state) => {
           // Verify the agent called save_user with correct parameters
           // The agent should have extracted the name and email from the user's message
           expect(saveUserMock).toHaveBeenCalled();

@@ -8,22 +8,14 @@ import { z } from "zod/v4";
 const getCurrentWeather = tool<
   {
     city: string;
-    date_range: string;
   },
   string
 >({
   description: "Get the current weather in a given city.",
   inputSchema: z.object({
     city: z.string().describe("The city to get the weather for."),
-    date_range: z.string().describe("The date range to get the weather for."),
   }),
-  execute: async ({
-    city,
-    date_range,
-  }: {
-    city: string;
-    date_range: string;
-  }) => {
+  execute: async ({ city }: { city: string }) => {
     // Simulate weather
     const choices = ["sunny", "cloudy", "rainy", "snowy"];
     const temperature = Math.floor(Math.random() * 31);
@@ -35,16 +27,13 @@ const getCurrentWeather = tool<
 const getAccomodation = tool({
   description: "Get the accomodation in a given city.",
   inputSchema: z.object({
-    city: z.string().describe("The city to get the accomodation for."),
     weather: z
       .enum(["sunny", "cloudy", "rainy", "snowy"] as const)
       .describe("The weather in the city."),
   }),
   execute: async ({
-    city,
     weather,
   }: {
-    city: string;
     weather: "sunny" | "cloudy" | "rainy" | "snowy";
   }) => {
     if (weather === "sunny") {
@@ -78,7 +67,7 @@ const getAccomodation = tool({
 const callTravelAgent = async (
   messages: ModelMessage[],
   responseMessages: ModelMessage[] = []
-) => {
+): Promise<ModelMessage[]> => {
   const tools = {
     get_current_weather: getCurrentWeather,
     get_accomodation: getAccomodation,

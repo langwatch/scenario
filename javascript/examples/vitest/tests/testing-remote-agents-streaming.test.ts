@@ -63,6 +63,7 @@ beforeAll(async () => {
 
           res.end();
         } catch (error) {
+          console.error(error);
           res.writeHead(500);
           res.end("Error");
         }
