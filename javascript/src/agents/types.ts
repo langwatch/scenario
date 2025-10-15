@@ -1,9 +1,9 @@
-import { TestingAgentInferenceConfig } from "./schemas/testing-agent-inference.schema";
+import { ModelConfig } from "../domain/core/schemas/model.schema";
 
 /**
  * General configuration for a testing agent.
  */
-export interface TestingAgentConfig extends TestingAgentInferenceConfig {
+export interface TestingAgentConfig extends Partial<ModelConfig> {
   /**
    * The name of the agent.
    */
