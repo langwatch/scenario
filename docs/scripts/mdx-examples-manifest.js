@@ -15,6 +15,12 @@ export const examples = [
       "javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts",
   },
   {
+    sourcePath: "python/examples/test_audio_to_text.py",
+  },
+  {
+    sourcePath: "python/examples/test_audio_to_audio.py",
+  },
+  {
     sourcePath: "python/examples/test_azure_api_gateway.py",
   },
   {

@@ -5,6 +5,7 @@ description: Test agents that receive audio and respond with audio. Perfect for 
 
 import { LanguageTabs } from "../../../components/LanguageTabs";
 import AudioToAudioExample from "../../_generated/examples/multimodal-audio-to-audio.test.mdx";
+import AudioToAudioExamplePython from "../../_generated/examples/test_audio_to_audio.mdx";
 
 # Audio → Audio Testing
 
@@ -57,6 +58,9 @@ uv pip install scenario-sdk openai
   <LanguageTabs.CodeTab language="typescript">
     <AudioToAudioExample />
   </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
+    <AudioToAudioExamplePython />
+  </LanguageTabs.CodeTab>
 </LanguageTabs>
 
 ## Helper Utilities
@@ -99,6 +103,7 @@ The helpers handle this automatically, but if needed you can pass `forceUserRole
 Browse the full test in the repo:
 
 - [TypeScript: audio → audio test](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-audio.test.ts)
+- [Python: audio → audio test](https://github.com/langwatch/scenario/blob/main/python/examples/test_audio_to_audio.py)
 
 ## Related Guides
 

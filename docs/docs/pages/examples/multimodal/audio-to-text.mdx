@@ -5,6 +5,7 @@ description: Test agents that receive audio input and respond with text. Perfect
 
 import { LanguageTabs } from "../../../components/LanguageTabs";
 import AudioToTextExample from "../../_generated/examples/multimodal-audio-to-text.test.mdx";
+import AudioToTextExamplePython from "../../_generated/examples/test_audio_to_text.mdx";
 
 # Audio → Text Testing
 
@@ -57,6 +58,9 @@ uv pip install scenario-sdk openai
   <LanguageTabs.CodeTab language="typescript">
     <AudioToTextExample />
   </LanguageTabs.CodeTab>
+  <LanguageTabs.CodeTab language="python">
+    <AudioToTextExamplePython />
+  </LanguageTabs.CodeTab>
 </LanguageTabs>
 
 ## Helper Utilities
@@ -85,6 +89,7 @@ uv pip install scenario-sdk openai
 Browse the full test in the repo:
 
 - [TypeScript: audio → text test](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts)
+- [Python: audio → text test](https://github.com/langwatch/scenario/blob/main/python/examples/test_audio_to_text.py)
 
 ## Related Guides
 
