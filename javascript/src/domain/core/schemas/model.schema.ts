@@ -11,7 +11,7 @@ export const modelSchema = z.object({
       message:
         "A model is required. Configure it in scenario.config.js defaultModel or pass directly to the agent.",
     })
-    .describe("The OpenAI Language Model to use for generating responses."),
+    .describe("Language model that is used by the AI SDK Core functions."),
   temperature: z
     .number()
     .min(0.0)
