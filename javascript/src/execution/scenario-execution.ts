@@ -149,9 +149,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    */
   private pendingMessages: Map<number, ModelMessage[]> = new Map();
 
-  /** Intermediate result set by agents that make final decisions */
-  private partialResult: Omit<ScenarioResult, "messages"> | null = null;
-
   /** Accumulated execution time for each agent (for performance tracking) */
   private agentTimes: Map<number, number> = new Map();
 
@@ -759,55 +756,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     const currentTime = this.agentTimes.get(agentIdx) || 0;
 
     this.agentTimes.set(agentIdx, currentTime + time);
-  }
-
-  /**
-   * Checks if a partial result has been set for the scenario.
-   *
-   * This method is used internally to determine if a scenario has already reached
-   * a conclusion (success or failure) but hasn't been finalized yet. Partial results
-   * are typically set by agents that make final decisions (like judge agents) and
-   * are later finalized with the complete message history.
-   *
-   * @returns True if a partial result exists, false otherwise
-   *
-   * @example
-   * ```typescript
-   * // This is typically used internally by the execution engine
-   * if (execution.hasResult()) {
-   *   console.log('Scenario has reached a conclusion');
-   * }
-   * ```
-   */
-  hasResult(): boolean {
-    return this.partialResult !== null;
-  }
-
-  /**
-   * Sets a partial result for the scenario.
-   *
-   * This method is used internally to store intermediate results that may be
-   * finalized later with the complete message history. Partial results are typically
-   * created by agents that make final decisions (like judge agents) and contain
-   * the success/failure status, reasoning, and criteria evaluation, but not the
-   * complete message history.
-   *
-   * @param result - The partial result without the messages field. Should include
-   *                success status, reasoning, and criteria evaluation.
-   *
-   * @example
-   * ```typescript
-   * // This is typically called internally by agents that make final decisions
-   * execution.setResult({
-   *   success: true,
-   *   reasoning: "Agent provided accurate weather information",
-   *   metCriteria: ["Provides accurate weather data"],
-   *   unmetCriteria: []
-   * });
-   * ```
-   */
-  setResult(result: Omit<ScenarioResult, "messages">): void {
-    this.partialResult = result;
   }
 
   /**
