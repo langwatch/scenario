@@ -128,7 +128,6 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
 
         // Step 2: Save the full conversation as a single audio file
         async (ctx) => {
-          console.log("saving audio from context", ctx);
           await saveConversationAudio(ctx, outputPath);
         },
 

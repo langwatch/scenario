@@ -82,7 +82,6 @@ describe("Multimodal Audio to Audio Tests", () => {
     });
 
     try {
-      console.log("RESULT", result);
       expect(result.success).toBe(true);
     } catch (error) {
       console.error(result);

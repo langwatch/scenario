@@ -30,7 +30,6 @@ describe("when max turns is not set", () => {
       description:
         "This test case is used to test the max turns functionality of the scenario library.",
       agents: [mockAgent, mockUser, mockJudge],
-      verbose: process.env.VERBOSE === "true",
       setId: "javascript-examples",
     });
 
@@ -45,7 +44,6 @@ describe("when max turns is set to 20", () => {
       description:
         "This test case is used to test the max turns functionality of the scenario library.",
       agents: [mockAgent, mockUser, mockJudge],
-      verbose: process.env.VERBOSE === "true",
       setId: "javascript-examples",
       maxTurns: 20,
     });
