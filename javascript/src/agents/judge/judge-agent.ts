@@ -3,7 +3,7 @@ import { z } from "zod/v4";
 import { JudgeResult } from "./interfaces";
 import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
-import { mergeAndValidateConfig } from "../../utils/config";
+import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import { TestingAgentConfig, FinishTestArgs } from "../types";
 import { criterionToParamName } from "../utils";
@@ -121,11 +121,11 @@ class JudgeAgent extends JudgeAgentAdapter {
       input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
 
     const projectConfig = await getProjectConfig();
-    const mergedConfig = mergeAndValidateConfig(cfg, projectConfig);
-    if (!mergedConfig.model) {
-      throw new Error("Model is required for the judge agent");
-    }
-
+    // Merge the agent config with the project config and validate
+    const mergedConfig = modelSchema.parse({
+      ...projectConfig?.defaultModel,
+      ...cfg,
+    });
     const tools: ToolSet = {
       continue_test: buildContinueTestTool(),
       finish_test: buildFinishTestTool(cfg.criteria),

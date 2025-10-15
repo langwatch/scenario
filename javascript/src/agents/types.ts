@@ -1,24 +1,4 @@
-import { LanguageModel } from "ai";
-
-/**
- * Configuration for the inference parameters of a testing agent.
- */
-export interface TestingAgentInferenceConfig {
-  /**
-   * The language model to use for generating responses.
-   * If not provided, a default model will be used.
-   */
-  model?: LanguageModel;
-  /**
-   * The temperature for the language model.
-   * Defaults to 0.
-   */
-  temperature?: number;
-  /**
-   * The maximum number of tokens to generate.
-   */
-  maxTokens?: number;
-}
+import { TestingAgentInferenceConfig } from "./schemas/testing-agent-inference.schema";
 
 /**
  * General configuration for a testing agent.

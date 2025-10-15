@@ -1,31 +1,15 @@
-import { LanguageModel } from "ai";
 import { z } from "zod/v4";
+import { modelSchema } from "./schemas/model.schema";
 
-/** Default temperature for language model inference */
-export const DEFAULT_TEMPERATURE = 0.0;
+const headless =
+  typeof process !== "undefined"
+    ? process.env.SCENARIO_HEADLESS === "true"
+    : false;
 
 export const scenarioProjectConfigSchema = z
   .object({
-    defaultModel: z
-      .object({
-        model: z.custom<LanguageModel>(),
-        temperature: z
-          .number()
-          .min(0.0)
-          .max(1.0)
-          .optional()
-          .default(DEFAULT_TEMPERATURE),
-        maxTokens: z.number().optional(),
-      })
-      .optional(),
-    headless: z
-      .boolean()
-      .optional()
-      .default(
-        typeof process !== "undefined"
-          ? !["false", "0"].includes(process.env.SCENARIO_HEADLESS || "false")
-          : false
-      ),
+    defaultModel: modelSchema.optional(),
+    headless: z.boolean().optional().default(headless),
   })
   .strict();
 

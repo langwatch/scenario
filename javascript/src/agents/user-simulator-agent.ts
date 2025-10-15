@@ -2,12 +2,8 @@ import { generateText, CoreMessage } from "ai";
 import { TestingAgentConfig } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
-import {
-  AgentInput,
-  UserSimulatorAgentAdapter,
-  DEFAULT_TEMPERATURE,
-} from "../domain";
-import { mergeAndValidateConfig } from "../utils/config";
+import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
+import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 
 function buildSystemPrompt(description: string): string {
@@ -51,10 +47,11 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     ];
 
     const projectConfig = await getProjectConfig();
-    const mergedConfig = mergeAndValidateConfig(config ?? {}, projectConfig);
-    if (!mergedConfig.model) {
-      throw new Error("Model is required for the user simulator agent");
-    }
+    // Merge the agent config with the project config and validate
+    const mergedConfig = modelSchema.parse({
+      ...projectConfig?.defaultModel,
+      ...config,
+    });
 
     // User to assistant role reversal
     // LLM models are biased to always be the assistant not the user, so we need to do
@@ -65,7 +62,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     const completion = await this.generateText({
       model: mergedConfig.model,
       messages: reversedMessages,
-      temperature: mergedConfig.temperature ?? DEFAULT_TEMPERATURE,
+      temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
     });
 

@@ -33,7 +33,6 @@ describe("Vegetarian Recipe Agent", () => {
         agent,
         scenario.userSimulatorAgent(),
         scenario.judgeAgent({
-          model: openai("gpt-4.1"),
           criteria: [
             "Agent should not ask more than two follow-up questions",
             "Agent should generate a recipe",
