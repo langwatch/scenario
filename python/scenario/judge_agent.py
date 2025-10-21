@@ -339,7 +339,8 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                                 "type": "object",
                                 "properties": {
                                     criteria_names[idx]: {
-                                        "enum": [True, False, "inconclusive"],
+                                        "type": "string",
+                                        "enum": ["true", "false", "inconclusive"],
                                         "description": criterion,
                                     }
                                     for idx, criterion in enumerate(self.criteria)
@@ -415,12 +416,12 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                         passed_criteria = [
                             self.criteria[idx]
                             for idx, criterion in enumerate(criteria.values())
-                            if criterion == True
+                            if criterion == "true"
                         ]
                         failed_criteria = [
                             self.criteria[idx]
                             for idx, criterion in enumerate(criteria.values())
-                            if criterion == False or criterion == "inconclusive"
+                            if criterion == "false" or criterion == "inconclusive"
                         ]
 
                         # Return the appropriate ScenarioResult based on the verdict
