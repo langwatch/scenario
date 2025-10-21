@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.1](https://github.com/langwatch/scenario/compare/javascript/v0.3.0...javascript/v0.3.1) (2025-10-21)
+
+
+### Bug Fixes
+
+* prevent judge from overwriting messages array ([#150](https://github.com/langwatch/scenario/issues/150)) ([1438ab5](https://github.com/langwatch/scenario/commit/1438ab59895b1d5663235ff9d4a54acadbaf12f9))
+* update mocking examples ([#133](https://github.com/langwatch/scenario/issues/133)) ([95cb4e0](https://github.com/langwatch/scenario/commit/95cb4e09ff4a8b8ac895486a9f0f0f4345771054))
+* voice agent example ([#134](https://github.com/langwatch/scenario/issues/134)) ([f2cccdc](https://github.com/langwatch/scenario/commit/f2cccdccd7d99d8c7879f811130401a2e5b3f587))
+
+
+### Miscellaneous
+
+* add black box testing examples ([#137](https://github.com/langwatch/scenario/issues/137)) ([87fec91](https://github.com/langwatch/scenario/commit/87fec9114b17f5c4b27f054e7adc074de8b761f3))
+
 ## [0.3.0](https://github.com/langwatch/scenario/compare/javascript/v0.2.13...javascript/v0.3.0) (2025-08-30)
 
 
