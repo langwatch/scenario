@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.14](https://github.com/langwatch/scenario/compare/python/v0.7.13...python/v0.7.14) (2025-10-21)
+
+
+### Bug Fixes
+
+* gemini judge not working ([#152](https://github.com/langwatch/scenario/issues/152)) ([61bff5e](https://github.com/langwatch/scenario/commit/61bff5ef124886bf83309ac0bb7f8358a790f364))
+
+
+### Documentation
+
+* add other python examples ([#148](https://github.com/langwatch/scenario/issues/148)) ([253bb35](https://github.com/langwatch/scenario/commit/253bb35f0b744ab203cdb92eb03fe5bf8603d456))
+
 ## [0.7.13](https://github.com/langwatch/scenario/compare/python/v0.7.12...python/v0.7.13) (2025-10-09)
 
 
