@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.21.1",
     "ai": ">=5.0.0",
     "openai": "^5.16.0",
     "vitest": "^3.2.4"
