@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Voice Assistant</title>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 40px 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+      }
+      .container {
+        background: white;
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      }
+      h1 {
+        margin: 0 0 10px 0;
+        color: #333;
+        font-size: 32px;
+      }
+      .subtitle {
+        color: #666;
+        font-size: 14px;
+        margin-bottom: 30px;
+      }
+      button {
+        padding: 20px 40px;
+        font-size: 18px;
+        cursor: pointer;
+        border: none;
+        border-radius: 50px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        display: block;
+        width: 100%;
+        margin: 20px 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+      button.active {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+      }
+      #status {
+        margin: 20px 0;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 10px;
+        min-height: 50px;
+        color: #555;
+        font-size: 16px;
+      }
+      .info {
+        background: #e7f3ff;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #0066cc;
+      }
+      .recording {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff4444;
+        margin-right: 8px;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.6;
+          transform: scale(0.9);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎙️ Voice Assistant</h1>
+      <div class="subtitle">OpenAI Agents SDK</div>
+      <div class="info">
+        💡 Click to start talking. The AI will automatically detect when you're
+        done speaking!
+      </div>
+      <button id="startBtn">🎤 Start Conversation</button>
+      <div id="status">Ready...</div>
+    </div>
+
+    <script type="module">
+      import {
+        RealtimeAgent,
+        RealtimeSession,
+        OpenAIRealtimeWebSocket,
+      } from "https://esm.sh/@openai/agents@0.3.0/realtime";
+
+      const apiKey = prompt("Enter your OpenAI API Key:");
+      if (!apiKey) {
+        alert("API key required");
+        throw new Error("No API key");
+      }
+
+      const startBtn = document.getElementById("startBtn");
+      const status = document.getElementById("status");
+
+      let session = null;
+      let isConnected = false;
+      let audioContext;
+      let processor;
+      let mediaStream;
+
+      // Define the agent configuration
+      const agent = new RealtimeAgent({
+        name: "Assistant",
+        instructions:
+          "You are a helpful and engaging AI assistant. Respond naturally and conversationally. Keep responses concise.",
+        voice: "alloy",
+      });
+
+      async function connect() {
+        try {
+          console.log("Starting connection...");
+          status.textContent = "🔌 Connecting...";
+
+          // Create WebSocket transport with useInsecureApiKey
+          const transport = new OpenAIRealtimeWebSocket({
+            useInsecureApiKey: true,
+          });
+
+          console.log("Transport created");
+
+          // Use WebSocket transport (simpler, more reliable)
+          session = new RealtimeSession(agent, {
+            transport,
+            model: "gpt-4o-realtime-preview-2024-12-17",
+          });
+
+          console.log("Session created, setting up listeners");
+
+          // Listen to events
+          session.on("connected", async () => {
+            console.log("Connected event fired!");
+            isConnected = true;
+            startBtn.textContent = "🛑 End Conversation";
+            startBtn.classList.add("active");
+            status.innerHTML =
+              '<span class="recording"></span>Connected! Start speaking...';
+            await startAudioCapture();
+          });
+
+          session.on("disconnected", () => {
+            console.log("Disconnected");
+            isConnected = false;
+            startBtn.textContent = "🎤 Start Conversation";
+            startBtn.classList.remove("active");
+            status.textContent = "Disconnected";
+            stopAudioCapture();
+          });
+
+          session.on("audio", (event) => {
+            console.log("Audio received:", event.data.length);
+            playAudio(event.data);
+          });
+
+          session.on("error", (error) => {
+            console.error("Session error:", error);
+            status.textContent = `❌ Error: ${error.message || error}`;
+          });
+
+          // Also listen on transport for debugging
+          transport.on("*", (event) => {
+            console.log("Transport event:", event.type);
+          });
+
+          console.log("Calling session.connect...");
+          // Connect to OpenAI
+          await session.connect({ apiKey });
+          console.log("session.connect returned");
+        } catch (error) {
+          console.error("Connection error:", error);
+          status.textContent = `❌ Error: ${error.message || String(error)}`;
+          isConnected = false;
+        }
+      }
+
+      async function startAudioCapture() {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: 24000,
+        });
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        processor.onaudioprocess = (e) => {
+          if (!isConnected || !session) return;
+
+          const inputData = e.inputBuffer.getChannelData(0);
+
+          // Convert Float32 to PCM16
+          const pcm16 = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+
+          // Send to session
+          session.sendAudio(pcm16.buffer);
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+      }
+
+      function stopAudioCapture() {
+        if (processor) processor.disconnect();
+        if (mediaStream)
+          mediaStream.getTracks().forEach((track) => track.stop());
+        if (audioContext) audioContext.close();
+      }
+
+      // Audio playback queue
+      let audioQueue = [];
+      let isPlaying = false;
+
+      function playAudio(pcm16Data) {
+        audioQueue.push(pcm16Data);
+        if (!isPlaying) {
+          playNextAudio();
+        }
+      }
+
+      async function playNextAudio() {
+        if (audioQueue.length === 0) {
+          isPlaying = false;
+          return;
+        }
+
+        isPlaying = true;
+        const data = audioQueue.shift();
+
+        // Convert PCM16 to Float32
+        const pcm16 = new Int16Array(data);
+        const float32 = new Float32Array(pcm16.length);
+        for (let i = 0; i < pcm16.length; i++) {
+          float32[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7fff);
+        }
+
+        // Play
+        const buffer = audioContext.createBuffer(1, float32.length, 24000);
+        buffer.getChannelData(0).set(float32);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+        source.onended = () => playNextAudio();
+        source.start();
+      }
+
+      function disconnect() {
+        if (session) {
+          session.disconnect();
+          session = null;
+        }
+        stopAudioCapture();
+        isConnected = false;
+        startBtn.textContent = "🎤 Start Conversation";
+        startBtn.classList.remove("active");
+        status.textContent = "Ready...";
+      }
+
+      startBtn.addEventListener("click", () => {
+        if (isConnected) {
+          disconnect();
+        } else {
+          connect();
+        }
+      });
+    </script>
+  </body>
+</html>

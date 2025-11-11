@@ -7,21 +7,27 @@
   "scripts": {
     "test": "pnpm exec vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "interactive-voice": "dotenv -e .env tsx tests/interactive-voice-server.ts",
+    "voice-ui": "open tests/voice-ui-simple.html"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/ws": "^8.5.13",
     "dotenv": "^16.5.0",
     "dotenv-cli": "^8.0.0",
     "nanoid-cli": "^1.0.1",
+    "tsx": "^4.19.4",
     "vitest-mock-extended": "3.1.0"
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",
+    "@openai/agents": "0.3.0",
     "ai": ">=5.0.0",
     "openai": "^5.16.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "ws": "^8.18.0"
   }
 }
