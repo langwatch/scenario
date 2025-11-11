@@ -15,14 +15,14 @@ import ToolFailureSimulationPy from "../_generated/examples/test_tool_failure_si
 import LlmProviderMockingTS from "../_generated/examples/llm-provider-mocking.test.mdx";
 import LlmProviderMockingPy from "../_generated/examples/test_llm_provider_mocking.mdx";
 
-# Mocks [Simulating external dependencies for deterministic testing]
+# Mocking External Dependencies
 
-A _mock_ is a simulated implementation of an external dependency—API, database, tool, or service—that your scenario test uses to ensure **deterministic, offline-friendly** execution.
+Mocks are simulated implementations of external dependencies (APIs, databases, tools, or services) that scenario tests use to ensure **deterministic, offline-friendly** execution.
 
 :::tip
 **Modern Agent Architecture**
 
-Most production agents use **tool calling** to interact with external systems rather than making direct API calls in their core logic. This separation of concerns makes agents more testable, maintainable, and reliable. When mocking for agent tests, you'll primarily be mocking the tool execution functions, not the agent's reasoning logic.
+Production agents typically use **tool calling** to interact with external systems instead of making direct API calls in their core logic. This separation of concerns makes agents more testable, maintainable, and reliable. Mock the tool execution functions rather than the agent's reasoning logic.
 
 **If you're new to tool calling with agents, check out our [Tool Calling Guide](./tool-calling) first to understand the fundamentals.**
 :::
@@ -266,7 +266,3 @@ For broader testing practices like descriptive naming, test isolation, and mock 
 ---
 
 Next up: learn how to [cache](../basics/cache) LLM calls for even faster, deterministic runs.
-
-```
-
-```

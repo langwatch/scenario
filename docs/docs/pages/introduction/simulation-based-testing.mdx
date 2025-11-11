@@ -7,7 +7,7 @@ description: Why simulation-based testing is essential for AI agents. Learn the 
 
 Traditional evaluation methods, designed for static, single-turn LLMs, are not enough. Agents are stateful, dynamic systems. They make decisions over time, recover from errors, and adapt to new information. To build robust, autonomous agents, we need to evaluate them with the same rigor we use to design their architecture.
 
-The goal with Scenario simulations isn't just to test agents, but to build a feedback loop that drives continuous improvement.
+Scenario simulations don't just test agents - they build a feedback loop that drives continuous improvement.
 
 ## The Limitations of Traditional Evaluation
 
@@ -51,7 +51,7 @@ script=[
 ✅ Easy to replicate and reproduce an issue found in production\
 ✅ Can run in autopilot for simulating a variety of inputs
 
-**This doesn't mean you should stop doing evaluations**, in fact, having evaluations and simulations together is what composes your full agent test suite:
+**This doesn't mean you should stop doing evaluations**. In fact, combine evaluations and simulations to compose your full agent test suite:
 
 - Use evaluations for testing the smaller parts that compose the agent, where a more "machine learning" approach is required, for optimizing a specific LLM call or retrieval for example.
 

@@ -787,13 +787,21 @@ const script = [
 :::code-group
 
 ```python [python]
+def verify_help_response(state: scenario.ScenarioState) -> None:
+    """Verify initial response mentions help"""
+    assert "help" in state.last_message().get("content", "").lower()
+
+def verify_substantial_response(state: scenario.ScenarioState) -> None:
+    """Verify adaptation response is substantial"""
+    assert len(state.last_message().get("content", "")) > 50
+
 script=[
     # Start with specific setup
     scenario.user("I need help with a complex issue"),
     scenario.agent(),
 
     # Verify initial response
-    lambda state: assert "help" in state.last_message().get("content", "").lower(),
+    verify_help_response,
 
     # Let conversation flow naturally for a while
     scenario.proceed(turns=3),
@@ -803,7 +811,7 @@ script=[
     scenario.agent(),
 
     # Verify adaptation
-    lambda state: assert len(state.last_message().get("content", "")) > 50,
+    verify_substantial_response,
 
     # Let judge decide final outcome
     scenario.judge()
@@ -864,10 +872,14 @@ script=[
 ]
 
 # Then add validation
+def verify_greeting(state: scenario.ScenarioState) -> None:
+    """Verify agent greets properly"""
+    assert "hello" in state.last_message().get("content", "").lower()
+
 script=[
     scenario.user("Hello"),
     scenario.agent(),
-    lambda state: assert "hello" in state.last_message().get("content", "").lower(),
+    verify_greeting,
     scenario.succeed()
 ]
 ```

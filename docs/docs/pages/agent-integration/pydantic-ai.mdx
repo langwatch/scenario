@@ -48,7 +48,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 class PydanticAIAgentAdapter(scenario.AgentAdapter):
     def __init__(self):
-        # In-Memory History - Pydantic AI doesn't have built-in memory yet: https://github.com/pydantic/pydantic-ai/issues/530
+        # Store conversation history in memory - Pydantic AI doesn't have built-in memory yet: https://github.com/pydantic/pydantic-ai/issues/530
         self.history: dict[str, List[ModelMessage]] = {}
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
