@@ -1,196 +1,166 @@
-/**
- * RealtimeScenarioAdapter - Bridges OpenAI Realtime API to Scenario testing
- *
- * Uses the OpenAI Agents SDK transport layer for clean, maintainable code.
- * Follows SRP: just adapts realtime streaming to turn-based testing.
- *
- * @example
- * ```typescript
- * const agent = new RealtimeScenarioAdapter({
- *   name: 'Assistant',
- *   instructions: 'Be helpful and concise',
- *   voice: 'alloy'
- * });
- *
- * await scenario.run({
- *   agents: [userSimulator, agent, judge],
- *   script: [scenario.proceed(3), scenario.judge()]
- * });
- * ```
- */
-import { AgentAdapter, AgentInput, AgentRole } from "@langwatch/scenario";
-import { ModelMessage } from "ai";
+import {
+  AgentAdapter,
+  AgentInput,
+  AgentRole,
+  ModelMessage,
+} from "@langwatch/scenario";
 import {
   OpenAIRealtimeWebSocket,
-  type RealtimeAgentConfiguration,
+  RealtimeAgent,
+  RealtimeSession,
 } from "@openai/agents/realtime";
+import { Buffer } from "buffer";
 
 /**
- * Configuration for RealtimeScenarioAdapter
+ * Configuration options for RealtimeScenarioAdapter
  */
-export interface RealtimeScenarioConfig
-  extends Partial<RealtimeAgentConfiguration> {
-  /** OpenAI model to use */
+interface RealtimeScenarioAdapterConfig {
+  /** System prompt for the agent */
+  systemPrompt?: string;
+  /** Voice for the agent */
+  voice?: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
+  /** Model to use */
   model?: string;
 }
 
 /**
- * Adapter that uses OpenAI Realtime API for Scenario testing
- *
- * Responsibilities:
- * - Extract audio from input messages
- * - Send to OpenAI Realtime API via transport layer
- * - Buffer streaming response into complete turn
- * - Return formatted audio message
+ * Adapter that wraps OpenAI Realtime API for use in Scenario tests.
+ * Converts turn-based audio messages to/from the streaming Realtime API.
  */
 export class RealtimeScenarioAdapter extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
-  private config: RealtimeScenarioConfig;
+  private config: RealtimeScenarioAdapterConfig;
 
-  constructor(config: RealtimeScenarioConfig = {}) {
+  constructor(config?: RealtimeScenarioAdapterConfig) {
     super();
     this.config = {
-      name: config.name || "RealtimeAgent",
-      instructions:
-        config.instructions || "Be helpful and respond concisely.",
-      voice: config.voice || "alloy",
-      model: config.model || "gpt-4o-realtime-preview-2024-12-17",
+      systemPrompt: "You are a helpful assistant. Be concise.",
+      voice: "alloy",
+      model: "gpt-4o-realtime-preview-2024-12-17",
       ...config,
     };
   }
 
-  /**
-   * Process audio input and return complete audio response
-   */
   async call(input: AgentInput): Promise<ModelMessage> {
     const lastMessage = input.messages[input.messages.length - 1];
-
-    // Extract audio from message
     const audioData = this.extractAudio(lastMessage);
+
     if (!audioData) {
       throw new Error(
-        "RealtimeScenarioAdapter requires audio input. No audio found in last message."
+        "No audio data found in the last message for RealtimeScenarioAdapter."
       );
     }
 
-    console.log(
-      `${this.config.name}: Processing audio (${audioData.length} chars base64)`
-    );
+    const responseAudioBuffer = await this.getRealtimeResponse(audioData);
 
-    // Get complete response from Realtime API
-    const { audio, transcript } = await this.getRealtimeResponse(audioData);
+    // Convert ArrayBuffer to base64 string for ModelMessage
+    const base64Audio = Buffer.from(responseAudioBuffer).toString("base64");
 
-    console.log(`${this.config.name}: "${transcript}"`);
-
-    // Return as audio message
     return {
       role: "assistant",
       content: [
-        { type: "text", text: transcript || "" },
-        { type: "file", mediaType: "audio/pcm16", data: audio },
+        { type: "text", text: "" },
+        { type: "file", mediaType: "audio/pcm16", data: base64Audio },
       ],
     };
   }
 
   /**
-   * Send audio to Realtime API and collect complete response
-   * Uses OpenAI Agents SDK transport layer
+   * Connects to OpenAI Realtime API, sends audio, and returns response audio
    */
   private async getRealtimeResponse(
     inputAudioBase64: string
-  ): Promise<{ audio: string; transcript: string }> {
+  ): Promise<ArrayBuffer> {
     return new Promise(async (resolve, reject) => {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) {
-        reject(new Error("OPENAI_API_KEY environment variable not set"));
-        return;
-      }
+      const transport = new OpenAIRealtimeWebSocket({
+        useInsecureApiKey: true,
+      });
 
-      // Create transport using SDK
-      const transport = new OpenAIRealtimeWebSocket();
+      const agent = new RealtimeAgent({
+        name: "ScenarioAgent",
+        instructions: this.config.systemPrompt,
+        voice: this.config.voice,
+      });
 
-      let audioChunks: string[] = [];
-      let transcript = "";
+      const session = new RealtimeSession(agent, {
+        transport,
+        model: this.config.model,
+      });
 
-      const timeout = setTimeout(() => {
-        transport.disconnect();
-        reject(new Error("Realtime API timeout (30s)"));
-      }, 30000);
+      let receivedAudioChunks: ArrayBuffer[] = [];
+
+      // Listen for transport events
+      transport.on("*", (event: any) => {
+        if (event.type === "response.audio.delta" && event.delta) {
+          receivedAudioChunks.push(event.delta);
+        }
+
+        if (event.type === "response.done" || event.type === "response.audio.done") {
+          // Response is complete, combine audio chunks
+          if (receivedAudioChunks.length > 0) {
+            const totalLength = receivedAudioChunks.reduce(
+              (sum, chunk) => sum + chunk.byteLength,
+              0
+            );
+            const combinedBuffer = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of receivedAudioChunks) {
+              combinedBuffer.set(new Uint8Array(chunk), offset);
+              offset += chunk.byteLength;
+            }
+            session.disconnect();
+            resolve(combinedBuffer.buffer);
+          } else {
+            session.disconnect();
+            reject(new Error("No audio response received from Realtime API."));
+          }
+        }
+      });
+
+      transport.on("error", (error: any) => {
+        session.disconnect();
+        reject(new Error(`Transport error: ${error.message}`));
+      });
+
+      transport.on("close", () => {
+        if (receivedAudioChunks.length === 0) {
+          reject(new Error("Connection closed without receiving audio."));
+        }
+      });
 
       try {
-        // Listen for audio chunks
-        transport.on("audio", (event: any) => {
-          if (event.data) {
-            audioChunks.push(event.data);
-          }
-        });
+        await session.connect({ apiKey: process.env.OPENAI_API_KEY! });
 
-        // Listen for transcript
-        transport.on("transcript", (event: any) => {
-          if (event.text) {
-            transcript += event.text;
-          }
-        });
-
-        // Listen for response completion
-        transport.on("response_completed", () => {
-          clearTimeout(timeout);
-          transport.disconnect();
-          resolve({
-            audio: audioChunks.join(""),
-            transcript,
-          });
-        });
-
-        // Listen for errors
-        transport.on("error", (error: any) => {
-          clearTimeout(timeout);
-          transport.disconnect();
-          reject(new Error(`Transport error: ${error.message || error}`));
-        });
-
-        // Connect with config
-        await transport.connect({
-          apiKey,
-          model: this.config.model!,
-          initialSessionConfig: {
-            instructions: this.config.instructions,
-            voice: this.config.voice,
-            modalities: ["audio", "text"],
-            inputAudioFormat: "pcm16",
-            outputAudioFormat: "pcm16",
-          },
-        });
-
-        // Send audio
-        transport.sendAudio(Buffer.from(inputAudioBase64, "base64"));
-
-        // Trigger response generation
-        transport.sendEvent({
-          type: "response.create",
-        });
-      } catch (error) {
-        clearTimeout(timeout);
-        if (transport) {
-          transport.disconnect();
+        // Convert base64 input audio to ArrayBuffer
+        const binaryString = Buffer.from(inputAudioBase64, "base64").toString(
+          "binary"
+        );
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
         }
-        reject(error);
+
+        // Send the audio
+        session.sendAudio(bytes.buffer);
+        
+        // Signal end of input (commit the audio)
+        session.sendAudio(new ArrayBuffer(0));
+      } catch (error: any) {
+        reject(new Error(`Failed to connect to Realtime API: ${error.message}`));
       }
     });
   }
 
   /**
-   * Extract audio data from a message
+   * Extracts audio data from a ModelMessage
    */
-  private extractAudio(message: any): string | null {
-    if (typeof message.content === "string") return null;
+  private extractAudio(message: ModelMessage): string | null {
+    if (!Array.isArray(message.content)) return null;
 
-    const content = Array.isArray(message.content) ? message.content : [];
-    const audioPart = content.find(
-      (p: any) => p.type === "file" && p.mediaType?.includes("audio")
+    const audioPart = message.content.find(
+      (p): p is { type: "file"; mediaType: string; data: string } =>
+        p.type === "file" && p.mediaType?.startsWith("audio/")
     );
-
     return audioPart?.data || null;
   }
 }
-

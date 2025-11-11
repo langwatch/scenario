@@ -160,45 +160,44 @@
 
           console.log("Session created, setting up listeners");
 
-          // Listen to events
-          session.on("connected", async () => {
-            console.log("Connected event fired!");
-            isConnected = true;
-            startBtn.textContent = "🛑 End Conversation";
-            startBtn.classList.add("active");
-            status.innerHTML =
-              '<span class="recording"></span>Connected! Start speaking...';
-            await startAudioCapture();
-          });
-
-          session.on("disconnected", () => {
-            console.log("Disconnected");
-            isConnected = false;
-            startBtn.textContent = "🎤 Start Conversation";
-            startBtn.classList.remove("active");
-            status.textContent = "Disconnected";
-            stopAudioCapture();
-          });
-
-          session.on("audio", (event) => {
-            console.log("Audio received:", event.data.length);
-            playAudio(event.data);
-          });
-
-          session.on("error", (error) => {
-            console.error("Session error:", error);
-            status.textContent = `❌ Error: ${error.message || error}`;
-          });
-
           // Also listen on transport for debugging
           transport.on("*", (event) => {
-            console.log("Transport event:", event.type);
+            console.log("Transport event:", event.type, event);
           });
 
           console.log("Calling session.connect...");
           // Connect to OpenAI
           await session.connect({ apiKey });
-          console.log("session.connect returned");
+          console.log("session.connect returned - connection is ready!");
+
+          // Connection is ready immediately after connect() resolves
+          isConnected = true;
+          startBtn.textContent = "🛑 End Conversation";
+          startBtn.classList.add("active");
+          status.innerHTML =
+            '<span class="recording"></span>Connected! Start speaking...';
+
+          // Start audio capture
+          await startAudioCapture();
+
+          // Listen to transport events
+          transport.on("audio", (event) => {
+            console.log("Audio received");
+            playAudio(event.data);
+          });
+
+          transport.on("error", (error) => {
+            console.error("Transport error:", error);
+            status.textContent = `❌ Error: ${error.message || error}`;
+            disconnect();
+          });
+
+          transport.on("close", () => {
+            console.log("Transport closed");
+            if (isConnected) {
+              disconnect();
+            }
+          });
         } catch (error) {
           console.error("Connection error:", error);
           status.textContent = `❌ Error: ${error.message || String(error)}`;
@@ -282,13 +281,14 @@
         source.start();
       }
 
-      function disconnect() {
+      async function disconnect() {
+        console.log("Disconnecting...");
+        isConnected = false;
+        stopAudioCapture();
         if (session) {
-          session.disconnect();
+          await session.disconnect();
           session = null;
         }
-        stopAudioCapture();
-        isConnected = false;
         startBtn.textContent = "🎤 Start Conversation";
         startBtn.classList.remove("active");
         status.textContent = "Ready...";
