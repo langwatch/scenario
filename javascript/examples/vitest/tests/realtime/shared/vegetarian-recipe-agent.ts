@@ -1,11 +1,11 @@
 /**
  * Vegetarian Recipe Agent Configuration
- * 
+ *
  * This is the SINGLE SOURCE OF TRUTH for the agent.
  * Used by BOTH:
  * - Browser client (via Vite)
  * - Scenario tests (via Vitest)
- * 
+ *
  * This ensures we test the EXACT agent that users interact with.
  */
 
@@ -41,18 +41,18 @@ export const AGENT_CONFIG = {
 
 /**
  * Creates the vegetarian recipe agent
- * 
+ *
  * This function is used by both browser and tests to ensure
  * they're interacting with the identical agent.
- * 
+ *
  * @returns Configured RealtimeAgent instance
- * 
+ *
  * @example
  * ```typescript
  * // In browser
  * const agent = createVegetarianRecipeAgent();
  * const session = new RealtimeSession(agent);
- * 
+ *
  * // In tests
  * const agent = createVegetarianRecipeAgent();
  * const adapter = new RealtimeAgentAdapter({ agent });
@@ -65,4 +65,3 @@ export function createVegetarianRecipeAgent(): RealtimeAgent {
     voice: AGENT_CONFIG.voice,
   });
 }
-
