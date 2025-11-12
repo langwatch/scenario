@@ -8,7 +8,11 @@
     "test": "(cd ../.. && pnpm run buildpack) && pnpm exec vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "format": "eslint . --fix"
+    "format": "eslint . --fix",
+    "realtime-server": "dotenv -e .env pnpm exec tsx tests/realtime/server/start-server.ts",
+    "realtime-client": "cd tests/realtime/client && vite",
+    "realtime-client:build": "cd tests/realtime/client && vite build",
+    "realtime": "dotenv -e .env concurrently -n server,client -c blue,magenta \"pnpm realtime-server\" \"pnpm realtime-client\""
   },
   "keywords": [],
   "author": "",
@@ -17,6 +21,7 @@
     "concurrently": "^9.2.1",
     "dotenv": "^17.2.3",
     "dotenv-cli": "^11.0.0",
+    "nanoid-cli": "^1.0.1",
     "vitest-mock-extended": "3.1.0"
   },
   "dependencies": {
