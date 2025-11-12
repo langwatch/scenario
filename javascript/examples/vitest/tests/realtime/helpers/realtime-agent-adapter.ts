@@ -17,6 +17,7 @@ import type { AssistantModelMessage } from "ai";
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
 import { AGENT_CONFIG } from "../shared/vegetarian-recipe-agent.js";
+import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -107,32 +108,6 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     }
 
     try {
-      let apiKey: string;
-
-      if (this.config.apiKey) {
-        // Direct API key mode (testing)
-        console.log("🔑 Using direct API key for connection");
-        apiKey = this.config.apiKey;
-      } else {
-        // Ephemeral token mode (production/browser)
-        const tokenServerUrl =
-          this.config.tokenServerUrl ?? "http://localhost:3000";
-
-        console.log("🔑 Fetching ephemeral token from server...");
-        const tokenResponse = await fetch(`${tokenServerUrl}/token`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-
-        if (!tokenResponse.ok) {
-          throw new Error(`Failed to fetch token: ${tokenResponse.statusText}`);
-        }
-
-        const { token } = await tokenResponse.json();
-        apiKey = token;
-        console.log("✅ Token received");
-      }
-
       // Create session with the SAME agent as browser
       this.session = new RealtimeSession(this.config.agent, {
         model: AGENT_CONFIG.model,
@@ -142,7 +117,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       this.setupEventListeners();
 
       // Connect with API key (direct or ephemeral token)
-      await this.session.connect({ apiKey });
+      await this.session.connect({ apiKey: this.config.apiKey });
 
       console.log("✅ RealtimeAgentAdapter connected");
     } catch (error) {
@@ -185,7 +160,26 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     const latestMessage = input.newMessages[input.newMessages.length - 1];
 
     if (!latestMessage) {
-      throw new Error("No message to process");
+      const transport = (this.session as any).transport;
+
+      if (!transport) {
+        throw new Error("Realtime transport not available");
+      }
+
+      transport.sendEvent({
+        type: "response.create",
+      });
+
+      const timeout = this.config.responseTimeout ?? 60000;
+      const response = await this.waitForResponse(timeout);
+
+      return {
+        role: "assistant",
+        content: [
+          { type: "text", text: response.transcript },
+          { type: "file", mediaType: "audio/pcm16", data: response.audio },
+        ],
+      } as AssistantModelMessage;
     }
 
     // Check if message contains audio

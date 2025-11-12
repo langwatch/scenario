@@ -21,10 +21,12 @@ import {
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   let realtimeAdapter: RealtimeAgentAdapter;
+  let audioUserSim: AudioUserSimulator;
 
   beforeAll(async () => {
     // Create the SAME agent as the browser client
     const agent = createVegetarianRecipeAgent();
+    audioUserSim = new AudioUserSimulator();
 
     // Wrap in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
@@ -34,18 +36,18 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     });
 
     // Connect once for all tests
-    await realtimeAdapter.connect();
+    await Promise.all([realtimeAdapter.connect(), audioUserSim.connect()]);
   }, 60000); // Longer timeout for connection
 
   afterAll(async () => {
     // Cleanup connection
-    await realtimeAdapter.disconnect();
+    await Promise.all([
+      realtimeAdapter.disconnect(),
+      audioUserSim.disconnect(),
+    ]);
   });
 
   it("should handle voice-to-voice conversation with audio user", async () => {
-    // Create audio user simulator for voice-to-voice testing
-    const audioUserSim = new AudioUserSimulator();
-
     const result = await scenario.run({
       name: "vegetarian recipe - voice-to-voice",
       description: `It's Saturday evening, the user is very hungry and tired, but has no money to order out. They're looking for a quick vegetarian recipe and calling in via voice.`,
