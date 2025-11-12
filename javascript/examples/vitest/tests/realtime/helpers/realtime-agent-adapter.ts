@@ -13,6 +13,7 @@ import {
   AgentRole,
   type AgentReturnTypes,
 } from "@langwatch/scenario";
+import type { AssistantModelMessage } from "ai";
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
 import { AGENT_CONFIG } from "../shared/vegetarian-recipe-agent.js";
@@ -71,7 +72,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
   private session: RealtimeSession | null = null;
   private currentResponse: string = "";
-  private responseResolver: ((value: string) => void) | null = null;
+  private currentAudioChunks: string[] = [];
+  private responseResolver: ((value: { transcript: string; audio: string }) => void) | null = null;
   private errorRejecter: ((error: Error) => void) | null = null;
 
   constructor(private config: RealtimeAgentAdapterConfig) {
@@ -145,10 +147,10 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Process input and generate response (implements AgentAdapter interface)
    *
    * This is called by Scenario framework for each agent turn.
-   * We send a text message and wait for the agent's audio+transcript response.
+   * Handles both text and audio input, returns audio message with transcript.
    *
    * @param input - Scenario agent input with message history
-   * @returns Agent response as text (transcript from audio response)
+   * @returns Agent response as audio message or text
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
     if (!this.session) {
@@ -164,15 +166,48 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("No message to process");
     }
 
-    // Extract text content
+    // Check if message contains audio
+    if (Array.isArray(latestMessage.content)) {
+      for (const part of latestMessage.content) {
+        if (part.type === "file" && part.mediaType === "audio/wav") {
+          console.log("🎤 Sending audio to Realtime agent");
+          
+          // Send audio to Realtime API
+          try {
+            // @ts-ignore - sendAudio exists in 0.3.0
+            await this.session.sendAudio(part.data);
+          } catch (sendError) {
+            console.error("❌ Failed to send audio:", sendError);
+            throw sendError;
+          }
+
+          // Wait for audio response
+          const timeout = this.config.responseTimeout ?? 30000;
+          const response = await this.waitForResponse(timeout);
+
+          console.log(`🔊 Received audio response: "${response.transcript}"`);
+
+          // Return audio message (like OpenAiVoiceAgent does)
+          return {
+            role: "assistant",
+            content: [
+              { type: "text", text: response.transcript },
+              { type: "file", mediaType: "audio/wav", data: response.audio },
+            ],
+          } as AssistantModelMessage;
+        }
+      }
+    }
+
+    // Fallback: text input
     const text =
       typeof latestMessage.content === "string" ? latestMessage.content : "";
 
     if (!text) {
-      throw new Error("Message has no text content");
+      throw new Error("Message has no text or audio content");
     }
 
-    console.log(`📤 Sending to Realtime agent: "${text}"`);
+    console.log(`📤 Sending text to Realtime agent: "${text}"`);
 
     // In SDK 0.3.0, use sendMessage method
     try {
@@ -187,11 +222,10 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     const timeout = this.config.responseTimeout ?? 30000;
     const response = await this.waitForResponse(timeout);
 
-    console.log(`📥 Received from Realtime agent: "${response}"`);
+    console.log(`📥 Received from Realtime agent: "${response.transcript}"`);
 
     // Return as text for Scenario framework
-    // The judge and user simulator will process this text
-    return response;
+    return response.transcript;
   }
 
   /**
@@ -200,45 +234,53 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private setupEventListeners(): void {
     if (!this.session) return;
 
-    // Accumulate transcript as it arrives
+    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
     this.session.on("response:transcript:delta", (event: any) => {
       this.currentResponse += event.delta;
     });
 
-    // Response complete - resolve promise
+    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
+    this.session.on("response.audio.delta", (event: any) => {
+      if (event.delta) {
+        this.currentAudioChunks.push(event.delta);
+      }
+    });
+
+    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
     this.session.on("response:transcript:done", (event: any) => {
       const fullTranscript = event.transcript;
+      const fullAudio = this.currentAudioChunks.join("");
 
       if (this.responseResolver) {
-        this.responseResolver(fullTranscript);
+        this.responseResolver({
+          transcript: fullTranscript,
+          audio: fullAudio,
+        });
         this.responseResolver = null;
         this.errorRejecter = null;
       }
 
       // Reset for next response
       this.currentResponse = "";
+      this.currentAudioChunks = [];
     });
 
-    // Handle errors
+    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
     this.session.on("error", (error: any) => {
       console.error("❌ RealtimeSession error:", error);
 
       if (this.errorRejecter) {
         this.errorRejecter(
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(JSON.stringify(error))
         );
         this.responseResolver = null;
         this.errorRejecter = null;
       }
     });
 
-    // Log voice activity for debugging
+    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
     this.session.on("input_audio_buffer.speech_started", () => {
       console.log("🎤 [Test] Speech detected");
-    });
-
-    this.session.on("response.audio.delta", () => {
-      // Agent is speaking (we get transcript via response:transcript:delta)
     });
   }
 
@@ -246,10 +288,10 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Waits for the agent's response with timeout
    *
    * @param timeout - Maximum time to wait (ms)
-   * @returns Agent's transcript
+   * @returns Agent's transcript and audio data
    * @throws {Error} If timeout or error occurs
    */
-  private waitForResponse(timeout: number): Promise<string> {
+  private waitForResponse(timeout: number): Promise<{ transcript: string; audio: string }> {
     return new Promise((resolve, reject) => {
       this.responseResolver = resolve;
       this.errorRejecter = reject;
@@ -265,7 +307,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
       // Clear timeout when resolved
       const originalResolver = resolve;
-      this.responseResolver = (value: string) => {
+      this.responseResolver = (value: { transcript: string; audio: string }) => {
         clearTimeout(timeoutId);
         originalResolver(value);
       };

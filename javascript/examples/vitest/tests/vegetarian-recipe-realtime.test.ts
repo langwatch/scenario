@@ -13,7 +13,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import scenario from "@langwatch/scenario";
 import { createVegetarianRecipeAgent } from "./realtime/shared/vegetarian-recipe-agent.js";
-import { RealtimeAgentAdapter } from "./realtime/helpers/index.js";
+import {
+  RealtimeAgentAdapter,
+  AudioUserSimulator,
+  wrapJudgeForAudio,
+} from "./realtime/helpers/index.js";
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   let realtimeAdapter: RealtimeAgentAdapter;
@@ -61,4 +65,39 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
 
     expect(result.success).toBe(true);
   }, 60000); // Longer timeout for Realtime API
+
+  it("should handle voice-to-voice conversation with audio user", async () => {
+    // Create audio user simulator for voice-to-voice testing
+    const audioUserSim = new AudioUserSimulator();
+
+    const result = await scenario.run({
+      name: "vegetarian recipe - voice-to-voice",
+      description: `It's Saturday evening, the user is very hungry and tired, but has no money to order out. They're looking for a quick vegetarian recipe and calling in via voice.`,
+      agents: [
+        realtimeAdapter, // Realtime agent (handles audio!)
+        audioUserSim, // Audio user simulator (generates voice)
+        wrapJudgeForAudio(
+          // Judge with audio transcription
+          scenario.judgeAgent({
+            criteria: [
+              "Agent should provide a vegetarian recipe",
+              "Recipe should include ingredients",
+              "Recipe should include cooking steps",
+              "Agent should be helpful and encouraging",
+            ],
+          })
+        ),
+      ],
+      script: [
+        scenario.user(), // Audio from user simulator
+        scenario.agent(), // Audio response from Realtime agent
+        scenario.user(), // Audio follow-up
+        scenario.agent(), // Audio response
+        scenario.judge(), // Evaluates transcripts
+      ],
+      setId: "realtime-examples",
+    });
+
+    expect(result.success).toBe(true);
+  }, 90000); // Longer timeout for voice-to-voice (audio generation takes time)
 });
