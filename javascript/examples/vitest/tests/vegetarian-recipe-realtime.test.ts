@@ -11,6 +11,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { writeFileSync } from "fs";
+import { join } from "path";
 import scenario from "@langwatch/scenario";
 import { createVegetarianRecipeAgent } from "./realtime/shared/vegetarian-recipe-agent.js";
 import {
@@ -18,10 +20,12 @@ import {
   AudioUserSimulator,
   wrapJudgeForAudio,
 } from "./realtime/helpers/index.js";
+import type { AudioResponseEvent } from "./realtime/helpers/index.js";
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   let realtimeAdapter: RealtimeAgentAdapter;
   let audioUserSim: AudioUserSimulator;
+  const collectedAudio: AudioResponseEvent[] = [];
 
   beforeAll(async () => {
     // Create the SAME agent as the browser client
@@ -35,6 +39,11 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
       responseTimeout: 30000,
     });
 
+    // Subscribe to audio events
+    realtimeAdapter.onAudioResponse((event) => {
+      collectedAudio.push(event);
+    });
+
     // Connect once for all tests
     await Promise.all([realtimeAdapter.connect(), audioUserSim.connect()]);
   }, 60000); // Longer timeout for connection
@@ -45,6 +54,18 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
       realtimeAdapter.disconnect(),
       audioUserSim.disconnect(),
     ]);
+
+    // Write collected audio to file
+    if (collectedAudio.length > 0) {
+      const audioData = collectedAudio.map((e, i) => ({
+        index: i,
+        transcript: e.transcript,
+        audio: e.audio,
+      }));
+      const outputPath = join(process.cwd(), "test-audio-output.json");
+      writeFileSync(outputPath, JSON.stringify(audioData, null, 2));
+      console.log(`💾 Saved ${collectedAudio.length} audio responses to ${outputPath}`);
+    }
   });
 
   it("should handle voice-to-voice conversation with audio user", async () => {

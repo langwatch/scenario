@@ -18,6 +18,7 @@ import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
 import { AGENT_CONFIG } from "../shared/vegetarian-recipe-agent.js";
 import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
+import { EventEmitter } from "events";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -46,6 +47,14 @@ export interface RealtimeAgentAdapterConfig {
    * @default 30000
    */
   responseTimeout?: number;
+}
+
+/**
+ * Event emitted when an audio response is completed
+ */
+export interface AudioResponseEvent {
+  transcript: string;
+  audio: string;
 }
 
 /**
@@ -85,6 +94,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     | ((value: { transcript: string; audio: string }) => void)
     | null = null;
   private errorRejecter: ((error: Error) => void) | null = null;
+  private audioEvents = new EventEmitter();
 
   constructor(private config: RealtimeAgentAdapterConfig) {
     super();
@@ -327,12 +337,17 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     transport.on("response.done", (event: any) => {
       console.log(`✅ Response complete: transcript="${this.currentResponse}"`);
 
+      const fullAudio = this.currentAudioChunks.join("");
+      const audioResponse: AudioResponseEvent = {
+        transcript: this.currentResponse,
+        audio: fullAudio,
+      };
+
+      // Emit event for subscribers
+      this.audioEvents.emit("audioResponse", audioResponse);
+
       if (this.responseResolver) {
-        const fullAudio = this.currentAudioChunks.join("");
-        this.responseResolver({
-          transcript: this.currentResponse,
-          audio: fullAudio,
-        });
+        this.responseResolver(audioResponse);
         this.responseResolver = null;
         this.errorRejecter = null;
       }
@@ -386,6 +401,24 @@ export class RealtimeAgentAdapter extends AgentAdapter {
         originalResolver(value);
       };
     });
+  }
+
+  /**
+   * Subscribe to audio response events
+   *
+   * @param callback - Function called when an audio response completes
+   */
+  onAudioResponse(callback: (event: AudioResponseEvent) => void): void {
+    this.audioEvents.on("audioResponse", callback);
+  }
+
+  /**
+   * Remove audio response listener
+   *
+   * @param callback - The callback function to remove
+   */
+  offAudioResponse(callback: (event: AudioResponseEvent) => void): void {
+    this.audioEvents.off("audioResponse", callback);
   }
 
   /**
