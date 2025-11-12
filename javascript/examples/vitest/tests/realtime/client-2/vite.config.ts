@@ -1,17 +1,24 @@
-import path from "path";
-import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+/**
+ * Vite configuration for Realtime Agent client
+ *
+ * Simple dev server for the browser demo.
+ * Allows TypeScript imports and proper module resolution.
+ */
 
-// https://vite.dev/config/
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   server: {
+    port: 5173,
+    open: true,
     allowedHosts: true,
     cors: true,
     proxy: {
@@ -24,5 +31,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    outDir: "dist",
+    sourcemap: true,
   },
 });

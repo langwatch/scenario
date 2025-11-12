@@ -14,6 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@langwatch/scenario": "workspace:*",
     "@radix-ui/react-slot": "1.2.4",
     "@react-three/drei": "10.7.6",
     "@react-three/fiber": "9.4.0",

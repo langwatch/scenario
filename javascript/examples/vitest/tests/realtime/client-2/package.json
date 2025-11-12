@@ -1,0 +1,12 @@
+{
+  "name": "realtime-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@radix-ui/react-slot": "1.2.4",
+    "@tailwindcss/vite": "4.1.17",
+    "tailwindcss": "4.1.17",
+    "use-stick-to-bottom": "1.1.1"
+  }
+}
