@@ -39,6 +39,12 @@ interface VoiceAgentConfig {
   /** OpenAI voice to use for audio generation */
   voice?: "alloy" | "nova" | "echo" | "fable" | "onyx" | "shimmer";
   /**
+   * Audio format to use
+   * - "wav": Standard WAV format (default)
+   * - "pcm16": Raw PCM16 at 24kHz (required for Realtime API)
+   */
+  audioFormat?: "wav" | "pcm16";
+  /**
    * Force the agent's response to use "user" role instead of "assistant"
    *
    * Some judge agents may reject audio parts from the assistant role.
@@ -130,17 +136,19 @@ ${this.constructor.name} TEXT FALLBACK
    *
    * Uses gpt-4o-audio-preview with:
    * - Text and audio modalities
-   * - WAV format output
+   * - Configured audio format (WAV or PCM16)
    * - Configured voice (alloy, nova, echo, etc.)
    * - Optional system prompt
    */
   private async respondWithAudio(
     messages: ChatCompletionMessageParam[]
   ): Promise<ChatCompletion> {
+    const audioFormat = this.config.audioFormat ?? "wav";
+    
     return this.openai.chat.completions.create({
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
-      audio: { voice: this.config.voice, format: "wav" },
+      audio: { voice: this.config.voice, format: audioFormat },
       messages: this.systemMessage
         ? [this.systemMessage, ...messages]
         : messages,
@@ -165,14 +173,17 @@ ${this.constructor.name} TEXT FALLBACK
    *
    * The message includes:
    * - Empty text part (required structure)
-   * - File part with base64 WAV data
+   * - File part with base64 audio data (WAV or PCM16)
    * - Correct role (user or assistant) based on agent configuration
    *
-   * @param audioData - Base64-encoded WAV audio data
+   * @param audioData - Base64-encoded audio data
    * @returns Formatted ModelMessage ready for conversation
    */
   private createAudioMessage(audioData: string): ModelMessage {
     this.validateRole(this.role);
+
+    const audioFormat = this.config.audioFormat ?? "wav";
+    const mediaType = audioFormat === "pcm16" ? "audio/pcm16" : "audio/wav";
 
     const content: ModelMessage["content"] = [
       {
@@ -181,7 +192,7 @@ ${this.constructor.name} TEXT FALLBACK
       },
       {
         type: "file" as const,
-        mediaType: "audio/wav" as const,
+        mediaType: mediaType as const,
         data: audioData,
       },
     ];

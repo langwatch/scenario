@@ -28,7 +28,14 @@ export interface RealtimeAgentAdapterConfig {
   agent: RealtimeAgent;
 
   /**
-   * URL of the ephemeral token server
+   * OpenAI API key for direct connection (recommended for testing)
+   * If provided, connects directly without ephemeral token server
+   */
+  apiKey?: string;
+
+  /**
+   * URL of the ephemeral token server (for production/browser use)
+   * Only used if apiKey is not provided
    * @default "http://localhost:3000"
    */
   tokenServerUrl?: string;
@@ -73,7 +80,9 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private session: RealtimeSession | null = null;
   private currentResponse: string = "";
   private currentAudioChunks: string[] = [];
-  private responseResolver: ((value: { transcript: string; audio: string }) => void) | null = null;
+  private responseResolver:
+    | ((value: { transcript: string; audio: string }) => void)
+    | null = null;
   private errorRejecter: ((error: Error) => void) | null = null;
 
   constructor(private config: RealtimeAgentAdapterConfig) {
@@ -81,7 +90,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Connects to the Realtime API via ephemeral token
+   * Connects to the Realtime API
+   *
+   * Supports two connection modes:
+   * 1. Direct API key (recommended for testing)
+   * 2. Ephemeral token via token server (for production/browser)
    *
    * Call this once before running tests (e.g., in beforeAll)
    *
@@ -93,23 +106,32 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       return;
     }
 
-    const tokenServerUrl =
-      this.config.tokenServerUrl ?? "http://localhost:3000";
-
     try {
-      // Fetch ephemeral token from server
-      console.log("🔑 Fetching ephemeral token for test...");
-      const tokenResponse = await fetch(`${tokenServerUrl}/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      let apiKey: string;
 
-      if (!tokenResponse.ok) {
-        throw new Error(`Failed to fetch token: ${tokenResponse.statusText}`);
+      if (this.config.apiKey) {
+        // Direct API key mode (testing)
+        console.log("🔑 Using direct API key for connection");
+        apiKey = this.config.apiKey;
+      } else {
+        // Ephemeral token mode (production/browser)
+        const tokenServerUrl =
+          this.config.tokenServerUrl ?? "http://localhost:3000";
+
+        console.log("🔑 Fetching ephemeral token from server...");
+        const tokenResponse = await fetch(`${tokenServerUrl}/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (!tokenResponse.ok) {
+          throw new Error(`Failed to fetch token: ${tokenResponse.statusText}`);
+        }
+
+        const { token } = await tokenResponse.json();
+        apiKey = token;
+        console.log("✅ Token received");
       }
-
-      const { token } = await tokenResponse.json();
-      console.log("✅ Token received for test");
 
       // Create session with the SAME agent as browser
       this.session = new RealtimeSession(this.config.agent, {
@@ -119,8 +141,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       // Set up event listeners
       this.setupEventListeners();
 
-      // Connect with ephemeral token
-      await this.session.connect({ apiKey: token });
+      // Connect with API key (direct or ephemeral token)
+      await this.session.connect({ apiKey });
 
       console.log("✅ RealtimeAgentAdapter connected");
     } catch (error) {
@@ -169,30 +191,73 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     // Check if message contains audio
     if (Array.isArray(latestMessage.content)) {
       for (const part of latestMessage.content) {
-        if (part.type === "file" && part.mediaType === "audio/wav") {
-          console.log("🎤 Sending audio to Realtime agent");
-          
-          // Send audio to Realtime API
-          try {
-            // @ts-ignore - sendAudio exists in 0.3.0
-            await this.session.sendAudio(part.data);
-          } catch (sendError) {
-            console.error("❌ Failed to send audio:", sendError);
-            throw sendError;
+        // Handle both PCM16 (from user simulator) and WAV formats
+        if (part.type === "file" && part.mediaType?.startsWith("audio/")) {
+          // Type guard: ensure data is a string (base64)
+          if (typeof part.data !== "string") {
+            throw new Error(
+              `Audio data must be base64 string, got: ${typeof part.data}`
+            );
           }
 
-          // Wait for audio response
-          const timeout = this.config.responseTimeout ?? 30000;
+          console.log(`🎤 Received audio part:`, {
+            mediaType: part.mediaType,
+            hasData: !!part.data,
+            dataLength: part.data.length,
+            dataType: typeof part.data,
+            dataPreview: part.data.substring(0, 50),
+          });
+
+          // Validate we have audio data
+          if (!part.data || part.data.length === 0) {
+            console.error(
+              "❌ Audio part structure:",
+              JSON.stringify(part, null, 2)
+            );
+            throw new Error(
+              `Audio message has no data. Part: ${JSON.stringify(part)}`
+            );
+          }
+
+          console.log(
+            `🎤 Sending ${part.data.length} chars of base64 ${part.mediaType} to Realtime agent`
+          );
+
+          // Use transport layer to send audio directly as base64 (avoids SDK ArrayBuffer conversion)
+          // Per https://openai.github.io/openai-agents-js/guides/voice-agents/transport/#option-1---accessing-the-transport-layer
+          const transport = (this.session as any).transport;
+
+          // Append audio to input buffer (audio is already base64)
+          transport.sendEvent({
+            type: "input_audio_buffer.append",
+            audio: part.data,
+          });
+          console.log(`✅ Audio appended to input buffer`);
+
+          // Commit the audio buffer
+          transport.sendEvent({
+            type: "input_audio_buffer.commit",
+          });
+          console.log(`✅ Audio buffer committed`);
+
+          // Trigger response generation
+          transport.sendEvent({
+            type: "response.create",
+          });
+          console.log(`✅ Response generation triggered`);
+
+          // Wait for audio response (increased timeout for voice processing)
+          const timeout = this.config.responseTimeout ?? 60000;
           const response = await this.waitForResponse(timeout);
 
           console.log(`🔊 Received audio response: "${response.transcript}"`);
 
-          // Return audio message (like OpenAiVoiceAgent does)
+          // Return audio message with PCM16 format (matching user simulator)
           return {
             role: "assistant",
             content: [
               { type: "text", text: response.transcript },
-              { type: "file", mediaType: "audio/wav", data: response.audio },
+              { type: "file", mediaType: "audio/pcm16", data: response.audio },
             ],
           } as AssistantModelMessage;
         }
@@ -234,26 +299,44 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private setupEventListeners(): void {
     if (!this.session) return;
 
-    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
-    this.session.on("response:transcript:delta", (event: any) => {
-      this.currentResponse += event.delta;
+    // Use transport layer for raw WebSocket events
+    // Per https://openai.github.io/openai-agents-js/guides/voice-agents/transport/#option-1---accessing-the-transport-layer
+    const transport = (this.session as any).transport;
+
+    if (!transport) {
+      console.error("❌ Transport not available on session");
+      return;
+    }
+
+    // Listen to all events for debugging
+    transport.on("*", (event: any) => {
+      console.log(`🔔 Transport event: ${event.type}`);
     });
 
-    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
-    this.session.on("response.audio.delta", (event: any) => {
+    // Listen for audio transcript deltas (CORRECT event name from API)
+    transport.on("response.output_audio_transcript.delta", (event: any) => {
       if (event.delta) {
-        this.currentAudioChunks.push(event.delta);
+        this.currentResponse += event.delta;
+        console.log(`📝 Transcript delta: "${event.delta}"`);
       }
     });
 
-    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
-    this.session.on("response:transcript:done", (event: any) => {
-      const fullTranscript = event.transcript;
-      const fullAudio = this.currentAudioChunks.join("");
+    // Listen for audio deltas (CORRECT event name from API)
+    transport.on("response.output_audio.delta", (event: any) => {
+      if (event.delta) {
+        this.currentAudioChunks.push(event.delta);
+        console.log(`🔊 Audio delta: ${event.delta.length} bytes`);
+      }
+    });
+
+    // Listen for response completion
+    transport.on("response.done", (event: any) => {
+      console.log(`✅ Response complete: transcript="${this.currentResponse}"`);
 
       if (this.responseResolver) {
+        const fullAudio = this.currentAudioChunks.join("");
         this.responseResolver({
-          transcript: fullTranscript,
+          transcript: this.currentResponse,
           audio: fullAudio,
         });
         this.responseResolver = null;
@@ -265,22 +348,14 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       this.currentAudioChunks = [];
     });
 
-    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
-    this.session.on("error", (error: any) => {
-      console.error("❌ RealtimeSession error:", error);
-
+    // Handle errors
+    transport.on("error", (error: any) => {
+      console.error("❌ Transport error:", error);
       if (this.errorRejecter) {
-        this.errorRejecter(
-          error instanceof Error ? error : new Error(JSON.stringify(error))
-        );
+        this.errorRejecter(error);
         this.responseResolver = null;
         this.errorRejecter = null;
       }
-    });
-
-    // @ts-ignore - Event types in SDK 0.3.0 may not be fully typed
-    this.session.on("input_audio_buffer.speech_started", () => {
-      console.log("🎤 [Test] Speech detected");
     });
   }
 
@@ -291,7 +366,9 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * @returns Agent's transcript and audio data
    * @throws {Error} If timeout or error occurs
    */
-  private waitForResponse(timeout: number): Promise<{ transcript: string; audio: string }> {
+  private waitForResponse(
+    timeout: number
+  ): Promise<{ transcript: string; audio: string }> {
     return new Promise((resolve, reject) => {
       this.responseResolver = resolve;
       this.errorRejecter = reject;
@@ -307,7 +384,10 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
       // Clear timeout when resolved
       const originalResolver = resolve;
-      this.responseResolver = (value: { transcript: string; audio: string }) => {
+      this.responseResolver = (value: {
+        transcript: string;
+        audio: string;
+      }) => {
         clearTimeout(timeoutId);
         originalResolver(value);
       };
@@ -319,5 +399,20 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    */
   isConnected(): boolean {
     return this.session !== null;
+  }
+
+  /**
+   * Converts base64 string to ArrayBuffer (Node.js-optimized)
+   * @param base64 - Base64 encoded string
+   * @returns ArrayBuffer
+   */
+  private base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const buffer = Buffer.from(base64, "base64");
+    // Use Node.js buffer's underlying ArrayBuffer
+    const ab = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength
+    );
+    return ab;
   }
 }

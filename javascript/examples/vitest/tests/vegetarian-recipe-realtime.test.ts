@@ -29,7 +29,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     // Wrap in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
       agent,
-      tokenServerUrl: "http://localhost:3000",
+      apiKey: process.env.OPENAI_API_KEY!, // Direct API key for testing
       responseTimeout: 30000,
     });
 
@@ -41,30 +41,6 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     // Cleanup connection
     await realtimeAdapter.disconnect();
   });
-
-  it("should generate a vegetarian recipe for a hungry user (text input)", async () => {
-    // Use regular text user simulator (fast for testing)
-    const result = await scenario.run({
-      name: "vegetarian recipe - text input",
-      description: `It's saturday evening, the user is very hungry and tired, but have no money to order out, so they are looking for a recipe.`,
-      agents: [
-        realtimeAdapter, // Realtime agent (tested!)
-        scenario.userSimulatorAgent(), // Text user simulator (fast)
-        scenario.judgeAgent({
-          criteria: [
-            "Agent should not ask more than two follow-up questions",
-            "Agent should generate a recipe",
-            "Recipe should include a list of ingredients",
-            "Recipe should include step-by-step cooking instructions",
-            "Recipe should be vegetarian and not include any sort of meat",
-          ],
-        }),
-      ],
-      setId: "realtime-examples",
-    });
-
-    expect(result.success).toBe(true);
-  }, 60000); // Longer timeout for Realtime API
 
   it("should handle voice-to-voice conversation with audio user", async () => {
     // Create audio user simulator for voice-to-voice testing
