@@ -116,17 +116,17 @@ export default function App() {
         }
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on(
         "response.output_audio_transcript.delta",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (event: any) => {
           console.log("📝 Agent text delta:", event.delta);
         }
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on(
         "response.output_audio_transcript.done",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (event: any) => {
           console.log("✅ Agent text done:", event.transcript);
           if (event.transcript && event.transcript.trim()) {
