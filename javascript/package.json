@@ -31,7 +31,14 @@
     "test:all": "pnpm -r --parallel run test",
     "vitest-examples": "pnpm -F vitest-examples",
     "openai-realtime-demo": "pnpm -F openai-realtime-demo",
-    "realtime-client": "pnpm -F realtime-client"
+    "realtime-client": "pnpm -F realtime-client",
+    "examples": "pnpm run examples:vitest",
+    "examples:realtime-client": "pnpm -F vitest-example run examples:realtime-client",
+    "examples:test": "pnpm -F vitest-example run test",
+    "examples:lint": "pnpm -F vitest-example run lint",
+    "examples:typecheck": "pnpm -F vitest-example run typecheck",
+    "dev:realtime": "pnpm -F vitest-example run dev:realtime",
+    "start:realtime": "pnpm -F vitest-example run start:realtime"
   },
   "publishConfig": {
     "access": "public"

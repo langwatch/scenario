@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "format": "eslint . --fix",
     "realtime-server": "dotenv -e .env pnpm exec tsx tests/realtime/server/start-server.ts",
-    "realtime-client": "cd tests/realtime/realtime-client && vite",
+    "realtime-client": "pnpm -F realtime-client",
     "realtime-client:build": "cd tests/realtime/realtime-client && vite build",
     "realtime": "dotenv -e .env concurrently -n server,client,tunnel -c blue,magenta,cyan \"pnpm realtime-server\" \"pnpm realtime-client\" \"cloudflared tunnel --url=http://localhost:5173\""
   },
