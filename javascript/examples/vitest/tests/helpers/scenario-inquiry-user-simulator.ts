@@ -29,18 +29,13 @@ export class ScenarioInquiryUserSimulator extends OpenAiVoiceAgent {
 
   constructor() {
     super({
-      systemPrompt: `You are role-playing as a developer who is asking questions to an expert about testing AI agents using LangWatch Scenarios.
+      systemPrompt: `
+      YOU ARE NOT THE ASSISTANT. YOU ARE PRETENDING TO BE A USER.
+      You are pretending to be a user that is a software developer.
+      You want to learn about LangWatch and the scenarios testing framework.
 
-You're particularly interested in:
-- How to create user simulations for testing conversational AI
-- Detecting issues before deployment
-- Benchmarking different models
-- Integrating tests into CI/CD pipelines
+      `,
 
-You should ask the agent natural questions as you would in a voice conversation.
-After getting 2 helpful answers, thank the expert and end the conversation.
-
-YOUR LANGUAGE IS ENGLISH.`,
       voice: "nova",
     });
   }
@@ -56,6 +51,14 @@ YOUR LANGUAGE IS ENGLISH.`,
    */
   public async call(input: AgentInput): Promise<ModelMessage | string> {
     const messages = messageRoleReversal(input.messages);
+
+    if (messages.length < 2) {
+      messages.push({
+        role: "user",
+        content: "Start your roleplay",
+      });
+    }
+
     return super.call({
       ...input,
       messages,

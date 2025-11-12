@@ -26,7 +26,7 @@ export interface LangWatchDocsResponse {
 /**
  * MCP Client singleton for connecting to the LangWatch MCP server
  */
-class LangWatchMCPClient {
+export class LangWatchMCPClient {
   private client: Client | null = null;
   private connecting: Promise<void> | null = null;
 
@@ -77,6 +77,11 @@ class LangWatchMCPClient {
 
     await this.connecting;
     return this.client!;
+  }
+
+  async callTool(name: string, args: Record<string, any>): Promise<any> {
+    const client = await this.connect();
+    return client.callTool({ name, arguments: args });
   }
 
   /**

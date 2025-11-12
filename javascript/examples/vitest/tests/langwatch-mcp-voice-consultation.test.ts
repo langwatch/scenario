@@ -53,12 +53,14 @@ describe("LangWatch MCP Voice Consultation", () => {
 
     const result = await scenario.run({
       name: "LangWatch Scenarios consultation via voice",
-      description: `A developer wants to learn about using LangWatch Scenarios for testing AI agents.
-The expert consultant has access to LangWatch documentation via MCP server tools and explains:
-- Creating user simulations for stress-testing conversational/voice AI
-- Detecting logic, grounding, and issues before deployment
-- Benchmarking model and prompt variants
-- Integrating scenarios into CI/CD workflows`,
+      description:
+        "Complete audio conversation between user simulator and agent over multiple turns",
+      //       description: `A developer wants to learn about using LangWatch Scenarios for testing AI agents.
+      // The expert consultant has access to LangWatch documentation via MCP server tools and explains:
+      // - Creating user simulations for stress-testing conversational/voice AI
+      // - Detecting logic, grounding, and issues before deployment
+      // - Benchmarking model and prompt variants
+      // - Integrating scenarios into CI/CD workflows`,
       agents: [expertAgent, userSimulator, conversationJudge],
       script: [
         scenario.proceed(10),

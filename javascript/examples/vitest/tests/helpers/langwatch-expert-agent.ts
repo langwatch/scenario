@@ -9,7 +9,11 @@ import { ModelMessage } from "ai";
 import { generateText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { OpenAiVoiceAgent } from "./openai-voice-agent";
-import { fetchLangWatchDocs } from "./langwatch-mcp-tools";
+import { fetchLangWatchDocs, LangWatchMCPClient } from "./langwatch-mcp-tools";
+import {
+  ChatCompletion,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions.mjs";
 
 /**
  * Simplified message structure for OpenAI API
@@ -37,155 +41,98 @@ interface SimpleMessage {
 export class LangWatchExpertAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;
 
+  private readonly mcpClient = new LangWatchMCPClient();
+
   constructor() {
     super({
-      systemPrompt: `You are an expert consultant on LangWatch Scenarios, a framework for testing AI agents through simulations.
+      systemPrompt: `
+      You are an expert consultant on LangWatch's Scenarios.
+      Your knowledge comes exclusively from the LangWatch documentation
 
-You have access to LangWatch documentation through tools. When users ask about:
-- User simulations for testing conversational AI
-- Issue detection before deployment
-- Benchmarking models and prompts
-- CI/CD integration
+      which you can fetch using the fetch_langwatch_docs tool.
 
-Use the fetch_langwatch_docs tool to get accurate, up-to-date information.
-
-Be conversational and natural since this is a voice conversation. Keep responses concise but informative.
-Explain concepts clearly for someone new to agent testing.`,
+      This is a phone call, so don't be verbose. Keep your responses concise.`,
       voice: "echo",
     });
+
+    // Connect right away for speed
+    this.mcpClient.connect().catch((error) => {
+      console.error("Error connecting to MCP client", error);
+      throw error;
+    });
   }
+  protected async respondWithAudio(
+    messages: ChatCompletionMessageParam[]
+  ): Promise<ChatCompletion> {
+    const allMessages = this.systemMessage
+      ? [this.systemMessage, ...messages]
+      : messages;
 
-  /**
-   * Processes input with tool access and generates voice response
-   *
-   * @param input - Agent input containing conversation messages
-   * @returns Audio message or text response
-   */
-  public async call(input: AgentInput): Promise<ModelMessage | string> {
-    try {
-      const messages = this.convertToSimpleMessages(input.messages);
-
-      // First pass: check if we need documentation via tools
-      const response = await generateText({
-        model: openai("gpt-4o"),
-        messages: [
-          {
-            role: "system",
-            content: this.getConsultantSystemPrompt(),
+    const tools = [
+      {
+        type: "function" as const,
+        function: {
+          name: "fetch_langwatch_docs",
+          description:
+            "Fetches LangWatch documentation pages from the internet to understand features and capabilities. Use this to get accurate information about LangWatch Scenarios.",
+          parameters: {
+            type: "object",
+            properties: {
+              url: {
+                type: "string",
+                description:
+                  "Optional full URL of a specific doc page (e.g. https://docs.langwatch.ai/simulations/overview). If not provided, fetches the docs index.",
+              },
+            },
           },
-          ...messages,
-        ],
-        tools: {
-          fetch_langwatch_docs: fetchLangWatchDocs,
         },
-        toolChoice: "auto",
-        maxTokens: 500,
-      });
+      },
+    ];
 
-      // Build enriched context from tool results
-      const enrichedContext = this.buildEnrichedContext(response);
+    // Initial request with tools
+    let response = await this.openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      audio: { voice: this.config.voice, format: "wav" },
+      messages: allMessages,
+      tools,
+      store: false,
+    });
 
-      // Generate audio response with enriched context
-      const lastUserMessage = input.messages
-        .filter((m) => m.role === "user")
-        .pop();
+    // Tool execution loop
+    while (response.choices[0].finish_reason === "tool_calls") {
+      const assistantMessage = response.choices[0].message;
+      allMessages.push(assistantMessage);
 
-      if (!lastUserMessage) {
-        throw new Error("No user message found in input");
+      // Execute each tool call
+      for (const toolCall of assistantMessage.tool_calls!) {
+        console.log("toolCall", toolCall);
+        const args = JSON.parse(toolCall.function.arguments);
+
+        // Call the actual MCP client
+        const result = await this.mcpClient.callTool(
+          toolCall.function.name,
+          args
+        );
+
+        allMessages.push({
+          role: "tool" as const,
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
+        });
       }
 
-      return super.call({
-        ...input,
-        messages: [
-          {
-            role: "user",
-            content: this.formatEnrichedPrompt(
-              lastUserMessage.content,
-              enrichedContext,
-              response.text
-            ),
-          },
-        ],
+      // Continue conversation with tool results
+      response = await this.openai.chat.completions.create({
+        model: "gpt-4o-audio-preview",
+        modalities: ["text", "audio"],
+        audio: { voice: this.config.voice, format: "wav" },
+        messages: allMessages,
+        tools,
+        store: false,
       });
-    } catch (error) {
-      console.error("LangWatchExpertAgent failed:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Builds system prompt for the consultant role
-   */
-  private getConsultantSystemPrompt(): string {
-    return `You are an expert consultant on LangWatch Scenarios, a framework for testing AI agents through simulations.
-
-When asked about scenario testing, explain these key capabilities:
-- User simulations: Create realistic user interactions to stress-test conversational AI
-- Issue detection: Find logic errors, hallucinations, and grounding issues before deployment
-- Benchmarking: Compare models and prompts with quantitative metrics
-- CI/CD integration: Automate testing in your development workflows
-
-Be conversational and concise for voice.`;
-  }
-
-  /**
-   * Converts ModelMessage array to simple message format
-   */
-  private convertToSimpleMessages(messages: ModelMessage[]): SimpleMessage[] {
-    return messages.map((msg) => ({
-      role: msg.role,
-      content: this.extractTextContent(msg.content),
-    }));
-  }
-
-  /**
-   * Extracts text content from message content (handles string or array)
-   */
-  private extractTextContent(
-    content: string | Array<{ type: string; text?: string }>
-  ): string {
-    if (typeof content === "string") {
-      return content;
     }
 
-    return (
-      content
-        .filter((c) => c.type === "text")
-        .map((c) => c.text)
-        .join(" ") || "..."
-    );
-  }
-
-  /**
-   * Builds enriched context from tool call results
-   */
-  private buildEnrichedContext(response: {
-    toolResults?: Array<{ result: unknown }>;
-  }): string {
-    if (!response.toolResults || response.toolResults.length === 0) {
-      return "";
-    }
-
-    return response.toolResults
-      .map((result) => `Documentation: ${JSON.stringify(result.result)}`)
-      .join("\n\n");
-  }
-
-  /**
-   * Formats the final prompt with enriched context for audio generation
-   */
-  private formatEnrichedPrompt(
-    userContent: string | Array<{ type: string; text?: string }>,
-    enrichedContext: string,
-    responseText: string
-  ): string {
-    const userText = this.extractTextContent(userContent);
-
-    if (enrichedContext) {
-      return `${userText}\n\nContext from documentation:\n${enrichedContext}`;
-    }
-
-    return `${userText}\n\nYour response: ${responseText}`;
+    return response;
   }
 }
-

@@ -59,8 +59,8 @@ interface VoiceAgentConfig {
  * Subclasses must define the `role` property (AGENT or USER)
  */
 export abstract class OpenAiVoiceAgent extends AgentAdapter {
-  private readonly openai = new OpenAI();
-  private readonly config: VoiceAgentConfig;
+  protected readonly openai = new OpenAI();
+  protected readonly config: VoiceAgentConfig;
 
   constructor(config?: VoiceAgentConfig) {
     super();
@@ -73,6 +73,8 @@ export abstract class OpenAiVoiceAgent extends AgentAdapter {
    * @returns Audio message or text fallback
    */
   public async call(input: AgentInput): Promise<ModelMessage | string> {
+    console.log("openai-voice-agent.call", input.messages);
+
     try {
       // Convert messages to OpenAI format for voice-to-voice model
       const messages = convertModelMessagesToOpenAIMessages(input.messages);
@@ -134,16 +136,27 @@ ${this.constructor.name} TEXT FALLBACK
    * - Configured voice (alloy, nova, echo, etc.)
    * - Optional system prompt
    */
-  private async respondWithAudio(
+  protected async respondWithAudio(
     messages: ChatCompletionMessageParam[]
   ): Promise<ChatCompletion> {
+    const allMessages = this.systemMessage
+      ? [this.systemMessage, ...messages]
+      : messages;
+
+    if (allMessages.length === 1) {
+      allMessages.push({
+        role: "user",
+        content: "",
+      });
+    }
+
+    console.log("allMessages", allMessages);
+
     return this.openai.chat.completions.create({
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
       audio: { voice: this.config.voice, format: "wav" },
-      messages: this.systemMessage
-        ? [this.systemMessage, ...messages]
-        : messages,
+      messages: allMessages,
       store: false,
     });
   }
@@ -151,7 +164,7 @@ ${this.constructor.name} TEXT FALLBACK
   /**
    * Builds system message from config if present
    */
-  private get systemMessage(): ChatCompletionMessageParam | undefined {
+  protected get systemMessage(): ChatCompletionMessageParam | undefined {
     if (!this.config.systemPrompt) return undefined;
 
     return {
