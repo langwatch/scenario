@@ -24,6 +24,10 @@ import { defineConfig } from "vitest/config";
  */
 export default withScenario(
   defineConfig({
+    server: {
+      allowedHosts: ["*"],
+      cors: true,
+    },
     test: {
       // Extended timeout for AI model interactions
       // AI agents can take time to process and respond, especially with

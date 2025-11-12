@@ -1,12 +1,15 @@
 /**
  * Realtime Voice Agent - Browser Entry Point
- * 
+ *
  * Uses the SAME agent configuration as the Scenario tests.
  * TypeScript works seamlessly thanks to Vite!
  */
 
 import { RealtimeSession } from "@openai/agents/realtime";
-import { createVegetarianRecipeAgent, AGENT_CONFIG } from "../../shared/vegetarian-recipe-agent";
+import {
+  createVegetarianRecipeAgent,
+  AGENT_CONFIG,
+} from "../../shared/vegetarian-recipe-agent";
 
 // DOM elements
 const statusCard = document.getElementById("statusCard")!;
@@ -27,7 +30,10 @@ const agent = createVegetarianRecipeAgent();
 /**
  * Updates the UI status display
  */
-function setStatus(status: "disconnected" | "connecting" | "connected", text: string): void {
+function setStatus(
+  status: "disconnected" | "connecting" | "connected",
+  text: string
+): void {
   statusCard.className = `status-card ${status}`;
   statusText.textContent = text;
 }
@@ -48,7 +54,9 @@ function showError(message: string): void {
  */
 function addMessage(role: "user" | "agent", text: string): void {
   // Remove placeholder
-  const placeholder = transcriptContainer.querySelector(".transcript-placeholder");
+  const placeholder = transcriptContainer.querySelector(
+    ".transcript-placeholder"
+  );
   if (placeholder) {
     placeholder.remove();
   }
@@ -74,7 +82,7 @@ connectBtn.addEventListener("click", async () => {
 
     // Fetch ephemeral token from our backend
     console.log("🔑 Fetching ephemeral token...");
-    const tokenResponse = await fetch("http://localhost:3000/token", {
+    const tokenResponse = await fetch("/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
@@ -131,7 +139,7 @@ connectBtn.addEventListener("click", async () => {
 
     // Connect with ephemeral token
     console.log("🔌 Connecting to OpenAI Realtime API with token...");
-    
+
     try {
       await session.connect({ apiKey: token });
       console.log("✅ Session.connect() completed");
@@ -173,4 +181,3 @@ disconnectBtn.addEventListener("click", async () => {
 
   console.log("👋 Disconnected");
 });
-
