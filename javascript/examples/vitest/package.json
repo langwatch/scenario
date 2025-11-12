@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "realtime-server": "dotenv -e .env pnpm exec tsx tests/realtime/server/start-server.ts",
-    "realtime-client": "cd tests/realtime/client && vite",
-    "realtime-client:build": "cd tests/realtime/client && vite build",
+    "realtime-client": "cd tests/realtime/realtime-client && vite",
+    "realtime-client:build": "cd tests/realtime/realtime-client && vite build",
     "realtime": "dotenv -e .env concurrently -n server,client,tunnel -c blue,magenta,cyan \"pnpm realtime-server\" \"pnpm realtime-client\" \"cloudflared tunnel --url=http://localhost:5173\""
   },
   "keywords": [],
