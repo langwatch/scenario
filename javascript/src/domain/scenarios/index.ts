@@ -1,5 +1,5 @@
 import { CoreMessage } from "ai";
-import { AgentAdapter } from "../agents/index";
+import { IAgent } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
 export const DEFAULT_MAX_TURNS = 10;
@@ -25,8 +25,9 @@ export interface ScenarioConfig {
 
   /**
    * The agents participating in the scenario.
+   * Can be any object implementing IAgent interface.
    */
-  agents: AgentAdapter[];
+  agents: IAgent[];
   /**
    * The script of steps to execute for the scenario.
    */

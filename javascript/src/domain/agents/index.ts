@@ -17,6 +17,48 @@ export const allAgentRoles = [
 ] as const;
 
 /**
+ * Core agent interface - this is the contract.
+ * Any object implementing this interface can be used as an agent.
+ *
+ * @example
+ * ```typescript
+ * // Implement interface directly (duck typing)
+ * const myAgent: IAgent = {
+ *   role: AgentRole.AGENT,
+ *   async call(input) {
+ *     return `You said: ${input.messages.at(-1)?.content}`;
+ *   }
+ * };
+ *
+ * // Or extend base classes for convenience
+ * class MyAgent extends UserSimulatorAgent {
+ *   protected async invokeLLM(input: InvokeLLMInput) {
+ *     // Override just the LLM call
+ *   }
+ * }
+ * ```
+ */
+export interface IAgent {
+  role: AgentRole;
+  call(input: AgentInput): Promise<AgentReturnTypes>;
+}
+
+/**
+ * Interface for user simulator agents.
+ */
+export interface IUserSimulatorAgent extends IAgent {
+  role: AgentRole.USER;
+}
+
+/**
+ * Interface for judge agents.
+ */
+export interface IJudgeAgent extends IAgent {
+  role: AgentRole.JUDGE;
+  criteria: string[];
+}
+
+/**
  * Input provided to an agent's `call` method.
  */
 export interface AgentInput {
@@ -51,29 +93,23 @@ export interface AgentInput {
 }
 
 /**
- * Abstract base class for integrating custom agents with the Scenario framework.
+ * @deprecated Use `IAgent` interface instead. This abstract class will be removed in v1.0.
  *
- * This adapter pattern allows you to wrap any existing agent implementation
- * (LLM calls, agent frameworks, or complex multi-step systems) to work with
- * the Scenario testing framework. The adapter receives structured input about
- * the conversation state and returns responses in a standardized format.
+ * Abstract base class for integrating custom agents with the Scenario framework.
+ * Prefer implementing `IAgent` interface directly or extending concrete base classes.
  *
  * @example
  * ```typescript
- * class MyAgent extends AgentAdapter {
- *   role = AgentRole.AGENT;
- *
- *   async call(input: AgentInput): Promise<AgentReturnTypes> {
- *     const userMessage = input.messages.find(m => m.role === 'user');
- *     if (userMessage) {
- *       return `You said: ${userMessage.content}`;
- *     }
- *     return "Hello!";
+ * // NEW: Implement interface directly
+ * const myAgent: IAgent = {
+ *   role: AgentRole.AGENT,
+ *   async call(input) {
+ *     return `You said: ${input.messages.at(-1)?.content}`;
  *   }
- * }
+ * };
  * ```
  */
-export abstract class AgentAdapter {
+export abstract class AgentAdapter implements IAgent {
   role: AgentRole = AgentRole.AGENT;
 
   /**
@@ -90,11 +126,14 @@ export abstract class AgentAdapter {
 }
 
 /**
+ * @deprecated Use `IUserSimulatorAgent` interface or extend the new `UserSimulatorAgent` class.
+ * This abstract class will be removed in v1.0.
+ *
  * Abstract base class for user simulator agents.
  * User simulator agents are responsible for generating user messages to drive the conversation.
  */
-export abstract class UserSimulatorAgentAdapter implements AgentAdapter {
-  role: AgentRole = AgentRole.USER;
+export abstract class UserSimulatorAgentAdapter implements IUserSimulatorAgent {
+  role: AgentRole.USER = AgentRole.USER;
 
   /**
    * Process the input and generate a user message.
@@ -106,11 +145,14 @@ export abstract class UserSimulatorAgentAdapter implements AgentAdapter {
 }
 
 /**
+ * @deprecated Use `IJudgeAgent` interface or extend the new `JudgeAgent` class.
+ * This abstract class will be removed in v1.0.
+ *
  * Abstract base class for judge agents.
  * Judge agents are responsible for evaluating the conversation and determining success or failure.
  */
-export abstract class JudgeAgentAdapter implements AgentAdapter {
-  role: AgentRole = AgentRole.JUDGE;
+export abstract class JudgeAgentAdapter implements IJudgeAgent {
+  role: AgentRole.JUDGE = AgentRole.JUDGE;
   /**
    * The criteria the judge will use to evaluate the conversation.
    */
