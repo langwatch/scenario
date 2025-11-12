@@ -36,12 +36,12 @@ interface AudioSegment {
  * 3. Concatenates all segments in conversation order
  * 4. Saves the result as a single WAV file
  *
- * @param result - The scenario result containing the conversation messages
+ * @param result - The scenario result or state containing the conversation messages
  * @param outputFilePath - Path where the concatenated audio file should be saved
  * @param keepTempFiles - If true, retains temporary segment files for debugging
  */
 export async function saveConversationAudio(
-  result: Pick<ScenarioResult, "messages">,
+  result: { messages: CoreMessage[] },
   outputFilePath: string,
   keepTempFiles: boolean = false
 ): Promise<void> {

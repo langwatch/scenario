@@ -10,3 +10,10 @@ export { wrapJudgeForAudio } from "./wrap-judge-for-audio";
 export { disconnectMCPClient } from "./langwatch-mcp-tools";
 export { LangWatchExpertAgent } from "./langwatch-expert-agent";
 export { ScenarioInquiryUserSimulator } from "./scenario-inquiry-user-simulator";
+export {
+  OpenAIVoice,
+  type VoiceCallOptions,
+  type VoiceResponse,
+  type AudioMessageOptions,
+} from "./openai-voice-utils";
+export { convertModelMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";

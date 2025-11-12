@@ -11,8 +11,9 @@ import {
   AgentReturnTypes,
   type IAgent,
 } from "@langwatch/scenario";
-import { CoreMessage } from "ai";
 import { LangWatchMCPClient } from "./langwatch-mcp-tools";
+import { convertModelMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
+import { OpenAIVoice } from "./openai-voice-utils";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionMessageToolCall,
@@ -82,14 +83,12 @@ export class LangWatchExpertAgent implements IAgent {
     ];
 
     // Initial request with tools and voice
-    let response = await this.openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
-      modalities: ["text", "audio"],
-      audio: { voice: "echo", format: "wav" },
-      messages,
-      tools,
-      store: false,
-    });
+    let response = (
+      await OpenAIVoice.call(this.openai, messages, {
+        voice: "echo",
+        tools,
+      })
+    ).rawResponse;
 
     // Tool execution loop - handle MCP tool calls
     while (response.choices[0].finish_reason === "tool_calls") {
@@ -117,48 +116,30 @@ export class LangWatchExpertAgent implements IAgent {
       }
 
       // Continue conversation with tool results
-      response = await this.openai.chat.completions.create({
-        model: "gpt-4o-audio-preview",
-        modalities: ["text", "audio"],
-        audio: { voice: "echo", format: "wav" },
-        messages,
-        tools,
-        store: false,
-      });
+      response = (
+        await OpenAIVoice.call(this.openai, messages, {
+          voice: "echo",
+          tools,
+        })
+      ).rawResponse;
     }
 
-    // Extract audio response
-    const audioData = response.choices[0].message?.audio?.data;
-    const transcript = response.choices[0].message?.audio?.transcript;
-
-    if (audioData) {
-      return {
-        role: "assistant",
-        content: [
-          { type: "text", text: transcript || "" },
-          { type: "file", mediaType: "audio/wav", data: audioData },
-        ],
-      };
-    }
-
-    return {
-      role: "assistant",
-      content: transcript || "",
-    };
+    // Process voice response with proper role handling
+    return OpenAIVoice.handleResponse(
+      {
+        audioData: response.choices[0].message?.audio?.data,
+        transcript: response.choices[0].message?.audio?.transcript,
+        rawResponse: response,
+      },
+      { role: AgentRole.AGENT },
+      "LangWatchExpertAgent"
+    ) as AgentReturnTypes;
   }
 
   /**
    * Convert CoreMessage[] to OpenAI ChatCompletionMessageParam[]
    */
-  private convertMessages(
-    messages: CoreMessage[]
-  ): ChatCompletionMessageParam[] {
-    return messages.map((msg) => {
-      if (typeof msg.content === "string") {
-        return { role: msg.role as any, content: msg.content };
-      }
-      // Handle multipart content (audio, etc)
-      return { role: msg.role as any, content: msg.content as any };
-    });
+  private convertMessages(messages: any[]): ChatCompletionMessageParam[] {
+    return convertModelMessagesToOpenAIMessages(messages);
   }
 }

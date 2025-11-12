@@ -1,0 +1,14 @@
+---
+alwaysApply: true
+---
+
+# Utils Organization Rule
+
+**Namespace utility functions** for better organization and single responsibility principle.
+
+* Group related utility functions into namespaced objects or classes
+* Use descriptive namespace names that indicate the domain or purpose
+* Avoid standalone utility functions in favor of organized namespaces
+* Each namespace should have a clear, focused responsibility
+
+**Examples:**

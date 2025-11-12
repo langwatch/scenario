@@ -9,8 +9,10 @@ import {
   InvokeLLMInput,
   InvokeLLMResult,
   TestingAgentConfig,
+  AgentRole,
 } from "@langwatch/scenario";
-import { CoreMessage } from "ai";
+import { convertModelMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
+import { OpenAIVoice } from "./openai-voice-utils";
 
 /**
  * Voice user simulator - extends UserSimulatorAgent and overrides just the LLM call
@@ -28,32 +30,23 @@ export class VoiceUserSimulator extends UserSimulatorAgent {
    * Override just the LLM invocation to use OpenAI voice API
    */
   protected async invokeLLM(input: InvokeLLMInput): Promise<InvokeLLMResult> {
-    const response = await this.openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
-      messages: input.messages as any,
-      modalities: ["text", "audio"],
-      audio: { voice: this.voice, format: "wav" },
-      store: false,
+    const messages = convertModelMessagesToOpenAIMessages(input.messages);
+    const voiceResponse = await OpenAIVoice.call(this.openai, messages, {
+      voice: this.voice,
     });
 
-    const audioData = response.choices[0].message?.audio?.data;
-    const transcript = response.choices[0].message?.audio?.transcript;
+    const result = OpenAIVoice.handleResponse(
+      voiceResponse,
+      { role: AgentRole.USER },
+      "VoiceUserSimulator"
+    );
 
-    if (audioData) {
-      // Return audio as multipart content
-      return {
-        content: [
-          { type: "text", text: transcript || "" },
-          { type: "file", mediaType: "audio/wav", data: audioData },
-        ],
-        completion: response,
-      };
-    }
+    // Extract content from ModelMessage or return string directly
+    const content = typeof result === "string" ? result : result.content;
 
-    // Fallback to text if no audio
     return {
-      content: transcript || "",
-      completion: response,
+      content,
+      completion: voiceResponse.rawResponse,
     };
   }
 }

@@ -1,4 +1,4 @@
-import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
+import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool, GenerateTextResult } from "ai";
 import { z } from "zod/v4";
 import { JudgeResult } from "./interfaces";
 import { getProjectConfig } from "../../config";
@@ -162,7 +162,7 @@ export class JudgeAgent implements IJudgeAgent {
       const result = await this.invokeLLM(llmInput);
 
       // 8. Process tool calls
-      return this.processToolCalls(result.completion);
+      return this.processToolCalls(result.completion as GenerateTextResult<any, any>);
     } catch (error) {
       this.logger.error("Error in judge agent", { error });
       throw error;
@@ -225,7 +225,7 @@ export class JudgeAgent implements IJudgeAgent {
     });
   }
 
-  private processToolCalls(completion: any): JudgeResult | null {
+  private processToolCalls(completion: GenerateTextResult<any, any>): JudgeResult | null {
     if (!completion.toolCalls?.length) {
       return {
         success: false,
