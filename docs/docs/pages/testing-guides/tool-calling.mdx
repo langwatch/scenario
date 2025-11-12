@@ -5,13 +5,13 @@ description: Test and validate agent tool usage. Assert on function calls, mock 
 
 # Testing Tool Calls in Scenarios
 
-Tool calls are a core part of modern agent workflows. This guide covers how to write scenario tests that verify tool usage, how to assert on tool call behavior, and how to mock or script tool call results for robust, deterministic tests.
+Tool calls are essential to modern agent workflows. This guide covers verifying tool usage, asserting on tool call behavior, and mocking tool responses for robust, deterministic tests.
 
 ## Checking for Tool Calls
 
-To verify that your agent makes the correct tool call, use the `state.has_tool_call("tool_name")` API in an assertion function. In this framework, **assertion functions should be placed directly in the `script` list** as steps, after the relevant agent/user turns. This is the idiomatic and supported way to check for tool calls in your scenario tests.
+Verify that your agent makes the correct tool call using the `state.has_tool_call("tool_name")` API in an assertion function. Place assertion functions directly in the `script` list as steps following the relevant agent or user turns.
 
-**Example: Check that a weather agent calls the weather API**
+**Example: Verify Weather Agent Calls the Weather API**
 
 :::code-group
 
@@ -85,9 +85,9 @@ describe("Weather Agent", () => {
 
 :::
 
-## Asserting Tool Call Arguments
+## Verify Tool Call Arguments
 
-Sometimes you need to check not just that a tool was called, but that it was called with the correct arguments.
+Verify not only that a tool was called, but also that it was called with the correct arguments.
 
 :::code-group
 

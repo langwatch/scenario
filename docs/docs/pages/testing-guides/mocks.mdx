@@ -28,13 +28,13 @@ Production agents typically use **tool calling** to interact with external syste
 :::
 
 :::tip
-**Why use mocks?**
+**Benefits:**
 
 - **Determinism**: Predictable responses regardless of external service state
-- **Speed & reliability**: No network calls or external dependencies
-- **Edge case testing**: Simulate failures, timeouts, and error conditions
-- **Cost control**: Avoid expensive API calls during testing
-- **Tool isolation**: Test agent reasoning separately from external tool implementation
+- **Speed & Reliability**: No network calls or external dependencies
+- **Edge Case Testing**: Simulate failures, timeouts, and error conditions
+- **Cost Control**: Avoid expensive API calls during testing
+- **Tool Isolation**: Test agent reasoning separately from external tool implementation
   :::
 
 ## Understanding Mock Levels
@@ -68,7 +68,7 @@ When testing agents, you can mock at different levels of your system architectur
 
 ## Mocking Patterns
 
-The following examples show different levels of mocking in action, ordered by how commonly they're used in agent testing:
+The following examples demonstrate different mocking levels, ordered by frequency of use in agent testing:
 
 ### 1. Tool Function Mocking (Level 1)
 
@@ -257,7 +257,7 @@ For broader testing practices like descriptive naming, test isolation, and mock 
 - **Python**: [pytest Best Practices](https://docs.pytest.org/en/stable/how.html#best-practices) and [unittest.mock Guide](https://docs.python.org/3/library/unittest.mock.html)
 - **General**: [Testing Best Practices](https://testing-library.com/docs/guiding-principles/) and [Test Doubles](https://martinfowler.com/bliki/TestDouble.html)
 
-## Related Concepts
+## Related Topics
 
 - [Fixtures](./fixtures) – Static test assets for deterministic scenarios
 - [Tool Calling](./tool-calling) – Testing agent tool usage and responses

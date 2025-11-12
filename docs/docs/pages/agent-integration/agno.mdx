@@ -7,7 +7,7 @@ import { RefLink } from "../../components/RefLink";
 
 # Agno Integration [Learn how to integrate Agno agents with the Scenario testing framework]
 
-[Agno](https://github.com/agno-agi/agno) agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter"}} /> interface. The key is handling message state properly since Agno agents maintain their own conversation history.
+[Agno](https://github.com/agno-agi/agno) agents integrate with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter"}} /> interface. Handle message state properly, as Agno agents maintain their own conversation history.
 
 ## Basic Integration Pattern
 
@@ -35,7 +35,7 @@ agent = Agent(
 )
 ```
 
-You can very easily integrate it with Scenario like this:
+Integrate with Scenario as follows:
 
 ```python
 class Agent(scenario.AgentAdapter):

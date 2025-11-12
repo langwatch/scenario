@@ -21,8 +21,7 @@ interface. This adapter pattern allows you to:
 
 ## The AgentAdapter Interface
 
-The <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> is a simple contract that allows Scenario to work with any agent implementation.
-You only need to provide:
+The <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface defines a contract for Scenario to work with any agent implementation. You only need to provide:
 
 - `role`: The agent’s role in the scenario (default to `AGENT`)
 - `call`: An async function that receives the full conversation history and returns the agent’s next response
@@ -32,7 +31,9 @@ You can wrap any agent (OpenAI, AgentKit, Mastra, custom, etc.) as an AgentAdapt
 When writing a Scenario test, you pass your agents as AgentAdapter objects. Scenario will call your agent’s call function whenever it’s their turn in the conversation, passing in the latest state and message history.
 
 :::tip
-To support message mocking in your tests, your agent's `call` function must receive the full chat history via `input.messages`. If you omit this, Scenario will not be able to determine which messages belong to the agent, and mocking will fail.
+**Message Mocking Requirement**
+
+Agent `call` functions must receive the full chat history via `input.messages` to support message mocking in tests. Without this, Scenario cannot determine which messages belong to the agent, and mocking will fail.
 :::
 
 :::code-group
