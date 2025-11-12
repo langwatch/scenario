@@ -1,0 +1,8 @@
+---
+description: Guidelines for writing effective Cursor rules
+alwaysApply: false
+---
+
+## Rule Writing Guidelines
+
+**Be concise.** LLMs understand patterns quickly. Focus on essence, not exhaustive explanation.

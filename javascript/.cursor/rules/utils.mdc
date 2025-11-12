@@ -1,0 +1,32 @@
+---
+alwaysApply: false
+---
+## Utils Organization Guidelines
+
+### Namespace Structure
+- Group related utilities into logical namespaces
+- Use clear, descriptive folder names that indicate purpose
+- Follow consistent naming patterns across the codebase
+- Export the namespaced object only
+- Util namespace should always have a `Utils` suffix
+- File name should always be *.utils.ts
+
+### File Structure
+- see file-structure.mdc
+
+# Examples:
+
+./utils/module-utils.ts
+
+const methodOne = () => {
+  return "methodOne";
+};
+
+const methodTwo = () => {
+  return "methodTwo";
+};
+
+export const ModuleUtils = {
+  methodOne,
+  methodTwo,
+};

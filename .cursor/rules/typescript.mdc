@@ -6,6 +6,11 @@ alwaysApply: false
 
 ## Typescript Development Guidelines:
 
+* Clean code is a core principle of our codebase and should be followed in all functions, methods and components.
+
+* SOLID principles are a core principle of our codebase and should be followed in all functions, methods and components.
+
+
 ### Documentation
    - Add TSDoc style documentation when writing functions, methods and components.
 
@@ -20,3 +25,14 @@ alwaysApply: false
 
 ### Type Safety
    - Never use the `any` type.
+
+### Parameters
+   - Always use named parameters as a destrurable object
+
+# Examples:
+
+```typescript
+function exampleFunction(params: { param1: string, param2: number }) {
+  return params.param1 + params.param2;
+}
+```

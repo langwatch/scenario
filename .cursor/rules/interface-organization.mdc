@@ -1,0 +1,13 @@
+---
+description: Interface organization and type definition guidelines
+globs: *.ts,*.tsx
+alwaysApply: false
+---
+
+## Interface Organization
+
+**Define interfaces next to their implementations.** Keep supporting types in the same file.
+
+**Only extract to separate files if truly shared across modules.**
+
+**Benefits**: Better discoverability, reduced navigation, conceptual cohesion.

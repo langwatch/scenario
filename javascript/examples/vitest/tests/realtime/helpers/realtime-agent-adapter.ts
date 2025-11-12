@@ -1,10 +1,14 @@
 /**
  * Realtime Agent Adapter for Scenario Testing
  *
- * Connects Scenario framework to a RealtimeSession using the exact same
- * agent configuration as the browser client.
+ * Orchestrates the improved architecture with separated concerns:
+ * - Session management for connection lifecycle
+ * - Message transformation for format conversion
+ * - Centralized logging
+ * - Clean dependency injection
  *
- * This ensures we test the REAL agent, not a mock.
+ * Connects Scenario framework to OpenAI Realtime API using the exact same
+ * agent configuration as the browser client.
  */
 
 import {
@@ -13,25 +17,40 @@ import {
   AgentRole,
   type AgentReturnTypes,
 } from "@langwatch/scenario";
-import type { AssistantModelMessage } from "ai";
-import { RealtimeSession } from "@openai/agents/realtime";
-import type { RealtimeAgent } from "@openai/agents/realtime";
-import { AGENT_CONFIG } from "../shared/vegetarian-recipe-agent.js";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
-import { EventEmitter } from "events";
+import type { ConnectionConfig, AgentConfig } from "./types.js";
+import type { SessionManager } from "./session-manager.js";
+import { OpenAISessionManager } from "./session-manager.js";
+import type { MessageTransformer } from "./message-transformer.js";
+import { DefaultMessageTransformer } from "./message-transformer.js";
+import type { Logger } from "./logger.js";
+import { defaultLogger } from "./logger.js";
 
 /**
  * Configuration for RealtimeAgentAdapter
  */
 export interface RealtimeAgentAdapterConfig {
   /**
-   * The RealtimeAgent instance (from shared configuration)
+   * Agent configuration (personality + capabilities)
    */
-  agent: RealtimeAgent;
+  agentConfig: AgentConfig;
+
+  /**
+   * Session manager for handling connection lifecycle
+   */
+  sessionManager?: SessionManager;
+
+  /**
+   * Message transformer for format conversion
+   */
+  messageTransformer?: MessageTransformer;
+
+  /**
+   * Logger for centralized logging
+   */
+  logger?: Logger;
 
   /**
    * OpenAI API key for direct connection (recommended for testing)
-   * If provided, connects directly without ephemeral token server
    */
   apiKey?: string;
 
@@ -44,32 +63,23 @@ export interface RealtimeAgentAdapterConfig {
 
   /**
    * Timeout for waiting for agent response (ms)
-   * @default 30000
+   * @default 60000 (increased for voice processing)
    */
   responseTimeout?: number;
 }
 
 /**
- * Event emitted when an audio response is completed
- */
-export interface AudioResponseEvent {
-  transcript: string;
-  audio: string;
-}
-
-/**
- * Adapter that connects Scenario testing framework to OpenAI Realtime API
+ * Improved Realtime Agent Adapter
  *
- * This adapter:
- * - Uses the SAME agent configuration as the browser client
- * - Connects via ephemeral tokens (same as browser)
- * - Handles turn-based conversation for testing
- * - Returns CoreMessage format for Scenario
+ * Uses dependency injection and separation of concerns for better maintainability.
+ * Orchestrates session management, message transformation, and logging.
  *
  * @example
  * ```typescript
- * const agent = createVegetarianRecipeAgent();
- * const adapter = new RealtimeAgentAdapter({ agent });
+ * const adapter = new RealtimeAgentAdapter({
+ *   agentConfig: AGENT_CONFIG,
+ *   apiKey: process.env.OPENAI_API_KEY,
+ * });
  *
  * // In beforeAll
  * await adapter.connect();
@@ -77,7 +87,7 @@ export interface AudioResponseEvent {
  * // In test
  * await scenario.run({
  *   agents: [adapter, scenario.userSimulatorAgent()],
- *   script: [scenario.user("quick recipe"), scenario.agent()]
+ *   script: [scenario.user("message"), scenario.agent()]
  * });
  *
  * // In afterAll
@@ -87,51 +97,51 @@ export interface AudioResponseEvent {
 export class RealtimeAgentAdapter extends AgentAdapter {
   role = AgentRole.AGENT;
 
-  private session: RealtimeSession | null = null;
-  private currentResponse: string = "";
-  private currentAudioChunks: string[] = [];
-  private responseResolver:
-    | ((value: { transcript: string; audio: string }) => void)
-    | null = null;
-  private errorRejecter: ((error: Error) => void) | null = null;
-  private audioEvents = new EventEmitter();
+  private sessionManager: SessionManager;
+  private messageTransformer: MessageTransformer;
+  private logger: Logger;
 
   constructor(private config: RealtimeAgentAdapterConfig) {
     super();
+
+    // Initialize dependencies with defaults
+    this.sessionManager =
+      config.sessionManager ??
+      new OpenAISessionManager({
+        agentConfig: config.agentConfig,
+        logger: config.logger,
+        defaultTimeoutMs: config.responseTimeout,
+      });
+
+    this.messageTransformer =
+      config.messageTransformer ??
+      new DefaultMessageTransformer({
+        logger: config.logger,
+      });
+
+    this.logger = config.logger ?? defaultLogger;
   }
 
   /**
-   * Connects to the Realtime API
-   *
-   * Supports two connection modes:
-   * 1. Direct API key (recommended for testing)
-   * 2. Ephemeral token via token server (for production/browser)
+   * Connects to the Realtime API using the session manager
    *
    * Call this once before running tests (e.g., in beforeAll)
    *
    * @throws {Error} If connection fails
    */
   async connect(): Promise<void> {
-    if (this.session) {
-      console.warn("⚠️  RealtimeAgentAdapter already connected");
-      return;
-    }
-
     try {
-      // Create session with the SAME agent as browser
-      this.session = new RealtimeSession(this.config.agent, {
-        model: AGENT_CONFIG.model,
-      });
+      const connectionConfig: ConnectionConfig = {
+        apiKey: this.config.apiKey,
+        tokenServerUrl: this.config.tokenServerUrl,
+      };
 
-      // Set up event listeners
-      this.setupEventListeners();
-
-      // Connect with API key (direct or ephemeral token)
-      await this.session.connect({ apiKey: this.config.apiKey });
-
-      console.log("✅ RealtimeAgentAdapter connected");
+      await this.sessionManager.connect(connectionConfig);
+      this.logger.info("RealtimeAgentAdapter connected successfully");
     } catch (error) {
-      console.error("❌ Failed to connect RealtimeAgentAdapter:", error);
+      this.logger.error("Failed to connect RealtimeAgentAdapter", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -142,304 +152,59 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Call this once after tests complete (e.g., in afterAll)
    */
   async disconnect(): Promise<void> {
-    if (this.session) {
-      // @ts-ignore - close method exists in 0.3.0
-      await this.session.close();
-      this.session = null;
-      console.log("👋 RealtimeAgentAdapter disconnected");
+    try {
+      await this.sessionManager.disconnect();
+      this.logger.info("RealtimeAgentAdapter disconnected successfully");
+    } catch (error) {
+      this.logger.error("Error during RealtimeAgentAdapter disconnection", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   /**
    * Process input and generate response (implements AgentAdapter interface)
    *
-   * This is called by Scenario framework for each agent turn.
-   * Handles both text and audio input, returns audio message with transcript.
+   * Orchestrates the conversation flow:
+   * 1. Transform Scenario input to realtime format
+   * 2. Send message via session manager and wait for response
+   * 3. Transform response back to Scenario format
    *
    * @param input - Scenario agent input with message history
-   * @returns Agent response as audio message or text
+   * @returns Agent response in Scenario format
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
-    if (!this.session) {
+    if (!this.sessionManager.isConnected()) {
       throw new Error(
         "RealtimeAgentAdapter not connected. Call connect() first."
       );
     }
 
-    // Get the latest user message
-    const latestMessage = input.newMessages[input.newMessages.length - 1];
-
-    if (!latestMessage) {
-      const transport = (this.session as any).transport;
-
-      if (!transport) {
-        throw new Error("Realtime transport not available");
-      }
-
-      transport.sendEvent({
-        type: "response.create",
-      });
-
-      const timeout = this.config.responseTimeout ?? 60000;
-      const response = await this.waitForResponse(timeout);
-
-      return {
-        role: "assistant",
-        content: [
-          { type: "text", text: response.transcript },
-          { type: "file", mediaType: "audio/pcm16", data: response.audio },
-        ],
-      } as AssistantModelMessage;
-    }
-
-    // Check if message contains audio
-    if (Array.isArray(latestMessage.content)) {
-      for (const part of latestMessage.content) {
-        // Handle both PCM16 (from user simulator) and WAV formats
-        if (part.type === "file" && part.mediaType?.startsWith("audio/")) {
-          // Type guard: ensure data is a string (base64)
-          if (typeof part.data !== "string") {
-            throw new Error(
-              `Audio data must be base64 string, got: ${typeof part.data}`
-            );
-          }
-
-          console.log(`🎤 Received audio part:`, {
-            mediaType: part.mediaType,
-            hasData: !!part.data,
-            dataLength: part.data.length,
-            dataType: typeof part.data,
-            dataPreview: part.data.substring(0, 50),
-          });
-
-          // Validate we have audio data
-          if (!part.data || part.data.length === 0) {
-            console.error(
-              "❌ Audio part structure:",
-              JSON.stringify(part, null, 2)
-            );
-            throw new Error(
-              `Audio message has no data. Part: ${JSON.stringify(part)}`
-            );
-          }
-
-          console.log(
-            `🎤 Sending ${part.data.length} chars of base64 ${part.mediaType} to Realtime agent`
-          );
-
-          // Use transport layer to send audio directly as base64 (avoids SDK ArrayBuffer conversion)
-          // Per https://openai.github.io/openai-agents-js/guides/voice-agents/transport/#option-1---accessing-the-transport-layer
-          const transport = (this.session as any).transport;
-
-          // Append audio to input buffer (audio is already base64)
-          transport.sendEvent({
-            type: "input_audio_buffer.append",
-            audio: part.data,
-          });
-          console.log(`✅ Audio appended to input buffer`);
-
-          // Commit the audio buffer
-          transport.sendEvent({
-            type: "input_audio_buffer.commit",
-          });
-          console.log(`✅ Audio buffer committed`);
-
-          // Trigger response generation
-          transport.sendEvent({
-            type: "response.create",
-          });
-          console.log(`✅ Response generation triggered`);
-
-          // Wait for audio response (increased timeout for voice processing)
-          const timeout = this.config.responseTimeout ?? 60000;
-          const response = await this.waitForResponse(timeout);
-
-          console.log(`🔊 Received audio response: "${response.transcript}"`);
-
-          // Return audio message with PCM16 format (matching user simulator)
-          return {
-            role: "assistant",
-            content: [
-              { type: "text", text: response.transcript },
-              { type: "file", mediaType: "audio/pcm16", data: response.audio },
-            ],
-          } as AssistantModelMessage;
-        }
-      }
-    }
-
-    // Fallback: text input
-    const text =
-      typeof latestMessage.content === "string" ? latestMessage.content : "";
-
-    if (!text) {
-      throw new Error("Message has no text or audio content");
-    }
-
-    console.log(`📤 Sending text to Realtime agent: "${text}"`);
-
-    // In SDK 0.3.0, use sendMessage method
     try {
-      // @ts-ignore - sendMessage exists but might not be in types yet
-      await this.session.sendMessage(text);
-    } catch (sendError) {
-      console.error("❌ Failed to send message:", sendError);
-      throw sendError;
+      // Transform input to realtime format
+      const realtimeMessage = this.messageTransformer.toRealtimeFormat(input);
+
+      // Send message and wait for response
+      const timeout = this.config.responseTimeout ?? 60000;
+      const audioResponse = await this.sessionManager.sendMessageAndWait(
+        realtimeMessage,
+        timeout
+      );
+
+      // Transform response to Scenario format
+      return this.messageTransformer.fromRealtimeFormat(audioResponse);
+    } catch (error) {
+      this.logger.error("Failed to process message in RealtimeAgentAdapter", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-
-    // Wait for response with timeout
-    const timeout = this.config.responseTimeout ?? 30000;
-    const response = await this.waitForResponse(timeout);
-
-    console.log(`📥 Received from Realtime agent: "${response.transcript}"`);
-
-    // Return as text for Scenario framework
-    return response.transcript;
-  }
-
-  /**
-   * Sets up event listeners for the RealtimeSession
-   */
-  private setupEventListeners(): void {
-    if (!this.session) return;
-
-    // Use transport layer for raw WebSocket events
-    // Per https://openai.github.io/openai-agents-js/guides/voice-agents/transport/#option-1---accessing-the-transport-layer
-    const transport = (this.session as any).transport;
-
-    if (!transport) {
-      console.error("❌ Transport not available on session");
-      return;
-    }
-
-    // Listen to all events for debugging
-    transport.on("*", (event: any) => {
-      console.log(`🔔 Transport event: ${event.type}`);
-    });
-
-    // Listen for audio transcript deltas (CORRECT event name from API)
-    transport.on("response.output_audio_transcript.delta", (event: any) => {
-      if (event.delta) {
-        this.currentResponse += event.delta;
-        console.log(`📝 Transcript delta: "${event.delta}"`);
-      }
-    });
-
-    // Listen for audio deltas (CORRECT event name from API)
-    transport.on("response.output_audio.delta", (event: any) => {
-      if (event.delta) {
-        this.currentAudioChunks.push(event.delta);
-        console.log(`🔊 Audio delta: ${event.delta.length} bytes`);
-      }
-    });
-
-    // Listen for response completion
-    transport.on("response.done", (event: any) => {
-      console.log(`✅ Response complete: transcript="${this.currentResponse}"`);
-
-      const fullAudio = this.currentAudioChunks.join("");
-      const audioResponse: AudioResponseEvent = {
-        transcript: this.currentResponse,
-        audio: fullAudio,
-      };
-
-      // Emit event for subscribers
-      this.audioEvents.emit("audioResponse", audioResponse);
-
-      if (this.responseResolver) {
-        this.responseResolver(audioResponse);
-        this.responseResolver = null;
-        this.errorRejecter = null;
-      }
-
-      // Reset for next response
-      this.currentResponse = "";
-      this.currentAudioChunks = [];
-    });
-
-    // Handle errors
-    transport.on("error", (error: any) => {
-      console.error("❌ Transport error:", error);
-      if (this.errorRejecter) {
-        this.errorRejecter(error);
-        this.responseResolver = null;
-        this.errorRejecter = null;
-      }
-    });
-  }
-
-  /**
-   * Waits for the agent's response with timeout
-   *
-   * @param timeout - Maximum time to wait (ms)
-   * @returns Agent's transcript and audio data
-   * @throws {Error} If timeout or error occurs
-   */
-  private waitForResponse(
-    timeout: number
-  ): Promise<{ transcript: string; audio: string }> {
-    return new Promise((resolve, reject) => {
-      this.responseResolver = resolve;
-      this.errorRejecter = reject;
-
-      // Timeout handler
-      const timeoutId = setTimeout(() => {
-        if (this.responseResolver) {
-          this.responseResolver = null;
-          this.errorRejecter = null;
-          reject(new Error(`Agent response timeout after ${timeout}ms`));
-        }
-      }, timeout);
-
-      // Clear timeout when resolved
-      const originalResolver = resolve;
-      this.responseResolver = (value: {
-        transcript: string;
-        audio: string;
-      }) => {
-        clearTimeout(timeoutId);
-        originalResolver(value);
-      };
-    });
-  }
-
-  /**
-   * Subscribe to audio response events
-   *
-   * @param callback - Function called when an audio response completes
-   */
-  onAudioResponse(callback: (event: AudioResponseEvent) => void): void {
-    this.audioEvents.on("audioResponse", callback);
-  }
-
-  /**
-   * Remove audio response listener
-   *
-   * @param callback - The callback function to remove
-   */
-  offAudioResponse(callback: (event: AudioResponseEvent) => void): void {
-    this.audioEvents.off("audioResponse", callback);
   }
 
   /**
    * Checks if the adapter is currently connected
    */
   isConnected(): boolean {
-    return this.session !== null;
-  }
-
-  /**
-   * Converts base64 string to ArrayBuffer (Node.js-optimized)
-   * @param base64 - Base64 encoded string
-   * @returns ArrayBuffer
-   */
-  private base64ToArrayBuffer(base64: string): ArrayBuffer {
-    const buffer = Buffer.from(base64, "base64");
-    // Use Node.js buffer's underlying ArrayBuffer
-    const ab = buffer.buffer.slice(
-      buffer.byteOffset,
-      buffer.byteOffset + buffer.byteLength
-    );
-    return ab;
+    return this.sessionManager.isConnected();
   }
 }
