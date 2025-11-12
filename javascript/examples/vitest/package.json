@@ -7,12 +7,17 @@
   "scripts": {
     "test": "pnpm exec vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "realtime-server": "dotenv -e .env pnpm exec tsx tests/realtime/server/start-server.ts",
+    "realtime-client": "cd tests/realtime/client && vite",
+    "realtime-client:build": "cd tests/realtime/client && vite build",
+    "realtime": "dotenv -e .env concurrently -n server,client -c blue,magenta \"pnpm realtime-server\" \"pnpm realtime-client\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "dotenv": "^16.5.0",
     "dotenv-cli": "^8.0.0",
     "nanoid-cli": "^1.0.1",
@@ -20,8 +25,12 @@
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",
+    "@openai/agents": "^0.3.0",
     "ai": ">=5.0.0",
+    "express": "^4.21.2",
     "openai": "^5.16.0",
-    "vitest": "^3.2.4"
+    "vite": "^6.0.11",
+    "vitest": "^3.2.4",
+    "zod": "^3.24.1"
   }
 }
