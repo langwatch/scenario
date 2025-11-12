@@ -34,8 +34,9 @@ export class AudioUserSimulator extends RealtimeAgentAdapter {
   constructor() {
     super({
       agent: new RealtimeAgent({
-        name: "Vegetarian Recipe Assistant",
-        instructions: "You want to eat only tacos",
+        name: "Audio User Simulator",
+        instructions:
+          "You are pretending to be a user looking for help with LangWatch tracing implementations",
         voice: "ash",
       }),
       apiKey: process.env.OPENAI_API_KEY!,

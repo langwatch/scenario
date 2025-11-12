@@ -35,7 +35,7 @@ Remember:
 export const AGENT_CONFIG = {
   name: "Vegetarian Recipe Assistant",
   instructions: AGENT_INSTRUCTIONS,
-  voice: "alloy" as const,
+  voice: "coral" as const,
   model: "gpt-4o-realtime-preview-2024-12-17" as const,
 } as const;
 
