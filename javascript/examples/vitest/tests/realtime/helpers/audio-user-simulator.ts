@@ -7,15 +7,18 @@
  * @example
  * ```typescript
  * const audioUserSim = new AudioUserSimulator();
- * 
+ *
  * await scenario.run({
  *   agents: [realtimeAdapter, audioUserSim],
  *   script: [scenario.user(), scenario.agent()]
  * });
  * ```
  */
-import { AgentRole } from "@langwatch/scenario";
+import { AgentRole, type AgentInput } from "@langwatch/scenario";
+import type { ModelMessage } from "ai";
 import { OpenAiVoiceAgent } from "../../helpers/openai-voice-agent";
+import { RealtimeAgentAdapter } from "./realtime-agent-adapter";
+import { RealtimeAgent } from "@openai/agents/realtime";
 
 /**
  * User simulator that generates audio messages for testing Realtime agents
@@ -25,28 +28,17 @@ import { OpenAiVoiceAgent } from "../../helpers/openai-voice-agent";
  * - Process audio responses from the Realtime agent
  * - Maintain multi-turn voice conversations
  */
-export class AudioUserSimulator extends OpenAiVoiceAgent {
+export class AudioUserSimulator extends RealtimeAgentAdapter {
   role = AgentRole.USER;
 
   constructor() {
     super({
-      systemPrompt: `You are simulating a user looking for vegetarian recipes.
-
-Your role is to:
-- Ask for recipe recommendations in a natural, conversational way
-- Mention your situation (e.g., hungry, tired, dietary restrictions)
-- Ask follow-up questions when needed
-- Respond to the agent's questions naturally
-- Keep responses brief and conversational (this is a VOICE conversation)
-
-Remember:
-- Speak naturally as if talking to a friend
-- Don't be overly formal
-- Express enthusiasm or concern as appropriate
-- Keep each response under 20 seconds when spoken`,
-      voice: "nova", // Different voice from agent for clarity
-      audioFormat: "pcm16", // Use PCM16 for Realtime API compatibility
+      agent: new RealtimeAgent({
+        name: "Vegetarian Recipe Assistant",
+        instructions: "You want to eat only tacos",
+        voice: "ash",
+      }),
+      apiKey: process.env.OPENAI_API_KEY!,
     });
   }
 }
-

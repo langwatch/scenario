@@ -11,7 +11,7 @@ import {
 /**
  * OpenAI supported audio formats for input_audio
  */
-type OpenAIAudioFormat = "wav" | "mp3";
+type OpenAIAudioFormat = "wav" | "mp3" | "pcm16";
 
 /**
  * Comprehensive mapping from MIME types to OpenAI audio formats
@@ -26,6 +26,7 @@ const MIME_TYPE_TO_OPENAI_FORMAT: Record<string, OpenAIAudioFormat> = {
   "audio/mp3": "mp3",
   "audio/mpeg3": "mp3",
   "audio/x-mpeg-3": "mp3",
+  "audio/pcm16": "pcm16",
 } as const;
 
 /**
