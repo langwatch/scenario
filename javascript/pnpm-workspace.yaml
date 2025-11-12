@@ -1,6 +1,7 @@
 packages:
   - .
   - examples/*
+  - examples/vitest/tests/realtime/realtime-client
 
 onlyBuiltDependencies:
   - esbuild
