@@ -2,10 +2,15 @@ import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
 import { z } from "zod/v4";
 import { JudgeResult } from "./interfaces";
 import { getProjectConfig } from "../../config";
-import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
+import { AgentInput, IJudgeAgent, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
-import { TestingAgentConfig, FinishTestArgs } from "../types";
+import {
+  TestingAgentConfig,
+  FinishTestArgs,
+  InvokeLLMInput,
+  InvokeLLMResult,
+} from "../types";
 import { criterionToParamName } from "../utils";
 
 /**
@@ -87,147 +92,193 @@ function buildFinishTestTool(criteria: string[]): Tool {
 }
 
 /**
- * Agent that evaluates conversations against success criteria.
+ * Base judge agent with extensible LLM invocation.
  *
- * This is the default judge agent that is used if no judge agent is provided.
- * It is a simple agent that uses function calling to make structured decisions
- * and provides detailed reasoning for its verdicts.
+ * This class handles all orchestration logic (system prompts, tool building, config merging).
+ * To customize the LLM provider, override the `invokeLLM()` method.
+ *
+ * **DO NOT OVERRIDE `call()`** - Override `invokeLLM()` instead.
  *
  * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
  */
-class JudgeAgent extends JudgeAgentAdapter {
+export class JudgeAgent implements IJudgeAgent {
+  readonly role = AgentRole.JUDGE;
+  readonly criteria: string[];
   private logger = new Logger("JudgeAgent");
-  role: AgentRole = AgentRole.JUDGE;
-  criteria: string[];
 
   constructor(private readonly cfg: JudgeAgentConfig) {
-    super();
     this.criteria = cfg.criteria;
-    this.role = AgentRole.JUDGE;
   }
 
+  /**
+   * Main orchestration - DO NOT OVERRIDE.
+   * Override `invokeLLM()` to customize LLM provider.
+   */
   async call(input: AgentInput): Promise<JudgeResult | null> {
-    const cfg = this.cfg;
+    try {
+      // 1. Check if we should judge
+      if (!this.shouldJudge(input)) {
+        return null;
+      }
 
-    const systemPrompt =
-      cfg.systemPrompt ??
-      buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
-    const messages: CoreMessage[] = [
-      { role: "system", content: systemPrompt },
-      ...input.messages,
-    ];
+      // 2. Build messages with system prompt
+      const systemPrompt = this.getSystemPrompt(input);
+      const messages: CoreMessage[] = [
+        { role: "system", content: systemPrompt },
+        ...input.messages,
+      ];
 
-    const isLastMessage =
-      input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
+      // 3. Build tools
+      const tools: ToolSet = {
+        continue_test: buildContinueTestTool(),
+        finish_test: buildFinishTestTool(this.cfg.criteria),
+      };
 
-    const projectConfig = await getProjectConfig();
-    // Merge the agent config with the project config and validate
-    const mergedConfig = modelSchema.parse({
-      ...projectConfig?.defaultModel,
-      ...cfg,
+      // 4. Determine tool choice
+      const isLastTurn =
+        input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
+      const enforceJudgement = input.judgmentRequest;
+      const hasCriteria = this.cfg.criteria.length > 0;
+
+      const toolChoice: ToolChoice<typeof tools> =
+        (isLastTurn || enforceJudgement) && hasCriteria
+          ? { type: "tool", toolName: "finish_test" }
+          : "required";
+
+      // 5. Get config
+      const config = await this.getModelConfig();
+
+      // 6. Prepare LLM input - everything is ready
+      const llmInput: InvokeLLMInput = {
+        messages,
+        model: config.model,
+        temperature: config.temperature ?? 0.0,
+        maxTokens: config.maxTokens,
+        tools,
+        toolChoice,
+      };
+
+      // 7. Invoke LLM - PURE API CALL (override this method to customize)
+      const result = await this.invokeLLM(llmInput);
+
+      // 8. Process tool calls
+      return this.processToolCalls(result.completion);
+    } catch (error) {
+      this.logger.error("Error in judge agent", { error });
+      throw error;
+    }
+  }
+
+  /**
+   * EXTENSION POINT - Override this to use different LLM providers.
+   *
+   * This method receives fully prepared input and should make a pure LLM API call.
+   * All orchestration logic (system prompts, tools, config) is already done.
+   *
+   * Returns an object with raw completion for processing tool calls.
+   *
+   * @param input - Fully prepared LLM input with tools
+   * @returns Result containing raw completion for tool call processing
+   */
+  protected async invokeLLM(input: InvokeLLMInput): Promise<InvokeLLMResult> {
+    // Default: Vercel AI SDK
+    const completion = await generateText({
+      model: input.model,
+      messages: input.messages,
+      temperature: input.temperature,
+      maxOutputTokens: input.maxTokens,
+      tools: input.tools,
+      toolChoice: input.toolChoice,
     });
-    const tools: ToolSet = {
-      continue_test: buildContinueTestTool(),
-      finish_test: buildFinishTestTool(cfg.criteria),
-    };
 
+    return {
+      content: "", // Judge doesn't use text content, only tool calls
+      completion,
+    };
+  }
+
+  // All helpers are PRIVATE - internal implementation details
+
+  private shouldJudge(input: AgentInput): boolean {
     const enforceJudgement = input.judgmentRequest;
-    const hasCriteria = cfg.criteria.length && cfg.criteria.length > 0;
+    const hasCriteria = this.cfg.criteria.length > 0;
 
     if (enforceJudgement && !hasCriteria) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private getSystemPrompt(input: AgentInput): string {
+    return (
+      this.cfg.systemPrompt ??
+      buildSystemPrompt(this.cfg.criteria, input.scenarioConfig.description)
+    );
+  }
+
+  private async getModelConfig() {
+    const projectConfig = await getProjectConfig();
+    return modelSchema.parse({
+      ...projectConfig?.defaultModel,
+      ...this.cfg,
+    });
+  }
+
+  private processToolCalls(completion: any): JudgeResult | null {
+    if (!completion.toolCalls?.length) {
       return {
         success: false,
-        reasoning: "JudgeAgent: No criteria was provided to be judged against",
+        reasoning: `JudgeAgent: No tool call found in LLM output`,
         metCriteria: [],
-        unmetCriteria: [],
+        unmetCriteria: this.cfg.criteria,
       };
     }
 
-    const toolChoice: ToolChoice<typeof tools> =
-      (isLastMessage || enforceJudgement) && hasCriteria
-        ? { type: "tool", toolName: "finish_test" }
-        : "required";
+    const toolCall = completion.toolCalls[0];
 
-    const completion = await this.generateText({
-      model: mergedConfig.model,
-      messages: messages,
-      temperature: mergedConfig.temperature ?? 0.0,
-      maxOutputTokens: mergedConfig.maxTokens,
-      tools,
-      toolChoice,
-    });
+    switch (toolCall.toolName) {
+      case "finish_test": {
+        const args = toolCall.input as FinishTestArgs;
+        const verdict = args.verdict || "inconclusive";
+        const reasoning = args.reasoning || "No reasoning provided";
+        const criteria = args.criteria || {};
+        const criteriaValues = Object.values(criteria);
+        const metCriteria = this.cfg.criteria.filter(
+          (_, i) => criteriaValues[i] === "true"
+        );
+        const unmetCriteria = this.cfg.criteria.filter(
+          (_, i) => criteriaValues[i] !== "true"
+        );
 
-    // Prefer tool call, fallback to JSON
-    let args: FinishTestArgs | undefined;
-    if (completion.toolCalls?.length) {
-      const toolCall = completion.toolCalls[0];
-
-      switch (toolCall.toolName) {
-        case "finish_test": {
-          args = toolCall.input as FinishTestArgs;
-
-          const verdict = args.verdict || "inconclusive";
-          const reasoning = args.reasoning || "No reasoning provided";
-          const criteria = args.criteria || {};
-          const criteriaValues = Object.values(criteria);
-          const metCriteria = cfg.criteria.filter(
-            (_, i) => criteriaValues[i] === "true"
-          );
-          const unmetCriteria = cfg.criteria.filter(
-            (_, i) => criteriaValues[i] !== "true"
-          );
-
-          return {
-            success: verdict === "success",
-            reasoning,
-            metCriteria,
-            unmetCriteria,
-          };
-        }
-
-        case "continue_test":
-          return null;
-
-        default:
-          return {
-            success: false,
-            reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
-            metCriteria: [],
-            unmetCriteria: cfg.criteria,
-          };
+        return {
+          success: verdict === "success",
+          reasoning,
+          metCriteria,
+          unmetCriteria,
+        };
       }
-    }
 
-    return {
-      success: false,
-      reasoning: `JudgeAgent: No tool call found in LLM output`,
-      metCriteria: [],
-      unmetCriteria: cfg.criteria,
-    };
-  }
+      case "continue_test":
+        return null;
 
-  private async generateText(input: Parameters<typeof generateText>[0]) {
-    try {
-      return await generateText(input);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
+      default:
+        return {
+          success: false,
+          reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
+          metCriteria: [],
+          unmetCriteria: this.cfg.criteria,
+        };
     }
   }
 }
 
 /**
- * Factory function for creating JudgeAgent instances.
+ * Factory function for creating judge agents.
  *
- * JudgeAgent evaluates conversations against success criteria.
- *
- * The JudgeAgent watches conversations in real-time and makes decisions about
- * whether the agent under test is meeting the specified criteria. It can either
- * allow the conversation to continue or end it with a success/failure verdict.
- *
- * The judge uses function calling to make structured decisions and provides
- * detailed reasoning for its verdicts. It evaluates each criterion independently
- * and provides comprehensive feedback about what worked and what didn't.
+ * Creates an agent that evaluates conversations against success criteria.
+ * The judge watches conversations in real-time and makes decisions about
+ * whether the agent under test is meeting the specified criteria.
  *
  * @param cfg Configuration for the judge agent.
  * @param cfg.criteria List of success criteria to evaluate against.
@@ -236,36 +287,49 @@ class JudgeAgent extends JudgeAgentAdapter {
  * @param cfg.maxTokens Optional The maximum number of tokens to generate.
  * @param cfg.systemPrompt Optional Custom system prompt to override default judge behavior.
  *
+ * @returns IJudgeAgent instance
+ *
  * @example
  * ```typescript
- * import { run, judgeAgent, AgentRole, user, agent, AgentAdapter } from '@langwatch/scenario';
+ * import { run, judgeAgent, AgentRole, user, agent, IAgent } from '@langwatch/scenario';
  *
- * const myAgent: AgentAdapter = {
- *   role: AgentRole.AGENT,
- *   async call(input) {
- *     return `The user said: ${input.messages.at(-1)?.content}`;
+ * // Basic judge
+ * const judge = judgeAgent({
+ *   criteria: ["The agent must respond to the user."],
+ * });
+ *
+ * // Customized judge
+ * const strictJudge = judgeAgent({
+ *   criteria: ["Agent responds politely", "Agent provides accurate information"],
+ *   model: "gpt-4",
+ *   temperature: 0.0,
+ *   systemPrompt: "You are a strict judge. Be very critical.",
+ * });
+ *
+ * // Use in scenario
+ * await run({
+ *   name: "Test",
+ *   description: "Testing agent behavior",
+ *   agents: [myAgent, judge],
+ *   script: [user("Hello!"), agent()],
+ * });
+ * ```
+ *
+ * **Extending with custom LLM:**
+ * ```typescript
+ * class CustomJudge extends JudgeAgent {
+ *   protected async invokeLLM(input: InvokeLLMInput) {
+ *     // Use custom LLM for judging
+ *     const response = await myCustomLLM.generateWithTools({
+ *       model: input.model,
+ *       messages: input.messages,
+ *       tools: input.tools,
+ *     });
+ *     return response;
  *   }
- * };
- *
- * async function main() {
- *   const result = await run({
- *     name: "Judge Agent Test",
- *     description: "A simple test to see if the judge agent works.",
- *     agents: [
- *       myAgent,
- *       judgeAgent({
- *         criteria: ["The agent must respond to the user."],
- *       }),
- *     ],
- *     script: [
- *       user("Hello!"),
- *       agent(),
- *     ],
- *   });
  * }
- * main();
  * ```
  */
-export const judgeAgent = (cfg: JudgeAgentConfig) => {
+export const judgeAgent = (cfg: JudgeAgentConfig): IJudgeAgent => {
   return new JudgeAgent(cfg);
 };
