@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { RealtimeSession } from "@openai/agents/realtime";
 import {
   createVegetarianRecipeAgent,
@@ -13,8 +13,10 @@ import {
 import { Orb, type AgentState } from "@/components/ui/orb";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { VoiceOrb } from "@/components/ui/VoiceOrb";
+import { StatusIndicator } from "@/components/ui/StatusIndicator";
+import { MessageBubble } from "@/components/ui/MessageBubble";
 import { X, Mic, MicOff, Radio } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface Message {
   id: string;
@@ -80,38 +82,79 @@ export default function App() {
         model: AGENT_CONFIG.model,
       });
 
-      session.on("*", (event: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      session.transport.on("*", (event: any) => {
         console.log("🔔 Session event:", event.type);
       });
 
-      session.on("response:transcript:delta", (event: any) => {
-        console.log("📝 Transcript delta:", event.delta);
-      });
+      session.transport.on(
+        "input_audio_buffer.speech_started",
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+        (_event: any) => {
+          console.log("🎤 User started speaking");
+          setIsUserSpeaking(true);
+        }
+      );
 
-      session.on("response:transcript:done", (event: any) => {
-        console.log("✅ Transcript done:", event.transcript);
-        addMessage("agent", event.transcript);
-      });
+      session.transport.on(
+        "input_audio_buffer.speech_stopped",
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+        (_event: any) => {
+          console.log("🎤 User stopped speaking");
+          setIsUserSpeaking(false);
+        }
+      );
 
-      session.on("input_audio_buffer.speech_started", () => {
-        console.log("🎤 User started speaking");
-        setIsUserSpeaking(true);
-      });
+      session.transport.on(
+        "conversation.item.input_audio_transcription.completed",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (event: any) => {
+          console.log("📝 User transcript:", event.transcript);
+          if (event.transcript && event.transcript.trim()) {
+            addMessage("user", event.transcript);
+          }
+        }
+      );
 
-      session.on("input_audio_buffer.speech_stopped", () => {
-        console.log("🎤 User stopped speaking");
-        setIsUserSpeaking(false);
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      session.transport.on(
+        "response.output_audio_transcript.delta",
+        (event: any) => {
+          console.log("📝 Agent text delta:", event.delta);
+        }
+      );
 
-      session.on("response.audio.delta", () => {
-        setIsAgentSpeaking(true);
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      session.transport.on(
+        "response.output_audio_transcript.done",
+        (event: any) => {
+          console.log("✅ Agent text done:", event.transcript);
+          if (event.transcript && event.transcript.trim()) {
+            addMessage("agent", event.transcript);
+          }
+        }
+      );
 
-      session.on("response.audio.done", () => {
-        setIsAgentSpeaking(false);
-      });
+      session.transport.on(
+        "output_audio_buffer.started",
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+        (_event: any) => {
+          console.log("🔊 Agent audio started");
+          setIsAgentSpeaking(true);
+        }
+      );
 
-      session.on("error", (error: any) => {
+      session.transport.on(
+        "response.output_audio.done",
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+        (_event: any) => {
+          console.log("🔊 Agent audio done");
+          setIsAgentSpeaking(false);
+        }
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      session.transport.on("error", (error: any) => {
         console.error("❌ Session error:", error);
         setError(`Error: ${error.message || String(error)}`);
       });
@@ -131,10 +174,6 @@ export default function App() {
       setIsConversationStarted(true);
 
       console.log("✅ Connected to Realtime API");
-      addMessage(
-        "agent",
-        "Hi! I'm your vegetarian recipe assistant. What would you like to cook today?"
-      );
     } catch (error) {
       console.error("❌ Connection failed:", error);
       setStatus("disconnected");
@@ -144,7 +183,11 @@ export default function App() {
 
   const handleDisconnect = async () => {
     if (sessionRef.current) {
-      await sessionRef.current.disconnect();
+      try {
+        await sessionRef.current.close();
+      } catch (error) {
+        console.warn("Error closing session:", error);
+      }
       sessionRef.current = null;
     }
 
@@ -152,18 +195,9 @@ export default function App() {
     setIsUserSpeaking(false);
     setIsAgentSpeaking(false);
     setIsConversationStarted(false);
+    setMessages([]); // Clear all messages
+    setError(null); // Clear any errors
     console.log("👋 Disconnected");
-  };
-
-  const getStatusColor = () => {
-    switch (status) {
-      case "connected":
-        return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
-      case "connecting":
-        return "bg-amber-500/20 text-amber-400 border-amber-500/30";
-      default:
-        return "bg-red-500/20 text-red-400 border-red-500/30";
-    }
   };
 
   if (!isConversationStarted) {
@@ -182,27 +216,11 @@ export default function App() {
           <CardContent className="p-12 text-center space-y-8">
             {/* Interactive Orb */}
             <div className="flex justify-center">
-              <button
+              <VoiceOrb
+                agentState={getAgentState()}
                 onClick={handleOrbClick}
                 disabled={status === "connecting"}
-                className={cn(
-                  "group relative transition-all duration-500 hover:scale-105",
-                  status === "connecting" && "animate-pulse"
-                )}
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-400 to-blue-400 rounded-full blur-xl opacity-30 group-hover:opacity-50 transition-opacity" />
-                <div className="relative bg-gradient-to-br from-white/20 to-white/5 rounded-full p-4 border border-white/30 backdrop-blur-sm shadow-2xl">
-                  <div className="bg-muted relative h-24 w-24 rounded-full p-1 shadow-[inset_0_2px_8px_rgba(0,0,0,0.1)]">
-                    <div className="bg-background h-full w-full overflow-hidden rounded-full shadow-[inset_0_0_12px_rgba(0,0,0,0.05)]">
-                      <Orb
-                        colors={["#CADCFC", "#A0B9D1"]}
-                        seed={1000}
-                        agentState={getAgentState()}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </button>
+              />
             </div>
 
             {/* Title and Description */}
@@ -303,26 +321,7 @@ export default function App() {
 
             <div className="flex items-center gap-4">
               {/* Status Badge */}
-              <div
-                className={`px-3 py-1 rounded-full backdrop-blur-md border text-sm font-semibold transition-all duration-300 ${getStatusColor()}`}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      status === "connected"
-                        ? "bg-emerald-400 animate-pulse"
-                        : status === "connecting"
-                        ? "bg-amber-400 animate-pulse"
-                        : "bg-red-400"
-                    }`}
-                  />
-                  {status === "connected"
-                    ? "Connected"
-                    : status === "connecting"
-                    ? "Connecting..."
-                    : "Disconnected"}
-                </div>
-              </div>
+              <StatusIndicator status={status} />
 
               {/* Voice Indicators */}
               <div className="flex gap-4">
@@ -396,52 +395,11 @@ export default function App() {
               ) : (
                 <div className="space-y-6 p-6">
                   {messages.map((message) => (
-                    <div
+                    <MessageBubble
                       key={message.id}
-                      className={cn(
-                        "flex gap-4 animate-in slide-in-from-bottom duration-500",
-                        message.role === "user"
-                          ? "justify-end"
-                          : "justify-start"
-                      )}
-                    >
-                      {message.role === "agent" && (
-                        <div className="flex-shrink-0">
-                          <div className="bg-muted relative h-8 w-8 rounded-full p-0.5 shadow-[inset_0_2px_8px_rgba(0,0,0,0.1)]">
-                            <div className="bg-background h-full w-full overflow-hidden rounded-full shadow-[inset_0_0_12px_rgba(0,0,0,0.05)]">
-                              <Orb
-                                colors={["#CADCFC", "#A0B9D1"]}
-                                seed={1000}
-                                agentState={
-                                  isAgentSpeaking && message.role === "agent"
-                                    ? "talking"
-                                    : null
-                                }
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div
-                        className={cn(
-                          "max-w-[70%] rounded-2xl px-4 py-3 backdrop-blur-md border",
-                          message.role === "user"
-                            ? "bg-blue-500/20 border-blue-400/30 text-blue-100 rounded-br-sm"
-                            : "bg-purple-500/20 border-purple-400/30 text-purple-100 rounded-bl-sm"
-                        )}
-                      >
-                        <div className="text-sm leading-relaxed">
-                          {message.parts[0]?.text}
-                        </div>
-                      </div>
-
-                      {message.role === "user" && (
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center">
-                          <Mic className="w-4 h-4 text-blue-300" />
-                        </div>
-                      )}
-                    </div>
+                      message={message}
+                      isAgentSpeaking={isAgentSpeaking}
+                    />
                   ))}
                 </div>
               )}
