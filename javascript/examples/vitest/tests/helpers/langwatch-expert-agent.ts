@@ -4,24 +4,19 @@
  * A voice-enabled agent that provides expert consultation on LangWatch Scenarios
  * with access to real documentation via MCP server tools.
  */
-import { AgentInput, AgentRole } from "@langwatch/scenario";
-import { ModelMessage } from "ai";
-import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { OpenAiVoiceAgent } from "./openai-voice-agent";
-import { fetchLangWatchDocs, LangWatchMCPClient } from "./langwatch-mcp-tools";
+import OpenAI from "openai";
 import {
-  ChatCompletion,
+  AgentInput,
+  AgentRole,
+  AgentReturnTypes,
+  type IAgent,
+} from "@langwatch/scenario";
+import { CoreMessage } from "ai";
+import { LangWatchMCPClient } from "./langwatch-mcp-tools";
+import type {
   ChatCompletionMessageParam,
+  ChatCompletionMessageToolCall,
 } from "openai/resources/chat/completions.mjs";
-
-/**
- * Simplified message structure for OpenAI API
- */
-interface SimpleMessage {
-  role: string;
-  content: string;
-}
 
 /**
  * Expert agent that explains LangWatch Scenarios capabilities
@@ -29,7 +24,7 @@ interface SimpleMessage {
  * Features:
  * - Fetches real documentation via MCP tools
  * - Responds with voice (audio)
- * - Handles multi-turn consultations
+ * - Handles multi-turn consultations with tool calls
  * - Explains testing, benchmarking, and CI/CD integration
  *
  * @example
@@ -38,43 +33,40 @@ interface SimpleMessage {
  * const response = await expert.call(input);
  * ```
  */
-export class LangWatchExpertAgent extends OpenAiVoiceAgent {
-  role: AgentRole = AgentRole.AGENT;
-
+export class LangWatchExpertAgent implements IAgent {
+  readonly role = AgentRole.AGENT;
+  private readonly openai = new OpenAI();
   private readonly mcpClient = new LangWatchMCPClient();
-
-  constructor() {
-    super({
-      systemPrompt: `
+  private readonly systemPrompt = `
       You are an expert consultant on LangWatch's Scenarios.
       Your knowledge comes exclusively from the LangWatch documentation
-
       which you can fetch using the fetch_langwatch_docs tool.
 
-      This is a phone call, so don't be verbose. Keep your responses concise.`,
-      voice: "echo",
-    });
+      This is a phone call, so don't be verbose. Keep your responses concise.`;
 
-    // Connect right away for speed
+  constructor() {
+    // Connect MCP client immediately for speed
     this.mcpClient.connect().catch((error) => {
       console.error("Error connecting to MCP client", error);
       throw error;
     });
   }
-  protected async respondWithAudio(
-    messages: ChatCompletionMessageParam[]
-  ): Promise<ChatCompletion> {
-    const allMessages = this.systemMessage
-      ? [this.systemMessage, ...messages]
-      : messages;
 
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Build messages with system prompt
+    const messages: ChatCompletionMessageParam[] = [
+      { role: "system", content: this.systemPrompt },
+      ...this.convertMessages(input.messages),
+    ];
+
+    // Define MCP tools
     const tools = [
       {
         type: "function" as const,
         function: {
           name: "fetch_langwatch_docs",
           description:
-            "Fetches LangWatch documentation pages from the internet to understand features and capabilities. Use this to get accurate information about LangWatch Scenarios.",
+            "Fetches LangWatch documentation pages to understand features and capabilities. Use this to get accurate information about LangWatch Scenarios.",
           parameters: {
             type: "object",
             properties: {
@@ -89,50 +81,84 @@ export class LangWatchExpertAgent extends OpenAiVoiceAgent {
       },
     ];
 
-    // Initial request with tools
+    // Initial request with tools and voice
     let response = await this.openai.chat.completions.create({
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
-      audio: { voice: this.config.voice, format: "wav" },
-      messages: allMessages,
+      audio: { voice: "echo", format: "wav" },
+      messages,
       tools,
       store: false,
     });
 
-    // Tool execution loop
+    // Tool execution loop - handle MCP tool calls
     while (response.choices[0].finish_reason === "tool_calls") {
       const assistantMessage = response.choices[0].message;
-      allMessages.push(assistantMessage);
+      messages.push(assistantMessage);
 
       // Execute each tool call
       for (const toolCall of assistantMessage.tool_calls!) {
-        console.log("toolCall", toolCall);
-        const args = JSON.parse(toolCall.function.arguments);
+        if (toolCall.type === "function") {
+          console.log("Calling MCP tool:", toolCall.function.name);
+          const args = JSON.parse(toolCall.function.arguments);
 
-        // Call the actual MCP client
-        const result = await this.mcpClient.callTool(
-          toolCall.function.name,
-          args
-        );
+          // Call the actual MCP client
+          const result = await this.mcpClient.callTool(
+            toolCall.function.name,
+            args
+          );
 
-        allMessages.push({
-          role: "tool" as const,
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
-        });
+          messages.push({
+            role: "tool" as const,
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(result),
+          });
+        }
       }
 
       // Continue conversation with tool results
       response = await this.openai.chat.completions.create({
         model: "gpt-4o-audio-preview",
         modalities: ["text", "audio"],
-        audio: { voice: this.config.voice, format: "wav" },
-        messages: allMessages,
+        audio: { voice: "echo", format: "wav" },
+        messages,
         tools,
         store: false,
       });
     }
 
-    return response;
+    // Extract audio response
+    const audioData = response.choices[0].message?.audio?.data;
+    const transcript = response.choices[0].message?.audio?.transcript;
+
+    if (audioData) {
+      return {
+        role: "assistant",
+        content: [
+          { type: "text", text: transcript || "" },
+          { type: "file", mediaType: "audio/wav", data: audioData },
+        ],
+      };
+    }
+
+    return {
+      role: "assistant",
+      content: transcript || "",
+    };
+  }
+
+  /**
+   * Convert CoreMessage[] to OpenAI ChatCompletionMessageParam[]
+   */
+  private convertMessages(
+    messages: CoreMessage[]
+  ): ChatCompletionMessageParam[] {
+    return messages.map((msg) => {
+      if (typeof msg.content === "string") {
+        return { role: msg.role as any, content: msg.content };
+      }
+      // Handle multipart content (audio, etc)
+      return { role: msg.role as any, content: msg.content as any };
+    });
   }
 }
