@@ -131,36 +131,6 @@ export class LangWatchMCPClient {
 const mcpClient = new LangWatchMCPClient();
 
 /**
- * Fetches LangWatch documentation pages via real MCP server
- *
- * This tool connects to the actual LangWatch MCP server process
- * and retrieves up-to-date documentation about LangWatch features.
- *
- * @example
- * ```typescript
- * const result = await fetchLangWatchDocs.execute({
- *   url: "https://docs.langwatch.ai/simulations/overview"
- * });
- * console.log(result.content);
- * ```
- */
-export const fetchLangWatchDocs = tool({
-  description:
-    "Fetches LangWatch documentation pages from the real MCP server to understand how to implement features and capabilities. Use this to get accurate information about LangWatch Scenarios.",
-  inputSchema: z.object({
-    url: z
-      .string()
-      .optional()
-      .describe(
-        "The full URL of a specific doc page (e.g. https://docs.langwatch.ai/simulations/overview). If not provided, fetches the docs index."
-      ),
-  }),
-  execute: async ({ url }: { url?: string }) => {
-    return mcpClient.fetchDocs(url);
-  },
-});
-
-/**
  * Cleanup function to disconnect from MCP server
  * Call this after tests complete
  */

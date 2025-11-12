@@ -9,7 +9,6 @@
  * @see https://docs.langwatch.ai/integration/mcp
  */
 import * as path from "path";
-import { openai } from "@ai-sdk/openai";
 import scenario from "@langwatch/scenario";
 import { describe, it, expect, afterAll } from "vitest";
 import {
