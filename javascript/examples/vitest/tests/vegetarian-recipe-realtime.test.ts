@@ -11,18 +11,15 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
 import scenario from "@langwatch/scenario";
-import { createVegetarianRecipeAgent } from "./realtime/shared/vegetarian-recipe-agent.js";
+import { createVegetarianRecipeAgent } from "./realtime/agents/vegetarian-recipe-agent.js";
 import {
   RealtimeAgentAdapter,
   AudioUserSimulator,
   wrapJudgeForAudio,
+  AudioOutputUtils,
 } from "./realtime/helpers/index.js";
 import type { AudioResponseEvent } from "./realtime/helpers/index.js";
-import { pcm16ToWav } from "./realtime/helpers/pcm16-to-wav.js";
-import { concatenateWavFiles } from "./helpers/audio-conversation.js";
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   let realtimeAdapter: RealtimeAgentAdapter;
@@ -58,35 +55,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     ]);
 
     // Write collected audio to WAV files
-    if (collectedAudio.length > 0) {
-      const outputDir = join(process.cwd(), "test-audio-output");
-      mkdirSync(outputDir, { recursive: true });
-
-      // Save individual response files
-      const individualFiles: string[] = [];
-      collectedAudio.forEach((event, index) => {
-        const wavBuffer = pcm16ToWav(event.audio);
-        const outputPath = join(outputDir, `response-${index + 1}.wav`);
-        writeFileSync(outputPath, wavBuffer);
-        individualFiles.push(outputPath);
-        console.log(
-          `💾 Saved response ${index + 1}: "${event.transcript.substring(
-            0,
-            50
-          )}..." -> ${outputPath}`
-        );
-      });
-
-      // Concatenate all responses into a single file
-      const concatenatedPath = join(outputDir, "full-conversation.wav");
-      await concatenateWavFiles(individualFiles, concatenatedPath);
-      console.log(
-        `✅ Concatenated ${collectedAudio.length} audio responses to ${concatenatedPath}`
-      );
-      console.log(
-        `💡 Note: Playback speed can be adjusted in your audio player (e.g., VLC, QuickTime)`
-      );
-    }
+    await AudioOutputUtils.saveTestAudio({ collectedAudio });
   });
 
   it("should handle voice-to-voice conversation with audio user", async () => {

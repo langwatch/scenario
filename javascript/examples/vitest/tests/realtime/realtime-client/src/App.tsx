@@ -3,7 +3,7 @@ import { RealtimeSession } from "@openai/agents/realtime";
 import {
   createVegetarianRecipeAgent,
   AGENT_CONFIG,
-} from "../../shared/vegetarian-recipe-agent";
+} from "../../agents/vegetarian-recipe-agent";
 import {
   Conversation,
   ConversationContent,

@@ -16,7 +16,7 @@ import {
 import type { AssistantModelMessage } from "ai";
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
-import { AGENT_CONFIG } from "../shared/vegetarian-recipe-agent.js";
+import { AGENT_CONFIG } from "../agents/vegetarian-recipe-agent.js";
 import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import { EventEmitter } from "events";
 
