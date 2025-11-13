@@ -11,8 +11,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import scenario from "@langwatch/scenario";
-import { createVegetarianRecipeAgent } from "./realtime/agents/vegetarian-recipe-agent.js";
+import scenario, { AgentRole } from "@langwatch/scenario";
+import { createVegetarianRecipeAgent } from "./realtime/agents/vegetatrian-recipe.agent.js";
 import {
   RealtimeAgentAdapter,
   RealtimeUserSimulatorAgent,
@@ -22,7 +22,9 @@ import {
 import type { AudioResponseEvent } from "./realtime/helpers";
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
+  // Used for wrapping the agent under test in the adapter
   let realtimeAdapter: RealtimeAgentAdapter;
+  // Used for simulating a user in voice conversations with the Realtime agent
   let audioUserSim: RealtimeUserSimulatorAgent;
   const collectedAudio: AudioResponseEvent[] = [];
 
@@ -33,6 +35,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
 
     // Wrap in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
+      role: AgentRole.AGENT,
       agent,
       apiKey: process.env.OPENAI_API_KEY!, // Direct API key for testing
       responseTimeout: 30000,

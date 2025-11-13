@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Commit and push the changes to the remote repository use conventional commits.

@@ -1,5 +1,5 @@
 import { AgentRole, type AgentInput } from "@langwatch/scenario";
-import { RealtimeAgentAdapter } from "./realtime-agent-adapter";
+import { RealtimeAgentAdapter } from "../helpers/realtime-agent-adapter";
 import { RealtimeAgent } from "@openai/agents/realtime";
 
 /**
@@ -12,8 +12,9 @@ export class RealtimeUserSimulatorAgent extends RealtimeAgentAdapter {
 
   constructor() {
     super({
+      role: AgentRole.USER,
       agent: new RealtimeAgent({
-        name: "Audio User Simulator",
+        name: "Realtime User Simulator",
         instructions:
           "You are pretending to be a user looking for help with LangWatch tracing implementations",
         voice: "ash",

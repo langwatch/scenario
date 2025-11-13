@@ -1,14 +1,3 @@
-/**
- * Vegetarian Recipe Agent Configuration
- *
- * This is the SINGLE SOURCE OF TRUTH for the agent.
- * Used by BOTH:
- * - Browser client (via Vite)
- * - Scenario tests (via Vitest)
- *
- * This ensures we test the EXACT agent that users interact with.
- */
-
 import { RealtimeAgent } from "@openai/agents/realtime";
 
 /**

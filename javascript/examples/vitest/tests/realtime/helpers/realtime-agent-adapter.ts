@@ -16,7 +16,7 @@ import {
 import type { AssistantModelMessage } from "ai";
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
-import { AGENT_CONFIG } from "../agents/vegetarian-recipe-agent.js";
+import { AGENT_CONFIG } from "../agents/vegetatrian-recipe.agent.js";
 import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import { EventEmitter } from "events";
 
@@ -24,6 +24,10 @@ import { EventEmitter } from "events";
  * Configuration for RealtimeAgentAdapter
  */
 export interface RealtimeAgentAdapterConfig {
+  /**
+   * The role of the agent
+   */
+  role: AgentRole;
   /**
    * The RealtimeAgent instance (from shared configuration)
    */
@@ -85,8 +89,7 @@ export interface AudioResponseEvent {
  * ```
  */
 export class RealtimeAgentAdapter extends AgentAdapter {
-  role = AgentRole.AGENT;
-  name = "RealtimeAgent";
+  role!: AgentRole;
 
   private session: RealtimeSession | null = null;
   private currentResponse: string = "";
@@ -99,6 +102,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
   constructor(private config: RealtimeAgentAdapterConfig) {
     super();
+    this.role = this.config.role;
+  }
+
+  get name(): string {
+    return this.config.agent.name;
   }
 
   /**
@@ -161,6 +169,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * @returns Agent response as audio message or text
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
+    console.log(`🔊 ${this.name} being called with role: ${this.role}`);
+
     if (!this.session) {
       throw new Error(
         "RealtimeAgentAdapter not connected. Call connect() first."
@@ -171,6 +181,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     const latestMessage = input.newMessages[input.newMessages.length - 1];
 
     if (!latestMessage) {
+      console.log(`[${this.name}] First message, creating response`);
       const transport = (this.session as any).transport;
 
       if (!transport) {
@@ -183,6 +194,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
       const timeout = this.config.responseTimeout ?? 60000;
       const response = await this.waitForResponse(timeout);
+
+      console.log(`🔊 ${this.name} response: "${response.transcript}"`);
 
       return {
         role: "assistant",
@@ -258,20 +271,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("Message has no text or audio content");
     }
 
-    // In SDK 0.3.0, use sendMessage method
-    try {
-      // @ts-ignore - sendMessage exists but might not be in types yet
-      await this.session.sendMessage(text);
-    } catch (sendError) {
-      console.error(`❌ Failed to send message to ${this.name}:`, sendError);
-      throw sendError;
-    }
+    await this.session.sendMessage(text);
 
     // Wait for response with timeout
     const timeout = this.config.responseTimeout ?? 30000;
     const response = await this.waitForResponse(timeout);
-
-    console.log(`📥 ${this.name} response: "${response.transcript}"`);
 
     // Return as text for Scenario framework
     return response.transcript;
