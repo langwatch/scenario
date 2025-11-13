@@ -2,12 +2,12 @@
  * Vegetarian Recipe Agent - Realtime API Integration Test
  *
  * This test validates the EXACT agent that runs in the browser.
- * Uses the same agent configuration via shared module.
+ * Uses the same session creator for accurate testing.
  *
  * Architecture:
- * 1. Browser client uses: createVegetarianRecipeAgent()
- * 2. This test uses: createVegetarianRecipeSession()
- * 3. SAME agent, accurate testing!
+ * 1. Browser: createVegetarianRecipeSession() → connect with token → use directly
+ * 2. Test: createVegetarianRecipeSession() → connect with API key → wrap in adapter
+ * 3. SAME session creation = accurate testing!
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -29,17 +29,19 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
   const collectedAudio: AudioResponseEvent[] = [];
 
   beforeAll(async () => {
-    // Create the SAME agent as the browser client
+    // Create and connect the session - SAME as browser client pattern
     const session = createVegetarianRecipeSession();
-    audioUserSim = new RealtimeUserSimulatorAgent();
 
-    // Wrap in adapter for Scenario testing
+    // Wrap connected session in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
       role: AgentRole.AGENT,
       session: session,
       agentName: "Vegetarian Recipe Assistant",
       responseTimeout: 30000,
     });
+
+    // Create user simulator (creates its own session internally)
+    audioUserSim = new RealtimeUserSimulatorAgent();
 
     // Subscribe to audio events
     realtimeAdapter.onAudioResponse((event) => {
@@ -52,11 +54,8 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
       collectedAudio.push(event);
     });
 
-    // Connect once for all tests
-    await Promise.all([
-      session.connect({ apiKey: process.env.OPENAI_API_KEY! }),
-      audioUserSim.connect(),
-    ]);
+    // Connect user simulator (adapter handles connection)
+    await Promise.all([realtimeAdapter.connect(), audioUserSim.connect()]);
   }, 60000); // Longer timeout for connection
 
   afterAll(async () => {

@@ -257,11 +257,41 @@ export function createVegetarianRecipeSession(): RealtimeSession {
 }
 ```
 
+## 🧪 Testing with Scenario
+
+Example test using the same session creator:
+
+```typescript
+import { createVegetarianRecipeSession } from './agents/vegetarian-recipe-agent';
+import { RealtimeAgentAdapter, AgentRole } from '@langwatch/scenario';
+
+// In beforeAll:
+const session = createVegetarianRecipeSession();
+await session.connect({ apiKey: process.env.OPENAI_API_KEY! });
+
+const adapter = new RealtimeAgentAdapter({
+  session,
+  role: AgentRole.AGENT,
+  agentName: "Vegetarian Recipe Assistant",
+});
+
+// In test:
+await scenario.run({
+  agents: [adapter, userSimulator],
+  script: [scenario.user("quick recipe"), scenario.agent()],
+});
+
+// In afterAll:
+await adapter.disconnect();
+```
+
+See `vegetarian-recipe-realtime.test.ts` for full example.
+
 ## 📚 Next Steps
 
-- **Testing** - Create Scenario tests (see test adapter implementation)
 - **Deployment** - Deploy the token server to production
 - **Production Client** - Integrate into your React/Next.js app
+- **More Agents** - Create additional agents using the same pattern
 
 ## 🔗 Resources
 

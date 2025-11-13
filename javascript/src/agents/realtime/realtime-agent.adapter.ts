@@ -100,7 +100,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   /**
    * Creates a new RealtimeAgentAdapter instance
    *
-   * The session must already be connected before passing to this constructor.
+   * The session can be either connected or unconnected.
+   * If unconnected, call connect() with an API key before use.
    *
    * @param config - Configuration for the realtime agent adapter
    */
@@ -112,10 +113,22 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     this.eventHandler = new RealtimeEventHandler(this.session);
   }
 
-  async connect(): Promise<void> {
-    await this.session.connect({ apiKey: process.env.OPENAI_API_KEY! });
+  /**
+   * Get the connect method from the session
+   */
+  async connect(
+    params?: Parameters<RealtimeSession["connect"]>[0] | undefined
+  ): Promise<void> {
+    const { apiKey, ...rest } = params ?? {};
+    await this.session.connect({
+      apiKey: apiKey ?? process.env.OPENAI_API_KEY!,
+      ...rest,
+    });
   }
 
+  /**
+   * Closes the session connection
+   */
   async disconnect(): Promise<void> {
     this.session.close();
   }

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { RealtimeSession } from "@openai/agents/realtime";
-import { createVegetarianRecipeSession } from "../../agents/vegetatrian-recipe.agent";
+// import { createVegetarianRecipeSession } from "../../agents/vegetatrian-recipe.agent";
+import { createDrewsAdvocateSession } from "../../agents/drews-advocate.agent";
 import {
   Conversation,
   ConversationContent,
@@ -74,7 +75,7 @@ export default function App() {
       console.log("✅ Token received");
 
       // Create session using shared session creator
-      const session = createVegetarianRecipeSession();
+      const session = createDrewsAdvocateSession();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on("*", (event: any) => {
