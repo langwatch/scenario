@@ -1,8 +1,8 @@
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import type { AudioResponseEvent } from "./index.js";
-import { pcm16ToWav } from "./pcm16-to-wav";
-import { concatenateWavFiles } from "../../helpers/audio-conversation";
+import type { AudioResponseEvent } from "../../realtime/helpers/index.js";
+import { pcm16ToWav } from "./pcm16-to-wav.js";
+import { concatenateWavFiles } from "../../helpers/audio-conversation.js";
 
 const saveTestAudio = async ({
   collectedAudio,
@@ -49,7 +49,7 @@ const saveTestAudio = async ({
  *
  * Provides functionality to save and manage audio files from test scenarios
  */
-export const AudioOutputUtils = {
+export const AudioUtils = {
   /**
    * Saves collected audio responses to WAV files for testing purposes
    *
@@ -60,4 +60,5 @@ export const AudioOutputUtils = {
    * @param params.outputDir - Directory to save audio files (defaults to "test-audio-output")
    */
   saveTestAudio,
+  concatenateWavFiles,
 };

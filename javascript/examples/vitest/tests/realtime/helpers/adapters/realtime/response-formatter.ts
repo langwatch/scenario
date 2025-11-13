@@ -1,5 +1,5 @@
 import type { AssistantModelMessage } from "ai";
-import type { AudioResponseEvent } from "./realtime-agent-adapter.js";
+import type { AudioResponseEvent } from "./realtime-agent.adapter.js";
 
 /**
  * Formats responses for the Scenario framework

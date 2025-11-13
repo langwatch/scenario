@@ -1,5 +1,5 @@
 import type { RealtimeSession } from "@openai/agents/realtime";
-import type { AudioResponseEvent } from "./realtime-agent-adapter.js";
+import type { AudioResponseEvent } from "./realtime-agent.adapter.js";
 
 /**
  * Handles event parsing and response collection from Realtime API

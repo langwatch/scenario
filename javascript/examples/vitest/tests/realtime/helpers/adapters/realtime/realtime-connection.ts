@@ -1,7 +1,7 @@
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
-import type { RealtimeAgentAdapterConfig } from "./realtime-agent-adapter.js";
-import { AGENT_CONFIG } from "../agents/vegetatrian-recipe.agent.js";
+import type { RealtimeAgentAdapterConfig } from "./realtime-agent.adapter.js";
+import { AGENT_CONFIG } from "../../../agents/vegetatrian-recipe.agent.js";
 
 /**
  * Manages Realtime API connection lifecycle

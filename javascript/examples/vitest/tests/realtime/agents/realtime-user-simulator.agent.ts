@@ -1,5 +1,5 @@
 import { AgentRole, type AgentInput } from "@langwatch/scenario";
-import { RealtimeAgentAdapter } from "../helpers/realtime-agent-adapter";
+import { RealtimeAgentAdapter } from "../helpers/adapters/realtime/realtime-agent.adapter";
 import { RealtimeAgent } from "@openai/agents/realtime";
 
 /**

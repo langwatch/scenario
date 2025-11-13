@@ -17,7 +17,7 @@ import {
   RealtimeAgentAdapter,
   RealtimeUserSimulatorAgent,
   wrapJudgeForAudio,
-  AudioOutputUtils,
+  AudioUtils,
 } from "./realtime/helpers";
 import type { AudioResponseEvent } from "./realtime/helpers";
 
@@ -58,7 +58,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     ]);
 
     // Write collected audio to WAV files
-    await AudioOutputUtils.saveTestAudio({ collectedAudio });
+    await AudioUtils.saveTestAudio({ collectedAudio });
   });
 
   it("should handle voice-to-voice conversation with audio user", async () => {
