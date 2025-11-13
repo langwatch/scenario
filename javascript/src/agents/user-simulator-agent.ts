@@ -1,6 +1,4 @@
-import { ModelMessage } from "ai";
-
-import { createLLMInvoker } from "./llm-invoker.factory";
+import { generateText, CoreMessage } from "ai";
 import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
@@ -33,11 +31,6 @@ class UserSimulatorAgent implements Agent {
   readonly role = AgentRole.USER;
   private logger = new Logger(this.constructor.name);
 
-  /**
-   * LLM invocation function. Can be overridden to customize LLM behavior.
-   */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
-
   constructor(private readonly cfg?: TestingAgentConfig) {}
 
   call = async (input: AgentInput) => {
@@ -46,7 +39,7 @@ class UserSimulatorAgent implements Agent {
     const systemPrompt =
       config?.systemPrompt ??
       buildSystemPrompt(input.scenarioConfig.description);
-    const messages: ModelMessage[] = [
+    const messages: CoreMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "assistant", content: "Hello, how can I help you today" },
       ...input.messages,
@@ -79,6 +72,24 @@ class UserSimulatorAgent implements Agent {
 
     return { role: "user", content: messageContent } satisfies ModelMessage;
   };
+
+  /**
+   * Invokes the LLM with the given parameters.
+   *
+   * Override this method to customize the LLM call (e.g., add custom headers,
+   * modify messages, use different models, or implement custom logging).
+   *
+   * @param params Parameters for the LLM invocation
+   * @returns The LLM completion result
+   */
+  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
+    try {
+      return await generateText(params);
+    } catch (error) {
+      this.logger.error("Error generating text", { error });
+      throw error;
+    }
+  }
 }
 
 /**

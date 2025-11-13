@@ -7,6 +7,7 @@ import {
   tool,
   stepCountIs,
   hasToolCall,
+  generateText,
 } from "ai";
 
 const DISCOVERY_TOOL_NAMES = new Set(["expand_trace", "grep_trace"]);
@@ -132,7 +133,6 @@ import { getProjectConfig } from "../../config";
 import { AgentInput, Agent, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
-import { createLLMInvoker } from "../llm-invoker.factory";
 import {
   TestingAgentConfig,
   FinishTestArgs,
@@ -377,14 +377,6 @@ class JudgeAgent implements Agent {
         ? { type: "tool", toolName: "finish_test" }
         : "required";
 
-    this.logger.debug("Calling LLM", {
-      model: mergedConfig.model,
-      toolChoice,
-      isLastMessage,
-      enforceJudgement,
-      isLargeTrace,
-    });
-
     const completion = await this.invokeLLMWithDiscovery({
       model: mergedConfig.model,
       messages,
@@ -619,6 +611,24 @@ class JudgeAgent implements Agent {
       metCriteria: [],
       unmetCriteria: criteria,
     };
+  }
+
+  /**
+   * Invokes the LLM with the given parameters.
+   *
+   * Override this method to customize the LLM call (e.g., add custom headers,
+   * modify messages, use different models, or implement custom logging).
+   *
+   * @param params Parameters for the LLM invocation
+   * @returns The LLM completion result
+   */
+  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
+    try {
+      return await generateText(params);
+    } catch (error) {
+      this.logger.error("Error generating text", { error });
+      throw error;
+    }
   }
 }
 
