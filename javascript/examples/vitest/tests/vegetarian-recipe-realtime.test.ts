@@ -43,6 +43,12 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
 
     // Subscribe to audio events
     realtimeAdapter.onAudioResponse((event) => {
+      console.log("[Realtime Agent] response:", event.transcript);
+      collectedAudio.push(event);
+    });
+
+    audioUserSim.onAudioResponse((event) => {
+      console.log("[Realtime User Simulator] response:", event.transcript);
       collectedAudio.push(event);
     });
 
@@ -58,7 +64,15 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     ]);
 
     // Write collected audio to WAV files
-    await AudioUtils.saveTestAudio({ collectedAudio });
+    try {
+      console.log("Saving test audio to tmp/audio-output");
+      await AudioUtils.saveTestAudio({
+        collectedAudio,
+        outputDir: "tmp/audio-output",
+      });
+    } catch (error) {
+      console.error("Failed to save test audio:", error);
+    }
   });
 
   it("should handle voice-to-voice conversation with audio user", async () => {
@@ -81,8 +95,10 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
         ),
       ],
       script: [
-        scenario.user(), // Audio from user simulator
-        scenario.agent(), // Audio response from Realtime agent
+        scenario.user(
+          "Hi, I'm looking for a quick vegetarian recipe for dinner"
+        ), // Send text input (user simulator -> realtime agent)
+        scenario.agent("What kind of vegetarian recipe are you looking for?"), // Send text input (realtime agent -> user simulator)
         scenario.user(), // Audio follow-up
         scenario.agent(), // Audio response
         scenario.judge(), // Evaluates transcripts

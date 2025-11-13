@@ -12,6 +12,7 @@ const saveTestAudio = async ({
   outputDir?: string;
 }): Promise<void> => {
   if (collectedAudio.length === 0) {
+    console.log("No audio collected to save");
     return;
   }
 

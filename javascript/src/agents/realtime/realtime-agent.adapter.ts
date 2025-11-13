@@ -158,7 +158,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * @returns Agent response as audio message or text
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
-    console.log(`🔊 ${this.name} being called with role: ${this.role}`);
+    console.log(`🔊 [${this.name}] being called with role: ${this.role}`);
 
     if (!this.connection.isConnected() || !this.eventHandler) {
       throw new Error(
@@ -218,7 +218,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     const timeout = this.config.responseTimeout ?? 60000;
     const response = await this.eventHandler!.waitForResponse(timeout);
 
-    console.log(`🔊 ${this.name} response: "${response.transcript}"`);
+    // Emit audio response event
+    this.audioEvents.emit("audioResponse", response);
 
     return this.responseFormatter.formatInitialResponse(response);
   }
@@ -265,7 +266,8 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     const timeout = this.config.responseTimeout ?? 60000;
     const response = await this.eventHandler!.waitForResponse(timeout);
 
-    console.log(`🔊 ${this.name} response: "${response.transcript}"`);
+    // Emit audio response event
+    this.audioEvents.emit("audioResponse", response);
 
     return this.responseFormatter.formatAudioResponse(response);
   }
@@ -284,6 +286,9 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     // Wait for response
     const timeout = this.config.responseTimeout ?? 30000;
     const response = await this.eventHandler!.waitForResponse(timeout);
+
+    // Emit audio response event (Realtime API always responds with audio, even for text input)
+    this.audioEvents.emit("audioResponse", response);
 
     return this.responseFormatter.formatTextResponse(response.transcript);
   }
