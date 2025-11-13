@@ -65,3 +65,4 @@ export function MessageBubble({ message, isAgentSpeaking = false, className }: M
     </div>
   );
 }
+

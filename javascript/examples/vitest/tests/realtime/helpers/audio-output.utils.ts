@@ -1,12 +1,12 @@
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { AudioResponseEvent } from "./index.js";
-import { pcm16ToWav } from "./pcm16-to-wav.js";
+import { pcm16ToWav } from "./pcm16-to-wav";
 import { concatenateWavFiles } from "../../helpers/audio-conversation";
 
 const saveTestAudio = async ({
   collectedAudio,
-  outputDir = "test-audio-output"
+  outputDir = "test-audio-output",
 }: {
   collectedAudio: AudioResponseEvent[];
   outputDir?: string;

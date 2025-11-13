@@ -56,3 +56,4 @@ export function StatusIndicator({ status, className }: StatusIndicatorProps) {
     </div>
   );
 }
+
