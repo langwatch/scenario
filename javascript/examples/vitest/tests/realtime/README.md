@@ -12,15 +12,15 @@ This example demonstrates how to create and test a **voice-enabled AI agent** us
 ## ✅ Key Principle: Same Agent, Accurate Testing
 
 ```typescript
-// shared/vegetarian-recipe-agent.ts - ONE source of truth (TypeScript!)
+// agents/vegetarian-recipe-agent.ts - ONE source of truth (TypeScript!)
 export function createVegetarianRecipeAgent() { ... }
 
-// client/src/main.ts - Browser uses it (via Vite)
-import { createVegetarianRecipeAgent } from '../../shared/vegetarian-recipe-agent';
+// realtime-client/src/App.tsx - Browser uses it (via Vite)
+import { createVegetarianRecipeAgent } from '../../agents/vegetarian-recipe-agent';
 const agent = createVegetarianRecipeAgent();
 
-// vegetarian-recipe-realtime.test.ts - Tests use it (via Vitest)
-import { createVegetarianRecipeAgent } from './realtime/shared/vegetarian-recipe-agent';
+// test.ts - Tests use it (via Vitest)
+import { createVegetarianRecipeAgent } from './realtime/agents/vegetarian-recipe-agent';
 const agent = createVegetarianRecipeAgent();
 
 // ✅ SAME TypeScript code = accurate testing!
@@ -82,17 +82,18 @@ Tests the **EXACT same TypeScript agent** that the browser uses!
 
 ```
                   ┌──────────────────────────────┐
-                  │  Shared Agent Config (TS!)   │  ← SINGLE SOURCE OF TRUTH
-                  │  vegetarian-recipe-agent.ts  │
+                  │     Agent Config (TS!)       │  ← SINGLE SOURCE OF TRUTH
+                  │  agents/vegetarian-recipe-   │
+                  │         agent.ts             │
                   └──────┬──────────┬────────────┘
                          │          │
           ┌──────────────┘          └───────────────┐
           │                                          │
           ↓                                          ↓
 ┌─────────────────────┐                  ┌──────────────────┐
-│  Browser Client     │                  │  Scenario Test   │
+│  React Client       │                  │  Scenario Test   │
 │  (Vite + TS)        │                  │  (Vitest + TS)   │
-│  main.ts            │                  │  .test.ts        │
+│  realtime-client/   │                  │  (planned)       │
 └─────────┬───────────┘                  └────────┬─────────┘
           │                                       │
           │ WebRTC                                │ WebRTC
@@ -140,7 +141,7 @@ The OpenAI Realtime API handles:
 
 ### Change the Agent Instructions
 
-Edit **one file**: `shared/vegetarian-recipe-agent.ts`
+Edit **one file**: `agents/vegetarian-recipe-agent.ts`
 
 ```typescript
 export const AGENT_INSTRUCTIONS = `
@@ -153,7 +154,7 @@ export const AGENT_INSTRUCTIONS = `
 ### Add Tools/Functions
 
 ```typescript
-// shared/vegetarian-recipe-agent.ts
+// agents/vegetarian-recipe-agent.ts
 export function createVegetarianRecipeAgent(): RealtimeAgent {
   return new RealtimeAgent({
     name: AGENT_CONFIG.name,
@@ -190,15 +191,15 @@ export function createVegetarianRecipeAgent(): RealtimeAgent {
 
 ### "Failed to fetch token"
 
-- Ensure token server is running: `pnpm realtime-server`
-- Check `OPENAI_API_KEY` is set
+- Ensure everything is running: `pnpm realtime` (starts both server and client)
+- Check `OPENAI_API_KEY` is set in `.env`
 - Token server should be on port 3000
 
 ### "Module not found" errors
 
-- Ensure Vite dev server is running: `pnpm realtime-client`
+- Run `pnpm install` in `javascript/examples/vitest`
+- Ensure Vite dev server is running (part of `pnpm realtime`)
 - Check you're navigating to http://localhost:5173 (Vite port)
-- Not http://localhost:3000 (token server port)
 
 ### "Microphone access denied"
 
@@ -215,6 +216,6 @@ export function createVegetarianRecipeAgent(): RealtimeAgent {
 
 See the inline documentation in:
 
-- `server/ephemeral-token-server.ts` - Token generation
-- `client/demo.html` - Browser client implementation
+- `realtime-client/src/server/ephemeral-token-server.ts` - Token generation
+- `realtime-client/src/App.tsx` - React client implementation
 
