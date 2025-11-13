@@ -1,7 +1,10 @@
 import { useState, useRef, useCallback } from "react";
 import { RealtimeSession } from "@openai/agents/realtime";
 // import { createVegetarianRecipeSession } from "../../agents/vegetatrian-recipe.agent";
-import { createDrewsAdvocateSession } from "../../agents/drews-advocate.agent";
+// import { createDrewsAdvocateSession } from "../../agents/drews-advocate.agent";
+// import { createLangwatchExpertSession } from "../../agents/langwatch-expert.agent";
+import { createSummarizerSession } from "../../agents/summerizer.agent";
+
 import {
   Conversation,
   ConversationContent,
@@ -75,12 +78,35 @@ export default function App() {
       console.log("✅ Token received");
 
       // Create session using shared session creator
-      const session = createDrewsAdvocateSession();
+      const session = createSummarizerSession();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on("*", (event: any) => {
         console.log("🔔 Session event:", event.type);
       });
+
+      session.transport.on(
+        "response.function_call_arguments.done",
+        (event: any) => {
+          console.log("🔔 Tool call:", event);
+        }
+      );
+
+      session.transport.on(
+        "conversation.item.done",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (event: any) => {
+          console.log("🔔 Conversation item done:", event);
+        }
+      );
+
+      session.transport.on(
+        "response.output_item.done",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (event: any) => {
+          console.log("🔔 Response output item done:", event);
+        }
+      );
 
       session.transport.on(
         "input_audio_buffer.speech_started",

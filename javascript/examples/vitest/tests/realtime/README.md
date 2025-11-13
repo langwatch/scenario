@@ -6,8 +6,100 @@ This example demonstrates how to create and test a **voice-enabled AI agent** us
 
 - **Agent Config** (`agents/vegetarian-recipe-agent.ts`) - **TypeScript single source of truth**
 - **React Browser Client** (`realtime-client/`) - TypeScript, Vite, shadcn/ui components
-- **Scenario Test** (planned) - Will use shared TypeScript config
+- **Scenario Test** (`vegetarian-recipe-realtime.test.ts`) - Uses shared TypeScript config
 - **Ephemeral Token Server** (`realtime-client/src/server/`) - Securely generate client tokens
+
+## 🏛️ Agent Architecture
+
+Scenario framework provides two patterns for building agents:
+
+### Pattern 1: Override `invokeLLM` (Recommended for most use cases)
+
+For agents that use HTTP-based LLM calls but need custom behavior (e.g., custom headers, different models, audio support):
+
+```typescript
+class CustomVoiceAgent extends UserSimulatorAgent {
+  // Inherits business logic: system prompts, config merging, message prep
+
+  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
+    // Custom LLM invocation - e.g., OpenAI audio API
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      messages: params.messages,
+      // ... custom parameters
+    });
+
+    return {
+      text: response.choices[0].message.content,
+      // ... other fields
+    };
+  }
+}
+```
+
+### Pattern 2: Override `call` (For fundamentally different protocols)
+
+For agents that use completely different communication protocols (e.g., WebSocket, Realtime API):
+
+```typescript
+class RealtimeAgentAdapter implements Agent {
+  readonly role = AgentRole.AGENT;
+
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Completely custom implementation
+    // Extract audio, send via WebSocket, wait for events, etc.
+  }
+}
+```
+
+**Realtime agents use Pattern 2** because they:
+
+- Use WebSocket protocol (not HTTP)
+- Are event-driven (not request/response)
+- Have connection lifecycle management
+- Don't need typical business logic (prompts configured on session)
+
+### Audio Message Support
+
+Scenario framework's `CoreMessage` type already supports audio content:
+
+```typescript
+{
+  role: "user",
+  content: [
+    { type: "text", text: "" },
+    { type: "file", mediaType: "audio/wav", data: base64Audio }
+  ]
+}
+```
+
+This means:
+
+- ✅ Audio messages work across all agent types
+- ✅ Standard agents can receive audio (if they transcribe it)
+- ✅ Voice agents can produce audio (returned as file content)
+- ✅ Judges can evaluate audio conversations (with transcription)
+
+The key difference is **how each agent processes these messages**:
+
+- **Standard agents**: Transcribe audio → process text
+- **Voice agents**: Convert audio format → send to voice API
+- **Realtime agents**: Extract audio → send via WebSocket events
+
+### When to Use Which Pattern?
+
+| Use Case                  | Pattern              | Example                         |
+| ------------------------- | -------------------- | ------------------------------- |
+| Custom LLM headers/auth   | Override `invokeLLM` | Add API gateway headers         |
+| Different model provider  | Override `invokeLLM` | Use Anthropic instead of OpenAI |
+| Audio generation (HTTP)   | Override `invokeLLM` | OpenAI audio preview model      |
+| Custom logging/monitoring | Override `invokeLLM` | Track token usage               |
+| WebSocket protocol        | Override `call`      | Realtime API                    |
+| Custom message flow       | Override `call`      | Multi-step reasoning            |
+| Stateful connections      | Override `call`      | Persistent sessions             |
+
+**Rule of thumb:** If you're changing **how** you call the LLM but keeping the same **business logic**, override `invokeLLM`. If you're changing the **entire flow**, override `call`.
 
 ## ✅ Key Principle: Same Session Creation, Accurate Testing
 
@@ -85,28 +177,33 @@ Tests the **EXACT same TypeScript agent** that the browser uses!
 ## 🏗️ Architecture
 
 ```
-                  ┌──────────────────────────────┐
-                  │     Agent Config (TS!)       │  ← SINGLE SOURCE OF TRUTH
-                  │  agents/vegetarian-recipe-   │
-                  │         agent.ts             │
-                  └──────┬──────────┬────────────┘
-                         │          │
-          ┌──────────────┘          └───────────────┐
+                  ┌────────────────────────────────────┐
+                  │   Session Creator Function (TS!)   │  ← SINGLE SOURCE OF TRUTH
+                  │   createVegetarianRecipeSession()  │
+                  │   agents/vegetarian-recipe-        │
+                  │          agent.ts                  │
+                  └──────┬──────────────┬──────────────┘
+                         │              │
+                         │ Returns      │ Returns
+                         │ RealtimeSession  │ RealtimeSession
+                         │              │
+          ┌──────────────┘              └───────────────┐
+          │                                             │
+          ↓                                             ↓
+┌─────────────────────┐                   ┌──────────────────────────┐
+│  React Client       │                   │  Scenario Test           │
+│  (Vite + TS)        │                   │  (Vitest + TS)           │
+│                     │                   │                          │
+│  session.connect()  │                   │  RealtimeAgentAdapter    │
+│      ↓              │                   │    wraps session         │
+│  Token Server       │                   │      ↓                   │
+│  (get ek_ token)    │                   │  adapter.connect()       │
+└─────────┬───────────┘                   └──────────┬───────────────┘
           │                                          │
-          ↓                                          ↓
-┌─────────────────────┐                  ┌──────────────────────┐
-│  React Client       │                  │  Scenario Test       │
-│  (Vite + TS)        │                  │  (Vitest + TS)       │
-│                     │                  │                      │
-│  RealtimeSession    │                  │  RealtimeAdapter     │
-│        ↓            │                  │  → RealtimeSession   │
-│  Token Server (ek_) │                  │                      │
-└─────────┬───────────┘                  └──────────┬───────────┘
-          │                                         │
-          │ WebRTC + ephemeral token                │ WebSocket + API key
-          │                                         │
-          └──────────┬────────────────────────────┬─┘
-                     ↓                            ↓
+          │ WebRTC + ephemeral token                 │ WebSocket + API key
+          │                                          │
+          └──────────┬───────────────────────────────┘
+                     ↓
           ┌──────────────────────────────────────────┐
           │      OpenAI Realtime API                 │
           │      (voice processing server)           │
@@ -117,7 +214,8 @@ Tests the **EXACT same TypeScript agent** that the browser uses!
 
 ```mermaid
 graph TB
-    Agent["`**Agent Config**
+    SessionCreator["`**Session Creator Function**
+    createVegetarianRecipeSession()
     agents/vegetarian-recipe-agent.ts
     🎯 Single Source of Truth`"]
 
@@ -129,23 +227,23 @@ graph TB
     Vitest + TypeScript`"]
 
     Session1["`RealtimeSession
-    (browser)`"]
+    (browser uses directly)`"]
 
     TokenServer["`Token Server
     :3000
     Generates ek_ token`"]
 
     Adapter["`RealtimeAgentAdapter
-    Wraps agent`"]
+    Wraps session for Scenario`"]
 
     Session2["`RealtimeSession
-    (test)`"]
+    (wrapped by adapter)`"]
 
     OpenAI["`**OpenAI Realtime API**
     Voice Processing`"]
 
-    Agent --> Browser
-    Agent --> Test
+    SessionCreator -->|returns| Session1
+    SessionCreator -->|returns| Session2
 
     Browser --> Session1
     Session1 --> TokenServer
@@ -155,7 +253,7 @@ graph TB
     Adapter --> Session2
     Session2 -->|WebSocket + API key| OpenAI
 
-    style Agent fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style SessionCreator fill:#4CAF50,stroke:#2E7D32,color:#fff
     style Browser fill:#2196F3,stroke:#1565C0,color:#fff
     style Test fill:#9C27B0,stroke:#6A1B9A,color:#fff
     style OpenAI fill:#FF9800,stroke:#E65100,color:#fff
@@ -165,10 +263,10 @@ graph TB
 
 **Key Points:**
 
-- 🎯 **Same agent config** - Both paths use identical TypeScript module
-- 🌐 **Browser** - Uses token server for security, connects via WebRTC
-- 🧪 **Tests** - Uses API key directly via adapter, connects via WebSocket
-- ✅ **Accurate testing** - Tests run the REAL agent, not a mock
+- 🎯 **Same session creator** - Both paths call identical TypeScript function
+- 🌐 **Browser** - Uses session directly, connects with ephemeral token via WebRTC
+- 🧪 **Tests** - Wraps session in adapter, connects with API key via WebSocket
+- ✅ **Accurate testing** - Tests run the REAL agent configuration, not a mock
 
 ## 📋 How It Works
 
@@ -188,9 +286,9 @@ The session creator (`agents/vegetarian-recipe-agent.ts`) is imported by both:
 
 1. Imports same `createVegetarianRecipeSession()` function
 2. Calls function to get `RealtimeSession` instance
-3. Connects session to OpenAI with API key directly
-4. Passes connected session to `RealtimeAgentAdapter`
-5. Adapter translates session interactions to Scenario interface
+3. Wraps session in `RealtimeAgentAdapter` (provides Scenario interface)
+4. Calls `adapter.connect()` which connects session with API key
+5. Uses adapter in test scenarios - it translates Scenario calls to Realtime API events
 
 ### Ephemeral Tokens (Browser Only)
 
@@ -212,6 +310,40 @@ The OpenAI Realtime API handles:
 - **Audio Processing** - Converts speech to text and back
 - **Low Latency** - ~300ms round-trip via WebRTC
 - **Natural Conversation** - Can be interrupted, supports back-and-forth
+
+### The Adapter Pattern
+
+The `RealtimeAgentAdapter` bridges two worlds:
+
+**What it wraps:**
+- A `RealtimeSession` (WebSocket-based, event-driven)
+- Handles connection lifecycle (connect/disconnect)
+- Listens for Realtime API events
+
+**What it provides:**
+- Scenario framework `Agent` interface
+- Translates `AgentInput` → Realtime API events
+- Translates Realtime responses → Scenario messages
+- Supports both text and audio input/output
+
+**Why this matters:**
+- ✅ Browser uses session directly (no adapter needed)
+- ✅ Tests wrap session in adapter (provides Scenario interface)
+- ✅ Same session configuration in both environments
+- ✅ Adapter is just a thin translation layer
+
+```typescript
+// Browser: Uses session directly
+const session = createVegetarianRecipeSession();
+await session.connect({ apiKey: ephemeralToken });
+session.sendMessage("Hello!"); // Direct API
+
+// Test: Wraps session in adapter
+const session = createVegetarianRecipeSession();
+const adapter = new RealtimeAgentAdapter({ session, role: AgentRole.AGENT });
+await adapter.connect(); // Adapter handles connection
+// In scenario.run(), adapter.call() translates to session API
+```
 
 ## 🔧 Customization
 
@@ -262,28 +394,61 @@ export function createVegetarianRecipeSession(): RealtimeSession {
 Example test using the same session creator:
 
 ```typescript
-import { createVegetarianRecipeSession } from './agents/vegetarian-recipe-agent';
+import { createVegetarianRecipeSession } from './realtime/agents/vegetarian-recipe-agent';
 import { RealtimeAgentAdapter, AgentRole } from '@langwatch/scenario';
 
-// In beforeAll:
-const session = createVegetarianRecipeSession();
-await session.connect({ apiKey: process.env.OPENAI_API_KEY! });
+describe("Vegetarian Recipe Agent (Realtime API)", () => {
+  let realtimeAdapter: RealtimeAgentAdapter;
 
-const adapter = new RealtimeAgentAdapter({
-  session,
-  role: AgentRole.AGENT,
-  agentName: "Vegetarian Recipe Assistant",
+  beforeAll(async () => {
+    // Create session - SAME as browser client!
+    const session = createVegetarianRecipeSession();
+
+    // Wrap in adapter for Scenario testing
+    realtimeAdapter = new RealtimeAgentAdapter({
+      role: AgentRole.AGENT,
+      session: session,
+      agentName: "Vegetarian Recipe Assistant",
+      responseTimeout: 30000,
+    });
+
+    // Connect (tests use API key directly)
+    await realtimeAdapter.connect();
+  }, 60000);
+
+  afterAll(async () => {
+    await realtimeAdapter.disconnect();
+  });
+
+  it("should handle voice-to-voice conversation", async () => {
+    const result = await scenario.run({
+      name: "vegetarian recipe - voice-to-voice",
+      description: "User is looking for a quick vegetarian recipe",
+      agents: [
+        realtimeAdapter,
+        audioUserSimulator,
+        scenario.judgeAgent({ criteria: [...] })
+      ],
+      script: [
+        scenario.user("Hi, I'm looking for a quick vegetarian recipe"),
+        scenario.agent(),
+        scenario.user(),
+        scenario.agent(),
+        scenario.judge(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  }, 90000);
 });
-
-// In test:
-await scenario.run({
-  agents: [adapter, userSimulator],
-  script: [scenario.user("quick recipe"), scenario.agent()],
-});
-
-// In afterAll:
-await adapter.disconnect();
 ```
+
+**Key Benefits:**
+
+- ✅ Tests the **exact same** agent configuration as browser
+- ✅ No mocking required - testing the real implementation
+- ✅ Supports both text and audio input/output
+- ✅ Can collect audio for debugging (`onAudioResponse` callback)
 
 See `vegetarian-recipe-realtime.test.ts` for full example.
 
