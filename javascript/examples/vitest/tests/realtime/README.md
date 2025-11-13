@@ -58,6 +58,7 @@ pnpm realtime
 ```
 
 This starts:
+
 - 🔵 Token server on port 3000
 - 🟣 Vite client on port 5173 (auto-opens browser)
 
@@ -90,35 +91,53 @@ Tests the **EXACT same TypeScript agent** that the browser uses!
           ┌──────────────┘          └───────────────┐
           │                                          │
           ↓                                          ↓
-┌─────────────────────┐                  ┌──────────────────┐
-│  React Client       │                  │  Scenario Test   │
-│  (Vite + TS)        │                  │  (Vitest + TS)   │
-│  realtime-client/   │                  │  (planned)       │
-└─────────┬───────────┘                  └────────┬─────────┘
-          │                                       │
-          │ WebRTC                                │ WebRTC
-          │                                       │
-          └──────────┬──────────┬─────────────────┘
-                     │          │
-                     ↓          ↓
-          ┌──────────────────────────────┐
-          │   Ephemeral Token Server     │
-          │   (Express on :3000)         │
-          └──────────────┬───────────────┘
-                         │
-                         │ Uses your API key
-                         ↓
-          ┌──────────────────────────────┐
-          │      OpenAI Realtime API     │
-          │   (voice processing server)  │
-          └──────────────────────────────┘
+┌─────────────────────┐                  ┌──────────────────────┐
+│  React Client       │                  │  Scenario Test       │
+│  (Vite + TS)        │                  │  (Vitest + TS)       │
+│                     │                  │                      │
+│  RealtimeSession    │                  │  RealtimeAdapter     │
+│        ↓            │                  │  → RealtimeSession   │
+│  Token Server (ek_) │                  │                      │
+└─────────┬───────────┘                  └──────────┬───────────┘
+          │                                         │
+          │ WebRTC + ephemeral token                │ WebSocket + API key
+          │                                         │
+          └──────────┬────────────────────────────┬─┘
+                     ↓                            ↓
+          ┌──────────────────────────────────────────┐
+          │      OpenAI Realtime API                 │
+          │      (voice processing server)           │
+          └──────────────────────────────────────────┘
 ```
 
-**Key: TypeScript everywhere! Browser (via Vite) and tests (via Vitest) use IDENTICAL agent.**
+**Key Points:**
+
+- 🎯 **Same agent config** - Both paths use identical TypeScript module
+- 🌐 **Browser** - Uses token server for security, connects via WebRTC
+- 🧪 **Tests** - Uses API key directly via adapter, connects via WebSocket
+- ✅ **Accurate testing** - Tests run the REAL agent, not a mock
 
 ## 📋 How It Works
 
-### Ephemeral Tokens
+### Two Paths, One Agent
+
+The agent configuration (`agents/vegetarian-recipe-agent.ts`) is imported by both:
+
+**Browser Client:**
+
+1. Imports agent config
+2. Creates `RealtimeSession` with the agent
+3. Fetches ephemeral token from token server (security!)
+4. Connects to OpenAI via WebRTC with token
+
+**Scenario Tests:**
+
+1. Imports same agent config
+2. Wraps agent with `RealtimeAgentAdapter`
+3. Adapter creates `RealtimeSession` internally
+4. Connects to OpenAI via WebSocket with API key directly
+
+### Ephemeral Tokens (Browser Only)
 
 The browser cannot directly use your OpenAI API key (security risk!). Instead:
 
@@ -127,6 +146,8 @@ The browser cannot directly use your OpenAI API key (security risk!). Instead:
 3. **OpenAI** returns an ephemeral token (starts with `ek_`)
 4. **Browser** uses this token to connect via WebRTC
 5. Token expires after a short time (typically 60 seconds)
+
+**Scenario tests bypass this** - they use your API key directly, which is safe in a test environment.
 
 ### Voice Processing
 
@@ -160,17 +181,19 @@ export function createVegetarianRecipeAgent(): RealtimeAgent {
     name: AGENT_CONFIG.name,
     instructions: AGENT_CONFIG.instructions,
     voice: AGENT_CONFIG.voice,
-    tools: [{
-      type: 'function',
-      name: 'get_recipe',
-      description: 'Fetch a recipe from database',
-      parameters: {
-        type: 'object',
-        properties: {
-          recipeName: { type: 'string' }
-        }
-      }
-    }],
+    tools: [
+      {
+        type: "function",
+        name: "get_recipe",
+        description: "Fetch a recipe from database",
+        parameters: {
+          type: "object",
+          properties: {
+            recipeName: { type: "string" },
+          },
+        },
+      },
+    ],
   });
 }
 ```
@@ -218,4 +241,3 @@ See the inline documentation in:
 
 - `realtime-client/src/server/ephemeral-token-server.ts` - Token generation
 - `realtime-client/src/App.tsx` - React client implementation
-
