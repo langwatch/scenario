@@ -15,21 +15,21 @@ import scenario from "@langwatch/scenario";
 import { createVegetarianRecipeAgent } from "./realtime/agents/vegetarian-recipe-agent.js";
 import {
   RealtimeAgentAdapter,
-  AudioUserSimulator,
+  RealtimeUserSimulatorAgent,
   wrapJudgeForAudio,
   AudioOutputUtils,
-} from "./realtime/helpers/index.js";
-import type { AudioResponseEvent } from "./realtime/helpers/index.js";
+} from "./realtime/helpers";
+import type { AudioResponseEvent } from "./realtime/helpers";
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   let realtimeAdapter: RealtimeAgentAdapter;
-  let audioUserSim: AudioUserSimulator;
+  let audioUserSim: RealtimeUserSimulatorAgent;
   const collectedAudio: AudioResponseEvent[] = [];
 
   beforeAll(async () => {
     // Create the SAME agent as the browser client
     const agent = createVegetarianRecipeAgent();
-    audioUserSim = new AudioUserSimulator();
+    audioUserSim = new RealtimeUserSimulatorAgent();
 
     // Wrap in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
