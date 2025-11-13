@@ -4,10 +4,10 @@ This example demonstrates how to create and test a **voice-enabled AI agent** us
 
 ## 🎯 What's Included
 
-- **Shared Agent Config** (`shared/vegetarian-recipe-agent.ts`) - **TypeScript single source of truth**
-- **Vite Browser Client** (`client/`) - TypeScript, hot reload, modern dev experience
-- **Scenario Test** (`vegetarian-recipe-realtime.test.ts`) - Uses shared TypeScript config
-- **Ephemeral Token Server** (`server/`) - Securely generate client tokens
+- **Agent Config** (`agents/vegetarian-recipe-agent.ts`) - **TypeScript single source of truth**
+- **React Browser Client** (`realtime-client/`) - TypeScript, Vite, shadcn/ui components
+- **Scenario Test** (planned) - Will use shared TypeScript config
+- **Ephemeral Token Server** (`realtime-client/src/server/`) - Securely generate client tokens
 
 ## ✅ Key Principle: Same Agent, Accurate Testing
 
