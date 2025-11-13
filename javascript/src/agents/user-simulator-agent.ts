@@ -2,7 +2,7 @@ import { generateText, CoreMessage } from "ai";
 import { TestingAgentConfig } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
-import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
+import { AgentInput, Agent, AgentRole } from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 
@@ -27,12 +27,11 @@ ${description}
 `.trim();
 }
 
-class UserSimulatorAgent extends UserSimulatorAgentAdapter {
+class UserSimulatorAgent implements Agent {
+  readonly role = AgentRole.USER;
   private logger = new Logger(this.constructor.name);
 
-  constructor(private readonly cfg?: TestingAgentConfig) {
-    super();
-  }
+  constructor(private readonly cfg?: TestingAgentConfig) {}
 
   call = async (input: AgentInput) => {
     const config = this.cfg;

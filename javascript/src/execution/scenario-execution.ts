@@ -13,7 +13,6 @@ import {
   type AgentReturnTypes,
   type ScenarioExecutionLike,
   type AgentAdapter,
-  JudgeAgentAdapter,
   ScenarioExecutionStateLike,
   ScenarioConfigFinal,
   DEFAULT_MAX_TURNS,
@@ -1014,10 +1013,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     });
   }
 
-  private getJudgeAgent(): JudgeAgentAdapter | null {
-    return (
-      this.agents.find((agent) => agent instanceof JudgeAgentAdapter) ?? null
-    );
+  private getJudgeAgent(): (AgentAdapter & { criteria?: string[] }) | null {
+    const judge = this.agents.find((agent) => agent.role === AgentRole.JUDGE);
+    return judge ? (judge as AgentAdapter & { criteria?: string[] }) : null;
   }
 
   /**

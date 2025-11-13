@@ -2,7 +2,7 @@ import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
 import { z } from "zod/v4";
 import { JudgeResult } from "./interfaces";
 import { getProjectConfig } from "../../config";
-import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
+import { AgentInput, Agent, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import { TestingAgentConfig, FinishTestArgs } from "../types";
@@ -95,15 +95,13 @@ function buildFinishTestTool(criteria: string[]): Tool {
  *
  * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
  */
-class JudgeAgent extends JudgeAgentAdapter {
-  private logger = new Logger("JudgeAgent");
-  role: AgentRole = AgentRole.JUDGE;
+class JudgeAgent implements Agent {
+  readonly role = AgentRole.JUDGE;
   criteria: string[];
+  private logger = new Logger("JudgeAgent");
 
   constructor(private readonly cfg: JudgeAgentConfig) {
-    super();
     this.criteria = cfg.criteria;
-    this.role = AgentRole.JUDGE;
   }
 
   async call(input: AgentInput): Promise<JudgeResult | null> {
