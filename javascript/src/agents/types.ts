@@ -1,3 +1,4 @@
+import { LanguageModel, CoreMessage, ToolSet } from "ai";
 import { ModelConfig } from "../domain/core/schemas/model.schema";
 
 /**
@@ -16,6 +17,80 @@ export interface TestingAgentConfig extends Partial<ModelConfig> {
    * from the scenario description.
    */
   systemPrompt?: string;
+}
+
+/**
+ * Tool choice strategy for LLM invocation.
+ * Can be "auto" | "required" | "none" | { type: "tool"; toolName: string }
+ */
+export type ToolChoiceOption =
+  | "auto"
+  | "required"
+  | "none"
+  | { type: "tool"; toolName: string };
+
+/**
+ * Parameters passed to invokeLLM for LLM invocation.
+ * This represents what we actually pass internally, not the full AI SDK interface.
+ */
+export interface InvokeLLMParams {
+  /**
+   * The language model to use.
+   */
+  model: LanguageModel;
+  /**
+   * The messages to send to the LLM (already prepared with system prompts, role reversal, etc.).
+   */
+  messages: CoreMessage[];
+  /**
+   * Temperature for sampling (0.0-1.0).
+   */
+  temperature?: number;
+  /**
+   * Maximum number of output tokens.
+   */
+  maxOutputTokens?: number;
+  /**
+   * Tools available to the LLM (for tool-using agents like JudgeAgent).
+   */
+  tools?: ToolSet;
+  /**
+   * Tool choice strategy (for tool-using agents like JudgeAgent).
+   */
+  toolChoice?: ToolChoiceOption;
+}
+
+/**
+ * Tool call from LLM invocation.
+ */
+export interface InvokeLLMToolCall {
+  /**
+   * The name of the tool being called.
+   */
+  toolName: string;
+  /**
+   * The input arguments for the tool call.
+   */
+  input: unknown;
+  /**
+   * Unique identifier for this tool call.
+   */
+  toolCallId: string;
+}
+
+/**
+ * Result from invoking the LLM.
+ * This is a minimal subset of what generateText returns - only the fields we actually use.
+ */
+export interface InvokeLLMResult {
+  /**
+   * The text response from the LLM (if any).
+   */
+  text?: string;
+  /**
+   * Tool calls made by the LLM (if any).
+   */
+  toolCalls?: InvokeLLMToolCall[];
 }
 
 /**

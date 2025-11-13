@@ -1,5 +1,5 @@
 import { generateText, CoreMessage } from "ai";
-import { TestingAgentConfig } from "./types";
+import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
 import { AgentInput, Agent, AgentRole } from "../domain";
@@ -58,7 +58,7 @@ class UserSimulatorAgent implements Agent {
     // even starts throwing exceptions.
     const reversedMessages = messageRoleReversal(messages);
 
-    const completion = await this.generateText({
+    const completion = await this.invokeLLM({
       model: mergedConfig.model,
       messages: reversedMessages,
       temperature: mergedConfig.temperature,
@@ -73,9 +73,18 @@ class UserSimulatorAgent implements Agent {
     return { role: "user", content: messageContent } satisfies CoreMessage;
   };
 
-  private async generateText(input: Parameters<typeof generateText>[0]) {
+  /**
+   * Invokes the LLM with the given parameters.
+   *
+   * Override this method to customize the LLM call (e.g., add custom headers,
+   * modify messages, use different models, or implement custom logging).
+   *
+   * @param params Parameters for the LLM invocation
+   * @returns The LLM completion result
+   */
+  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
     try {
-      return await generateText(input);
+      return await generateText(params);
     } catch (error) {
       this.logger.error("Error generating text", { error });
       throw error;

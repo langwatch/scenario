@@ -5,7 +5,12 @@ import { getProjectConfig } from "../../config";
 import { AgentInput, Agent, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
-import { TestingAgentConfig, FinishTestArgs } from "../types";
+import {
+  TestingAgentConfig,
+  FinishTestArgs,
+  InvokeLLMParams,
+  InvokeLLMResult,
+} from "../types";
 import { criterionToParamName } from "../utils";
 
 /**
@@ -146,7 +151,7 @@ class JudgeAgent implements Agent {
         ? { type: "tool", toolName: "finish_test" }
         : "required";
 
-    const completion = await this.generateText({
+    const completion = await this.invokeLLM({
       model: mergedConfig.model,
       messages: messages,
       temperature: mergedConfig.temperature ?? 0.0,
@@ -204,9 +209,18 @@ class JudgeAgent implements Agent {
     };
   }
 
-  private async generateText(input: Parameters<typeof generateText>[0]) {
+  /**
+   * Invokes the LLM with the given parameters.
+   *
+   * Override this method to customize the LLM call (e.g., add custom headers,
+   * modify messages, use different models, or implement custom logging).
+   *
+   * @param params Parameters for the LLM invocation
+   * @returns The LLM completion result
+   */
+  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
     try {
-      return await generateText(input);
+      return await generateText(params);
     } catch (error) {
       this.logger.error("Error generating text", { error });
       throw error;
