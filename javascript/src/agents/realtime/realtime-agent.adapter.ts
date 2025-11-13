@@ -1,24 +1,24 @@
 /**
  * Realtime Agent Adapter for Scenario Testing
  *
- * Connects Scenario framework to a RealtimeSession using the exact same
- * agent configuration as the browser client.
+ * Adapts a connected RealtimeSession to the Scenario framework interface.
+ * The session must be created and connected before passing to this adapter.
  *
- * This ensures we test the REAL agent, not a mock.
+ * This ensures we test the REAL agent, not a mock, using the same session
+ * creation pattern as the browser client.
  */
 
 import { EventEmitter } from "events";
-import type { RealtimeAgent, RealtimeSession } from "@openai/agents/realtime";
+import type { RealtimeSession } from "@openai/agents/realtime";
 import type { AssistantModelMessage } from "ai";
 import { MessageProcessor } from "./message-processor";
-import { RealtimeConnection } from "./realtime-connection";
 import {
   RealtimeEventHandler,
   type AudioResponseEvent,
 } from "./realtime-event-handler";
 import { ResponseFormatter } from "./response-formatter";
 import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
-import { AgentAdapter } from "../../domain";
+import { AgentAdapter } from "../../domain/agents";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -28,29 +28,30 @@ export interface RealtimeAgentAdapterConfig {
    * The role of the agent
    */
   role: AgentRole;
-  /**
-   * The RealtimeAgent instance (from shared configuration)
-   */
-  agent: RealtimeAgent;
 
   /**
-   * OpenAI Realtime model to use
-   * @default "gpt-4o-realtime-preview-2024-12-17"
+   * A connected RealtimeSession instance
+   *
+   * The session should be created using your agent's session creator function
+   * and connected before passing to this adapter.
+   *
+   * @example
+   * ```typescript
+   * const session = createVegetarianRecipeSession();
+   * await session.connect({ apiKey: process.env.OPENAI_API_KEY });
+   * const adapter = new RealtimeAgentAdapter({
+   *   session,
+   *   role: AgentRole.AGENT,
+   *   agentName: "Vegetarian Recipe Assistant"
+   * });
+   * ```
    */
-  model?: string;
+  session: RealtimeSession;
 
   /**
-   * OpenAI API key for direct connection (recommended for testing)
-   * If provided, connects directly without ephemeral token server
+   * Name of the agent (for logging/identification)
    */
-  apiKey?: string;
-
-  /**
-   * URL of the ephemeral token server (for production/browser use)
-   * Only used if apiKey is not provided
-   * @default "http://localhost:3000"
-   */
-  tokenServerUrl?: string;
+  agentName: string;
 
   /**
    * Timeout for waiting for agent response (ms)
@@ -62,17 +63,19 @@ export interface RealtimeAgentAdapterConfig {
 /**
  * Adapter that connects Scenario testing framework to OpenAI Realtime API
  *
- * This adapter uses composition of focused classes to provide a clean interface
- * for testing Realtime agents. It maintains the same agent configuration as the
- * browser client to ensure accurate testing of the real agent implementation.
+ * This adapter wraps a connected RealtimeSession to provide the Scenario
+ * framework interface. The session must be created and connected externally,
+ * ensuring the same session creation pattern is used in both browser and tests.
  *
  * @example
  * ```typescript
- * const agent = createVegetarianRecipeAgent();
- * const adapter = new RealtimeAgentAdapter({ agent });
- *
  * // In beforeAll
- * await adapter.connect();
+ * const session = createVegetarianRecipeSession();
+ * await session.connect({ apiKey: process.env.OPENAI_API_KEY });
+ * const adapter = new RealtimeAgentAdapter({
+ *   session,
+ *   role: AgentRole.AGENT
+ * });
  *
  * // In test
  * await scenario.run({
@@ -81,71 +84,40 @@ export interface RealtimeAgentAdapterConfig {
  * });
  *
  * // In afterAll
- * await adapter.disconnect();
+ * session.close();
  * ```
  */
 export class RealtimeAgentAdapter extends AgentAdapter {
   role: AgentRole;
+  name: string;
 
-  private connection: RealtimeConnection;
-  private eventHandler: RealtimeEventHandler | null = null;
+  private session: RealtimeSession;
+  private eventHandler: RealtimeEventHandler;
   private messageProcessor = new MessageProcessor();
   private responseFormatter = new ResponseFormatter();
   private audioEvents = new EventEmitter();
 
   /**
    * Creates a new RealtimeAgentAdapter instance
+   *
+   * The session must already be connected before passing to this constructor.
+   *
    * @param config - Configuration for the realtime agent adapter
    */
   constructor(private config: RealtimeAgentAdapterConfig) {
     super();
     this.role = this.config.role;
-    this.connection = new RealtimeConnection({
-      agent: config.agent,
-      model: config.model,
-      apiKey: config.apiKey,
-    });
+    this.name = this.config.agentName;
+    this.session = config.session;
+    this.eventHandler = new RealtimeEventHandler(this.session);
   }
 
-  /**
-   * Gets the name of the agent
-   */
-  get name(): string {
-    return this.config.agent.name;
-  }
-
-  /**
-   * Connects to the Realtime API
-   *
-   * Call this once before running tests (e.g., in beforeAll)
-   *
-   * @throws {Error} If connection fails
-   */
   async connect(): Promise<void> {
-    await this.connection.connect();
-
-    // Create event handler after connection is established
-    const session = this.connection.getSession();
-    if (session) {
-      this.eventHandler = new RealtimeEventHandler(session);
-    }
+    await this.session.connect({ apiKey: process.env.OPENAI_API_KEY! });
   }
 
-  /**
-   * Disconnects from the Realtime API
-   *
-   * Call this once after tests complete (e.g., in afterAll)
-   */
   async disconnect(): Promise<void> {
-    await this.connection.disconnect();
-    this.eventHandler = null;
-  }
-
-  /**
-   * Checks if the adapter is currently connected
-   */
-  isConnected(): boolean {
-    return this.connection.isConnected();
+    this.session.close();
   }
 
   /**
@@ -159,12 +131,6 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
     console.log(`🔊 [${this.name}] being called with role: ${this.role}`);
-
-    if (!this.connection.isConnected() || !this.eventHandler) {
-      throw new Error(
-        "RealtimeAgentAdapter not connected. Call connect() first."
-      );
-    }
 
     const latestMessage = input.newMessages[input.newMessages.length - 1];
 
@@ -195,12 +161,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private async handleInitialResponse(): Promise<AssistantModelMessage> {
     console.log(`[${this.name}] First message, creating response`);
 
-    const session = this.connection.getSession();
-    if (!session) {
-      throw new Error("Realtime session not available");
-    }
-
-    const sessionWithTransport = session as RealtimeSession & {
+    const sessionWithTransport = this.session as RealtimeSession & {
       transport?: {
         sendEvent: (event: { type: string; [key: string]: unknown }) => void;
       };
@@ -216,7 +177,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     });
 
     const timeout = this.config.responseTimeout ?? 60000;
-    const response = await this.eventHandler!.waitForResponse(timeout);
+    const response = await this.eventHandler.waitForResponse(timeout);
 
     // Emit audio response event
     this.audioEvents.emit("audioResponse", response);
@@ -230,12 +191,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private async handleAudioInput(
     audioData: string
   ): Promise<AssistantModelMessage> {
-    const session = this.connection.getSession();
-    if (!session) {
-      throw new Error("Realtime session not available");
-    }
-
-    const sessionWithTransport = session as RealtimeSession & {
+    const sessionWithTransport = this.session as RealtimeSession & {
       transport?: {
         sendEvent: (event: { type: string; [key: string]: unknown }) => void;
       };
@@ -264,7 +220,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
     // Wait for audio response
     const timeout = this.config.responseTimeout ?? 60000;
-    const response = await this.eventHandler!.waitForResponse(timeout);
+    const response = await this.eventHandler.waitForResponse(timeout);
 
     // Emit audio response event
     this.audioEvents.emit("audioResponse", response);
@@ -276,16 +232,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Handles text input from the user
    */
   private async handleTextInput(text: string): Promise<string> {
-    const session = this.connection.getSession();
-    if (!session) {
-      throw new Error("Realtime session not available");
-    }
-
-    session.sendMessage(text);
+    this.session.sendMessage(text);
 
     // Wait for response
     const timeout = this.config.responseTimeout ?? 30000;
-    const response = await this.eventHandler!.waitForResponse(timeout);
+    const response = await this.eventHandler.waitForResponse(timeout);
 
     // Emit audio response event (Realtime API always responds with audio, even for text input)
     this.audioEvents.emit("audioResponse", response);

@@ -9,21 +9,24 @@ This example demonstrates how to create and test a **voice-enabled AI agent** us
 - **Scenario Test** (planned) - Will use shared TypeScript config
 - **Ephemeral Token Server** (`realtime-client/src/server/`) - Securely generate client tokens
 
-## ✅ Key Principle: Same Agent, Accurate Testing
+## ✅ Key Principle: Same Session Creation, Accurate Testing
 
 ```typescript
 // agents/vegetarian-recipe-agent.ts - ONE source of truth (TypeScript!)
-export function createVegetarianRecipeAgent() { ... }
+export function createVegetarianRecipeSession(): RealtimeSession { ... }
 
 // realtime-client/src/App.tsx - Browser uses it (via Vite)
-import { createVegetarianRecipeAgent } from '../../agents/vegetarian-recipe-agent';
-const agent = createVegetarianRecipeAgent();
+import { createVegetarianRecipeSession } from '../../agents/vegetarian-recipe-agent';
+const session = createVegetarianRecipeSession();
+await session.connect({ apiKey: ephemeralToken });
 
 // test.ts - Tests use it (via Vitest)
-import { createVegetarianRecipeAgent } from './realtime/agents/vegetarian-recipe-agent';
-const agent = createVegetarianRecipeAgent();
+import { createVegetarianRecipeSession } from './realtime/agents/vegetarian-recipe-agent';
+const session = createVegetarianRecipeSession();
+await session.connect({ apiKey: process.env.OPENAI_API_KEY });
+const adapter = new RealtimeAgentAdapter({ session, role: AgentRole.AGENT, agentName: "..." });
 
-// ✅ SAME TypeScript code = accurate testing!
+// ✅ SAME session creation = accurate testing!
 ```
 
 ## 🎨 Why Vite?
@@ -169,23 +172,25 @@ graph TB
 
 ## 📋 How It Works
 
-### Two Paths, One Agent
+### Two Paths, One Session Creator
 
-The agent configuration (`agents/vegetarian-recipe-agent.ts`) is imported by both:
+The session creator (`agents/vegetarian-recipe-agent.ts`) is imported by both:
 
 **Browser Client:**
 
-1. Imports agent config
-2. Creates `RealtimeSession` with the agent
+1. Imports `createVegetarianRecipeSession()` function
+2. Calls function to get `RealtimeSession` instance
 3. Fetches ephemeral token from token server (security!)
-4. Connects to OpenAI via WebRTC with token
+4. Connects session to OpenAI via WebRTC with token
+5. Uses session directly for all interactions
 
 **Scenario Tests:**
 
-1. Imports same agent config
-2. Wraps agent with `RealtimeAgentAdapter`
-3. Adapter creates `RealtimeSession` internally
-4. Connects to OpenAI via WebSocket with API key directly
+1. Imports same `createVegetarianRecipeSession()` function
+2. Calls function to get `RealtimeSession` instance
+3. Connects session to OpenAI with API key directly
+4. Passes connected session to `RealtimeAgentAdapter`
+5. Adapter translates session interactions to Scenario interface
 
 ### Ephemeral Tokens (Browser Only)
 
@@ -226,8 +231,8 @@ export const AGENT_INSTRUCTIONS = `
 
 ```typescript
 // agents/vegetarian-recipe-agent.ts
-export function createVegetarianRecipeAgent(): RealtimeAgent {
-  return new RealtimeAgent({
+export function createVegetarianRecipeSession(): RealtimeSession {
+  const agent = new RealtimeAgent({
     name: AGENT_CONFIG.name,
     instructions: AGENT_CONFIG.instructions,
     voice: AGENT_CONFIG.voice,
@@ -244,6 +249,10 @@ export function createVegetarianRecipeAgent(): RealtimeAgent {
         },
       },
     ],
+  });
+
+  return new RealtimeSession(agent, {
+    model: AGENT_CONFIG.model,
   });
 }
 ```

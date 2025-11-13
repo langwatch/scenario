@@ -6,7 +6,7 @@
  *
  * Architecture:
  * 1. Browser client uses: createVegetarianRecipeAgent()
- * 2. This test uses: createVegetarianRecipeAgent()
+ * 2. This test uses: createVegetarianRecipeSession()
  * 3. SAME agent, accurate testing!
  */
 
@@ -16,7 +16,7 @@ import scenario, {
   RealtimeAgentAdapter,
   type AudioResponseEvent,
 } from "@langwatch/scenario";
-import { createVegetarianRecipeAgent } from "./realtime/agents/vegetatrian-recipe.agent";
+import { createVegetarianRecipeSession } from "./realtime/agents/vegetatrian-recipe.agent";
 import { RealtimeUserSimulatorAgent } from "./realtime/agents/realtime-user-simulator.agent";
 import { AudioUtils } from "./utils/audio/audio.utils";
 import { wrapJudgeForAudio } from "./helpers/wrap-judge-for-audio";
@@ -30,14 +30,14 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
 
   beforeAll(async () => {
     // Create the SAME agent as the browser client
-    const agent = createVegetarianRecipeAgent();
+    const session = createVegetarianRecipeSession();
     audioUserSim = new RealtimeUserSimulatorAgent();
 
     // Wrap in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
       role: AgentRole.AGENT,
-      agent,
-      apiKey: process.env.OPENAI_API_KEY!, // Direct API key for testing
+      session: session,
+      agentName: "Vegetarian Recipe Assistant",
       responseTimeout: 30000,
     });
 
@@ -53,7 +53,10 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     });
 
     // Connect once for all tests
-    await Promise.all([realtimeAdapter.connect(), audioUserSim.connect()]);
+    await Promise.all([
+      session.connect({ apiKey: process.env.OPENAI_API_KEY! }),
+      audioUserSim.connect(),
+    ]);
   }, 60000); // Longer timeout for connection
 
   afterAll(async () => {

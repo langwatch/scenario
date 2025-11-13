@@ -1,9 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { RealtimeSession } from "@openai/agents/realtime";
-import {
-  createVegetarianRecipeAgent,
-  AGENT_CONFIG,
-} from "../../agents/vegetatrian-recipe.agent";
+import { createVegetarianRecipeSession } from "../../agents/vegetatrian-recipe.agent";
 import {
   Conversation,
   ConversationContent,
@@ -37,8 +34,6 @@ export default function App() {
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [isConversationStarted, setIsConversationStarted] = useState(false);
   const sessionRef = useRef<RealtimeSession | null>(null);
-
-  const agent = createVegetarianRecipeAgent();
 
   const getAgentState = useCallback((): AgentState => {
     if (status === "connected" && isAgentSpeaking) return "talking";
@@ -78,9 +73,8 @@ export default function App() {
       const { token } = await tokenResponse.json();
       console.log("✅ Token received");
 
-      const session = new RealtimeSession(agent, {
-        model: AGENT_CONFIG.model,
-      });
+      // Create session using shared session creator
+      const session = createVegetarianRecipeSession();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on("*", (event: any) => {
