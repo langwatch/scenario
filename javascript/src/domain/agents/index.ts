@@ -64,18 +64,15 @@ export interface AgentInput {
 }
 
 /**
- * Abstract base class for integrating custom agents with the Scenario framework.
+ * Interface for agents in the Scenario framework.
  *
- * This adapter pattern allows you to wrap any existing agent implementation
- * (LLM calls, agent frameworks, or complex multi-step systems) to work with
- * the Scenario testing framework. The adapter receives structured input about
- * the conversation state and returns responses in a standardized format.
+ * Agents can be implemented as plain objects or classes. The interface requires
+ * a readonly role (immutable) and a call method that processes conversation input.
  *
  * @example
  * ```typescript
- * class MyAgent extends AgentAdapter {
- *   role = AgentRole.AGENT;
- *
+ * const myAgent: Agent = {
+ *   role: AgentRole.AGENT,
  *   async call(input: AgentInput): Promise<AgentReturnTypes> {
  *     const userMessage = input.messages.find(m => m.role === 'user');
  *     if (userMessage) {
@@ -83,12 +80,14 @@ export interface AgentInput {
  *     }
  *     return "Hello!";
  *   }
- * }
+ * };
  * ```
  */
-export abstract class AgentAdapter {
-  name?: string;
-  role: AgentRole = AgentRole.AGENT;
+export interface Agent {
+  /**
+   * The role this agent plays in scenarios. Must be immutable.
+   */
+  readonly role: AgentRole;
 
   /**
    * Process the input and generate a response.
@@ -100,27 +99,27 @@ export abstract class AgentAdapter {
    * @param input AgentInput containing conversation history, thread context, and scenario state.
    * @returns The agent's response.
    */
+  call(input: AgentInput): Promise<AgentReturnTypes>;
+}
+
+/**
+ * @deprecated Use Agent interface instead. This type alias is kept for backwards compatibility.
+ */
+export type AgentAdapter = Agent;
+
+/**
+ * @deprecated Use Agent interface instead. Abstract classes are no longer needed.
+ */
+export abstract class UserSimulatorAgentAdapter implements Agent {
+  readonly role: AgentRole = AgentRole.USER;
   abstract call(input: AgentInput): Promise<AgentReturnTypes>;
 }
 
 /**
- * Abstract base class for user simulator agents.
- * User simulator agents are responsible for generating user messages to drive the conversation.
+ * @deprecated Use Agent interface instead. Abstract classes are no longer needed.
  */
-export abstract class UserSimulatorAgentAdapter extends AgentAdapter {
-  name = "UserSimulatorAgent";
-  role: AgentRole = AgentRole.USER;
-}
-
-/**
- * Abstract base class for judge agents.
- * Judge agents are responsible for evaluating the conversation and determining success or failure.
- */
-export abstract class JudgeAgentAdapter extends AgentAdapter {
-  name = "JudgeAgent";
-  role: AgentRole = AgentRole.JUDGE;
-  /**
-   * The criteria the judge will use to evaluate the conversation.
-   */
+export abstract class JudgeAgentAdapter implements Agent {
+  readonly role: AgentRole = AgentRole.JUDGE;
   abstract criteria: string[];
+  abstract call(input: AgentInput): Promise<AgentReturnTypes>;
 }

@@ -4,7 +4,7 @@ import { createLLMInvoker } from "./llm-invoker.factory";
 import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
-import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
+import { AgentInput, Agent, AgentRole } from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 
@@ -29,7 +29,8 @@ ${description}
 `.trim();
 }
 
-class UserSimulatorAgent extends UserSimulatorAgentAdapter {
+class UserSimulatorAgent implements Agent {
+  readonly role = AgentRole.USER;
   private logger = new Logger(this.constructor.name);
 
   /**
@@ -37,9 +38,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
    */
   invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
 
-  constructor(private readonly cfg?: TestingAgentConfig) {
-    super();
-  }
+  constructor(private readonly cfg?: TestingAgentConfig) {}
 
   call = async (input: AgentInput) => {
     const config = this.cfg;

@@ -129,7 +129,7 @@ import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
-import { AgentInput, JudgeAgentAdapter, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
+import { AgentInput, Agent, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import { createLLMInvoker } from "../llm-invoker.factory";
@@ -289,13 +289,14 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
  *
  * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
  */
-class JudgeAgent extends JudgeAgentAdapter {
+class JudgeAgent implements Agent {
+  readonly role = AgentRole.JUDGE;
   private logger = new Logger("JudgeAgent");
   private readonly spanCollector: JudgeSpanCollector;
   private readonly tokenThreshold: number;
   private readonly maxDiscoverySteps: number;
-  role: AgentRole = AgentRole.JUDGE;
   criteria: string[];
+  private logger = new Logger("JudgeAgent");
 
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
@@ -304,7 +305,6 @@ class JudgeAgent extends JudgeAgentAdapter {
     createLLMInvoker(this.logger);
 
   constructor(private readonly cfg: JudgeAgentConfig) {
-    super();
     this.criteria = cfg.criteria ?? [];
     this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
     this.tokenThreshold = cfg.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
