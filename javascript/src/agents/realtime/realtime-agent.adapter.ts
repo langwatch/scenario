@@ -7,19 +7,18 @@
  * This ensures we test the REAL agent, not a mock.
  */
 
-import {
-  AgentAdapter,
-  AgentInput,
-  AgentRole,
-  type AgentReturnTypes,
-} from "@langwatch/scenario";
-import type { AssistantModelMessage } from "ai";
-import type { RealtimeAgent } from "@openai/agents/realtime";
-import { RealtimeConnection } from "./realtime-connection.js";
-import { RealtimeEventHandler } from "./realtime-event-handler.js";
-import { MessageProcessor } from "./message-processor.js";
-import { ResponseFormatter } from "./response-formatter.js";
 import { EventEmitter } from "events";
+import type { RealtimeAgent, RealtimeSession } from "@openai/agents/realtime";
+import type { AssistantModelMessage } from "ai";
+import { MessageProcessor } from "./message-processor";
+import { RealtimeConnection } from "./realtime-connection";
+import {
+  RealtimeEventHandler,
+  type AudioResponseEvent,
+} from "./realtime-event-handler";
+import { ResponseFormatter } from "./response-formatter";
+import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
+import { AgentAdapter } from "../../domain";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -33,6 +32,12 @@ export interface RealtimeAgentAdapterConfig {
    * The RealtimeAgent instance (from shared configuration)
    */
   agent: RealtimeAgent;
+
+  /**
+   * OpenAI Realtime model to use
+   * @default "gpt-4o-realtime-preview-2024-12-17"
+   */
+  model?: string;
 
   /**
    * OpenAI API key for direct connection (recommended for testing)
@@ -52,14 +57,6 @@ export interface RealtimeAgentAdapterConfig {
    * @default 30000
    */
   responseTimeout?: number;
-}
-
-/**
- * Event emitted when an audio response is completed
- */
-export interface AudioResponseEvent {
-  transcript: string;
-  audio: string;
 }
 
 /**
@@ -88,7 +85,7 @@ export interface AudioResponseEvent {
  * ```
  */
 export class RealtimeAgentAdapter extends AgentAdapter {
-  role!: AgentRole;
+  role: AgentRole;
 
   private connection: RealtimeConnection;
   private eventHandler: RealtimeEventHandler | null = null;
@@ -103,7 +100,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   constructor(private config: RealtimeAgentAdapterConfig) {
     super();
     this.role = this.config.role;
-    this.connection = new RealtimeConnection(config);
+    this.connection = new RealtimeConnection({
+      agent: config.agent,
+      model: config.model,
+      apiKey: config.apiKey,
+    });
   }
 
   /**
@@ -199,7 +200,13 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("Realtime session not available");
     }
 
-    const transport = (session as any).transport;
+    const sessionWithTransport = session as RealtimeSession & {
+      transport?: {
+        sendEvent: (event: { type: string; [key: string]: unknown }) => void;
+      };
+    };
+
+    const transport = sessionWithTransport.transport;
     if (!transport) {
       throw new Error("Realtime transport not available");
     }
@@ -227,7 +234,16 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("Realtime session not available");
     }
 
-    const transport = (session as any).transport;
+    const sessionWithTransport = session as RealtimeSession & {
+      transport?: {
+        sendEvent: (event: { type: string; [key: string]: unknown }) => void;
+      };
+    };
+
+    const transport = sessionWithTransport.transport;
+    if (!transport) {
+      throw new Error("Realtime transport not available");
+    }
 
     // Append audio to input buffer
     transport.sendEvent({
@@ -263,7 +279,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("Realtime session not available");
     }
 
-    await session.sendMessage(text);
+    session.sendMessage(text);
 
     // Wait for response
     const timeout = this.config.responseTimeout ?? 30000;

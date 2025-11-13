@@ -167,9 +167,9 @@ connectBtn.addEventListener("click", async () => {
 /**
  * Disconnect button handler
  */
-disconnectBtn.addEventListener("click", async () => {
+disconnectBtn.addEventListener("click", () => {
   if (session) {
-    await session.disconnect();
+    session.close();
     session = null;
   }
 

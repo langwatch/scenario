@@ -50,6 +50,7 @@
   "dependencies": {
     "@ag-ui/core": "^0.0.28",
     "@ai-sdk/openai": "^2.0.23",
+    "@openai/agents": "^0.3.0",
     "ai": ">=5.0.0",
     "chalk": "^5.4.1",
     "open": "10.2.0",

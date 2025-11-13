@@ -1,5 +1,35 @@
 import type { RealtimeSession } from "@openai/agents/realtime";
-import type { AudioResponseEvent } from "./realtime-agent.adapter.js";
+
+/**
+ * Event emitted when an audio response is completed
+ */
+export interface AudioResponseEvent {
+  transcript: string;
+  audio: string;
+}
+
+/**
+ * Transport interface for RealtimeSession events
+ */
+interface RealtimeTransport {
+  on(event: string, callback: (data: unknown) => void): void;
+  sendEvent(event: { type: string; [key: string]: unknown }): void;
+}
+
+/**
+ * RealtimeSession with transport access
+ */
+type RealtimeSessionWithTransport = RealtimeSession & {
+  transport?: RealtimeTransport;
+};
+
+/**
+ * Delta event structure from Realtime API
+ */
+interface DeltaEvent {
+  delta?: string;
+  [key: string]: unknown;
+}
 
 /**
  * Handles event parsing and response collection from Realtime API
@@ -24,12 +54,20 @@ export class RealtimeEventHandler {
   }
 
   /**
+   * Gets the transport from the session
+   */
+  private getTransport(): RealtimeTransport | null {
+    const sessionWithTransport = this.session as RealtimeSessionWithTransport;
+    return sessionWithTransport.transport ?? null;
+  }
+
+  /**
    * Ensures event listeners are set up, retrying if transport not available
    */
   private ensureEventListeners(): void {
     if (this.listenersSetup) return;
 
-    const transport = (this.session as any).transport;
+    const transport = this.getTransport();
 
     if (!transport) {
       // Transport not available yet, try again in a bit
@@ -46,7 +84,7 @@ export class RealtimeEventHandler {
   private setupEventListeners(): void {
     if (this.listenersSetup) return;
 
-    const transport = (this.session as any).transport;
+    const transport = this.getTransport();
 
     if (!transport) {
       console.error("❌ Transport not available on session");
@@ -54,16 +92,18 @@ export class RealtimeEventHandler {
     }
 
     // Listen for audio transcript deltas
-    transport.on("response.output_audio_transcript.delta", (event: any) => {
-      if (event.delta) {
-        this.currentResponse += event.delta;
+    transport.on("response.output_audio_transcript.delta", (event: unknown) => {
+      const deltaEvent = event as DeltaEvent;
+      if (typeof deltaEvent.delta === "string") {
+        this.currentResponse += deltaEvent.delta;
       }
     });
 
     // Listen for audio deltas
-    transport.on("response.output_audio.delta", (event: any) => {
-      if (event.delta) {
-        this.currentAudioChunks.push(event.delta);
+    transport.on("response.output_audio.delta", (event: unknown) => {
+      const deltaEvent = event as DeltaEvent;
+      if (typeof deltaEvent.delta === "string") {
+        this.currentAudioChunks.push(deltaEvent.delta);
       }
     });
 
@@ -82,10 +122,12 @@ export class RealtimeEventHandler {
     });
 
     // Handle transport errors
-    transport.on("error", (error: any) => {
+    transport.on("error", (error: unknown) => {
       console.error(`❌ Transport error:`, error);
       if (this.errorRejecter) {
-        this.errorRejecter(error);
+        const errorObj =
+          error instanceof Error ? error : new Error(String(error));
+        this.errorRejecter(errorObj);
         this.reset();
       }
     });

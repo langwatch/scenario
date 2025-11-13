@@ -12,15 +12,23 @@ export class MessageProcessor {
    * @returns Base64 audio data string or null if no audio found
    * @throws {Error} If audio data is invalid
    */
-  processAudioMessage(content: any): string | null {
+  processAudioMessage(content: unknown): string | null {
     if (!Array.isArray(content)) {
       return null;
     }
 
     for (const part of content) {
-      if (part.type === "file" && part.mediaType?.startsWith("audio/")) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === "file" &&
+        "mediaType" in part &&
+        typeof part.mediaType === "string" &&
+        part.mediaType.startsWith("audio/")
+      ) {
         // Type guard: ensure data is a string (base64)
-        if (typeof part.data !== "string") {
+        if (!("data" in part) || typeof part.data !== "string") {
           throw new Error(
             `Audio data must be base64 string, got: ${typeof part.data}`
           );
@@ -46,7 +54,7 @@ export class MessageProcessor {
    * @param content - The message content to process
    * @returns Text string or empty string if no text found
    */
-  extractTextMessage(content: any): string {
+  extractTextMessage(content: unknown): string {
     return typeof content === "string" ? content : "";
   }
 
@@ -56,7 +64,7 @@ export class MessageProcessor {
    * @param content - The message content to validate
    * @returns True if the message has valid content
    */
-  hasValidContent(content: any): boolean {
+  hasValidContent(content: unknown): boolean {
     const hasText = this.extractTextMessage(content).length > 0;
     const hasAudio = this.processAudioMessage(content) !== null;
     return hasText || hasAudio;

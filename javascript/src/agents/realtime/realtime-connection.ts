@@ -1,7 +1,14 @@
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
-import type { RealtimeAgentAdapterConfig } from "./realtime-agent.adapter.js";
-import { AGENT_CONFIG } from "../../../agents/vegetatrian-recipe.agent.js";
+
+/**
+ * Configuration for RealtimeConnection
+ */
+interface RealtimeConnectionConfig {
+  agent: RealtimeAgent;
+  model?: string;
+  apiKey?: string;
+}
 
 /**
  * Manages Realtime API connection lifecycle
@@ -14,9 +21,9 @@ export class RealtimeConnection {
 
   /**
    * Creates a new RealtimeConnection instance
-   * @param config - Configuration for the realtime agent adapter
+   * @param config - Configuration for the realtime connection
    */
-  constructor(private config: RealtimeAgentAdapterConfig) {}
+  constructor(private config: RealtimeConnectionConfig) {}
 
   /**
    * Establishes connection to the Realtime API
@@ -30,11 +37,16 @@ export class RealtimeConnection {
     }
 
     try {
+      const model = this.config.model ?? "gpt-4o-realtime-preview-2024-12-17";
       this.session = new RealtimeSession(this.config.agent, {
-        model: AGENT_CONFIG.model,
+        model: model as string,
       });
 
-      await this.session.connect({ apiKey: this.config.apiKey });
+      const apiKey = this.config.apiKey;
+      if (!apiKey) {
+        throw new Error("OPENAI_API_KEY is required");
+      }
+      await this.session.connect({ apiKey });
 
       console.log(`✅ ${this.config.agent.name} connected`);
     } catch (error) {
@@ -48,8 +60,7 @@ export class RealtimeConnection {
    */
   async disconnect(): Promise<void> {
     if (this.session) {
-      // @ts-ignore - close method exists in 0.3.0
-      await this.session.close();
+      this.session.close();
       this.session = null;
       console.log(`👋 ${this.config.agent.name} disconnected`);
     }

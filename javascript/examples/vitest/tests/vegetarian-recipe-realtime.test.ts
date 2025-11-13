@@ -11,15 +11,15 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import scenario, { AgentRole } from "@langwatch/scenario";
-import { createVegetarianRecipeAgent } from "./realtime/agents/vegetatrian-recipe.agent.js";
-import {
+import scenario, {
+  AgentRole,
   RealtimeAgentAdapter,
-  RealtimeUserSimulatorAgent,
-  wrapJudgeForAudio,
-  AudioUtils,
-} from "./realtime/helpers";
-import type { AudioResponseEvent } from "./realtime/helpers";
+  type AudioResponseEvent,
+} from "@langwatch/scenario";
+import { createVegetarianRecipeAgent } from "./realtime/agents/vegetatrian-recipe.agent";
+import { RealtimeUserSimulatorAgent } from "./realtime/agents/realtime-user-simulator.agent";
+import { AudioUtils } from "./utils/audio/audio.utils";
+import { wrapJudgeForAudio } from "./helpers/wrap-judge-for-audio";
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   // Used for wrapping the agent under test in the adapter
