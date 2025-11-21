@@ -1,0 +1,109 @@
+---
+title: Test Agents via HTTPS Endpoints
+description: Test AI agents deployed as HTTP/HTTPS services. Learn how to integrate REST APIs and production-deployed agents with Scenario testing framework.
+---
+
+import { RefLink } from "../../components/RefLink";
+
+# HTTPS Integration [Learn how to test agents deployed as HTTP/HTTPS services]
+
+Test agents deployed as HTTP/HTTPS endpoints through Scenario's <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "modules.html#AgentAdapter" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} /> interface. This enables [blackbox testing](/testing-guides/blackbox-testing) of production-deployed agents with real infrastructure.
+
+HTTPS integration is ideal when your agent is deployed as a web service, microservice, or serverless function. The adapter makes HTTP requests to your endpoint, testing the complete production stack.
+
+## Basic Integration Pattern
+
+:::code-group
+
+```typescript [typescript]
+import scenario, { AgentAdapter, AgentRole } from "@langwatch/scenario";
+
+const httpsAgentAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Extract the latest user message
+    const lastMessage = input.messages[input.messages.length - 1];
+    const content =
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : (lastMessage.content.find((part) => part.type === "text") as any)
+            ?.text || "";
+
+    // Make HTTPS request to your agent
+    const response = await fetch("https://your-agent.com/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.API_KEY}`,
+      },
+      body: JSON.stringify({
+        message: content,
+        thread_id: input.thread_id,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.response; // Adjust to match your API's response structure
+  },
+};
+
+// Use in your test
+await scenario.run({
+  agents: [scenario.userSimulatorAgent(), httpsAgentAdapter],
+  // ... scenario configuration
+});
+```
+
+```python [python]
+import scenario
+import aiohttp
+import os
+
+
+class HTTPSAgentAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Extract the latest user message
+        last_message = input.last_new_user_message_str()
+
+        # Make HTTPS request to your agent
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://your-agent.com/api/chat",
+                json={
+                    "message": last_message,
+                    "thread_id": input.thread_id,
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {os.getenv('API_KEY')}",
+                },
+            ) as response:
+                if response.status != 200:
+                    raise Exception(f"HTTP {response.status}: {response.reason}")
+
+                result = await response.json()
+                return result["response"]  # Adjust to match your API's structure
+
+
+# Use in your test
+await scenario.run(
+    agents=[
+        scenario.UserSimulatorAgent(),
+        HTTPSAgentAdapter(),
+    ],
+    # ... scenario configuration
+)
+```
+
+:::
+
+## Next Steps
+
+- Explore [Testing Remote Agents](/examples/testing-remote-agents) for advanced HTTP patterns (streaming, SSE, authentication, error handling)
+- Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
+- Check out [Scenario Basics](/basics/concepts) for advanced testing patterns
+- Review more [Agent Integration patterns](/agent-integration) for other frameworks
