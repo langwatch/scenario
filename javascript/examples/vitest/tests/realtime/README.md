@@ -316,17 +316,20 @@ The OpenAI Realtime API handles:
 The `RealtimeAgentAdapter` bridges two worlds:
 
 **What it wraps:**
+
 - A `RealtimeSession` (WebSocket-based, event-driven)
 - Handles connection lifecycle (connect/disconnect)
 - Listens for Realtime API events
 
 **What it provides:**
+
 - Scenario framework `Agent` interface
 - Translates `AgentInput` → Realtime API events
 - Translates Realtime responses → Scenario messages
 - Supports both text and audio input/output
 
 **Why this matters:**
+
 - ✅ Browser uses session directly (no adapter needed)
 - ✅ Tests wrap session in adapter (provides Scenario interface)
 - ✅ Same session configuration in both environments

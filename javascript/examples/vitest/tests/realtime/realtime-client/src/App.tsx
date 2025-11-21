@@ -2,8 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { RealtimeSession } from "@openai/agents/realtime";
 // import { createVegetarianRecipeSession } from "../../agents/vegetatrian-recipe.agent";
 // import { createDrewsAdvocateSession } from "../../agents/drews-advocate.agent";
-// import { createLangwatchExpertSession } from "../../agents/langwatch-expert.agent";
-import { createSummarizerSession } from "../../agents/summerizer.agent";
+import { createLangwatchExpertSession } from "../../agents/langwatch-expert.agent";
+// import { createSummarizerSession } from "../../agents/summerizer.agent";
 
 import {
   Conversation,
@@ -29,6 +29,8 @@ interface Message {
 }
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
+
+const createSession = createLangwatchExpertSession;
 
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
@@ -78,7 +80,7 @@ export default function App() {
       console.log("✅ Token received");
 
       // Create session using shared session creator
-      const session = createSummarizerSession();
+      const session = createSession();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on("*", (event: any) => {
