@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { RealtimeSession } from "@openai/agents/realtime";
 // import { createVegetarianRecipeSession } from "../../agents/vegetatrian-recipe.agent";
-import { createDrewsAdvocateSession } from "../../agents/drews-advocate.agent";
+import { createScenarioExpertSession } from "../../agents/scenario-expert.agent";
 import {
   Conversation,
   ConversationContent,
@@ -75,7 +75,7 @@ export default function App() {
       console.log("✅ Token received");
 
       // Create session using shared session creator
-      const session = createDrewsAdvocateSession();
+      const session = createScenarioExpertSession();
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       session.transport.on("*", (event: any) => {
@@ -221,12 +221,12 @@ export default function App() {
             {/* Title and Description */}
             <div className="space-y-4">
               <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">
-                Vegetarian Recipe Agent
+                LangWatch Scenario Expert
               </h1>
               <p className="text-white/70 text-lg max-w-md mx-auto">
-                Click the orb to start your voice-powered cooking assistant. Get
-                personalized recipe recommendations through natural
-                conversation.
+                Click the orb to start your voice-powered Scenario expert. Learn
+                about simulation-based agent testing and best practices through
+                natural conversation.
               </p>
             </div>
 
@@ -246,18 +246,22 @@ export default function App() {
                 <div className="text-white/60">Natural speech recognition</div>
               </div>
               <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-lg p-4">
-                <div className="text-2xl mb-2">🍳</div>
-                <div className="font-semibold text-white/90">Recipe Expert</div>
+                <div className="text-2xl mb-2">🧪</div>
+                <div className="font-semibold text-white/90">
+                  Simulation Testing
+                </div>
                 <div className="text-white/60">
-                  Personalized recommendations
+                  End-to-end agent scenario testing
                 </div>
               </div>
               <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-lg p-4">
-                <div className="text-2xl mb-2">🌱</div>
+                <div className="text-2xl mb-2">🔄</div>
                 <div className="font-semibold text-white/90">
-                  Vegetarian Focus
+                  Multi-turn Control
                 </div>
-                <div className="text-white/60">Plant-based cooking</div>
+                <div className="text-white/60">
+                  Precise conversation flow testing
+                </div>
               </div>
             </div>
 
@@ -306,10 +310,10 @@ export default function App() {
               </div>
               <div>
                 <CardTitle className="text-xl text-white">
-                  Vegetarian Recipe Agent
+                  LangWatch Scenario Expert
                 </CardTitle>
                 <p className="text-white/70 text-sm">
-                  Voice-powered cooking assistant
+                  Voice-powered Scenario expert
                 </p>
               </div>
             </div>
@@ -384,7 +388,7 @@ export default function App() {
                     </div>
                   }
                   title="Start a conversation"
-                  description="Speak naturally - your voice will be transcribed and responded to"
+                  description="Ask about LangWatch Scenario"
                   className="text-white/70 [&_h3]:text-white [&_p]:text-white/60"
                 />
               ) : (

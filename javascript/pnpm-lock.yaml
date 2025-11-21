@@ -70,264 +70,29 @@ importers:
         specifier: ^4.3.0
         version: 4.3.0(@typescript-eslint/eslint-plugin@8.48.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1))
       globals:
-        specifier: ^16.5.0
-        version: 16.5.0
+        specifier: ^16.1.0
+        version: 16.1.0
       jest:
-        specifier: ^30.2.0
-        version: 30.2.0(@types/node@24.10.1)
+        specifier: ^29.0.0
+        version: 29.7.0(@types/node@22.15.15)
       ts-jest:
-        specifier: ^29.4.5
-        version: 29.4.5(@babel/core@7.28.5)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.28.5))(esbuild@0.27.0)(jest-util@30.2.0)(jest@30.2.0(@types/node@24.10.1))(typescript@5.9.3)
+        specifier: ^29.0.0
+        version: 29.4.0(@babel/core@7.28.5)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.28.5))(esbuild@0.25.5)(jest-util@29.7.0)(jest@29.7.0(@types/node@22.15.15))(typescript@5.8.3)
       tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.20.6)(typescript@5.9.3)(yaml@2.8.1)
+        specifier: ^8.4.0
+        version: 8.4.0(jiti@2.6.1)(postcss@8.5.6)(tsx@4.19.4)(typescript@5.8.3)
       tsx:
-        specifier: ^4.20.6
-        version: 4.20.6
+        specifier: ^4.19.4
+        version: 4.19.4
       typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
+        specifier: ^5.0.0
+        version: 5.8.3
       typescript-eslint:
-        specifier: ^8.48.0
-        version: 8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3)
+        specifier: ^8.32.0
+        version: 8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
       vitest:
-        specifier: ^4.0.14
-        version: 4.0.14(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
-
-  ../docs:
-    dependencies:
-      '@radix-ui/react-tabs':
-        specifier: ^1.1.13
-        version: 1.1.13(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@tailwindcss/vite':
-        specifier: ^4.1.17
-        version: 4.1.17(vite@6.4.1(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1))
-      lucide-react:
-        specifier: ^0.555.0
-        version: 0.555.0(react@19.2.0)
-      react:
-        specifier: latest
-        version: 19.2.0
-      react-dom:
-        specifier: latest
-        version: 19.2.0(react@19.2.0)
-      react-router:
-        specifier: ^7.9.6
-        version: 7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      tailwind-merge:
-        specifier: ^3.4.0
-        version: 3.4.0
-      tailwindcss:
-        specifier: ^4.1.17
-        version: 4.1.17
-      vocs:
-        specifier: github:langwatch/vocs#build
-        version: https://codeload.github.com/langwatch/vocs/tar.gz/6cc16d5787a2addda200cc2cc49c331550c42635(@types/node@24.10.1)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(jiti@2.6.1)(lightningcss@1.30.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(rollup@4.53.3)(tsx@4.20.6)(typescript@5.9.3)(yaml@2.8.1)
-      zustand:
-        specifier: ^5.0.8
-        version: 5.0.8(@types/react@19.2.7)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
-    devDependencies:
-      '@eslint/js':
-        specifier: ^9.39.1
-        version: 9.39.1
-      '@types/react':
-        specifier: latest
-        version: 19.2.7
-      '@types/react-dom':
-        specifier: ^19.2.3
-        version: 19.2.3(@types/react@19.2.7)
-      eslint:
-        specifier: ^9.39.1
-        version: 9.39.1(jiti@2.6.1)
-      eslint-mdx:
-        specifier: ^3.6.2
-        version: 3.6.2(eslint@9.39.1(jiti@2.6.1))
-      eslint-plugin-mdx:
-        specifier: ^3.6.2
-        version: 3.6.2(eslint@9.39.1(jiti@2.6.1))
-      eslint-plugin-react:
-        specifier: ^7.37.5
-        version: 7.37.5(eslint@9.39.1(jiti@2.6.1))
-      globals:
-        specifier: ^16.5.0
-        version: 16.5.0
-      jiti:
-        specifier: ^2.6.1
-        version: 2.6.1
-      prettier:
-        specifier: ^3.7.1
-        version: 3.7.1
-      typescript:
-        specifier: latest
-        version: 5.9.3
-      typescript-eslint:
-        specifier: ^8.48.0
-        version: 8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3)
-      vite-plugin-sitemap:
-        specifier: ^0.8.2
-        version: 0.8.2
-
-  examples/openai-realtime-demo:
-    dependencies:
-      '@openai/agents':
-        specifier: ^0.3.3
-        version: 0.3.3(ws@8.18.3)(zod@4.1.13)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.10.1
-        version: 24.10.1
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  examples/openai-realtime-demo/realtime-client:
-    dependencies:
-      '@langwatch/scenario':
-        specifier: workspace:*
-        version: link:../../..
-      '@radix-ui/react-slot':
-        specifier: 1.2.4
-        version: 1.2.4(@types/react@19.2.7)(react@19.2.0)
-      '@react-three/drei':
-        specifier: 10.7.7
-        version: 10.7.7(@react-three/fiber@9.4.0(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.2))(@types/react@19.2.7)(@types/three@0.181.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.2)
-      '@react-three/fiber':
-        specifier: 9.4.0
-        version: 9.4.0(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.2)
-      '@tailwindcss/vite':
-        specifier: 4.1.17
-        version: 4.1.17(vite@7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1))
-      '@types/three':
-        specifier: 0.181.0
-        version: 0.181.0
-      class-variance-authority:
-        specifier: 0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: 2.1.1
-        version: 2.1.1
-      lucide-react:
-        specifier: 0.555.0
-        version: 0.555.0(react@19.2.0)
-      react:
-        specifier: ^19.2.0
-        version: 19.2.0
-      react-dom:
-        specifier: ^19.2.0
-        version: 19.2.0(react@19.2.0)
-      tailwind-merge:
-        specifier: 3.4.0
-        version: 3.4.0
-      tailwindcss:
-        specifier: 4.1.17
-        version: 4.1.17
-      three:
-        specifier: 0.181.2
-        version: 0.181.2
-      use-stick-to-bottom:
-        specifier: 1.1.1
-        version: 1.1.1(react@19.2.0)
-    devDependencies:
-      '@eslint/js':
-        specifier: ^9.39.1
-        version: 9.39.1
-      '@types/node':
-        specifier: ^24.10.1
-        version: 24.10.1
-      '@types/react':
-        specifier: ^19.2.7
-        version: 19.2.7
-      '@types/react-dom':
-        specifier: ^19.2.3
-        version: 19.2.3(@types/react@19.2.7)
-      '@vitejs/plugin-react':
-        specifier: ^5.1.1
-        version: 5.1.1(vite@7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1))
-      babel-plugin-react-compiler:
-        specifier: ^1.0.0
-        version: 1.0.0
-      concurrently:
-        specifier: ^9.2.1
-        version: 9.2.1
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.2.3
-      dotenv-cli:
-        specifier: ^11.0.0
-        version: 11.0.0
-      eslint:
-        specifier: ^9.39.1
-        version: 9.39.1(jiti@2.6.1)
-      eslint-import-resolver-typescript:
-        specifier: ^4.4.4
-        version: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.1(jiti@2.6.1))
-      eslint-plugin-import:
-        specifier: ^2.32.0
-        version: 2.32.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.1(jiti@2.6.1))
-      eslint-plugin-react-hooks:
-        specifier: ^7.0.1
-        version: 7.0.1(eslint@9.39.1(jiti@2.6.1))
-      eslint-plugin-react-refresh:
-        specifier: ^0.4.24
-        version: 0.4.24(eslint@9.39.1(jiti@2.6.1))
-      globals:
-        specifier: ^16.5.0
-        version: 16.5.0
-      tw-animate-css:
-        specifier: 1.4.0
-        version: 1.4.0
-      typescript:
-        specifier: ~5.9.3
-        version: 5.9.3
-      typescript-eslint:
-        specifier: ^8.48.0
-        version: 8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3)
-      vite:
-        specifier: ^7.2.4
-        version: 7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1)
-
-  examples/vitest:
-    dependencies:
-      '@langwatch/scenario':
-        specifier: workspace:*
-        version: link:../..
-      '@openai/agents':
-        specifier: ^0.3.3
-        version: 0.3.3(ws@8.18.3)(zod@4.1.13)
-      ai:
-        specifier: 5.0.104
-        version: 5.0.104(zod@4.1.13)
-      express:
-        specifier: ^5.1.0
-        version: 5.1.0
-      openai:
-        specifier: ^6.9.1
-        version: 6.9.1(ws@8.18.3)(zod@4.1.13)
-      vite:
-        specifier: ^7.2.4
-        version: 7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1)
-      vitest:
-        specifier: ^4.0.14
-        version: 4.0.14(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
-      zod:
-        specifier: ^4.1.13
-        version: 4.1.13
-    devDependencies:
-      concurrently:
-        specifier: ^9.2.1
-        version: 9.2.1
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.2.3
-      dotenv-cli:
-        specifier: ^11.0.0
-        version: 11.0.0
-      nanoid-cli:
-        specifier: ^1.1.0
-        version: 1.1.0
-      vitest-mock-extended:
-        specifier: 3.1.0
-        version: 3.1.0(typescript@5.9.3)(vitest@4.0.14(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1))
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.15.15)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@22.15.15)(typescript@5.8.3))(tsx@4.19.4)
 
 packages:
 
@@ -509,22 +274,6 @@ packages:
     peerDependencies:
       '@babel/core': ^7.0.0-0
 
-  '@babel/plugin-transform-react-jsx-self@7.27.1':
-    resolution: {integrity: sha512-6UzkCs+ejGdZ5mFFC/OCUrv028ab2fp1znZmCZjAOBKiBK2jXD1O+BPSfX8X2qjJ75fZBMSnQn3Rq2mrBJK2mw==}
-    engines: {node: '>=6.9.0'}
-    peerDependencies:
-      '@babel/core': ^7.0.0-0
-
-  '@babel/plugin-transform-react-jsx-source@7.27.1':
-    resolution: {integrity: sha512-zbwoTsBruTeKB9hSq73ha66iFeJHuaFkUbwvqElnygoNbj/jHRsSeokowZFN3CZ64IvEqcmmkVe89OPXc7ldAw==}
-    engines: {node: '>=6.9.0'}
-    peerDependencies:
-      '@babel/core': ^7.0.0-0
-
-  '@babel/runtime@7.28.4':
-    resolution: {integrity: sha512-Q/N6JNWvIvPnLDvjlE1OUBLPQHH6l3CltCEsHIujp45zQUSSh8K+gHnaEX45yAT1nyngnINhvWtzN+Nb9D8RAQ==}
-    engines: {node: '>=6.9.0'}
-
   '@babel/template@7.27.2':
     resolution: {integrity: sha512-LPDZ85aEJyYSd18/DkjNh4/y1ntkE5KwUHWTiqgRxruuZL2F1yuHligVHLvcHY2vMHXttKFpJn6LwfI7cw7ODw==}
     engines: {node: '>=6.9.0'}
@@ -540,6 +289,7 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
+<<<<<<< HEAD
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
@@ -575,6 +325,10 @@ packages:
 
   '@emnapi/core@1.7.1':
     resolution: {integrity: sha512-o1uhUASyo921r2XtHYOHy7gdkGLge8ghBEQHMWmyJFoXlpU58kIrhhN3w26lpQb6dspetweapMn2CSNwQ8I4wg==}
+=======
+  '@emnapi/core@1.4.3':
+    resolution: {integrity: sha512-4m62DuCE07lw01soJwPiBGC0nAww0Q+RY70VZ+n49yDIO13yyinhbWCeNnaob0lakDtWQzSdtNWzJeOJt2ma+g==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   '@emnapi/runtime@1.7.1':
     resolution: {integrity: sha512-PVtJr5CmLwYAU9PZDMITZoR5iAOShYREoR45EyyLrbntV50mdePTgUn4AmOw90Ifcj+x2kRjdzr1HP3RrNiHGA==}
@@ -907,6 +661,7 @@ packages:
     resolution: {integrity: sha512-EriSTlt5OC9/7SXkRSCAhfSxxoSUgBm33OH+IkwbdpgoqsSsUg7y3uh+IICI/Qg4BBWr3U2i39RpmycbxMq4ew==}
     engines: {node: ^12.0.0 || ^14.0.0 || >=16.0.0}
 
+<<<<<<< HEAD
   '@eslint/config-array@0.21.1':
     resolution: {integrity: sha512-aw1gNayWpdI/jSYVgzN5pL0cfzU02GT3NBpeT/DXbx1/1x7ZKxFPd9bwrzygx/qiwIQiJ1sw/zD8qY/kRvlGHA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -917,12 +672,25 @@ packages:
 
   '@eslint/core@0.17.0':
     resolution: {integrity: sha512-yL/sLrpmtDaFEiUj1osRP4TI2MDz1AddJL+jZ7KSqvBuliN4xqYY54IfdN8qD8Toa6g1iloph1fxQNkjOxrrpQ==}
+=======
+  '@eslint/config-array@0.20.1':
+    resolution: {integrity: sha512-OL0RJzC/CBzli0DrrR31qzj6d6i6Mm3HByuhflhl4LOBiWxN+3i6/t/ZQQNii4tjksXi8r2CRW1wMpWA2ULUEw==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@eslint/config-helpers@0.2.3':
+    resolution: {integrity: sha512-u180qk2Um1le4yf0ruXH3PYFeEZeYC3p/4wCTKrr2U1CmGdzGi3KtY0nuPDH48UJxlKCC5RDzbcbh4X0XlqgHg==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@eslint/core@0.13.0':
+    resolution: {integrity: sha512-yfkgDw1KR66rkT5A8ci4irzDysN7FRpq3ttJolR88OqQikAWqwA8j5VZyas+vjyBNFIJ7MfybJ9plMILI2UrCw==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
   '@eslint/eslintrc@3.3.1':
     resolution: {integrity: sha512-gtF186CXhIl1p4pJNGZw8Yc6RlshoePRvE0X91oPGb3vZ8pM3qOS9W9NGPat9LziaBV7XrJWGylNQXkGcnM3IQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+<<<<<<< HEAD
   '@eslint/js@9.39.1':
     resolution: {integrity: sha512-S26Stp4zCy88tH94QbBv3XCuzRQiZ9yXofEILmglYTh/Ug/a9/umqvgFtYBAo3Lp0nsI/5/qH1CCrbdK3AP1Tw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -966,6 +734,20 @@ packages:
     peerDependencies:
       hono: ^4
 
+=======
+  '@eslint/js@9.26.0':
+    resolution: {integrity: sha512-I9XlJawFdSMvWjDt6wksMCrgns5ggLNfFwFvnShsleWruvXM514Qxk8V246efTw+eo9JABvVz+u3q2RiAowKxQ==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@eslint/object-schema@2.1.6':
+    resolution: {integrity: sha512-RBMg5FRL0I0gs51M/guSAj5/e14VQ4tpZnQNWwuDT66P14I43ItmPfIZRhO9fUVIPOAQXU47atlywZ/czoqFPA==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@eslint/plugin-kit@0.2.8':
+    resolution: {integrity: sha512-ZAoA40rNMPwSm+AeHpCq8STiNAwzWLJuP8Xv4CHIc9wv/PSuExjMrmjfYNj682vW0OOiZ1HKxzvjQr9XZIisQA==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
     engines: {node: '>=18.18.0'}
@@ -1133,6 +915,7 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
+<<<<<<< HEAD
   '@mdx-js/mdx@3.1.1':
     resolution: {integrity: sha512-f6ZO2ifpwAQIpzGWaBQT2TXxPv6z3RBzQKpVftEWN78Vl/YweF1uwussDx8ECAXVtr3Rs89fKyG9YlzUs9DyGQ==}
 
@@ -1152,6 +935,11 @@ packages:
 
   '@mermaid-js/parser@0.6.3':
     resolution: {integrity: sha512-lnjOhe7zyHjc+If7yT4zoedx2vo4sHaTmtkl1+or8BRTnCtDmcTpAjpzDSfCZrshM5bCoz0GyidzadJAH1xobA==}
+=======
+  '@modelcontextprotocol/sdk@1.13.1':
+    resolution: {integrity: sha512-8q6+9aF0yA39/qWT/uaIj6zTpC+Qu07DnN/lb9mjoquCJsAh6l3HyYqc9O3t2j7GilseOQOQimLg7W3By6jqvg==}
+    engines: {node: '>=18'}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   '@modelcontextprotocol/sdk@1.23.0':
     resolution: {integrity: sha512-MCGd4K9aZKvuSqdoBkdMvZNcYXCkZRYVs/Gh92mdV5IHbctX9H9uIvd4X93+9g8tBbXv08sxc/QHXTzf8y65bA==}
@@ -1163,11 +951,14 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
+<<<<<<< HEAD
   '@monogrid/gainmap-js@3.4.0':
     resolution: {integrity: sha512-2Z0FATFHaoYJ8b+Y4y4Hgfn3FRFwuU5zRrk+9dFWp4uGAdHGqVEdP7HP+gLA3X469KXHmfupJaUbKo1b/aDKIg==}
     peerDependencies:
       three: '>= 0.159.0'
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@mswjs/interceptors@0.40.0':
     resolution: {integrity: sha512-EFd6cVbHsgLa6wa4RljGj6Wk75qoHxUSyc5asLyyPSyuhIcdS2Q3Phw6ImS1q+CkALthJRShiYfKANcQMuMqsQ==}
     engines: {node: '>=18'}
@@ -1255,6 +1046,7 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
+<<<<<<< HEAD
   '@pkgr/core@0.2.9':
     resolution: {integrity: sha512-QNqXyfVS2wm9hweSYD2O7F0G06uurj9kZ96TRQE5Y9hU7+tgdZwIkbAKc5Ocy1HxEY2kuDQa6cQ1WRs/O5LFKA==}
     engines: {node: ^12.20.0 || ^14.18.0 || >=16.0.0}
@@ -2045,6 +1837,10 @@ packages:
 
   '@rollup/rollup-android-arm-eabi@4.53.3':
     resolution: {integrity: sha512-mRSi+4cBjrRLoaal2PnqH82Wqyb+d3HsPUN/W+WslCXsZsyHa9ZeQQX/pQsZaVIWDkPcpV6jJ+3KLbTbgnwv8w==}
+=======
+  '@rollup/rollup-android-arm-eabi@4.44.0':
+    resolution: {integrity: sha512-xEiEE5oDW6tK4jXCAyliuntGR+amEMO7HLtdSshVuhFnKTYoeYMyXQK7pLouAJJj5KHdwdn87bfHAR2nSdNAUA==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     cpu: [arm]
     os: [android]
 
@@ -2202,6 +1998,7 @@ packages:
   '@standard-schema/spec@1.0.0':
     resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
 
+<<<<<<< HEAD
   '@tailwindcss/node@4.0.7':
     resolution: {integrity: sha512-dkFXufkbRB2mu3FPsW5xLAUWJyexpJA+/VtQj18k3SUiJVLdpgzBd1v1gRRcIpEJj7K5KpxBKfOXlZxT3ZZRuA==}
 
@@ -2375,6 +2172,10 @@ packages:
 
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
+=======
+  '@tybys/wasm-util@0.9.0':
+    resolution: {integrity: sha512-6+7nlbMVX/PVDCwaIQ8nTOPveOcFLSt8GcXdx8hD0bt39uWxYT88uXzqTd4fTvqta7oeUJqudepapKNt2DYJFw==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -2493,12 +2294,15 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
+<<<<<<< HEAD
   '@types/draco3d@1.4.10':
     resolution: {integrity: sha512-AX22jp8Y7wwaBgAixaSvkoG4M/+PlAcm3Qs4OW8yT9DM4xUpWKeFhLueTAyZF39pviAdcDdeJoACapiAceqNcw==}
 
   '@types/estree-jsx@1.0.5':
     resolution: {integrity: sha512-52CcUVNFyfb1A2ALocQw/Dd1BQFNmSdkuC3BkZ6iqhdMfQz7JWOFRuJFloOzjk+6WijU56m9oKXFAXc7o3Towg==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
@@ -2544,6 +2348,7 @@ packages:
   '@types/node@24.10.1':
     resolution: {integrity: sha512-GNWcUTRBgIRJD5zj+Tq0fKOJ5XZajIiBroOF0yvj2bSU1WvNdYS/dn9UxwsujGW4JX06dnHyjV2y9rRaybH0iQ==}
 
+<<<<<<< HEAD
   '@types/offscreencanvas@2019.7.3':
     resolution: {integrity: sha512-ieXiYmgSRXUDeOntE1InxjWyvEelZGP63M+cGuquuRLuIKKT1osnkXjxev9B7d1nXSug5vpunx+gNlbVxMlC9A==}
 
@@ -2565,15 +2370,15 @@ packages:
   '@types/react@19.2.7':
     resolution: {integrity: sha512-MWtvHrGZLFttgeEj28VXHxpmwYbor/ATPYbBfSFZEIRK0ecCFLl2Qo55z52Hss+UV9CRN7trSeq1zbgx7YDWWg==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@types/stack-utils@2.0.3':
     resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
-
-  '@types/stats.js@0.17.4':
-    resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
 
   '@types/statuses@2.0.6':
     resolution: {integrity: sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA==}
 
+<<<<<<< HEAD
   '@types/supports-color@8.1.3':
     resolution: {integrity: sha512-Hy6UMpxhE3j1tLpl27exp1XqHD7n8chAiNPzWfz16LPZoMMoSc4dzLl6w9qijkEb/r5O1ozdu1CWGA2L83ZeZg==}
 
@@ -2592,6 +2397,8 @@ packages:
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
@@ -2609,6 +2416,7 @@ packages:
       eslint: ^8.57.0 || ^9.0.0
       typescript: '>=4.8.4 <6.0.0'
 
+<<<<<<< HEAD
   '@typescript-eslint/parser@8.48.0':
     resolution: {integrity: sha512-jCzKdm/QK0Kg4V4IK/oMlRZlY+QOcdjv89U2NgKHZk1CYTj82/RVSx1mV/0gqCVMJ/DA+Zf/S4NBWNF8GQ+eqQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -2618,6 +2426,17 @@ packages:
 
   '@typescript-eslint/project-service@8.48.0':
     resolution: {integrity: sha512-Ne4CTZyRh1BecBf84siv42wv5vQvVmgtk8AuiEffKTUo3DrBaGYZueJSxxBZ8fjk/N3DrgChH4TOdIOwOwiqqw==}
+=======
+  '@typescript-eslint/parser@8.32.0':
+    resolution: {integrity: sha512-B2MdzyWxCE2+SqiZHAjPphft+/2x2FlO9YBx7eKE1BCb+rqBlQdhtAEhzIEdozHd55DXPmxBdpMygFJjfjjA9A==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    peerDependencies:
+      eslint: ^8.57.0 || ^9.0.0
+      typescript: '>=4.8.4 <5.9.0'
+
+  '@typescript-eslint/project-service@8.46.4':
+    resolution: {integrity: sha512-nPiRSKuvtTN+no/2N1kt2tUh/HoFzeEgOm9fQ6XQk4/ApGqjx0zFIIaLJ6wooR1HIoozvj2j6vTi/1fgAz7UYQ==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     peerDependencies:
       typescript: '>=4.8.4 <6.0.0'
@@ -2802,6 +2621,7 @@ packages:
     cpu: [x64]
     os: [win32]
 
+<<<<<<< HEAD
   '@use-gesture/core@10.3.1':
     resolution: {integrity: sha512-WcINiDt8WjqBdUXye25anHiNxPc0VOrlT8F6LLkU6cycrOGUDyY/yyFmsg3k8i5OLvv25llc0QC45GhR/C8llw==}
 
@@ -2857,6 +2677,10 @@ packages:
     peerDependenciesMeta:
       '@vitest/browser':
         optional: true
+=======
+  '@vitest/expect@3.2.4':
+    resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   '@vitest/expect@4.0.14':
     resolution: {integrity: sha512-RHk63V3zvRiYOWAV0rGEBRO820ce17hz7cI2kDmEdfQsBjT2luEKB5tCOc91u1oSQoUOZkSv3ZyzkdkSLD7lKw==}
@@ -2887,6 +2711,7 @@ packages:
   '@vitest/utils@4.0.14':
     resolution: {integrity: sha512-hLqXZKAWNg8pI+SQXyXxWCTOpA3MvsqcbVeNgSi8x/CSN2wi26dSzn1wrOhmCmFjEvN9p8/kLFRHa6PI8jHazw==}
 
+<<<<<<< HEAD
   '@webgpu/types@0.1.66':
     resolution: {integrity: sha512-YA2hLrwLpDsRueNDXIMqN9NTzD6bCDkuXbOSe0heS+f8YE8usA6Gbv1prj81pzVHrbaAma7zObnIC+I6/sXJgA==}
 
@@ -2894,6 +2719,8 @@ packages:
     resolution: {integrity: sha512-6/mh1E2u2YgEsCHdY0Yx5oW+61gZU+1vXaoiHHrpKeuRNNgFvS+/jrwHiQhB5apAf5oB7UB7E19ol2R2LKH8hQ==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
@@ -2973,10 +2800,13 @@ packages:
     resolution: {integrity: sha512-LHE+8BuR7RYGDKvnrmcuSq3tDcKv9OFEXQt/HpbZhY7V6h0zlUXutnAD82GiFx9rdieCMjkvtcsPqBwgUl1Iiw==}
     engines: {node: '>= 0.4'}
 
+<<<<<<< HEAD
   array-find-index@1.0.2:
     resolution: {integrity: sha512-M1HQyIXcBGtVywBt8WVdim+lrNaK7VHp99Qt5pSNziXznKHViIBbXWtfRTpEFpF/c4FdfxNAsCCwPp5phBYJtw==}
     engines: {node: '>=0.10.0'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   array-includes@3.1.9:
     resolution: {integrity: sha512-FmeCCAenzH0KH381SPT5FZmiA/TmpndpcaShhfgEN9eCVjnFBqq3l1xrI42y8+PPLI6hypzou4GXw00WHmPBLQ==}
     engines: {node: '>= 0.4'}
@@ -3004,10 +2834,6 @@ packages:
   arraybuffer.prototype.slice@1.0.4:
     resolution: {integrity: sha512-BNoCY6SXXPQ7gF2opIP4GBE+Xw7U+pHMYKuzjgCN3GwiaIR09UUeKfheyIry77QtrCBlC0KK0q5/TER/tYh3PQ==}
     engines: {node: '>= 0.4'}
-
-  arrify@1.0.1:
-    resolution: {integrity: sha512-3CYzex9M9FGQjCGMGyi6/31c8GJbgb0qGyrx5HWxPd0aCwh4cB2YjMb2Xf9UuoogrMrlO9cTqnB5rI5GHZTcUA==}
-    engines: {node: '>=0.10.0'}
 
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
@@ -3049,11 +2875,16 @@ packages:
     resolution: {integrity: sha512-ftzhzSGMUnOzcCXd6WHdBGMyuwy15Wnn0iyyWGKgBDLxf9/s5ABuraCSpBX2uG0jUg4rqJnxsLc5+oYBqoxVaA==}
     engines: {node: ^18.14.0 || ^20.0.0 || ^22.0.0 || >=24.0.0}
 
+<<<<<<< HEAD
   babel-plugin-react-compiler@1.0.0:
     resolution: {integrity: sha512-Ixm8tFfoKKIPYdCCKYTsqv+Fd4IJ0DQqMyEimo+pxUOMUR9cVPlwTrFt9Avu+3cb6Zp3mAzl+t1MrG2fxxKsxw==}
 
   babel-preset-current-node-syntax@1.2.0:
     resolution: {integrity: sha512-E/VlAEzRrsLEb2+dv8yp3bo4scof3l9nR4lrld+Iy5NyVqgVYUJnDAmunkhPMisRI32Qc4iRiz425d8vM++2fg==}
+=======
+  babel-preset-current-node-syntax@1.1.0:
+    resolution: {integrity: sha512-ldYss8SbBlWva1bs28q78Ju5Zq1F+8BrqBZZ0VFhLBvhh6lCpC2o3gDJi/5DRLs9FgYZCnmPYIVFU4lRXCkyUw==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     peerDependencies:
       '@babel/core': ^7.0.0 || ^8.0.0-0
 
@@ -3069,6 +2900,7 @@ packages:
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
+<<<<<<< HEAD
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
 
@@ -3087,6 +2919,14 @@ packages:
 
   body-parser@2.2.1:
     resolution: {integrity: sha512-nfDwkulwiZYQIGwxdy0RUmowMhKcFVcYXUU7m4QlKYim1rUtg83xm2yjZ40QjDuc291AJjjeSc9b++AWHSgSHw==}
+=======
+  baseline-browser-mapping@2.8.27:
+    resolution: {integrity: sha512-2CXFpkjVnY2FT+B6GrSYxzYf65BJWEqz5tIRHCvNsZZ2F3CmsCB37h8SpYgKG7y9C4YAeTipIPWG7EmFmhAeXA==}
+    hasBin: true
+
+  body-parser@2.2.0:
+    resolution: {integrity: sha512-02qvAaxv8tp7fBa/mw1ga98OGm+eCbqzJOKoRt70sLmfEEi+jyBYVTDGfCL/k06/4EMk/z01gCe7HoCH/f2LTg==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: '>=18'}
 
   boolbase@1.0.0:
@@ -3116,9 +2956,6 @@ packages:
 
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
-
-  buffer@6.0.3:
-    resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
 
   bundle-name@4.1.0:
     resolution: {integrity: sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q==}
@@ -3154,14 +2991,6 @@ packages:
     resolution: {integrity: sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==}
     engines: {node: '>=6'}
 
-  camelcase-keys@4.2.0:
-    resolution: {integrity: sha512-Ej37YKYbFUI8QiYlvj9YHb6/Z60dZyPJW0Cs8sFilMbd2lP0bw3ylAq9yJkK4lcTA2dID5fG8LjmJYbO7kWb7Q==}
-    engines: {node: '>=4'}
-
-  camelcase@4.1.0:
-    resolution: {integrity: sha512-FxAv7HpHrXbh3aPo4o2qxHay2lkLY3x5Mw3KeE4KQE8ysVfziWeRZDwcjauvwBSGEC/nXUPzZy8zeh4HokqOnw==}
-    engines: {node: '>=4'}
-
   camelcase@5.3.1:
     resolution: {integrity: sha512-L28STB170nwWS63UjtlEOE3dldQApaJXZkOI1uMFfzf3rRuPegHaHesyee+YxQ+W6SvRDQV6UrdOdRiR153wJg==}
     engines: {node: '>=6'}
@@ -3170,6 +2999,7 @@ packages:
     resolution: {integrity: sha512-Gmy6FhYlCY7uOElZUSbxo2UCDH8owEk996gkbrpsgGtrJLM3J7jGxl9Ic7Qwwj4ivOE5AWZWRMecDdF7hqGjFA==}
     engines: {node: '>=10'}
 
+<<<<<<< HEAD
   camera-controls@3.1.2:
     resolution: {integrity: sha512-xkxfpG2ECZ6Ww5/9+kf4mfg1VEYAoe9aDSY+IwF0UEs7qEzwy0aVRfs2grImIECs/PoBtWFrh7RXsQkwG922JA==}
     engines: {node: '>=22.0.0', npm: '>=10.5.1'}
@@ -3178,6 +3008,10 @@ packages:
 
   caniuse-lite@1.0.30001757:
     resolution: {integrity: sha512-r0nnL/I28Zi/yjk1el6ilj27tKcdjLsNqAOZr0yVjWPrSQyHgKI2INaEWw21bAQSv2LXRt1XuCS/GomNpWOxsQ==}
+=======
+  caniuse-lite@1.0.30001754:
+    resolution: {integrity: sha512-x6OeBXueoAceOmotzx3PO4Zpt4rzpeIFsSr6AAePTZxSkXiYDUmpypEl7e2+8NCd9bD7bXjqyef8CJYPC1jfxg==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
@@ -3232,6 +3066,7 @@ packages:
   cjs-module-lexer@2.1.1:
     resolution: {integrity: sha512-+CmxIZ/L2vNcEfvNtLdU0ZQ6mbq3FZnwAP2PPTiKP+1QOoKwlKlPgb8UKV0Dds7QVaMnHm+FwSft2VB0s/SLjQ==}
 
+<<<<<<< HEAD
   class-variance-authority@0.7.1:
     resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
 
@@ -3243,6 +3078,8 @@ packages:
     resolution: {integrity: sha512-ywqV+5MmyL4E7ybXgKys4DugZbX0FC6LnwrhjuykIjnK9k8OQacQ7axGKnjDXWNhns0xot3bZI5h55H8yo9cJg==}
     engines: {node: '>=6'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   cli-width@4.1.0:
     resolution: {integrity: sha512-ouuZd4/dm2Sw5Gmqy6bGyNNNe1qt9RpmxveLSO7KcgsTnU7RXfsw+/bukWGo1abgBiMAic068rclZsO4IWmmxQ==}
     engines: {node: '>= 12'}
@@ -3250,10 +3087,6 @@ packages:
   cliui@8.0.1:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
     engines: {node: '>=12'}
-
-  clsx@2.1.1:
-    resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
-    engines: {node: '>=6'}
 
   co@4.6.0:
     resolution: {integrity: sha512-QVb0dM5HvG+uaxitm8wONl7jltx8dqhfU33DcqtOZcLSVIKSDDLDi7+0LbAKiyI8hD9u42m2YxXSkMGWThaecQ==}
@@ -3298,6 +3131,7 @@ packages:
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
+<<<<<<< HEAD
   concat-stream@2.0.0:
     resolution: {integrity: sha512-MWufYdFw53ccGjCA+Ol7XJYpAlW6/prSMzuPOTRnJGcGzuhLn4Scrz7qf6o8bROZ514ltazcIFJZevcfbo0x7A==}
     engines: {'0': node >= 6.0}
@@ -3310,13 +3144,21 @@ packages:
   confbox@0.1.8:
     resolution: {integrity: sha512-RMtmw0iFkeR4YV+fUOSucriAQNb9g8zFR52MWCtl+cCZOFRNL6zeB395vPzFhEjjn4fMxXudmELnl/KF/WrK6w==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   consola@3.4.2:
     resolution: {integrity: sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA==}
     engines: {node: ^14.18.0 || >=16.10.0}
 
+<<<<<<< HEAD
   content-disposition@1.0.1:
     resolution: {integrity: sha512-oIXISMynqSqm241k6kcQ5UwttDILMK4BiurCfGEREw6+X9jkkpEe5T9FZaApyLGGOnFuyMWZpdolTXMtvEJ08Q==}
     engines: {node: '>=18'}
+=======
+  content-disposition@1.0.0:
+    resolution: {integrity: sha512-Au9nRL8VNUut/XSzbQA38+M78dzP4D+eqg3gfJHMIHHYa3bg067xj1KxMUWj+VULbiZMowKngFFbKczUrNJ1mg==}
+    engines: {node: '>= 0.6'}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   content-type@1.0.5:
     resolution: {integrity: sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA==}
@@ -3351,15 +3193,11 @@ packages:
     resolution: {integrity: sha512-Lv1Bd3WZEgwG4nrogkM54m8viW+TWPlGivLyEi7aNb3cuKPsEfMDZ/kTbo87fzOGtsZ2yh7scO54ZmVhhgBgTw==}
     hasBin: true
 
-  cross-env@7.0.3:
-    resolution: {integrity: sha512-+/HKd6EgcQCJGh2PSjZuUitQBQynKor4wrFbRg4DtAgS1aWO+gU52xpH7M9ScGgXSYmAVS9bIJ8EzuaGw0oNAw==}
-    engines: {node: '>=10.14', npm: '>=6', yarn: '>=1'}
-    hasBin: true
-
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
+<<<<<<< HEAD
   css-selector-parser@3.2.0:
     resolution: {integrity: sha512-L1bdkNKUP5WYxiW5dW6vA2hd3sL8BdRNLy2FCX0rLVise4eNw9nBdeBuJHxlELieSE2H1f6bYQFfwVUwWCV9rQ==}
 
@@ -3535,6 +3373,8 @@ packages:
   dagre-d3-es@7.0.13:
     resolution: {integrity: sha512-efEhnxpSuwpYOKRm/L5KbqoZmNNukHa/Flty4Wp62JRvgH2ojwVgPgdYyr4twpieZnyRDdIH7PY2mopX26+j2Q==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   data-view-buffer@1.0.2:
     resolution: {integrity: sha512-EmKO5V3OLXh1rtK2wgXRansaK1/mtVdTUEiEI0W8RkvgT05kfxaH29PliLnpLP73yYO6142Q72QNa8Wx/A5CqQ==}
     engines: {node: '>= 0.4'}
@@ -3547,6 +3387,7 @@ packages:
     resolution: {integrity: sha512-BS8PfmtDGnrgYdOonGZQdLZslWIeCGFP9tpan0hi1Co2Zr2NKADsvGYA8XxuG/4UWgJ6Cjtv+YJnB6MM69QGlQ==}
     engines: {node: '>= 0.4'}
 
+<<<<<<< HEAD
   dayjs@1.11.19:
     resolution: {integrity: sha512-t5EcLVS6QPBNqM2z8fakk/NKel+Xzshgt8FFKAn+qwlD1pzZWxh0nVCrvFK7ZDb6XucZeF9z8C7CBWTRIVApAw==}
 
@@ -3558,6 +3399,8 @@ packages:
       supports-color:
         optional: true
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   debug@3.2.7:
     resolution: {integrity: sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ==}
     peerDependencies:
@@ -3575,6 +3418,7 @@ packages:
       supports-color:
         optional: true
 
+<<<<<<< HEAD
   decamelize-keys@1.1.1:
     resolution: {integrity: sha512-WiPxgEirIV0/eIOMcnFBA3/IJZAZqKnwAwWyvvdi4lsr1WCN22nhdf/3db3DoZcUjTV2SqfzIwNyp6y2xs3nmg==}
     engines: {node: '>=0.10.0'}
@@ -3588,6 +3432,10 @@ packages:
 
   dedent@1.7.0:
     resolution: {integrity: sha512-HGFtf8yhuhGhqO07SV79tRp+br4MnbdjeVxotpn1QBl30pcLLCQjX5b2295ll0fv8RKDKsmWYrl05usHM9CewQ==}
+=======
+  dedent@1.6.0:
+    resolution: {integrity: sha512-F1Z+5UCFpmQUzJa11agbyPVMbpgT/qA3/SKyJ1jyBgm7dUcUEa8v9JwDkerSQXfakBwFljIxhOJqGkjUwZ9FSA==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     peerDependencies:
       babel-plugin-macros: ^3.1.0
     peerDependenciesMeta:
@@ -3631,6 +3479,7 @@ packages:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
     engines: {node: '>= 0.8'}
 
+<<<<<<< HEAD
   dequal@2.0.3:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
     engines: {node: '>=6'}
@@ -3642,6 +3491,8 @@ packages:
   detect-gpu@5.0.70:
     resolution: {integrity: sha512-bqerEP1Ese6nt3rFkwPnGbsUF9a4q+gMmpTVVOEzoCyeCc+y7/RvJnQZJx1JwhgQI5Ntg0Kgat8Uu7XpBqnz1w==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
@@ -3672,6 +3523,7 @@ packages:
     resolution: {integrity: sha512-35mSku4ZXK0vfCuHEDAwt55dg2jNajHZ1odvF+8SSr82EsZY4QmXfuWso8oEd8zRhVObSN18aM0CjSdoBX7zIw==}
     engines: {node: '>=0.10.0'}
 
+<<<<<<< HEAD
   dompurify@3.3.0:
     resolution: {integrity: sha512-r+f6MYR1gGN1eJv0TVQbhA7if/U7P87cdPl3HN5rikqaBSBxLiCb/b9O+2eG0cxz0ghyU+mU1QkbsOwERMYlWQ==}
 
@@ -3689,10 +3541,11 @@ packages:
 
   dotenv@17.2.3:
     resolution: {integrity: sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==}
+=======
+  dotenv@16.5.0:
+    resolution: {integrity: sha512-m/C+AwOAr9/W1UOIZUo232ejMNnJAJtYQjUbHoNTBNTJSvqzzDh7vnrei3o3r3m9blf6ZoDkvcw0VmozNRFJxg==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: '>=12'}
-
-  draco3d@1.5.7:
-    resolution: {integrity: sha512-m6WCKt/erDXcw+70IJXnG7M3awwQPAsZvJGX5zY7beBqpELw6RDGkYVU0W43AFxye4pDZ5i2Lbyc/NNGqwjUVQ==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -3723,14 +3576,11 @@ packages:
   emoji-regex@9.2.2:
     resolution: {integrity: sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg==}
 
-  encodeurl@1.0.2:
-    resolution: {integrity: sha512-TPJXq8JqFaVYm2CWmPvnP2Iyo4ZSM7/QKcSmuMLDObfpH5fi7RUGmd/rTDf+rut/saiDiQEeVTNgAmJEdAOx0w==}
-    engines: {node: '>= 0.8'}
-
   encodeurl@2.0.0:
     resolution: {integrity: sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg==}
     engines: {node: '>= 0.8'}
 
+<<<<<<< HEAD
   enhanced-resolve@5.18.3:
     resolution: {integrity: sha512-d4lC8xfavMeBjzGr2vECC3fsGXziXZQyJxD868h2M/mBI3PwAuODxAkLkq5HYuvrPYcUtiLzsTo8U3PgX3Ocww==}
     engines: {node: '>=10.13.0'}
@@ -3744,6 +3594,10 @@ packages:
 
   error-ex@1.3.4:
     resolution: {integrity: sha512-sqQamAnR14VgCr1A618A3sGrygcpK+HEbenA/HiEAkkUwcZIIB/tgWqHFxWgOyDh4nB4JCRimh79dR5Ywc9MDQ==}
+=======
+  error-ex@1.3.2:
+    resolution: {integrity: sha512-7dFHNmqeFSEt2ZBsCriorKnn3Z2pj+fd9kmI6QoWw4//DL+icEBfc0U7qJCisqrTsKTjw4fNFy2pW9OqStD84g==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   es-abstract@1.24.0:
     resolution: {integrity: sha512-WSzPgsdLtTcQwm4CROfS5ju2Wa1QQcVeT37jFjYzdFz1r9ahadC8B8/a4qxJxM+09F18iumCdRmlr96ZYkQvEg==}
@@ -3881,6 +3735,7 @@ packages:
       '@typescript-eslint/parser':
         optional: true
 
+<<<<<<< HEAD
   eslint-plugin-mdx@3.6.2:
     resolution: {integrity: sha512-RfMd5HYD/9+cqANhVWJbuBRg3huWUsAoGJNGmPsyiRD2X6BaG6bvt1omyk1ORlg81GK8ST7Ojt5fNAuwWhWU8A==}
     engines: {node: '>=18.0.0'}
@@ -3906,6 +3761,10 @@ packages:
 
   eslint-plugin-unused-imports@4.3.0:
     resolution: {integrity: sha512-ZFBmXMGBYfHttdRtOG9nFFpmUvMtbHSjsKrS20vdWdbfiVYsO3yA2SGYy9i9XmZJDfMGBflZGBCm70SEnFQtOA==}
+=======
+  eslint-plugin-unused-imports@4.1.4:
+    resolution: {integrity: sha512-YptD6IzQjDardkl0POxnnRBhU1OEePMV0nd6siHaRBbd+lyh6NAhFEobiznKU7kTsSsDeSD62Pe7kAM1b7dAZQ==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     peerDependencies:
       '@typescript-eslint/eslint-plugin': ^8.0.0-0 || ^7.0.0 || ^6.0.0 || ^5.0.0
       eslint: ^9.0.0 || ^8.0.0
@@ -3925,8 +3784,13 @@ packages:
     resolution: {integrity: sha512-Uhdk5sfqcee/9H/rCOJikYz67o0a2Tw2hGRPOG2Y1R2dg7brRe1uG0yaNQDHu+TO/uQPF/5eCapvYSmHUjt7JQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+<<<<<<< HEAD
   eslint@9.39.1:
     resolution: {integrity: sha512-BhHmn2yNOFA9H9JmmIVKJmd288g9hrVRDkdoIgRCRuSySRUHH7r/DI6aAXW9T1WwUuY3DFgrcaqB+deURBLR5g==}
+=======
+  eslint@9.26.0:
+    resolution: {integrity: sha512-Hx0MOjPh6uK9oq9nVsATZKE/Wlbai7KFjfCuw9UHaguDW3x+HF0O5nIi3ud39TWgrTjTO5nHxmL3R1eANinWHQ==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     hasBin: true
     peerDependencies:
@@ -4057,21 +3921,29 @@ packages:
   fb-watchman@2.0.2:
     resolution: {integrity: sha512-p5161BqbuCaSnB8jIbzQHOlpgsPmK5rJVDfDKO91Axs5NC1uu3HRQm6wt9cd9/+GtQQIO53JdGXXoyDpTAsgYA==}
 
+<<<<<<< HEAD
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
+=======
+  fdir@6.4.6:
+    resolution: {integrity: sha512-hiFoqpyZcfNm1yc4u8oWCf9A2c4D3QjCrks3zmoVKVxpQRzmPNar1hUJcBG2RQHvEVGDN+Jm81ZheVLAQMK6+w==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     peerDependencies:
       picomatch: ^3 || ^4
     peerDependenciesMeta:
       picomatch:
         optional: true
 
+<<<<<<< HEAD
   fflate@0.6.10:
     resolution: {integrity: sha512-IQrh3lEPM93wVCEczc9SaAOvkmcoQn/G8Bo1e8ZPlY3X3bnAxWaBdvTdvM1hP62iZp0BXWDy4vTAy4fF0+Dlpg==}
 
   fflate@0.8.2:
     resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   file-entry-cache@8.0.0:
     resolution: {integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==}
     engines: {node: '>=16.0.0'}
@@ -4083,10 +3955,6 @@ packages:
   finalhandler@2.1.0:
     resolution: {integrity: sha512-/t88Ty3d5JWQbWYgaOGCCYfXRwV1+be02WqYYlL6h0lEiUAMPM8o8qKGO01YIkOHzka2up08wvgYD0mDiI+q3Q==}
     engines: {node: '>= 0.8'}
-
-  find-up@2.1.0:
-    resolution: {integrity: sha512-NWzkk0jSJtTt08+FBFMvXoeZnOJD+jTtsRmBYbAIzJdX6l7dLgR7CTubCM5/eDdPUBvLCeVasP1brfVR/9/EZQ==}
-    engines: {node: '>=4'}
 
   find-up@4.1.0:
     resolution: {integrity: sha512-PpOwAdQ/YlXQ2vj8a3h8IipDuYRi3wceVQQGYWxNINccq40Anw7BlsEXCMbt1Zt+OLA6Fq9suIpIWD0OsnISlw==}
@@ -4122,6 +3990,7 @@ packages:
     resolution: {integrity: sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==}
     engines: {node: '>= 0.6'}
 
+<<<<<<< HEAD
   fraction.js@5.3.4:
     resolution: {integrity: sha512-1X1NTtiJphryn/uLQz3whtY6jK3fTqoE3ohKs0tT+Ujr1W59oopxmoEh7Lu5p6vBaPbgoM0bzveAW4Qi5RyWDQ==}
 
@@ -4129,6 +3998,8 @@ packages:
     resolution: {integrity: sha512-zJ2mQYM18rEFOudeV4GShTGIQ7RbzA7ozbU9I/XBpm7kqgMywgmylMwXHxZJmkVoYkna9d2pVXVXPdYTP9ej8Q==}
     engines: {node: '>= 0.6'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   fresh@2.0.0:
     resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
     engines: {node: '>= 0.8'}
@@ -4222,14 +4093,20 @@ packages:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
     engines: {node: '>=18'}
 
+<<<<<<< HEAD
   globals@16.5.0:
     resolution: {integrity: sha512-c/c15i26VrJ4IRt5Z89DnIzCGDn9EcebibhAOjw5ibqEHsE1wLUgkPn9RDmNcUKyU87GeaL633nyJ+pplFR2ZQ==}
+=======
+  globals@16.1.0:
+    resolution: {integrity: sha512-aibexHNbb/jiUSObBgpHLj+sIuUmJnYcgXBlrfsiDZ9rt4aF2TFRbyLgZ2iFQuVZ1K5Mx3FVkbKRSgKrbK3K2g==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: '>=18'}
 
   globalthis@1.0.4:
     resolution: {integrity: sha512-DpLKbNU4WylpxJykQujfCcwYWiV/Jhm50Goo0wrVILAv5jOr9d+H+UR3PhSCD2rCCEIg0uc+G+muBTwD54JhDQ==}
     engines: {node: '>= 0.4'}
 
+<<<<<<< HEAD
   globby@14.1.0:
     resolution: {integrity: sha512-0Ia46fDOaT7k4og1PDW4YbodWWr3scS2vAr2lTbsplOt2WkKp0vQbkI9wKis/T5LV/dqPjO3bpS/z6GTJB82LA==}
     engines: {node: '>=18'}
@@ -4237,6 +4114,8 @@ packages:
   glsl-noise@0.0.0:
     resolution: {integrity: sha512-b/ZCF6amfAUb7dJM/MxRs7AetQEahYzJ8PtgfrmEdtw6uyGOr+ZSGtgjFm6mfsBkxJ4d2W7kg+Nlqzqvn3Bc0w==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -4343,6 +4222,7 @@ packages:
   headers-polyfill@4.0.3:
     resolution: {integrity: sha512-IScLbePpkvO846sIwOtOTDjutRMWdXdJmXdMvk6gCBHxFO8d+QKOQedyZSxFTTFYRSmlgSTDtXqqq4pcenBXLQ==}
 
+<<<<<<< HEAD
   hermes-estree@0.25.1:
     resolution: {integrity: sha512-0wUoCcLp+5Ev5pDW2OriHC2MJCbwLwuRx+gAqMTOkGKJJiBCLjtrvy4PWUGn6MIVefecRpzoOZ/UV6iGdOr+Cw==}
 
@@ -4363,6 +4243,8 @@ packages:
     resolution: {integrity: sha512-puUZAUKT5m8Zzvs72XWy3HtvVbTWljRE66cP60bxJzAqf2DgICo7lYTY2IHUmLnNpjYvw5bvmoHvPc0QO2a62w==}
     engines: {node: ^16.14.0 || >=18.0.0}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
@@ -4389,9 +4271,6 @@ packages:
     resolution: {integrity: sha512-cf6L2Ds3h57VVmkZe+Pn+5APsT7FpqJtEhhieDCvrE2MK5Qk9MyffgQyuxQTm6BChfeZNtcOLHp9IcWRVcIcBQ==}
     engines: {node: '>=0.10.0'}
 
-  ieee754@1.2.1:
-    resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
-
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
     engines: {node: '>= 4'}
@@ -4403,9 +4282,6 @@ packages:
   ignore@7.0.5:
     resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
     engines: {node: '>= 4'}
-
-  immediate@3.0.6:
-    resolution: {integrity: sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==}
 
   import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
@@ -4422,10 +4298,6 @@ packages:
   imurmurhash@0.1.4:
     resolution: {integrity: sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==}
     engines: {node: '>=0.8.19'}
-
-  indent-string@3.2.0:
-    resolution: {integrity: sha512-BYqTHXTGUIvg7t1r4sJNKcbDZkL92nkXA8YtRpbjFHRHGDL/NtUeiBJMeE60kIFN/Mg8ESaWQvftaYMGJzQZCQ==}
-    engines: {node: '>=4'}
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
@@ -4570,6 +4442,7 @@ packages:
     resolution: {integrity: sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==}
     engines: {node: '>=0.12.0'}
 
+<<<<<<< HEAD
   is-plain-obj@1.1.0:
     resolution: {integrity: sha512-yvkRyxmFKEOQ4pNXCmJG5AEQNlXJS5LaONXo5/cLdTZdWvsZ1ioJEonLGAosKlMWE8lwUy/bJzMjcw8az73+Fg==}
     engines: {node: '>=0.10.0'}
@@ -4581,6 +4454,8 @@ packages:
   is-promise@2.2.2:
     resolution: {integrity: sha512-+lP4/6lKUBfQjZ2pdxThZvLUAafmZb8OAxFb8XXtiQmS35INgr85hdOGoEs124ez1FCnZJt6jau/T+alh58QFQ==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   is-promise@4.0.0:
     resolution: {integrity: sha512-hvpoI6korhJMnej285dSg6nu1+e6uxs7zG3BYAm5byqDsgJNWwxzM6z6iZiAgQR4TJ30JmBTOwqZUw3WlyH3AQ==}
 
@@ -4662,6 +4537,7 @@ packages:
     resolution: {integrity: sha512-HGYWWS/ehqTV3xN10i23tkPkpH46MLCIMFNCaaKNavAXTF1RkqxawEPtnjnGZ6XKSInBKkiOA5BKS+aZiY3AvA==}
     engines: {node: '>=8'}
 
+<<<<<<< HEAD
   iterator.prototype@1.1.5:
     resolution: {integrity: sha512-H0dkQoCa3b2VEeKQBOxFph+JAbcrQdE7KC0UkqwpLmv2EC4P41QXP+rqo9wYodACiG5/WM5s9oDApTU8utwj9g==}
     engines: {node: '>= 0.4'}
@@ -4671,6 +4547,8 @@ packages:
     peerDependencies:
       react: ^19.0.0
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   jackspeak@3.4.3:
     resolution: {integrity: sha512-OGlZQpz2yfahA/Rd1Y8Cd9SIEsqvXkLVoSw/cgwhnhFMDbsQFeZYoJJ7bIZBS9BcamUW96asq/npPWugM+RQBw==}
 
@@ -4835,9 +4713,6 @@ packages:
   json-buffer@3.0.1:
     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
 
-  json-parse-better-errors@1.0.2:
-    resolution: {integrity: sha512-mrqyZKfX5EhL7hvqcV6WG1yYjnjeuYDzDhhcAAUrq8Po85NBQBJP+ZDUT75qZQ98IkUoBqdkExkukOU7Ts2wrw==}
-
   json-parse-even-better-errors@2.3.1:
     resolution: {integrity: sha512-xyFwyhro/JEof6Ghe2iz2NcXoj2sloNsWr/XsERDK/oiPCfaNhl5ONfp+jQdAZRQQ0IJWNzH9zIZF7li91kh2w==}
 
@@ -4904,9 +4779,6 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
-
-  lie@3.3.0:
-    resolution: {integrity: sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==}
 
   lightningcss-android-arm64@1.30.2:
     resolution: {integrity: sha512-BH9sEdOCahSgmkVhBLeU7Hc9DWeZ1Eb6wNS6Da8igvUwAe0sqROHddIlvU06q3WyXVEOYDZ6ykBZQnjTbmo4+A==}
@@ -4985,6 +4857,7 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
+<<<<<<< HEAD
   lines-and-columns@2.0.4:
     resolution: {integrity: sha512-wM1+Z03eypVAVUCE7QdSqpVIvelbOakn1M0bPDoA4SGWPx3sNDVUiMo3L6To6WWGClB7VyXnhQ4Sn7gxiJbE6A==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
@@ -4996,13 +4869,11 @@ packages:
   load-plugin@6.0.3:
     resolution: {integrity: sha512-kc0X2FEUZr145odl68frm+lMJuQ23+rTXYmR6TImqPtbpmXC4vVXbWKDQ9IzndA0HfyQamWfKLhzsqGSTxE63w==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   load-tsconfig@0.2.5:
     resolution: {integrity: sha512-IXO6OCs9yg8tMKzfPZ1YmheJbZCiEsnBdcB03l0OcfK9prKnJb96siuHCr5Fl37/yo9DnKU+TLpxzTUspw9shg==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
-
-  locate-path@2.0.0:
-    resolution: {integrity: sha512-NCI2kiDkyR7VeEKm27Kda/iQHyKJe1Bu0FlTbYp3CqJu+9IFe9bLyAjMxf5ZDDbEg+iMPzB5zYyUTSm8wVTKmA==}
-    engines: {node: '>=4'}
 
   locate-path@5.0.0:
     resolution: {integrity: sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g==}
@@ -5032,9 +4903,14 @@ packages:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
 
+<<<<<<< HEAD
   loud-rejection@1.6.0:
     resolution: {integrity: sha512-RPNliZOFkqFumDhvYqOaNY4Uz9oJM2K9tC6JWsJJsNdhuONW4LQHRBpb0qf4pJApVffI5N39SwzWZJuEhfd7eQ==}
     engines: {node: '>=0.10.0'}
+=======
+  loupe@3.1.4:
+    resolution: {integrity: sha512-wJzkKwJrheKtknCOKNEtDK4iqg/MxmZheEMtSTYvnzRdEYaZzmgH976nenp8WdJRdx5Vc1X/9MO0Oszl6ezeXg==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
@@ -5042,6 +4918,7 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
+<<<<<<< HEAD
   lucide-react@0.555.0:
     resolution: {integrity: sha512-D8FvHUGbxWBRQM90NZeIyhAvkFfsh3u9ekrMvJ30Z6gnpBHS6HC6ldLg7tL45hwiIz/u66eKDtdA23gwwGsAHA==}
     peerDependencies:
@@ -5058,6 +4935,10 @@ packages:
 
   magicast@0.5.1:
     resolution: {integrity: sha512-xrHS24IxaLrvuo613F719wvOIv9xPHFWQHuvGUBmPnCA/3MQxKI3b+r7n1jAoDHmsbC5bRhTZYR77invLAxVnw==}
+=======
+  magic-string@0.30.17:
+    resolution: {integrity: sha512-sNPKHvyjVf7gyjwS4xGTaW/mCnF8wnjtifKBEhxfZ7E/S8tQ0rssrwGNn6q8JH/ohItJfSQp9mBtQYuTlH5QnA==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   make-dir@4.0.0:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
@@ -5069,6 +4950,7 @@ packages:
   makeerror@1.0.12:
     resolution: {integrity: sha512-JmqCvUhmt43madlpFzG4BQzG2Z3m6tvQDNKdClZnO3VbIudJYmxsT0FNJMeiB2+JTSlTQTSbU8QdesVmwJcmLg==}
 
+<<<<<<< HEAD
   map-obj@1.0.1:
     resolution: {integrity: sha512-7N/q3lyZ+LVCp7PzuxrJr4KMbBE2hW7BT7YNia330OFxIf4d3r5zVpicP2650l7CPN6RM9zOJRl3NGpqSiw3Eg==}
     engines: {node: '>=0.10.0'}
@@ -5092,10 +4974,13 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
+<<<<<<< HEAD
   mdast-util-directive@3.1.0:
     resolution: {integrity: sha512-I3fNFt+DHmpWCYAT7quoM6lHf9wuqtI+oCOfvILnoicNIqjh5E3dEJWiXuYME2gNe8vl1iMQwyUHa7bgFmak6Q==}
 
@@ -5153,14 +5038,19 @@ packages:
   media-query-parser@2.0.2:
     resolution: {integrity: sha512-1N4qp+jE0pL5Xv4uEcwVUhIkwdUO3S/9gML90nqKA7v7FcOS5vUtatfzok9S9U1EJU8dHWlcv95WLnKmmxZI9w==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   media-typer@1.1.0:
     resolution: {integrity: sha512-aisnrDP4GNe06UcKFnV5bfMNPBUw4jsLGaWwWfnH3v02GnBuXX2MCVn5RbrWo0j3pczUilYblq7fQ7Nw2t5XKw==}
     engines: {node: '>= 0.8'}
 
+<<<<<<< HEAD
   meow@4.0.0:
     resolution: {integrity: sha512-Me/kel335m6vMKmEmA6c87Z6DUFW3JqkINRnxkbC+A/PUm0D5Fl2dEBQrPKnqCL9Te/CIa1MUt/0InMJhuC/sw==}
     engines: {node: '>=4'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   merge-descriptors@2.0.0:
     resolution: {integrity: sha512-Snk314V5ayFLhp3fkUREub6WtjBfPdCPY1Ln8/8munuLuiYhsABgBVWsozAG+MWMbVEvcdcpbi9R7ww22l9Q3g==}
     engines: {node: '>=18'}
@@ -5172,6 +5062,7 @@ packages:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
     engines: {node: '>= 8'}
 
+<<<<<<< HEAD
   mermaid-isomorphic@3.0.4:
     resolution: {integrity: sha512-XQTy7H1XwHK3DPEHf+ZNWiqUEd9BwX3Xws38R9Fj2gx718srmgjlZoUzHr+Tca+O+dqJOJsAJaKzCoP65QDfDg==}
     peerDependencies:
@@ -5302,6 +5193,8 @@ packages:
   micromark@4.0.2:
     resolution: {integrity: sha512-zpe98Q6kvavpCr1NPVSCMebCKfD7CA2NqZ+rykeNhONIJBpc1tFKt9hucLGwha3jNTNI8lHpctWJWoimVF4PfA==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   micromatch@4.0.8:
     resolution: {integrity: sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA==}
     engines: {node: '>=8.6'}
@@ -5310,14 +5203,15 @@ packages:
     resolution: {integrity: sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ==}
     engines: {node: '>= 0.6'}
 
+<<<<<<< HEAD
   mime-types@3.0.2:
     resolution: {integrity: sha512-Lbgzdk0h4juoQ9fCKXW4by0UJqj+nOOrI9MJ1sSj4nI8aI2eo1qmvQEie4VD1glsS250n15LsWsYtCugiStS5A==}
     engines: {node: '>=18'}
-
-  mime@1.6.0:
-    resolution: {integrity: sha512-x0Vn8spI+wuJ1O6S7gnbaQg8Pxh4NNHb7KSINmEWKiPE4RKOplvijn+NkmYmmRgP68mc70j2EbeTFRsrswaQeg==}
-    engines: {node: '>=4'}
-    hasBin: true
+=======
+  mime-types@3.0.1:
+    resolution: {integrity: sha512-xRc4oEhT6eaBpU1XF7AjpOFD+xQmXNB5OVKwp4tqCuBpHLS/ZbBDrc07mYTDqVMg6PfxUjjNp85O6Cd2Z/5HWA==}
+    engines: {node: '>= 0.6'}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   mimic-fn@2.1.0:
     resolution: {integrity: sha512-OqbOk5oEQeAZ8WXWydlu9HJjz9WVdEIvamMCcXmuqUYjTknH/sqsWvhQ3vgwKFRR1HpjvNBKQ37nbJgYzGqGcg==}
@@ -5334,10 +5228,6 @@ packages:
     resolution: {integrity: sha512-G6T0ZX48xgozx7587koeX9Ys2NYy6Gmv//P89sEte9V9whIapMNF4idKxnW2QtCcLiTWlb/wfCabAtAFWhhBow==}
     engines: {node: '>=16 || 14 >=14.17'}
 
-  minimist-options@3.0.2:
-    resolution: {integrity: sha512-FyBrT/d0d4+uiZRbqznPXqw3IpZZG3gl3wKWiX784FycUKVwBt0uLBFkQrtE4tZOrgo78nZp2jnKz3L65T5LdQ==}
-    engines: {node: '>= 4'}
-
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
 
@@ -5345,6 +5235,7 @@ packages:
     resolution: {integrity: sha512-qOOzS1cBTWYF4BH8fVePDBOO9iptMnGUEZwNc/cMWnTV2nVLZ7VoNWEPHkYczZA0pdoA7dl6e7FL659nX9S2aw==}
     engines: {node: '>=16 || 14 >=14.17'}
 
+<<<<<<< HEAD
   minisearch@6.3.0:
     resolution: {integrity: sha512-ihFnidEeU8iXzcVHy74dhkxh/dn8Dc08ERl0xwoMMGqp4+LvRSCgicb+zGqWthVokQKvCSxITlh3P08OzdTYCQ==}
 
@@ -5361,6 +5252,8 @@ packages:
   ms@2.0.0:
     resolution: {integrity: sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
@@ -5381,14 +5274,6 @@ packages:
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
 
-  nanoid-cli@1.1.0:
-    resolution: {integrity: sha512-LhRk1bRvzhW7rf/kCB6T0L0gMdHktUYuYfSFPJVYRqaGNUbCe8VVobZSCuZ8pEBstih8Tb19aK3/6WhJXCttsA==}
-    engines: {node: '>=4'}
-    hasBin: true
-
-  nanoid@1.3.4:
-    resolution: {integrity: sha512-4ug4BsuHxiVHoRUe1ud6rUFT3WUMmjXt1W0quL0CviZQANdan7D8kqN5/maw53hmAApY/jfzMRkC57BNNs60ZQ==}
-
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -5402,10 +5287,13 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
+<<<<<<< HEAD
   negotiator@0.6.4:
     resolution: {integrity: sha512-myRT3DiWPHqho5PrJaIRyaMv2kgYf0mUVgBNOYMuCH5Ki1yEiQaf/ZJuQ62nvpc44wL5WDbTX7yGJi1Neevw8w==}
     engines: {node: '>= 0.6'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   negotiator@1.0.0:
     resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
@@ -5419,6 +5307,7 @@ packages:
   node-releases@2.0.27:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
 
+<<<<<<< HEAD
   nopt@7.2.1:
     resolution: {integrity: sha512-taM24ViiimT/XntxbPyJQzCG+p4EKOpgD3mxFwW38mGjVUrfERQOeY4EDHjdnptttfHuHQXFx+lTP08Q+mLa/w==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
@@ -5431,6 +5320,8 @@ packages:
     resolution: {integrity: sha512-V6gygoYb/5EmNI+MEGrWkC+e6+Rr7mTmfHrxDbLzxQogBkgzo76rkok0Am6thgSF7Mv2nLOajAJj5vDJZEFn7g==}
     engines: {node: ^16.14.0 || >=18.0.0}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
     engines: {node: '>=0.10.0'}
@@ -5536,12 +5427,17 @@ packages:
   oniguruma-to-es@2.3.0:
     resolution: {integrity: sha512-bwALDxriqfKGfUufKGGepCzu9x7nJQuoRoAFp4AnwehhC2crqrDIAP/uN2qdlsAvSMpeRC3+Yzhqc7hLmle5+g==}
 
+<<<<<<< HEAD
   open@11.0.0:
     resolution: {integrity: sha512-smsWv2LzFjP03xmvFoJ331ss6h+jixfA4UUV/Bsiyuu4YJPfN+FIQGOIiv4w9/+MoHkfkJ22UIaQWRVFRfH6Vw==}
     engines: {node: '>=20'}
 
   openai@6.9.1:
     resolution: {integrity: sha512-vQ5Rlt0ZgB3/BNmTa7bIijYFhz3YBceAA3Z4JuoMSBftBF9YqFHIEhZakSs+O/Ad7EaoEimZvHxD5ylRjN11Lg==}
+=======
+  openai@6.8.1:
+    resolution: {integrity: sha512-ACifslrVgf+maMz9vqwMP4+v9qvx5Yzssydizks8n+YUJ6YwUoxj51sKRQ8HYMfR6wgKLSIlaI108ZwCk+8yig==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     hasBin: true
     peerDependencies:
       ws: ^8.18.0
@@ -5567,10 +5463,6 @@ packages:
     resolution: {integrity: sha512-qFOyK5PjiWZd+QQIh+1jhdb9LpxTF0qs7Pm8o5QHYZ0M3vKqSqzsZaEB6oWlxZ+q2sJBMI/Ktgd2N5ZwQoRHfg==}
     engines: {node: '>= 0.4'}
 
-  p-limit@1.3.0:
-    resolution: {integrity: sha512-vvcXsLAJ9Dr5rQOPk7toZQZJApBl2K4J6dANSsEuh6QI41JYcsS/qhTGa9ErIUUgK3WNQoJYvylxvjqmiqEA9Q==}
-    engines: {node: '>=4'}
-
   p-limit@2.3.0:
     resolution: {integrity: sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==}
     engines: {node: '>=6'}
@@ -5579,6 +5471,7 @@ packages:
     resolution: {integrity: sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==}
     engines: {node: '>=10'}
 
+<<<<<<< HEAD
   p-limit@5.0.0:
     resolution: {integrity: sha512-/Eaoq+QyLSiXQ4lyYV23f14mZRQcXnxfHrN0vCai+ak9G0pp9iEQukIIZq5NccEvwRB8PUnZT0KsOoDCINS1qQ==}
     engines: {node: '>=18'}
@@ -5587,6 +5480,8 @@ packages:
     resolution: {integrity: sha512-nQja7m7gSKuewoVRen45CtVfODR3crN3goVQ0DDZ9N3yHxgpkuBhZqsaiotSQRrADUrne346peY7kT3TSACykg==}
     engines: {node: '>=4'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   p-locate@4.1.0:
     resolution: {integrity: sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A==}
     engines: {node: '>=8'}
@@ -5594,10 +5489,6 @@ packages:
   p-locate@5.0.0:
     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
     engines: {node: '>=10'}
-
-  p-try@1.0.0:
-    resolution: {integrity: sha512-U1etNYuMJoIz3ZXSrrySFjsXQTWOx2/jdi86L+2pRvph/qMKL6sbcCYdH23fqsbm8TH2Gn0OybpT4eSFlCVHww==}
-    engines: {node: '>=4'}
 
   p-try@2.2.0:
     resolution: {integrity: sha512-R4nPAVTAU0B9D35/Gk3uJf/7XYbQcyohSKdvAxIRSNghFl4e71hVoGnBNQz9cWaXxO2I10KTC+3jMdvvoKw6dQ==}
@@ -5613,6 +5504,7 @@ packages:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
     engines: {node: '>=6'}
 
+<<<<<<< HEAD
   parse-entities@4.0.2:
     resolution: {integrity: sha512-GG2AQYWoLgL877gQIKeRPGO1xF9+eG1ujIb5soS5gPvLQ1y2o8FL90w2QWNdf9I361Mpp7726c+lj3U0qK1uGw==}
 
@@ -5620,6 +5512,8 @@ packages:
     resolution: {integrity: sha512-aOIos8bujGN93/8Ox/jPLh7RwVnPEysynVFE+fQZyg6jKELEHwzgKdLRFHUgXJL6kylijVSBC4BvN9OmsB48Rw==}
     engines: {node: '>=4'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   parse-json@5.2.0:
     resolution: {integrity: sha512-ayCKvm/phCGxOkYRSCM82iDwct8/EonSEgCSxWxD7ve6jHggsFl4fZVQBPRNgQoKiuV/odhFrGzQXZwbifC8Rg==}
     engines: {node: '>=8'}
@@ -5635,6 +5529,7 @@ packages:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
 
+<<<<<<< HEAD
   path-data-parser@0.1.0:
     resolution: {integrity: sha512-NOnmBpt5Y2RWbuv0LMzsayp3lVylAHLPUTut412ZA3l+C4uw4ZVkQbjShYCQ8TCpUMdPapr4YjUqLYD6v68j+w==}
 
@@ -5642,6 +5537,8 @@ packages:
     resolution: {integrity: sha512-bpC7GYwiDYQ4wYLe+FA8lhRjhQCMcQGuSgGGqDkg/QerRWw9CmGRT0iSOVRSZJ29NMLZgIzqaljJ63oaL4NIJQ==}
     engines: {node: '>=4'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
     engines: {node: '>=8'}
@@ -5667,6 +5564,7 @@ packages:
   path-to-regexp@8.3.0:
     resolution: {integrity: sha512-7jdwVIRtsP8MYpdXSwOS0YdD0Du+qOoF/AEPIt88PcCFrZCzx41oxku1jD88hZBwbNUIEfpqvuhjFaMAqMTWnA==}
 
+<<<<<<< HEAD
   path-type@3.0.0:
     resolution: {integrity: sha512-T2ZUsdZFHgA3u4e5PfPbjd7HDDpxPnQb5jN0SrDsjNSuVXHJqtwTnWqG0B1jZrgmJ/7lj1EmVIByWt1gxGkWvg==}
     engines: {node: '>=4'}
@@ -5675,6 +5573,8 @@ packages:
     resolution: {integrity: sha512-Vj7sf++t5pBD637NSfkxpHSMfWaeig5+DKWLhcqIYx6mWQz5hdJTGDVMQiJcw1ZYkhs7AazKDGpRVji1LJCZUQ==}
     engines: {node: '>=18'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
 
@@ -5685,6 +5585,7 @@ packages:
     resolution: {integrity: sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA==}
     engines: {node: '>=8.6'}
 
+<<<<<<< HEAD
   picomatch@4.0.3:
     resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
     engines: {node: '>=12'}
@@ -5693,6 +5594,12 @@ packages:
     resolution: {integrity: sha512-C3FsVNH1udSEX48gGX1xfvwTWfsYWj5U+8/uK15BGzIGrKoUpghX8hWZwa/OFnakBiiVNmBvemTJR5mcy7iPcg==}
     engines: {node: '>=4'}
 
+=======
+  picomatch@4.0.2:
+    resolution: {integrity: sha512-M7BAV6Rlcy5u+m6oPhAPFgJTzAioX/6B0DxyvDlo9l8+T3nLKbrczg2WLUyzd45L8RqfUMyGPzekbMvX2Ldkwg==}
+    engines: {node: '>=12'}
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   pirates@4.0.7:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
@@ -5753,6 +5660,7 @@ packages:
     resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
     engines: {node: ^10 || ^12 || >=14}
 
+<<<<<<< HEAD
   potpack@1.0.2:
     resolution: {integrity: sha512-choctRBIV9EMT9WGAZHn3V7t0Z2pMQyl0EZE6pFc/6ml3ssw7Dlf/oAOvFwjm1HVsqfQN8GfeFyJ+d8tRzqueQ==}
 
@@ -5760,6 +5668,8 @@ packages:
     resolution: {integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==}
     engines: {node: '>=20'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
@@ -5789,6 +5699,7 @@ packages:
     resolution: {integrity: sha512-y+WKFlBR8BGXnsNlIHFGPZmyDf3DFMoLhaflAnyZgV6rG6xu+JwesTo2Q9R6XwYmtmwAFCkAk3e35jEdoeh/3g==}
     engines: {node: '>=10'}
 
+<<<<<<< HEAD
   promise-worker-transferable@1.0.4:
     resolution: {integrity: sha512-bN+0ehEnrXfxV2ZQvU2PetO0n4gqBD4ulq3MI1WOPLgr7/Mg9yRQkX5+0v1vagr74ZTsl7XtzlaYDo2EuCeYJw==}
 
@@ -5800,6 +5711,11 @@ packages:
 
   property-information@7.1.0:
     resolution: {integrity: sha512-TwEZ+X+yCJmYfL7TPUOcvBZ4QfoT5YenQiJuX//0th53DE6w0xxLEtfK3iyryQFddXuvkIk51EEgrJQ0WJkOmQ==}
+=======
+  prompts@2.4.2:
+    resolution: {integrity: sha512-NxNv/kLguCA7p3jE8oL2aEBsrJWgAakBpgmgK6lpPWV+WuOmY6r2/zbAVnP+T8bQlA0nzHXSJSJW0Hq7ylaD2Q==}
+    engines: {node: '>= 6'}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
@@ -5809,8 +5725,13 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+<<<<<<< HEAD
   pure-rand@7.0.1:
     resolution: {integrity: sha512-oTUZM/NAZS8p7ANR3SHh30kXB+zK2r2BPcEn/awJIbOvq82WoMN4p62AWWp3Hhw50G0xMsw1mhIBLqHw64EcNQ==}
+=======
+  pure-rand@6.1.0:
+    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   qs@6.14.0:
     resolution: {integrity: sha512-YWWTjgABSKcvs/nWBi9PycY/JiPJqOD4JA6o9Sej2AtvSGarXxKC3OQSk4pAarbdQlKAh5D4FCQkJNkW+GAn3w==}
@@ -5819,6 +5740,7 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
+<<<<<<< HEAD
   quick-lru@1.1.0:
     resolution: {integrity: sha512-tRS7sTgyxMXtLum8L65daJnHUhfDUgboRdcWW2bR9vBfrj2+O5HSMbQOJfJJjIVSPFqbBCF37FpwWXGitDc5tA==}
     engines: {node: '>=4'}
@@ -5836,10 +5758,13 @@ packages:
       '@types/react-dom':
         optional: true
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
     engines: {node: '>= 0.6'}
 
+<<<<<<< HEAD
   raw-body@3.0.2:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
     engines: {node: '>= 0.10'}
@@ -5947,10 +5872,24 @@ packages:
     resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
     engines: {node: '>= 6'}
 
+=======
+  raw-body@3.0.0:
+    resolution: {integrity: sha512-RmkhL8CAyCRPXCE28MMH0z2PNWQBNk2Q09ZdxM9IOOXwxwZbN+qbWaatPkdkWIKL2ZVDImrN/pK5HTRz2PcS4g==}
+    engines: {node: '>= 0.8'}
+
+  raw-body@3.0.1:
+    resolution: {integrity: sha512-9G8cA+tuMS75+6G/TzW8OtLzmBDMo8p1JRxN5AZ+LAp8uxGA8V8GZm4GQ4/N5QNQEnLmg6SS7wyuSmbKepiKqA==}
+    engines: {node: '>= 0.10'}
+
+  react-is@18.3.1:
+    resolution: {integrity: sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==}
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
     engines: {node: '>= 14.18.0'}
 
+<<<<<<< HEAD
   recma-build-jsx@1.0.0:
     resolution: {integrity: sha512-8GtdyqaBcDfva+GUKDr3nev3VpKAhup1+RvkMvUxURHpW7QyIvk9F5wz7Vzo06CEMSilw6uArgRqhpiUcWp8ew==}
 
@@ -5969,6 +5908,8 @@ packages:
     resolution: {integrity: sha512-XNwrTx77JQCEMXTeb8movBKuK75MgH0RZkujNuDKCezemx/voapl9i2gCSi8WWm8+ox5ycJi1gxF22fR7c0Ciw==}
     engines: {node: '>=4'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   reflect.getprototypeof@1.0.10:
     resolution: {integrity: sha512-00o4I+DVrefhv+nX0ulyi3biSHCPDe+yLv5o/p6d/UVlirijB8E16FtfwSAi4g3tcqrQ4lRAqQSoFEZJehYEcw==}
     engines: {node: '>= 0.4'}
@@ -6133,16 +6074,6 @@ packages:
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
 
-  scheduler@0.25.0:
-    resolution: {integrity: sha512-xFVuu11jh+xcO7JOAGJNOXld8/TcEHK/4CituBUeUb5hqxJLj9YuemAEuvm9gQ/+pgXYfbQuqAkiYu+u7YEsNA==}
-
-  scheduler@0.27.0:
-    resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
-
-  semver@5.7.2:
-    resolution: {integrity: sha512-cBznnQ9KjJqU67B52RMC65CMarK2600WFnbkcaiwWq3xy/5haFJlshgnpjovMVJ+Hff49d8GEn0b87C5pDQ10g==}
-    hasBin: true
-
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
     hasBin: true
@@ -6152,17 +6083,9 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  send@0.19.0:
-    resolution: {integrity: sha512-dW41u5VfLXu8SJh5bwRmyYUbAoSB3c9uQh6L8h/KtsFREPWpbX1lrljJo186Jc4nmci/sGUZ9a0a0J2zgfq2hw==}
-    engines: {node: '>= 0.8.0'}
-
   send@1.2.0:
     resolution: {integrity: sha512-uaW0WwXKpL9blXE2o0bRhoL2EGXIrZxQ2ZQ4mgcfoBxdFmQold+qWsD2jLrfZ0trjKL6vOw0j//eAwcALFjKSw==}
     engines: {node: '>= 18'}
-
-  serve-static@1.16.2:
-    resolution: {integrity: sha512-VqpjJZKadQB/PEbEwvFdO43Ax5dFBZ2UECszz8bQ7pi7wt//PWe1P6MN7eCnjsatYtBT6EuiClbjSWP2WrIoTw==}
-    engines: {node: '>= 0.8.0'}
 
   serve-static@2.2.0:
     resolution: {integrity: sha512-61g9pCh0Vnh7IutZjtLGGpTA355+OPn2TyDv/6ivP2h/AdAVX9azsoxmg2/M6nZeQZNYBEwIcsne1mJd9oQItQ==}
@@ -6194,6 +6117,7 @@ packages:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
 
+<<<<<<< HEAD
   shell-quote@1.8.3:
     resolution: {integrity: sha512-ObmnIF4hXNg1BqhnHmgbDETF8dLPCggZWBjkQfhZpbszZnYur5DUljTcCHii5LC3J5E0yeO/1LIMyH+UvHQgyw==}
     engines: {node: '>= 0.4'}
@@ -6201,6 +6125,8 @@ packages:
   shiki@1.29.2:
     resolution: {integrity: sha512-njXuliz/cP+67jU2hukkxCNuH1yUi4QfdZZY+sMr5PPrIyXSu5iTb/qYC4BiWWB0vZ+7TbdvYUCeL23zpwCfbg==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   side-channel-list@1.0.0:
     resolution: {integrity: sha512-FCLHtRD/gnpCiCHEiJLOwdmFP+wzCmDEkc9y7NsYxeF4u7Btsn1ZuwgwJGxImImHicJArLP4R0yX4c2KCrMrTA==}
     engines: {node: '>= 0.4'}
@@ -6256,6 +6182,7 @@ packages:
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
 
+<<<<<<< HEAD
   spdx-correct@3.2.0:
     resolution: {integrity: sha512-kN9dJbvnySHULIluDHy32WHRUu3Og7B9sbY7tsFLctQkIqnMh3hErYgdMjTYuqmcXX+lK5T1lnUt3G7zNswmZA==}
 
@@ -6268,6 +6195,8 @@ packages:
   spdx-license-ids@3.0.22:
     resolution: {integrity: sha512-4PRT4nh1EImPbt2jASOKHX7PB7I+e4IWNLvkKFDxNhJlfjbYlleYQh285Z/3mPTHSAK/AvdMmw5BNNuYH8ShgQ==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   sprintf-js@1.0.3:
     resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
 
@@ -6281,15 +6210,6 @@ packages:
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
-
-  stats-gl@2.4.2:
-    resolution: {integrity: sha512-g5O9B0hm9CvnM36+v7SFl39T7hmAlv541tU81ME8YeSb3i1CIP5/QdDeSB3A0la0bKNHpxpwxOVRo2wFTYEosQ==}
-    peerDependencies:
-      '@types/three': '*'
-      three: '*'
-
-  stats.js@0.17.0:
-    resolution: {integrity: sha512-hNKz8phvYLPEcRkeG1rsGmV5ChMjKDAWU7/OJJdDErPBNChQXxCo3WZurGpnWc6gZhAzEPFad1aVgyOANH1sMw==}
 
   statuses@2.0.1:
     resolution: {integrity: sha512-RwNA9Z/7PrK06rYLIzFMlaF+l73iwpzsqRIFgbMLbTcLD6cOao82TaWefPXQvB2fOC4AjuYSEndS7N/mTCbkdQ==}
@@ -6374,10 +6294,6 @@ packages:
     resolution: {integrity: sha512-BrpvfNAE3dcvq7ll3xVumzjKjZQ5tI1sEUIKr3Uoks0XUl45St3FlatVqef9prk4jRDzhW6WZg+3bk93y6pLjA==}
     engines: {node: '>=6'}
 
-  strip-indent@2.0.0:
-    resolution: {integrity: sha512-RsSNPLpq6YUL7QYy44RnPVTn/lcVZtb48Uof3X5JLbF4zD/Gs7ZFDv2HWol+leoQN2mT86LAzSshGfkTlSOpsA==}
-    engines: {node: '>=4'}
-
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
@@ -6412,6 +6328,7 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
+<<<<<<< HEAD
   suspend-react@0.1.3:
     resolution: {integrity: sha512-aqldKgX9aZqpoDp3e8/BZ8Dm7x1pJl+qI3ZKxDN0i/IQTWUwBx/ManmlVJ3wowqbno6c2bmiIfs+Um6LbsjJyQ==}
     peerDependencies:
@@ -6437,6 +6354,8 @@ packages:
     resolution: {integrity: sha512-g9ljZiwki/LfxmQADO3dEY1CbpmXT5Hm2fJ+QaGKwSXUylMybePR7/67YW7jOrrvjEgL1Fmz5kzyAjWVWLlucg==}
     engines: {node: '>=6'}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   test-exclude@6.0.0:
     resolution: {integrity: sha512-cAGWPIyOHU6zlmg88jwm7VRyXnMN7iV68OGAbYDk/Mh/xC/pzVPlQtY6ngoIH/5/tciuhGfvESU8GrHrcxD56w==}
     engines: {node: '>=8'}
@@ -6448,6 +6367,7 @@ packages:
   thenify@3.3.1:
     resolution: {integrity: sha512-RVZSIV5IG10Hk3enotrhvz0T9em6cyHBLkH/YAZuKqd8hRkKhSfCGIcP2KUY0EPxndzANBmNllzWPwak+bheSw==}
 
+<<<<<<< HEAD
   three-mesh-bvh@0.8.3:
     resolution: {integrity: sha512-4G5lBaF+g2auKX3P0yqx+MJC6oVt6sB5k+CchS6Ob0qvH0YIhuUk1eYr7ktsIpY+albCqE80/FVQGV190PmiAg==}
     peerDependencies:
@@ -6461,6 +6381,8 @@ packages:
   three@0.181.2:
     resolution: {integrity: sha512-k/CjiZ80bYss6Qs7/ex1TBlPD11whT9oKfT8oTGiHa34W4JRd1NiH/Tr1DbHWQ2/vMUypxksLnF2CfmlmM5XFQ==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
 
@@ -6471,12 +6393,21 @@ packages:
     resolution: {integrity: sha512-W/KYk+NFhkmsYpuHq5JykngiOCnxeVL8v8dFnqxSD8qEEdRfXk1SDM6JzNqcERbcGYj9tMrDQBYV9cjgnunFIg==}
     engines: {node: '>=18'}
 
+<<<<<<< HEAD
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
     engines: {node: '>=12.0.0'}
 
   tinyrainbow@3.0.3:
     resolution: {integrity: sha512-PSkbLUoxOFRzJYjjxHJt9xro7D+iilgMX/C9lawzVuYiIdcihh9DXmVibBe8lmcFrRi/VzlPjBxbN7rH24q8/Q==}
+=======
+  tinypool@1.1.1:
+    resolution: {integrity: sha512-Zba82s87IFq9A9XmjiX5uZA/ARWDrB03OHlq+Vw1fSdt0I+4/Kutwy8BP4Y/y/aORMo61FQ0vIb5j44vSo5Pkg==}
+    engines: {node: ^18.0.0 || >=20.0.0}
+
+  tinyrainbow@2.0.0:
+    resolution: {integrity: sha512-op4nsTR47R6p0vMUUoYl/a+ljLFVtlfaXkLQmqfLR1qHma1h/ysYk4hEXZ880bf2CYgTskvTa/e196Vd5dDQXw==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     engines: {node: '>=14.0.0'}
 
   tldts-core@7.0.19:
@@ -6508,6 +6439,7 @@ packages:
     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
     hasBin: true
 
+<<<<<<< HEAD
   trim-lines@3.0.1:
     resolution: {integrity: sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==}
 
@@ -6531,12 +6463,15 @@ packages:
   trough@2.2.0:
     resolution: {integrity: sha512-tmMpK00BjZiUyVyvrBK7knerNgmgvcV/KLVyuma/SC+TQN167GrMRciANTz09+k3zW8L8t60jWO1GpfkZdjTaw==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   ts-api-utils@2.1.0:
     resolution: {integrity: sha512-CUgTZL1irw8u29bzrOD/nH85jqyc74D6SshFgujOIA7osm2Rz7dYH77agkx7H4FBNxDq7Cjf+IjaX/8zwFW+ZQ==}
     engines: {node: '>=18.12'}
     peerDependencies:
       typescript: '>=4.8.4'
 
+<<<<<<< HEAD
   ts-dedent@2.2.0:
     resolution: {integrity: sha512-q5W7tVM71e2xjHZTlgfTDoPF/SmqKG5hddq9SzR49CH2hayqRKJtQ4mtRlSxKaJlR/+9rEM+mnBHf7I2/BQcpQ==}
     engines: {node: '>=6.10'}
@@ -6549,6 +6484,8 @@ packages:
       typescript:
         optional: true
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   ts-interface-checker@0.1.13:
     resolution: {integrity: sha512-Y/arvbn+rrz3JCKl9C4kVNfTfSm2/mEp5FSz5EsZSANGPSlQrpRI5M4PKF+mJnE52jOO90PnPSc3Ur3bTQw0gA==}
 
@@ -6609,6 +6546,7 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
+<<<<<<< HEAD
   tunnel-rat@0.1.2:
     resolution: {integrity: sha512-lR5VHmkPhzdhrM092lI2nACsLO4QubF0/yoOhzX7c+wIpbN1GjHNzCc91QlpxBi+cnx8vVJ+Ur6vL5cEoQPFpQ==}
 
@@ -6623,6 +6561,8 @@ packages:
     peerDependencies:
       typescript: '*'
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
     engines: {node: '>= 0.8.0'}
@@ -6666,6 +6606,7 @@ packages:
   typedarray@0.0.6:
     resolution: {integrity: sha512-/aCDEGatGvZ2BIk+HmLf4ifCJFwvKFNb9/JeZPMulfgFracn9QFcAf5GO8B/mweUjSoblS5In0cWhqpfs/5PQA==}
 
+<<<<<<< HEAD
   typescript-eslint@8.48.0:
     resolution: {integrity: sha512-fcKOvQD9GUn3Xw63EgiDqhvWJ5jsyZUaekl3KVpGsDJnN46WJTe3jWxtQP9lMZm1LJNkFLlTaWAxK2vUQR+cqw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -6690,6 +6631,13 @@ packages:
     engines: {node: '>=0.8.0'}
     hasBin: true
 
+=======
+  typescript@5.8.3:
+    resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   unbox-primitive@1.1.0:
     resolution: {integrity: sha512-nWJ91DjeOkej/TA8pXQ3myruKpKEYgqvpw9lz4OPHj/NWFNluYrjbz9j01CJ8yKQd2g4jFoOkINCTW2I5LEEyw==}
     engines: {node: '>= 0.4'}
@@ -6763,6 +6711,7 @@ packages:
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
+<<<<<<< HEAD
   use-callback-ref@1.3.3:
     resolution: {integrity: sha512-jQL3lRnocaFtu3V00JToYz/4QkNWswxijDaCVNZRiRTO3HQDLsdu1ZtmIUvV4yPp+rvWm5j0y0TG/S61cuijTg==}
     engines: {node: '>=10'}
@@ -6809,10 +6758,13 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   v8-to-istanbul@9.3.0:
     resolution: {integrity: sha512-kiGUalWN+rgBJ/1OHZsBtU4rXZOfj/7rKQxULKlIzwzQSvMJUUNgPwJEEh7gU6xEVxC0ahoOBvN2YI8GH6FNgA==}
     engines: {node: '>=10.12.0'}
 
+<<<<<<< HEAD
   validate-npm-package-license@3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
 
@@ -6820,6 +6772,8 @@ packages:
     resolution: {integrity: sha512-OljLrQ9SQdOUqTaQxqL5dEfZWrXExyyWsozYlAWFawPVNuD83igl7uJD2RTkNMbniIYgt8l81eCJGIdQF7avLQ==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
@@ -6893,6 +6847,7 @@ packages:
       yaml:
         optional: true
 
+<<<<<<< HEAD
   vite@7.2.4:
     resolution: {integrity: sha512-NL8jTlbo0Tn4dUEXEsUg8KeyG/Lkmc4Fnzb8JXN/Ykm9G4HNImjtABMJgkQoVjOBN/j2WAwDTRytdqJbZsah7w==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -6942,6 +6897,11 @@ packages:
   vitest@4.0.14:
     resolution: {integrity: sha512-d9B2J9Cm9dN9+6nxMnnNJKJCtcyKfnHj15N6YNJfaFHRLua/d3sRKU9RuKmO9mB0XdFtUizlxfz/VPbd3OxGhw==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
+=======
+  vitest@3.2.4:
+    resolution: {integrity: sha512-LUCP5ev3GURDysTWiP47wRRUpLKMOfPh+yKTx3kVIEiu5KOMeqzpnYNsKyOoVrULivR8tLcks4+lga33Whn90A==}
+    engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
@@ -7008,6 +6968,7 @@ packages:
   walker@1.0.8:
     resolution: {integrity: sha512-ts/8E8l5b7kY0vlWLewOkDXMmPdLcVV4GmOQLyxuSswIJsweeFZtAsMF7k1Nszz+TYBQrlYRmzOnr398y1JemQ==}
 
+<<<<<<< HEAD
   web-namespaces@2.0.1:
     resolution: {integrity: sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ==}
 
@@ -7016,6 +6977,13 @@ packages:
 
   webgl-sdf-generator@1.1.1:
     resolution: {integrity: sha512-9Z0JcMTFxeE+b2x1LJTdnaT8rT8aEp7MVxkNwoycNmJWwPdzoXzMh0BjJSh/AEFP+KPYZUli814h8bJZFIZ2jA==}
+=======
+  webidl-conversions@4.0.2:
+    resolution: {integrity: sha512-YQ+BmxuTgd6UXZW3+ICGfyqRyHXVlD5GtQr5+qjiNW7bF0cqrzX500HVXPBOvgXb5YnzDd+h0zqyv61KUD7+Sg==}
+
+  whatwg-url@7.1.0:
+    resolution: {integrity: sha512-WUu7Rg1DroM7oQvGWfOiAK21n74Gg+T4elXEQYkOhtyLeWiJFoOGLXPKI/9gzIie9CtwVLm8wtw6YJdKyxSjeg==}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   which-boxed-primitive@1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}
@@ -7130,15 +7098,10 @@ packages:
     peerDependencies:
       zod: ^3.25 || ^4
 
-  zod-validation-error@4.0.2:
-    resolution: {integrity: sha512-Q6/nZLe6jxuU80qb/4uJ4t5v2VEZ44lzQjPDhYJNztRQ4wyWc6VF3D3Kb/fAuPetZQnhS3hnajCf9CsWesghLQ==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
-
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+<<<<<<< HEAD
   zod@4.1.13:
     resolution: {integrity: sha512-AvvthqfqrAhNH9dnfmrfKzX5upOdjUVJYFqNSlkmGf64gRaTzlPwz99IHYnVs28qYAybvAlBV+H7pn0saFY4Ig==}
 
@@ -7178,6 +7141,8 @@ packages:
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 snapshots:
 
   '@ag-ui/core@0.0.28':
@@ -7255,6 +7220,7 @@ snapshots:
       semver: 6.3.1
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@babel/generator@7.28.5':
     dependencies:
@@ -7289,6 +7255,7 @@ snapshots:
       '@babel/traverse': 7.28.5
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@babel/helper-plugin-utils@7.27.1': {}
 
@@ -7302,6 +7269,7 @@ snapshots:
     dependencies:
       '@babel/template': 7.27.2
       '@babel/types': 7.28.5
+    optional: true
 
   '@babel/parser@7.28.5':
     dependencies:
@@ -7312,37 +7280,107 @@ snapshots:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
 
+<<<<<<< HEAD
+  '@babel/plugin-syntax-bigint@7.8.3(@babel/core@7.28.5)':
+=======
+  '@babel/plugin-syntax-async-generators@7.8.4(@babel/core@7.28.5)':
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+    optional: true
+
+  '@babel/plugin-syntax-bigint@7.8.3(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-class-properties@7.12.13(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-bigint@7.8.3(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-class-properties@7.12.13(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-class-static-block@7.14.5(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-class-properties@7.12.13(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-class-static-block@7.14.5(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-import-attributes@7.27.1(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-class-static-block@7.14.5(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-import-attributes@7.27.1(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-import-meta@7.10.4(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-import-attributes@7.27.1(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-import-meta@7.10.4(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-json-strings@7.8.3(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-import-meta@7.10.4(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
-  '@babel/plugin-syntax-json-strings@7.8.3(@babel/core@7.28.5)':
+  '@babel/plugin-syntax-json-strings@7.8.3(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
 
+<<<<<<< HEAD
   '@babel/plugin-syntax-jsx@7.27.1(@babel/core@7.28.5)':
+=======
+  '@babel/plugin-syntax-json-strings@7.8.3(@babel/core@7.28.5)':
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+    optional: true
+
+  '@babel/plugin-syntax-jsx@7.27.1(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
@@ -7352,57 +7390,125 @@ snapshots:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
 
+<<<<<<< HEAD
+  '@babel/plugin-syntax-nullish-coalescing-operator@7.8.3(@babel/core@7.28.5)':
+=======
+  '@babel/plugin-syntax-logical-assignment-operators@7.10.4(@babel/core@7.28.5)':
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+    optional: true
+
+  '@babel/plugin-syntax-nullish-coalescing-operator@7.8.3(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-numeric-separator@7.10.4(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-nullish-coalescing-operator@7.8.3(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-numeric-separator@7.10.4(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-object-rest-spread@7.8.3(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-numeric-separator@7.10.4(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-object-rest-spread@7.8.3(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-optional-catch-binding@7.8.3(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-object-rest-spread@7.8.3(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-optional-catch-binding@7.8.3(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-optional-chaining@7.8.3(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-optional-catch-binding@7.8.3(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-optional-chaining@7.8.3(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-private-property-in-object@7.14.5(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-optional-chaining@7.8.3(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-private-property-in-object@7.14.5(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-top-level-await@7.14.5(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-private-property-in-object@7.14.5(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
+  '@babel/plugin-syntax-top-level-await@7.14.5(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/helper-plugin-utils': 7.27.1
+
+<<<<<<< HEAD
+  '@babel/plugin-syntax-typescript@7.27.1(@babel/core@7.28.5)':
+=======
   '@babel/plugin-syntax-top-level-await@7.14.5(@babel/core@7.28.5)':
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
+    optional: true
 
-  '@babel/plugin-syntax-typescript@7.27.1(@babel/core@7.28.5)':
+  '@babel/plugin-syntax-typescript@7.27.1(@babel/core@7.27.4)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@babel/core': 7.28.5
       '@babel/helper-plugin-utils': 7.27.1
-
-  '@babel/plugin-transform-react-jsx-self@7.27.1(@babel/core@7.28.5)':
-    dependencies:
-      '@babel/core': 7.28.5
-      '@babel/helper-plugin-utils': 7.27.1
-
-  '@babel/plugin-transform-react-jsx-source@7.27.1(@babel/core@7.28.5)':
-    dependencies:
-      '@babel/core': 7.28.5
-      '@babel/helper-plugin-utils': 7.27.1
-
-  '@babel/runtime@7.28.4': {}
 
   '@babel/template@7.27.2':
     dependencies:
@@ -7429,6 +7535,7 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
+<<<<<<< HEAD
   '@bcoe/v8-coverage@1.0.2': {}
 
   '@braintree/sanitize-url@7.1.1': {}
@@ -7464,6 +7571,9 @@ snapshots:
   '@dimforge/rapier3d-compat@0.12.0': {}
 
   '@emnapi/core@1.7.1':
+=======
+  '@emnapi/core@1.4.3':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@emnapi/wasi-threads': 1.1.0
       tslib: 2.8.1
@@ -7637,6 +7747,7 @@ snapshots:
   '@esbuild/win32-x64@0.27.0':
     optional: true
 
+<<<<<<< HEAD
   '@eslint-community/eslint-utils@4.9.0(eslint@9.39.1(jiti@2.6.1))':
     dependencies:
       eslint: 9.39.1(jiti@2.6.1)
@@ -7657,6 +7768,21 @@ snapshots:
       '@eslint/core': 0.17.0
 
   '@eslint/core@0.17.0':
+=======
+  '@eslint-community/regexpp@4.12.1': {}
+
+  '@eslint/config-array@0.20.1':
+    dependencies:
+      '@eslint/object-schema': 2.1.6
+      debug: 4.4.3
+      minimatch: 3.1.2
+    transitivePeerDependencies:
+      - supports-color
+
+  '@eslint/config-helpers@0.2.3': {}
+
+  '@eslint/core@0.13.0':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@types/json-schema': 7.0.15
 
@@ -7674,6 +7800,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+<<<<<<< HEAD
   '@eslint/js@9.39.1': {}
 
   '@eslint/object-schema@2.1.7': {}
@@ -7714,6 +7841,17 @@ snapshots:
     dependencies:
       hono: 4.10.7
 
+=======
+  '@eslint/js@9.26.0': {}
+
+  '@eslint/object-schema@2.1.6': {}
+
+  '@eslint/plugin-kit@0.2.8':
+    dependencies:
+      '@eslint/core': 0.13.0
+      levn: 0.4.1
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@humanfs/core@0.19.1': {}
 
   '@humanfs/node@0.16.7':
@@ -7738,6 +7876,7 @@ snapshots:
 
   '@inquirer/confirm@5.1.21(@types/node@24.10.1)':
     dependencies:
+<<<<<<< HEAD
       '@inquirer/core': 10.3.2(@types/node@24.10.1)
       '@inquirer/type': 3.0.10(@types/node@24.10.1)
     optionalDependencies:
@@ -7751,19 +7890,44 @@ snapshots:
       '@inquirer/type': 3.0.10(@types/node@24.10.1)
       cli-width: 4.1.0
       mute-stream: 2.0.0
+=======
+      '@inquirer/core': 10.3.1(@types/node@22.15.15)
+      '@inquirer/type': 3.0.10(@types/node@22.15.15)
+    optionalDependencies:
+      '@types/node': 22.15.15
+    optional: true
+
+  '@inquirer/core@10.3.1(@types/node@22.15.15)':
+    dependencies:
+      '@inquirer/ansi': 1.0.2
+      '@inquirer/figures': 1.0.15
+      '@inquirer/type': 3.0.10(@types/node@22.15.15)
+      cli-width: 4.1.0
+      mute-stream: 3.0.0
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
       signal-exit: 4.1.0
       wrap-ansi: 6.2.0
       yoctocolors-cjs: 2.1.3
     optionalDependencies:
+<<<<<<< HEAD
       '@types/node': 24.10.1
+=======
+      '@types/node': 22.15.15
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optional: true
 
   '@inquirer/figures@1.0.15':
     optional: true
 
+<<<<<<< HEAD
   '@inquirer/type@3.0.10(@types/node@24.10.1)':
     optionalDependencies:
       '@types/node': 24.10.1
+=======
+  '@inquirer/type@3.0.10(@types/node@22.15.15)':
+    optionalDependencies:
+      '@types/node': 22.15.15
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optional: true
 
   '@isaacs/cliui@8.0.2':
@@ -7973,6 +8137,7 @@ snapshots:
     dependencies:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
+    optional: true
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
@@ -7983,7 +8148,11 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+<<<<<<< HEAD
   '@mdx-js/mdx@3.1.1':
+=======
+  '@modelcontextprotocol/sdk@1.13.1':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@types/estree': 1.0.8
       '@types/estree-jsx': 1.0.5
@@ -8054,6 +8223,7 @@ snapshots:
       - supports-color
     optional: true
 
+<<<<<<< HEAD
   '@modelcontextprotocol/sdk@1.23.0(zod@4.1.13)':
     dependencies:
       ajv: 8.17.1
@@ -8078,6 +8248,8 @@ snapshots:
       promise-worker-transferable: 1.0.4
       three: 0.181.2
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@mswjs/interceptors@0.40.0':
     dependencies:
       '@open-draft/deferred-promise': 2.2.0
@@ -8280,6 +8452,7 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
+<<<<<<< HEAD
   '@pkgr/core@0.2.9': {}
 
   '@radix-ui/colors@3.0.0': {}
@@ -9128,6 +9301,9 @@ snapshots:
       rollup: 4.53.3
 
   '@rollup/rollup-android-arm-eabi@4.53.3':
+=======
+  '@rollup/rollup-android-arm-eabi@4.44.0':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optional: true
 
   '@rollup/rollup-android-arm64@4.53.3':
@@ -9267,6 +9443,7 @@ snapshots:
 
   '@standard-schema/spec@1.0.0': {}
 
+<<<<<<< HEAD
   '@tailwindcss/node@4.0.7':
     dependencies:
       enhanced-resolve: 5.18.3
@@ -9406,6 +9583,9 @@ snapshots:
   '@tweenjs/tween.js@23.1.3': {}
 
   '@tybys/wasm-util@0.10.1':
+=======
+  '@tybys/wasm-util@0.9.0':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       tslib: 2.8.1
     optional: true
@@ -9563,12 +9743,15 @@ snapshots:
 
   '@types/deep-eql@4.0.2': {}
 
+<<<<<<< HEAD
   '@types/draco3d@1.4.10': {}
 
   '@types/estree-jsx@1.0.5':
     dependencies:
       '@types/estree': 1.0.8
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@types/estree@1.0.8': {}
 
   '@types/geojson@7946.0.16': {}
@@ -9614,6 +9797,7 @@ snapshots:
     dependencies:
       undici-types: 7.16.0
 
+<<<<<<< HEAD
   '@types/offscreencanvas@2019.7.3': {}
 
   '@types/react-dom@19.2.3(@types/react@19.2.7)':
@@ -9632,13 +9816,14 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@types/stack-utils@2.0.3': {}
-
-  '@types/stats.js@0.17.4': {}
 
   '@types/statuses@2.0.6':
     optional: true
 
+<<<<<<< HEAD
   '@types/supports-color@8.1.3': {}
 
   '@types/three@0.181.0':
@@ -9660,6 +9845,8 @@ snapshots:
 
   '@types/webxr@0.5.24': {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   '@types/ws@8.18.1':
     dependencies:
       '@types/node': 24.10.1
@@ -9672,6 +9859,7 @@ snapshots:
 
   '@typescript-eslint/eslint-plugin@8.48.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3)':
     dependencies:
+<<<<<<< HEAD
       '@eslint-community/regexpp': 4.12.2
       '@typescript-eslint/parser': 8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3)
       '@typescript-eslint/scope-manager': 8.48.0
@@ -9709,10 +9897,69 @@ snapshots:
       - supports-color
 
   '@typescript-eslint/scope-manager@8.48.0':
+=======
+      '@eslint-community/regexpp': 4.12.1
+      '@typescript-eslint/parser': 8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      '@typescript-eslint/scope-manager': 8.32.0
+      '@typescript-eslint/type-utils': 8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      '@typescript-eslint/utils': 8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      '@typescript-eslint/visitor-keys': 8.32.0
+      eslint: 9.26.0(jiti@2.6.1)
+      graphemer: 1.4.0
+      ignore: 5.3.2
+      natural-compare: 1.4.0
+      ts-api-utils: 2.1.0(typescript@5.8.3)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@typescript-eslint/eslint-plugin@8.46.4(@typescript-eslint/parser@8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3))(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)':
+    dependencies:
+      '@eslint-community/regexpp': 4.12.1
+      '@typescript-eslint/parser': 8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      '@typescript-eslint/scope-manager': 8.46.4
+      '@typescript-eslint/type-utils': 8.46.4(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      '@typescript-eslint/utils': 8.46.4(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      '@typescript-eslint/visitor-keys': 8.46.4
+      eslint: 9.26.0(jiti@2.6.1)
+      graphemer: 1.4.0
+      ignore: 7.0.5
+      natural-compare: 1.4.0
+      ts-api-utils: 2.1.0(typescript@5.8.3)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
+  '@typescript-eslint/parser@8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)':
+    dependencies:
+      '@typescript-eslint/scope-manager': 8.32.0
+      '@typescript-eslint/types': 8.32.0
+      '@typescript-eslint/typescript-estree': 8.32.0(typescript@5.8.3)
+      '@typescript-eslint/visitor-keys': 8.32.0
+      debug: 4.4.1
+      eslint: 9.26.0(jiti@2.6.1)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@typescript-eslint/project-service@8.46.4(typescript@5.8.3)':
+    dependencies:
+      '@typescript-eslint/tsconfig-utils': 8.46.4(typescript@5.8.3)
+      '@typescript-eslint/types': 8.46.4
+      debug: 4.4.3
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
+  '@typescript-eslint/scope-manager@8.32.0':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@typescript-eslint/types': 8.48.0
       '@typescript-eslint/visitor-keys': 8.48.0
 
+<<<<<<< HEAD
   '@typescript-eslint/tsconfig-utils@8.48.0(typescript@5.9.3)':
     dependencies:
       typescript: 5.9.3
@@ -9732,6 +9979,49 @@ snapshots:
   '@typescript-eslint/types@8.48.0': {}
 
   '@typescript-eslint/typescript-estree@8.48.0(typescript@5.9.3)':
+=======
+  '@typescript-eslint/scope-manager@8.46.4':
+    dependencies:
+      '@typescript-eslint/types': 8.46.4
+      '@typescript-eslint/visitor-keys': 8.46.4
+    optional: true
+
+  '@typescript-eslint/tsconfig-utils@8.46.4(typescript@5.8.3)':
+    dependencies:
+      typescript: 5.8.3
+    optional: true
+
+  '@typescript-eslint/type-utils@8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)':
+    dependencies:
+      '@typescript-eslint/typescript-estree': 8.32.0(typescript@5.8.3)
+      '@typescript-eslint/utils': 8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      debug: 4.4.1
+      eslint: 9.26.0(jiti@2.6.1)
+      ts-api-utils: 2.1.0(typescript@5.8.3)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@typescript-eslint/type-utils@8.46.4(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)':
+    dependencies:
+      '@typescript-eslint/types': 8.46.4
+      '@typescript-eslint/typescript-estree': 8.46.4(typescript@5.8.3)
+      '@typescript-eslint/utils': 8.46.4(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)
+      debug: 4.4.3
+      eslint: 9.26.0(jiti@2.6.1)
+      ts-api-utils: 2.1.0(typescript@5.8.3)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
+  '@typescript-eslint/types@8.32.0': {}
+
+  '@typescript-eslint/types@8.46.4':
+    optional: true
+
+  '@typescript-eslint/typescript-estree@8.32.0(typescript@5.8.3)':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@typescript-eslint/project-service': 8.48.0(typescript@5.9.3)
       '@typescript-eslint/tsconfig-utils': 8.48.0(typescript@5.9.3)
@@ -9739,6 +10029,7 @@ snapshots:
       '@typescript-eslint/visitor-keys': 8.48.0
       debug: 4.4.3
       minimatch: 9.0.5
+<<<<<<< HEAD
       semver: 7.7.3
       tinyglobby: 0.2.15
       ts-api-utils: 2.1.0(typescript@5.9.3)
@@ -9758,11 +10049,54 @@ snapshots:
       - supports-color
 
   '@typescript-eslint/visitor-keys@8.48.0':
+=======
+      semver: 7.7.2
+      ts-api-utils: 2.1.0(typescript@5.8.3)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
+  '@typescript-eslint/utils@8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)':
+    dependencies:
+      '@eslint-community/eslint-utils': 4.7.0(eslint@9.26.0(jiti@2.6.1))
+      '@typescript-eslint/scope-manager': 8.32.0
+      '@typescript-eslint/types': 8.32.0
+      '@typescript-eslint/typescript-estree': 8.32.0(typescript@5.8.3)
+      eslint: 9.26.0(jiti@2.6.1)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@typescript-eslint/utils@8.46.4(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3)':
+    dependencies:
+      '@eslint-community/eslint-utils': 4.9.0(eslint@9.26.0(jiti@2.6.1))
+      '@typescript-eslint/scope-manager': 8.46.4
+      '@typescript-eslint/types': 8.46.4
+      '@typescript-eslint/typescript-estree': 8.46.4(typescript@5.8.3)
+      eslint: 9.26.0(jiti@2.6.1)
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
+  '@typescript-eslint/visitor-keys@8.32.0':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@typescript-eslint/types': 8.48.0
       eslint-visitor-keys: 4.2.1
 
+<<<<<<< HEAD
   '@typescript/native-preview-darwin-arm64@7.0.0-dev.20251128.1':
+=======
+  '@typescript-eslint/visitor-keys@8.46.4':
+    dependencies:
+      '@typescript-eslint/types': 8.46.4
+      eslint-visitor-keys: 4.2.1
+    optional: true
+
+  '@typescript/native-preview-darwin-arm64@7.0.0-dev.20250617.1':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optional: true
 
   '@typescript/native-preview-darwin-x64@7.0.0-dev.20251128.1':
@@ -9861,6 +10195,7 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.11.1':
     optional: true
 
+<<<<<<< HEAD
   '@use-gesture/core@10.3.1': {}
 
   '@use-gesture/react@10.3.1(react@19.2.0)':
@@ -9981,6 +10316,9 @@ snapshots:
       - supports-color
 
   '@vitest/coverage-v8@4.0.14(vitest@4.0.14(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1))':
+=======
+  '@vitest/expect@3.2.4':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.0.14
@@ -10006,6 +10344,7 @@ snapshots:
       chai: 6.2.1
       tinyrainbow: 3.0.3
 
+<<<<<<< HEAD
   '@vitest/mocker@4.0.14(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(vite@7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1))':
     dependencies:
       '@vitest/spy': 4.0.14
@@ -10016,6 +10355,9 @@ snapshots:
       vite: 7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1)
 
   '@vitest/pretty-format@4.0.14':
+=======
+  '@vitest/pretty-format@3.2.4':
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       tinyrainbow: 3.0.3
 
@@ -10037,10 +10379,13 @@ snapshots:
       '@vitest/pretty-format': 4.0.14
       tinyrainbow: 3.0.3
 
+<<<<<<< HEAD
   '@webgpu/types@0.1.66': {}
 
   abbrev@2.0.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   accepts@2.0.0:
     dependencies:
       mime-types: 3.0.2
@@ -10126,8 +10471,11 @@ snapshots:
       call-bound: 1.0.4
       is-array-buffer: 3.0.5
 
+<<<<<<< HEAD
   array-find-index@1.0.2: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   array-includes@3.1.9:
     dependencies:
       call-bind: 1.0.8
@@ -10190,8 +10538,6 @@ snapshots:
       get-intrinsic: 1.3.0
       is-array-buffer: 3.0.5
 
-  arrify@1.0.1: {}
-
   assertion-error@2.0.1: {}
 
   ast-v8-to-istanbul@0.3.8:
@@ -10231,7 +10577,25 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+<<<<<<< HEAD
   babel-plugin-istanbul@7.0.1:
+=======
+  babel-jest@29.7.0(@babel/core@7.28.5):
+    dependencies:
+      '@babel/core': 7.28.5
+      '@jest/transform': 29.7.0
+      '@types/babel__core': 7.20.5
+      babel-plugin-istanbul: 6.1.1
+      babel-preset-jest: 29.6.3(@babel/core@7.28.5)
+      chalk: 4.1.2
+      graceful-fs: 4.2.11
+      slash: 3.0.0
+    transitivePeerDependencies:
+      - supports-color
+    optional: true
+
+  babel-plugin-istanbul@6.1.1:
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@babel/helper-plugin-utils': 7.27.1
       '@istanbuljs/load-nyc-config': 1.1.0
@@ -10245,11 +10609,15 @@ snapshots:
     dependencies:
       '@types/babel__core': 7.20.5
 
+<<<<<<< HEAD
   babel-plugin-react-compiler@1.0.0:
     dependencies:
       '@babel/types': 7.28.5
 
   babel-preset-current-node-syntax@1.2.0(@babel/core@7.28.5):
+=======
+  babel-preset-current-node-syntax@1.1.0(@babel/core@7.27.4):
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@babel/core': 7.28.5
       '@babel/plugin-syntax-async-generators': 7.8.4(@babel/core@7.28.5)
@@ -10268,7 +10636,31 @@ snapshots:
       '@babel/plugin-syntax-private-property-in-object': 7.14.5(@babel/core@7.28.5)
       '@babel/plugin-syntax-top-level-await': 7.14.5(@babel/core@7.28.5)
 
+<<<<<<< HEAD
   babel-preset-jest@30.2.0(@babel/core@7.28.5):
+=======
+  babel-preset-current-node-syntax@1.1.0(@babel/core@7.28.5):
+    dependencies:
+      '@babel/core': 7.28.5
+      '@babel/plugin-syntax-async-generators': 7.8.4(@babel/core@7.28.5)
+      '@babel/plugin-syntax-bigint': 7.8.3(@babel/core@7.28.5)
+      '@babel/plugin-syntax-class-properties': 7.12.13(@babel/core@7.28.5)
+      '@babel/plugin-syntax-class-static-block': 7.14.5(@babel/core@7.28.5)
+      '@babel/plugin-syntax-import-attributes': 7.27.1(@babel/core@7.28.5)
+      '@babel/plugin-syntax-import-meta': 7.10.4(@babel/core@7.28.5)
+      '@babel/plugin-syntax-json-strings': 7.8.3(@babel/core@7.28.5)
+      '@babel/plugin-syntax-logical-assignment-operators': 7.10.4(@babel/core@7.28.5)
+      '@babel/plugin-syntax-nullish-coalescing-operator': 7.8.3(@babel/core@7.28.5)
+      '@babel/plugin-syntax-numeric-separator': 7.10.4(@babel/core@7.28.5)
+      '@babel/plugin-syntax-object-rest-spread': 7.8.3(@babel/core@7.28.5)
+      '@babel/plugin-syntax-optional-catch-binding': 7.8.3(@babel/core@7.28.5)
+      '@babel/plugin-syntax-optional-chaining': 7.8.3(@babel/core@7.28.5)
+      '@babel/plugin-syntax-private-property-in-object': 7.14.5(@babel/core@7.28.5)
+      '@babel/plugin-syntax-top-level-await': 7.14.5(@babel/core@7.28.5)
+    optional: true
+
+  babel-preset-jest@29.6.3(@babel/core@7.27.4):
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@babel/core': 7.28.5
       babel-plugin-jest-hoist: 30.2.0
@@ -10276,8 +10668,16 @@ snapshots:
 
   bail@2.0.2: {}
 
+  babel-preset-jest@29.6.3(@babel/core@7.28.5):
+    dependencies:
+      '@babel/core': 7.28.5
+      babel-plugin-jest-hoist: 29.6.3
+      babel-preset-current-node-syntax: 1.1.0(@babel/core@7.28.5)
+    optional: true
+
   balanced-match@1.0.2: {}
 
+<<<<<<< HEAD
   base64-js@1.5.1: {}
 
   baseline-browser-mapping@2.8.31: {}
@@ -10295,6 +10695,11 @@ snapshots:
       readable-stream: 3.6.2
 
   body-parser@2.2.1:
+=======
+  baseline-browser-mapping@2.8.27: {}
+
+  body-parser@2.2.0:
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       bytes: 3.1.2
       content-type: 1.0.5
@@ -10341,11 +10746,6 @@ snapshots:
 
   buffer-from@1.1.2: {}
 
-  buffer@6.0.3:
-    dependencies:
-      base64-js: 1.5.1
-      ieee754: 1.2.1
-
   bundle-name@4.1.0:
     dependencies:
       run-applescript: 7.1.0
@@ -10378,23 +10778,19 @@ snapshots:
 
   callsites@3.1.0: {}
 
-  camelcase-keys@4.2.0:
-    dependencies:
-      camelcase: 4.1.0
-      map-obj: 2.0.0
-      quick-lru: 1.1.0
-
-  camelcase@4.1.0: {}
-
   camelcase@5.3.1: {}
 
   camelcase@6.3.0: {}
 
+<<<<<<< HEAD
   camera-controls@3.1.2(three@0.181.2):
     dependencies:
       three: 0.181.2
 
   caniuse-lite@1.0.30001757: {}
+=======
+  caniuse-lite@1.0.30001754: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   ccount@2.0.1: {}
 
@@ -10441,6 +10837,7 @@ snapshots:
 
   cjs-module-lexer@2.1.1: {}
 
+<<<<<<< HEAD
   class-variance-authority@0.7.1:
     dependencies:
       clsx: 2.1.1
@@ -10451,6 +10848,8 @@ snapshots:
 
   cli-spinners@2.9.2: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   cli-width@4.1.0:
     optional: true
 
@@ -10459,8 +10858,6 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
-
-  clsx@2.1.1: {}
 
   co@4.6.0: {}
 
@@ -10500,6 +10897,7 @@ snapshots:
 
   concat-map@0.0.1: {}
 
+<<<<<<< HEAD
   concat-stream@2.0.0:
     dependencies:
       buffer-from: 1.1.2
@@ -10521,6 +10919,13 @@ snapshots:
   consola@3.4.2: {}
 
   content-disposition@1.0.1: {}
+=======
+  consola@3.4.2: {}
+
+  content-disposition@1.0.0:
+    dependencies:
+      safe-buffer: 5.2.1
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   content-type@1.0.5: {}
 
@@ -10554,16 +10959,13 @@ snapshots:
       fs-extra: 11.3.2
       picocolors: 1.1.1
 
-  cross-env@7.0.3:
-    dependencies:
-      cross-spawn: 7.0.6
-
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
 
+<<<<<<< HEAD
   css-selector-parser@3.2.0: {}
 
   css-what@6.2.2: {}
@@ -10760,6 +11162,8 @@ snapshots:
       d3: 7.9.0
       lodash-es: 4.17.21
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   data-view-buffer@1.0.2:
     dependencies:
       call-bound: 1.0.4
@@ -10778,12 +11182,15 @@ snapshots:
       es-errors: 1.3.0
       is-data-view: 1.0.2
 
+<<<<<<< HEAD
   dayjs@1.11.19: {}
 
   debug@2.6.9:
     dependencies:
       ms: 2.0.0
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   debug@3.2.7:
     dependencies:
       ms: 2.1.3
@@ -10792,6 +11199,7 @@ snapshots:
     dependencies:
       ms: 2.1.3
 
+<<<<<<< HEAD
   decamelize-keys@1.1.1:
     dependencies:
       decamelize: 1.2.0
@@ -10802,6 +11210,9 @@ snapshots:
   decode-named-character-reference@1.2.0:
     dependencies:
       character-entities: 2.0.2
+=======
+  dedent@1.6.0: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   dedent@1.7.0: {}
 
@@ -10838,6 +11249,7 @@ snapshots:
 
   depd@2.0.0: {}
 
+<<<<<<< HEAD
   dequal@2.0.3: {}
 
   destroy@1.2.0: {}
@@ -10847,6 +11259,10 @@ snapshots:
       webgl-constants: 1.1.1
 
   detect-libc@2.1.2: {}
+=======
+  detect-libc@2.1.2:
+    optional: true
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   detect-newline@3.1.0: {}
 
@@ -10868,6 +11284,7 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
+<<<<<<< HEAD
   dompurify@3.3.0:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
@@ -10886,8 +11303,9 @@ snapshots:
   dotenv@16.6.1: {}
 
   dotenv@17.2.3: {}
-
-  draco3d@1.5.7: {}
+=======
+  dotenv@16.5.0: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   dunder-proto@1.0.1:
     dependencies:
@@ -10911,10 +11329,9 @@ snapshots:
 
   emoji-regex@9.2.2: {}
 
-  encodeurl@1.0.2: {}
-
   encodeurl@2.0.0: {}
 
+<<<<<<< HEAD
   enhanced-resolve@5.18.3:
     dependencies:
       graceful-fs: 4.2.11
@@ -10925,6 +11342,9 @@ snapshots:
   err-code@2.0.3: {}
 
   error-ex@1.3.4:
+=======
+  error-ex@1.3.2:
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       is-arrayish: 0.2.1
 
@@ -11203,6 +11623,7 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
+<<<<<<< HEAD
   eslint-plugin-mdx@3.6.2(eslint@9.39.1(jiti@2.6.1)):
     dependencies:
       eslint: 9.39.1(jiti@2.6.1)
@@ -11237,6 +11658,9 @@ snapshots:
       eslint: 9.39.1(jiti@2.6.1)
 
   eslint-plugin-react@7.37.5(eslint@9.39.1(jiti@2.6.1)):
+=======
+  eslint-plugin-unused-imports@4.1.4(@typescript-eslint/eslint-plugin@8.46.4(@typescript-eslint/parser@8.32.0(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3))(eslint@9.26.0(jiti@2.6.1))(typescript@5.8.3))(eslint@9.26.0(jiti@2.6.1)):
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       array-includes: 3.1.9
       array.prototype.findlast: 1.2.5
@@ -11273,6 +11697,7 @@ snapshots:
 
   eslint-visitor-keys@4.2.1: {}
 
+<<<<<<< HEAD
   eslint@9.39.1(jiti@2.6.1):
     dependencies:
       '@eslint-community/eslint-utils': 4.9.0(eslint@9.39.1(jiti@2.6.1))
@@ -11291,6 +11716,28 @@ snapshots:
       chalk: 4.1.2
       cross-spawn: 7.0.6
       debug: 4.4.3
+=======
+  eslint@9.26.0(jiti@2.6.1):
+    dependencies:
+      '@eslint-community/eslint-utils': 4.7.0(eslint@9.26.0(jiti@2.6.1))
+      '@eslint-community/regexpp': 4.12.1
+      '@eslint/config-array': 0.20.1
+      '@eslint/config-helpers': 0.2.3
+      '@eslint/core': 0.13.0
+      '@eslint/eslintrc': 3.3.1
+      '@eslint/js': 9.26.0
+      '@eslint/plugin-kit': 0.2.8
+      '@humanfs/node': 0.16.6
+      '@humanwhocodes/module-importer': 1.0.1
+      '@humanwhocodes/retry': 0.4.3
+      '@modelcontextprotocol/sdk': 1.13.1
+      '@types/estree': 1.0.8
+      '@types/json-schema': 7.0.15
+      ajv: 6.12.6
+      chalk: 4.1.2
+      cross-spawn: 7.0.6
+      debug: 4.4.1
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
       escape-string-regexp: 4.0.0
       eslint-scope: 8.4.0
       eslint-visitor-keys: 4.2.1
@@ -11309,6 +11756,10 @@ snapshots:
       minimatch: 3.1.2
       natural-compare: 1.4.0
       optionator: 0.9.4
+<<<<<<< HEAD
+=======
+      zod: 3.25.76
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optionalDependencies:
       jiti: 2.6.1
     transitivePeerDependencies:
@@ -11415,7 +11866,10 @@ snapshots:
   express-rate-limit@7.5.1(express@5.1.0):
     dependencies:
       express: 5.1.0
+<<<<<<< HEAD
     optional: true
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   express@5.1.0:
     dependencies:
@@ -11480,6 +11934,7 @@ snapshots:
     dependencies:
       bser: 2.1.1
 
+<<<<<<< HEAD
   fdir@6.5.0(picomatch@4.0.3):
     optionalDependencies:
       picomatch: 4.0.3
@@ -11487,6 +11942,11 @@ snapshots:
   fflate@0.6.10: {}
 
   fflate@0.8.2: {}
+=======
+  fdir@6.4.6(picomatch@4.0.2):
+    optionalDependencies:
+      picomatch: 4.0.2
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -11506,10 +11966,6 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
-
-  find-up@2.1.0:
-    dependencies:
-      locate-path: 2.0.0
 
   find-up@4.1.0:
     dependencies:
@@ -11547,10 +12003,13 @@ snapshots:
 
   forwarded@0.2.0: {}
 
+<<<<<<< HEAD
   fraction.js@5.3.4: {}
 
   fresh@0.5.2: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   fresh@2.0.0: {}
 
   fs-extra@11.3.2:
@@ -11650,13 +12109,18 @@ snapshots:
 
   globals@14.0.0: {}
 
+<<<<<<< HEAD
   globals@16.5.0: {}
+=======
+  globals@16.1.0: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   globalthis@1.0.4:
     dependencies:
       define-properties: 1.2.1
       gopd: 1.2.0
 
+<<<<<<< HEAD
   globby@14.1.0:
     dependencies:
       '@sindresorhus/merge-streams': 2.3.0
@@ -11668,6 +12132,8 @@ snapshots:
 
   glsl-noise@0.0.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   gopd@1.2.0: {}
 
   graceful-fs@4.2.11: {}
@@ -11871,6 +12337,7 @@ snapshots:
   headers-polyfill@4.0.3:
     optional: true
 
+<<<<<<< HEAD
   hermes-estree@0.25.1: {}
 
   hermes-parser@0.25.1:
@@ -11887,6 +12354,8 @@ snapshots:
     dependencies:
       lru-cache: 10.4.3
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   html-escaper@2.0.2: {}
 
   html-void-elements@3.0.0: {}
@@ -11899,6 +12368,7 @@ snapshots:
       statuses: 2.0.1
       toidentifier: 1.0.1
 
+<<<<<<< HEAD
   http-errors@2.0.1:
     dependencies:
       depd: 2.0.0
@@ -11907,6 +12377,8 @@ snapshots:
       statuses: 2.0.2
       toidentifier: 1.0.1
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   human-signals@2.1.0: {}
 
   iconv-lite@0.6.3:
@@ -11917,15 +12389,18 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
-  ieee754@1.2.1: {}
-
   ignore@5.3.2: {}
 
+<<<<<<< HEAD
   ignore@6.0.2: {}
 
   ignore@7.0.5: {}
 
   immediate@3.0.6: {}
+=======
+  ignore@7.0.5:
+    optional: true
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   import-fresh@3.3.1:
     dependencies:
@@ -11940,8 +12415,6 @@ snapshots:
   import-meta-resolve@4.2.0: {}
 
   imurmurhash@0.1.4: {}
-
-  indent-string@3.2.0: {}
 
   inflight@1.0.6:
     dependencies:
@@ -12071,12 +12544,15 @@ snapshots:
 
   is-number@7.0.0: {}
 
+<<<<<<< HEAD
   is-plain-obj@1.1.0: {}
 
   is-plain-obj@4.1.0: {}
 
   is-promise@2.2.2: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   is-promise@4.0.0: {}
 
   is-regex@1.2.1:
@@ -12163,6 +12639,7 @@ snapshots:
       html-escaper: 2.0.2
       istanbul-lib-report: 3.0.1
 
+<<<<<<< HEAD
   iterator.prototype@1.1.5:
     dependencies:
       define-data-property: 1.1.4
@@ -12179,6 +12656,8 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   jackspeak@3.4.3:
     dependencies:
       '@isaacs/cliui': 8.0.2
@@ -12498,7 +12977,8 @@ snapshots:
       - supports-color
       - ts-node
 
-  jiti@2.6.1: {}
+  jiti@2.6.1:
+    optional: true
 
   joycon@3.1.1: {}
 
@@ -12518,8 +12998,6 @@ snapshots:
   jsesc@3.1.0: {}
 
   json-buffer@3.0.1: {}
-
-  json-parse-better-errors@1.0.2: {}
 
   json-parse-even-better-errors@2.3.1: {}
 
@@ -12584,10 +13062,6 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
-  lie@3.3.0:
-    dependencies:
-      immediate: 3.0.6
-
   lightningcss-android-arm64@1.30.2:
     optional: true
 
@@ -12636,11 +13110,13 @@ snapshots:
       lightningcss-linux-x64-musl: 1.30.2
       lightningcss-win32-arm64-msvc: 1.30.2
       lightningcss-win32-x64-msvc: 1.30.2
+    optional: true
 
   lilconfig@3.1.3: {}
 
   lines-and-columns@1.2.4: {}
 
+<<<<<<< HEAD
   lines-and-columns@2.0.4: {}
 
   load-json-file@4.0.0:
@@ -12657,12 +13133,9 @@ snapshots:
     transitivePeerDependencies:
       - bluebird
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   load-tsconfig@0.2.5: {}
-
-  locate-path@2.0.0:
-    dependencies:
-      p-locate: 2.0.0
-      path-exists: 3.0.0
 
   locate-path@5.0.0:
     dependencies:
@@ -12689,10 +13162,14 @@ snapshots:
     dependencies:
       js-tokens: 4.0.0
 
+<<<<<<< HEAD
   loud-rejection@1.6.0:
     dependencies:
       currently-unhandled: 0.4.1
       signal-exit: 3.0.7
+=======
+  loupe@3.1.4: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   lru-cache@10.4.3: {}
 
@@ -12700,6 +13177,7 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
+<<<<<<< HEAD
   lucide-react@0.555.0(react@19.2.0):
     dependencies:
       react: 19.2.0
@@ -12719,6 +13197,12 @@ snapshots:
       '@babel/types': 7.28.5
       source-map-js: 1.2.1
 
+=======
+  magic-string@0.30.17:
+    dependencies:
+      '@jridgewell/sourcemap-codec': 1.5.0
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   make-dir@4.0.0:
     dependencies:
       semver: 7.7.3
@@ -12729,6 +13213,7 @@ snapshots:
     dependencies:
       tmpl: 1.0.5
 
+<<<<<<< HEAD
   map-obj@1.0.1: {}
 
   map-obj@2.0.0: {}
@@ -12949,12 +13434,19 @@ snapshots:
       redent: 2.0.0
       trim-newlines: 2.0.0
 
+=======
+  math-intrinsics@1.1.0: {}
+
+  media-typer@1.1.0: {}
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   merge-descriptors@2.0.0: {}
 
   merge-stream@2.0.0: {}
 
   merge2@1.4.1: {}
 
+<<<<<<< HEAD
   mermaid-isomorphic@3.0.4(playwright@1.57.0):
     dependencies:
       '@fortawesome/fontawesome-free': 6.7.2
@@ -13272,6 +13764,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   micromatch@4.0.8:
     dependencies:
       braces: 3.0.3
@@ -13279,11 +13773,13 @@ snapshots:
 
   mime-db@1.54.0: {}
 
+<<<<<<< HEAD
   mime-types@3.0.2:
+=======
+  mime-types@3.0.1:
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       mime-db: 1.54.0
-
-  mime@1.6.0: {}
 
   mimic-fn@2.1.0: {}
 
@@ -13297,15 +13793,11 @@ snapshots:
     dependencies:
       brace-expansion: 2.0.2
 
-  minimist-options@3.0.2:
-    dependencies:
-      arrify: 1.0.1
-      is-plain-obj: 1.1.0
-
   minimist@1.2.8: {}
 
   minipass@7.1.2: {}
 
+<<<<<<< HEAD
   minisearch@6.3.0: {}
 
   mlly@1.8.0:
@@ -13330,6 +13822,17 @@ snapshots:
       '@open-draft/deferred-promise': 2.2.0
       '@types/statuses': 2.0.6
       cookie: 1.1.1
+=======
+  ms@2.1.3: {}
+
+  msw@2.12.1(@types/node@22.15.15)(typescript@5.8.3):
+    dependencies:
+      '@inquirer/confirm': 5.1.20(@types/node@22.15.15)
+      '@mswjs/interceptors': 0.40.0
+      '@open-draft/deferred-promise': 2.2.0
+      '@types/statuses': 2.0.6
+      cookie: 1.0.2
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
       graphql: 16.12.0
       headers-polyfill: 4.0.3
       is-node-process: 1.2.0
@@ -13344,12 +13847,20 @@ snapshots:
       until-async: 3.0.2
       yargs: 17.7.2
     optionalDependencies:
+<<<<<<< HEAD
       typescript: 5.9.3
+=======
+      typescript: 5.8.3
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     transitivePeerDependencies:
       - '@types/node'
     optional: true
 
+<<<<<<< HEAD
   mute-stream@2.0.0:
+=======
+  mute-stream@3.0.0:
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optional: true
 
   mz@2.7.0:
@@ -13358,21 +13869,17 @@ snapshots:
       object-assign: 4.1.1
       thenify-all: 1.6.0
 
-  nanoid-cli@1.1.0:
-    dependencies:
-      meow: 4.0.0
-      nanoid: 1.3.4
-
-  nanoid@1.3.4: {}
-
   nanoid@3.3.11: {}
 
   napi-postinstall@0.3.4: {}
 
   natural-compare@1.4.0: {}
 
+<<<<<<< HEAD
   negotiator@0.6.4: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   negotiator@1.0.0: {}
 
   neo-async@2.6.2: {}
@@ -13381,6 +13888,7 @@ snapshots:
 
   node-releases@2.0.27: {}
 
+<<<<<<< HEAD
   nopt@7.2.1:
     dependencies:
       abbrev: 2.0.0
@@ -13398,6 +13906,8 @@ snapshots:
       semver: 7.7.3
       validate-npm-package-license: 3.0.4
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   normalize-path@3.0.0: {}
 
   normalize-range@0.1.2: {}
@@ -13510,12 +14020,16 @@ snapshots:
       powershell-utils: 0.1.0
       wsl-utils: 0.3.0
 
+<<<<<<< HEAD
   openai@6.9.1(ws@8.18.3)(zod@3.25.76):
     optionalDependencies:
       ws: 8.18.3
       zod: 3.25.76
 
   openai@6.9.1(ws@8.18.3)(zod@4.1.13):
+=======
+  openai@6.8.1(ws@8.18.3)(zod@3.25.76):
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     optionalDependencies:
       ws: 8.18.3
       zod: 4.1.13
@@ -13550,10 +14064,6 @@ snapshots:
       object-keys: 1.1.1
       safe-push-apply: 1.0.0
 
-  p-limit@1.3.0:
-    dependencies:
-      p-try: 1.0.0
-
   p-limit@2.3.0:
     dependencies:
       p-try: 2.2.0
@@ -13562,6 +14072,7 @@ snapshots:
     dependencies:
       yocto-queue: 0.1.0
 
+<<<<<<< HEAD
   p-limit@5.0.0:
     dependencies:
       yocto-queue: 1.2.2
@@ -13570,6 +14081,8 @@ snapshots:
     dependencies:
       p-limit: 1.3.0
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   p-locate@4.1.0:
     dependencies:
       p-limit: 2.3.0
@@ -13577,8 +14090,6 @@ snapshots:
   p-locate@5.0.0:
     dependencies:
       p-limit: 3.1.0
-
-  p-try@1.0.0: {}
 
   p-try@2.2.0: {}
 
@@ -13590,6 +14101,7 @@ snapshots:
     dependencies:
       callsites: 3.1.0
 
+<<<<<<< HEAD
   parse-entities@4.0.2:
     dependencies:
       '@types/unist': 2.0.11
@@ -13605,6 +14117,8 @@ snapshots:
       error-ex: 1.3.4
       json-parse-better-errors: 1.0.2
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   parse-json@5.2.0:
     dependencies:
       '@babel/code-frame': 7.27.1
@@ -13626,10 +14140,13 @@ snapshots:
 
   parseurl@1.3.3: {}
 
+<<<<<<< HEAD
   path-data-parser@0.1.0: {}
 
   path-exists@3.0.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   path-exists@4.0.0: {}
 
   path-is-absolute@1.0.1: {}
@@ -13648,11 +14165,15 @@ snapshots:
 
   path-to-regexp@8.3.0: {}
 
+<<<<<<< HEAD
   path-type@3.0.0:
     dependencies:
       pify: 3.0.0
 
   path-type@6.0.0: {}
+=======
+  pathe@2.0.3: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   pathe@2.0.3: {}
 
@@ -13660,9 +14181,13 @@ snapshots:
 
   picomatch@2.3.1: {}
 
+<<<<<<< HEAD
   picomatch@4.0.3: {}
 
   pify@3.0.0: {}
+=======
+  picomatch@4.0.2: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   pirates@4.0.7: {}
 
@@ -13713,10 +14238,13 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
+<<<<<<< HEAD
   potpack@1.0.2: {}
 
   powershell-utils@0.1.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   prelude-ls@1.2.1: {}
 
   prettier@3.7.1: {}
@@ -13727,6 +14255,7 @@ snapshots:
       ansi-styles: 5.2.0
       react-is: 18.3.1
 
+<<<<<<< HEAD
   proc-log@4.2.0: {}
 
   promise-inflight@1.0.1: {}
@@ -13742,6 +14271,9 @@ snapshots:
       lie: 3.3.0
 
   prop-types@15.8.1:
+=======
+  prompts@2.4.2:
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       loose-envify: 1.4.0
       object-assign: 4.1.1
@@ -13758,7 +14290,11 @@ snapshots:
 
   punycode@2.3.1: {}
 
+<<<<<<< HEAD
   pure-rand@7.0.1: {}
+=======
+  pure-rand@6.1.0: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   qs@6.14.0:
     dependencies:
@@ -13766,6 +14302,7 @@ snapshots:
 
   queue-microtask@1.2.3: {}
 
+<<<<<<< HEAD
   quick-lru@1.1.0: {}
 
   radix-ui@1.4.3(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
@@ -13837,9 +14374,25 @@ snapshots:
     dependencies:
       bytes: 3.1.2
       http-errors: 2.0.1
+=======
+  range-parser@1.2.1: {}
+
+  raw-body@3.0.0:
+    dependencies:
+      bytes: 3.1.2
+      http-errors: 2.0.0
+      iconv-lite: 0.6.3
+      unpipe: 1.0.0
+
+  raw-body@3.0.1:
+    dependencies:
+      bytes: 3.1.2
+      http-errors: 2.0.0
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
       iconv-lite: 0.7.0
       unpipe: 1.0.0
 
+<<<<<<< HEAD
   react-dom@19.2.0(react@19.2.0):
     dependencies:
       react: 19.2.0
@@ -13965,6 +14518,12 @@ snapshots:
       indent-string: 3.2.0
       strip-indent: 2.0.0
 
+=======
+  react-is@18.3.1: {}
+
+  readdirp@4.1.2: {}
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   reflect.getprototypeof@1.0.10:
     dependencies:
       call-bind: 1.0.8
@@ -14112,7 +14671,8 @@ snapshots:
 
   require-directory@2.1.1: {}
 
-  require-from-string@2.0.2: {}
+  require-from-string@2.0.2:
+    optional: true
 
   require-like@0.1.2: {}
 
@@ -14240,33 +14800,9 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  scheduler@0.25.0: {}
-
-  scheduler@0.27.0: {}
-
-  semver@5.7.2: {}
-
   semver@6.3.1: {}
 
   semver@7.7.3: {}
-
-  send@0.19.0:
-    dependencies:
-      debug: 2.6.9
-      depd: 2.0.0
-      destroy: 1.2.0
-      encodeurl: 1.0.2
-      escape-html: 1.0.3
-      etag: 1.8.1
-      fresh: 0.5.2
-      http-errors: 2.0.0
-      mime: 1.6.0
-      ms: 2.1.3
-      on-finished: 2.4.1
-      range-parser: 1.2.1
-      statuses: 2.0.1
-    transitivePeerDependencies:
-      - supports-color
 
   send@1.2.0:
     dependencies:
@@ -14281,15 +14817,6 @@ snapshots:
       on-finished: 2.4.1
       range-parser: 1.2.1
       statuses: 2.0.2
-    transitivePeerDependencies:
-      - supports-color
-
-  serve-static@1.16.2:
-    dependencies:
-      encodeurl: 2.0.0
-      escape-html: 1.0.3
-      parseurl: 1.3.3
-      send: 0.19.0
     transitivePeerDependencies:
       - supports-color
 
@@ -14334,6 +14861,7 @@ snapshots:
 
   shebang-regex@3.0.0: {}
 
+<<<<<<< HEAD
   shell-quote@1.8.3: {}
 
   shiki@1.29.2:
@@ -14347,6 +14875,8 @@ snapshots:
       '@shikijs/vscode-textmate': 10.0.2
       '@types/hast': 3.0.4
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   side-channel-list@1.0.0:
     dependencies:
       es-errors: 1.3.0
@@ -14400,6 +14930,7 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
+<<<<<<< HEAD
   spdx-correct@3.2.0:
     dependencies:
       spdx-expression-parse: 3.0.1
@@ -14414,6 +14945,8 @@ snapshots:
 
   spdx-license-ids@3.0.22: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   sprintf-js@1.0.3: {}
 
   stable-hash-x@0.2.0: {}
@@ -14424,6 +14957,7 @@ snapshots:
 
   stackback@0.0.2: {}
 
+<<<<<<< HEAD
   stats-gl@2.4.2(@types/three@0.181.0)(three@0.181.2):
     dependencies:
       '@types/three': 0.181.0
@@ -14431,6 +14965,8 @@ snapshots:
 
   stats.js@0.17.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   statuses@2.0.1: {}
 
   statuses@2.0.2: {}
@@ -14539,8 +15075,6 @@ snapshots:
 
   strip-final-newline@2.0.0: {}
 
-  strip-indent@2.0.0: {}
-
   strip-json-comments@3.1.1: {}
 
   style-to-js@1.1.21:
@@ -14575,6 +15109,7 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
+<<<<<<< HEAD
   suspend-react@0.1.3(react@19.2.0):
     dependencies:
       react: 19.2.0
@@ -14593,6 +15128,8 @@ snapshots:
 
   tapable@2.3.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   test-exclude@6.0.0:
     dependencies:
       '@istanbuljs/schema': 0.1.3
@@ -14607,6 +15144,7 @@ snapshots:
     dependencies:
       any-promise: 1.3.0
 
+<<<<<<< HEAD
   three-mesh-bvh@0.8.3(three@0.181.2):
     dependencies:
       three: 0.181.2
@@ -14623,18 +15161,24 @@ snapshots:
 
   three@0.181.2: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   tinybench@2.9.0: {}
 
   tinyexec@0.3.2: {}
 
   tinyexec@1.0.2: {}
 
+<<<<<<< HEAD
   tinyglobby@0.2.15:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
 
   tinyrainbow@3.0.3: {}
+=======
+  tinypool@1.1.1: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   tldts-core@7.0.19:
     optional: true
@@ -14661,6 +15205,7 @@ snapshots:
 
   tree-kill@1.2.2: {}
 
+<<<<<<< HEAD
   trim-lines@3.0.1: {}
 
   trim-newlines@2.0.0: {}
@@ -14694,6 +15239,15 @@ snapshots:
   ts-interface-checker@0.1.13: {}
 
   ts-jest@29.4.5(@babel/core@7.28.5)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.28.5))(esbuild@0.27.0)(jest-util@30.2.0)(jest@30.2.0(@types/node@24.10.1))(typescript@5.9.3):
+=======
+  ts-api-utils@2.1.0(typescript@5.8.3):
+    dependencies:
+      typescript: 5.8.3
+
+  ts-interface-checker@0.1.13: {}
+
+  ts-jest@29.4.0(@babel/core@7.28.5)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.28.5))(esbuild@0.25.5)(jest-util@29.7.0)(jest@29.7.0(@types/node@22.15.15))(typescript@5.8.3):
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       bs-logger: 0.2.6
       fast-json-stable-stringify: 2.1.0
@@ -14708,11 +15262,19 @@ snapshots:
       yargs-parser: 21.1.1
     optionalDependencies:
       '@babel/core': 7.28.5
+<<<<<<< HEAD
       '@jest/transform': 30.2.0
       '@jest/types': 30.2.0
       babel-jest: 30.2.0(@babel/core@7.28.5)
       esbuild: 0.27.0
       jest-util: 30.2.0
+=======
+      '@jest/transform': 29.7.0
+      '@jest/types': 29.6.3
+      babel-jest: 29.7.0(@babel/core@7.28.5)
+      esbuild: 0.25.5
+      jest-util: 29.7.0
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   tsconfig-paths@3.15.0:
     dependencies:
@@ -14758,6 +15320,7 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
+<<<<<<< HEAD
   tunnel-rat@0.1.2(@types/react@19.2.7)(react@19.2.0):
     dependencies:
       zustand: 4.5.7(@types/react@19.2.7)(react@19.2.0)
@@ -14778,6 +15341,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   type-check@0.4.0:
     dependencies:
       prelude-ls: 1.2.1
@@ -14788,8 +15353,11 @@ snapshots:
 
   type-fest@3.13.1: {}
 
+<<<<<<< HEAD
   type-fest@4.41.0: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   type-is@2.0.1:
     dependencies:
       content-type: 1.0.5
@@ -14831,6 +15399,7 @@ snapshots:
 
   typedarray@0.0.6: {}
 
+<<<<<<< HEAD
   typescript-eslint@8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3):
     dependencies:
       '@typescript-eslint/eslint-plugin': 8.48.0(@typescript-eslint/parser@8.48.0(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3)
@@ -14850,6 +15419,9 @@ snapshots:
 
   uglify-js@3.19.3:
     optional: true
+=======
+  typescript@5.8.3: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   unbox-primitive@1.1.0:
     dependencies:
@@ -14993,6 +15565,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
+<<<<<<< HEAD
   use-callback-ref@1.3.3(@types/react@19.2.7)(react@19.2.0):
     dependencies:
       react: 19.2.0
@@ -15029,12 +15602,15 @@ snapshots:
       kleur: 4.1.5
       sade: 1.8.1
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   v8-to-istanbul@9.3.0:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@types/istanbul-lib-coverage': 2.0.6
       convert-source-map: 2.0.0
 
+<<<<<<< HEAD
   validate-npm-package-license@3.0.4:
     dependencies:
       spdx-correct: 3.2.0
@@ -15042,6 +15618,8 @@ snapshots:
 
   validate-npm-package-name@5.0.1: {}
 
+=======
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   vary@1.1.2: {}
 
   vfile-location@5.0.3:
@@ -15106,6 +15684,7 @@ snapshots:
       - tsx
       - yaml
 
+<<<<<<< HEAD
   vite-plugin-sitemap@0.8.2: {}
 
   vite@6.4.1(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1):
@@ -15147,6 +15726,24 @@ snapshots:
       vitest: 4.0.14(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
 
   vitest@4.0.14(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1):
+=======
+  vite@6.3.5(@types/node@22.15.15)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.19.4):
+    dependencies:
+      esbuild: 0.25.5
+      fdir: 6.4.6(picomatch@4.0.2)
+      picomatch: 4.0.2
+      postcss: 8.5.6
+      rollup: 4.44.0
+      tinyglobby: 0.2.14
+    optionalDependencies:
+      '@types/node': 22.15.15
+      fsevents: 2.3.3
+      jiti: 2.6.1
+      lightningcss: 1.30.2
+      tsx: 4.19.4
+
+  vitest@3.2.4(@types/node@22.15.15)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.1(@types/node@22.15.15)(typescript@5.8.3))(tsx@4.19.4):
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     dependencies:
       '@vitest/expect': 4.0.14
       '@vitest/mocker': 4.0.14(msw@2.12.1(@types/node@24.10.1)(typescript@5.9.3))(vite@7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1))
@@ -15164,6 +15761,7 @@ snapshots:
       std-env: 3.10.0
       tinybench: 2.9.0
       tinyexec: 0.3.2
+<<<<<<< HEAD
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
       vite: 7.2.4(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1)
@@ -15171,6 +15769,16 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/node': 24.10.1
+=======
+      tinyglobby: 0.2.14
+      tinypool: 1.1.1
+      tinyrainbow: 2.0.0
+      vite: 6.3.5(@types/node@22.15.15)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.19.4)
+      vite-node: 3.2.4(@types/node@22.15.15)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.19.4)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 22.15.15
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
     transitivePeerDependencies:
       - jiti
       - less
@@ -15180,6 +15788,7 @@ snapshots:
       - sass-embedded
       - stylus
       - sugarss
+<<<<<<< HEAD
       - terser
       - tsx
       - yaml
@@ -15300,15 +15909,32 @@ snapshots:
 
   walk-up-path@3.0.1: {}
 
+=======
+      - supports-color
+      - terser
+      - tsx
+      - yaml
+
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
   walker@1.0.8:
     dependencies:
       makeerror: 1.0.12
 
+<<<<<<< HEAD
   web-namespaces@2.0.1: {}
 
   webgl-constants@1.1.1: {}
 
   webgl-sdf-generator@1.1.1: {}
+=======
+  webidl-conversions@4.0.2: {}
+
+  whatwg-url@7.1.0:
+    dependencies:
+      lodash.sortby: 4.7.0
+      tr46: 1.0.1
+      webidl-conversions: 4.0.2
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
 
   which-boxed-primitive@1.1.1:
     dependencies:
@@ -15433,6 +16059,7 @@ snapshots:
       zod: 3.25.76
     optional: true
 
+<<<<<<< HEAD
   zod-to-json-schema@3.25.0(zod@4.1.13):
     dependencies:
       zod: 4.1.13
@@ -15460,3 +16087,6 @@ snapshots:
       use-sync-external-store: 1.6.0(react@19.2.0)
 
   zwitch@2.0.4: {}
+=======
+  zod@3.25.76: {}
+>>>>>>> 464c704 (feat(realtime): add LangWatch Scenario expert voice agent demo)
