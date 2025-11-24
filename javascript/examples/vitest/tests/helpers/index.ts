@@ -5,6 +5,6 @@ export {
   concatenateWavFiles,
   getAudioSegments,
 } from "./audio-conversation";
-export { OpenAiVoiceAgent } from "./openai-voice-agent";
+export { AudioHelpers } from "./audio-helpers";
 export { wrapJudgeForAudioTranscription } from "./wrap-judge-for-audio-transcription";
 export { wrapJudgeForAudioExtraction } from "./wrap-judge-for-audio-extraction";

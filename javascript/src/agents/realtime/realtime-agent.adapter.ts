@@ -106,7 +106,6 @@ export class RealtimeAgentAdapter implements Agent {
    * @param config - Configuration for the realtime agent adapter
    */
   constructor(private config: RealtimeAgentAdapterConfig) {
-    super();
     this.role = this.config.role;
     this.name = this.config.agentName;
     this.session = config.session;

@@ -7,16 +7,71 @@ import {
   getFixturePath,
   wrapJudgeForAudioTranscription,
 } from "./helpers";
-import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
+import OpenAI from "openai";
 
 // Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
 // returns 404 model_not_found as of 2026-05-19. Tracked separately — the
 // voice work PR will unskip these tests once model access is restored.
 const skipInCi = process.env.CI === "true";
 
-class AudioAgent extends OpenAiVoiceAgent {
-  role: AgentRole = AgentRole.AGENT;
-}
+const openaiDirectClient = new OpenAI();
+
+// Custom agent that handles audio input/output directly
+const audioAgent = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    // Convert messages to OpenAI format
+    const messages = input.messages.map((msg) => {
+      if (msg.role === "user" && Array.isArray(msg.content)) {
+        // Handle audio input
+        const audioPart = msg.content.find(
+          (part) => part.type === "file" && part.mediaType?.startsWith("audio/")
+        );
+        if (audioPart) {
+          return {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this audio and respond with audio.",
+              },
+              {
+                type: "input_audio",
+                input_audio: {
+                  data: audioPart.data,
+                  format: "wav",
+                },
+              },
+            ],
+          };
+        }
+      }
+      return msg;
+    });
+
+    // Call OpenAI audio API
+    const response = await openaiDirectClient.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      audio: { voice: "alloy", format: "wav" },
+      messages,
+    });
+
+    // Return audio response
+    const audioData = response.choices[0].message?.audio?.data;
+    if (audioData) {
+      return {
+        role: "assistant",
+        content: [
+          { type: "text", text: "" },
+          { type: "file", mediaType: "audio/wav", data: audioData },
+        ],
+      };
+    }
+
+    throw new Error("No audio response generated");
+  },
+};
 
 // Use setId to group together for visualizing in the UI
 const setId = "multimodal-audio-test";
@@ -27,14 +82,7 @@ const setId = "multimodal-audio-test";
  */
 describe.skipIf(skipInCi)("Multimodal Audio to Audio Tests", () => {
   it("should handle audio input", async () => {
-    const myAgent = new AudioAgent({
-      systemPrompt: `
-      You are a helpful assistant that can analyze audio input and respond with audio output.
-      You must respond with audio output.
-      `,
-      voice: "alloy",
-      forceUserRole: true,
-    });
+    const myAgent = audioAgent;
 
     const data = encodeAudioToBase64(
       getFixturePath("male_or_female_voice.wav"),

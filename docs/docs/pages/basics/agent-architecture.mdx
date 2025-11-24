@@ -31,33 +31,39 @@ This interface ensures compatibility with Scenario's testing framework while all
 For agents that use HTTP-based LLM calls but need custom behavior (e.g., custom headers, different models, audio support):
 
 ```typescript
-class CustomVoiceAgent extends UserSimulatorAgent {
-  // Inherits business logic: system prompts, config merging, message prep
-
+class CustomAgent extends UserSimulatorAgent {
   protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
-    // Custom LLM invocation - e.g., OpenAI audio API
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
-      modalities: ["text", "audio"],
-      messages: params.messages,
-      // ... custom parameters
-    });
-
-    return {
-      text: response.choices[0].message.content,
-      // ... other fields
-    };
+    // Custom LLM invocation logic
+    return await customLLMCall(params);
   }
 }
 ```
 
+**For audio support on built-in agents, use `AudioHelpers.wrapAgentForAudio`:**
+
+```typescript
+import { AudioHelpers } from "@langwatch/scenario";
+
+const audioUserSimulator = AudioHelpers.wrapAgentForAudio(
+  scenario.userSimulatorAgent(),
+  { voice: "nova" }
+);
+
+const audioJudge = AudioHelpers.wrapAgentForAudio(
+  scenario.judgeAgent({ criteria: [...] }),
+  { voice: "alloy" }
+);
+```
+
 **Use this pattern when:**
+
 - You want to customize how LLM calls are made
 - You need custom headers, authentication, or model parameters
 - You want to add logging, monitoring, or caching
 - Your agent follows standard request/response patterns
 
 **Benefits:**
+
 - Reuse built-in business logic (prompt building, config merging)
 - Only customize the LLM interaction
 - Automatic handling of message formatting and role reversal
@@ -80,12 +86,14 @@ class CustomDatabaseAgent implements Agent {
 ```
 
 **Use this pattern when:**
+
 - Your agent uses WebSocket, database queries, or custom APIs
 - You need event-driven communication (not request/response)
 - You have complex multi-step logic or state management
 - You want to bypass LLM calls entirely
 
 **Benefits:**
+
 - Complete control over implementation
 - No assumptions about HTTP-based LLM communication
 - Suitable for any protocol or custom logic
@@ -105,22 +113,23 @@ Scenario's `CoreMessage` type supports rich content including audio:
 ```
 
 **How different agents handle audio:**
+
 - **Standard agents**: Transcribe audio → process text → return text
 - **Voice agents**: Convert audio format → send to voice API → return audio
 - **Custom agents**: Handle according to your specific needs
 
 ## Decision Guide
 
-| Use Case | Recommended Pattern | Example |
-|----------|-------------------|---------|
-| Custom LLM headers/auth | Override `invokeLLM` | Add API gateway headers |
-| Different model provider | Override `invokeLLM` | Use Anthropic instead of OpenAI |
-| Audio generation (HTTP) | Override `invokeLLM` | OpenAI audio preview model |
-| Custom logging/monitoring | Override `invokeLLM` | Track token usage |
-| WebSocket protocol | Override `call` | Realtime API agents |
-| Custom message flow | Override `call` | Multi-step reasoning |
-| Stateful connections | Override `call` | Persistent sessions |
-| Database queries | Override `call` | Custom data agents |
+| Use Case                  | Recommended Pattern            | Example                         |
+| ------------------------- | ------------------------------ | ------------------------------- |
+| Custom LLM headers/auth   | Override `invokeLLM`           | Add API gateway headers         |
+| Different model provider  | Override `invokeLLM`           | Use Anthropic instead of OpenAI |
+| Audio support             | AudioHelpers.wrapAgentForAudio | OpenAI audio preview model      |
+| Custom logging/monitoring | Override `invokeLLM`           | Track token usage               |
+| WebSocket protocol        | Override `call`                | Realtime API agents             |
+| Custom message flow       | Override `call`                | Multi-step reasoning            |
+| Stateful connections      | Override `call`                | Persistent sessions             |
+| Database queries          | Override `call`                | Custom data agents              |
 
 **Rule of thumb:** If you're changing **how** you call the LLM but keeping the same **business logic**, override `invokeLLM`. If you're changing the **entire flow**, override `call`.
 
@@ -132,8 +141,27 @@ Scenario provides several built-in agent implementations:
 - **`JudgeAgent`**: Uses `invokeLLM` pattern with tool-calling for evaluation
 - **`RealtimeAgentAdapter`**: Uses `call` pattern for WebSocket-based voice agents
 
+## Audio Support
+
+For audio-enabled conversations, Scenario provides `AudioHelpers.wrapAgentForAudio` to wrap built-in agents with audio capabilities:
+
+```typescript
+import { AudioHelpers } from "@langwatch/scenario";
+
+const audioAgent = AudioHelpers.wrapAgentForAudio(
+  scenario.userSimulatorAgent(),
+  { voice: "alloy" }
+);
+```
+
+This wrapper overrides the agent's `invokeLLM` method to use OpenAI's audio API instead of text API, while preserving all the agent's business logic.
+
 ## Next Steps
 
-- <RefLink href="/docs/basics/writing-scenarios">Learn about writing scenarios</RefLink>
-- <RefLink href="/docs/examples/multimodal/overview">Explore multimodal examples</RefLink>
+- <RefLink href="/docs/basics/writing-scenarios">
+    Learn about writing scenarios
+  </RefLink>
+- <RefLink href="/docs/examples/multimodal/overview">
+    Explore multimodal examples
+  </RefLink>
 - <RefLink href="/docs/agent-integration">See agent integration guides</RefLink>

@@ -622,7 +622,7 @@ class JudgeAgent implements Agent {
    * @param params Parameters for the LLM invocation
    * @returns The LLM completion result
    */
-  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
+  public async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
     try {
       return await generateText(params);
     } catch (error) {

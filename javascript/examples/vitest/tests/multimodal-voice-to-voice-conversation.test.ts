@@ -21,7 +21,7 @@ import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
 import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import {
-  OpenAiVoiceAgent,
+  AudioHelpers,
   saveConversationAudio,
   wrapJudgeForAudioTranscription,
 } from "./helpers";
@@ -36,19 +36,20 @@ const skipInCi = process.env.CI === "true";
  * Main agent that responds with helpful audio answers
  * Uses "echo" voice for a distinct sound
  */
-class MyAgent extends OpenAiVoiceAgent {
-  role: AgentRole = AgentRole.AGENT;
+const wrappedAssistant = AudioHelpers.wrapAgentForAudio(
+  scenario.userSimulatorAgent({
+    systemPrompt: `You are a helpful and engaging AI assistant.
+    Respond naturally and conversationally since this is an audio conversation.
+    Be informative but keep your responses short, concise and engaging.
+    Adapt your speaking style to be natural for audio.`,
+  }),
+  { voice: "echo" }
+);
 
-  constructor() {
-    super({
-      systemPrompt: `You are a helpful and engaging AI assistant.
-      Respond naturally and conversationally since this is an audio conversation.
-      Be informative but keep your responses short, concise and engaging.
-      Adapt your speaking style to be natural for audio.`,
-      voice: "echo",
-    });
-  }
-}
+const myAgent = {
+  role: AgentRole.AGENT,
+  call: wrappedAssistant.call.bind(wrappedAssistant),
+};
 
 /**
  * User simulator that generates audio questions
@@ -60,40 +61,39 @@ class MyAgent extends OpenAiVoiceAgent {
  * - Automatically ends conversation after 2 exchanges
  * - Uses "nova" voice to differentiate from main agent
  */
-class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
-  role: AgentRole = AgentRole.USER;
+const baseUserSimulator = scenario.userSimulatorAgent({
+  systemPrompt: `
+  You are role playing as a curious user looking for information about AI agentic testing,
+  but you're a total novice and don't know anything about it.
 
-  constructor() {
-    super({
-      systemPrompt: `
-      You are role playing as a curious user looking for information about AI agentic testing,
-      but you're a total novice and don't know anything about it.
+  Be natural and conversational in your speech patterns.
+  This is an audio conversation, so speak as you would naturally talk.
 
-      Be natural and conversational in your speech patterns.
-      This is an audio conversation, so speak as you would naturally talk.
+  After 2 responses from the other speaker, say "I'm done with this conversation" and say goodbye.
 
-      After 2 responses from the other speaker, say "I'm done with this conversation" and say goodbye.
+  YOUR LANGUAGE IS ENGLISH.
+  `,
+});
 
-      YOUR LANGUAGE IS ENGLISH.
-      `,
-      voice: "nova",
-    });
-  }
+const wrappedUserSimulator = AudioHelpers.wrapAgentForAudio(baseUserSimulator, {
+  voice: "nova",
+});
 
-  public async call(input: AgentInput): Promise<ModelMessage | string> {
+const audioUserSimulatorAgent = {
+  role: AgentRole.USER,
+  call: async (input: AgentInput) => {
     /**
      * Role reversal is critical here:
      * - The agent sees "user" messages as if they're from the assistant
      * - This allows the agent to respond AS the user
      * - Without this, the conversation flow would be backwards
      */
-    const messages = messageRoleReversal(input.messages);
-    return super.call({
+    return wrappedUserSimulator.call({
       ...input,
-      messages,
+      messages: messageRoleReversal(input.messages),
     });
-  }
-}
+  },
+};
 
 // Group related test runs together in the UI
 const setId = "full-audio-conversation-test";
@@ -108,9 +108,9 @@ const outputPath = path.join(
 
 describe.skipIf(skipInCi)("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
-    // Initialize both agents for the conversation
-    const audioUserSimulator = new AudioUserSimulatorAgent();
-    const audioAgent = new MyAgent();
+    // Use the pre-configured audio agents
+    const audioUserSimulator = audioUserSimulatorAgent;
+    const audioAgent = myAgent;
 
     // Create judge agent to evaluate conversation quality
     // Wrap with audio handler to transcribe audio before judging
