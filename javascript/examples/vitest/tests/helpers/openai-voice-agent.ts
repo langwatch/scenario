@@ -12,6 +12,7 @@
  * ```typescript
  * class MyVoiceAgent extends OpenAiVoiceAgent {
  *   role = AgentRole.AGENT;
+ *
  *   constructor() {
  *     super({
  *       systemPrompt: "You are a helpful assistant",
@@ -21,7 +22,7 @@
  * }
  * ```
  */
-import { AgentAdapter, AgentInput, AgentRole } from "@langwatch/scenario";
+import { AgentInput, AgentRole, AgentAdapter } from "@langwatch/scenario";
 import { ModelMessage, UserModelMessage, AssistantModelMessage } from "ai";
 import OpenAI from "openai";
 import {
@@ -50,25 +51,27 @@ interface VoiceAgentConfig {
 /**
  * Abstract base class for voice-enabled agents using OpenAI's voice-to-voice model
  *
- * This class handles:
- * - Converting messages to OpenAI format
- * - Calling the OpenAI audio API
- * - Processing audio responses
- * - Creating properly formatted audio messages
+ * This class implements the Agent interface directly because voice agents have
+ * fundamentally different behavior from text-based agents - they return audio
+ * messages instead of text and use specialized message processing.
  *
  * Subclasses must define the `role` property (AGENT or USER)
  */
-export abstract class OpenAiVoiceAgent extends AgentAdapter {
+export abstract class OpenAiVoiceAgent implements AgentAdapter {
+  readonly role: AgentRole;
   private readonly openai = new OpenAI();
   private readonly config: VoiceAgentConfig;
 
   constructor(config?: VoiceAgentConfig) {
-    super();
     this.config = config ?? { voice: "alloy" };
   }
 
   /**
    * Main entry point - processes input and generates audio response
+   *
+   * Voice agents use the OpenAI audio API directly, which requires different
+   * message processing than text-based agents.
+   *
    * @param input - Agent input containing conversation messages
    * @returns Audio message or text fallback
    */

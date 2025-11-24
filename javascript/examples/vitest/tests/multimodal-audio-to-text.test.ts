@@ -20,8 +20,8 @@ import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-mes
 // voice work PR will unskip these tests once model access is restored.
 const skipInCi = process.env.CI === "true";
 
-class AudioAgent extends AgentAdapter {
-  role: AgentRole = AgentRole.AGENT;
+class AudioAgent implements AgentAdapter {
+  readonly role: AgentRole = AgentRole.AGENT;
   private openai = new OpenAI();
 
   call = async (input: AgentInput) => {
