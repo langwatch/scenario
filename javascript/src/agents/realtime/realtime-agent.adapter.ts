@@ -18,7 +18,7 @@ import {
 } from "./realtime-event-handler";
 import { ResponseFormatter } from "./response-formatter";
 import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
-import { AgentAdapter } from "../../domain/agents";
+import { Agent } from "../../domain/agents";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -87,8 +87,8 @@ export interface RealtimeAgentAdapterConfig {
  * session.close();
  * ```
  */
-export class RealtimeAgentAdapter extends AgentAdapter {
-  role: AgentRole;
+export class RealtimeAgentAdapter implements Agent {
+  readonly role: AgentRole;
   name: string;
 
   private session: RealtimeSession;
@@ -114,7 +114,9 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Get the connect method from the session
+   * Connects the underlying RealtimeSession
+   *
+   * @param params - Connection parameters (API key, etc.)
    */
   async connect(
     params?: Parameters<RealtimeSession["connect"]>[0] | undefined
@@ -134,7 +136,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Process input and generate response (implements AgentAdapter interface)
+   * Process input and generate response (implements Agent interface)
    *
    * This is called by Scenario framework for each agent turn.
    * Handles both text and audio input, returns audio message with transcript.
