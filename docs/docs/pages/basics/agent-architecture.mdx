@@ -1,0 +1,139 @@
+---
+title: Agent Architecture Patterns
+description: Learn the different patterns for implementing agents in Scenario - from simple LLM calls to complex protocols.
+---
+
+import { RefLink } from "../../components/RefLink";
+
+# Agent Architecture Patterns [Choose the right pattern for your agent implementation]
+
+## Overview
+
+Scenario provides flexible agent implementation patterns that cater to different use cases and protocols. Understanding these patterns helps you build agents that integrate seamlessly with the framework.
+
+## Agent Interface
+
+All agents in Scenario implement the `Agent` interface:
+
+```typescript
+interface Agent {
+  readonly role: AgentRole;
+  call(input: AgentInput): Promise<AgentReturnTypes>;
+}
+```
+
+This interface ensures compatibility with Scenario's testing framework while allowing diverse implementation approaches.
+
+## Implementation Patterns
+
+### Pattern 1: Override `invokeLLM` (Recommended for most use cases)
+
+For agents that use HTTP-based LLM calls but need custom behavior (e.g., custom headers, different models, audio support):
+
+```typescript
+class CustomVoiceAgent extends UserSimulatorAgent {
+  // Inherits business logic: system prompts, config merging, message prep
+
+  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
+    // Custom LLM invocation - e.g., OpenAI audio API
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-audio-preview",
+      modalities: ["text", "audio"],
+      messages: params.messages,
+      // ... custom parameters
+    });
+
+    return {
+      text: response.choices[0].message.content,
+      // ... other fields
+    };
+  }
+}
+```
+
+**Use this pattern when:**
+- You want to customize how LLM calls are made
+- You need custom headers, authentication, or model parameters
+- You want to add logging, monitoring, or caching
+- Your agent follows standard request/response patterns
+
+**Benefits:**
+- Reuse built-in business logic (prompt building, config merging)
+- Only customize the LLM interaction
+- Automatic handling of message formatting and role reversal
+
+### Pattern 2: Override `call` (For fundamentally different protocols)
+
+For agents that use completely different communication protocols or have custom logic flows:
+
+```typescript
+class CustomDatabaseAgent implements Agent {
+  readonly role = AgentRole.AGENT;
+
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Custom implementation using database queries
+    // Fundamentally different from HTTP-based LLM calls
+    const result = await queryDatabase(input.messages);
+    return formatDatabaseResponse(result);
+  }
+}
+```
+
+**Use this pattern when:**
+- Your agent uses WebSocket, database queries, or custom APIs
+- You need event-driven communication (not request/response)
+- You have complex multi-step logic or state management
+- You want to bypass LLM calls entirely
+
+**Benefits:**
+- Complete control over implementation
+- No assumptions about HTTP-based LLM communication
+- Suitable for any protocol or custom logic
+
+## Audio Message Support
+
+Scenario's `CoreMessage` type supports rich content including audio:
+
+```typescript
+{
+  role: "user",
+  content: [
+    { type: "text", text: "" },
+    { type: "file", mediaType: "audio/wav", data: base64Audio }
+  ]
+}
+```
+
+**How different agents handle audio:**
+- **Standard agents**: Transcribe audio → process text → return text
+- **Voice agents**: Convert audio format → send to voice API → return audio
+- **Custom agents**: Handle according to your specific needs
+
+## Decision Guide
+
+| Use Case | Recommended Pattern | Example |
+|----------|-------------------|---------|
+| Custom LLM headers/auth | Override `invokeLLM` | Add API gateway headers |
+| Different model provider | Override `invokeLLM` | Use Anthropic instead of OpenAI |
+| Audio generation (HTTP) | Override `invokeLLM` | OpenAI audio preview model |
+| Custom logging/monitoring | Override `invokeLLM` | Track token usage |
+| WebSocket protocol | Override `call` | Realtime API agents |
+| Custom message flow | Override `call` | Multi-step reasoning |
+| Stateful connections | Override `call` | Persistent sessions |
+| Database queries | Override `call` | Custom data agents |
+
+**Rule of thumb:** If you're changing **how** you call the LLM but keeping the same **business logic**, override `invokeLLM`. If you're changing the **entire flow**, override `call`.
+
+## Built-in Agent Implementations
+
+Scenario provides several built-in agent implementations:
+
+- **`UserSimulatorAgent`**: Uses `invokeLLM` pattern for realistic user simulation
+- **`JudgeAgent`**: Uses `invokeLLM` pattern with tool-calling for evaluation
+- **`RealtimeAgentAdapter`**: Uses `call` pattern for WebSocket-based voice agents
+
+## Next Steps
+
+- <RefLink href="/docs/basics/writing-scenarios">Learn about writing scenarios</RefLink>
+- <RefLink href="/docs/examples/multimodal/overview">Explore multimodal examples</RefLink>
+- <RefLink href="/docs/agent-integration">See agent integration guides</RefLink>

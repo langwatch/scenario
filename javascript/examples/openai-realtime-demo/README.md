@@ -9,94 +9,43 @@ This example demonstrates how to create and test a **voice-enabled AI agent** us
 - **Scenario Test** (`vegetarian-recipe-realtime.test.ts`) - Uses shared TypeScript config
 - **Ephemeral Token Server** (`realtime-client/src/server/`) - Securely generate client tokens
 
-## 🏛️ Agent Architecture
+## 🏗️ Architecture Overview
 
-Scenario framework provides two patterns for building agents:
+This example demonstrates the **Realtime API integration pattern** for voice agents:
 
-### Pattern 1: Override `invokeLLM` (Recommended for most use cases)
+### The Adapter Pattern
 
-For agents that use HTTP-based LLM calls but need custom behavior (e.g., custom headers, different models, audio support):
+The `RealtimeAgentAdapter` bridges two worlds:
 
-```typescript
-class CustomVoiceAgent extends UserSimulatorAgent {
-  // Inherits business logic: system prompts, config merging, message prep
+**What it wraps:**
+- A `RealtimeSession` (WebSocket-based, event-driven)
+- Handles connection lifecycle (connect/disconnect)
+- Listens for Realtime API events
 
-  protected async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
-    // Custom LLM invocation - e.g., OpenAI audio API
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
-      modalities: ["text", "audio"],
-      messages: params.messages,
-      // ... custom parameters
-    });
+**What it provides:**
+- Scenario framework `Agent` interface
+- Translates `AgentInput` → Realtime API events
+- Translates Realtime responses → Scenario messages
+- Supports both text and audio input/output
 
-    return {
-      text: response.choices[0].message.content,
-      // ... other fields
-    };
-  }
-}
-```
-
-### Pattern 2: Override `call` (For fundamentally different protocols)
-
-For agents that use completely different communication protocols (e.g., WebSocket, Realtime API):
+**Why this matters:**
+- ✅ Browser uses session directly (no adapter needed)
+- ✅ Tests wrap session in adapter (provides Scenario interface)
+- ✅ Same session configuration in both environments
+- ✅ Adapter is just a thin translation layer
 
 ```typescript
-class RealtimeAgentAdapter implements Agent {
-  readonly role = AgentRole.AGENT;
+// Browser: Uses session directly
+const session = createVegetarianRecipeSession();
+await session.connect({ apiKey: ephemeralToken });
+session.sendMessage("Hello!"); // Direct API
 
-  async call(input: AgentInput): Promise<AgentReturnTypes> {
-    // Completely custom implementation
-    // Extract audio, send via WebSocket, wait for events, etc.
-  }
-}
+// Test: Wraps session in adapter
+const session = createVegetarianRecipeSession();
+const adapter = new RealtimeAgentAdapter({ session, role: AgentRole.AGENT });
+await adapter.connect(); // Adapter handles connection
+// In scenario.run(), adapter.call() translates to session API
 ```
-
-**Realtime agents use Pattern 2** because they:
-- Use WebSocket protocol (not HTTP)
-- Are event-driven (not request/response)
-- Have connection lifecycle management
-- Don't need typical business logic (prompts configured on session)
-
-### Audio Message Support
-
-Scenario framework's `CoreMessage` type already supports audio content:
-
-```typescript
-{
-  role: "user",
-  content: [
-    { type: "text", text: "" },
-    { type: "file", mediaType: "audio/wav", data: base64Audio }
-  ]
-}
-```
-
-This means:
-- ✅ Audio messages work across all agent types
-- ✅ Standard agents can receive audio (if they transcribe it)
-- ✅ Voice agents can produce audio (returned as file content)
-- ✅ Judges can evaluate audio conversations (with transcription)
-
-The key difference is **how each agent processes these messages**:
-- **Standard agents**: Transcribe audio → process text
-- **Voice agents**: Convert audio format → send to voice API
-- **Realtime agents**: Extract audio → send via WebSocket events
-
-### When to Use Which Pattern?
-
-| Use Case                  | Pattern              | Example                         |
-| ------------------------- | -------------------- | ------------------------------- |
-| Custom LLM headers/auth   | Override `invokeLLM` | Add API gateway headers         |
-| Different model provider  | Override `invokeLLM` | Use Anthropic instead of OpenAI |
-| Audio generation (HTTP)   | Override `invokeLLM` | OpenAI audio preview model      |
-| Custom logging/monitoring | Override `invokeLLM` | Track token usage               |
-| WebSocket protocol        | Override `call`      | Realtime API                    |
-| Custom message flow       | Override `call`      | Multi-step reasoning            |
-| Stateful connections      | Override `call`      | Persistent sessions             |
-
-**Rule of thumb:** If you're changing **how** you call the LLM but keeping the same **business logic**, override `invokeLLM`. If you're changing the **entire flow**, override `call`.
 
 ## ✅ Key Principle: Same Session Creation, Accurate Testing
 
@@ -386,61 +335,42 @@ export function createVegetarianRecipeSession(): RealtimeSession {
 }
 ```
 
-## 🧪 Testing with Scenario
+## 🧪 Running the Tests
 
-Example test using the same session creator:
+### Prerequisites
 
-```typescript
-import { createVegetarianRecipeSession } from './realtime/agents/vegetarian-recipe-agent';
-import { RealtimeAgentAdapter, AgentRole } from '@langwatch/scenario';
+1. **OpenAI API Key**: Set your API key in `.env`:
+   ```bash
+   echo "OPENAI_API_KEY=sk-proj-..." > .env
+   ```
 
-describe("Vegetarian Recipe Agent (Realtime API)", () => {
-  let realtimeAdapter: RealtimeAgentAdapter;
+2. **Install dependencies**:
+   ```bash
+   cd javascript/examples/vitest
+   pnpm install
+   ```
 
-  beforeAll(async () => {
-    // Create session - SAME as browser client!
-    const session = createVegetarianRecipeSession();
+### Run the Voice Agent Test
 
-    // Wrap in adapter for Scenario testing
-    realtimeAdapter = new RealtimeAgentAdapter({
-      role: AgentRole.AGENT,
-      session: session,
-      agentName: "Vegetarian Recipe Assistant",
-      responseTimeout: 30000,
-    });
-
-    // Connect (tests use API key directly)
-    await realtimeAdapter.connect();
-  }, 60000);
-
-  afterAll(async () => {
-    await realtimeAdapter.disconnect();
-  });
-
-  it("should handle voice-to-voice conversation", async () => {
-    const result = await scenario.run({
-      name: "vegetarian recipe - voice-to-voice",
-      description: "User is looking for a quick vegetarian recipe",
-      agents: [
-        realtimeAdapter,
-        audioUserSimulator,
-        scenario.judgeAgent({ criteria: [...] })
-      ],
-      script: [
-        scenario.user("Hi, I'm looking for a quick vegetarian recipe"),
-        scenario.agent(),
-        scenario.user(),
-        scenario.agent(),
-        scenario.judge(),
-      ],
-    });
-
-    expect(result.success).toBe(true);
-  }, 90000);
-});
+```bash
+pnpm test vegetarian-recipe-realtime
 ```
 
-See `vegetarian-recipe-realtime.test.ts` for full example.
+This test:
+- ✅ Uses the **exact same** agent configuration as the browser
+- ✅ Tests real voice-to-voice conversation
+- ✅ No mocking - tests the actual OpenAI Realtime API
+- ✅ Saves audio output for debugging (in `tmp/audio-output/`)
+
+### Test Structure
+
+The test follows the same pattern as browser usage:
+
+1. **Create session** using the same creator function
+2. **Wrap in adapter** for Scenario framework compatibility
+3. **Connect and run** the scenario test
+
+See `vegetarian-recipe-realtime.test.ts` for the complete implementation.
 
 ## 📚 Next Steps
 
