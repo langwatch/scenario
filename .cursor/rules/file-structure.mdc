@@ -6,7 +6,14 @@ alwaysApply: false
 We want thin files that aim to have a single responsibility and a single export.
 We should have a single export per file.
 
-Specific directories:
-- hooks: for hooks
-- components: for components
-- pages: for pages
+Special files:
+
+## Utils
+File name convention: *.utils.ts
+Single export: XXXUtils
+example: 
+
+export const RunnerUtils = {
+    runnerFunction1,
+    runnerFunction2,
+}
