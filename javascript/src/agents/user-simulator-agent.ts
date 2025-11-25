@@ -2,7 +2,7 @@ import { generateText, CoreMessage } from "ai";
 import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
-import { AgentInput, Agent, AgentRole } from "../domain";
+import { AgentInput, ScenarioAgent, AgentRole } from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 
@@ -27,7 +27,7 @@ ${description}
 `.trim();
 }
 
-class UserSimulatorAgent implements Agent {
+export class UserSimulatorAgent implements ScenarioAgent {
   readonly role = AgentRole.USER;
   private logger = new Logger(this.constructor.name);
 
@@ -89,6 +89,10 @@ class UserSimulatorAgent implements Agent {
       this.logger.error("Error generating text", { error });
       throw error;
     }
+  }
+
+  static create(cfg?: TestingAgentConfig): ScenarioAgent {
+    return new UserSimulatorAgent(cfg);
   }
 }
 
@@ -181,6 +185,8 @@ class UserSimulatorAgent implements Agent {
  * **Implementation Notes:**
  * - Uses role reversal internally to work around LLM biases toward assistant roles
  */
-export const userSimulatorAgent = (config?: TestingAgentConfig) => {
-  return new UserSimulatorAgent(config);
+export const userSimulatorAgent = (
+  config?: TestingAgentConfig
+): ScenarioAgent => {
+  return UserSimulatorAgent.create(config);
 };

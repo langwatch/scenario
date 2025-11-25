@@ -71,7 +71,7 @@ export interface AgentInput {
  *
  * @example
  * ```typescript
- * const myAgent: Agent = {
+ * const myAgent: ScenarioAgent = {
  *   role: AgentRole.AGENT,
  *   async call(input: AgentInput): Promise<AgentReturnTypes> {
  *     const userMessage = input.messages.find(m => m.role === 'user');
@@ -83,7 +83,7 @@ export interface AgentInput {
  * };
  * ```
  */
-export interface Agent {
+export interface ScenarioAgent {
   /**
    * The role this agent plays in scenarios. Must be immutable.
    */
@@ -103,22 +103,22 @@ export interface Agent {
 }
 
 /**
- * @deprecated Use Agent interface instead. This type alias is kept for backwards compatibility.
+ * @deprecated Use ScenarioAgent interface instead. This type alias is kept for backwards compatibility.
  */
-export type AgentAdapter = Agent;
+export type AgentAdapter = ScenarioAgent;
 
 /**
- * @deprecated Use Agent interface instead. Abstract classes are no longer needed.
+ * @deprecated Use ScenarioAgent interface instead. Abstract classes are no longer needed.
  */
-export abstract class UserSimulatorAgentAdapter implements Agent {
+export abstract class UserSimulatorAgentAdapter implements ScenarioAgent {
   readonly role: AgentRole = AgentRole.USER;
   abstract call(input: AgentInput): Promise<AgentReturnTypes>;
 }
 
 /**
- * @deprecated Use Agent interface instead. Abstract classes are no longer needed.
+ * @deprecated Use ScenarioAgent interface instead. Abstract classes are no longer needed.
  */
-export abstract class JudgeAgentAdapter implements Agent {
+export abstract class JudgeAgentAdapter implements ScenarioAgent {
   readonly role: AgentRole = AgentRole.JUDGE;
   abstract criteria: string[];
   abstract call(input: AgentInput): Promise<AgentReturnTypes>;

@@ -17,15 +17,14 @@
  */
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
-import scenario, { AgentInput, AgentRole } from "@langwatch/scenario";
-import { ModelMessage } from "ai";
+import scenario, { AgentRole, ScenarioAgent } from "@langwatch/scenario";
+import { generateText } from "ai";
 import { describe, it, expect } from "vitest";
 import {
   AudioHelpers,
   saveConversationAudio,
   wrapJudgeForAudioTranscription,
 } from "./helpers";
-import { messageRoleReversal } from "../../../src/agents/utils";
 
 // Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
 // returns 404 model_not_found as of 2026-05-19. Tracked separately — the
@@ -36,19 +35,27 @@ const skipInCi = process.env.CI === "true";
  * Main agent that responds with helpful audio answers
  * Uses "echo" voice for a distinct sound
  */
-const wrappedAssistant = AudioHelpers.wrapAgentForAudio(
-  scenario.userSimulatorAgent({
-    systemPrompt: `You are a helpful and engaging AI assistant.
-    Respond naturally and conversationally since this is an audio conversation.
-    Be informative but keep your responses short, concise and engaging.
-    Adapt your speaking style to be natural for audio.`,
-  }),
-  { voice: "echo" }
-);
-
-const myAgent = {
+const myAgent: ScenarioAgent = {
   role: AgentRole.AGENT,
-  call: wrappedAssistant.call.bind(wrappedAssistant),
+  call: async (input) => {
+    // Generate an appropriate response using the AI SDK
+    const result = await generateText({
+      model: openai("gpt-4o"),
+      messages: [
+        {
+          role: "system",
+          content: `You are a helpful and engaging AI assistant.
+          Respond naturally and conversationally since this is an audio conversation.
+          Be informative but keep your responses short, concise and engaging.
+          Adapt your speaking style to be natural for audio.
+          You are explaining AI agentic testing to a curious novice user.`,
+        },
+        ...input.messages,
+      ],
+    });
+
+    return result.text;
+  },
 };
 
 /**
@@ -61,39 +68,22 @@ const myAgent = {
  * - Automatically ends conversation after 2 exchanges
  * - Uses "nova" voice to differentiate from main agent
  */
-const baseUserSimulator = scenario.userSimulatorAgent({
-  systemPrompt: `
-  You are role playing as a curious user looking for information about AI agentic testing,
-  but you're a total novice and don't know anything about it.
+const audioUserSimulatorAgent = AudioHelpers.wrapAgentForOpenAiAudio(
+  scenario.userSimulatorAgent({
+    systemPrompt: `
+    You are role playing as a curious user looking for information about AI agentic testing,
+    but you're a total novice and don't know anything about it.
 
-  Be natural and conversational in your speech patterns.
-  This is an audio conversation, so speak as you would naturally talk.
+    Be natural and conversational in your speech patterns.
+    This is an audio conversation, so speak as you would naturally talk.
 
-  After 2 responses from the other speaker, say "I'm done with this conversation" and say goodbye.
+    After 2 responses from the other speaker, say "I'm done with this conversation" and say goodbye.
 
-  YOUR LANGUAGE IS ENGLISH.
-  `,
-});
-
-const wrappedUserSimulator = AudioHelpers.wrapAgentForAudio(baseUserSimulator, {
-  voice: "nova",
-});
-
-const audioUserSimulatorAgent = {
-  role: AgentRole.USER,
-  call: async (input: AgentInput) => {
-    /**
-     * Role reversal is critical here:
-     * - The agent sees "user" messages as if they're from the assistant
-     * - This allows the agent to respond AS the user
-     * - Without this, the conversation flow would be backwards
-     */
-    return wrappedUserSimulator.call({
-      ...input,
-      messages: messageRoleReversal(input.messages),
-    });
-  },
-};
+    YOUR LANGUAGE IS ENGLISH.
+    `,
+  }),
+  { voice: "nova" }
+);
 
 // Group related test runs together in the UI
 const setId = "full-audio-conversation-test";

@@ -5,11 +5,13 @@
  * and wrapping agents to use audio APIs.
  */
 import {
-  AgentAdapter,
   InvokeLLMParams,
   InvokeLLMResult,
+  JudgeAgent,
+  UserSimulatorAgent,
 } from "@langwatch/scenario";
 import OpenAI from "openai";
+import { convertModelMessagesToOpenAIMessages } from "./convert-core-messages-to-openai";
 
 const openai = new OpenAI();
 
@@ -37,23 +39,21 @@ export interface AudioWrapOptions {
  * ```typescript
  * import { scenario, AudioHelpers } from "@langwatch/scenario";
  *
- * const audioUserSim = AudioHelpers.wrapAgentForAudio(
+ * const audioUserSim = AudioHelpers.wrapAgentForOpenAiAudio(
  *   scenario.userSimulatorAgent(),
  *   { voice: "nova" }
  * );
  *
- * const audioJudge = AudioHelpers.wrapAgentForAudio(
+ * const audioJudge = AudioHelpers.wrapAgentForOpenAiAudio(
  *   scenario.judgeAgent({ criteria: [...] }),
  *   { voice: "alloy" }
  * );
  * ```
  */
-export function wrapAgentForAudio<T extends AgentAdapter>(
-  agent: T,
-  options: AudioWrapOptions = {}
-): T {
-  const originalInvokeLLM = (agent as any).invokeLLM.bind(agent);
-  (agent as any).invokeLLM = async (
+export function wrapAgentForOpenAiAudio<
+  T extends JudgeAgent | UserSimulatorAgent
+>(agent: T, options: AudioWrapOptions = {}): T {
+  agent.invokeLLM = async (
     params: InvokeLLMParams
   ): Promise<InvokeLLMResult> => {
     try {
@@ -62,7 +62,7 @@ export function wrapAgentForAudio<T extends AgentAdapter>(
         model: options.model || "gpt-4o-audio-preview",
         modalities: ["text", "audio"],
         audio: { voice: options.voice || "alloy", format: "wav" },
-        messages: params.messages,
+        messages: convertModelMessagesToOpenAIMessages(params.messages),
         temperature: params.temperature,
         max_tokens: params.maxOutputTokens,
         // Note: Tools are not supported with audio API yet
@@ -75,9 +75,21 @@ export function wrapAgentForAudio<T extends AgentAdapter>(
       }
 
       return {
+        // Required field for InvokeLLMResult
         text: transcript,
-        toolCalls: [], // Audio API doesn't support tools yet
-      };
+        content: [
+          {
+            type: "text",
+            text: "",
+          },
+          {
+            type: "file" as const,
+            data: response.choices[0].message?.audio?.data,
+            mimeType: "audio/wav",
+          },
+        ],
+        // Force cast. We're only using the audio here.
+      } as unknown as InvokeLLMResult;
     } catch (error) {
       console.error("Audio API call failed:", error);
       throw error;
@@ -89,5 +101,5 @@ export function wrapAgentForAudio<T extends AgentAdapter>(
 
 // Export the namespace
 export const AudioHelpers = {
-  wrapAgentForAudio,
+  wrapAgentForOpenAiAudio,
 };

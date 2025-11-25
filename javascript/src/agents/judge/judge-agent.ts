@@ -130,7 +130,7 @@ import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
-import { AgentInput, Agent, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
+import { AgentInput, ScenarioAgent, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import {
@@ -289,7 +289,7 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
  *
  * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
  */
-class JudgeAgent implements Agent {
+export class JudgeAgent implements ScenarioAgent {
   readonly role = AgentRole.JUDGE;
   private logger = new Logger("JudgeAgent");
   private readonly spanCollector: JudgeSpanCollector;
@@ -630,6 +630,10 @@ class JudgeAgent implements Agent {
       throw error;
     }
   }
+
+  static create(cfg: JudgeAgentConfig): ScenarioAgent {
+    return new JudgeAgent(cfg);
+  }
 }
 
 /**
@@ -682,6 +686,6 @@ class JudgeAgent implements Agent {
  * main();
  * ```
  */
-export const judgeAgent = (cfg?: JudgeAgentConfig) => {
-  return new JudgeAgent(cfg ?? {});
+export const judgeAgent = (cfg?: JudgeAgentConfig): ScenarioAgent => {
+  return JudgeAgent.create(cfg ?? {});
 };

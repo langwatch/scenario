@@ -1,6 +1,6 @@
 import { openai } from "@ai-sdk/openai";
 import scenario, {
-  AgentAdapter,
+  ScenarioAgent,
   AgentInput,
   AgentRole,
 } from "@langwatch/scenario";
@@ -20,7 +20,7 @@ import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-mes
 // voice work PR will unskip these tests once model access is restored.
 const skipInCi = process.env.CI === "true";
 
-class AudioAgent implements AgentAdapter {
+class MyAudioAgent implements ScenarioAgent {
   readonly role: AgentRole = AgentRole.AGENT;
   private openai = new OpenAI();
 
@@ -98,7 +98,7 @@ describe.skipIf(skipInCi)("Multimodal Audio to Text Tests", () => {
       name: "multimodal audio to text",
       description:
         "User sends audio file, agent analyzes and transcribes the content",
-      agents: [new AudioAgent(), scenario.userSimulatorAgent(), audioJudge],
+      agents: [new MyAudioAgent(), scenario.userSimulatorAgent(), audioJudge],
       script: [
         scenario.message(audioMessage),
         scenario.agent(),

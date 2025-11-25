@@ -18,7 +18,7 @@ import {
 } from "./realtime-event-handler";
 import { ResponseFormatter } from "./response-formatter";
 import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
-import { Agent } from "../../domain/agents";
+import { ScenarioAgent } from "../../domain/agents";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -87,7 +87,7 @@ export interface RealtimeAgentAdapterConfig {
  * session.close();
  * ```
  */
-export class RealtimeAgentAdapter implements Agent {
+export class RealtimeAgentAdapter implements ScenarioAgent {
   readonly role: AgentRole;
   name: string;
 
