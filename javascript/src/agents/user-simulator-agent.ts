@@ -1,5 +1,5 @@
 import { generateText, CoreMessage } from "ai";
-import { TestingAgentConfig } from "./types";
+import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
 import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
@@ -30,6 +30,18 @@ ${description}
 class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   private logger = new Logger(this.constructor.name);
 
+  /**
+   * LLM invocation function. Can be overridden to customize LLM behavior.
+   */
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = async (params) => {
+    try {
+      return await generateText(params);
+    } catch (error) {
+      this.logger.error("Error generating text", { error });
+      throw error;
+    }
+  };
+
   constructor(private readonly cfg?: TestingAgentConfig) {
     super();
   }
@@ -59,7 +71,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     // even starts throwing exceptions.
     const reversedMessages = messageRoleReversal(messages);
 
-    const completion = await this.generateText({
+    const completion = await this.invokeLLM({
       model: mergedConfig.model,
       messages: reversedMessages,
       temperature: mergedConfig.temperature,
@@ -73,15 +85,6 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
 
     return { role: "user", content: messageContent } satisfies CoreMessage;
   };
-
-  private async generateText(input: Parameters<typeof generateText>[0]) {
-    try {
-      return await generateText(input);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
-  }
 }
 
 /**

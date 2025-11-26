@@ -5,7 +5,7 @@ import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
-import { TestingAgentConfig, FinishTestArgs } from "../types";
+import { TestingAgentConfig, FinishTestArgs, InvokeLLMParams, InvokeLLMResult } from "../types";
 import { criterionToParamName } from "../utils";
 
 /**
@@ -100,6 +100,18 @@ class JudgeAgent extends JudgeAgentAdapter {
   role: AgentRole = AgentRole.JUDGE;
   criteria: string[];
 
+  /**
+   * LLM invocation function. Can be overridden to customize LLM behavior.
+   */
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = async (params) => {
+    try {
+      return await generateText(params);
+    } catch (error) {
+      this.logger.error("Error generating text", { error });
+      throw error;
+    }
+  };
+
   constructor(private readonly cfg: JudgeAgentConfig) {
     super();
     this.criteria = cfg.criteria;
@@ -148,7 +160,7 @@ class JudgeAgent extends JudgeAgentAdapter {
         ? { type: "tool", toolName: "finish_test" }
         : "required";
 
-    const completion = await this.generateText({
+    const completion = await this.invokeLLM({
       model: mergedConfig.model,
       messages: messages,
       temperature: mergedConfig.temperature ?? 0.0,
@@ -204,15 +216,6 @@ class JudgeAgent extends JudgeAgentAdapter {
       metCriteria: [],
       unmetCriteria: cfg.criteria,
     };
-  }
-
-  private async generateText(input: Parameters<typeof generateText>[0]) {
-    try {
-      return await generateText(input);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
   }
 }
 
