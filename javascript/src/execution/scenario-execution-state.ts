@@ -68,9 +68,14 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
    * Adds a message to the conversation history.
    *
    * @param message - The message to add.
+   * @param traceId - Optional trace ID to associate with the message.
    */
-  addMessage(message: CoreMessage): void {
-    const messageWithId = { ...message, id: generateMessageId() };
+  addMessage(message: CoreMessage, traceId?: string): void {
+    const messageWithId = {
+      ...message,
+      id: generateMessageId(),
+      ...(traceId && { trace_id: traceId }),
+    };
     this._messages.push(messageWithId);
     // Emit event when message is added
     this.eventSubject.next({ type: StateChangeEventType.MESSAGE_ADDED });

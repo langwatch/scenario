@@ -28,6 +28,7 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
+import { tracer, TracingUtils } from "../tracing";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -180,6 +181,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * @param script - The ordered sequence of script steps that define the test flow
    */
   constructor(config: ScenarioConfig, script: ScriptStep[]) {
+    // this.tracer = getLangWatchTracer("@langwatch/scenario");
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -464,7 +466,40 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       scenarioConfig: this.config,
     };
 
+    // Create an independent trace for this turn (not a child of scenario-execution)
+    const span = tracer.startSpan(
+      `${
+        agent.name ??
+        agent.constructor.name !== Object.prototype.constructor.name
+          ? agent.constructor.name
+          : "Unnamed Agent"
+      }.call`,
+      {
+        attributes: {
+          "scenario.name": this.config.name,
+          "scenario.turn": this.state.currentTurn,
+          "agent.role": role,
+          "agent.index": idx,
+          "thread.id": this.state.threadId,
+          "langwatch.thread.id": this.state.threadId,
+        },
+      }
+    );
+
     try {
+      // Set span type based on agent role
+      if (role === AgentRole.AGENT) {
+        span.setType("llm");
+        // Note: Model name would be set if available from agent
+      } else if (role === AgentRole.JUDGE) {
+        span.setType("evaluation");
+      } else {
+        span.setType("component");
+      }
+
+      // Set input for the span
+      span.setInput("chat_messages", this.state.messages);
+
       const agentResponse = await agent.call(agentInput);
       const endTime = Date.now();
 
@@ -489,11 +524,47 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         role === AgentRole.USER ? "user" : "assistant"
       );
 
+      // Set output for the span
+      if (messages.length > 0) {
+        span.setOutput("chat_messages", messages);
+      }
+
+      // Set metrics if available (would need to be extracted from agent response)
+      const metrics: any = {
+        duration: endTime - startTime,
+      };
+
+      // Add token usage if available from agent response
+      if (agentResponse && typeof agentResponse === "object") {
+        const usage = (agentResponse as any).usage;
+        if (usage) {
+          metrics.promptTokens = usage.prompt_tokens;
+          metrics.completionTokens = usage.completion_tokens;
+          metrics.totalTokens = usage.total_tokens;
+        }
+      }
+
+      span.setMetrics(metrics);
+
+      // Add traceId to each message for proper correlation
+      const traceId = TracingUtils.toHex(span.spanContext().traceId.toString());
+
       for (const message of messages) {
-        this.state.addMessage(message);
+        this.state.addMessage(message, traceId);
         this.broadcastMessage(message, idx);
       }
+
+      span.end();
     } catch (error) {
+      span.recordException(
+        error instanceof Error ? error : new Error(String(error))
+      );
+      span.setStatus({
+        code: 2,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      span.end();
+
       this.logger.error(
         `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
         {

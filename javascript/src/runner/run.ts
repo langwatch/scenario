@@ -17,6 +17,7 @@ import {
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
+import { observabilityHandle, tracer } from "../tracing/tracer";
 import { generateThreadId } from "../utils/ids";
 
 /**
@@ -95,37 +96,43 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
     cfg.threadId = generateThreadId();
   }
 
-  const steps = cfg.script || [proceed()];
-  const execution = new ScenarioExecution(cfg, steps);
+  return await tracer.withActiveSpan(
+    "scenario-execution",
+    async (_scenarioSpan) => {
+      const steps = cfg.script || [proceed()];
+      const execution = new ScenarioExecution(cfg, steps);
 
-  let eventBus: EventBus | null = null;
-  let subscription: Subscription | null = null;
+      let eventBus: EventBus | null = null;
+      let subscription: Subscription | null = null;
 
-  try {
-    const envConfig = getEnv();
-    eventBus = new EventBus({
-      endpoint: envConfig.LANGWATCH_ENDPOINT,
-      apiKey: envConfig.LANGWATCH_API_KEY,
-    });
-    eventBus.listen();
+      try {
+        const envConfig = getEnv();
+        eventBus = new EventBus({
+          endpoint: envConfig.LANGWATCH_ENDPOINT,
+          apiKey: envConfig.LANGWATCH_API_KEY,
+        });
+        eventBus.listen();
 
-    subscription = eventBus.subscribeTo(execution.events$);
+        subscription = eventBus.subscribeTo(execution.events$);
 
-    const result = await execution.execute();
-    if (cfg.verbose && !result.success) {
-      console.log(`Scenario failed: ${cfg.name}`);
-      console.log(`Reasoning: ${result.reasoning}`);
-      console.log("--------------------------------");
-      console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
-      console.log(`Unmet criteria: ${result.unmetCriteria.join("\n- ")}`);
-      console.log(result.messages.map(formatMessage).join("\n"));
+        const result = await execution.execute();
+        if (cfg.verbose && !result.success) {
+          console.log(`Scenario failed: ${cfg.name}`);
+          console.log(`Reasoning: ${result.reasoning}`);
+          console.log("--------------------------------");
+          console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
+          console.log(`Unmet criteria: ${result.unmetCriteria.join("\n- ")}`);
+          console.log(result.messages.map(formatMessage).join("\n"));
+        }
+
+        return result;
+      } finally {
+        await eventBus?.drain();
+        await observabilityHandle.shutdown(); // Shutdown LangWatch observability
+        subscription?.unsubscribe();
+      }
     }
-
-    return result;
-  } finally {
-    await eventBus?.drain();
-    subscription?.unsubscribe();
-  }
+  );
 }
 
 function formatMessage(m: CoreMessage): string {
