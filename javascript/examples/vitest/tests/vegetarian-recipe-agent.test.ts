@@ -20,6 +20,7 @@ describe("Vegetarian Recipe Agent", () => {
           },
           ...input.messages,
         ],
+        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },

@@ -23,6 +23,7 @@ export function convertModelMessagesToAguiMessages(
     switch (true) {
       case msg.role === "system":
         aguiMessages.push({
+          ...((msg as any).trace_id && { trace_id: (msg as any).trace_id }),
           id: id,
           role: "system",
           content: msg.content,
@@ -31,6 +32,7 @@ export function convertModelMessagesToAguiMessages(
 
       case msg.role === "user" && typeof msg.content === "string":
         aguiMessages.push({
+          ...((msg as any).trace_id && { trace_id: (msg as any).trace_id }),
           id: id,
           role: "user",
           content: msg.content,
@@ -43,11 +45,13 @@ export function convertModelMessagesToAguiMessages(
           id: id,
           role: "user",
           content: JSON.stringify(msg.content),
+          ...((msg as any).trace_id && { trace_id: (msg as any).trace_id }),
         });
         break;
 
       case msg.role === "assistant" && typeof msg.content === "string":
         aguiMessages.push({
+          ...((msg as any).trace_id && { trace_id: (msg as any).trace_id }),
           id: id,
           role: "assistant",
           content: msg.content,
@@ -59,6 +63,7 @@ export function convertModelMessagesToAguiMessages(
         const nonToolCalls = msg.content.filter((p) => p.type !== "tool-call");
 
         aguiMessages.push({
+          ...((msg as any).trace_id && { trace_id: (msg as any).trace_id }),
           id: id,
           role: "assistant",
           content: JSON.stringify(nonToolCalls),
@@ -78,6 +83,7 @@ export function convertModelMessagesToAguiMessages(
       case msg.role === "tool":
         msg.content.map((p, i) => {
           aguiMessages.push({
+            ...((msg as any).trace_id && { trace_id: (msg as any).trace_id }),
             id: `${id}-${i}`,
             role: "tool",
             toolCallId: p.toolCallId,

@@ -24,6 +24,7 @@ import { defineConfig } from "vitest/config";
  */
 export default withScenario(
   defineConfig({
+    logLevel: "info" as const,
     server: {
       allowedHosts: ["*"],
       cors: true,

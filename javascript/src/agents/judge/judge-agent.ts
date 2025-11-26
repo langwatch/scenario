@@ -208,7 +208,10 @@ class JudgeAgent extends JudgeAgentAdapter {
 
   private async generateText(input: Parameters<typeof generateText>[0]) {
     try {
-      return await generateText(input);
+      return await generateText({
+        ...input,
+        experimental_telemetry: { isEnabled: true },
+      });
     } catch (error) {
       this.logger.error("Error generating text", { error });
       throw error;
