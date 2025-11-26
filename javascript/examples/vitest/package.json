@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "pnpm exec vitest",
+    "test": "(cd ../.. && pnpm run buildpack) && pnpm exec vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "eslint . --fix"

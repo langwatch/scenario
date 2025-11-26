@@ -17,7 +17,7 @@ import {
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
-import { observabilityHandle, tracer } from "../tracing/tracer";
+import { tracer } from "../tracing/tracer";
 import { generateThreadId } from "../utils/ids";
 
 /**
@@ -96,7 +96,7 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
     cfg.threadId = generateThreadId();
   }
 
-  return await tracer.withActiveSpan(
+  return await tracer.startActiveSpan(
     "scenario-execution",
     async (_scenarioSpan) => {
       const steps = cfg.script || [proceed()];
@@ -128,7 +128,6 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
         return result;
       } finally {
         await eventBus?.drain();
-        await observabilityHandle.shutdown(); // Shutdown LangWatch observability
         subscription?.unsubscribe();
       }
     }
