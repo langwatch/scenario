@@ -217,10 +217,6 @@ export default defineConfig({
           link: "/basics/writing-scenarios",
         },
         {
-          text: "Agent Architecture Patterns",
-          link: "/basics/agent-architecture",
-        },
-        {
           text: "Scripted Simulations",
           link: "/basics/scripted-simulations",
         },
