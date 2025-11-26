@@ -16,10 +16,37 @@ import scenario, {
   RealtimeAgentAdapter,
   type AudioResponseEvent,
 } from "@langwatch/scenario";
-import { createVegetarianRecipeSession } from "./realtime/agents/vegetatrian-recipe.agent";
-import { RealtimeUserSimulatorAgent } from "./realtime/agents/realtime-user-simulator.agent";
+import { createVegetarianRecipeSession } from "../../realtime-demo/agents/vegetatrian-recipe.agent";
 import { AudioUtils } from "./utils/audio/audio.utils";
-import { wrapJudgeForAudio } from "./helpers/wrap-judge-for-audio";
+import { wrapJudgeForAudioTranscription } from "./helpers/wrap-judge-for-audio-transcription";
+import { createUserSimulatorSession } from "../../realtime-demo/agents/realtime-user-simulator.agent";
+
+/**
+ * Realtime User Simulator for testing Realtime agents
+ *
+ * This class simulates a user in voice conversations with the Realtime agent.
+ *
+ * Usage:
+ * ```typescript
+ * const session = createUserSimulatorSession();
+ * await session.connect({ apiKey: process.env.OPENAI_API_KEY! });
+ * const userSimulator = new RealtimeUserSimulatorAgent(session);
+ * ```
+ */
+class RealtimeUserSimulatorAgent extends RealtimeAgentAdapter {
+  role = AgentRole.USER;
+
+  constructor() {
+    const session = createUserSimulatorSession();
+
+    super({
+      session: session,
+      role: AgentRole.USER,
+      agentName: "Realtime User Simulator Agent",
+      responseTimeout: 30000,
+    });
+  }
+}
 
 describe("Vegetarian Recipe Agent (Realtime API)", () => {
   // Used for wrapping the agent under test in the adapter
@@ -84,7 +111,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
       agents: [
         realtimeAdapter, // Realtime agent (handles audio!)
         audioUserSim, // Audio user simulator (generates voice)
-        wrapJudgeForAudio(
+        wrapJudgeForAudioTranscription(
           // Judge with audio transcription
           scenario.judgeAgent({
             criteria: [
@@ -108,6 +135,11 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
       setId: "realtime-examples",
     });
 
-    expect(result.success).toBe(true);
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.log(result);
+      throw error;
+    }
   }, 90000); // Longer timeout for voice-to-voice (audio generation takes time)
 });

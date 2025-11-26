@@ -1,4 +1,3 @@
-import { AgentRole, RealtimeAgentAdapter } from "@langwatch/scenario";
 import { RealtimeAgent, RealtimeSession } from "@openai/agents/realtime";
 
 const USER_SIMULATOR_CONFIG = {
@@ -21,33 +20,6 @@ function createUserSimulatorSession(): RealtimeSession {
   return new RealtimeSession(agent, {
     model: USER_SIMULATOR_CONFIG.model,
   });
-}
-
-/**
- * Realtime User Simulator for testing Realtime agents
- *
- * This class simulates a user in voice conversations with the Realtime agent.
- *
- * Usage:
- * ```typescript
- * const session = createUserSimulatorSession();
- * await session.connect({ apiKey: process.env.OPENAI_API_KEY! });
- * const userSimulator = new RealtimeUserSimulatorAgent(session);
- * ```
- */
-export class RealtimeUserSimulatorAgent extends RealtimeAgentAdapter {
-  role = AgentRole.USER;
-
-  constructor() {
-    const session = createUserSimulatorSession();
-
-    super({
-      session: session,
-      role: AgentRole.USER,
-      agentName: USER_SIMULATOR_CONFIG.name,
-      responseTimeout: 30000,
-    });
-  }
 }
 
 export { createUserSimulatorSession };

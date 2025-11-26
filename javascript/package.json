@@ -24,8 +24,6 @@
     "examples:lint": "pnpm -F vitest-example run lint && pnpm -F vitest-example run lint:realtime",
     "typecheck": "tsc --noEmit && pnpm run examples:typecheck",
     "examples:typecheck": "pnpm -F vitest-example run typecheck",
-    "dev:realtime": "pnpm -F vitest-example run dev:realtime",
-    "start:realtime": "pnpm -F vitest-example run start:realtime",
     "prepublishOnly": "pnpm run build",
     "generate:api-reference": "npx typedoc src --out api-reference-docs && rm -rf ../docs/docs/public/reference/javascript/scenario && mv api-reference-docs ../docs/docs/public/reference/javascript/scenario"
   },
