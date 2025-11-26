@@ -547,12 +547,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           span.setMetrics(metrics);
 
           // Add traceId to each message for proper correlation
-          const traceId = TracingUtils.toHex(
-            span.spanContext().traceId.toString()
-          );
+          const traceId = span.spanContext().traceId.toString();
+          const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
 
           for (const message of messages) {
-            this.state.addMessage(message, traceId);
+            this.state.addMessage({
+              ...message,
+              traceId: traceIdHex,
+            });
             this.broadcastMessage(message, idx);
           }
         } catch (error) {
