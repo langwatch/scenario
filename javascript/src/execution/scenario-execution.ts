@@ -467,12 +467,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     };
 
     // Create an independent trace for this turn (not a child of scenario-execution)
-    const span = tracer.startSpan(
+    // Use startActiveSpan to make it active so AI SDK calls become children
+    await tracer.withActiveSpan(
       `${
         agent.name ??
         agent.constructor.name !== Object.prototype.constructor.name
           ? agent.constructor.name
-          : "Unnamed Agent"
+          : "Agent"
       }.call`,
       {
         attributes: {
@@ -483,99 +484,99 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           "thread.id": this.state.threadId,
           "langwatch.thread.id": this.state.threadId,
         },
+      },
+      async (span) => {
+        try {
+          span.setType("agent");
+
+          // Set input for the span
+          span.setInput("chat_messages", this.state.messages);
+
+          const agentResponse = await agent.call(agentInput);
+          const endTime = Date.now();
+
+          this.addAgentTime(idx, endTime - startTime);
+          this.pendingMessages.delete(idx);
+
+          if (
+            agentResponse &&
+            typeof agentResponse === "object" &&
+            "success" in agentResponse
+          ) {
+            // JudgeResult is automatically augmented with messages by setResult
+            this.setResult(agentResponse);
+            return;
+          }
+
+          const messages = convertAgentReturnTypesToMessages(
+            agentResponse,
+            role === AgentRole.USER ? "user" : "assistant"
+          );
+
+          // Set output for the span
+          if (messages.length > 0) {
+            span.setOutput("chat_messages", messages);
+          }
+
+          // Set metrics if available (would need to be extracted from agent response)
+          const metrics: Record<string, number> = {
+            duration: endTime - startTime,
+          };
+
+          // Add token usage if available from agent response
+          if (agentResponse && typeof agentResponse === "object") {
+            const usage = (
+              agentResponse as {
+                usage?: {
+                  prompt_tokens?: number;
+                  completion_tokens?: number;
+                  total_tokens?: number;
+                };
+              }
+            ).usage;
+            if (usage) {
+              if (usage.prompt_tokens !== undefined)
+                metrics.promptTokens = usage.prompt_tokens;
+              if (usage.completion_tokens !== undefined)
+                metrics.completionTokens = usage.completion_tokens;
+              if (usage.total_tokens !== undefined)
+                metrics.totalTokens = usage.total_tokens;
+            }
+          }
+
+          span.setMetrics(metrics);
+
+          // Add traceId to each message for proper correlation
+          const traceId = TracingUtils.toHex(
+            span.spanContext().traceId.toString()
+          );
+
+          for (const message of messages) {
+            this.state.addMessage(message, traceId);
+            this.broadcastMessage(message, idx);
+          }
+        } catch (error) {
+          span.recordException(
+            error instanceof Error ? error : new Error(String(error))
+          );
+          span.setStatus({
+            code: 2,
+            message: error instanceof Error ? error.message : String(error),
+          });
+
+          this.logger.error(
+            `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
+            {
+              error: error instanceof Error ? error.message : String(error),
+              agent: agent.constructor.name,
+              agentInput,
+            }
+          );
+
+          throw error;
+        }
       }
     );
-
-    try {
-      // Set span type based on agent role
-      if (role === AgentRole.AGENT) {
-        span.setType("llm");
-        // Note: Model name would be set if available from agent
-      } else if (role === AgentRole.JUDGE) {
-        span.setType("evaluation");
-      } else {
-        span.setType("component");
-      }
-
-      // Set input for the span
-      span.setInput("chat_messages", this.state.messages);
-
-      const agentResponse = await agent.call(agentInput);
-      const endTime = Date.now();
-
-      this.addAgentTime(idx, endTime - startTime);
-      this.pendingMessages.delete(idx);
-
-      if (
-        agentResponse &&
-        typeof agentResponse === "object" &&
-        "success" in agentResponse
-      ) {
-        // JudgeResult is automatically augmented with messages by setResult
-        this.setResult(agentResponse);
-        return;
-      }
-
-      const currentAgentTime = this.agentTimes.get(idx) ?? 0;
-      this.agentTimes.set(idx, currentAgentTime + (Date.now() - startTime));
-
-      const messages = convertAgentReturnTypesToMessages(
-        agentResponse,
-        role === AgentRole.USER ? "user" : "assistant"
-      );
-
-      // Set output for the span
-      if (messages.length > 0) {
-        span.setOutput("chat_messages", messages);
-      }
-
-      // Set metrics if available (would need to be extracted from agent response)
-      const metrics: any = {
-        duration: endTime - startTime,
-      };
-
-      // Add token usage if available from agent response
-      if (agentResponse && typeof agentResponse === "object") {
-        const usage = (agentResponse as any).usage;
-        if (usage) {
-          metrics.promptTokens = usage.prompt_tokens;
-          metrics.completionTokens = usage.completion_tokens;
-          metrics.totalTokens = usage.total_tokens;
-        }
-      }
-
-      span.setMetrics(metrics);
-
-      // Add traceId to each message for proper correlation
-      const traceId = TracingUtils.toHex(span.spanContext().traceId.toString());
-
-      for (const message of messages) {
-        this.state.addMessage(message, traceId);
-        this.broadcastMessage(message, idx);
-      }
-
-      span.end();
-    } catch (error) {
-      span.recordException(
-        error instanceof Error ? error : new Error(String(error))
-      );
-      span.setStatus({
-        code: 2,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      span.end();
-
-      this.logger.error(
-        `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
-        {
-          error: error instanceof Error ? error.message : String(error),
-          agent: agent.constructor.name,
-          agentInput,
-        }
-      );
-
-      throw error;
-    }
   }
 
   /**
