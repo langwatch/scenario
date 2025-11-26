@@ -1,10 +1,10 @@
-import { generateText, CoreMessage } from "ai";
-import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
+import { CoreMessage } from "ai";
+import { TestingAgentConfig } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
-import { AgentInput, ScenarioAgent, AgentRole } from "../domain";
+import { AgentInput, AgentRole } from "../domain";
+import { BaseAgent } from "./base.agent";
 import { modelSchema } from "../domain/core/schemas/model.schema";
-import { Logger } from "../utils/logger";
 
 function buildSystemPrompt(description: string): string {
   return `
@@ -27,11 +27,12 @@ ${description}
 `.trim();
 }
 
-export class UserSimulatorAgent implements ScenarioAgent {
+export class UserSimulatorAgent extends BaseAgent {
   readonly role = AgentRole.USER;
-  private logger = new Logger(this.constructor.name);
 
-  constructor(private readonly cfg?: TestingAgentConfig) {}
+  constructor(private readonly cfg?: TestingAgentConfig) {
+    super();
+  }
 
   call = async (input: AgentInput) => {
     const config = this.cfg;
@@ -72,28 +73,6 @@ export class UserSimulatorAgent implements ScenarioAgent {
 
     return { role: "user", content: messageContent } satisfies ModelMessage;
   };
-
-  /**
-   * Invokes the LLM with the given parameters.
-   *
-   * Override this method to customize the LLM call (e.g., add custom headers,
-   * modify messages, use different models, or implement custom logging).
-   *
-   * @param params Parameters for the LLM invocation
-   * @returns The LLM completion result
-   */
-  public async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
-    try {
-      return await generateText(params);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
-  }
-
-  static create(cfg?: TestingAgentConfig): ScenarioAgent {
-    return new UserSimulatorAgent(cfg);
-  }
 }
 
 /**
@@ -185,8 +164,6 @@ export class UserSimulatorAgent implements ScenarioAgent {
  * **Implementation Notes:**
  * - Uses role reversal internally to work around LLM biases toward assistant roles
  */
-export const userSimulatorAgent = (
-  config?: TestingAgentConfig
-): ScenarioAgent => {
-  return UserSimulatorAgent.create(config);
+export const userSimulatorAgent = (config?: TestingAgentConfig) => {
+  return new UserSimulatorAgent(config);
 };

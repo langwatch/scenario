@@ -1,13 +1,13 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import {
   ModelMessage,
+  CoreMessage,
   ToolSet,
   Tool,
   ToolChoice,
   tool,
   stepCountIs,
   hasToolCall,
-  generateText,
 } from "ai";
 
 const DISCOVERY_TOOL_NAMES = new Set(["expand_trace", "grep_trace"]);
@@ -132,13 +132,8 @@ import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
 import { AgentInput, ScenarioAgent, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
-import { Logger } from "../../utils/logger";
-import {
-  TestingAgentConfig,
-  FinishTestArgs,
-  InvokeLLMParams,
-  InvokeLLMResult,
-} from "../types";
+import { BaseAgent } from "../base.agent";
+import { TestingAgentConfig, FinishTestArgs } from "../types";
 import { criterionToParamName } from "../utils";
 
 import { JudgeResult } from "./interfaces";
@@ -289,22 +284,16 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
  *
  * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
  */
-export class JudgeAgent implements ScenarioAgent {
+export class JudgeAgent extends BaseAgent {
   readonly role = AgentRole.JUDGE;
   private logger = new Logger("JudgeAgent");
   private readonly spanCollector: JudgeSpanCollector;
   private readonly tokenThreshold: number;
   private readonly maxDiscoverySteps: number;
   criteria: string[];
-  private logger = new Logger("JudgeAgent");
-
-  /**
-   * LLM invocation function. Can be overridden to customize LLM behavior.
-   */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
-    createLLMInvoker(this.logger);
 
   constructor(private readonly cfg: JudgeAgentConfig) {
+    super();
     this.criteria = cfg.criteria ?? [];
     this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
     this.tokenThreshold = cfg.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
@@ -612,28 +601,6 @@ export class JudgeAgent implements ScenarioAgent {
       unmetCriteria: criteria,
     };
   }
-
-  /**
-   * Invokes the LLM with the given parameters.
-   *
-   * Override this method to customize the LLM call (e.g., add custom headers,
-   * modify messages, use different models, or implement custom logging).
-   *
-   * @param params Parameters for the LLM invocation
-   * @returns The LLM completion result
-   */
-  public async invokeLLM(params: InvokeLLMParams): Promise<InvokeLLMResult> {
-    try {
-      return await generateText(params);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
-  }
-
-  static create(cfg: JudgeAgentConfig): ScenarioAgent {
-    return new JudgeAgent(cfg);
-  }
 }
 
 /**
@@ -686,6 +653,6 @@ export class JudgeAgent implements ScenarioAgent {
  * main();
  * ```
  */
-export const judgeAgent = (cfg?: JudgeAgentConfig): ScenarioAgent => {
-  return JudgeAgent.create(cfg ?? {});
+export const judgeAgent = (cfg?: JudgeAgentConfig): JudgeAgent => {
+  return new JudgeAgent(cfg ?? {});
 };
