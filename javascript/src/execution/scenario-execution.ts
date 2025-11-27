@@ -1,4 +1,12 @@
+import {
+  context,
+  propagation,
+  type Context,
+  type Span,
+} from "@opentelemetry/api";
+import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
+import { LangWatchSpan } from "langwatch/observability";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
@@ -155,6 +163,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /** Accumulated execution time for each agent (for performance tracking) */
   private agentTimes: Map<number, number> = new Map();
+
+  /** Current turn span for trace context management */
+  private currentTurnSpan?: Span;
 
   /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
@@ -395,7 +406,68 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     await this._step();
   }
 
+  private activeOtelContext?: Context;
+  private inputOtelContext = {};
+  private currentSpan?: Span;
+
   private async _step(
+    goToNextTurn: boolean = true,
+    onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
+  ): Promise<void> {
+    const isUserRole = this.pendingRolesOnTurn[0] === AgentRole.USER;
+    if (isUserRole) {
+      console.log("isUserRole", isUserRole);
+      if (this.currentSpan) {
+        console.log("ending current span");
+        this.currentSpan.end(new Date().getTime());
+      }
+
+      // If it's a user role, create a new otel context
+      this.activeOtelContext = propagation.extract(
+        context.active(),
+        this.inputOtelContext
+      );
+
+      this.currentSpan = tracer.startSpan(
+        "Scenario Turn",
+        {
+          attributes: {
+            "scenario.id": this.config.id,
+            "scenario.name": this.config.name,
+            "scenario.threadId": this.state.threadId,
+            "thread.id": this.state.threadId,
+            "langwatch.thread.id": this.state.threadId,
+          },
+        },
+        this.activeOtelContext
+      );
+    }
+
+    await tracer.withActiveSpan(
+      "Scenario Turn",
+      {
+        attributes: {
+          "scenario.id": this.config.id,
+          "scenario.name": this.config.name,
+          "scenario.threadId": this.state.threadId,
+          "thread.id": this.state.threadId,
+          "langwatch.thread.id": this.state.threadId,
+          "turn.number": this.state.currentTurn || 0,
+        },
+      },
+      async (_span) => {
+        return await this._stepInner(goToNextTurn, onTurn);
+      }
+    );
+
+    if (!goToNextTurn && this.currentSpan) {
+      this.currentSpan.end(new Date().getTime());
+      this.currentSpan = undefined;
+      this.activeOtelContext = undefined;
+    }
+  }
+
+  private async _stepInner(
     goToNextTurn: boolean = true,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<void> {
@@ -466,119 +538,134 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       scenarioConfig: this.config,
     };
 
-    // Create an independent trace for this turn (not a child of scenario-execution)
-    // Use startActiveSpan to make it active so AI SDK calls become children
-    await tracer.withActiveSpan(
+    // Create agent span as child of the turn span
+    // Following OpenTelemetry docs: create context with parent span right before creating child
+    const agentContext = this.currentTurnSpan
+      ? trace.setSpan(context.active(), this.currentTurnSpan)
+      : context.active();
+
+    const agentSpan = tracer.startSpan(
       `${
         agent.name ??
         agent.constructor.name !== Object.prototype.constructor.name
           ? agent.constructor.name
           : "Agent"
       }.call`,
-      {
-        attributes: {
-          "scenario.name": this.config.name,
-          "scenario.turn": this.state.currentTurn,
-          "agent.role": role,
-          "agent.index": idx,
-          "thread.id": this.state.threadId,
-          "langwatch.thread.id": this.state.threadId,
-        },
-      },
-      async (span) => {
-        try {
-          span.setType("agent");
+      undefined, // options
+      agentContext // pass context with turn span as parent
+    ) as LangWatchSpan;
 
-          // Set input for the span
-          span.setInput("chat_messages", this.state.messages);
+    // Set attributes on the span
+    agentSpan.setAttributes({
+      "scenario.name": this.config.name,
+      "scenario.turn": this.state.currentTurn,
+      "agent.role": role,
+      "agent.index": idx,
+      "thread.id": this.state.threadId,
+      "langwatch.thread.id": this.state.threadId,
+      // Add turn span context for correlation
+      "scenario.turn.span_id": this.currentTurnSpan
+        ?.spanContext?.()
+        ?.spanId?.toString(),
+      "scenario.turn.trace_id": this.currentTurnSpan
+        ?.spanContext?.()
+        ?.traceId?.toString(),
+    });
 
-          const agentResponse = await agent.call(agentInput);
-          const endTime = Date.now();
+    try {
+      agentSpan.setType("agent");
 
-          this.addAgentTime(idx, endTime - startTime);
-          this.pendingMessages.delete(idx);
+      // Set input for the span
+      agentSpan.setInput("chat_messages", this.state.messages);
 
-          if (
-            agentResponse &&
-            typeof agentResponse === "object" &&
-            "success" in agentResponse
-          ) {
-            // JudgeResult is automatically augmented with messages by setResult
-            this.setResult(agentResponse);
-            return;
+      const agentResponse = await agent.call(agentInput);
+      const endTime = Date.now();
+
+      this.addAgentTime(idx, endTime - startTime);
+      this.pendingMessages.delete(idx);
+
+      if (
+        agentResponse &&
+        typeof agentResponse === "object" &&
+        "success" in agentResponse
+      ) {
+        // JudgeResult is automatically augmented with messages by setResult
+        this.setResult(agentResponse);
+        agentSpan.end();
+        return;
+      }
+
+      const messages = convertAgentReturnTypesToMessages(
+        agentResponse,
+        role === AgentRole.USER ? "user" : "assistant"
+      );
+
+      // Set output for the span
+      if (messages.length > 0) {
+        agentSpan.setOutput("chat_messages", messages);
+      }
+
+      // Set metrics if available (would need to be extracted from agent response)
+      const metrics: Record<string, number> = {
+        duration: endTime - startTime,
+      };
+
+      // Add token usage if available from agent response
+      if (agentResponse && typeof agentResponse === "object") {
+        const usage = (
+          agentResponse as {
+            usage?: {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              total_tokens?: number;
+            };
           }
-
-          const messages = convertAgentReturnTypesToMessages(
-            agentResponse,
-            role === AgentRole.USER ? "user" : "assistant"
-          );
-
-          // Set output for the span
-          if (messages.length > 0) {
-            span.setOutput("chat_messages", messages);
-          }
-
-          // Set metrics if available (would need to be extracted from agent response)
-          const metrics: Record<string, number> = {
-            duration: endTime - startTime,
-          };
-
-          // Add token usage if available from agent response
-          if (agentResponse && typeof agentResponse === "object") {
-            const usage = (
-              agentResponse as {
-                usage?: {
-                  prompt_tokens?: number;
-                  completion_tokens?: number;
-                  total_tokens?: number;
-                };
-              }
-            ).usage;
-            if (usage) {
-              if (usage.prompt_tokens !== undefined)
-                metrics.promptTokens = usage.prompt_tokens;
-              if (usage.completion_tokens !== undefined)
-                metrics.completionTokens = usage.completion_tokens;
-              if (usage.total_tokens !== undefined)
-                metrics.totalTokens = usage.total_tokens;
-            }
-          }
-
-          span.setMetrics(metrics);
-
-          // Add traceId to each message for proper correlation
-          const traceId = span.spanContext().traceId.toString();
-          const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
-
-          for (const message of messages) {
-            this.state.addMessage({
-              ...message,
-              traceId: traceIdHex,
-            });
-            this.broadcastMessage(message, idx);
-          }
-        } catch (error) {
-          span.recordException(
-            error instanceof Error ? error : new Error(String(error))
-          );
-          span.setStatus({
-            code: 2,
-            message: error instanceof Error ? error.message : String(error),
-          });
-
-          this.logger.error(
-            `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
-            {
-              error: error instanceof Error ? error.message : String(error),
-              agent: agent.constructor.name,
-              agentInput,
-            }
-          );
-
-          throw error;
+        ).usage;
+        if (usage) {
+          if (usage.prompt_tokens !== undefined)
+            metrics.promptTokens = usage.prompt_tokens;
+          if (usage.completion_tokens !== undefined)
+            metrics.completionTokens = usage.completion_tokens;
+          if (usage.total_tokens !== undefined)
+            metrics.totalTokens = usage.total_tokens;
         }
       }
-    );
+
+      agentSpan.setMetrics(metrics);
+
+      // Add traceId to each message for proper correlation
+      const traceId = agentSpan.spanContext().traceId.toString();
+      const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
+
+      for (const message of messages) {
+        this.state.addMessage({
+          ...message,
+          traceId: traceIdHex,
+        });
+        this.broadcastMessage(message, idx);
+      }
+    } catch (error) {
+      agentSpan.recordException(
+        error instanceof Error ? error : new Error(String(error))
+      );
+      agentSpan.setStatus({
+        code: 2,
+        message: error instanceof Error ? error.message : String(error),
+      });
+
+      this.logger.error(
+        `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+          agent: agent.constructor.name,
+          agentInput,
+        }
+      );
+
+      throw error;
+    } finally {
+      agentSpan.end();
+    }
   }
 
   /**
@@ -971,6 +1058,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Clears the result from any previous execution
    */
   private reset(): void {
+    // End any existing turn span
+    if (this.currentTurnSpan) {
+      this.currentTurnSpan.end();
+      this.currentTurnSpan = undefined;
+    }
+
     this.state = new ScenarioExecutionState(this.config);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
@@ -1009,6 +1102,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * multiple agent interactions as agents respond to each other's messages.
    */
   private newTurn(): void {
+    // End previous turn span if it exists
+    if (this.currentTurnSpan) {
+      this.currentTurnSpan.end();
+      this.currentTurnSpan = undefined;
+    }
+
     this.pendingAgentsOnTurn = new Set(this.agents);
     this.pendingRolesOnTurn = [
       AgentRole.USER,
@@ -1021,6 +1120,17 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } else {
       this.state.currentTurn++;
     }
+
+    // Create new turn trace context (equivalent to Python's langwatch.trace())
+    this.currentTurnSpan = tracer.startSpan("Scenario Turn", {
+      attributes: {
+        "scenario.name": this.config.name,
+        "scenario.id": this.config.id,
+        "thread.id": this.state.threadId,
+        "langwatch.thread.id": this.state.threadId,
+        "scenario.turn": this.state.currentTurn,
+      },
+    });
   }
 
   private removePendingRole(role: AgentRole): void {
@@ -1169,6 +1279,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     this.emitEvent(event);
     this.eventSubject.complete();
+
+    // End the final turn span
+    if (this.currentTurnSpan) {
+      this.currentTurnSpan.end();
+      this.currentTurnSpan = undefined;
+    }
   }
 
   /**

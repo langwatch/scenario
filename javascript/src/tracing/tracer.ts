@@ -1,5 +1,5 @@
 import { getLangWatchTracer } from "langwatch";
-import { LangWatchTracer } from "langwatch/observability";
+import { LangWatchTracer, LangWatchSpan } from "langwatch/observability";
 import { setupObservability } from "langwatch/observability/node";
 import { getEnv } from "../config";
 import { Logger } from "../utils/logger";
