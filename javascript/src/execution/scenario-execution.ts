@@ -6,7 +6,6 @@ import {
 } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
-import { LangWatchSpan } from "langwatch/observability";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
@@ -544,128 +543,130 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       ? trace.setSpan(context.active(), this.currentTurnSpan)
       : context.active();
 
-    const agentSpan = tracer.startSpan(
-      `${
-        agent.name ??
-        agent.constructor.name !== Object.prototype.constructor.name
-          ? agent.constructor.name
-          : "Agent"
-      }.call`,
-      undefined, // options
-      agentContext // pass context with turn span as parent
-    ) as LangWatchSpan;
+    const agentSpanName = `${
+      agent.name ?? agent.constructor.name !== Object.prototype.constructor.name
+        ? agent.constructor.name
+        : "Agent"
+    }.call`;
 
-    // Set attributes on the span
-    agentSpan.setAttributes({
-      "scenario.name": this.config.name,
-      "scenario.turn": this.state.currentTurn,
-      "agent.role": role,
-      "agent.index": idx,
-      "thread.id": this.state.threadId,
-      "langwatch.thread.id": this.state.threadId,
-      // Add turn span context for correlation
-      "scenario.turn.span_id": this.currentTurnSpan
-        ?.spanContext?.()
-        ?.spanId?.toString(),
-      "scenario.turn.trace_id": this.currentTurnSpan
-        ?.spanContext?.()
-        ?.traceId?.toString(),
-    });
-
-    try {
-      agentSpan.setType("agent");
-
-      // Set input for the span
-      agentSpan.setInput("chat_messages", this.state.messages);
-
-      const agentResponse = await agent.call(agentInput);
-      const endTime = Date.now();
-
-      this.addAgentTime(idx, endTime - startTime);
-      this.pendingMessages.delete(idx);
-
-      if (
-        agentResponse &&
-        typeof agentResponse === "object" &&
-        "success" in agentResponse
-      ) {
-        // JudgeResult is automatically augmented with messages by setResult
-        this.setResult(agentResponse);
-        agentSpan.end();
-        return;
-      }
-
-      const messages = convertAgentReturnTypesToMessages(
-        agentResponse,
-        role === AgentRole.USER ? "user" : "assistant"
-      );
-
-      // Set output for the span
-      if (messages.length > 0) {
-        agentSpan.setOutput("chat_messages", messages);
-      }
-
-      // Set metrics if available (would need to be extracted from agent response)
-      const metrics: Record<string, number> = {
-        duration: endTime - startTime,
-      };
-
-      // Add token usage if available from agent response
-      if (agentResponse && typeof agentResponse === "object") {
-        const usage = (
-          agentResponse as {
-            usage?: {
-              prompt_tokens?: number;
-              completion_tokens?: number;
-              total_tokens?: number;
-            };
-          }
-        ).usage;
-        if (usage) {
-          if (usage.prompt_tokens !== undefined)
-            metrics.promptTokens = usage.prompt_tokens;
-          if (usage.completion_tokens !== undefined)
-            metrics.completionTokens = usage.completion_tokens;
-          if (usage.total_tokens !== undefined)
-            metrics.totalTokens = usage.total_tokens;
-        }
-      }
-
-      agentSpan.setMetrics(metrics);
-
-      // Add traceId to each message for proper correlation
-      const traceId = agentSpan.spanContext().traceId.toString();
-      const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
-
-      for (const message of messages) {
-        this.state.addMessage({
-          ...message,
-          traceId: traceIdHex,
+    return await tracer.withActiveSpan(
+      agentSpanName,
+      {},
+      agentContext,
+      async (agentSpan) => {
+        // Set attributes on the span
+        agentSpan.setAttributes({
+          "scenario.name": this.config.name,
+          "scenario.turn": this.state.currentTurn,
+          "agent.role": role,
+          "agent.index": idx,
+          "thread.id": this.state.threadId,
+          "langwatch.thread.id": this.state.threadId,
+          // Add turn span context for correlation
+          "scenario.turn.span_id": this.currentTurnSpan
+            ?.spanContext?.()
+            ?.spanId?.toString(),
+          "scenario.turn.trace_id": this.currentTurnSpan
+            ?.spanContext?.()
+            ?.traceId?.toString(),
         });
-        this.broadcastMessage(message, idx);
-      }
-    } catch (error) {
-      agentSpan.recordException(
-        error instanceof Error ? error : new Error(String(error))
-      );
-      agentSpan.setStatus({
-        code: 2,
-        message: error instanceof Error ? error.message : String(error),
-      });
 
-      this.logger.error(
-        `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
-        {
-          error: error instanceof Error ? error.message : String(error),
-          agent: agent.constructor.name,
-          agentInput,
+        try {
+          agentSpan.setType("agent");
+
+          // Set input for the span
+          agentSpan.setInput("chat_messages", this.state.messages);
+
+          const agentResponse = await agent.call(agentInput);
+          const endTime = Date.now();
+
+          this.addAgentTime(idx, endTime - startTime);
+          this.pendingMessages.delete(idx);
+
+          if (
+            agentResponse &&
+            typeof agentResponse === "object" &&
+            "success" in agentResponse
+          ) {
+            // JudgeResult is automatically augmented with messages by setResult
+            this.setResult(agentResponse);
+            agentSpan.end();
+            return;
+          }
+
+          const messages = convertAgentReturnTypesToMessages(
+            agentResponse,
+            role === AgentRole.USER ? "user" : "assistant"
+          );
+
+          // Set output for the span
+          if (messages.length > 0) {
+            agentSpan.setOutput("chat_messages", messages);
+          }
+
+          // Set metrics if available (would need to be extracted from agent response)
+          const metrics: Record<string, number> = {
+            duration: endTime - startTime,
+          };
+
+          // Add token usage if available from agent response
+          if (agentResponse && typeof agentResponse === "object") {
+            const usage = (
+              agentResponse as {
+                usage?: {
+                  prompt_tokens?: number;
+                  completion_tokens?: number;
+                  total_tokens?: number;
+                };
+              }
+            ).usage;
+            if (usage) {
+              if (usage.prompt_tokens !== undefined)
+                metrics.promptTokens = usage.prompt_tokens;
+              if (usage.completion_tokens !== undefined)
+                metrics.completionTokens = usage.completion_tokens;
+              if (usage.total_tokens !== undefined)
+                metrics.totalTokens = usage.total_tokens;
+            }
+          }
+
+          agentSpan.setMetrics(metrics);
+
+          // Add traceId to each message for proper correlation
+          const traceId = agentSpan.spanContext().traceId.toString();
+          const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
+
+          for (const message of messages) {
+            this.state.addMessage({
+              ...message,
+              traceId: traceIdHex,
+            });
+            this.broadcastMessage(message, idx);
+          }
+        } catch (error) {
+          agentSpan.recordException(
+            error instanceof Error ? error : new Error(String(error))
+          );
+          agentSpan.setStatus({
+            code: 2,
+            message: error instanceof Error ? error.message : String(error),
+          });
+
+          this.logger.error(
+            `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
+            {
+              error: error instanceof Error ? error.message : String(error),
+              agent: agent.constructor.name,
+              agentInput,
+            }
+          );
+
+          throw error;
+        } finally {
+          agentSpan.end();
         }
-      );
-
-      throw error;
-    } finally {
-      agentSpan.end();
-    }
+      }
+    );
   }
 
   /**

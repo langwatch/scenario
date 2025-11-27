@@ -44,7 +44,9 @@ describe("Vegetarian Recipe Agent", () => {
         }),
       ],
       script: [
-        scenario.user("quick recipe for dinner"),
+        scenario.user(),
+        scenario.agent(),
+        scenario.user(),
         scenario.agent(),
         scenario.user(),
         scenario.agent(),
