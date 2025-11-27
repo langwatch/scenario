@@ -571,99 +571,76 @@ export class ScenarioExecution implements ScenarioExecutionLike {
             ?.traceId?.toString(),
         });
 
-        try {
-          agentSpan.setType("agent");
+        agentSpan.setType("agent");
 
-          // Set input for the span
-          agentSpan.setInput("chat_messages", this.state.messages);
+        // Set input for the span
+        agentSpan.setInput("chat_messages", this.state.messages);
 
-          const agentResponse = await agent.call(agentInput);
-          const endTime = Date.now();
+        const agentResponse = await agent.call(agentInput);
+        const endTime = Date.now();
 
-          this.addAgentTime(idx, endTime - startTime);
-          this.pendingMessages.delete(idx);
+        this.addAgentTime(idx, endTime - startTime);
+        this.pendingMessages.delete(idx);
 
-          if (
-            agentResponse &&
-            typeof agentResponse === "object" &&
-            "success" in agentResponse
-          ) {
-            // JudgeResult is automatically augmented with messages by setResult
-            this.setResult(agentResponse);
-            agentSpan.end();
-            return;
-          }
+        if (
+          agentResponse &&
+          typeof agentResponse === "object" &&
+          "success" in agentResponse
+        ) {
+          // JudgeResult is automatically augmented with messages by setResult
+          this.setResult(agentResponse);
+          // agentSpan.end();
+          return;
+        }
 
-          const messages = convertAgentReturnTypesToMessages(
-            agentResponse,
-            role === AgentRole.USER ? "user" : "assistant"
-          );
+        const messages = convertAgentReturnTypesToMessages(
+          agentResponse,
+          role === AgentRole.USER ? "user" : "assistant"
+        );
 
-          // Set output for the span
-          if (messages.length > 0) {
-            agentSpan.setOutput("chat_messages", messages);
-          }
+        // Set output for the span
+        if (messages.length > 0) {
+          agentSpan.setOutput("chat_messages", messages);
+        }
 
-          // Set metrics if available (would need to be extracted from agent response)
-          const metrics: Record<string, number> = {
-            duration: endTime - startTime,
-          };
+        // Set metrics if available (would need to be extracted from agent response)
+        const metrics: Record<string, number> = {
+          duration: endTime - startTime,
+        };
 
-          // Add token usage if available from agent response
-          if (agentResponse && typeof agentResponse === "object") {
-            const usage = (
-              agentResponse as {
-                usage?: {
-                  prompt_tokens?: number;
-                  completion_tokens?: number;
-                  total_tokens?: number;
-                };
-              }
-            ).usage;
-            if (usage) {
-              if (usage.prompt_tokens !== undefined)
-                metrics.promptTokens = usage.prompt_tokens;
-              if (usage.completion_tokens !== undefined)
-                metrics.completionTokens = usage.completion_tokens;
-              if (usage.total_tokens !== undefined)
-                metrics.totalTokens = usage.total_tokens;
+        // Add token usage if available from agent response
+        if (agentResponse && typeof agentResponse === "object") {
+          const usage = (
+            agentResponse as {
+              usage?: {
+                prompt_tokens?: number;
+                completion_tokens?: number;
+                total_tokens?: number;
+              };
             }
+          ).usage;
+          if (usage) {
+            if (usage.prompt_tokens !== undefined)
+              metrics.promptTokens = usage.prompt_tokens;
+            if (usage.completion_tokens !== undefined)
+              metrics.completionTokens = usage.completion_tokens;
+            if (usage.total_tokens !== undefined)
+              metrics.totalTokens = usage.total_tokens;
           }
+        }
 
-          agentSpan.setMetrics(metrics);
+        agentSpan.setMetrics(metrics);
 
-          // Add traceId to each message for proper correlation
-          const traceId = agentSpan.spanContext().traceId.toString();
-          const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
+        // Add traceId to each message for proper correlation
+        const traceId = agentSpan.spanContext().traceId.toString();
+        const traceIdHex = traceId ? TracingUtils.toHex(traceId) : undefined;
 
-          for (const message of messages) {
-            this.state.addMessage({
-              ...message,
-              traceId: traceIdHex,
-            });
-            this.broadcastMessage(message, idx);
-          }
-        } catch (error) {
-          agentSpan.recordException(
-            error instanceof Error ? error : new Error(String(error))
-          );
-          agentSpan.setStatus({
-            code: 2,
-            message: error instanceof Error ? error.message : String(error),
+        for (const message of messages) {
+          this.state.addMessage({
+            ...message,
+            traceId: traceIdHex,
           });
-
-          this.logger.error(
-            `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
-            {
-              error: error instanceof Error ? error.message : String(error),
-              agent: agent.constructor.name,
-              agentInput,
-            }
-          );
-
-          throw error;
-        } finally {
-          agentSpan.end();
+          this.broadcastMessage(message, idx);
         }
       }
     );
