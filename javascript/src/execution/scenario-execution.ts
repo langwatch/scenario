@@ -1,9 +1,4 @@
-import {
-  context,
-  propagation,
-  type Context,
-  type Span,
-} from "@opentelemetry/api";
+import { context, type Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
 import { filter, Observable, Subject } from "rxjs";
@@ -405,68 +400,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     await this._step();
   }
 
-  private activeOtelContext?: Context;
-  private inputOtelContext = {};
-  private currentSpan?: Span;
-
   private async _step(
-    goToNextTurn: boolean = true,
-    onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
-  ): Promise<void> {
-    const isUserRole = this.pendingRolesOnTurn[0] === AgentRole.USER;
-    if (isUserRole) {
-      console.log("isUserRole", isUserRole);
-      if (this.currentSpan) {
-        console.log("ending current span");
-        this.currentSpan.end(new Date().getTime());
-      }
-
-      // If it's a user role, create a new otel context
-      this.activeOtelContext = propagation.extract(
-        context.active(),
-        this.inputOtelContext
-      );
-
-      this.currentSpan = tracer.startSpan(
-        "Scenario Turn",
-        {
-          attributes: {
-            "scenario.id": this.config.id,
-            "scenario.name": this.config.name,
-            "scenario.threadId": this.state.threadId,
-            "thread.id": this.state.threadId,
-            "langwatch.thread.id": this.state.threadId,
-          },
-        },
-        this.activeOtelContext
-      );
-    }
-
-    await tracer.withActiveSpan(
-      "Scenario Turn",
-      {
-        attributes: {
-          "scenario.id": this.config.id,
-          "scenario.name": this.config.name,
-          "scenario.threadId": this.state.threadId,
-          "thread.id": this.state.threadId,
-          "langwatch.thread.id": this.state.threadId,
-          "turn.number": this.state.currentTurn || 0,
-        },
-      },
-      async (_span) => {
-        return await this._stepInner(goToNextTurn, onTurn);
-      }
-    );
-
-    if (!goToNextTurn && this.currentSpan) {
-      this.currentSpan.end(new Date().getTime());
-      this.currentSpan = undefined;
-      this.activeOtelContext = undefined;
-    }
-  }
-
-  private async _stepInner(
     goToNextTurn: boolean = true,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<void> {
