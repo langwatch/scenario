@@ -10,16 +10,16 @@
  * 3. SAME session creation = accurate testing!
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import scenario, {
   AgentRole,
   RealtimeAgentAdapter,
   type AudioResponseEvent,
 } from "@langwatch/scenario";
-import { createVegetarianRecipeSession } from "../../realtime-demo/agents/vegetatrian-recipe.agent";
-import { AudioUtils } from "./utils/audio/audio.utils";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { wrapJudgeForAudioTranscription } from "./helpers/wrap-judge-for-audio-transcription";
-import { createUserSimulatorSession } from "../../realtime-demo/agents/realtime-user-simulator.agent";
+import { AudioUtils } from "./utils/audio/audio.utils";
+import { createUserSimulatorSession } from "../../openai-realtime-demo/agents/realtime-user-simulator.agent";
+import { createVegetarianRecipeSession } from "../../openai-realtime-demo/agents/vegetatrian-recipe.agent";
 
 /**
  * Realtime User Simulator for testing Realtime agents

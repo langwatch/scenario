@@ -1,8 +1,12 @@
 packages:
   - .
   - examples/*
-  - examples/vitest/tests/realtime/realtime-client
+  - examples/openai-realtime-demo
+  - examples/openai-realtime-demo/realtime-client
+  - ../docs
 
 onlyBuiltDependencies:
   - esbuild
   - unrs-resolver
+  - "@swc/core"
+  - sharp
