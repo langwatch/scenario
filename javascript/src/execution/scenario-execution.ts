@@ -1,6 +1,7 @@
 import { context, type Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
+import { getLangWatchTracer } from "langwatch";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
@@ -30,7 +31,7 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
-import { tracer, TracingUtils } from "../tracing";
+import { TracingUtils } from "../tracing";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -125,6 +126,9 @@ import { Logger } from "../utils/logger";
  * ```
  */
 export class ScenarioExecution implements ScenarioExecutionLike {
+  /** LangWatch tracer for scenario execution */
+  private tracer = getLangWatchTracer("@langwatch/scenario");
+
   /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
 
@@ -186,7 +190,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * @param script - The ordered sequence of script steps that define the test flow
    */
   constructor(config: ScenarioConfig, script: ScriptStep[]) {
-    // this.tracer = getLangWatchTracer("@langwatch/scenario");
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -484,7 +487,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         : "Agent"
     }.call`;
 
-    await tracer.withActiveSpan(
+    await this.tracer.withActiveSpan(
       agentSpanName,
       {
         attributes: {
@@ -511,7 +514,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         ) {
           // JudgeResult is automatically augmented with messages by setResult
           this.setResult(agentResponse);
-          // agentSpan.end();
           return;
         }
 
@@ -1022,7 +1024,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
 
     // Create new turn trace context (equivalent to Python's langwatch.trace())
-    this.currentTurnSpan = tracer.startSpan("Scenario Turn", {
+    this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
       attributes: {
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,

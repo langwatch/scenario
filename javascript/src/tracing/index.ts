@@ -1,2 +1,2 @@
-export * from "./tracer";
+export * from "./setup";
 export * from "./tracing.utils";
