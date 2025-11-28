@@ -4,13 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "clean": "rm -rf docs/dist",
     "generate:mdx-examples": "node scripts/generate-mdx-examples.js",
     "dev": "pnpm generate:mdx-examples && vocs dev",
-    "prebuild": "pnpm generate:mdx-examples",
-    "build": "vocs build",
+    "build": "pnpm generate:mdx-examples && vocs build",
     "preview": "vocs preview",
     "build:preview": "pnpm build && vocs preview",
-    "lint": "eslint ."
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "eslint . --fix"
   },
   "dependencies": {
     "@radix-ui/react-tabs": "^1.1.1",

@@ -8,12 +8,17 @@
     "pnpm": ">=10.5.0"
   },
   "scripts": {
+    "clean": "rm -rf dist",
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "eslint . --fix",
     "realtime-server": "dotenv -e .env pnpm exec tsx src/server/start-server.ts",
-    "start": "dotenv -e .env concurrently -n server,client,tunnel -c blue,magenta,cyan \"pnpm realtime-server\" \"pnpm dev\" \"cloudflared tunnel --url=http://localhost:5173\""
+    "realtime-tunnel": "cloudflared tunnel --url=http://localhost:5173",
+    "start": "dotenv -e .env concurrently -n server,client -c blue,magenta \"pnpm realtime-server\" \"pnpm dev\"",
+    "start:full": "dotenv -e .env concurrently -n server,client,tunnel -c blue,magenta,cyan \"pnpm realtime-server\" \"pnpm dev\" \"pnpm realtime-tunnel\""
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",

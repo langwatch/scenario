@@ -8,7 +8,7 @@
     "test": "pnpm exec vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "realtime-client": "pnpm -F realtime-client"
+    "format": "eslint . --fix"
   },
   "keywords": [],
   "author": "",
