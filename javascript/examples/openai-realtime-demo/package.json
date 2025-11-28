@@ -7,14 +7,14 @@
   "types": "index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "format": "eslint . --fix"
+    "lint": "eslint agents/ index.ts",
+    "format": "pnpm lint --fix"
   },
   "dependencies": {
-    "@openai/agents": "^0.3.0"
+    "@openai/agents": "^0.3.3"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^22.15.15"
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
   }
 }

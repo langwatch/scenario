@@ -9,7 +9,6 @@
  */
 
 import express from "express";
-import { OpenAI } from "openai";
 
 /**
  * Configuration for the ephemeral token server
@@ -59,10 +58,9 @@ export interface EphemeralTokenServerConfig {
  * ```
  */
 export async function createEphemeralTokenServer(
-  config: EphemeralTokenServerConfig
+  config: EphemeralTokenServerConfig,
 ): Promise<express.Application> {
   const app = express();
-  const openai = new OpenAI({ apiKey: config.apiKey });
 
   const corsOrigins = config.corsOrigins ?? ["http://localhost:3000"];
   const model = config.model ?? "gpt-4o-realtime-preview-2024-12-17";
@@ -111,19 +109,22 @@ export async function createEphemeralTokenServer(
 
       // Call OpenAI API to create ephemeral token
       // Using fetch since OpenAI SDK's post method might not work for this endpoint
-      const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${config.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          session: {
-            type: "realtime",
-            model: model,
+      const response = await fetch(
+        "https://api.openai.com/v1/realtime/client_secrets",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            session: {
+              type: "realtime",
+              model: model,
+            },
+          }),
+        },
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -131,7 +132,7 @@ export async function createEphemeralTokenServer(
       }
 
       const data = await response.json();
-      
+
       // Log the full response to debug structure
       console.log("📦 Raw OpenAI response:", JSON.stringify(data, null, 2));
 
@@ -140,7 +141,9 @@ export async function createEphemeralTokenServer(
       const expiresAt = data.expires_at || data.client_secret?.expires_at;
 
       if (!token) {
-        throw new Error(`No token in response. Response structure: ${JSON.stringify(data)}`);
+        throw new Error(
+          `No token in response. Response structure: ${JSON.stringify(data)}`,
+        );
       }
 
       console.log("✅ Token generated:", {
@@ -170,11 +173,11 @@ export async function createEphemeralTokenServer(
     app.listen(config.port, () => {
       console.log(`
 🚀 Ephemeral Token Server running
-   
+
    URL: http://localhost:${config.port}
    POST /token - Generate ephemeral tokens
    GET /health - Health check
-   
+
    Next: Start Vite client with "pnpm realtime-client"
    Then open: http://localhost:5173
       `);
@@ -189,7 +192,9 @@ export async function createEphemeralTokenServer(
  * @param app - Express application to stop
  */
 export async function stopServer(app: express.Application): Promise<void> {
-  const server = (app as any).server;
+  const server = (
+    app as express.Application & { server?: import("http").Server }
+  ).server;
   if (server) {
     return new Promise((resolve) => {
       server.close(() => {

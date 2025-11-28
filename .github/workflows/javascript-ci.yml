@@ -48,28 +48,24 @@ jobs:
 
       # Covers typecheck
       - name: Build
-        run: pnpm run build
+        run: pnpm build:all
         working-directory: javascript
 
       - name: Lint
-        run: pnpm run lint
+        run: pnpm lint:all
+        working-directory: javascript
+
+      - name: Type check
+        run: pnpm typecheck:all
         working-directory: javascript
 
       - name: Tests
-        run: pnpm run test
+        run: pnpm run test:ci
         working-directory: javascript
 
       # Examples
-      - name: Lint (Examples)
-        run: pnpm -F vitest-example lint
-        working-directory: javascript
-
-      - name: Type check (Examples)
-        run: pnpm -F vitest-example typecheck
-        working-directory: javascript
-
       - name: Test (Examples)
-        run: pnpm -F vitest-example test
+        run: pnpm -F vitest-examples test
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
