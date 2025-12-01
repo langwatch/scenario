@@ -46,7 +46,7 @@ const weatherAgent: AgentAdapter = {
         {
           toolCallId: toolCall.toolCallId,
           messages: input.messages,
-        }
+        },
       );
       return [
         {
@@ -104,7 +104,7 @@ describe("Weather Agent", () => {
           const toolCallResult = state.lastToolCall("get_current_weather");
 
           expect(toolCallResult.content[0].toolName).toBe(
-            "get_current_weather"
+            "get_current_weather",
           );
           expect(toolCallResult.content[0].output.value).toContain("Barcelona");
 

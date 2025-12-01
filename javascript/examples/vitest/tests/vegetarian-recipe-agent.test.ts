@@ -54,6 +54,12 @@ describe("Vegetarian Recipe Agent", () => {
       ],
       setId: "javascript-examples",
     });
-    expect(result.success).toBe(true);
+
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.log(result);
+      throw error;
+    }
   });
 });
