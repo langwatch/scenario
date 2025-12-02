@@ -10,22 +10,22 @@
  * 3. SAME session creation = accurate testing!
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import scenario, {
   AgentRole,
   RealtimeAgentAdapter,
   type AudioResponseEvent,
 } from "@langwatch/scenario";
-import { createScenarioExpertSession } from "./realtime/agents/scenario-expert.agent";
-import { RealtimeUserSimulatorAgent } from "./realtime/agents/realtime-user-simulator.agent";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { wrapJudgeForAudioTranscription } from "./helpers/wrap-judge-for-audio-transcription";
 import { AudioUtils } from "./utils/audio/audio.utils";
-import { wrapJudgeForAudio } from "./realtime/helpers/wrap-judge-for-audio";
+import { createUserSimulatorSession } from "../../openai-realtime-demo/agents/realtime-user-simulator.agent";
+import { createScenarioExpertSession } from "../../openai-realtime-demo/agents/scenario-expert.agent";
 
 describe("Scenario Expert Agent (Realtime API)", () => {
   // Used for wrapping the agent under test in the adapter
   let realtimeAdapter: RealtimeAgentAdapter;
   // Used for simulating a user in voice conversations with the Realtime agent
-  let audioUserSim: RealtimeUserSimulatorAgent;
+  let audioUserSim: RealtimeAgentAdapter;
   const collectedAudio: AudioResponseEvent[] = [];
 
   beforeAll(async () => {
@@ -35,13 +35,21 @@ describe("Scenario Expert Agent (Realtime API)", () => {
     // Wrap connected session in adapter for Scenario testing
     realtimeAdapter = new RealtimeAgentAdapter({
       role: AgentRole.AGENT,
-      session: session,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      session: session as any,
       agentName: "Scenario Expert",
       responseTimeout: 30000,
     });
 
+    const userSimulatorSession = createUserSimulatorSession();
     // Create user simulator (creates its own session internally)
-    audioUserSim = new RealtimeUserSimulatorAgent();
+    audioUserSim = new RealtimeAgentAdapter({
+      role: AgentRole.USER,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      session: userSimulatorSession as any,
+      agentName: "Realtime User Simulator",
+      responseTimeout: 30000,
+    });
 
     // Subscribe to audio events
     realtimeAdapter.onAudioResponse((event) => {
@@ -84,7 +92,7 @@ describe("Scenario Expert Agent (Realtime API)", () => {
       agents: [
         realtimeAdapter, // Realtime agent (handles audio!)
         audioUserSim, // Audio user simulator (generates voice)
-        wrapJudgeForAudio(
+        wrapJudgeForAudioTranscription(
           // Judge with audio transcription
           scenario.judgeAgent({
             criteria: [
