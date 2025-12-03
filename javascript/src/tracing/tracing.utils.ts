@@ -1,27 +1,30 @@
 import { CoreMessage } from "ai";
 
 /**
- * Truncates base64 image data URLs to reduce token usage.
+ * Truncates base64 media data URLs (images, audio, video) to reduce token usage.
  * @param value - Any value to process
- * @returns Value with base64 images replaced by markers
+ * @returns Value with base64 media replaced by markers
  */
-function truncateBase64Images(value: unknown): unknown {
+function truncateBase64Media(value: unknown): unknown {
   if (typeof value === "string") {
-    const match = value.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+    const match = value.match(/^data:((image|audio|video)\/[a-z0-9+.-]+);base64,(.+)$/i);
     if (match) {
-      return `[IMAGE: ${match[1]}, ~${match[2].length} bytes]`;
+      const mimeType = match[1];
+      const mediaType = match[2].toUpperCase();
+      const size = match[3].length;
+      return `[${mediaType}: ${mimeType}, ~${size} bytes]`;
     }
     return value;
   }
 
   if (Array.isArray(value)) {
-    return value.map(truncateBase64Images);
+    return value.map(truncateBase64Media);
   }
 
   if (value && typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value)) {
-      result[key] = truncateBase64Images(val);
+      result[key] = truncateBase64Media(val);
     }
     return result;
   }
@@ -38,7 +41,7 @@ function truncateBase64Images(value: unknown): unknown {
 function formatTranscript(messages: CoreMessage[]): string {
   return messages
     .map((msg) => {
-      const truncatedContent = truncateBase64Images(msg.content);
+      const truncatedContent = truncateBase64Media(msg.content);
       return `${msg.role}: ${JSON.stringify(truncatedContent)}`;
     })
     .join("\n");

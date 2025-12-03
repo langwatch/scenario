@@ -47,8 +47,8 @@ export class DigestDeduplicator {
   }
 
   private processString(str: string): string {
-    // Truncate base64 image data URLs before any other processing
-    const truncated = this.truncateBase64Image(str);
+    // Truncate base64 media data URLs before any other processing
+    const truncated = this.truncateBase64Media(str);
     if (truncated !== str) {
       return truncated;
     }
@@ -79,16 +79,17 @@ export class DigestDeduplicator {
   }
 
   /**
-   * Detects and truncates base64 image data URLs.
+   * Detects and truncates base64 media data URLs (images, audio, video).
    * @param str - String to check
-   * @returns Truncated marker if base64 image, original string otherwise
+   * @returns Truncated marker if base64 media, original string otherwise
    */
-  private truncateBase64Image(str: string): string {
-    const match = str.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+  private truncateBase64Media(str: string): string {
+    const match = str.match(/^data:((image|audio|video)\/[a-z0-9+.-]+);base64,(.+)$/i);
     if (match) {
       const mimeType = match[1];
-      const base64Data = match[2];
-      return `[IMAGE: ${mimeType}, ~${base64Data.length} bytes]`;
+      const mediaType = match[2].toUpperCase();
+      const size = match[3].length;
+      return `[${mediaType}: ${mimeType}, ~${size} bytes]`;
     }
     return str;
   }

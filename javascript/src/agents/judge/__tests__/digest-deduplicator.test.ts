@@ -198,8 +198,47 @@ describe("DigestDeduplicator", () => {
     });
   });
 
-  describe("when JSON contains base64 image in nested field", () => {
-    it("replaces nested base64 with marker", () => {
+  describe("when string contains base64 audio data URL", () => {
+    it("handles webm audio", () => {
+      const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ";
+      const dataUrl = `data:audio/webm;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[AUDIO: audio/webm, ~${base64Data.length} bytes]`);
+    });
+
+    it("handles mp3 audio", () => {
+      const base64Data = "SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMA";
+      const dataUrl = `data:audio/mpeg;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[AUDIO: audio/mpeg, ~${base64Data.length} bytes]`);
+    });
+
+    it("handles wav audio", () => {
+      const base64Data = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA";
+      const dataUrl = `data:audio/wav;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[AUDIO: audio/wav, ~${base64Data.length} bytes]`);
+    });
+  });
+
+  describe("when string contains base64 video data URL", () => {
+    it("handles mp4 video", () => {
+      const base64Data = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE";
+      const dataUrl = `data:video/mp4;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[VIDEO: video/mp4, ~${base64Data.length} bytes]`);
+    });
+
+    it("handles webm video", () => {
+      const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ";
+      const dataUrl = `data:video/webm;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[VIDEO: video/webm, ~${base64Data.length} bytes]`);
+    });
+  });
+
+  describe("when JSON contains base64 media in nested field", () => {
+    it("replaces nested base64 image with marker", () => {
       const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
       const json = JSON.stringify({
         message: "Hello",
@@ -214,20 +253,20 @@ describe("DigestDeduplicator", () => {
       );
     });
 
-    it("handles multiple images in array", () => {
+    it("handles multiple media types in array", () => {
       const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
       const json = JSON.stringify({
-        images: [
+        media: [
           `data:image/png;base64,${base64Data}`,
-          `data:image/jpeg;base64,${base64Data}`,
+          `data:audio/webm;base64,${base64Data}`,
         ],
       });
       const result = deduplicator.process(json);
       expect(result).toBe(
         JSON.stringify({
-          images: [
+          media: [
             `[IMAGE: image/png, ~${base64Data.length} bytes]`,
-            `[IMAGE: image/jpeg, ~${base64Data.length} bytes]`,
+            `[AUDIO: audio/webm, ~${base64Data.length} bytes]`,
           ],
         })
       );

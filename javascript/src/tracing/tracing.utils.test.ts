@@ -46,7 +46,7 @@ describe("TracingUtils.formatTranscript", () => {
     });
   });
 
-  describe("when messages contain base64 images", () => {
+  describe("when messages contain base64 media", () => {
     it("truncates base64 image data URLs", () => {
       const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
       const messages: CoreMessage[] = [
@@ -75,6 +75,48 @@ describe("TracingUtils.formatTranscript", () => {
       const result = TracingUtils.formatTranscript(messages);
       expect(result).toBe(
         `user: "[IMAGE: image/webp, ~${base64Data.length} bytes]"`
+      );
+    });
+
+    it("truncates audio data URLs", () => {
+      const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ";
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: `data:audio/webm;base64,${base64Data}`,
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toBe(
+        `user: "[AUDIO: audio/webm, ~${base64Data.length} bytes]"`
+      );
+    });
+
+    it("truncates mp3 audio", () => {
+      const base64Data = "SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMA";
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: `data:audio/mpeg;base64,${base64Data}`,
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toBe(
+        `user: "[AUDIO: audio/mpeg, ~${base64Data.length} bytes]"`
+      );
+    });
+
+    it("truncates video data URLs", () => {
+      const base64Data = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE";
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: `data:video/mp4;base64,${base64Data}`,
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toBe(
+        `user: "[VIDEO: video/mp4, ~${base64Data.length} bytes]"`
       );
     });
   });
