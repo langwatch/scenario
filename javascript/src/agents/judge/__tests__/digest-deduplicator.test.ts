@@ -167,5 +167,71 @@ describe("DigestDeduplicator", () => {
       expect(deduplicator.process(long)).toBe(long);
     });
   });
+
+  describe("when string contains base64 image data URL", () => {
+    it("replaces with truncated marker showing type and size", () => {
+      const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
+      const dataUrl = `data:image/png;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[IMAGE: image/png, ~${base64Data.length} bytes]`);
+    });
+
+    it("handles jpeg images", () => {
+      const base64Data = "/9j/4AAQSkZJRgABAQEASABIAAD";
+      const dataUrl = `data:image/jpeg;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[IMAGE: image/jpeg, ~${base64Data.length} bytes]`);
+    });
+
+    it("handles webp images", () => {
+      const base64Data = "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAE";
+      const dataUrl = `data:image/webp;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[IMAGE: image/webp, ~${base64Data.length} bytes]`);
+    });
+
+    it("handles gif images", () => {
+      const base64Data = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAA";
+      const dataUrl = `data:image/gif;base64,${base64Data}`;
+      const result = deduplicator.process(dataUrl);
+      expect(result).toBe(`[IMAGE: image/gif, ~${base64Data.length} bytes]`);
+    });
+  });
+
+  describe("when JSON contains base64 image in nested field", () => {
+    it("replaces nested base64 with marker", () => {
+      const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
+      const json = JSON.stringify({
+        message: "Hello",
+        image: `data:image/png;base64,${base64Data}`,
+      });
+      const result = deduplicator.process(json);
+      expect(result).toBe(
+        JSON.stringify({
+          message: "Hello",
+          image: `[IMAGE: image/png, ~${base64Data.length} bytes]`,
+        }),
+      );
+    });
+
+    it("handles multiple images in array", () => {
+      const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
+      const json = JSON.stringify({
+        images: [
+          `data:image/png;base64,${base64Data}`,
+          `data:image/jpeg;base64,${base64Data}`,
+        ],
+      });
+      const result = deduplicator.process(json);
+      expect(result).toBe(
+        JSON.stringify({
+          images: [
+            `[IMAGE: image/png, ~${base64Data.length} bytes]`,
+            `[IMAGE: image/jpeg, ~${base64Data.length} bytes]`,
+          ],
+        }),
+      );
+    });
+  });
 });
 

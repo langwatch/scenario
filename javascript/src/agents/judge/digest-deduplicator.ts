@@ -47,6 +47,12 @@ export class DigestDeduplicator {
   }
 
   private processString(str: string): string {
+    // Truncate base64 image data URLs before any other processing
+    const truncated = this.truncateBase64Image(str);
+    if (truncated !== str) {
+      return truncated;
+    }
+
     // Try to parse as JSON and process recursively
     if (this.looksLikeJson(str)) {
       try {
@@ -69,6 +75,21 @@ export class DigestDeduplicator {
     }
 
     this.seen.set(normalized, str);
+    return str;
+  }
+
+  /**
+   * Detects and truncates base64 image data URLs.
+   * @param str - String to check
+   * @returns Truncated marker if base64 image, original string otherwise
+   */
+  private truncateBase64Image(str: string): string {
+    const match = str.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+    if (match) {
+      const mimeType = match[1];
+      const base64Data = match[2];
+      return `[IMAGE: ${mimeType}, ~${base64Data.length} bytes]`;
+    }
     return str;
   }
 
