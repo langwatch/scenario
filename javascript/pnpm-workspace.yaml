@@ -3,7 +3,6 @@ packages:
   - examples/*
   - examples/openai-realtime-demo
   - examples/openai-realtime-demo/realtime-client
-  - ../docs
 
 onlyBuiltDependencies:
   - esbuild
