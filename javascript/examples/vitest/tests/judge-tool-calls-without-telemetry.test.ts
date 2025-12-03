@@ -31,7 +31,7 @@ const getWeatherTool = tool({
  * can see exactly what tools were called and what they returned,
  * without needing OpenTelemetry tracing.
  *
- * To see an example of using telemetry, see the mock-tool-call-span-judgement.test.ts.
+ * To see an example of using telemetry, see the span-based-evaluation.test.ts.
  * To see an example using state assertions in the script, see the tool-failure-simulation.test.ts.
  */
 const weatherAgent: AgentAdapter = {

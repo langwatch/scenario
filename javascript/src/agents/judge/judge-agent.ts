@@ -270,11 +270,9 @@ class JudgeAgent extends JudgeAgentAdapter {
 
   private getOpenTelemetryTracesDigest(
     threadId: string,
-    _messages: CoreMessage[],
   ): string {
     const spans = this.spanCollector.getSpansForThread(threadId);
     const digest = judgeSpanDigestFormatter.format(spans);
-    console.log("digest", digest);
     return digest;
   }
 }
