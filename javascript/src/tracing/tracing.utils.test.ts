@@ -119,6 +119,34 @@ describe("TracingUtils.formatTranscript", () => {
         `user: "[VIDEO: video/mp4, ~${base64Data.length} bytes]"`
       );
     });
+
+    it("truncates AI SDK file parts with mediaType", () => {
+      const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ".repeat(50);
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is this audio?" },
+            { type: "file", mediaType: "audio/wav", data: base64Data },
+          ],
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toContain(
+        `[AUDIO: audio/wav, ~${base64Data.length} bytes]`
+      );
+    });
+
+    it("truncates raw base64 in image parts", () => {
+      const base64Data = "iVBORw0KGgoAAAANSUhEUg".repeat(100);
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: [{ type: "image", image: base64Data }],
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toContain(`[IMAGE: unknown, ~${base64Data.length} bytes]`);
+    });
   });
 });
-

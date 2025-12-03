@@ -115,6 +115,11 @@ describe("Scenario Expert Agent (Realtime API)", () => {
       setId: "realtime-examples",
     });
 
-    expect(result.success).toBe(true);
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.log(result);
+      throw error;
+    }
   }, 90000); // Longer timeout for voice-to-voice (audio generation takes time)
 });

@@ -84,7 +84,9 @@ export class DigestDeduplicator {
    * @returns Truncated marker if base64 media, original string otherwise
    */
   private truncateBase64Media(str: string): string {
-    const match = str.match(/^data:((image|audio|video)\/[a-z0-9+.-]+);base64,(.+)$/i);
+    const match = str.match(
+      /^data:((image|audio|video)\/[a-z0-9+.-]+);base64,(.+)$/i
+    );
     if (match) {
       const mimeType = match[1];
       const mediaType = match[2].toUpperCase();
@@ -107,11 +109,63 @@ export class DigestDeduplicator {
   }
 
   private processObject(obj: Record<string, unknown>): Record<string, unknown> {
+    // Handle AI SDK media parts first
+    const mediaPart = this.truncateMediaParts(obj);
+    if (mediaPart) {
+      return mediaPart;
+    }
+
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj)) {
       result[key] = this.process(val);
     }
     return result;
+  }
+
+  /**
+   * Handles AI SDK file/image parts with embedded base64.
+   * @param obj - Object to check
+   * @returns Processed object with base64 truncated, or null if not a media part
+   */
+  private truncateMediaParts(
+    obj: Record<string, unknown>
+  ): Record<string, unknown> | null {
+    // Handle AI SDK file parts: { type: "file", mediaType: "...", data: "<base64>" }
+    if (
+      obj.type === "file" &&
+      typeof obj.mediaType === "string" &&
+      typeof obj.data === "string"
+    ) {
+      const mediaType = obj.mediaType;
+      const category = mediaType.split("/")[0]?.toUpperCase() ?? "FILE";
+      return {
+        ...obj,
+        data: `[${category}: ${mediaType}, ~${obj.data.length} bytes]`,
+      };
+    }
+
+    // Handle image parts with raw base64: { type: "image", image: "<base64>" }
+    if (obj.type === "image" && typeof obj.image === "string") {
+      const imageData = obj.image;
+      const dataUrlMatch = imageData.match(
+        /^data:((image)\/[a-z0-9+.-]+);base64,(.+)$/i
+      );
+      if (dataUrlMatch) {
+        return {
+          ...obj,
+          image: `[IMAGE: ${dataUrlMatch[1]}, ~${dataUrlMatch[3].length} bytes]`,
+        };
+      }
+      // Raw base64 (long string without common text patterns)
+      if (imageData.length > 1000 && /^[A-Za-z0-9+/=]+$/.test(imageData)) {
+        return {
+          ...obj,
+          image: `[IMAGE: unknown, ~${imageData.length} bytes]`,
+        };
+      }
+    }
+
+    return null;
   }
 
   private normalize(str: string): string {

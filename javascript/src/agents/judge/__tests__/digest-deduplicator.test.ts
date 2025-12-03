@@ -214,7 +214,8 @@ describe("DigestDeduplicator", () => {
     });
 
     it("handles wav audio", () => {
-      const base64Data = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA";
+      const base64Data =
+        "UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA";
       const dataUrl = `data:audio/wav;base64,${base64Data}`;
       const result = deduplicator.process(dataUrl);
       expect(result).toBe(`[AUDIO: audio/wav, ~${base64Data.length} bytes]`);
@@ -267,6 +268,71 @@ describe("DigestDeduplicator", () => {
           media: [
             `[IMAGE: image/png, ~${base64Data.length} bytes]`,
             `[AUDIO: audio/webm, ~${base64Data.length} bytes]`,
+          ],
+        })
+      );
+    });
+  });
+
+  describe("when processing AI SDK file parts", () => {
+    it("truncates file parts with mediaType and data", () => {
+      const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ".repeat(50);
+      const result = deduplicator.process({
+        type: "file",
+        mediaType: "audio/wav",
+        data: base64Data,
+      });
+      expect(result).toEqual({
+        type: "file",
+        mediaType: "audio/wav",
+        data: `[AUDIO: audio/wav, ~${base64Data.length} bytes]`,
+      });
+    });
+
+    it("truncates video file parts", () => {
+      const base64Data = "AAAAIGZ0eXBpc29t".repeat(100);
+      const result = deduplicator.process({
+        type: "file",
+        mediaType: "video/mp4",
+        data: base64Data,
+      });
+      expect(result).toEqual({
+        type: "file",
+        mediaType: "video/mp4",
+        data: `[VIDEO: video/mp4, ~${base64Data.length} bytes]`,
+      });
+    });
+
+    it("truncates image parts with raw base64", () => {
+      const base64Data = "iVBORw0KGgoAAAANSUhEUg".repeat(100);
+      const result = deduplicator.process({
+        type: "image",
+        image: base64Data,
+      });
+      expect(result).toEqual({
+        type: "image",
+        image: `[IMAGE: unknown, ~${base64Data.length} bytes]`,
+      });
+    });
+
+    it("handles file parts nested in JSON string", () => {
+      const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ".repeat(50);
+      const json = JSON.stringify({
+        content: [
+          { type: "text", text: "Listen to this" },
+          { type: "file", mediaType: "audio/wav", data: base64Data },
+        ],
+      });
+      const result = deduplicator.process(json);
+      expect(result).toBe(
+        JSON.stringify({
+          content: [
+            { type: "text", text: "Listen to this" },
+            {
+              type: "file",
+              mediaType: "audio/wav",
+              data: `[AUDIO: audio/wav, ~${base64Data.length} bytes]`,
+            },
           ],
         })
       );
