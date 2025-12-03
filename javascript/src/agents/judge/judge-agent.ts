@@ -177,12 +177,33 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    * @default 10
    */
   maxDiscoverySteps?: number;
+  /**
+   * When true, the judge evaluates audio directly using a multimodal model.
+   * The model should support audio input (e.g., gpt-4o-audio-preview).
+   * When false (default), the judge only evaluates text content.
+   */
+  audio?: boolean;
 }
 
-function buildSystemPrompt(criteria: string[], description: string): string {
+function buildSystemPrompt(
+  criteria: string[],
+  description: string,
+  audioEnabled?: boolean
+): string {
   const criteriaList =
     criteria?.map((criterion, idx) => `${idx + 1}. ${criterion}`).join("\n") ||
     "No criteria provided";
+
+  const audioInstructions = audioEnabled
+    ? `
+<audio_evaluation>
+This conversation includes audio messages. When evaluating:
+- Listen to the audio content to understand what was said
+- Consider tone, clarity, and delivery when relevant to criteria
+- Evaluate both the content (what was said) and presentation (how it was said)
+</audio_evaluation>
+`
+    : "";
 
   return `
 <role>
@@ -201,7 +222,7 @@ ${description}
 <criteria>
 ${criteriaList}
 </criteria>
-
+${audioInstructions}
 <rules>
 - Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criteria.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
@@ -339,7 +360,7 @@ class JudgeAgent extends JudgeAgentAdapter {
 
     const systemPrompt =
       cfg.systemPrompt ??
-      buildSystemPrompt(criteria, input.scenarioConfig.description);
+      buildSystemPrompt(criteria, input.scenarioConfig.description, cfg.audio);
     const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: contentForJudge },
@@ -635,12 +656,17 @@ class JudgeAgent extends JudgeAgentAdapter {
  * detailed reasoning for its verdicts. It evaluates each criterion independently
  * and provides comprehensive feedback about what worked and what didn't.
  *
+ * Supports both text and audio evaluation:
+ * - Text (default): Evaluates text content only
+ * - Audio: When `audio: true`, uses multimodal model to evaluate audio directly
+ *
  * @param cfg Configuration for the judge agent.
  * @param cfg.criteria List of success criteria to evaluate against.
  * @param cfg.model Optional The language model to use for generating responses.
  * @param cfg.temperature Optional The temperature to use for the model.
  * @param cfg.maxTokens Optional The maximum number of tokens to generate.
  * @param cfg.systemPrompt Optional Custom system prompt to override default judge behavior.
+ * @param cfg.audio When true, evaluates audio directly using multimodal model.
  *
  * @example
  * ```typescript
@@ -654,7 +680,8 @@ class JudgeAgent extends JudgeAgentAdapter {
  * };
  *
  * async function main() {
- *   const result = await run({
+ *   // Text-only evaluation
+ *   const textResult = await run({
  *     name: "Judge Agent Test",
  *     description: "A simple test to see if the judge agent works.",
  *     agents: [
@@ -666,6 +693,28 @@ class JudgeAgent extends JudgeAgentAdapter {
  *     script: [
  *       user("Hello!"),
  *       agent(),
+ *     ],
+ *   });
+ *
+ *   // Audio evaluation (requires multimodal model)
+ *   const audioResult = await run({
+ *     name: "Voice Judge Test",
+ *     description: "Testing voice agent behavior",
+ *     agents: [
+ *       myVoiceAgent,
+ *       userSimulatorAgent({ voice: "nova" }),
+ *       judgeAgent({
+ *         criteria: [
+ *           "Agent maintains professional tone",
+ *           "Agent addresses the user's concern",
+ *         ],
+ *         audio: true,
+ *       }),
+ *     ],
+ *     script: [
+ *       user.speak("I need help with billing"),
+ *       agent(),
+ *       judge(),
  *     ],
  *   });
  * }

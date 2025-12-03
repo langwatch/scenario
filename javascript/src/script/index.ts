@@ -6,8 +6,11 @@
  * scripts that precisely control how conversations unfold, when evaluations occur,
  * and when scenarios should succeed or fail.
  */
-import { ModelMessage } from "ai";
+import { ModelMessage, CoreMessage } from "ai";
 import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
+import { textToSpeech } from "../audio/text-to-speech";
+import type { AudioData, AudioInput, AudioStepOptions, Voice } from "../audio/types";
+import { audioFromFile } from "../audio/utils";
 
 /**
  * Add a specific message to the conversation.
@@ -24,6 +27,19 @@ export const message = (message: ModelMessage): ScriptStep => {
 };
 
 /**
+ * Script step type with optional speak method for TTS.
+ */
+interface SpeakableAgentStep extends ScriptStep {
+  /**
+   * Convert text to speech and send as audio message.
+   *
+   * @param options - TTS options including voice.
+   * @returns A ScriptStep that sends audio.
+   */
+  speak: (options?: { voice?: Voice }) => ScriptStep;
+}
+
+/**
  * Generate or specify an agent response in the conversation.
  *
  * If content is provided, it will be used as the agent response. If no content
@@ -33,10 +49,79 @@ export const message = (message: ModelMessage): ScriptStep => {
  * @param content Optional agent response content. Can be a string or full message object.
  *                If undefined, the agent under test will generate content automatically.
  * @returns A ScriptStep function that can be used in scenario scripts.
+ *
+ * @example
+ * ```typescript
+ * // Text message
+ * scenario.agent("Here's a recipe for you")
+ *
+ * // Audio message via TTS
+ * scenario.agent.speak("Here's a recipe for you")
+ *
+ * // Let agent generate
+ * scenario.agent()
+ * ```
  */
-export const agent = (content?: string | ModelMessage): ScriptStep => {
-  return (_state, executor) => executor.agent(content);
+const agentBase = (content?: string | CoreMessage): ScriptStep | SpeakableAgentStep => {
+  const step: ScriptStep = (_state, executor) => executor.agent(content);
+
+  // Only add .speak() when text content is provided
+  if (typeof content === "string") {
+    const speakableStep = step as SpeakableAgentStep;
+    speakableStep.speak = (options?: { voice?: Voice }): ScriptStep => {
+      return async (_state, executor) => {
+        const audio = await textToSpeech(content, { voice: options?.voice });
+        const audioMessage: CoreMessage = {
+          role: "assistant",
+          content: [
+            { type: "text", text: "" },
+            { type: "file", mediaType: audio.mediaType, data: audio.data },
+          ],
+        };
+        await executor.message(audioMessage);
+      };
+    };
+    return speakableStep;
+  }
+
+  return step;
 };
+
+/**
+ * Speak text as an agent audio message via TTS.
+ *
+ * @param text - Text to convert to speech.
+ * @param options - TTS options including voice.
+ * @returns A ScriptStep that sends audio.
+ *
+ * @example
+ * ```typescript
+ * scenario.agent.speak("Here's a recipe for you")
+ * ```
+ */
+const agentSpeak = (text: string, options?: { voice?: Voice }): ScriptStep => {
+  return async (_state, executor) => {
+    const audio = await textToSpeech(text, { voice: options?.voice });
+    const audioMessage: CoreMessage = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "" },
+        { type: "file", mediaType: audio.mediaType, data: audio.data },
+      ],
+    };
+    await executor.message(audioMessage);
+  };
+};
+
+/**
+ * Generate or specify an agent response in the conversation.
+ *
+ * Supports both text and audio output:
+ * - `scenario.agent("text")` - Send text message
+ * - `scenario.agent.speak("text")` - Send audio message via TTS
+ * - `scenario.agent()` - Let agent generate
+ */
+export const agent = Object.assign(agentBase, { speak: agentSpeak });
 
 /**
  * Invoke the judge agent to evaluate the current conversation state.
@@ -59,6 +144,19 @@ export const judge = (options?: { criteria: string[] }): ScriptStep => {
 };
 
 /**
+ * Script step type with optional speak method for TTS.
+ */
+interface SpeakableUserStep extends ScriptStep {
+  /**
+   * Convert text to speech and send as audio message.
+   *
+   * @param options - TTS options including voice.
+   * @returns A ScriptStep that sends audio.
+   */
+  speak: (options?: { voice?: Voice }) => ScriptStep;
+}
+
+/**
  * Generate or specify a user message in the conversation.
  *
  * If content is provided, it will be used as the user message. If no content
@@ -68,10 +166,79 @@ export const judge = (options?: { criteria: string[] }): ScriptStep => {
  * @param content Optional user message content. Can be a string or full message object.
  *                If undefined, the user simulator will generate content automatically.
  * @returns A ScriptStep function that can be used in scenario scripts.
+ *
+ * @example
+ * ```typescript
+ * // Text message
+ * scenario.user("Hello")
+ *
+ * // Audio message via TTS
+ * scenario.user.speak("Hello")
+ *
+ * // Let user simulator generate
+ * scenario.user()
+ * ```
  */
-export const user = (content?: string | ModelMessage): ScriptStep => {
-  return (_state, executor) => executor.user(content);
+const userBase = (content?: string | CoreMessage): ScriptStep | SpeakableUserStep => {
+  const step: ScriptStep = (_state, executor) => executor.user(content);
+
+  // Only add .speak() when text content is provided
+  if (typeof content === "string") {
+    const speakableStep = step as SpeakableUserStep;
+    speakableStep.speak = (options?: { voice?: Voice }): ScriptStep => {
+      return async (_state, executor) => {
+        const audio = await textToSpeech(content, { voice: options?.voice });
+        const audioMessage: CoreMessage = {
+          role: "user",
+          content: [
+            { type: "text", text: "" },
+            { type: "file", mediaType: audio.mediaType, data: audio.data },
+          ],
+        };
+        await executor.message(audioMessage);
+      };
+    };
+    return speakableStep;
+  }
+
+  return step;
 };
+
+/**
+ * Speak text as a user audio message via TTS.
+ *
+ * @param text - Text to convert to speech.
+ * @param options - TTS options including voice.
+ * @returns A ScriptStep that sends audio.
+ *
+ * @example
+ * ```typescript
+ * scenario.user.speak("I need help with billing")
+ * ```
+ */
+const userSpeak = (text: string, options?: { voice?: Voice }): ScriptStep => {
+  return async (_state, executor) => {
+    const audio = await textToSpeech(text, { voice: options?.voice });
+    const audioMessage: CoreMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "" },
+        { type: "file", mediaType: audio.mediaType, data: audio.data },
+      ],
+    };
+    await executor.message(audioMessage);
+  };
+};
+
+/**
+ * Generate or specify a user message in the conversation.
+ *
+ * Supports both text and audio output:
+ * - `scenario.user("text")` - Send text message
+ * - `scenario.user.speak("text")` - Send audio message via TTS
+ * - `scenario.user()` - Let user simulator generate
+ */
+export const user = Object.assign(userBase, { speak: userSpeak });
 
 /**
  * Let the scenario proceed automatically for a specified number of turns.
@@ -121,5 +288,59 @@ export const succeed = (reasoning?: string): ScriptStep => {
 export const fail = (reasoning?: string): ScriptStep => {
   return async (_state, executor) => {
     await executor.fail(reasoning);
+  };
+};
+
+/**
+ * Inject audio into the conversation.
+ *
+ * Supports multiple input types:
+ * - File path: Load audio from a file
+ * - AudioData: Use pre-loaded audio data
+ * - TTS: Convert text to speech
+ *
+ * @param input - Audio input (file path, AudioData, or TTS config).
+ * @param options - Options including role for the message.
+ * @returns A ScriptStep function that can be used in scenario scripts.
+ *
+ * @example
+ * ```typescript
+ * // From file
+ * scenario.audio("fixtures/greeting.wav", { role: "user" })
+ *
+ * // From AudioData
+ * scenario.audio({ data: base64, mediaType: "audio/wav" }, { role: "user" })
+ *
+ * // From text via TTS
+ * scenario.audio({ text: "Hello", voice: "nova" }, { role: "user" })
+ * ```
+ */
+export const audio = (
+  input: AudioInput,
+  options: AudioStepOptions
+): ScriptStep => {
+  return async (_state, executor) => {
+    let audioData: AudioData;
+
+    if (typeof input === "string") {
+      // File path
+      audioData = audioFromFile(input);
+    } else if ("text" in input) {
+      // TTS input
+      audioData = await textToSpeech(input.text, { voice: input.voice });
+    } else {
+      // AudioData
+      audioData = input;
+    }
+
+    const audioMessage: CoreMessage = {
+      role: options.role === "user" ? "user" : "assistant",
+      content: [
+        { type: "text", text: "" },
+        { type: "file", mediaType: audioData.mediaType, data: audioData.data },
+      ],
+    };
+
+    await executor.message(audioMessage);
   };
 };

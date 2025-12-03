@@ -1,12 +1,12 @@
-import { ModelMessage } from "ai";
-
+import { ModelMessage, CoreMessage } from "ai";
 import { createLLMInvoker } from "./llm-invoker.factory";
-import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
+import { VoiceUserSimulatorConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
 import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
+import { textToSpeech } from "../audio/text-to-speech";
 
 function buildSystemPrompt(description: string): string {
   return `
@@ -37,7 +37,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
    */
   invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
 
-  constructor(private readonly cfg?: TestingAgentConfig) {
+  constructor(private readonly cfg?: VoiceUserSimulatorConfig) {
     super();
   }
 
@@ -78,6 +78,21 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       throw new Error("No response content from LLM");
     }
 
+    // If voice is configured, convert text to speech
+    if (config?.voice) {
+      const audio = await textToSpeech(messageContent, {
+        voice: config.voice,
+        format: config.audioFormat,
+      });
+      return {
+        role: "user",
+        content: [
+          { type: "text", text: "" },
+          { type: "file", mediaType: audio.mediaType, data: audio.data },
+        ],
+      } satisfies CoreMessage;
+    }
+
     return { role: "user", content: messageContent } satisfies ModelMessage;
   };
 }
@@ -90,6 +105,10 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * It uses an LLM to generate natural, contextually relevant user inputs that help
  * drive the conversation forward according to the scenario description.
  *
+ * Supports both text and voice output:
+ * - Text output (default): Returns text messages
+ * - Voice output: When `voice` is set, outputs audio via TTS
+ *
  * @param config Optional configuration for the agent.
  * @param config.model The language model to use for generating responses.
  *                     If not provided, a default model will be used.
@@ -101,6 +120,8 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * @param config.name The name of the agent.
  * @param config.systemPrompt Custom system prompt to override default user simulation behavior.
  *                           Use this to create specialized user personas or behaviors.
+ * @param config.voice Voice to use for TTS output. When set, outputs audio instead of text.
+ * @param config.audioFormat Output audio format (wav, mp3, etc). Defaults to wav.
  *
  * @throws {Error} If no model is configured either in parameters or global config.
  *
@@ -116,8 +137,8 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * };
  *
  * async function main() {
- *   // Basic user simulator with default behavior
- *   const basicResult = await run({
+ *   // Basic user simulator with text output
+ *   const textResult = await run({
  *     name: "User Simulator Test",
  *     description: "A simple test to see if the user simulator works.",
  *     agents: [myAgent, userSimulatorAgent()],
@@ -127,40 +148,32 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  *     ],
  *   });
  *
- *   // Customized user simulator
- *   const customResult = await run({
- *     name: "Expert User Test",
- *     description: "User seeks help with TypeScript programming",
+ *   // Voice user simulator - outputs audio
+ *   const voiceResult = await run({
+ *     name: "Voice User Test",
+ *     description: "User interacts via voice",
  *     agents: [
  *       myAgent,
- *       userSimulatorAgent({
- *         model: openai("gpt-4"),
- *         temperature: 0.3,
- *         systemPrompt: "You are a technical user who asks detailed questions"
- *       })
+ *       userSimulatorAgent({ voice: "nova" })
  *     ],
  *     script: [
- *       user(),
+ *       user(),  // Outputs audio
  *       agent(),
  *     ],
  *   });
  *
- *   // User simulator with custom persona
- *   const expertResult = await run({
- *     name: "Expert Developer Test",
- *     description: "Testing with a technical expert user persona.",
+ *   // Mixed: text input, voice output
+ *   const mixedResult = await run({
+ *     name: "Mixed Modality Test",
+ *     description: "Text input with voice simulation",
  *     agents: [
  *       myAgent,
- *       userSimulatorAgent({
- *         systemPrompt: `
- *           You are an expert software developer testing an AI coding assistant.
- *           Ask challenging, technical questions and be demanding about code quality.
- *           Use technical jargon and expect detailed, accurate responses.
- *         `
- *       })
+ *       userSimulatorAgent({ voice: "echo", audioFormat: "mp3" })
  *     ],
  *     script: [
- *       user(),
+ *       user("Help me with billing"),  // Fixed text
+ *       agent(),
+ *       user(),  // Voice sim generates audio
  *       agent(),
  *     ],
  *   });
@@ -170,7 +183,8 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  *
  * **Implementation Notes:**
  * - Uses role reversal internally to work around LLM biases toward assistant roles
+ * - Voice output uses OpenAI TTS API
  */
-export const userSimulatorAgent = (config?: TestingAgentConfig) => {
+export const userSimulatorAgent = (config?: VoiceUserSimulatorConfig) => {
   return new UserSimulatorAgent(config);
 };

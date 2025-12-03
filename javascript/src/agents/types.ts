@@ -1,5 +1,6 @@
 import { generateText } from "ai";
 import { ModelConfig } from "../domain/core/schemas/model.schema";
+import type { Voice } from "../audio/types";
 
 /**
  * Parameters for LLM invocation.
@@ -32,6 +33,22 @@ export interface TestingAgentConfig extends Partial<ModelConfig> {
    * from the scenario description.
    */
   systemPrompt?: string;
+}
+
+/**
+ * Configuration for voice-enabled user simulator agent.
+ */
+export interface VoiceUserSimulatorConfig extends TestingAgentConfig {
+  /**
+   * Voice to use for TTS output.
+   * When set, the agent outputs audio instead of text.
+   */
+  voice?: Voice;
+  /**
+   * Output audio format.
+   * @default "wav"
+   */
+  audioFormat?: "wav" | "mp3" | "opus" | "aac" | "flac" | "pcm";
 }
 
 /**

@@ -1,4 +1,5 @@
 import * as agents from "./agents";
+import * as audio from "./audio";
 import * as domain from "./domain";
 import * as execution from "./execution";
 import * as runner from "./runner";
@@ -6,6 +7,7 @@ import * as script from "./script";
 
 // Re-export all types and other named exports
 export * from "./agents";
+export * from "./audio";
 export * from "./domain";
 export * from "./execution";
 export * from "./runner";
@@ -26,6 +28,7 @@ export { scenarioOnly, withCustomScopes } from "./tracing/filters";
 export { saveRedTeamReport, isRedTeamAgent } from "./red-team-report";
 
 type ScenarioApi = typeof agents &
+  typeof audio &
   typeof domain &
   typeof execution &
   typeof runner &
@@ -33,6 +36,7 @@ type ScenarioApi = typeof agents &
 
 export const scenario: ScenarioApi = {
   ...agents,
+  ...audio,
   ...domain,
   ...execution,
   ...runner,
