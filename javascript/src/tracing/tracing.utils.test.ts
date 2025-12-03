@@ -45,5 +45,38 @@ describe("TracingUtils.formatTranscript", () => {
       expect(result).toBe('system: "You are helpful"\nuser: "hi"');
     });
   });
+
+  describe("when messages contain base64 images", () => {
+    it("truncates base64 image data URLs", () => {
+      const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is this?" },
+            { type: "image", image: `data:image/png;base64,${base64Data}` },
+          ],
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toBe(
+        `user: [{"type":"text","text":"What is this?"},{"type":"image","image":"[IMAGE: image/png, ~${base64Data.length} bytes]"}]`
+      );
+    });
+
+    it("truncates webp images", () => {
+      const base64Data = "UklGRgq1AQBXRUJQVlA4IP60AQBQaQed";
+      const messages: CoreMessage[] = [
+        {
+          role: "user",
+          content: `data:image/webp;base64,${base64Data}`,
+        },
+      ];
+      const result = TracingUtils.formatTranscript(messages);
+      expect(result).toBe(
+        `user: "[IMAGE: image/webp, ~${base64Data.length} bytes]"`
+      );
+    });
+  });
 });
 

@@ -1,13 +1,46 @@
 import { CoreMessage } from "ai";
 
 /**
+ * Truncates base64 image data URLs to reduce token usage.
+ * @param value - Any value to process
+ * @returns Value with base64 images replaced by markers
+ */
+function truncateBase64Images(value: unknown): unknown {
+  if (typeof value === "string") {
+    const match = value.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+    if (match) {
+      return `[IMAGE: ${match[1]}, ~${match[2].length} bytes]`;
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(truncateBase64Images);
+  }
+
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = truncateBase64Images(val);
+    }
+    return result;
+  }
+
+  return value;
+}
+
+/**
  * Formats messages into a minimal transcript for judge evaluation.
+ * Truncates base64 images to reduce token usage.
  * @param messages - Array of CoreMessage from conversation
  * @returns Plain text transcript with one message per line
  */
 function formatTranscript(messages: CoreMessage[]): string {
   return messages
-    .map((msg) => `${msg.role}: ${JSON.stringify(msg.content)}`)
+    .map((msg) => {
+      const truncatedContent = truncateBase64Images(msg.content);
+      return `${msg.role}: ${JSON.stringify(truncatedContent)}`;
+    })
     .join("\n");
 }
 
