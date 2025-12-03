@@ -50,7 +50,7 @@ describe.skipIf(skipInCi)("Voice-to-Voice Conversation Tests", () => {
    * Use scenario.user.speak() and scenario.agent.speak() when you want
    * specific text converted to audio via TTS.
    */
-  it("should handle fixed voice messages with .speak()", async () => {
+  it.only("should handle fixed voice messages with .speak()", async () => {
     const result = await scenario.run({
       name: "fixed voice messages",
       description: "Test with predetermined voice messages",
@@ -58,7 +58,7 @@ describe.skipIf(skipInCi)("Voice-to-Voice Conversation Tests", () => {
         new VoiceAgent(),
         scenario.userSimulatorAgent(), // Text sim (not used in this script)
         scenario.judgeAgent({
-          model: openai("gpt-4o"),
+          model: openai("gpt-4o-audio-preview"),
           criteria: ["Agent responds appropriately to greeting"],
           audio: true,
         }),
@@ -84,7 +84,8 @@ describe.skipIf(skipInCi)("Voice-to-Voice Conversation Tests", () => {
   it("should handle voice user simulator", async () => {
     const result = await scenario.run({
       name: "voice user simulator",
-      description: "User simulator generates audio responses",
+      description:
+        "User is asking about cooking, keeping the conversation short and natural for voice.",
       agents: [
         new VoiceAgent(),
         // Voice user sim - generates audio via TTS

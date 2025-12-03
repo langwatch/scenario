@@ -128,6 +128,7 @@ import { z } from "zod/v4";
 import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { expandTrace, grepTrace } from "./trace-tools";
+import { transcribeAudioInMessages } from "../../audio/transcribe";
 import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
@@ -178,9 +179,11 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    */
   maxDiscoverySteps?: number;
   /**
-   * When true, the judge evaluates audio directly using a multimodal model.
-   * The model should support audio input (e.g., gpt-4o-audio-preview).
-   * When false (default), the judge only evaluates text content.
+   * When true, passes audio directly to a multimodal model for evaluation.
+   * The model must support audio input (e.g., gpt-4o-audio-preview).
+   *
+   * When false/undefined (default), audio is automatically transcribed to
+   * text via Whisper before evaluation.
    */
   audio?: boolean;
 }
@@ -197,8 +200,8 @@ function buildSystemPrompt(
   const audioInstructions = audioEnabled
     ? `
 <audio_evaluation>
-This conversation includes audio messages. When evaluating:
-- Listen to the audio content to understand what was said
+This conversation includes audio messages. Listen to the audio content directly.
+When evaluating:
 - Consider tone, clarity, and delivery when relevant to criteria
 - Evaluate both the content (what was said) and presentation (how it was said)
 </audio_evaluation>
@@ -358,12 +361,18 @@ class JudgeAgent extends JudgeAgentAdapter {
 
     const cfg = this.cfg;
 
+    // audio: true → pass audio directly to multimodal model
+    // audio: false/undefined → transcribe audio to text first
+    const processedMessages = cfg.audio
+      ? input.messages
+      : await transcribeAudioInMessages(input.messages);
+
     const systemPrompt =
       cfg.systemPrompt ??
       buildSystemPrompt(criteria, input.scenarioConfig.description, cfg.audio);
     const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: contentForJudge },
+      ...processedMessages,
     ];
 
     const maxTurns = input.scenarioConfig.maxTurns ?? DEFAULT_MAX_TURNS;
