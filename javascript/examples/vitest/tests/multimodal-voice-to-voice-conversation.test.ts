@@ -16,7 +16,7 @@
  */
 import * as path from "path";
 import { openai } from "@ai-sdk/openai";
-import scenario, { AgentRole } from "@langwatch/scenario";
+import scenario, { AgentRole, StringUtils } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 import { OpenAiVoiceAgent, saveConversationAudio } from "./helpers";
 
@@ -56,17 +56,27 @@ describe.skipIf(skipInCi)("Voice-to-Voice Conversation Tests", () => {
       description: "Test with predetermined voice messages",
       agents: [
         new VoiceAgent(),
-        scenario.userSimulatorAgent(), // Text sim (not used in this script)
+        scenario.userSimulatorAgent({
+          voice: "nova",
+        }), // Text sim (not used in this script)
         scenario.judgeAgent({
-          model: openai("gpt-4o-audio-preview"),
           criteria: ["Agent responds appropriately to greeting"],
-          audio: true,
+          // audio: "transcribe" | true | undefined,
         }),
       ],
       script: [
         // Fixed user voice message via TTS
         scenario.user.speak("Hello! Can you help me with something?"),
         scenario.agent(), // Agent generates audio response
+        async (ctx) => {
+          await saveConversationAudio(
+            ctx,
+            path.join(
+              outputPath,
+              `${StringUtils.kebabCase(ctx.config.name)}.wav`
+            )
+          );
+        },
         scenario.judge(),
       ],
       setId,

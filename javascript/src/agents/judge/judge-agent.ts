@@ -8,6 +8,8 @@ import {
   stepCountIs,
   hasToolCall,
 } from "ai";
+import OpenAI from "openai";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 
 const DISCOVERY_TOOL_NAMES = new Set(["expand_trace", "grep_trace"]);
 
@@ -179,13 +181,12 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    */
   maxDiscoverySteps?: number;
   /**
-   * When true, passes audio directly to a multimodal model for evaluation.
-   * The model must support audio input (e.g., gpt-4o-audio-preview).
-   *
-   * When false/undefined (default), audio is automatically transcribed to
-   * text via Whisper before evaluation.
+   * Audio handling mode:
+   * - `"transcribe"` — Transcribe audio to text via Whisper, then evaluate text
+   * - `true` — Pass audio directly to multimodal model (e.g., gpt-4o-audio-preview)
+   * - `false`/`undefined` — No special audio handling (default)
    */
-  audio?: boolean;
+  audio?: boolean | "transcribe";
 }
 
 function buildSystemPrompt(
@@ -232,6 +233,70 @@ ${audioInstructions}
 </rules>
 `.trim();
 }
+
+function convertModelMessagesToOpenAIMessages(
+  coreMessages: (ModelMessage & { id?: string })[]
+): ChatCompletionMessageParam[] {
+  return coreMessages.map(({ id: _id, ...msg }): ChatCompletionMessageParam => {
+    // Handle array content (multimodal messages)
+    if (Array.isArray(msg.content)) {
+      const parts = msg.content.map((part) => {
+        if (part.type === "text") {
+          return { type: "text" as const, text: part.text };
+        }
+        if (part.type === "file" && part.mediaType?.startsWith("audio/")) {
+          return {
+            type: "input_audio" as const,
+            input_audio: {
+              data: part.data as string,
+              format: "wav" as const,
+            },
+          };
+        }
+        return { type: "text" as const, text: "" };
+      });
+      return {
+        role: msg.role as "user" | "assistant" | "system",
+        content: parts,
+      } as ChatCompletionMessageParam;
+    }
+    return {
+      role: msg.role as "user" | "assistant" | "system",
+      content: msg.content,
+    } as ChatCompletionMessageParam;
+  });
+}
+
+/**
+ * Convert AI SDK tools to OpenAI function format.
+ */
+function convertToolsToOpenAIFunctions(tools: ToolSet): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return Object.entries(tools).map(([name, t]) => ({
+    type: "function" as const,
+    function: {
+      name,
+      description: t.description ?? "",
+      parameters: (t as { inputSchema?: Record<string, unknown> }).inputSchema ?? { type: "object" },
+    },
+  }));
+}
+
+/**
+ * Convert OpenAI tool calls to AI SDK format.
+ */
+function convertOpenAIToolCalls(
+  toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> | undefined
+): InvokeLLMResult["toolCalls"] {
+  if (!toolCalls) return [];
+  return toolCalls.map((tc) => ({
+    type: "tool-call" as const,
+    toolCallId: tc.id,
+    toolName: tc.function.name,
+    args: JSON.parse(tc.function.arguments),
+    input: JSON.parse(tc.function.arguments),
+  }));
+}
+
 
 function buildContinueTestTool(): Tool {
   return tool({
@@ -322,7 +387,21 @@ class JudgeAgent extends JudgeAgentAdapter {
   criteria: string[];
 
   /**
+   * Detects if messages contain audio file parts.
+   */
+  private hasAudioContent(messages: CoreMessage[]): boolean {
+    return messages.some((message) => {
+      if (!Array.isArray(message.content)) return false;
+      return message.content.some(
+        (part) =>
+          part.type === "file" && part.mediaType?.startsWith("audio/")
+      );
+    });
+  }
+
+  /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
+   * Automatically uses OpenAI directly when audio content is detected.
    */
   invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
     createLLMInvoker(this.logger);
@@ -361,15 +440,16 @@ class JudgeAgent extends JudgeAgentAdapter {
 
     const cfg = this.cfg;
 
+    // audio: "transcribe" → transcribe audio to text first
     // audio: true → pass audio directly to multimodal model
-    // audio: false/undefined → transcribe audio to text first
-    const processedMessages = cfg.audio
-      ? input.messages
-      : await transcribeAudioInMessages(input.messages);
+    // audio: false/undefined → no special handling
+    const processedMessages = cfg.audio === "transcribe"
+      ? await transcribeAudioInMessages(input.messages)
+      : input.messages;
 
     const systemPrompt =
       cfg.systemPrompt ??
-      buildSystemPrompt(criteria, input.scenarioConfig.description, cfg.audio);
+      buildSystemPrompt(criteria, input.scenarioConfig.description, cfg.audio === true);
     const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       ...processedMessages,

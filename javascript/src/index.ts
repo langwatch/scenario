@@ -12,6 +12,7 @@ export * from "./domain";
 export * from "./execution";
 export * from "./runner";
 export * from "./script";
+export { StringUtils } from "./utils/string-utils";
 
 // Voice subsystem — type contract surface (PR1 of N for issue #372).
 // Runtime (TTS / STT / VAD / transports) lands in subsequent PRs behind
