@@ -1,4 +1,6 @@
-import { generateText, CoreMessage } from "ai";
+import { CoreMessage } from "ai";
+
+import { createLLMInvoker } from "./llm-invoker.factory";
 import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
@@ -33,14 +35,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
    */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = async (params) => {
-    try {
-      return await generateText(params);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
-  };
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
 
   constructor(private readonly cfg?: TestingAgentConfig) {
     super();

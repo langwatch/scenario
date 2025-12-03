@@ -1,4 +1,4 @@
-import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
+import { CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
 import { z } from "zod/v4";
 
 import { getProjectConfig } from "../../config";
@@ -6,6 +6,7 @@ import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { TracingUtils } from "../../tracing/tracing.utils";
 import { Logger } from "../../utils/logger";
+import { createLLMInvoker } from "../llm-invoker.factory";
 import { TestingAgentConfig, FinishTestArgs, InvokeLLMParams, InvokeLLMResult } from "../types";
 import { criterionToParamName } from "../utils";
 
@@ -113,14 +114,7 @@ class JudgeAgent extends JudgeAgentAdapter {
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
    */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = async (params) => {
-    try {
-      return await generateText(params);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
-  };
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
 
   constructor(
     private readonly cfg: JudgeAgentConfig,

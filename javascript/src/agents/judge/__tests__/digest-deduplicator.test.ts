@@ -106,7 +106,7 @@ describe("DigestDeduplicator", () => {
         deduplicator.process(long); // Mark as seen
         const result = deduplicator.process(json);
         expect(result).toBe(
-          JSON.stringify({ message: "[DUPLICATE - SEE ABOVE]" }),
+          JSON.stringify({ message: "[DUPLICATE - SEE ABOVE]" })
         );
       });
 
@@ -118,7 +118,7 @@ describe("DigestDeduplicator", () => {
           JSON.stringify([
             { content: long },
             { content: "[DUPLICATE - SEE ABOVE]" },
-          ]),
+          ])
         );
       });
 
@@ -210,7 +210,7 @@ describe("DigestDeduplicator", () => {
         JSON.stringify({
           message: "Hello",
           image: `[IMAGE: image/png, ~${base64Data.length} bytes]`,
-        }),
+        })
       );
     });
 
@@ -229,9 +229,8 @@ describe("DigestDeduplicator", () => {
             `[IMAGE: image/png, ~${base64Data.length} bytes]`,
             `[IMAGE: image/jpeg, ~${base64Data.length} bytes]`,
           ],
-        }),
+        })
       );
     });
   });
 });
-
