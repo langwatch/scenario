@@ -82,4 +82,3 @@ export function audioFromBuffer(
 export function audioToDataUri(audio: AudioData): string {
   return `data:${audio.mediaType};base64,${audio.data}`;
 }
-

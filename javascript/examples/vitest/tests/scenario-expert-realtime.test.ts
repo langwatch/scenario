@@ -8,6 +8,9 @@
  * 1. Browser: createScenarioExpertSession() → connect with token → use directly
  * 2. Test: createScenarioExpertSession() → connect with API key → wrap in adapter
  * 3. SAME session creation = accurate testing!
+ *
+ * Uses voice-first-class primitives:
+ * - scenario.judgeAgent({ audio: true }) for multimodal evaluation
  */
 
 import scenario, {
@@ -17,7 +20,6 @@ import scenario, {
 } from "@langwatch/scenario";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { connectWithRetry } from "./helpers/connect-with-retry";
-import { wrapJudgeForAudioTranscription } from "./helpers/wrap-judge-for-audio-transcription";
 import { AudioUtils } from "./utils/audio/audio.utils";
 import {
   RealtimeAudioPlayer,
@@ -120,10 +122,14 @@ describe("Scenario Expert Agent (Realtime API)", () => {
       agents: [
         realtimeAdapter, // Realtime agent (handles audio!)
         audioUserSim, // Audio user simulator (generates voice)
-        wrapJudgeForAudioTranscription(
-          // Judge with audio transcription
-          scenario.judgeAgent()
-        ),
+        // Judge with multimodal audio evaluation
+        scenario.judgeAgent({
+          criteria: [
+            "Agent explains what LangWatch Scenario is",
+            "Agent is helpful and informative",
+          ],
+          audio: true,
+        }),
       ],
       script: [
         scenario.agent(
@@ -133,14 +139,7 @@ describe("Scenario Expert Agent (Realtime API)", () => {
         scenario.agent(), // Audio response
         scenario.user(), // Audio follow-up
         scenario.agent(), // Audio response
-        scenario.user(), // Audio follow-up
-        scenario.agent(), // Audio response
-        scenario.judge({
-          criteria: [
-            "Agent explains what Scenario is or how it helps test AI agents",
-            "Agent is helpful and informative",
-          ],
-        }), // Evaluates transcripts
+        scenario.judge(), // Evaluates audio
       ],
       setId: "realtime-examples",
     });

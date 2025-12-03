@@ -7,10 +7,9 @@
  * and when scenarios should succeed or fail.
  */
 import { ModelMessage, CoreMessage } from "ai";
-import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
 import { textToSpeech } from "../audio/text-to-speech";
-import type { AudioData, AudioInput, AudioStepOptions, Voice } from "../audio/types";
-import { audioFromFile } from "../audio/utils";
+import type { Voice } from "../audio/types";
+import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
 
 /**
  * Add a specific message to the conversation.
@@ -62,7 +61,9 @@ interface SpeakableAgentStep extends ScriptStep {
  * scenario.agent()
  * ```
  */
-const agentBase = (content?: string | CoreMessage): ScriptStep | SpeakableAgentStep => {
+const agentBase = (
+  content?: string | CoreMessage
+): ScriptStep | SpeakableAgentStep => {
   const step: ScriptStep = (_state, executor) => executor.agent(content);
 
   // Only add .speak() when text content is provided
@@ -179,7 +180,9 @@ interface SpeakableUserStep extends ScriptStep {
  * scenario.user()
  * ```
  */
-const userBase = (content?: string | CoreMessage): ScriptStep | SpeakableUserStep => {
+const userBase = (
+  content?: string | CoreMessage
+): ScriptStep | SpeakableUserStep => {
   const step: ScriptStep = (_state, executor) => executor.user(content);
 
   // Only add .speak() when text content is provided
@@ -288,59 +291,5 @@ export const succeed = (reasoning?: string): ScriptStep => {
 export const fail = (reasoning?: string): ScriptStep => {
   return async (_state, executor) => {
     await executor.fail(reasoning);
-  };
-};
-
-/**
- * Inject audio into the conversation.
- *
- * Supports multiple input types:
- * - File path: Load audio from a file
- * - AudioData: Use pre-loaded audio data
- * - TTS: Convert text to speech
- *
- * @param input - Audio input (file path, AudioData, or TTS config).
- * @param options - Options including role for the message.
- * @returns A ScriptStep function that can be used in scenario scripts.
- *
- * @example
- * ```typescript
- * // From file
- * scenario.audio("fixtures/greeting.wav", { role: "user" })
- *
- * // From AudioData
- * scenario.audio({ data: base64, mediaType: "audio/wav" }, { role: "user" })
- *
- * // From text via TTS
- * scenario.audio({ text: "Hello", voice: "nova" }, { role: "user" })
- * ```
- */
-export const audio = (
-  input: AudioInput,
-  options: AudioStepOptions
-): ScriptStep => {
-  return async (_state, executor) => {
-    let audioData: AudioData;
-
-    if (typeof input === "string") {
-      // File path
-      audioData = audioFromFile(input);
-    } else if ("text" in input) {
-      // TTS input
-      audioData = await textToSpeech(input.text, { voice: input.voice });
-    } else {
-      // AudioData
-      audioData = input;
-    }
-
-    const audioMessage: CoreMessage = {
-      role: options.role === "user" ? "user" : "assistant",
-      content: [
-        { type: "text", text: "" },
-        { type: "file", mediaType: audioData.mediaType, data: audioData.data },
-      ],
-    };
-
-    await executor.message(audioMessage);
   };
 };

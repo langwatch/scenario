@@ -64,27 +64,3 @@ export interface TextToSpeechOptions {
    */
   format?: "wav" | "mp3" | "opus" | "aac" | "flac" | "pcm";
 }
-
-/**
- * Options for the audio script step.
- */
-export interface AudioStepOptions {
-  /**
-   * Role for the audio message.
-   */
-  role: "user" | "assistant";
-
-  /**
-   * Voice to use for TTS (when text is provided).
-   */
-  voice?: Voice;
-}
-
-/**
- * Input types for the audio script step.
- */
-export type AudioInput =
-  | string // file path
-  | AudioData // raw audio data
-  | { text: string; voice?: Voice }; // TTS input
-

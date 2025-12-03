@@ -1,12 +1,8 @@
 import { openai } from "@ai-sdk/openai";
-import scenario, { AgentRole } from "@langwatch/scenario";
+import scenario, { AgentRole, audioFromFile } from "@langwatch/scenario";
 import { UserModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
-import {
-  encodeAudioToBase64,
-  getFixturePath,
-  wrapJudgeForAudioTranscription,
-} from "./helpers";
+import { getFixturePath } from "./helpers";
 import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
 
 // Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
@@ -18,60 +14,51 @@ class AudioAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;
 }
 
-// Use setId to group together for visualizing in the UI
 const setId = "multimodal-audio-test";
 
 /**
  * This example shows how to test an agent that can take audio input
  * from a fixture and respond with audio output.
+ *
+ * Uses:
+ * - audioFromFile() to load audio
+ * - scenario.message() to inject the audio message
+ * - scenario.judgeAgent({ audio: true }) for multimodal evaluation
  */
 describe.skipIf(skipInCi)("Multimodal Audio to Audio Tests", () => {
-  it("should handle audio input", async () => {
+  it("should handle audio input from file", async () => {
     const myAgent = new AudioAgent({
-      systemPrompt: `
-      You are a helpful assistant that can analyze audio input and respond with audio output.
-      You must respond with audio output.
-      `,
+      systemPrompt: `You are a helpful assistant that analyzes audio input.
+      Answer questions about the audio content.`,
       voice: "alloy",
       forceUserRole: true,
     });
 
-    const data = encodeAudioToBase64(
-      getFixturePath("male_or_female_voice.wav"),
-    );
+    // Load audio file using the utility
+    const audio = audioFromFile(getFixturePath("male_or_female_voice.wav"));
 
-    // The AI-SDK will only support file parts,
-    // so we cannot use the OpenAI shape from above
-    // @see https://ai-sdk.dev/docs/foundations/prompts#file-parts
-    const audioMessage = {
+    // Create audio message with instructions
+    const audioMessage: UserModelMessage = {
       role: "user",
       content: [
-        {
-          type: "text",
-          text: `
-          Answer the question in the a text.
-          If you're not sure, you're required to take a best guess.
-          After you've guessed, you must repeat the question and say what format the input was in (audio or text)
-          `,
-        },
-        {
-          type: "file",
-          mediaType: "audio/wav",
-          data,
-        },
+        { type: "text", text: "Is this a male or female voice? Take a guess." },
+        { type: "file", mediaType: audio.mediaType, data: audio.data },
       ],
-    } satisfies UserModelMessage;
-
-    const audioJudge = wrapJudgeForAudioTranscription(
-      scenario.judgeAgent({ model: openai("gpt-5-mini") }),
-    );
+    };
 
     const result = await scenario.run({
       setId,
-      name: "multimodal audio to audio",
-      description:
-        "User sends audio file, agent analyzes and transcribes the content",
-      agents: [myAgent, scenario.userSimulatorAgent(), audioJudge],
+      name: "audio to audio - file input",
+      description: "User sends audio file, agent analyzes and responds",
+      agents: [
+        myAgent,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          model: openai("gpt-4o"),
+          criteria: ["The agent guesses the voice gender"],
+          audio: true,
+        }),
+      ],
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
@@ -98,7 +85,7 @@ describe.skipIf(skipInCi)("Multimodal Audio to Audio Tests", () => {
   it.todo("should handle multiple audio formats (WAV, MP3, M4A)");
   it.todo("should handle long audio files gracefully");
   it.todo(
-    "should provide appropriate responses for unclear or corrupted audio",
+    "should provide appropriate responses for unclear or corrupted audio"
   );
   it.todo("should handle audio with background noise");
   it.todo("should transcribe speech in different languages");

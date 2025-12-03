@@ -45,12 +45,12 @@ export async function textToSpeech(
     format === "mp3"
       ? "audio/mp3"
       : format === "opus"
-        ? "audio/ogg"
-        : format === "aac"
-          ? "audio/mpeg"
-          : format === "flac"
-            ? "audio/wav"
-            : "audio/wav";
+      ? "audio/ogg"
+      : format === "aac"
+      ? "audio/mpeg"
+      : format === "flac"
+      ? "audio/wav"
+      : "audio/wav";
 
   return {
     data,
@@ -58,4 +58,3 @@ export async function textToSpeech(
     transcript: text,
   };
 }
-

@@ -3,16 +3,13 @@ import scenario, {
   AgentAdapter,
   AgentInput,
   AgentRole,
+  audioFromFile,
 } from "@langwatch/scenario";
 import { UserModelMessage } from "ai";
 import OpenAI from "openai";
 import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import { describe, it, expect } from "vitest";
-import {
-  encodeAudioToBase64,
-  getFixturePath,
-  wrapJudgeForAudioTranscription,
-} from "./helpers";
+import { getFixturePath } from "./helpers";
 import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
 // Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
@@ -20,27 +17,22 @@ import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-mes
 // voice work PR will unskip these tests once model access is restored.
 const skipInCi = process.env.CI === "true";
 
-class AudioAgent extends AgentAdapter {
+/**
+ * Agent that takes audio input and responds with text
+ */
+class AudioToTextAgent extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
   private openai = new OpenAI();
 
   call = async (input: AgentInput) => {
-    // To use the OpenAI "voice-to-voice" model, we need to use the
-    // OpenAI api directly, and so we need to convert the messages to the correct
-    // shape here.
-    // @see https://platform.openai.com/docs/guides/audio?example=audio-in
     const messages = convertModelMessagesToOpenAIMessages(input.messages);
     const response = await this.respond(messages);
-
-    // Scenario expects the response to be a string, so we only send the transcript
     const transcript = response.choices[0].message?.audio?.transcript;
 
-    // Handle text response
     if (typeof transcript === "string") {
       return transcript;
-    } else {
-      throw new Error("Agent failed to generate a response");
     }
+    throw new Error("Agent failed to generate a response");
   };
 
   private async respond(messages: ChatCompletionMessageParam[]) {
@@ -48,57 +40,48 @@ class AudioAgent extends AgentAdapter {
       model: "gpt-4o-audio-preview",
       modalities: ["text", "audio"],
       audio: { voice: "alloy", format: "wav" },
-      // We need to strip the id, or the openai client will throw an error
       messages,
       store: false,
     });
   }
 }
 
-// Use setId to group together for visualizing in the UI
 const setId = "multimodal-audio-test";
 
 /**
- * This example shows how to test an agent that can take audio input
- * and respond with text output.
+ * This example shows how to test an agent that takes audio input
+ * and responds with text output.
+ *
+ * Uses:
+ * - audioFromFile() to load audio
+ * - scenario.message() to inject the audio message
+ * - scenario.judgeAgent({ audio: true }) for multimodal evaluation
  */
 describe.skipIf(skipInCi)("Multimodal Audio to Text Tests", () => {
-  it("should handle audio input", async () => {
-    const data = encodeAudioToBase64(
-      getFixturePath("male_or_female_voice.wav"),
-    );
+  it("should handle audio input from file", async () => {
+    // Load audio file
+    const audio = audioFromFile(getFixturePath("male_or_female_voice.wav"));
 
-    // The AI-SDK will only support file parts,
-    // so we cannot use the OpenAI shape from above
-    // @see https://ai-sdk.dev/docs/foundations/prompts#file-parts
-    const audioMessage = {
+    const audioMessage: UserModelMessage = {
       role: "user",
       content: [
-        {
-          type: "text",
-          text: `
-          Answer the question in the audio.
-          If you're not sure, you're required to take a best guess.
-          After you've guessed, you must repeat the question and say what format the input was in (audio or text)
-          `,
-        },
-        {
-          type: "file",
-          mediaType: "audio/wav",
-          data,
-        },
+        { type: "text", text: "Is this a male or female voice?" },
+        { type: "file", mediaType: audio.mediaType, data: audio.data },
       ],
-    } satisfies UserModelMessage;
-
-    const audioJudge = wrapJudgeForAudioTranscription(
-      scenario.judgeAgent({ model: openai("gpt-5") }),
-    );
+    };
 
     const result = await scenario.run({
-      name: "multimodal audio to text",
-      description:
-        "User sends audio file, agent analyzes and transcribes the content",
-      agents: [new AudioAgent(), scenario.userSimulatorAgent(), audioJudge],
+      name: "audio to text",
+      description: "User sends audio, agent responds with text",
+      agents: [
+        new AudioToTextAgent(),
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          model: openai("gpt-4o"),
+          criteria: ["The agent identifies the voice gender"],
+          audio: true,
+        }),
+      ],
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
@@ -126,7 +109,7 @@ describe.skipIf(skipInCi)("Multimodal Audio to Text Tests", () => {
   it.todo("should handle multiple audio formats (WAV, MP3)");
   it.todo("should handle long audio files gracefully");
   it.todo(
-    "should provide appropriate responses for unclear or corrupted audio",
+    "should provide appropriate responses for unclear or corrupted audio"
   );
   it.todo("should handle audio with background noise");
   it.todo("should transcribe speech in different languages");
