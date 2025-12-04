@@ -1,6 +1,8 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 
-import { DigestDeduplicator } from "./digest-deduplicator";
+import { deepTransform } from "./deep-transform";
+import { StringDeduplicator } from "./string-deduplicator";
+import { truncateMediaUrl, truncateMediaPart } from "./truncate-media";
 import { Logger } from "../../utils/logger";
 
 /**
@@ -17,7 +19,7 @@ interface SpanNode {
  */
 export class JudgeSpanDigestFormatter {
   private readonly logger = new Logger("JudgeSpanDigestFormatter");
-  private readonly deduplicator = new DigestDeduplicator({ threshold: 50 });
+  private readonly deduplicator = new StringDeduplicator({ threshold: 50 });
 
   /**
    * Formats spans into a complete digest with full content and nesting.
@@ -48,7 +50,9 @@ export class JudgeSpanDigestFormatter {
 
     const lines: string[] = [
       "=== OPENTELEMETRY TRACES ===",
-      `Spans: ${spans.length} | Total Duration: ${this.formatDuration(totalDuration)}`,
+      `Spans: ${spans.length} | Total Duration: ${this.formatDuration(
+        totalDuration
+      )}`,
       "",
     ];
 
@@ -60,7 +64,7 @@ export class JudgeSpanDigestFormatter {
         lines,
         0,
         sequence,
-        idx === rootCount - 1,
+        idx === rootCount - 1
       );
     });
 
@@ -109,7 +113,7 @@ export class JudgeSpanDigestFormatter {
     lines: string[],
     depth: number,
     sequence: number,
-    isLast: boolean = true,
+    isLast: boolean = true
   ): number {
     const span = node.span;
     const duration = this.calculateSpanDuration(span);
@@ -118,7 +122,9 @@ export class JudgeSpanDigestFormatter {
 
     const prefix = this.getTreePrefix(depth, isLast);
     lines.push(
-      `${prefix}[${sequence}] ${new Date(timestamp).toISOString()} ${span.name} (${this.formatDuration(duration)})${status}`,
+      `${prefix}[${sequence}] ${new Date(timestamp).toISOString()} ${
+        span.name
+      } (${this.formatDuration(duration)})${status}`
     );
 
     const attrIndent = this.getAttrIndent(depth, isLast);
@@ -151,7 +157,7 @@ export class JudgeSpanDigestFormatter {
         lines,
         depth + 1,
         nextSeq,
-        idx === childCount - 1,
+        idx === childCount - 1
       );
     });
 
@@ -171,7 +177,7 @@ export class JudgeSpanDigestFormatter {
   }
 
   private cleanAttributes(
-    attrs: Record<string, unknown>,
+    attrs: Record<string, unknown>
   ): Record<string, unknown> {
     const cleaned: Record<string, unknown> = {};
     const seen = new Set<string>();
@@ -191,11 +197,51 @@ export class JudgeSpanDigestFormatter {
   }
 
   private formatValue(value: unknown): string {
-    const processed = this.deduplicator.process(value);
-    // Strings returned as-is, objects stringified
+    const processed = this.transformValue(value);
     return typeof processed === "string"
       ? processed
       : JSON.stringify(processed);
+  }
+
+  private transformValue(value: unknown): unknown {
+    return deepTransform(value, (v) => {
+      // AI SDK media parts — special objects
+      const mediaPart = truncateMediaPart(v);
+      if (mediaPart) return mediaPart;
+
+      // Not a string → continue traversal
+      if (typeof v !== "string") return v;
+
+      // String transforms
+      return this.transformString(v);
+    });
+  }
+
+  private transformString(str: string): string {
+    // JSON strings — parse and recurse
+    if (this.looksLikeJson(str)) {
+      try {
+        const processed = this.transformValue(JSON.parse(str));
+        return JSON.stringify(processed);
+      } catch {
+        /* not valid JSON */
+      }
+    }
+
+    // Data URLs → marker
+    const truncated = truncateMediaUrl(str);
+    if (truncated !== str) return truncated;
+
+    // Dedup
+    return this.deduplicator.process(str);
+  }
+
+  private looksLikeJson(str: string): boolean {
+    const t = str.trim();
+    return (
+      (t.startsWith("{") && t.endsWith("}")) ||
+      (t.startsWith("[") && t.endsWith("]"))
+    );
   }
 
   private hrTimeToMs(hrTime: [number, number]): number {
