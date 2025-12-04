@@ -1,5 +1,4 @@
 import { setupObservability } from "langwatch/observability/node";
-
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getEnv } from "../config";
 

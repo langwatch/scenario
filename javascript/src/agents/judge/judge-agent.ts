@@ -7,7 +7,12 @@ import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { TracingUtils } from "../../tracing/tracing.utils";
 import { Logger } from "../../utils/logger";
 import { createLLMInvoker } from "../llm-invoker.factory";
-import { TestingAgentConfig, FinishTestArgs, InvokeLLMParams, InvokeLLMResult } from "../types";
+import {
+  TestingAgentConfig,
+  FinishTestArgs,
+  InvokeLLMParams,
+  InvokeLLMResult,
+} from "../types";
 import { criterionToParamName } from "../utils";
 
 import { JudgeResult } from "./interfaces";
@@ -81,8 +86,8 @@ function buildFinishTestTool(criteria: string[]): Tool {
             criteriaNames.map((name, idx) => [
               name,
               z.enum(["true", "false", "inconclusive"]).describe(criteria[idx]),
-            ]),
-          ),
+            ])
+          )
         )
         .strict()
         .describe("Strict verdict for each criterion"),
@@ -114,11 +119,10 @@ class JudgeAgent extends JudgeAgentAdapter {
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
    */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
+    createLLMInvoker(this.logger);
 
-  constructor(
-    private readonly cfg: JudgeAgentConfig,
-  ) {
+  constructor(private readonly cfg: JudgeAgentConfig) {
     super();
     this.criteria = cfg.criteria;
     this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
@@ -133,6 +137,8 @@ class JudgeAgent extends JudgeAgentAdapter {
     });
 
     const digest = this.getOpenTelemetryTracesDigest(input.threadId);
+    console.log("DIGEST");
+    console.log(digest);
     this.logger.debug("OpenTelemetry traces built", { digest });
     const transcript = TracingUtils.formatTranscript(input.messages);
 
@@ -224,10 +230,10 @@ class JudgeAgent extends JudgeAgentAdapter {
           const criteria = args.criteria || {};
           const criteriaValues = Object.values(criteria);
           const metCriteria = cfg.criteria.filter(
-            (_, i) => criteriaValues[i] === "true",
+            (_, i) => criteriaValues[i] === "true"
           );
           const unmetCriteria = cfg.criteria.filter(
-            (_, i) => criteriaValues[i] !== "true",
+            (_, i) => criteriaValues[i] !== "true"
           );
 
           const result = {
@@ -262,9 +268,7 @@ class JudgeAgent extends JudgeAgentAdapter {
     };
   }
 
-  private getOpenTelemetryTracesDigest(
-    threadId: string,
-  ): string {
+  private getOpenTelemetryTracesDigest(threadId: string): string {
     const spans = this.spanCollector.getSpansForThread(threadId);
     const digest = judgeSpanDigestFormatter.format(spans);
     return digest;
