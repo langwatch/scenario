@@ -78,28 +78,22 @@ function truncateBase64Media(value: unknown): unknown {
 }
 
 /**
- * Formats messages into a minimal transcript for judge evaluation.
- * Truncates base64 images to reduce token usage.
- * @param messages - Array of CoreMessage from conversation
- * @returns Plain text transcript with one message per line
+ * Utilities for the Judge agent.
  */
-function formatTranscript(messages: CoreMessage[]): string {
-  return messages
-    .map((msg) => {
-      const truncatedContent = truncateBase64Media(msg.content);
-      return `${msg.role}: ${JSON.stringify(truncatedContent)}`;
-    })
-    .join("\n");
-}
-
-/**
- * Tracing utilities for span operations.
- */
-export const TracingUtils = {
+export const JudgeUtils = {
   /**
-   * Formats messages into a minimal transcript for judge evaluation.
+   * Builds a minimal transcript from messages for judge evaluation.
+   * Truncates base64 media to reduce token usage.
    * @param messages - Array of CoreMessage from conversation
    * @returns Plain text transcript with one message per line
    */
-  formatTranscript,
+  buildTranscriptFromMessages(messages: CoreMessage[]): string {
+    return messages
+      .map((msg) => {
+        const truncatedContent = truncateBase64Media(msg.content);
+        return `${msg.role}: ${JSON.stringify(truncatedContent)}`;
+      })
+      .join("\n");
+  },
 };
+

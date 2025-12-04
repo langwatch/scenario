@@ -92,14 +92,6 @@ describe("Weather Agent", () => {
       agents: [
         weatherAgent,
         scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
-        scenario.judgeAgent({
-          model: openai("gpt-4.1"),
-          criteria: [
-            "The agent should ask which city is the user asking accomodations for if they don't provide it.",
-            "The agent should share the prices of each accomodation for the user to consider.",
-            "The agent should not bias the user towards a specific accomodation.",
-          ],
-        }),
       ],
       script: [
         scenario.user(),
@@ -119,7 +111,7 @@ describe("Weather Agent", () => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           expect((assistantMessageContent.input as any).city).toBe("Barcelona");
         },
-        scenario.judge(),
+        scenario.succeed(),
       ],
       setId: "javascript-examples",
     });

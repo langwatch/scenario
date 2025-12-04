@@ -1,10 +1,10 @@
 import { CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
 import { z } from "zod/v4";
 
+import { JudgeUtils } from "./judge-utils";
 import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
-import { TracingUtils } from "../../tracing/tracing.utils";
 import { Logger } from "../../utils/logger";
 import { createLLMInvoker } from "../llm-invoker.factory";
 import {
@@ -137,10 +137,8 @@ class JudgeAgent extends JudgeAgentAdapter {
     });
 
     const digest = this.getOpenTelemetryTracesDigest(input.threadId);
-    console.log("DIGEST");
-    console.log(digest);
     this.logger.debug("OpenTelemetry traces built", { digest });
-    const transcript = TracingUtils.formatTranscript(input.messages);
+    const transcript = JudgeUtils.buildTranscriptFromMessages(input.messages);
 
     const contentForJudge = `
     <transcript>
