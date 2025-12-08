@@ -1,8 +1,11 @@
 """Tests for JudgeSpanDigestFormatter."""
 
-import pytest
+from typing import Any, cast
 from unittest.mock import MagicMock
+
+import pytest
 from opentelemetry.trace import StatusCode
+
 from scenario._judge.judge_span_digest_formatter import JudgeSpanDigestFormatter
 
 

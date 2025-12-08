@@ -1,10 +1,13 @@
 """Tests for judge utility modules."""
 
+from typing import Any, cast
+
 import pytest
+
 from scenario._judge.deep_transform import deep_transform
-from scenario._judge.string_deduplicator import StringDeduplicator
-from scenario._judge.truncate_media import truncate_media_url, truncate_media_part
 from scenario._judge.judge_utils import JudgeUtils
+from scenario._judge.string_deduplicator import StringDeduplicator
+from scenario._judge.truncate_media import truncate_media_part, truncate_media_url
 
 
 class TestDeepTransform:
@@ -185,7 +188,7 @@ class TestJudgeUtils:
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there!"},
         ]
-        result = JudgeUtils.build_transcript_from_messages(messages)
+        result = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
         assert 'user: "Hello"' in result
         assert 'assistant: "Hi there!"' in result
 
@@ -197,7 +200,7 @@ class TestJudgeUtils:
                 "content": "data:image/png;base64," + "A" * 1000,
             },
         ]
-        result = JudgeUtils.build_transcript_from_messages(messages)
+        result = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
         assert "[IMAGE: image/png" in result
         assert "A" * 100 not in result  # Base64 should be truncated
 
@@ -217,6 +220,6 @@ class TestJudgeUtils:
                 ],
             },
         ]
-        result = JudgeUtils.build_transcript_from_messages(messages)
+        result = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
         assert "Describe this image" in result
         assert "[IMAGE:" in result

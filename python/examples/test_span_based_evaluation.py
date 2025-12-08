@@ -88,7 +88,7 @@ When asked about products, use the check_inventory tool.""",
             tool_choice="auto",
         )
 
-        message = response.choices[0].message
+        message = response.choices[0].message  # type: ignore[union-attr]
 
         # Handle tool calls
         if message.tool_calls:
@@ -133,9 +133,9 @@ When asked about products, use the check_inventory tool.""",
                     *tool_responses,
                 ],
             )
-            return follow_up.choices[0].message.content
+            return follow_up.choices[0].message.content or ""  # type: ignore[union-attr]
 
-        return message.content
+        return message.content or ""
 
 
 @pytest.mark.agent_test

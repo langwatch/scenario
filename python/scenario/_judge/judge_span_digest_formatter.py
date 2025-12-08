@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import StatusCode
@@ -38,7 +38,7 @@ class JudgeSpanDigestFormatter:
     def __init__(self) -> None:
         self._deduplicator = StringDeduplicator(threshold=50)
 
-    def format(self, spans: List[ReadableSpan]) -> str:
+    def format(self, spans: Sequence[ReadableSpan]) -> str:
         """
         Formats spans into a complete digest with full content and nesting.
 
@@ -95,7 +95,7 @@ class JudgeSpanDigestFormatter:
 
         return "\n".join(lines)
 
-    def _sort_by_start_time(self, spans: List[ReadableSpan]) -> List[ReadableSpan]:
+    def _sort_by_start_time(self, spans: Sequence[ReadableSpan]) -> List[ReadableSpan]:
         """Sorts spans by start time."""
         return sorted(spans, key=lambda s: self._hr_time_to_ms(s.start_time or 0))
 
@@ -291,7 +291,7 @@ class JudgeSpanDigestFormatter:
             return f" ⚠️ ERROR: {message}"
         return ""
 
-    def _collect_errors(self, spans: List[ReadableSpan]) -> List[str]:
+    def _collect_errors(self, spans: Sequence[ReadableSpan]) -> List[str]:
         """Collects error messages from failed spans."""
         errors = []
         for s in spans:
