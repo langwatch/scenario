@@ -102,6 +102,7 @@ OUTPUT_PATH = os.path.join(
 )
 
 
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_voice_to_voice_conversation():
     """

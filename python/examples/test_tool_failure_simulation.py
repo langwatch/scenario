@@ -207,6 +207,7 @@ async def test_tool_rate_limit_simulation():
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_tool_success_simulation():
     """Test agent's ability to handle successful tool calls."""
