@@ -1049,7 +1049,7 @@ wheels = [
 
 [[package]]
 name = "langwatch-scenario"
-version = "0.7.13"
+version = "0.7.14"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -1057,6 +1057,7 @@ dependencies = [
     { name = "langwatch" },
     { name = "litellm" },
     { name = "openai" },
+    { name = "opentelemetry-sdk" },
     { name = "pksuid" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1104,6 +1105,7 @@ requires-dist = [
     { name = "langwatch", specifier = ">=0.2.19" },
     { name = "litellm", specifier = ">=1.49.0" },
     { name = "openai", specifier = ">=1.88.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.20.0" },
     { name = "pdoc3", marker = "extra == 'dev'" },
     { name = "pksuid", specifier = ">=1.1.2" },
     { name = "pre-commit", marker = "extra == 'dev'" },

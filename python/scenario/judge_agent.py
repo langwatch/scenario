@@ -21,6 +21,8 @@ from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
+from ._judge import JudgeUtils, judge_span_digest_formatter
+from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 
 
@@ -106,6 +108,7 @@ class JudgeAgent(AgentAdapter):
     criteria: List[str]
     system_prompt: Optional[str]
     _extra_params: dict
+    _span_collector: JudgeSpanCollector
 
     def __init__(
         self,
@@ -117,6 +120,7 @@ class JudgeAgent(AgentAdapter):
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
+        span_collector: Optional[JudgeSpanCollector] = None,
         **extra_params,
     ):
         """
@@ -137,6 +141,7 @@ class JudgeAgent(AgentAdapter):
             max_tokens: Maximum number of tokens for judge reasoning and explanations.
             system_prompt: Custom system prompt to override default judge behavior.
                           Use this to create specialized evaluation perspectives.
+            span_collector: Optional span collector for telemetry. Defaults to global singleton.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -173,6 +178,7 @@ class JudgeAgent(AgentAdapter):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.system_prompt = system_prompt
+        self._span_collector = span_collector or judge_span_collector
 
         if model:
             self.model = model
@@ -248,6 +254,21 @@ class JudgeAgent(AgentAdapter):
 
         scenario = input.scenario_state
 
+        # Build transcript and traces digest
+        transcript = JudgeUtils.build_transcript_from_messages(input.messages)
+        traces_digest = self._get_opentelemetry_traces_digest(input.thread_id)
+
+        logger.debug(f"OpenTelemetry traces built: {traces_digest[:200]}...")
+
+        content_for_judge = f"""
+<transcript>
+{transcript}
+</transcript>
+<opentelemetry_traces>
+{traces_digest}
+</opentelemetry_traces>
+"""
+
         criteria_str = "\n".join(
             [f"{idx + 1}. {criterion}" for idx, criterion in enumerate(self.criteria)]
         )
@@ -280,7 +301,7 @@ If you do have enough information, use the finish_test tool to determine if all 
 </rules>
 """,
             },
-            *input.messages,
+            {"role": "user", "content": content_for_judge},
         ]
 
         is_last_message = (
@@ -451,3 +472,16 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             raise Exception(
                 f"Unexpected response format from LLM: {response.__repr__()}"
             )
+
+    def _get_opentelemetry_traces_digest(self, thread_id: str) -> str:
+        """
+        Retrieves and formats OpenTelemetry traces for a thread.
+
+        Args:
+            thread_id: The thread identifier to get traces for
+
+        Returns:
+            Formatted digest of traces
+        """
+        spans = self._span_collector.get_spans_for_thread(thread_id)
+        return judge_span_digest_formatter.format(spans)
