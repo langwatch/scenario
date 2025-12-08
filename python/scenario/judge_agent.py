@@ -10,7 +10,7 @@ success/failure verdicts.
 import json
 import logging
 import re
-from typing import List, Optional, cast
+from typing import Any, List, Optional, cast
 
 import litellm
 from litellm import Choices
@@ -448,7 +448,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                         # Return the appropriate ScenarioResult based on the verdict
                         return ScenarioResult(
                             success=verdict == "success" and len(failed_criteria) == 0,
-                            messages=messages,
+                            messages=cast(Any, messages),
                             reasoning=reasoning,
                             passed_criteria=passed_criteria,
                             failed_criteria=failed_criteria,

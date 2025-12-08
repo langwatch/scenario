@@ -6,10 +6,11 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import StatusCode
+from opentelemetry.util.types import AttributeValue
 
 from .deep_transform import deep_transform
 from .string_deduplicator import StringDeduplicator
@@ -96,7 +97,7 @@ class JudgeSpanDigestFormatter:
 
     def _sort_by_start_time(self, spans: List[ReadableSpan]) -> List[ReadableSpan]:
         """Sorts spans by start time."""
-        return sorted(spans, key=lambda s: self._hr_time_to_ms(s.start_time))
+        return sorted(spans, key=lambda s: self._hr_time_to_ms(s.start_time or 0))
 
     def _build_hierarchy(self, spans: List[ReadableSpan]) -> List[SpanNode]:
         """Builds a tree structure from flat span list."""
@@ -104,14 +105,22 @@ class JudgeSpanDigestFormatter:
         roots: List[SpanNode] = []
 
         for span in spans:
-            span_map[span.get_span_context().span_id] = SpanNode(span=span, children=[])
+            span_ctx = span.get_span_context()
+            span_id = span_ctx.span_id if span_ctx else 0
+            span_map[span_id] = SpanNode(span=span, children=[])
 
         for span in spans:
-            node = span_map[span.get_span_context().span_id]
+            span_ctx = span.get_span_context()
+            span_id = span_ctx.span_id if span_ctx else 0
+            node = span_map[span_id]
             parent_ctx = span.parent
 
-            if parent_ctx is not None and parent_ctx.span_id in span_map:
-                span_map[parent_ctx.span_id].children.append(node)
+            if parent_ctx is not None:
+                parent_id = parent_ctx.span_id
+                if parent_id in span_map:
+                    span_map[parent_id].children.append(node)
+                else:
+                    roots.append(node)
             else:
                 roots.append(node)
 
@@ -128,7 +137,7 @@ class JudgeSpanDigestFormatter:
         """Renders a span node and its children."""
         span = node.span
         duration = self._calculate_span_duration(span)
-        timestamp = self._format_timestamp(span.start_time)
+        timestamp = self._format_timestamp(span.start_time or 0)
         status = self._get_status_indicator(span)
 
         prefix = self._get_tree_prefix(depth, is_last)
@@ -137,7 +146,7 @@ class JudgeSpanDigestFormatter:
         )
 
         attr_indent = self._get_attr_indent(depth, is_last)
-        attrs = self._clean_attributes(span.attributes or {})
+        attrs = self._clean_attributes(dict(span.attributes) if span.attributes else {})
         for key, value in attrs.items():
             lines.append(f"{attr_indent}{key}: {self._format_value(value)}")
 
@@ -251,14 +260,16 @@ class JudgeSpanDigestFormatter:
 
     def _calculate_span_duration(self, span: ReadableSpan) -> float:
         """Calculates span duration in milliseconds."""
-        return self._hr_time_to_ms(span.end_time) - self._hr_time_to_ms(span.start_time)
+        start = span.start_time or 0
+        end = span.end_time or 0
+        return self._hr_time_to_ms(end) - self._hr_time_to_ms(start)
 
     def _calculate_total_duration(self, spans: List[ReadableSpan]) -> float:
         """Calculates total duration from first start to last end."""
         if not spans:
             return 0
-        first = self._hr_time_to_ms(spans[0].start_time)
-        last = max(self._hr_time_to_ms(s.end_time) for s in spans)
+        first = self._hr_time_to_ms(spans[0].start_time or 0)
+        last = max(self._hr_time_to_ms(s.end_time or 0) for s in spans)
         return last - first
 
     def _format_duration(self, ms: float) -> str:

@@ -54,11 +54,13 @@ class JudgeSpanCollector(SpanProcessor):
         Returns:
             List of spans for the given thread
         """
-        span_map: Dict[str, ReadableSpan] = {}
+        span_map: Dict[int, ReadableSpan] = {}
 
         # Index all spans by ID
         for span in self._spans:
-            span_map[span.get_span_context().span_id] = span
+            span_ctx = span.get_span_context()
+            span_id = span_ctx.span_id if span_ctx else 0
+            span_map[span_id] = span
 
         def belongs_to_thread(span: ReadableSpan) -> bool:
             """Check if span or any ancestor belongs to thread."""
