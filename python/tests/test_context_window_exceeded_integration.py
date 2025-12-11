@@ -29,6 +29,27 @@ class VerboseAgent(scenario.AgentAdapter):
         return {"role": "assistant", "content": giant_response}
 
 
+class MockUserSimulatorAgent(scenario.AgentAdapter):
+    """Mock UserSimulatorAgent that returns a simple message without API calls."""
+
+    role = scenario.AgentRole.USER
+
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        return {"role": "user", "content": "What's the weather like today?"}
+
+
+class MockJudgeAgent(scenario.AgentAdapter):
+    """Mock JudgeAgent that raises a context window exceeded error."""
+
+    role = scenario.AgentRole.JUDGE
+
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        raise Exception(
+            "This model's maximum context length is 16385 tokens. "
+            "However, your messages resulted in 50000 tokens."
+        )
+
+
 class MockEventReporter(EventReporter):
     """Captures events without HTTP calls."""
 
@@ -58,11 +79,8 @@ async def test_error_identifies_agent_that_exceeded_context():
             description="User asks for weather info",
             agents=[
                 VerboseAgent(),
-                scenario.UserSimulatorAgent(model="gpt-4o-mini"),
-                scenario.JudgeAgent(
-                    model="gpt-3.5-turbo-0125",
-                    criteria=["Agent should provide weather info"],
-                ),
+                MockUserSimulatorAgent(),
+                MockJudgeAgent(),
             ],
             script=[
                 scenario.user(),
@@ -101,11 +119,8 @@ async def test_reports_sent_when_context_exceeded():
         description="User asks for weather info",
         agents=[
             VerboseAgent(),
-            scenario.UserSimulatorAgent(model="gpt-4o-mini"),
-            scenario.JudgeAgent(
-                model="gpt-3.5-turbo-0125",
-                criteria=["Agent should provide weather info"],
-            ),
+            MockUserSimulatorAgent(),
+            MockJudgeAgent(),
         ],
         script=[
             scenario.user(),

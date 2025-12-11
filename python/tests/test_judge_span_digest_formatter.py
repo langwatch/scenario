@@ -48,8 +48,7 @@ class TestJudgeSpanDigestFormatterEmpty:
         """Should return empty digest marker when no spans."""
         formatter = JudgeSpanDigestFormatter()
         result = formatter.format([])
-        assert "=== OPENTELEMETRY TRACES ===" in result
-        assert "No spans recorded." in result
+        assert result == "No spans recorded."
 
 
 class TestJudgeSpanDigestFormatterSingleSpan:
