@@ -1,11 +1,8 @@
----
-description: Wait for CI workflows to pass after push, fix failures if any
-alwaysApply: false
----
-
 ## Wait for CI and Fix Failures
 
 Execute this workflow after pushing to a PR branch.
+
+**Note:** Use `required_permissions: ["all"]` for git/shell commands - pre-commit hooks need it.
 
 ### Step 1: Identify Current Branch and PR
 
@@ -15,7 +12,7 @@ gh pr view --json number,headRefName,url
 
 ### Step 2: Poll Workflow Status
 
-Check every 30 seconds until all workflows complete (max 15 minutes):
+Check every 30 seconds until all workflows complete. Timeout: 10 minutes total.
 
 ```bash
 gh run list --branch <branch> --limit 5 --json status,conclusion,name,databaseId,workflowName
