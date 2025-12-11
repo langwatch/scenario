@@ -2,49 +2,41 @@
 
 Execute this workflow after pushing to a PR branch.
 
-**Note:** Use `required_permissions: ["all"]` for git/shell commands - pre-commit hooks need it.
-
-### Step 1: Identify Current Branch and PR
+### Step 1: Run the CI Wait Script
 
 ```bash
-gh pr view --json number,headRefName,url
+./scripts/ci-wait.sh
 ```
 
-### Step 2: Poll Workflow Status
+Use `timeout: 660000` (11 min) and `required_permissions: ["network"]`.
 
-Check every 30 seconds until all workflows complete. Timeout: 10 minutes total.
+**Exit codes:**
+- `0` = All workflows passed → Done
+- `1` = One or more workflows failed → Continue to Step 2
+- `2` = Timeout → Report to user, ask how to proceed
+
+### Step 2: Fetch Failed Logs
+
+For each failed workflow from the script output:
 
 ```bash
-gh run list --branch <branch> --limit 5 --json status,conclusion,name,databaseId,workflowName
+gh run view <databaseId> --log-failed
 ```
 
-Wait until no runs have `status: "in_progress"` or `status: "queued"`.
-
-### Step 3: Evaluate Results
-
-- If all runs have `conclusion: "success"` → Report success and stop
-- If any run has `conclusion: "failure"` → Continue to Step 4
-
-### Step 4: Fetch Failed Logs
-
-```bash
-gh run view <failed-run-id> --log-failed
-```
-
-### Step 5: Analyze and Fix
+### Step 3: Analyze and Fix
 
 1. Parse the log output to identify the root cause (test failure, lint error, type error, build error)
 2. Locate the relevant file(s) and line(s)
 3. Apply the minimal fix
 4. Commit with message: `fix: resolve CI failure - <brief description>`
 
-### Step 6: Push and Retry
+### Step 4: Push and Retry
 
 ```bash
 git push
 ```
 
-Return to Step 2. Maximum 3 retry attempts before stopping and reporting to user.
+Return to Step 1. Maximum 3 retry attempts before stopping and reporting to user.
 
 ### Constraints
 
