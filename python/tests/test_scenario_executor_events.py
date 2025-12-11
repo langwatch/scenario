@@ -210,3 +210,43 @@ async def test_event_ordering(executed_events: ExecutedEventsFixture) -> None:
     assert start_event.timestamp <= snapshot_events[0].timestamp
     assert snapshot_events[-1].timestamp <= finish_event.timestamp
     assert start_event.timestamp <= finish_event.timestamp
+
+
+class FailingAgent(AgentAdapter):
+    """Agent that raises an exception."""
+
+    async def call(self, input: AgentInput) -> str:
+        raise RuntimeError("Simulated agent failure")
+
+
+@pytest.mark.asyncio
+async def test_emits_error_event_on_exception() -> None:
+    """Should emit ScenarioRunFinishedEvent with ERROR status when agent throws."""
+    mock_reporter = MockEventReporter()
+    event_bus = ScenarioEventBus(event_reporter=mock_reporter)
+
+    executor = ScenarioExecutor(
+        name="error scenario",
+        description="test error handling",
+        agents=[
+            FailingAgent(),
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test"]),
+        ],
+        event_bus=event_bus,
+    )
+
+    events: List[ScenarioEvent] = []
+    executor.events.subscribe(events.append)
+
+    with pytest.raises(RuntimeError, match="Simulated agent failure"):
+        await executor.run()
+
+    # Verify we still got the finish event with ERROR status
+    finish_events = [e for e in events if isinstance(e, ScenarioRunFinishedEvent)]
+    assert len(finish_events) == 1, "Should emit finish event even on error"
+
+    finish_event = finish_events[0]
+    assert finish_event.status.value == "ERROR"
+    assert finish_event.results is not None
+    assert "Simulated agent failure" in finish_event.results.reasoning
