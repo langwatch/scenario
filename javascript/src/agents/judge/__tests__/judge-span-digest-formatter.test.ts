@@ -34,10 +34,9 @@ const formatter = new JudgeSpanDigestFormatter();
 describe("JudgeSpanDigestFormatter", () => {
   describe("when no spans", () => {
     it("returns empty digest marker", () => {
-      expect(formatter.format([])).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        No spans recorded."
-      `);
+      expect(formatter.format([])).toMatchInlineSnapshot(
+        `"No spans recorded."`
+      );
     });
   });
 
@@ -56,8 +55,7 @@ describe("JudgeSpanDigestFormatter", () => {
       });
 
       expect(formatter.format([span])).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 1 | Total Duration: 500ms
+        "Spans: 1 | Total Duration: 500ms
 
         [1] 2023-11-14T22:13:20.000Z llm.chat (500ms)
             gen_ai.prompt: Hello
@@ -92,8 +90,7 @@ describe("JudgeSpanDigestFormatter", () => {
       ];
 
       expect(formatter.format(spans)).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 3 | Total Duration: 2.05s
+        "Spans: 3 | Total Duration: 2.05s
 
         [1] 2023-11-14T22:13:20.000Z first (200ms)
 
@@ -131,8 +128,7 @@ describe("JudgeSpanDigestFormatter", () => {
       ];
 
       expect(formatter.format(spans)).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 3 | Total Duration: 1.00s
+        "Spans: 3 | Total Duration: 1.00s
 
         [1] 2023-11-14T22:13:20.000Z agent.run (1.00s)
 
@@ -168,8 +164,7 @@ describe("JudgeSpanDigestFormatter", () => {
       ];
 
       expect(formatter.format(spans)).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 3 | Total Duration: 2.00s
+        "Spans: 3 | Total Duration: 2.00s
 
         [1] 2023-11-14T22:13:20.000Z root (2.00s)
 
@@ -198,8 +193,7 @@ describe("JudgeSpanDigestFormatter", () => {
       });
 
       expect(formatter.format([span])).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 1 | Total Duration: 100ms
+        "Spans: 1 | Total Duration: 100ms
 
         [1] 2023-11-14T22:13:20.000Z llm.chat (100ms)
             gen_ai.prompt: What is the weather in Paris?
@@ -231,8 +225,7 @@ describe("JudgeSpanDigestFormatter", () => {
       ];
 
       expect(formatter.format(spans)).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 2 | Total Duration: 300ms
+        "Spans: 2 | Total Duration: 300ms
 
         [1] 2023-11-14T22:13:20.000Z successful.operation (100ms)
 
@@ -265,8 +258,7 @@ describe("JudgeSpanDigestFormatter", () => {
       });
 
       expect(formatter.format([span])).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 1 | Total Duration: 1.00s
+        "Spans: 1 | Total Duration: 1.00s
 
         [1] 2023-11-14T22:13:20.000Z llm.stream (1.00s)
             [event] token.generated
@@ -296,8 +288,7 @@ describe("JudgeSpanDigestFormatter", () => {
       });
 
       expect(formatter.format([span])).toMatchInlineSnapshot(`
-        "=== OPENTELEMETRY TRACES ===
-        Spans: 1 | Total Duration: 100ms
+        "Spans: 1 | Total Duration: 100ms
 
         [1] 2023-11-14T22:13:20.000Z test (100ms)
             relevant.attribute: should-appear
@@ -331,7 +322,7 @@ describe("JudgeSpanDigestFormatter", () => {
       expect(result).toContain(longContent);
       expect(result).toContain("[DUPLICATE - SEE ABOVE]");
       expect(result.indexOf(longContent)).toBeLessThan(
-        result.indexOf("[DUPLICATE - SEE ABOVE]"),
+        result.indexOf("[DUPLICATE - SEE ABOVE]")
       );
     });
 

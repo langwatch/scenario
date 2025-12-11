@@ -60,7 +60,7 @@ class JudgeSpanDigestFormatter:
 
         if not spans:
             logger.debug("No spans to format")
-            return "=== OPENTELEMETRY TRACES ===\nNo spans recorded."
+            return "No spans recorded."
 
         sorted_spans = self._sort_by_start_time(spans)
         tree = self._build_hierarchy(sorted_spans)
@@ -75,7 +75,6 @@ class JudgeSpanDigestFormatter:
         )
 
         lines: List[str] = [
-            "=== OPENTELEMETRY TRACES ===",
             f"Spans: {len(spans)} | Total Duration: {self._format_duration(total_duration)}",
             "",
         ]

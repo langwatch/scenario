@@ -36,7 +36,7 @@ export class JudgeSpanDigestFormatter {
 
     if (spans.length === 0) {
       this.logger.debug("No spans to format");
-      return "=== OPENTELEMETRY TRACES ===\nNo spans recorded.";
+      return "No spans recorded.";
     }
 
     const sortedSpans = this.sortByStartTime(spans);
@@ -49,7 +49,6 @@ export class JudgeSpanDigestFormatter {
     });
 
     const lines: string[] = [
-      "=== OPENTELEMETRY TRACES ===",
       `Spans: ${spans.length} | Total Duration: ${this.formatDuration(
         totalDuration
       )}`,
