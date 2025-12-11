@@ -43,7 +43,13 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
 )
 
-from .types import AgentInput, AgentRole, ChatCompletionMessageParamWithTrace, ScenarioResult, ScriptStep
+from .types import (
+    AgentInput,
+    AgentRole,
+    ChatCompletionMessageParamWithTrace,
+    ScenarioResult,
+    ScriptStep,
+)
 from ._error_messages import agent_response_not_awaitable
 from .cache import context_scenario
 from .agent_adapter import AgentAdapter
@@ -521,44 +527,50 @@ class ScenarioExecutor:
                     ChatCompletionUserMessageParam(role="user", content=input_message)
                 ]
 
-        with self._trace.span(type="agent", name=f"{agent.__class__.__name__}.call") as span:
-            with show_spinner(
-                text=(
-                    "Judging..."
-                    if role == AgentRole.JUDGE
-                    else f"{role.value if isinstance(role, AgentRole) else role}:"
-                ),
-                color=(
-                    "blue"
-                    if role == AgentRole.AGENT
-                    else "green" if role == AgentRole.USER else "yellow"
-                ),
-                enabled=self.config.verbose,
-            ):
-                start_time = time.time()
+        try:
+            with self._trace.span(
+                type="agent", name=f"{agent.__class__.__name__}.call"
+            ) as span:
+                with show_spinner(
+                    text=(
+                        "Judging..."
+                        if role == AgentRole.JUDGE
+                        else f"{role.value if isinstance(role, AgentRole) else role}:"
+                    ),
+                    color=(
+                        "blue"
+                        if role == AgentRole.AGENT
+                        else "green" if role == AgentRole.USER else "yellow"
+                    ),
+                    enabled=self.config.verbose,
+                ):
+                    start_time = time.time()
 
-                # Prevent pydantic validation warnings which should already be disabled
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
+                    # Prevent pydantic validation warnings which should already be disabled
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
 
-                    self._trace.autotrack_litellm_calls(litellm)
+                        self._trace.autotrack_litellm_calls(litellm)
 
-                    agent_response = agent.call(
-                        AgentInput(
-                            # TODO: test thread_id
-                            thread_id=self._state.thread_id,
-                            messages=cast(List[ChatCompletionMessageParam], self._state.messages),
-                            new_messages=self._pending_messages.get(idx, []),
-                            judgment_request=request_judgment,
-                            scenario_state=self._state,
+                        agent_response = agent.call(
+                            AgentInput(
+                                # TODO: test thread_id
+                                thread_id=self._state.thread_id,
+                                messages=cast(
+                                    List[ChatCompletionMessageParam],
+                                    self._state.messages,
+                                ),
+                                new_messages=self._pending_messages.get(idx, []),
+                                judgment_request=request_judgment,
+                                scenario_state=self._state,
+                            )
                         )
-                    )
-                if not isinstance(agent_response, Awaitable):
-                    raise Exception(
-                        agent_response_not_awaitable(agent.__class__.__name__),
-                    )
+                    if not isinstance(agent_response, Awaitable):
+                        raise Exception(
+                            agent_response_not_awaitable(agent.__class__.__name__),
+                        )
 
-                agent_response = await agent_response
+                    agent_response = await agent_response
 
                 if idx not in self._agent_times:
                     self._agent_times[idx] = 0
@@ -599,6 +611,9 @@ class ScenarioExecutor:
                     )
 
                 return messages
+        except Exception as e:
+            agent_name = agent.__class__.__name__
+            raise RuntimeError(f"[{agent_name}] {e}") from e
 
     def _scenario_name(self):
         if self.config.verbose == 2:

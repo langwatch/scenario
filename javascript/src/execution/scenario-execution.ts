@@ -500,11 +500,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     judgmentRequest: boolean = false
   ): Promise<void> {
     const agent = this.agents[idx];
+    const agentName = agent.name ?? agent.constructor.name;
+
     this.logger.debug(`[${this.config.id}] callAgent started`, {
       agentIdx: idx,
       role,
       judgmentRequest,
-      agentName: agent.name ?? agent.constructor.name,
+      agentName,
       pendingMessagesCount: this.pendingMessages.get(idx)?.length ?? 0,
     });
 
@@ -526,108 +528,112 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       : context.active();
 
     const agentSpanName = `${
-      agent.name ?? agent.constructor.name !== Object.prototype.constructor.name
+      agentName !== Object.prototype.constructor.name
         ? agent.constructor.name
         : "Agent"
     }.call`;
 
-    await this.tracer.withActiveSpan(
-      agentSpanName,
-      {
-        attributes: {
-          "langwatch.thread.id": this.state.threadId,
+    try {
+      await this.tracer.withActiveSpan(
+        agentSpanName,
+        {
+          attributes: {
+            "langwatch.thread.id": this.state.threadId,
+          },
         },
-      },
-      agentContext,
-      async (agentSpan) => {
-        agentSpan.setType("agent");
+        agentContext,
+        async (agentSpan) => {
+          agentSpan.setType("agent");
 
-        // Set input for the span
-        agentSpan.setInput("chat_messages", this.state.messages);
+          // Set input for the span
+          agentSpan.setInput("chat_messages", this.state.messages);
 
-        const agentResponse = await agent.call(agentInput);
-        const endTime = Date.now();
-        const duration = endTime - startTime;
+          const agentResponse = await agent.call(agentInput);
+          const endTime = Date.now();
+          const duration = endTime - startTime;
 
-        this.logger.debug(`[${this.config.id}] Agent responded`, {
-          agentIdx: idx,
-          duration,
-          responseType: typeof agentResponse,
-          isScenarioResult:
+          this.logger.debug(`[${this.config.id}] Agent responded`, {
+            agentIdx: idx,
+            duration,
+            responseType: typeof agentResponse,
+            isScenarioResult:
+              agentResponse &&
+              typeof agentResponse === "object" &&
+              "success" in agentResponse,
+          });
+
+          this.addAgentTime(idx, duration);
+          this.pendingMessages.delete(idx);
+
+          if (
             agentResponse &&
             typeof agentResponse === "object" &&
-            "success" in agentResponse,
-        });
+            "success" in agentResponse
+          ) {
+            this.logger.debug(
+              `[${this.config.id}] Agent returned ScenarioResult`,
+              {
+                success: (agentResponse as { success: boolean }).success,
+              }
+            );
+            // JudgeResult is automatically augmented with messages by setResult
+            this.setResult(agentResponse);
+            return;
+          }
 
-        this.addAgentTime(idx, duration);
-        this.pendingMessages.delete(idx);
-
-        if (
-          agentResponse &&
-          typeof agentResponse === "object" &&
-          "success" in agentResponse
-        ) {
-          this.logger.debug(
-            `[${this.config.id}] Agent returned ScenarioResult`,
-            {
-              success: (agentResponse as { success: boolean }).success,
-            }
+          const messages = convertAgentReturnTypesToMessages(
+            agentResponse,
+            role === AgentRole.USER ? "user" : "assistant"
           );
-          // JudgeResult is automatically augmented with messages by setResult
-          this.setResult(agentResponse);
-          return;
-        }
 
-        const messages = convertAgentReturnTypesToMessages(
-          agentResponse,
-          role === AgentRole.USER ? "user" : "assistant"
-        );
+          // Set output for the span
+          if (messages.length > 0) {
+            agentSpan.setOutput("chat_messages", messages);
+          }
 
-        // Set output for the span
-        if (messages.length > 0) {
-          agentSpan.setOutput("chat_messages", messages);
-        }
+          // Set metrics if available (would need to be extracted from agent response)
+          const metrics: Record<string, number> = {
+            duration: endTime - startTime,
+          };
 
-        // Set metrics if available (would need to be extracted from agent response)
-        const metrics: Record<string, number> = {
-          duration: endTime - startTime,
-        };
-
-        // Add token usage if available from agent response
-        if (agentResponse && typeof agentResponse === "object") {
-          const usage = (
-            agentResponse as {
-              usage?: {
-                prompt_tokens?: number;
-                completion_tokens?: number;
-                total_tokens?: number;
-              };
+          // Add token usage if available from agent response
+          if (agentResponse && typeof agentResponse === "object") {
+            const usage = (
+              agentResponse as {
+                usage?: {
+                  prompt_tokens?: number;
+                  completion_tokens?: number;
+                  total_tokens?: number;
+                };
+              }
+            ).usage;
+            if (usage) {
+              if (usage.prompt_tokens !== undefined)
+                metrics.promptTokens = usage.prompt_tokens;
+              if (usage.completion_tokens !== undefined)
+                metrics.completionTokens = usage.completion_tokens;
+              if (usage.total_tokens !== undefined)
+                metrics.totalTokens = usage.total_tokens;
             }
-          ).usage;
-          if (usage) {
-            if (usage.prompt_tokens !== undefined)
-              metrics.promptTokens = usage.prompt_tokens;
-            if (usage.completion_tokens !== undefined)
-              metrics.completionTokens = usage.completion_tokens;
-            if (usage.total_tokens !== undefined)
-              metrics.totalTokens = usage.total_tokens;
+          }
+
+          agentSpan.setMetrics(metrics);
+
+          // Add traceId to each message for proper correlation
+          const traceId = agentSpan.spanContext().traceId.toString();
+
+          for (const message of messages) {
+            this.state.addMessage({
+              ...message,
+              traceId,
+            });
+            this.broadcastMessage(message, idx);
           }
         }
-
-        agentSpan.setMetrics(metrics);
-
-        // Add traceId to each message for proper correlation
-        const traceId = agentSpan.spanContext().traceId.toString();
-
-        for (const message of messages) {
-          this.state.addMessage({
-            ...message,
-            traceId,
-          });
-          this.broadcastMessage(message, idx);
-        }
-      }
-    );
+      );
+    } catch (error) {
+      throw new Error(`[${agentName}] ${error}`, { cause: error });
+    }
   }
 
   /**

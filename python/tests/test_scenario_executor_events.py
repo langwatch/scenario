@@ -250,3 +250,29 @@ async def test_emits_error_event_on_exception() -> None:
     assert finish_event.status.value == "ERROR"
     assert finish_event.results is not None
     assert "Simulated agent failure" in finish_event.results.reasoning
+
+
+@pytest.mark.asyncio
+async def test_error_includes_agent_class_name() -> None:
+    """Error message should identify which agent threw the exception."""
+    import scenario
+
+    executor = ScenarioExecutor(
+        name="agent error tagging",
+        description="test agent identification in errors",
+        agents=[
+            FailingAgent(),
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test"]),
+        ],
+        script=[
+            scenario.user(),
+            scenario.agent(),  # This will call FailingAgent and throw
+        ],
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await executor.run()
+
+    # Error should include the agent class name
+    assert "FailingAgent" in str(exc_info.value)
