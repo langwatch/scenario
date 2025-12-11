@@ -18,7 +18,10 @@ echo "Timeout: ${TIMEOUT}s, Poll interval: ${INTERVAL}s"
 echo ""
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
-  RESULT=$(gh run list --branch "$BRANCH" --limit 10 --json status,conclusion,name,databaseId,workflowName,createdAt)
+  RAW_RESULT=$(gh run list --branch "$BRANCH" --limit 20 --json status,conclusion,name,databaseId,workflowName,createdAt)
+  
+  # Get only the most recent run per workflow (dedupe by workflowName)
+  RESULT=$(echo "$RAW_RESULT" | jq '[group_by(.workflowName) | .[] | sort_by(.createdAt) | reverse | .[0]]')
   
   # Check if any still running
   PENDING=$(echo "$RESULT" | jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')
@@ -35,7 +38,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     else
       echo "CI PASSED"
       echo ""
-      echo "$RESULT" | jq '.[0:5] | .[] | {name, workflowName, conclusion}'
+      echo "$RESULT" | jq '.[] | {name, workflowName, conclusion}'
       exit 0
     fi
   fi
