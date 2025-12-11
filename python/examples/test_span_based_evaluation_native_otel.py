@@ -1,12 +1,19 @@
 """
-Span-Based Evaluation Example
+Span-Based Evaluation with Native OpenTelemetry
 
-Demonstrates how the judge evaluates internal agent operations via spans:
-- Custom span tracking (HTTP calls, database queries)
-- Model usage verification
-- Tool execution visibility
+This example demonstrates using the native OpenTelemetry API directly to create
+custom spans that the judge can evaluate. This approach is useful when:
+- You have existing OpenTelemetry instrumentation
+- You need fine-grained control over span attributes
+- You're integrating with other OpenTelemetry-compatible tools
 
-The judge sees the full execution trace, not just the conversation.
+Key concepts:
+- Use `trace.get_tracer()` to get a tracer instance
+- Use `tracer.start_as_current_span()` context manager for spans
+- Set `langwatch.thread.id` attribute to associate spans with the scenario
+- Use `span.set_attribute()` for dynamic attributes
+
+See also: test_span_based_evaluation_langwatch.py for LangWatch's higher-level API.
 """
 
 import asyncio
@@ -18,7 +25,7 @@ from function_schema import get_function_schema
 import litellm
 
 
-# Get a tracer for creating custom spans
+# Native OpenTelemetry: Get a tracer for creating custom spans
 tracer = trace.get_tracer("order-processing-agent")
 
 
@@ -35,16 +42,19 @@ def check_inventory(product_id: str) -> dict:
     return {"in_stock": True, "quantity": 42, "product_id": product_id}
 
 
-class ObservableAgent(scenario.AgentAdapter):
+class NativeOtelAgent(scenario.AgentAdapter):
     """
-    Agent that creates observable custom spans during execution.
+    Agent instrumented with native OpenTelemetry spans.
+
+    Uses the standard OpenTelemetry API (trace.get_tracer, start_as_current_span)
+    to create spans that are visible to the judge during evaluation.
     """
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        # Include thread_id so spans are associated with this scenario
+        # IMPORTANT: thread_id links spans to this scenario run
         thread_id = input.thread_id
 
-        # Custom span: HTTP call to fraud detection service
+        # Native OTEL: Create span with context manager
         with tracer.start_as_current_span(
             "http.fraud_check",
             attributes={
@@ -55,9 +65,10 @@ class ObservableAgent(scenario.AgentAdapter):
             },
         ) as fraud_span:
             await asyncio.sleep(0.03)  # Simulate network latency
+            # Native OTEL: Add dynamic attributes after span creation
             fraud_span.set_attribute("fraud.risk_score", 0.1)
 
-        # Custom span: Database query
+        # Native OTEL: Another span with initial attributes only
         with tracer.start_as_current_span(
             "db.query",
             attributes={
@@ -100,7 +111,7 @@ When asked about products, use the check_inventory tool.""",
                 tool_args = json.loads(tool_call.function.arguments)
 
                 if tool_name in tools_by_name:
-                    # Create span for tool execution
+                    # Native OTEL: Span for tool execution with dynamic result
                     with tracer.start_as_current_span(
                         f"tool.{tool_name}",
                         attributes={
@@ -140,23 +151,26 @@ When asked about products, use the check_inventory tool.""",
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
-async def test_span_based_evaluation():
+async def test_native_otel_span_evaluation():
     """
-    Verifies that custom spans and tool calls are visible to the judge.
+    Verifies that native OpenTelemetry spans are visible to the judge.
 
-    The judge evaluates not just the conversation, but also:
-    - Custom HTTP spans (fraud check)
-    - Database query spans
-    - Tool execution traces
+    This test demonstrates that spans created with the standard OpenTelemetry API
+    (tracer.start_as_current_span) are captured and available for judge evaluation.
+
+    The judge can verify:
+    - HTTP call spans (http.fraud_check)
+    - Database query spans (db.query)
+    - Tool execution spans (tool.check_inventory)
     """
     result = await scenario.run(
-        name="span-based evaluation demo",
+        name="native otel span evaluation",
         description="""
             A customer asks about product SKU-123 availability.
             The agent should check inventory and respond.
         """,
         agents=[
-            ObservableAgent(),
+            NativeOtelAgent(),
             scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
             scenario.JudgeAgent(
                 model="openai/gpt-4.1",
