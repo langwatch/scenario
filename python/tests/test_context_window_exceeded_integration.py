@@ -72,7 +72,9 @@ async def test_error_identifies_agent_that_exceeded_context():
         )
 
     error_msg = str(exc_info.value)
-    assert "JudgeAgent" in error_msg, f"Error should identify JudgeAgent, got: {error_msg}"
+    assert (
+        "JudgeAgent" in error_msg
+    ), f"Error should identify JudgeAgent, got: {error_msg}"
     assert (
         "token" in error_msg.lower() or "context" in error_msg.lower()
     ), f"Error should mention tokens or context, got: {error_msg}"
