@@ -2,6 +2,7 @@ import pytest
 from typing import List, Tuple, Dict, Any
 
 from scenario import JudgeAgent, UserSimulatorAgent
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import Unset
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, ScenarioResult
 from scenario.scenario_executor import ScenarioExecutor
@@ -248,8 +249,11 @@ async def test_emits_error_event_on_exception() -> None:
 
     finish_event = finish_events[0]
     assert finish_event.status.value == "ERROR"
-    assert finish_event.results is not None
-    assert "Simulated agent failure" in finish_event.results.reasoning
+    results = finish_event.results
+    assert not isinstance(results, Unset) and results is not None
+    reasoning = results.reasoning
+    assert isinstance(reasoning, str)
+    assert "Simulated agent failure" in reasoning
 
 
 @pytest.mark.asyncio
