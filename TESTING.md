@@ -2,19 +2,19 @@
 
 ## Hierarchy
 
-| Level | Purpose | Mocking |
-|-------|---------|---------|
-| **E2E** | Happy paths via real examples | None |
-| **Integration** | Edge cases, error handling | External boundaries only |
-| **Unit** | Pure logic, branches | Everything |
+| Level           | Purpose                       | Mocking                  |
+| --------------- | ----------------------------- | ------------------------ |
+| **E2E**         | Happy paths via real examples | None                     |
+| **Integration** | Edge cases, error handling    | External boundaries only |
+| **Unit**        | Pure logic, branches          | Everything               |
 
 ### Language-Specific Patterns
 
-| Language | E2E | Integration | Unit | Location |
-|----------|-----|-------------|------|----------|
+| Language   | E2E             | Integration             | Unit             | Location     |
+| ---------- | --------------- | ----------------------- | ---------------- | ------------ |
 | TypeScript | `*.e2e.test.ts` | `*.integration.test.ts` | `*.unit.test.ts` | `__tests__/` |
-| Python | `test_*_e2e.py` | `test_*_integration.py` | `test_*.py` | `tests/` |
-| Go | `*_e2e_test.go` | `*_integration_test.go` | `*_test.go` | same package |
+| Python     | `test_*_e2e.py` | `test_*_integration.py` | `test_*.py`      | `tests/`     |
+| Go         | `*_e2e_test.go` | `*_integration_test.go` | `*_test.go`      | same package |
 
 ## Workflow
 
