@@ -91,7 +91,7 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
                 "content": """
                     You a helpful assistant that may help the user with weather information.
                     Do not guess the city if they don't provide it.
-                    Do not ask for cla
+                    Do not ask for clarification
                 """,
             },
             *messages,
