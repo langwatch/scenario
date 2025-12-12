@@ -27,6 +27,7 @@ import asyncio
 import concurrent.futures
 
 from scenario.config import ScenarioConfig
+from langwatch.attributes import AttributeKey
 from scenario._utils import (
     convert_agent_return_types_to_openai_messages,
     check_valid_return_type,
@@ -531,7 +532,9 @@ class ScenarioExecutor:
             with self._trace.span(
                 type="agent", name=f"{agent.__class__.__name__}.call"
             ) as span:
-                span.set_attributes({"langwatch.thread.id": self._state.thread_id})
+                span.set_attributes(
+                    {AttributeKey.LangWatchThreadId: self._state.thread_id}
+                )
                 with show_spinner(
                     text=(
                         "Judging..."

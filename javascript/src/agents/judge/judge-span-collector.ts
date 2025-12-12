@@ -1,4 +1,5 @@
 import { SpanProcessor, ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { attributes } from "langwatch/observability";
 
 /**
  * Collects OpenTelemetry spans for judge evaluation.
@@ -37,7 +38,7 @@ export class JudgeSpanCollector implements SpanProcessor {
 
     // Check if span or any ancestor belongs to thread
     const belongsToThread = (span: ReadableSpan): boolean => {
-      if (span.attributes["langwatch.thread.id"] === threadId) {
+      if (span.attributes[attributes.ATTR_LANGWATCH_THREAD_ID] === threadId) {
         return true;
       }
       const parentId = span.parentSpanContext?.spanId;

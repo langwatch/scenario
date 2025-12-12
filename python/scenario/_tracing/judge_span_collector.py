@@ -8,6 +8,7 @@ storing them for later retrieval by thread ID.
 from typing import List, Dict, Optional
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import SpanProcessor, ReadableSpan
+from langwatch.attributes import AttributeKey
 
 
 class JudgeSpanCollector(SpanProcessor):
@@ -65,7 +66,7 @@ class JudgeSpanCollector(SpanProcessor):
         def belongs_to_thread(span: ReadableSpan) -> bool:
             """Check if span or any ancestor belongs to thread."""
             attrs = span.attributes or {}
-            if attrs.get("langwatch.thread.id") == thread_id:
+            if attrs.get(AttributeKey.LangWatchThreadId) == thread_id:
                 return True
 
             parent_ctx = span.parent
