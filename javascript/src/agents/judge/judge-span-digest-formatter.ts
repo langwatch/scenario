@@ -1,4 +1,5 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { attributes } from "langwatch/observability";
 
 import { deepTransform } from "./deep-transform";
 import { StringDeduplicator } from "./string-deduplicator";
@@ -181,11 +182,17 @@ export class JudgeSpanDigestFormatter {
     const cleaned: Record<string, unknown> = {};
     const seen = new Set<string>();
 
+    const excludedKeys = [
+      attributes.ATTR_LANGWATCH_THREAD_ID,
+      "langwatch.scenario.id",
+      "langwatch.scenario.name",
+    ];
+
     for (const [key, value] of Object.entries(attrs)) {
-      const cleanKey = key.replace(/^(langwatch)\./, "");
-      if (["thread.id", "scenario.id", "scenario.name"].includes(cleanKey)) {
+      if (excludedKeys.includes(key)) {
         continue;
       }
+      const cleanKey = key.replace(/^(langwatch)\./, "");
       if (!seen.has(cleanKey)) {
         seen.add(cleanKey);
         cleaned[cleanKey] = value;

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
+from langwatch.attributes import AttributeKey
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import StatusCode
 from opentelemetry.util.types import AttributeValue
@@ -189,14 +190,20 @@ class JudgeSpanDigestFormatter:
         cleaned: Dict[str, Any] = {}
         seen: set = set()
 
+        excluded_keys = [
+            AttributeKey.LangWatchThreadId,
+            "langwatch.scenario.id",
+            "langwatch.scenario.name",
+        ]
+
         for key, value in attrs.items():
+            if key in excluded_keys:
+                continue
             clean_key = (
                 key.replace("langwatch.", "", 1)
                 if key.startswith("langwatch.")
                 else key
             )
-            if clean_key in ["thread.id", "scenario.id", "scenario.name"]:
-                continue
             if clean_key not in seen:
                 seen.add(clean_key)
                 cleaned[clean_key] = value
