@@ -10,7 +10,7 @@ custom spans that the judge can evaluate. This approach is useful when:
 Key concepts:
 - Use `trace.get_tracer()` to get a tracer instance
 - Use `tracer.start_as_current_span()` context manager for spans
-- Set `langwatch.thread.id` attribute to associate spans with the scenario
+- Child spans automatically inherit thread context from scenario executor
 - Use `span.set_attribute()` for dynamic attributes
 
 See also: test_span_based_evaluation_langwatch.py for LangWatch's higher-level API.
@@ -51,14 +51,11 @@ class NativeOtelAgent(scenario.AgentAdapter):
     """
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        # IMPORTANT: thread_id links spans to this scenario run
-        thread_id = input.thread_id
-
+        """Process input and return agent response."""
         # Native OTEL: Create span with context manager
         with tracer.start_as_current_span(
             "http.fraud_check",
             attributes={
-                "langwatch.thread.id": thread_id,
                 "http.method": "POST",
                 "http.url": "https://api.fraudservice.com/check",
                 "http.status_code": 200,
@@ -72,7 +69,6 @@ class NativeOtelAgent(scenario.AgentAdapter):
         with tracer.start_as_current_span(
             "db.query",
             attributes={
-                "langwatch.thread.id": thread_id,
                 "db.system": "postgresql",
                 "db.operation": "SELECT",
                 "db.statement": "SELECT * FROM customers WHERE id = $1",
@@ -115,7 +111,6 @@ When asked about products, use the check_inventory tool.""",
                     with tracer.start_as_current_span(
                         f"tool.{tool_name}",
                         attributes={
-                            "langwatch.thread.id": thread_id,
                             "tool.name": tool_name,
                             "tool.arguments": json.dumps(tool_args),
                         },

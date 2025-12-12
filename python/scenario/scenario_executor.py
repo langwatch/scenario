@@ -531,6 +531,7 @@ class ScenarioExecutor:
             with self._trace.span(
                 type="agent", name=f"{agent.__class__.__name__}.call"
             ) as span:
+                span.set_attributes({"langwatch.thread.id": self._state.thread_id})
                 with show_spinner(
                     text=(
                         "Judging..."

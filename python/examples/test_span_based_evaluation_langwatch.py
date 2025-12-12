@@ -9,8 +9,8 @@ to create custom spans that the judge can evaluate. This approach is useful when
 
 Key concepts:
 - Use `@langwatch.span()` decorator for function-level spans
-- Use `langwatch.get_current_span()` to access the current span
-- Set `langwatch.thread.id` once on a parent span; child spans inherit via parent traversal
+- Use `langwatch.get_current_span()` to access and update the current span
+- Child spans automatically inherit thread context from scenario executor
 
 See also: test_span_based_evaluation_native_otel.py for native OpenTelemetry API.
 """
@@ -75,7 +75,10 @@ class LangWatchDecoratorAgent(scenario.AgentAdapter):
 
     @langwatch.span(type="tool")
     def _execute_tool(
-        self, tool_name: str, tool_func: Callable[..., dict[str, Any]], tool_args: dict[str, Any]
+        self,
+        tool_name: str,
+        tool_func: Callable[..., dict[str, Any]],
+        tool_args: dict[str, Any],
     ) -> dict[str, Any]:
         """Execute a tool with LangWatch span instrumentation."""
         span = langwatch.get_current_span()
@@ -91,10 +94,6 @@ class LangWatchDecoratorAgent(scenario.AgentAdapter):
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
         """Process input and return agent response."""
-        # Set thread_id once on parent span; child spans found via parent traversal
-        span = langwatch.get_current_span()
-        span.set_attributes({"langwatch.thread.id": input.thread_id})
-
         await self._check_fraud()
         await self._query_database()
 
