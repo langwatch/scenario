@@ -2,6 +2,7 @@ import { context, type Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
 import { getLangWatchTracer } from "langwatch";
+import { attributes } from "langwatch/observability";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
@@ -538,7 +539,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         agentSpanName,
         {
           attributes: {
-            "langwatch.thread.id": this.state.threadId,
+            [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
           },
         },
         agentContext,
@@ -1120,8 +1121,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       attributes: {
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,
-        "thread.id": this.state.threadId,
-        "langwatch.thread.id": this.state.threadId,
+        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
         "scenario.turn": this.state.currentTurn,
       },
     });
