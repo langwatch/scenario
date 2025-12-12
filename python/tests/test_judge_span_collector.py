@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import MagicMock
+from langwatch.attributes import AttributeKey
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 
 
@@ -77,12 +78,12 @@ class TestGetSpansForThread:
         span1 = create_mock_span(
             span_id=1,
             name="span1",
-            attributes={"langwatch.thread.id": "thread-123"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-123"},
         )
         span2 = create_mock_span(
             span_id=2,
             name="span2",
-            attributes={"langwatch.thread.id": "thread-456"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-456"},
         )
         collector.on_end(span1)
         collector.on_end(span2)
@@ -98,7 +99,7 @@ class TestGetSpansForThread:
         span = create_mock_span(
             span_id=1,
             name="span1",
-            attributes={"langwatch.thread.id": "thread-123"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-123"},
         )
         collector.on_end(span)
 
@@ -112,7 +113,7 @@ class TestGetSpansForThread:
         parent = create_mock_span(
             span_id=1,
             name="parent",
-            attributes={"langwatch.thread.id": "thread-123"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-123"},
         )
         child = create_mock_span(
             span_id=2,
@@ -136,7 +137,7 @@ class TestGetSpansForThread:
         grandparent = create_mock_span(
             span_id=1,
             name="grandparent",
-            attributes={"langwatch.thread.id": "thread-123"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-123"},
         )
         parent = create_mock_span(
             span_id=2,
@@ -164,12 +165,12 @@ class TestGetSpansForThread:
         span_a = create_mock_span(
             span_id=1,
             name="span_a",
-            attributes={"langwatch.thread.id": "thread-A"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-A"},
         )
         span_b = create_mock_span(
             span_id=2,
             name="span_b",
-            attributes={"langwatch.thread.id": "thread-B"},
+            attributes={AttributeKey.LangWatchThreadId: "thread-B"},
         )
         collector.on_end(span_a)
         collector.on_end(span_b)

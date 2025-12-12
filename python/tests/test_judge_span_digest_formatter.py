@@ -4,6 +4,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
+from langwatch.attributes import AttributeKey
 from opentelemetry.trace import StatusCode
 
 from scenario._judge.judge_span_digest_formatter import JudgeSpanDigestFormatter
@@ -258,7 +259,7 @@ class TestJudgeSpanDigestFormatterFiltering:
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,
             attributes={
-                "langwatch.thread.id": "thread-123",
+                AttributeKey.LangWatchThreadId: "thread-123",
                 "langwatch.scenario.id": "scenario-456",
                 "langwatch.scenario.name": "my-scenario",
                 "relevant.attribute": "should-appear",

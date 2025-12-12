@@ -1,5 +1,6 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { describe, it, expect } from "vitest";
+import { attributes } from "langwatch/observability";
 import { JudgeSpanDigestFormatter } from "../judge-span-digest-formatter";
 
 /**
@@ -280,7 +281,7 @@ describe("JudgeSpanDigestFormatter", () => {
         startTime: [1700000000, 0],
         endTime: [1700000000, 100_000_000],
         attributes: {
-          "langwatch.thread.id": "thread-123",
+          [attributes.ATTR_LANGWATCH_THREAD_ID]: "thread-123",
           "langwatch.scenario.id": "scenario-456",
           "langwatch.scenario.name": "my-scenario",
           "relevant.attribute": "should-appear",
