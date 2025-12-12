@@ -555,7 +555,6 @@ class ScenarioExecutor:
 
                         agent_response = agent.call(
                             AgentInput(
-                                # TODO: test thread_id
                                 thread_id=self._state.thread_id,
                                 messages=cast(
                                     List[ChatCompletionMessageParam],
