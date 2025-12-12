@@ -96,7 +96,7 @@ describe("Scenario Expert Agent (Realtime API)", () => {
           // Judge with audio transcription
           scenario.judgeAgent({
             criteria: [
-              "Agent explains what LangWatch Scenario is",
+              "Agent explains what Scenario is or how it helps test AI agents",
               "Agent is helpful and informative",
             ],
           })
