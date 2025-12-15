@@ -19,9 +19,11 @@ import csv
 import json
 import re
 import sys
+from functools import lru_cache
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+from urllib.parse import urlparse
 
 DEFAULT_CSV = r"c:\Users\aryan\Downloads\Langwatch_MetaDesc.csv"
 # Default to the Scenario docs directory (docs/docs) relative to this file.
@@ -141,31 +143,143 @@ def apply_replacements(
     return replaced, counts
 
 
+@lru_cache(maxsize=512)
+def resolve_doc_path(root: Path, url: str) -> Path | None:
+    """
+    Map a doc URL to a local file path under docs/docs/pages.
+    Supports:
+    - Stripping domain, handling trailing slashes.
+    - Removing trailing index.html or .html.
+    - Trying .mdx, .md, and directory index files.
+    """
+    parsed = urlparse(url)
+    path = parsed.path or "/"
+    path = path.strip("/")
+    # Remove trailing index.html or .html
+    if path.endswith("index.html"):
+        path = path[: -len("index.html")].rstrip("/")
+    elif path.endswith(".html"):
+        path = path[: -len(".html")]
+    # Default to index
+    if not path:
+        path = "index"
+
+    base = root / "pages"
+    candidates = [
+        base / f"{path}.mdx",
+        base / f"{path}.md",
+        base / path / "index.mdx",
+        base / path / "index.md",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def update_frontmatter_description(content: str, new_desc: str) -> str:
+    """
+    Replace or add description in YAML frontmatter.
+    If no frontmatter is present, frontmatter will be added.
+    """
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            _, fm_body, rest = parts[0], parts[1], parts[2]
+            lines = fm_body.strip("\n").splitlines()
+            out_lines = []
+            found = False
+            for line in lines:
+                if re.match(r"^description\s*:", line):
+                    out_lines.append(f'description: {new_desc}')
+                    found = True
+                else:
+                    out_lines.append(line)
+            if not found:
+                out_lines.append(f'description: {new_desc}')
+            fm_new = "\n".join(out_lines)
+            return "---\n" + fm_new + "\n---" + rest
+    # No frontmatter; add one
+    return f"---\ndescription: {new_desc}\n---\n{content}"
+
+
+def apply_url_targeted_replacements(
+    root: Path, mapping: Dict[str, Mapping], apply: bool
+) -> Tuple[List[Tuple[Path, Mapping]], List[Tuple[str, str]]]:
+    """
+    Replace frontmatter descriptions based on URL-to-file mapping.
+    Returns:
+    - list of (path, mapping) that were matched (or would be changed)
+    - list of (url, reason) for misses
+    """
+    hits: List[Tuple[Path, Mapping]] = []
+    misses: List[Tuple[str, str]] = []
+
+    for old, m in mapping.items():
+        target_path = resolve_doc_path(root, m.url)
+        if not target_path:
+            misses.append((m.url, "no local file for URL"))
+            continue
+        try:
+            content = target_path.read_text(encoding="utf-8")
+        except Exception as exc:  # pragma: no cover - IO guard
+            misses.append((m.url, f"read error: {exc}"))
+            continue
+        new_content = update_frontmatter_description(content, m.new)
+        if new_content != content:
+            hits.append((target_path, m))
+            if apply:
+                target_path.write_text(new_content, encoding="utf-8")
+        else:
+            # Already matches desired state
+            hits.append((target_path, m))
+    return hits, misses
+
+
 def summarize(
-    results: List[Tuple[Path, Dict[str, int]]], mapping: Dict[str, Mapping], report_path: Path
+    text_scan_results: List[Tuple[Path, Dict[str, int]]],
+    url_hits: List[Tuple[Path, Mapping]],
+    url_misses: List[Tuple[str, str]],
+    mapping: Dict[str, Mapping],
+    report_path: Path,
 ):
-    total_files = len(results)
-    total_hits = sum(sum(counts.values()) for _, counts in results)
-    print(f"Files with matches: {total_files}")
-    print(f"Total replacements (occurrences): {total_hits}")
-    for path, counts in sorted(results, key=lambda x: str(x[0])):
+    total_text_files = len(text_scan_results)
+    total_text_hits = sum(sum(counts.values()) for _, counts in text_scan_results)
+    print(f"Text scan - files with matches: {total_text_files}")
+    print(f"Text scan - total occurrences: {total_text_hits}")
+    for path, counts in sorted(text_scan_results, key=lambda x: str(x[0])):
         print(f"- {path}")
         for old, count in counts.items():
             info = mapping.get(old)
             url = info.url if info else ""
             print(f"  * {count}x '{old}' -> '{info.new if info else ''}' (URL: {url})")
 
+    print("\nFrontmatter updates (URL-targeted):")
+    for path, m in sorted(url_hits, key=lambda x: str(x[0])):
+        print(f"- {path} <- {m.url}")
+
+    if url_misses:
+        print("\nSkipped URLs (no local file):")
+        for url, reason in url_misses:
+            print(f"- {url} ({reason})")
+
     report = {
-        "files_with_matches": total_files,
-        "total_occurrences": total_hits,
-        "files": [
-            {
-                "path": str(path),
-                "occurrences": counts,
-                "urls": {old: mapping[old].url for old in counts if old in mapping},
-            }
-            for path, counts in results
-        ],
+        "text_scan": {
+            "files_with_matches": total_text_files,
+            "total_occurrences": total_text_hits,
+            "files": [
+                {
+                    "path": str(path),
+                    "occurrences": counts,
+                    "urls": {old: mapping[old].url for old in counts if old in mapping},
+                }
+                for path, counts in text_scan_results
+            ],
+        },
+        "frontmatter_updates": {
+            "hits": [{"path": str(p), "url": m.url, "new": m.new} for p, m in url_hits],
+            "misses": [{"url": url, "reason": reason} for url, reason in url_misses],
+        },
     }
     print("\nJSON summary:")
     print(json.dumps(report, indent=2))
@@ -226,20 +340,24 @@ def main():
     if not root.exists():
         raise FileNotFoundError(f"Root directory not found: {root}")
 
-    results: List[Tuple[Path, Dict[str, int]]] = []
+    # Legacy text scan (kept for compatibility; often zero for Scenario docs)
+    text_scan_results: List[Tuple[Path, Dict[str, int]]] = []
     files_scanned = 0
 
     for file_path in iter_text_files(root, exts):
         files_scanned += 1
         _, counts = apply_replacements(file_path, mapping, apply=args.apply)
         if counts:
-            results.append((file_path, counts))
+            text_scan_results.append((file_path, counts))
+
+    # URL-targeted frontmatter description updates
+    url_hits, url_misses = apply_url_targeted_replacements(root, mapping, apply=args.apply)
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"\nMode: {mode}")
     print(f"Root: {root}")
     print(f"Files scanned: {files_scanned}")
-    summarize(results, mapping, args.report)
+    summarize(text_scan_results, url_hits, url_misses, mapping, args.report)
 
 
 if __name__ == "__main__":
