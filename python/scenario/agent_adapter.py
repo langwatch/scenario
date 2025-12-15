@@ -1,5 +1,5 @@
 """
-Agent adapter module for integrating custom agents with the Scenario framework.
+Explore the Scenario Python API to integrate custom agents into simulation-based AI agent tests within LangWatch. 
 
 This module provides the abstract base class that users must implement to integrate
 their existing agents with the Scenario testing framework. The adapter pattern allows

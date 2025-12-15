@@ -1,5 +1,5 @@
 """
-Judge agent module for evaluating scenario conversations.
+Use the Judge Agent module in Scenario to evaluate conversation quality and LLM reasoning during AI agent testing.
 
 This module provides the JudgeAgent class, which evaluates ongoing conversations
 between users and agents to determine if success criteria are met. The judge

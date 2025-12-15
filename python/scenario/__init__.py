@@ -1,5 +1,5 @@
 """
-Scenario: Agent Testing Framework through Simulation Testing
+Access Scenario API root documentation to build simulation-based evaluations and structured AI agent testing flows.
 
 Scenario is a comprehensive testing framework for AI agents that uses simulation testing
 to validate agent behavior through realistic conversations. It enables testing of both

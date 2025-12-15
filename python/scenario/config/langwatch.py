@@ -1,5 +1,5 @@
 """
-LangWatch configuration for Scenario.
+Use LangWatch configuration in Scenario to link agent simulations with observability, evaluations, and AI agent testing.
 
 This module provides configuration for LangWatch API integration,
 including endpoint URLs and authentication credentials.
