@@ -26,6 +26,8 @@ from typing import Dict, Iterable, List, Tuple
 DEFAULT_CSV = r"c:\Users\aryan\Downloads\Langwatch_MetaDesc.csv"
 # Default to the Scenario docs directory (docs/docs) relative to this file.
 DEFAULT_ROOT = Path(__file__).resolve().parents[1] / "docs"
+# Only apply rows whose URL starts with this prefix.
+DEFAULT_URL_PREFIX = "https://scenario.langwatch.ai"
 
 # Text-based extensions to scan (tuned for the docs site)
 DEFAULT_EXTS = {".md", ".mdx"}
@@ -65,7 +67,7 @@ def resolve_csv_path(raw: Path) -> Path:
     return raw
 
 
-def load_mapping(csv_path: Path) -> Dict[str, Mapping]:
+def load_mapping(csv_path: Path, url_prefix: str) -> Dict[str, Mapping]:
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV not found: {csv_path}")
 
@@ -78,11 +80,15 @@ def load_mapping(csv_path: Path) -> Dict[str, Mapping]:
 
         mapping: Dict[str, Mapping] = {}
         conflicts: List[Tuple[str, str, str, int]] = []
+        skipped_prefix: int = 0
         for idx, row in enumerate(reader, start=2):  # header is line 1
             old = (row.get("Meta description (OLD)", "") or "").strip()
             new = (row.get("Meta NEW", "") or "").strip()
             url = (row.get("URL", "") or "").strip()
             if not old or not new:
+                continue
+            if url_prefix and not url.startswith(url_prefix):
+                skipped_prefix += 1
                 continue
             if old in mapping and mapping[old].new != new:
                 # keep the first occurrence, record conflict for reporting
@@ -94,6 +100,10 @@ def load_mapping(csv_path: Path) -> Dict[str, Mapping]:
         print("Detected conflicting rows (kept the first occurrence for each):")
         for old, kept, skipped, idx in conflicts:
             print(f"- Row {idx}: {old!r} -> {skipped!r} (kept existing: {kept!r})")
+    if skipped_prefix:
+        print(
+            f"Skipped {skipped_prefix} row(s) whose URL did not start with prefix: {url_prefix}"
+        )
 
     return mapping
 
@@ -175,6 +185,12 @@ def main():
         help="Path to CSV file with columns: Meta description (OLD), Meta NEW, URL.",
     )
     parser.add_argument(
+        "--url-prefix",
+        type=str,
+        default=DEFAULT_URL_PREFIX,
+        help="Only apply rows whose URL starts with this prefix (default: scenario docs).",
+    )
+    parser.add_argument(
         "--root",
         type=Path,
         default=DEFAULT_ROOT,
@@ -201,8 +217,10 @@ def main():
 
     exts = {ext.strip().lower() for ext in args.exts.split(",") if ext.strip()}
     csv_path = resolve_csv_path(args.csv)
-    mapping = load_mapping(csv_path)
-    print(f"Loaded {len(mapping)} mappings from {csv_path}")
+    mapping = load_mapping(csv_path, args.url_prefix)
+    print(
+        f"Loaded {len(mapping)} mappings from {csv_path} with URL prefix {args.url_prefix}"
+    )
 
     root = args.root
     if not root.exists():
