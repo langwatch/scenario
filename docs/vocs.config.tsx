@@ -279,6 +279,10 @@ export default defineConfig({
           text: "Pydantic AI",
           link: "/agent-integration/pydantic-ai",
         },
+        {
+          text: "Vercel AI SDK",
+          link: "/agent-integration/vercel-ai",
+        },
       ],
     },
     {
@@ -423,5 +427,14 @@ export default defineConfig({
         readable: true,
       }),
     ],
+    server: {
+      hmr: {
+        clientPort: 5173,
+      },
+      watch: {
+        usePolling: true,
+        interval: 1000,
+      },
+    },
   },
 });
