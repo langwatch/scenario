@@ -3,14 +3,14 @@ title: Agent Testing Framework
 description: Test AI agents with simulation-based testing. LLM-powered user simulators for agent behavior testing, tool calling, and multi-turn conversations. Works with LangGraph, CrewAI, Pydantic AI.
 ---
 
-import { Image } from "../components/Image";
-import { BlockLink } from "../components/BlockLink";
-import { Link } from "../components/Link";
+import { Image } from "../../components/Image";
+import { BlockLink } from "../../components/BlockLink";
+import { Link } from "../../components/Link";
 
 # What is Scenario? [Scenario is an Agent Testing Framework based on simulations]
 
 <div className="flex justify-center bg-black">
-  <Image
+  <img
     src="/images/scenario.webp"
     alt="Scenario"
     style={{width: "100%"}}
@@ -32,8 +32,8 @@ Scenario is a must-have tool for agent development, it allows you to change your
 
 ## Getting Started
 
-If you are new to Scenario, you can start by writing your [first scenario](./introduction/getting-started), then
-learn how to [integrate your agent](./agent-integration) and dive deeper into the [core concepts](./basics/concepts).
+If you are new to Scenario, you can start by writing your [first scenario](../introduction/getting-started), then
+learn how to [integrate your agent](../agent-integration) and dive deeper into the [core concepts](../basics/concepts).
 
 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
   <BlockLink
@@ -66,7 +66,7 @@ Scenario is the most advanced and flexible agent testing framework, the library'
 - Integrate your Agent by implementing just one <Link href="/agent-integration#the-agentadapter-interface" className="underline decoration-dotted decoration-gray-400 hover:no-underline">`call()`</Link> method
 - Available in Python, TypeScript and Go
 
-Read more about the reasoning behind Scenario in [Simulation-Based Testing](./introduction/simulation-based-testing).
+Read more about the reasoning behind Scenario in [Simulation-Based Testing](../introduction/simulation-based-testing).
 
 Learn how to write effective [scenarios](/basics/writing-scenarios), explore [agent integrations](/agent-integration) for LangGraph, CrewAI, and Pydantic AI, or dive into [testing guides](/testing-guides/tool-calling) for tool calling and fixtures.
 
