@@ -327,6 +327,10 @@ export default defineConfig({
           link: "/testing-guides/blackbox-testing",
         },
         {
+          text: "Agent Analytics",
+          link: "/testing-guides/agent-analytics",
+        },
+        {
           text: "Multimodal",
           items: [
             {
