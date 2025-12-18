@@ -1,0 +1,18 @@
+[project]
+name = "langgraph-highlevel-api-example"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "create-agent-app",
+    "langchain>=0.3.23",
+    "langchain-openai>=0.3.24",
+    "langgraph>=0.3.31",
+    "langwatch-scenario>=0.7.2",
+    "pytest>=8.3.5",
+    "python-dotenv>=1.1.0",
+]
+
+[tool.uv.sources]
+create-agent-app = { path = "../../../../examples/create_agent_app", editable = true }
