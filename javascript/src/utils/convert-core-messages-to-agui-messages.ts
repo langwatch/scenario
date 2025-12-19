@@ -12,9 +12,9 @@ type AgUiMessage = MessagesSnapshotEvent["messages"][number];
  * @returns Array of AG-UI messages (user, assistant, system, tool)
  */
 export function convertModelMessagesToAguiMessages(
-  modelMessages: ModelMessage[]
+  modelMessages: (ModelMessage & { id?: string; traceId?: string })[]
 ): AgUiMessage[] {
-  const aguiMessages: AgUiMessage[] = [];
+  const aguiMessages: (AgUiMessage & { trace_id?: string })[] = [];
 
   for (const msg of modelMessages) {
     const id =
@@ -23,6 +23,7 @@ export function convertModelMessagesToAguiMessages(
     switch (true) {
       case msg.role === "system":
         aguiMessages.push({
+          trace_id: msg.traceId,
           id: id,
           role: "system",
           content: msg.content,
@@ -31,6 +32,7 @@ export function convertModelMessagesToAguiMessages(
 
       case msg.role === "user" && typeof msg.content === "string":
         aguiMessages.push({
+          trace_id: msg.traceId,
           id: id,
           role: "user",
           content: msg.content,
@@ -40,6 +42,7 @@ export function convertModelMessagesToAguiMessages(
       // Handle any other user message content format
       case msg.role === "user" && Array.isArray(msg.content):
         aguiMessages.push({
+          trace_id: msg.traceId,
           id: id,
           role: "user",
           content: JSON.stringify(msg.content),
@@ -48,6 +51,7 @@ export function convertModelMessagesToAguiMessages(
 
       case msg.role === "assistant" && typeof msg.content === "string":
         aguiMessages.push({
+          trace_id: msg.traceId,
           id: id,
           role: "assistant",
           content: msg.content,
@@ -59,6 +63,7 @@ export function convertModelMessagesToAguiMessages(
         const nonToolCalls = msg.content.filter((p) => p.type !== "tool-call");
 
         aguiMessages.push({
+          trace_id: msg.traceId,
           id: id,
           role: "assistant",
           content: JSON.stringify(nonToolCalls),
@@ -78,6 +83,7 @@ export function convertModelMessagesToAguiMessages(
       case msg.role === "tool":
         msg.content.map((p, i) => {
           aguiMessages.push({
+            trace_id: msg.traceId,
             id: `${id}-${i}`,
             role: "tool",
             toolCallId: p.toolCallId,

@@ -1049,7 +1049,7 @@ wheels = [
 
 [[package]]
 name = "langwatch-scenario"
-version = "0.7.13"
+version = "0.7.14"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -1057,11 +1057,13 @@ dependencies = [
     { name = "langwatch" },
     { name = "litellm" },
     { name = "openai" },
+    { name = "opentelemetry-sdk" },
     { name = "pksuid" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pytest-rerunfailures" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "rich" },
@@ -1104,6 +1106,7 @@ requires-dist = [
     { name = "langwatch", specifier = ">=0.2.19" },
     { name = "litellm", specifier = ">=1.49.0" },
     { name = "openai", specifier = ">=1.88.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.20.0" },
     { name = "pdoc3", marker = "extra == 'dev'" },
     { name = "pksuid", specifier = ">=1.1.2" },
     { name = "pre-commit", marker = "extra == 'dev'" },
@@ -1114,6 +1117,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=8.1.1" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "pytest-rerunfailures", specifier = ">=14.0" },
     { name = "python-dateutil", specifier = ">=2.9.0.post0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "respx", marker = "extra == 'dev'" },
@@ -2175,6 +2179,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/18/99/668cade231f434aaa59bbfbf49469068d2ddd945000621d3d165d2e7dd7b/pytest_cov-6.2.1.tar.gz", hash = "sha256:25cc6cc0a5358204b8108ecedc51a9b57b34cc6b8c967cc2c01a4e00d8a67da2", size = 69432, upload-time = "2025-06-12T10:47:47.684Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/16/4ea354101abb1287856baa4af2732be351c7bee728065aed451b678153fd/pytest_cov-6.2.1-py3-none-any.whl", hash = "sha256:f5bc4c23f42f1cdd23c70b1dab1bbaef4fc505ba950d53e0081d0730dd7e86d5", size = 24644, upload-time = "2025-06-12T10:47:45.932Z" },
+]
+
+[[package]]
+name = "pytest-rerunfailures"
+version = "16.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/04/71e9520551fc8fe2cf5c1a1842e4e600265b0815f2016b7c27ec85688682/pytest_rerunfailures-16.1.tar.gz", hash = "sha256:c38b266db8a808953ebd71ac25c381cb1981a78ff9340a14bcb9f1b9bff1899e", size = 30889, upload-time = "2025-10-10T07:06:01.238Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/54/60eabb34445e3db3d3d874dc1dfa72751bfec3265bd611cb13c8b290adea/pytest_rerunfailures-16.1-py3-none-any.whl", hash = "sha256:5d11b12c0ca9a1665b5054052fcc1084f8deadd9328962745ef6b04e26382e86", size = 14093, upload-time = "2025-10-10T07:06:00.019Z" },
 ]
 
 [[package]]

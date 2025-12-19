@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "pytest>=8.1.1",
+    "pytest-rerunfailures>=14.0",
     "litellm>=1.49.0",
     "openai>=1.88.0",
     "python-dotenv>=1.0.1",
@@ -37,6 +38,7 @@ dependencies = [
     "python-dateutil>=2.9.0.post0",
     "pydantic-settings>=2.9.1",
     "langwatch>=0.2.19",
+    "opentelemetry-sdk>=1.20.0",
 ]
 
 [project.optional-dependencies]

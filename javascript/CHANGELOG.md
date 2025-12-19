@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.0](https://github.com/langwatch/scenario/compare/javascript/v0.3.1...javascript/v0.4.0) (2025-12-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* DigestDeduplicator class removed, use new modules directly
+
+### Features
+
+* add invokeLLM extension point for customizing LLM behavior  ([#167](https://github.com/langwatch/scenario/issues/167)) ([a721cd0](https://github.com/langwatch/scenario/commit/a721cd00fde0b289b539133b9abc84f2cdf37dc4))
+* add openai realtime support ([#155](https://github.com/langwatch/scenario/issues/155)) ([24fa46c](https://github.com/langwatch/scenario/commit/24fa46c4b7b7632bc0428c11b7297c19fc5d6fd0))
+* implement trace-per-turn architecture with message correlation ([#173](https://github.com/langwatch/scenario/issues/173)) ([27088f3](https://github.com/langwatch/scenario/commit/27088f3a70c4e3bba447ec0a31cd14baf7d7847a))
+* **realtime:** add LangWatch Scenario expert voice agent demo ([#160](https://github.com/langwatch/scenario/issues/160)) ([8f67f24](https://github.com/langwatch/scenario/commit/8f67f24985cc337bb23a27423e5df277bb677994))
+* refactor scenario judge to grade against traces ([#177](https://github.com/langwatch/scenario/issues/177)) ([3040d97](https://github.com/langwatch/scenario/commit/3040d97a29f08fa235d41cb58c73f3774c844172))
+
+
+### Documentation
+
+* add long timeout by default on the ts examples ([a39b15a](https://github.com/langwatch/scenario/commit/a39b15a988f6705e89681651aaf68ad66f232d0f))
+
+
+### Code Refactoring
+
+* reorganize realtime example and split audio judge helpers ([#169](https://github.com/langwatch/scenario/issues/169)) ([001b043](https://github.com/langwatch/scenario/commit/001b0430b8247c669f15565d263872af5985d1d8))
+* **scripts:** simplify and organize pnpm package scripts ([#175](https://github.com/langwatch/scenario/issues/175)) ([8fd831b](https://github.com/langwatch/scenario/commit/8fd831bca88f9938d843d34c1a753ca5a0fec6fb))
+
 ## [0.3.1](https://github.com/langwatch/scenario/compare/javascript/v0.3.0...javascript/v0.3.1) (2025-10-21)
 
 

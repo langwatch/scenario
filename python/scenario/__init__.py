@@ -1,5 +1,5 @@
 """
-Scenario: Agent Testing Framework through Simulation Testing
+Access Scenario API root documentation to build simulation-based evaluations and structured AI agent testing flows.
 
 Scenario is a comprehensive testing framework for AI agents that uses simulation testing
 to validate agent behavior through realistic conversations. It enables testing of both
@@ -92,6 +92,10 @@ Integration with Testing Frameworks:
 
 For more examples and detailed documentation, visit: https://github.com/langwatch/scenario
 """
+
+# Setup logging and tracing infrastructure (side-effect imports)
+from .config import logging as _logging_config  # noqa: F401
+from . import _tracing  # noqa: F401
 
 # First import non-dependent modules
 from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes

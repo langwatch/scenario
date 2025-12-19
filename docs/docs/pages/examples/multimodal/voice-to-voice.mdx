@@ -83,7 +83,9 @@ Below is actual audio produced by the voice-to-voice test above. Click play to h
 <LanguageTabs>
 <LanguageTabs.MarkdownTab language="typescript">
 
-- **[wrapJudgeForAudio](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/wrap-judge-for-audio.ts)** - Wraps a judge agent to automatically transcribe audio messages to text before evaluation. Required because judge agents can't process audio directly.
+- **[wrapJudgeForAudioTranscription](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/wrap-judge-for-audio-transcription.ts)** - Wraps a judge agent to automatically transcribe audio files to text before evaluation using OpenAI Whisper. Required because judge agents can't process audio directly.
+
+- **[wrapJudgeForAudioExtraction](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/wrap-judge-for-audio-extraction.ts)** - Wraps a judge agent to extract text transcripts from audio messages that already contain transcripts (e.g., from realtime conversations).
 
 - **[encodeAudioToBase64](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/helpers/audio-encoding.ts)** - Converts audio files to base64-encoded strings for transmission in messages.
 

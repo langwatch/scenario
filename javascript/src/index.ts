@@ -1,3 +1,4 @@
+import "./tracing";
 import * as agents from "./agents";
 import * as domain from "./domain";
 import * as execution from "./execution";

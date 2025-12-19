@@ -1,9 +1,4 @@
-import {
-  CoreAssistantMessage,
-  CoreMessage,
-  CoreToolMessage,
-  CoreUserMessage,
-} from "ai";
+import { CoreAssistantMessage, CoreMessage, CoreToolMessage } from "ai";
 import { Observable, Subject } from "rxjs";
 import { ScenarioExecutionStateLike, ScenarioConfig } from "../domain";
 import { generateMessageId } from "../utils/ids";
@@ -27,7 +22,7 @@ export type StateChangeEvent = {
  * other related information.
  */
 export class ScenarioExecutionState implements ScenarioExecutionStateLike {
-  private _messages: (CoreMessage & { id: string })[] = [];
+  private _messages: (CoreMessage & { id: string; traceId?: string })[] = [];
   private _currentTurn: number = 0;
   private _threadId: string = "";
 
@@ -68,15 +63,19 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
    * Adds a message to the conversation history.
    *
    * @param message - The message to add.
+   * @param traceId - Optional trace ID to associate with the message.
    */
-  addMessage(message: CoreMessage): void {
-    const messageWithId = { ...message, id: generateMessageId() };
+  addMessage(message: CoreMessage & { traceId?: string }): void {
+    const messageWithId = {
+      ...message,
+      id: generateMessageId(),
+    };
     this._messages.push(messageWithId);
     // Emit event when message is added
     this.eventSubject.next({ type: StateChangeEventType.MESSAGE_ADDED });
   }
 
-  lastMessage(): CoreMessage {
+  lastMessage() {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
@@ -84,7 +83,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     return this._messages[this._messages.length - 1];
   }
 
-  lastUserMessage(): CoreUserMessage {
+  lastUserMessage() {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
@@ -100,7 +99,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     return lastMessage;
   }
 
-  lastAgentMessage(): CoreAssistantMessage {
+  lastAgentMessage(): CoreAssistantMessage & { traceId?: string } {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
@@ -116,7 +115,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     return lastMessage;
   }
 
-  lastToolCall(toolName: string): CoreToolMessage {
+  lastToolCall(toolName: string): CoreToolMessage & { traceId?: string } {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
