@@ -1,0 +1,52 @@
+---
+description: When creating utility functions or modules
+globs:
+  - "**/utils/**"
+  - "**/*.utils.ts"
+---
+
+# Utils Namespacing Convention
+
+## One Export Per File
+Each utility file should have exactly one named export (typically a namespace object).
+
+## Domain-Scoped Namespacing
+Utils must be tied to a specific domain and namespaced accordingly:
+
+```typescript
+// ✅ Good: Namespaced under domain
+export const TracingUtils = {
+  toHex: (base64: string): string => { ... },
+  vercelMessagesToLangwatchSpanChatMessagesFormat: (messages) => { ... },
+};
+
+// ❌ Bad: Loose exports
+export function toHex(base64: string) { ... }
+export function toSpanMessages(messages) { ... }
+```
+
+## File Naming
+- Place in domain folder: `src/{domain}/{domain}.utils.ts`
+- Example: `src/tracing/tracing.utils.ts`
+
+## Function Naming
+Use descriptive, specific names that indicate:
+1. Input format/source
+2. Output format/destination
+3. Purpose
+
+```typescript
+// ✅ Good: Clear transformation name
+TracingUtils.vercelMessagesToLangwatchSpanChatMessagesFormat
+
+// ❌ Bad: Vague names
+TracingUtils.toSpanMessages
+TracingUtils.convert
+```
+
+## Usage Pattern
+```typescript
+import { TracingUtils } from "../tracing/tracing.utils";
+
+TracingUtils.vercelMessagesToLangwatchSpanChatMessagesFormat(messages);
+```

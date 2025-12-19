@@ -11,7 +11,7 @@ import { describe, it, expect } from "vitest";
 import {
   encodeAudioToBase64,
   getFixturePath,
-  wrapJudgeForAudio,
+  wrapJudgeForAudioTranscription,
 } from "./helpers";
 import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
@@ -60,7 +60,7 @@ const setId = "multimodal-audio-test";
 describe("Multimodal Audio to Text Tests", () => {
   it("should handle audio input", async () => {
     const data = encodeAudioToBase64(
-      getFixturePath("male_or_female_voice.wav")
+      getFixturePath("male_or_female_voice.wav"),
     );
 
     // The AI-SDK will only support file parts,
@@ -85,7 +85,7 @@ describe("Multimodal Audio to Text Tests", () => {
       ],
     } satisfies UserModelMessage;
 
-    const audioJudge = wrapJudgeForAudio(
+    const audioJudge = wrapJudgeForAudioTranscription(
       scenario.judgeAgent({
         model: openai("gpt-5"),
         criteria: [
@@ -93,7 +93,7 @@ describe("Multimodal Audio to Text Tests", () => {
           "The agent repeats the question",
           "The agent says what format the input was in (audio or text)",
         ],
-      })
+      }),
     );
 
     const result = await scenario.run({
@@ -122,7 +122,7 @@ describe("Multimodal Audio to Text Tests", () => {
   it.todo("should handle multiple audio formats (WAV, MP3)");
   it.todo("should handle long audio files gracefully");
   it.todo(
-    "should provide appropriate responses for unclear or corrupted audio"
+    "should provide appropriate responses for unclear or corrupted audio",
   );
   it.todo("should handle audio with background noise");
   it.todo("should transcribe speech in different languages");

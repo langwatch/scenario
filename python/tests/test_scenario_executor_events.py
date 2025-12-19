@@ -2,6 +2,7 @@ import pytest
 from typing import List, Tuple, Dict, Any
 
 from scenario import JudgeAgent, UserSimulatorAgent
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import Unset
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, ScenarioResult
 from scenario.scenario_executor import ScenarioExecutor
@@ -210,3 +211,72 @@ async def test_event_ordering(executed_events: ExecutedEventsFixture) -> None:
     assert start_event.timestamp <= snapshot_events[0].timestamp
     assert snapshot_events[-1].timestamp <= finish_event.timestamp
     assert start_event.timestamp <= finish_event.timestamp
+
+
+class FailingAgent(AgentAdapter):
+    """Agent that raises an exception."""
+
+    async def call(self, input: AgentInput) -> str:
+        raise RuntimeError("Simulated agent failure")
+
+
+@pytest.mark.asyncio
+async def test_emits_error_event_on_exception() -> None:
+    """Should emit ScenarioRunFinishedEvent with ERROR status when agent throws."""
+    mock_reporter = MockEventReporter()
+    event_bus = ScenarioEventBus(event_reporter=mock_reporter)
+
+    executor = ScenarioExecutor(
+        name="error scenario",
+        description="test error handling",
+        agents=[
+            FailingAgent(),
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test"]),
+        ],
+        event_bus=event_bus,
+    )
+
+    events: List[ScenarioEvent] = []
+    executor.events.subscribe(events.append)
+
+    with pytest.raises(RuntimeError, match="Simulated agent failure"):
+        await executor.run()
+
+    # Verify we still got the finish event with ERROR status
+    finish_events = [e for e in events if isinstance(e, ScenarioRunFinishedEvent)]
+    assert len(finish_events) == 1, "Should emit finish event even on error"
+
+    finish_event = finish_events[0]
+    assert finish_event.status.value == "ERROR"
+    results = finish_event.results
+    assert not isinstance(results, Unset) and results is not None
+    reasoning = results.reasoning
+    assert isinstance(reasoning, str)
+    assert "Simulated agent failure" in reasoning
+
+
+@pytest.mark.asyncio
+async def test_error_includes_agent_class_name() -> None:
+    """Error message should identify which agent threw the exception."""
+    import scenario
+
+    executor = ScenarioExecutor(
+        name="agent error tagging",
+        description="test agent identification in errors",
+        agents=[
+            FailingAgent(),
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test"]),
+        ],
+        script=[
+            scenario.user(),
+            scenario.agent(),  # This will call FailingAgent and throw
+        ],
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await executor.run()
+
+    # Error should include the agent class name
+    assert "FailingAgent" in str(exc_info.value)

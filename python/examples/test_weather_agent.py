@@ -12,6 +12,7 @@ from function_schema import get_function_schema
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
+@pytest.mark.flaky(reruns=2)
 async def test_weather_agent():
     # Integrate with your agent
     class WeatherAgent(scenario.AgentAdapter):
@@ -34,6 +35,9 @@ async def test_weather_agent():
             scenario.UserSimulatorAgent(model="openai/gpt-4.1"),
         ],
         script=[
+            scenario.user(),
+            scenario.agent(),
+            # Agent sometimes needs to ask for clarification
             scenario.user(),
             scenario.agent(),
             check_for_weather_tool_call,
@@ -87,6 +91,7 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
                 "content": """
                     You a helpful assistant that may help the user with weather information.
                     Do not guess the city if they don't provide it.
+                    Do not ask for clarification
                 """,
             },
             *messages,

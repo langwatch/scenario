@@ -1,12 +1,23 @@
-import { generateText, CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
+import { CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
 import { z } from "zod/v4";
-import { JudgeResult } from "./interfaces";
+
+import { JudgeUtils } from "./judge-utils";
 import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
-import { TestingAgentConfig, FinishTestArgs } from "../types";
+import { createLLMInvoker } from "../llm-invoker.factory";
+import {
+  TestingAgentConfig,
+  FinishTestArgs,
+  InvokeLLMParams,
+  InvokeLLMResult,
+} from "../types";
 import { criterionToParamName } from "../utils";
+
+import { JudgeResult } from "./interfaces";
+import { judgeSpanCollector, JudgeSpanCollector } from "./judge-span-collector";
+import { judgeSpanDigestFormatter } from "./judge-span-digest-formatter";
 
 /**
  * Configuration for the judge agent.
@@ -20,6 +31,10 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    * The criteria that the judge will use to evaluate the conversation.
    */
   criteria: string[];
+  /**
+   * Optional span collector for telemetry. Defaults to global singleton.
+   */
+  spanCollector?: JudgeSpanCollector;
 }
 
 function buildSystemPrompt(criteria: string[], description: string): string {
@@ -97,16 +112,43 @@ function buildFinishTestTool(criteria: string[]): Tool {
  */
 class JudgeAgent extends JudgeAgentAdapter {
   private logger = new Logger("JudgeAgent");
+  private readonly spanCollector: JudgeSpanCollector;
   role: AgentRole = AgentRole.JUDGE;
   criteria: string[];
+
+  /**
+   * LLM invocation function. Can be overridden to customize LLM behavior.
+   */
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
+    createLLMInvoker(this.logger);
 
   constructor(private readonly cfg: JudgeAgentConfig) {
     super();
     this.criteria = cfg.criteria;
-    this.role = AgentRole.JUDGE;
+    this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
   }
 
   async call(input: AgentInput): Promise<JudgeResult | null> {
+    this.logger.debug("call() invoked", {
+      threadId: input.threadId,
+      currentTurn: input.scenarioState.currentTurn,
+      maxTurns: input.scenarioConfig.maxTurns,
+      judgmentRequest: input.judgmentRequest,
+    });
+
+    const digest = this.getOpenTelemetryTracesDigest(input.threadId);
+    this.logger.debug("OpenTelemetry traces built", { digest });
+    const transcript = JudgeUtils.buildTranscriptFromMessages(input.messages);
+
+    const contentForJudge = `
+    <transcript>
+    ${transcript}
+    </transcript>
+    <opentelemetry_traces>
+    ${digest}
+    </opentelemetry_traces>
+    `;
+
     const cfg = this.cfg;
 
     const systemPrompt =
@@ -114,7 +156,7 @@ class JudgeAgent extends JudgeAgentAdapter {
       buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
     const messages: CoreMessage[] = [
       { role: "system", content: systemPrompt },
-      ...input.messages,
+      { role: "user", content: contentForJudge },
     ];
 
     const isLastMessage =
@@ -148,13 +190,28 @@ class JudgeAgent extends JudgeAgentAdapter {
         ? { type: "tool", toolName: "finish_test" }
         : "required";
 
-    const completion = await this.generateText({
+    this.logger.debug("Calling LLM", {
+      model: mergedConfig.model,
+      toolChoice,
+      isLastMessage,
+      enforceJudgement,
+    });
+
+    const completion = await this.invokeLLM({
       model: mergedConfig.model,
       messages: messages,
       temperature: mergedConfig.temperature ?? 0.0,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
       toolChoice,
+    });
+
+    this.logger.debug("LLM response received", {
+      toolCallCount: completion.toolCalls?.length ?? 0,
+      toolCalls: completion.toolCalls?.map((tc) => ({
+        toolName: tc.toolName,
+        args: tc.input,
+      })),
     });
 
     // Prefer tool call, fallback to JSON
@@ -177,15 +234,18 @@ class JudgeAgent extends JudgeAgentAdapter {
             (_, i) => criteriaValues[i] !== "true"
           );
 
-          return {
+          const result = {
             success: verdict === "success",
             reasoning,
             metCriteria,
             unmetCriteria,
           };
+          this.logger.debug("finish_test result", result);
+          return result;
         }
 
         case "continue_test":
+          this.logger.debug("continue_test - proceeding to next turn");
           return null;
 
         default:
@@ -206,13 +266,10 @@ class JudgeAgent extends JudgeAgentAdapter {
     };
   }
 
-  private async generateText(input: Parameters<typeof generateText>[0]) {
-    try {
-      return await generateText(input);
-    } catch (error) {
-      this.logger.error("Error generating text", { error });
-      throw error;
-    }
+  private getOpenTelemetryTracesDigest(threadId: string): string {
+    const spans = this.spanCollector.getSpansForThread(threadId);
+    const digest = judgeSpanDigestFormatter.format(spans);
+    return digest;
   }
 }
 

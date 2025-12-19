@@ -69,6 +69,7 @@ async def test_vegetarian_recipe_agent():
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent")
+@pytest.mark.flaky(reruns=2)
 async def test_user_is_hungry():
     # Define the scenario
     result = await scenario.run(

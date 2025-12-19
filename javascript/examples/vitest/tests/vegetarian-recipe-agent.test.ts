@@ -20,6 +20,7 @@ describe("Vegetarian Recipe Agent", () => {
           },
           ...input.messages,
         ],
+        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },
@@ -43,7 +44,9 @@ describe("Vegetarian Recipe Agent", () => {
         }),
       ],
       script: [
-        scenario.user("quick recipe for dinner"),
+        scenario.user(),
+        scenario.agent(),
+        scenario.user(),
         scenario.agent(),
         scenario.user(),
         scenario.agent(),
@@ -51,6 +54,12 @@ describe("Vegetarian Recipe Agent", () => {
       ],
       setId: "javascript-examples",
     });
-    expect(result.success).toBe(true);
+
+    try {
+      expect(result.success).toBe(true);
+    } catch (error) {
+      console.log(result);
+      throw error;
+    }
   });
 });

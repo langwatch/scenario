@@ -1,4 +1,8 @@
+import { context, type Span } from "@opentelemetry/api";
+import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
+import { getLangWatchTracer } from "langwatch";
+import { attributes } from "langwatch/observability";
 import { filter, Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
@@ -122,6 +126,9 @@ import { Logger } from "../utils/logger";
  * ```
  */
 export class ScenarioExecution implements ScenarioExecutionLike {
+  /** LangWatch tracer for scenario execution */
+  private tracer = getLangWatchTracer("@langwatch/scenario");
+
   /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
 
@@ -154,6 +161,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /** Accumulated execution time for each agent (for performance tracking) */
   private agentTimes: Map<number, number> = new Map();
+
+  /** Current turn span for trace context management */
+  private currentTurnSpan?: Span;
 
   /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
@@ -252,6 +262,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       totalTime: this.totalTime,
       agentTime: totalAgentTime,
     };
+
+    this.logger.debug(`[${this.config.id}] Result set`, {
+      success: result.success,
+      reasoning: result.reasoning,
+      totalTime: this.totalTime,
+      agentTime: totalAgentTime,
+      messageCount: this.state.messages.length,
+    });
   }
 
   /**
@@ -288,9 +306,16 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async execute(): Promise<ScenarioResult> {
+    this.logger.debug(`[${this.config.id}] Starting scenario execution`, {
+      name: this.config.name,
+      maxTurns: this.config.maxTurns,
+      scriptLength: this.config.script.length,
+    });
+
     this.reset();
 
     const scenarioRunId = generateScenarioRunId();
+    this.logger.debug(`[${this.config.id}] Generated run ID: ${scenarioRunId}`);
     this.emitRunStarted({ scenarioRunId });
 
     // Create subscription with captured runId (closure)
@@ -397,14 +422,28 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     goToNextTurn: boolean = true,
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<void> {
+    this.logger.debug(`[${this.config.id}] _step called`, {
+      goToNextTurn,
+      pendingRoles: this.pendingRolesOnTurn,
+      currentTurn: this.state.currentTurn,
+    });
+
     if (this.pendingRolesOnTurn.length === 0) {
-      if (!goToNextTurn) return;
+      if (!goToNextTurn) {
+        this.logger.debug(
+          `[${this.config.id}] No pending roles, not advancing turn`
+        );
+        return;
+      }
 
       this.newTurn();
 
       if (onTurn) await onTurn(this.state);
 
       if (this.state.currentTurn >= this.config.maxTurns) {
+        this.logger.debug(
+          `[${this.config.id}] Reached max turns: ${this.state.currentTurn}`
+        );
         this.reachedMaxTurns();
         return;
       }
@@ -413,9 +452,18 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     const currentRole = this.pendingRolesOnTurn[0];
     const { idx, agent: nextAgent } = this.nextAgentForRole(currentRole);
     if (!nextAgent) {
+      this.logger.debug(
+        `[${this.config.id}] No agent for role ${currentRole}, removing role`
+      );
       this.removePendingRole(currentRole);
       return this._step(goToNextTurn, onTurn);
     }
+
+    this.logger.debug(`[${this.config.id}] Calling agent`, {
+      role: currentRole,
+      agentIdx: idx,
+      agentName: nextAgent.name ?? nextAgent.constructor.name,
+    });
 
     this.removePendingAgent(nextAgent);
 
@@ -453,6 +501,16 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     judgmentRequest: boolean = false
   ): Promise<void> {
     const agent = this.agents[idx];
+    const agentName = agent.name ?? agent.constructor.name;
+
+    this.logger.debug(`[${this.config.id}] callAgent started`, {
+      agentIdx: idx,
+      role,
+      judgmentRequest,
+      agentName,
+      pendingMessagesCount: this.pendingMessages.get(idx)?.length ?? 0,
+    });
+
     const startTime = Date.now();
     const agentInput: AgentInput = {
       threadId: this.state.threadId,
@@ -464,46 +522,118 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       scenarioConfig: this.config,
     };
 
+    // Create agent span as child of the turn span
+    // Following OpenTelemetry docs: create context with parent span right before creating child
+    const agentContext = this.currentTurnSpan
+      ? trace.setSpan(context.active(), this.currentTurnSpan)
+      : context.active();
+
+    const agentSpanName = `${
+      agentName !== Object.prototype.constructor.name
+        ? agent.constructor.name
+        : "Agent"
+    }.call`;
+
     try {
-      const agentResponse = await agent.call(agentInput);
-      const endTime = Date.now();
-
-      this.addAgentTime(idx, endTime - startTime);
-      this.pendingMessages.delete(idx);
-
-      if (
-        agentResponse &&
-        typeof agentResponse === "object" &&
-        "success" in agentResponse
-      ) {
-        // JudgeResult is automatically augmented with messages by setResult
-        this.setResult(agentResponse);
-        return;
-      }
-
-      const currentAgentTime = this.agentTimes.get(idx) ?? 0;
-      this.agentTimes.set(idx, currentAgentTime + (Date.now() - startTime));
-
-      const messages = convertAgentReturnTypesToMessages(
-        agentResponse,
-        role === AgentRole.USER ? "user" : "assistant"
-      );
-
-      for (const message of messages) {
-        this.state.addMessage(message);
-        this.broadcastMessage(message, idx);
-      }
-    } catch (error) {
-      this.logger.error(
-        `[${this.config.id}] Error calling agent ${agent.constructor.name}`,
+      await this.tracer.withActiveSpan(
+        agentSpanName,
         {
-          error: error instanceof Error ? error.message : String(error),
-          agent: agent.constructor.name,
-          agentInput,
+          attributes: {
+            [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+          },
+        },
+        agentContext,
+        async (agentSpan) => {
+          agentSpan.setType("agent");
+
+          // Set input for the span
+          agentSpan.setInput("chat_messages", this.state.messages);
+
+          const agentResponse = await agent.call(agentInput);
+          const endTime = Date.now();
+          const duration = endTime - startTime;
+
+          this.logger.debug(`[${this.config.id}] Agent responded`, {
+            agentIdx: idx,
+            duration,
+            responseType: typeof agentResponse,
+            isScenarioResult:
+              agentResponse &&
+              typeof agentResponse === "object" &&
+              "success" in agentResponse,
+          });
+
+          this.addAgentTime(idx, duration);
+          this.pendingMessages.delete(idx);
+
+          if (
+            agentResponse &&
+            typeof agentResponse === "object" &&
+            "success" in agentResponse
+          ) {
+            this.logger.debug(
+              `[${this.config.id}] Agent returned ScenarioResult`,
+              {
+                success: (agentResponse as { success: boolean }).success,
+              }
+            );
+            // JudgeResult is automatically augmented with messages by setResult
+            this.setResult(agentResponse);
+            return;
+          }
+
+          const messages = convertAgentReturnTypesToMessages(
+            agentResponse,
+            role === AgentRole.USER ? "user" : "assistant"
+          );
+
+          // Set output for the span
+          if (messages.length > 0) {
+            agentSpan.setOutput("chat_messages", messages);
+          }
+
+          // Set metrics if available (would need to be extracted from agent response)
+          const metrics: Record<string, number> = {
+            duration: endTime - startTime,
+          };
+
+          // Add token usage if available from agent response
+          if (agentResponse && typeof agentResponse === "object") {
+            const usage = (
+              agentResponse as {
+                usage?: {
+                  prompt_tokens?: number;
+                  completion_tokens?: number;
+                  total_tokens?: number;
+                };
+              }
+            ).usage;
+            if (usage) {
+              if (usage.prompt_tokens !== undefined)
+                metrics.promptTokens = usage.prompt_tokens;
+              if (usage.completion_tokens !== undefined)
+                metrics.completionTokens = usage.completion_tokens;
+              if (usage.total_tokens !== undefined)
+                metrics.totalTokens = usage.total_tokens;
+            }
+          }
+
+          agentSpan.setMetrics(metrics);
+
+          // Add traceId to each message for proper correlation
+          const traceId = agentSpan.spanContext().traceId.toString();
+
+          for (const message of messages) {
+            this.state.addMessage({
+              ...message,
+              traceId,
+            });
+            this.broadcastMessage(message, idx);
+          }
         }
       );
-
-      throw error;
+    } catch (error) {
+      throw new Error(`[${agentName}] ${error}`, { cause: error });
     }
   }
 
@@ -675,6 +805,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     onTurn?: (state: ScenarioExecutionStateLike) => void | Promise<void>,
     onStep?: (state: ScenarioExecutionStateLike) => void | Promise<void>
   ): Promise<ScenarioResult | null> {
+    this.logger.debug(`[${this.config.id}] proceed called`, {
+      turns,
+      currentTurn: this.state.currentTurn,
+    });
+
     let initialTurn = this.state.currentTurn;
 
     while (true) {
@@ -815,6 +950,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     content?: string | ModelMessage,
     judgmentRequest: boolean = false
   ): Promise<ScenarioResult | null> {
+    this.logger.debug(`[${this.config.id}] scriptCallAgent`, {
+      role,
+      hasContent: content !== undefined,
+      judgmentRequest,
+    });
+
     this.consumeUntilRole(role);
 
     let index = -1;
@@ -897,6 +1038,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Clears the result from any previous execution
    */
   private reset(): void {
+    this.logger.debug(`[${this.config.id}] Resetting scenario execution`);
+
+    // End any existing turn span
+    if (this.currentTurnSpan) {
+      this.currentTurnSpan.end();
+      this.currentTurnSpan = undefined;
+    }
+
     this.state = new ScenarioExecutionState(this.config);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
@@ -905,6 +1054,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.totalStartTime = Date.now();
     this.pendingMessages.clear();
     this._result = undefined;
+
+    this.logger.debug(`[${this.config.id}] Reset complete`, {
+      threadId: this.state.threadId,
+      agentCount: this.agents.length,
+    });
   }
 
   private nextAgentForRole(role: AgentRole): {
@@ -935,6 +1089,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * multiple agent interactions as agents respond to each other's messages.
    */
   private newTurn(): void {
+    const previousTurn = this.state.currentTurn;
+
+    // End previous turn span if it exists
+    if (this.currentTurnSpan) {
+      this.currentTurnSpan.end();
+      this.currentTurnSpan = undefined;
+    }
+
     this.pendingAgentsOnTurn = new Set(this.agents);
     this.pendingRolesOnTurn = [
       AgentRole.USER,
@@ -947,6 +1109,22 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } else {
       this.state.currentTurn++;
     }
+
+    this.logger.debug(`[${this.config.id}] New turn started`, {
+      previousTurn,
+      currentTurn: this.state.currentTurn,
+      agentCount: this.agents.length,
+    });
+
+    // Create new turn trace context (equivalent to Python's langwatch.trace())
+    this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
+      attributes: {
+        "scenario.name": this.config.name,
+        "scenario.id": this.config.id,
+        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+        "scenario.turn": this.state.currentTurn,
+      },
+    });
   }
 
   private removePendingRole(role: AgentRole): void {
@@ -1095,6 +1273,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     this.emitEvent(event);
     this.eventSubject.complete();
+
+    // End the final turn span
+    if (this.currentTurnSpan) {
+      this.currentTurnSpan.end();
+      this.currentTurnSpan = undefined;
+    }
   }
 
   /**
@@ -1127,6 +1311,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   private broadcastMessage(message: ModelMessage, fromAgentIdx?: number): void {
+    const recipients: number[] = [];
+
     for (let idx = 0; idx < this.agents.length; idx++) {
       if (idx === fromAgentIdx) continue;
 
@@ -1134,7 +1320,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.pendingMessages.set(idx, []);
       }
       this.pendingMessages.get(idx)!.push(message);
+      recipients.push(idx);
     }
+
+    this.logger.debug(`[${this.config.id}] Broadcast message`, {
+      role: message.role,
+      fromAgentIdx,
+      recipients,
+    });
   }
 
   /**

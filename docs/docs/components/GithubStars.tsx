@@ -68,7 +68,7 @@ export const GithubStarsScript = ({ repo }: { repo: string }) => {
               async function fetchStarCount() {
                 await new Promise(resolve => setTimeout(resolve, 100));
                 try {
-                  const response = await fetch('https://api.github.com/repos/' + repo);
+                  const response = await fetch('/github-api/repos/' + repo);
                   if (!response.ok) {
                     throw new Error('Failed to fetch repository data');
                   }

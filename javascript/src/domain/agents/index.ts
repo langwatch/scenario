@@ -74,6 +74,7 @@ export interface AgentInput {
  * ```
  */
 export abstract class AgentAdapter {
+  name?: string;
   role: AgentRole = AgentRole.AGENT;
 
   /**
@@ -93,34 +94,20 @@ export abstract class AgentAdapter {
  * Abstract base class for user simulator agents.
  * User simulator agents are responsible for generating user messages to drive the conversation.
  */
-export abstract class UserSimulatorAgentAdapter implements AgentAdapter {
+export abstract class UserSimulatorAgentAdapter extends AgentAdapter {
+  name = "UserSimulatorAgent";
   role: AgentRole = AgentRole.USER;
-
-  /**
-   * Process the input and generate a user message.
-   *
-   * @param input AgentInput containing conversation history, thread context, and scenario state.
-   * @returns The user's response.
-   */
-  abstract call(input: AgentInput): Promise<AgentReturnTypes>;
 }
 
 /**
  * Abstract base class for judge agents.
  * Judge agents are responsible for evaluating the conversation and determining success or failure.
  */
-export abstract class JudgeAgentAdapter implements AgentAdapter {
+export abstract class JudgeAgentAdapter extends AgentAdapter {
+  name = "JudgeAgent";
   role: AgentRole = AgentRole.JUDGE;
   /**
    * The criteria the judge will use to evaluate the conversation.
    */
   abstract criteria: string[];
-
-  /**
-   * Process the input and evaluate the conversation.
-   *
-   * @param input AgentInput containing conversation history, thread context, and scenario state.
-   * @returns A ScenarioResult if the conversation should end, otherwise should continue.
-   */
-  abstract call(input: AgentInput): Promise<AgentReturnTypes>;
 }

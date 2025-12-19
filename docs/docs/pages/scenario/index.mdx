@@ -1,0 +1,106 @@
+---
+title: Agent Testing Framework
+description: Test AI agents with simulation-based testing. LLM-powered user simulators for agent behavior testing, tool calling, and multi-turn conversations. Works with LangGraph, CrewAI, Pydantic AI.
+---
+
+import { Image } from "../../components/Image";
+import { BlockLink } from "../../components/BlockLink";
+import { Link } from "../../components/Link";
+
+# What is Scenario? [Scenario is an Agent Testing Framework based on simulations]
+
+<div className="flex justify-center bg-black">
+  <img
+    src="/images/scenario.webp"
+    alt="Scenario"
+    style={{width: "100%"}}
+  />
+</div>
+
+Engineers and Researchers use Scenario in combination with evals to guarantee the 3 levels of agent quality:
+
+- **Level 1: Unit tests**\
+  Traditional unit and integration software tests to guarantee that e.g. the agent tools are working correctly from a software point of view
+
+- **Level 2: Evals, Finetuning and Prompt Optimization**\
+  Measuring the performance of individual non-deterministic components of the agent, for example maximizing RAG accuracy with evals, or approximating human preference with GRPO
+
+- **Level 3: Agent Simulations**\
+  End-to-end testing of the agent in different scenarios and edge cases, guaranteeing the whole agent achieves more than the sum of its parts, simulating a wide range of situations
+
+Scenario is a must-have tool for agent development, it allows you to change your agent prompts, tools and structure while making sure regressions don't happen, it does not require a dataset, and it's compatible with all AI Agent Frameworks.
+
+## Getting Started
+
+If you are new to Scenario, you can start by writing your [first scenario](../introduction/getting-started), then
+learn how to [integrate your agent](../agent-integration) and dive deeper into the [core concepts](../basics/concepts).
+
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+  <BlockLink
+    icon="theater"
+    title="Getting Started"
+    description="Your First Scenario"
+    href="/introduction/getting-started"
+  />
+  <BlockLink
+    icon="bot"
+    title="Agent Integration"
+    description="Integrate your agent with Scenario"
+    href="/agent-integration"
+  />
+  <BlockLink
+    icon="blocks"
+    title="Core Concepts"
+    description="Learn the core concepts and capabilities"
+    href="/basics/concepts"
+  />
+</div>
+
+## Why Scenario?
+
+Scenario is the most advanced and flexible agent testing framework, the library's agnostic design makes it incredibly simple to learn and use. Here are some of the key features:
+
+- Test real agent behavior by simulating users in different scenarios and edge cases
+- Evaluate and judge at any point of the conversation, powerful multi-turn control
+- Combine it with any LLM eval framework or custom evals, agnostic by design
+- Integrate your Agent by implementing just one <Link href="/agent-integration#the-agentadapter-interface" className="underline decoration-dotted decoration-gray-400 hover:no-underline">`call()`</Link> method
+- Available in Python, TypeScript and Go
+
+Read more about the reasoning behind Scenario in [Simulation-Based Testing](../introduction/simulation-based-testing).
+
+Learn how to write effective [scenarios](/basics/writing-scenarios), explore [agent integrations](/agent-integration) for LangGraph, CrewAI, and Pydantic AI, or dive into [testing guides](/testing-guides/tool-calling) for tool calling and fixtures.
+
+## Dive deeper
+
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+  <BlockLink
+    icon="notebook-pen"
+    title="Writing Scenarios"
+    description="Learn how to create effective scenario tests"
+    href="/basics/writing-scenarios"
+  />
+  <BlockLink
+    icon="scroll-text"
+    title="Scripted Simulations"
+    description="Precise control over the conversation flow"
+    href="/basics/scripted-simulations"
+  />
+  <BlockLink
+    icon="bug"
+    title="Debug Mode"
+    description="Step through scenarios interactively"
+    href="/basics/debug-mode"
+  />
+  <BlockLink
+    icon="settings"
+    title="Configuration"
+    description="Project config, env vars, and logging"
+    href="/basics/configuration"
+  />
+  <BlockLink
+    icon="test-tube"
+    title="Test Runner Integration"
+    description="Integrate with Vitest and Jest"
+    href="/basics/test-runner-integration"
+  />
+</div>

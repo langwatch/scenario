@@ -1,6 +1,6 @@
 ---
 title: Getting Started - Your First Agent Test
-description: Build your first AI agent test in 5 minutes. Step-by-step tutorial with user simulators, automated evaluation, and visual debugging for LangGraph, CrewAI, and custom agents.
+description: Learn how to build your first AI agent test in 5 minutes with Scenario. Complete step-by-step tutorial covering user simulators, automated evaluation, and visual debugging for LangGraph, CrewAI, and custom agent frameworks.
 ---
 
 import { EmbeddedScript } from "../../components/EmbeddedScript";
@@ -32,7 +32,7 @@ Create your first Scenario test. This example demonstrates testing a vegetarian 
 
 ### 1. Create Your First Test
 
-:::code-group
+::::code-group
 
 ```python [python]
 # my_vegetarian_recipe_agent.py
@@ -101,7 +101,28 @@ def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
     return response.choices[0].message
 ```
 
-```typescript [typescript]
+<div data-title="typescript">
+
+First, create a `scenario.config.mjs` configuration file to specify the default model to be used for simulations:
+
+<div style={{ border: "1px solid #e0e0e0", borderRadius: "5px", margin: "10px 0" }}>
+```typescript
+// scenario.config.mjs
+import { defineConfig } from "@langwatch/scenario/config";
+import { openai } from "@ai-sdk/openai";
+
+export default defineConfig({
+  defaultModel: {
+    model: openai("gpt-4.1"),
+  },
+});
+```
+</div>
+
+Then, create your first test:
+
+<div style={{ border: "1px solid #e0e0e0", borderRadius: "5px", margin: "10px 0" }}>
+```typescript
 // vegetarian-recipe.test.ts
 import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
@@ -153,11 +174,13 @@ describe("Vegetarian Recipe Agent", () => {
 
     // 3. Assert the result
     expect(result.success).toBe(true);
-  });
+  }, 30_000); // 30 second test timeout
 });
 ```
+</div>
+</div>
 
-:::
+::::
 
 ### 2. Set Up Your Environment
 
@@ -216,8 +239,8 @@ The output displays the conversation between the simulated user and the agent, f
 This example demonstrates:
 
 1. **Agent Integration**: You created an <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
-2. **Simulation**: The <RefLink link={{ python: "user_simulator_agent.html", typescript: "user_simulator_agent.html" }} code={{ python: "UserSimulatorAgent", typescript: "userSimulatorAgent" }} /> automatically generated realistic user messages based on the scenario description
-3. **Evaluation**: The <RefLink link={{ python: "judge_agent.html", typescript: "judge_agent.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> evaluated the conversation against your criteria
+2. **Simulation**: The <RefLink link={{ python: "userSimulatorAgent.html", typescript: "functions/userSimulatorAgent.html" }} code={{ python: "UserSimulatorAgent", typescript: "userSimulatorAgent" }} /> automatically generated realistic user messages based on the scenario description
+3. **Evaluation**: The <RefLink link={{ python: "judge_agent.html", typescript: "classes/JudgeAgentAdapter.html" }} code={{ python: "JudgeAgent", typescript: "judgeAgent" }} /> evaluated the conversation against your criteria
 4. **Caching**: The <RefLink link={{ python: "index.html#scenario.cache" }} code={{ python: "@scenario.cache()" }} /> decorator (Python) made your agent calls deterministic for testing
 
 ## Key Concepts

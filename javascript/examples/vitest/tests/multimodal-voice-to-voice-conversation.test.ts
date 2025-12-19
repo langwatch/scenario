@@ -23,7 +23,7 @@ import { describe, it, expect } from "vitest";
 import {
   OpenAiVoiceAgent,
   saveConversationAudio,
-  wrapJudgeForAudio,
+  wrapJudgeForAudioTranscription,
 } from "./helpers";
 import { messageRoleReversal } from "../../../src/agents/utils";
 
@@ -109,7 +109,7 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
 
     // Create judge agent to evaluate conversation quality
     // Wrap with audio handler to transcribe audio before judging
-    const conversationJudge = wrapJudgeForAudio(
+    const conversationJudge = wrapJudgeForAudioTranscription(
       scenario.judgeAgent({
         model: openai("gpt-4o"),
         criteria: ["The conversation flows naturally between user and agent"],

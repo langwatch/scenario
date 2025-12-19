@@ -1,6 +1,6 @@
 ---
 title: Writing Effective Agent Test Scenarios
-description: Best practices for creating robust agent tests. Write clear descriptions, criteria, and assertions for reliable AI agent testing across frameworks.
+description: Learn best practices for creating robust and maintainable agent test scenarios. Comprehensive guide covering clear descriptions, evaluation criteria, custom assertions, and testing strategies for reliable AI agent testing across all frameworks.
 ---
 
 import { RefLink } from "../../components/RefLink";
@@ -44,8 +44,8 @@ const result = await scenario.run({
   description: "detailed scenario context",
   agents: [
     yourAgent,
-    scenario.userSimulatorAgent(),
-    scenario.judgeAgent({ criteria: ["success criteria"] }),
+    scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
+    scenario.judgeAgent({ model: openai("gpt-4.1"), criteria: ["success criteria"] }),
   ],
   script: [], // Optional
 });
@@ -267,7 +267,7 @@ describe("Customer Service Billing", () => {
         String(m.content).toLowerCase().includes("account")
       )
     ).toBe(true); // Should discuss account
-  });
+  }, 30_000); // 30 second test timeout
 });
 ```
 
@@ -279,7 +279,9 @@ describe("Customer Service Billing", () => {
 
 Begin with what the user wants to accomplish:
 
-```python
+:::code-group
+
+```python [python]
 # Good: Clear user intent
 description="User wants to change their password but forgot their current one"
 
@@ -291,11 +293,27 @@ description="""
 """
 ```
 
+```typescript [typescript]
+// Good: Clear user intent
+description: "User wants to change their password but forgot their current one"
+
+// Better: Add context and constraints
+description: `
+    User is locked out of their account after multiple failed login attempts.
+    They need to change their password but don't remember the current one.
+    They have access to their email but not their phone for 2FA.
+`
+```
+
+:::
+
 ### 2. Include Personality and Context
 
 Make scenarios realistic by adding human elements:
 
-```python
+:::code-group
+
+```python [python]
 description="""
     User is a small business owner who is stressed about tax deadline.
     They need help categorizing expenses but aren't familiar with
@@ -303,11 +321,23 @@ description="""
 """
 ```
 
+```typescript [typescript]
+description: `
+    User is a small business owner who is stressed about tax deadline.
+    They need help categorizing expenses but aren't familiar with
+    accounting terms. They appreciate patient explanations and examples.
+`
+```
+
+:::
+
 ### 3. Test Edge Cases
 
 Use scenarios to explore edge cases:
 
-```python
+:::code-group
+
+```python [python]
 description="""
     User initially asks about product A but then changes their mind
     and asks about product B, then asks to compare both products.
@@ -315,11 +345,23 @@ description="""
 """
 ```
 
+```typescript [typescript]
+description: `
+    User initially asks about product A but then changes their mind
+    and asks about product B, then asks to compare both products.
+    They're indecisive and might change requirements multiple times.
+`
+```
+
+:::
+
 ### 4. Layer Complexity Gradually
 
 Start simple, then add complexity:
 
-```python
+:::code-group
+
+```python [python]
 # Basic scenario
 description="User wants to book a flight to Paris"
 
@@ -331,13 +373,29 @@ description="""
 """
 ```
 
+```typescript [typescript]
+// Basic scenario
+description: "User wants to book a flight to Paris"
+
+// More complex
+description: `
+    User wants to book a flight to Paris but has specific requirements:
+    direct flight, departure after 2 PM, willing to be flexible on dates
+    for better prices. They're traveling for business and need receipts.
+`
+```
+
+:::
+
 ## Common Patterns
 
 ### Information Gathering
 
 Test how well your agent collects necessary information:
 
-```python
+:::code-group
+
+```python [python]
 description="""
     User needs technical support but doesn't know technical details.
 """
@@ -351,11 +409,31 @@ agents=[
 ]
 ```
 
+```typescript [typescript]
+description: `
+    User needs technical support but doesn't know technical details.
+`
+agents: [
+    customerServiceAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+        criteria: [
+            "Agent should ask for the user's account number or email",
+            "Agent should ask what model is their router",
+        ]
+    })
+]
+```
+
+:::
+
 ### Clarification and Confirmation
 
 Test how agents handle ambiguous requests:
 
-```python
+:::code-group
+
+```python [python]
 description="""
     User asks to "cancel my thing" without specifying what they want to cancel.
 """
@@ -368,12 +446,31 @@ agents=[
 ]
 ```
 
+```typescript [typescript]
+description: `
+    User asks to "cancel my thing" without specifying what they want to cancel.
+`
+agents: [
+    customerServiceAgent,
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+        criteria: [
+            "Agent should ask clarifying questions to identify the correct item and confirm before taking action.",
+        ]
+    })
+]
+```
+
+:::
+
 ### Error Recovery
 
-Test how agents handle mistakes, you can enforce it to have made a mistake by using a <RefLink link={{ python: "script.html", typescript: "script.html" }} code={{ python: "script", typescript: "script" }} />,
+Test how agents handle mistakes, you can enforce it to have made a mistake by using a <RefLink link={{ python: "script.html", typescript: "types/ScriptStep.html" }} code={{ python: "script", typescript: "ScriptStep" }} />,
 and let the rest play out by itself.
 
-```python
+:::code-group
+
+```python [python]
 description="""
     Agent initially misunderstands user's request and offers wrong
     solution. User corrects them. Agent should acknowledge the
@@ -386,6 +483,22 @@ script=[
     scenario.proceed()
 ]
 ```
+
+```typescript [typescript]
+description: `
+    Agent initially misunderstands user's request and offers wrong
+    solution. User corrects them. Agent should acknowledge the
+    mistake and provide the right help.
+`
+script: [
+    scenario.user("change my subscription"),
+    scenario.agent("Sure, I'm going to upgrade you to the Pro plan... done!"),
+    scenario.user("what!? no I don't want to upgrade, I want to cancel"),
+    scenario.proceed()
+]
+```
+
+:::
 
 ## Next Steps
 

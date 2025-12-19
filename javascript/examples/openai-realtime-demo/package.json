@@ -1,0 +1,20 @@
+{
+  "name": "openai-realtime-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint agents/ index.ts",
+    "format": "pnpm lint --fix"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

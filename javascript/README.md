@@ -165,7 +165,7 @@ describe("Weather Agent", () => {
 
     // 4. Assert the final result
     expect(result.success).toBe(true);
-  });
+  }, 30_000); // 30s test timeout
 });
 ```
 

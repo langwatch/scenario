@@ -1,4 +1,20 @@
+import { generateText } from "ai";
 import { ModelConfig } from "../domain/core/schemas/model.schema";
+
+/**
+ * Parameters for LLM invocation.
+ * Derived from generateText parameters for now.
+ */
+export type InvokeLLMParams = Parameters<typeof generateText>[0];
+
+/**
+ * Result from LLM invocation.
+ * Derived from generateText return type for now.
+ */
+export type InvokeLLMResult = Pick<
+  Awaited<ReturnType<typeof generateText>>,
+  "text" | "content" | "toolCalls" | "toolResults"
+>;
 
 /**
  * General configuration for a testing agent.

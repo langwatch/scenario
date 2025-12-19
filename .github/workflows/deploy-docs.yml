@@ -19,7 +19,7 @@ concurrency:
 
 env:
   # GitHub Pages config for vocs.config.ts
-  BASE_URL: "https://scenario.langwatch.ai"
+  BASE_URL: "https://scenario-docs.langwatch.ai"
 
 jobs:
   deploy:

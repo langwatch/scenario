@@ -141,7 +141,7 @@ describe("Testing Remote Agents - Server-Sent Events", () => {
                     // Parse JSON and extract content field
                     const parsed = JSON.parse(data);
                     fullResponse += parsed.content;
-                  } catch (_e) {
+                  } catch {
                     // Skip malformed JSON
                   }
                 }

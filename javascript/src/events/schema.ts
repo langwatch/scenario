@@ -111,7 +111,7 @@ export const scenarioRunFinishedSchema = baseScenarioEventSchema.extend({
 export const scenarioMessageSnapshotSchema = MessagesSnapshotEventSchema.merge(
   baseScenarioEventSchema.extend({
     type: z.literal(ScenarioEventType.MESSAGE_SNAPSHOT),
-  })
+  }),
 );
 
 /**
@@ -126,8 +126,12 @@ export const scenarioEventSchema = z.discriminatedUnion("type", [
 ]);
 
 export type ScenarioRunStartedEvent = z.infer<typeof scenarioRunStartedSchema>;
-export type ScenarioRunFinishedEvent = z.infer<typeof scenarioRunFinishedSchema>;
-export type ScenarioMessageSnapshotEvent = z.infer<typeof scenarioMessageSnapshotSchema>;
+export type ScenarioRunFinishedEvent = z.infer<
+  typeof scenarioRunFinishedSchema
+>;
+export type ScenarioMessageSnapshotEvent = z.infer<
+  typeof scenarioMessageSnapshotSchema
+>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 
 // Define response schemas

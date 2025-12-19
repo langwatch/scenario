@@ -39,6 +39,44 @@ function getFullTestName(task: { name: string; suite?: SuiteLike }): string {
   return name;
 }
 
+/**
+ * Safely formats content for logging, masking binary data
+ */
+function formatContentForLogging(content: unknown): string {
+  if (typeof content !== "string") {
+    return "[Non-text content]";
+  }
+
+  // Check if content looks like base64 (common pattern for binary data)
+  if (/^[A-Za-z0-9+/]+=*$/.test(content) && content.length > 50) {
+    return "[Binary data]";
+  }
+
+  // Try to parse as JSON and check for binary content
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      // Check if array contains file parts with binary data
+      const hasBinaryData = parsed.some(
+        (part) =>
+          part?.type === "file" &&
+          part?.data &&
+          typeof part.data === "string" &&
+          /^[A-Za-z0-9+/]+=*$/.test(part.data) &&
+          part.data.length > 50
+      );
+      if (hasBinaryData) {
+        return "[Content with binary data]";
+      }
+    }
+  } catch {
+    // Not JSON, continue with original content
+  }
+
+  // Safe to display, but limit length
+  return content.length > 100 ? `${content.slice(0, 100)}...` : content;
+}
+
 function indent(str: string, n: number = 2) {
   return str.replace(/^/gm, " ".repeat(n));
 }
@@ -172,7 +210,7 @@ class VitestReporter implements Reporter {
               continue;
             } else roleLabel = chalk.yellow(role);
 
-            console.log(`${roleLabel}: ${m.content}`);
+            console.log(`${roleLabel}: ${formatContentForLogging(m.content)}`);
           }
           lastMessageCount = allMessages.length;
         }
