@@ -1,5 +1,5 @@
 """
-Scenario configuration for Scenario.
+Access Scenario configuration in Python to define evaluation policies and structured agent testing behavior.
 
 This module provides the main configuration class for customizing the behavior
 of the Scenario testing framework, including execution parameters and debugging options.

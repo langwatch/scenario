@@ -1,15 +1,15 @@
 ---
 title: Blackbox Testing - Test Agents via Public Interfaces
-description: Test AI agents through their public interfaces without mocking. Learn how to use HTTP adapters for production-like testing with real databases, authentication, and infrastructure.
+description: Learn how to test AI agents through their public interfaces without mocking internal components. Complete guide to using HTTP adapters for production-like testing with real databases, authentication, middleware, and infrastructure - testing exactly how agents run in production.
 ---
 
-# Blackbox Testing [Testing via public interfaces]
+# Blackbox Testing
 
-Blackbox testing examines software functionality without inspecting internal implementation. [Learn more about blackbox testing](https://martinfowler.com/bliki/BlackBoxTesting.html).
+Blackbox testing evaluates software functionality through external interfaces without examining internal implementation. [Learn more about blackbox testing](https://martinfowler.com/bliki/BlackBoxTesting.html).
 
 ## For Scenario Users
 
-In Scenario, blackbox testing means your [adapter](/agent-integration) calls the agent's **public interface**—the same [HTTP endpoint](/examples/testing-remote-agents), CLI command, or SDK method that users interact with—rather than directly instantiating agent classes or [mocking](/testing-guides/mocks) internal components.
+Scenario blackbox testing requires [adapters](/agent-integration) to call the agent's public interface—the same [HTTP endpoint](/examples/testing-remote-agents), CLI command, or SDK method that users interact with—rather than directly instantiating agent classes or [mocking](/testing-guides/mocks) internal components.
 
 This tests your agent as it runs in production: with real databases, authentication, middleware, and infrastructure.
 
@@ -75,7 +75,7 @@ await scenario.run(
 
 Compare with [mocked testing](/testing-guides/mocks) where you might mock tool functions or bypass HTTP entirely. Blackbox tests the complete stack.
 
-## When to Use
+## Use Cases
 
 - **Production validation**: Verify deployed agent works correctly
 - **Integration testing**: Test all components together (server, database, agent)

@@ -1,13 +1,13 @@
 ---
 title: Test Agno Agents
-description: Test Agno framework agents. Validate agent workflows, tool usage, and multi-step reasoning with simulation-based testing.
+description: Learn how to test Agno framework agents with Scenario testing platform. Complete guide to validating agent workflows, tool usage, multi-step reasoning, and conversation history management with comprehensive automated testing.
 ---
 
 import { RefLink } from "../../components/RefLink";
 
 # Agno Integration [Learn how to integrate Agno agents with the Scenario testing framework]
 
-[Agno](https://github.com/agno-agi/agno) agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter"}} /> interface. The key is handling message state properly since Agno agents maintain their own conversation history.
+[Agno](https://github.com/agno-agi/agno) agents integrate with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter"}} /> interface. Handle message state properly, as Agno agents maintain their own conversation history.
 
 ## Basic Integration Pattern
 
@@ -35,7 +35,7 @@ agent = Agent(
 )
 ```
 
-You can very easily integrate it with Scenario like this:
+Integrate with Scenario as follows:
 
 ```python
 class Agent(scenario.AgentAdapter):
@@ -78,7 +78,7 @@ class AgnoAgentAdapter(scenario.AgentAdapter):
         return openai_formatted_messages
 ```
 
-This conversion however only works for OpenAI agents. Messages comming from Gemini or Anthropic will have a slightly different format and will need more manual conversion for the tool calls.
+This conversion, however, only works for OpenAI agents. Messages coming from Gemini or Anthropic will have a slightly different format and will need more manual conversion for the tool calls.
 
 ## Full Example Project
 

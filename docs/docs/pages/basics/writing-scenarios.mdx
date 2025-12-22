@@ -1,11 +1,11 @@
 ---
 title: Writing Effective Agent Test Scenarios
-description: Best practices for creating robust agent tests. Write clear descriptions, criteria, and assertions for reliable AI agent testing across frameworks.
+description: Learn best practices for creating robust and maintainable agent test scenarios. Comprehensive guide covering clear descriptions, evaluation criteria, custom assertions, and testing strategies for reliable AI agent testing across all frameworks.
 ---
 
 import { RefLink } from "../../components/RefLink";
 
-# Writing Scenarios [Learn how to create effective scenario tests]
+# Writing Effective Scenarios
 
 ## Basic Scenario Structure
 
@@ -94,7 +94,7 @@ The `setId` is included in all events emitted during scenario execution, making 
 
 ### Grouping Your Sets and Batches
 
-While optional, we recommend setting stable identifiers for your scenarios, sets, and batches for better organization and tracking in LangWatch.
+While optional, set stable identifiers for your scenarios, sets, and batches for better organization and tracking in LangWatch.
 
 - **set_id**: Groups related scenarios into a test suite. This corresponds to the "Simulation Set" in the UI.
 - **SCENARIO_BATCH_RUN_ID**: Env variable that groups all scenarios that were run together in a single execution (e.g., a single CI job). This is automatically generated but can be overridden.

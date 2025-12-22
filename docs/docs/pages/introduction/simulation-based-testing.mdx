@@ -1,19 +1,19 @@
 ---
 title: Simulation-Based Testing for AI Agents
-description: Why simulation-based testing is essential for AI agents. Learn the testing pyramid for agents and how simulations catch edge cases traditional testing misses.
+description: Understand why simulation-based testing is essential for AI agents in production. Learn about the agent testing pyramid and discover how simulations catch edge cases, validate stateful behavior, and test multi-turn conversations that traditional testing methods miss.
 ---
 
-# Simulation-Based Testing [Multi-agent applications require a new approach to testing]
+# Simulation-Based Testing for AI Agents
 
-Traditional evaluation methods, designed for static, single-turn LLMs, are not enough. Agents are stateful, dynamic systems. They make decisions over time, recover from errors, and adapt to new information. To build robust, autonomous agents, we need to evaluate them with the same rigor we use to design their architecture.
+Traditional evaluation methods designed for static, single-turn LLMs cannot adequately test agents. Agents are stateful, dynamic systems that make decisions over time, recover from errors, and adapt to new information. Building robust, autonomous agents requires evaluation with the same rigor used to design their architecture.
 
-The goal with Scenario simulations isn't just to test agents, but to build a feedback loop that drives continuous improvement.
+Scenario simulations test agents and create a feedback loop for continuous improvement.
 
 ## The Limitations of Traditional Evaluation
 
-Most evaluations are based on dataset, with a static set of cases, those are hard to get specially when you are just getting started, they often require a great amount of examples to be valuable, and an expected answer to be provided, but more than anything, they are static, like input to output, or query to expected_contexts.
+Most evaluations rely on static datasets with fixed test cases. These datasets are difficult to create, require numerous examples, and demand expected answers. More importantly, they are static—simple input-output pairs or query-to-context mappings.
 
-Agents, however, aren't simple input-output functions. They are processes. An agent behaves like a program, executing a sequence of operations, using tools, and maintaining state.
+Agents are not simple input-output functions. They are processes that execute sequences of operations, use tools, and maintain state.
 
 ### Evaluation dataset (single input-output pairs):
 
@@ -51,7 +51,7 @@ script=[
 ✅ Easy to replicate and reproduce an issue found in production\
 ✅ Can run in autopilot for simulating a variety of inputs
 
-**This doesn't mean you should stop doing evaluations**, in fact, having evaluations and simulations together is what composes your full agent test suite:
+**Note:** Evaluations remain valuable. Combine evaluations and simulations for comprehensive agent testing:
 
 - Use evaluations for testing the smaller parts that compose the agent, where a more "machine learning" approach is required, for optimizing a specific LLM call or retrieval for example.
 

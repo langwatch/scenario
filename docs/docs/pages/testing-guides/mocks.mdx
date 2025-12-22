@@ -1,6 +1,6 @@
 ---
 title: Mocking External APIs in Agent Tests
-description: Mock external dependencies for fast, reliable agent tests. Isolate agent behavior from third-party services with tool mocking patterns.
+description: Learn how to mock external dependencies for fast, reliable agent tests. Complete guide to isolating agent behavior from third-party services with tool mocking patterns, database mocking, API service mocking, and testing tool failures for deterministic offline testing.
 ---
 
 import { LanguageTabs } from "../../components/LanguageTabs";
@@ -15,26 +15,26 @@ import ToolFailureSimulationPy from "../_generated/examples/test_tool_failure_si
 import LlmProviderMockingTS from "../_generated/examples/llm-provider-mocking.test.mdx";
 import LlmProviderMockingPy from "../_generated/examples/test_llm_provider_mocking.mdx";
 
-# Mocks [Simulating external dependencies for deterministic testing]
+# Mocking External Dependencies
 
-A _mock_ is a simulated implementation of an external dependency—API, database, tool, or service—that your scenario test uses to ensure **deterministic, offline-friendly** execution.
+Mocks are simulated implementations of external dependencies (APIs, databases, tools, or services) that scenario tests use to ensure **deterministic, offline-friendly** execution.
 
 :::tip
 **Modern Agent Architecture**
 
-Most production agents use **tool calling** to interact with external systems rather than making direct API calls in their core logic. This separation of concerns makes agents more testable, maintainable, and reliable. When mocking for agent tests, you'll primarily be mocking the tool execution functions, not the agent's reasoning logic.
+Production agents typically use **tool calling** to interact with external systems instead of making direct API calls in their core logic. This separation of concerns makes agents more testable, maintainable, and reliable. Mock the tool execution functions rather than the agent's reasoning logic.
 
 **If you're new to tool calling with agents, check out our [Tool Calling Guide](./tool-calling) first to understand the fundamentals.**
 :::
 
 :::tip
-**Why use mocks?**
+**Benefits:**
 
 - **Determinism**: Predictable responses regardless of external service state
-- **Speed & reliability**: No network calls or external dependencies
-- **Edge case testing**: Simulate failures, timeouts, and error conditions
-- **Cost control**: Avoid expensive API calls during testing
-- **Tool isolation**: Test agent reasoning separately from external tool implementation
+- **Speed & Reliability**: No network calls or external dependencies
+- **Edge Case Testing**: Simulate failures, timeouts, and error conditions
+- **Cost Control**: Avoid expensive API calls during testing
+- **Tool Isolation**: Test agent reasoning separately from external tool implementation
   :::
 
 ## Understanding Mock Levels
@@ -68,7 +68,7 @@ When testing agents, you can mock at different levels of your system architectur
 
 ## Mocking Patterns
 
-The following examples show different levels of mocking in action, ordered by how commonly they're used in agent testing:
+The following examples demonstrate different mocking levels, ordered by frequency of use in agent testing:
 
 ### 1. Tool Function Mocking (Level 1)
 
@@ -257,7 +257,7 @@ For broader testing practices like descriptive naming, test isolation, and mock 
 - **Python**: [pytest Best Practices](https://docs.pytest.org/en/stable/how.html#best-practices) and [unittest.mock Guide](https://docs.python.org/3/library/unittest.mock.html)
 - **General**: [Testing Best Practices](https://testing-library.com/docs/guiding-principles/) and [Test Doubles](https://martinfowler.com/bliki/TestDouble.html)
 
-## Related Concepts
+## Related Topics
 
 - [Fixtures](./fixtures) – Static test assets for deterministic scenarios
 - [Tool Calling](./tool-calling) – Testing agent tool usage and responses
@@ -266,7 +266,3 @@ For broader testing practices like descriptive naming, test isolation, and mock 
 ---
 
 Next up: learn how to [cache](../basics/cache) LLM calls for even faster, deterministic runs.
-
-```
-
-```

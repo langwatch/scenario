@@ -1,13 +1,13 @@
 ---
 title: Test Pydantic AI Agents
-description: Test Pydantic AI agents with type-safe validation. Verify structured outputs, tool calls, and agent behavior with Scenario.
+description: Learn how to test Pydantic AI agents with type-safe validation using Scenario. Complete guide to verifying structured outputs, tool calls, conversation history management, and agent behavior with comprehensive testing patterns.
 ---
 
 import { RefLink } from "../../components/RefLink";
 
 # Pydantic AI Integration [Learn how to integrate Pydantic AI agents with the Scenario testing framework]
 
-[Pydantic AI](https://ai.pydantic.dev/) agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter" }} /> interface. The key is managing conversation history and handling the iterative agent execution.
+[Pydantic AI](https://ai.pydantic.dev/) agents integrate with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter" }} /> interface. Manage conversation history and handle iterative agent execution.
 
 ## Basic Integration Pattern
 
@@ -48,7 +48,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 class PydanticAIAgentAdapter(scenario.AgentAdapter):
     def __init__(self):
-        # In-Memory History - Pydantic AI doesn't have built-in memory yet: https://github.com/pydantic/pydantic-ai/issues/530
+        # Store conversation history in memory - Pydantic AI doesn't have built-in memory yet: https://github.com/pydantic/pydantic-ai/issues/530
         self.history: dict[str, List[ModelMessage]] = {}
 
     async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:

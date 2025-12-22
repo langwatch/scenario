@@ -1,5 +1,5 @@
 """
-User simulator agent module for generating realistic user interactions.
+Simulate realistic user interactions using Scenario’s user simulator tools for robust agent testing
 
 This module provides the UserSimulatorAgent class, which simulates human user
 behavior in conversations with agents under test. The simulator generates

@@ -1,5 +1,5 @@
 """
-Configuration module for Scenario.
+Explore Scenario configuration modules to define simulation rules, agent behavior, and evaluation flows for agent testing.
 
 This module provides all configuration classes for customizing the behavior
 of the Scenario testing framework, including model settings, scenario execution

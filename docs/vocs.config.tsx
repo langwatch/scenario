@@ -256,6 +256,10 @@ export default defineConfig({
           link: "/agent-integration/google-adk",
         },
         {
+          text: "HTTPS Integration",
+          link: "/agent-integration/https",
+        },
+        {
           text: "Inngest AgentKit",
           link: "/agent-integration/agentkit",
         },
@@ -278,6 +282,10 @@ export default defineConfig({
         {
           text: "Pydantic AI",
           link: "/agent-integration/pydantic-ai",
+        },
+        {
+          text: "Vercel AI SDK",
+          link: "/agent-integration/vercel-ai",
         },
       ],
     },

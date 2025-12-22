@@ -1,0 +1,58 @@
+---
+title: Test Vercel AI SDK Agents
+description: Test agents built with Vercel AI SDK. Validate streaming responses, tool calling, structured outputs, and behavior across multiple AI providers.
+---
+
+import { RefLink } from "../../components/RefLink";
+
+# Vercel AI SDK Integration [Learn how to integrate Vercel AI SDK agents with the Scenario testing framework]
+
+[Vercel AI SDK](https://sdk.vercel.ai/docs) agents work seamlessly with Scenario through the <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter" }} code={{ python: "AgentAdapter" }} /> interface. The SDK provides a unified interface for building AI applications with streaming, tool calling, and structured outputs across multiple providers.
+
+## Basic Integration Pattern
+
+Given a Vercel AI SDK agent:
+
+```typescript
+import { openai } from '@ai-sdk/openai';
+import { generateText } from 'ai';
+
+async function myAgent(prompt: string) {
+  const result = await generateText({
+    model: openai('gpt-4-turbo'),
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a helpful AI assistant.',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+  });
+
+  return result;
+}
+```
+
+You can integrate it with Scenario like this:
+
+```typescript
+import scenario, { type AgentAdapter } from '@langwatch/scenario';
+
+const createMyAgentAdapter = (): AgentAdapter => {
+  return {
+    call: async (input) => {
+      const result = await myAgent(input.messages.at(-1)?.content);
+      return result.response.messages;
+    },
+  };
+};
+```
+
+## Next Steps
+
+- Explore [Scenario Basics](/basics/concepts) for advanced testing patterns
+- Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
+- Check out more [Agent Integration patterns](/agent-integration) for other frameworks

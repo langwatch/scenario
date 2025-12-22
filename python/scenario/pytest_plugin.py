@@ -1,5 +1,5 @@
 """
-Pytest plugin for Scenario testing library.
+Use the Scenario pytest plugin to run simulation-based agent tests directly in your CI pipeline..
 
 This module provides pytest integration for the Scenario framework, including
 automatic test reporting, debug mode support, and collection of scenario

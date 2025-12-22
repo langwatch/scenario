@@ -9,9 +9,9 @@ import StatefulTestExamplePy from "../../_generated/examples/test_testing_remote
 
 # Stateful Pattern with Thread ID
 
-Test [agents](/agent-integration) that maintain conversation history server-side using thread identifiers. The [adapter](/agent-integration) sends only the latest message plus a thread ID, and the server looks up the full history. See [Blackbox Testing](/testing-guides/blackbox-testing) for the testing philosophy.
+Test [agents](/agent-integration) that maintain conversation history server-side using thread identifiers. The [adapter](/agent-integration) sends only the latest message plus a thread ID, and the server looks up the full history.
 
-## When to Use
+## Use Cases
 
 - Server manages conversation state
 - Multi-device sync (mobile, web, desktop)
@@ -25,7 +25,7 @@ Test [agents](/agent-integration) that maintain conversation history server-side
 
 ```typescript
 // Client sends ALL messages every time
-POST / chat;
+POST /chat
 {
   messages: [msg1, msg2, msg3, msg4];
 }

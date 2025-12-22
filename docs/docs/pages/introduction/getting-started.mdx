@@ -1,6 +1,6 @@
 ---
 title: Getting Started - Your First Agent Test
-description: Build your first AI agent test in 5 minutes. Step-by-step tutorial with user simulators, automated evaluation, and visual debugging for LangGraph, CrewAI, and custom agents.
+description: Learn how to build your first AI agent test in 5 minutes with Scenario. Complete step-by-step tutorial covering user simulators, automated evaluation, and visual debugging for LangGraph, CrewAI, and custom agent frameworks.
 ---
 
 import { EmbeddedScript } from "../../components/EmbeddedScript";
@@ -8,11 +8,11 @@ import { RefLink } from "../../components/RefLink";
 import { Callout } from "vocs/components";
 import { Button } from "vocs/components";
 
-# Getting Started - Your First Scenario [A scenario is a test for a situation that your agent must be able to handle]
+# Getting Started: Your First Scenario
 
 ## Installation
 
-Install Scenario, along with a test runner (e.g. pytest or vitest):
+Install the Scenario SDK and a test runner (pytest or vitest):
 
 :::code-group
 
@@ -28,9 +28,9 @@ pnpm install @langwatch/scenario vitest
 
 ## Quick Start
 
-Let's create your first scenario test. This example shows how to test a simple vegetarian recipe agent:
+Create your first Scenario test. This example demonstrates testing a vegetarian recipe agent:
 
-### 1. Create your first test
+### 1. Create Your First Test
 
 ::::code-group
 
@@ -182,14 +182,14 @@ describe("Vegetarian Recipe Agent", () => {
 
 ::::
 
-### 2. Set up your environment
+### 2. Set Up Your Environment
 
 ```bash
 OPENAI_API_KEY=<your-api-key>
 LANGWATCH_API_KEY=<your-api-key> # optional, for simulation reporting
 ```
 
-### 3. Run your test
+### 3. Run Your Test
 
 :::code-group
 
@@ -227,16 +227,16 @@ _See your agent's conversations and decisions come to life:_
 
 ### Console Output
 
-You should see output showing the conversation between the simulated user and your agent, followed by the judge's evaluation:
+The output displays the conversation between the simulated user and the agent, followed by the judge's evaluation:
 
 <EmbeddedScript
   id="asciicast-nvO5GWGzqKTTCd8gtNSezQw11"
   src="https://asciinema.org/a/nvO5GWGzqKTTCd8gtNSezQw11.js"
 />
 
-## What happened?
+## What Happened?
 
-In this example:
+This example demonstrates:
 
 1. **Agent Integration**: You created an <RefLink link={{ python: "agent_adapter.html#scenario.agent_adapter.AgentAdapter", typescript: "classes/AgentAdapter.html" }} code={{ python: "AgentAdapter", typescript: "AgentAdapter" }} />
 2. **Simulation**: The <RefLink link={{ python: "userSimulatorAgent.html", typescript: "functions/userSimulatorAgent.html" }} code={{ python: "UserSimulatorAgent", typescript: "userSimulatorAgent" }} /> automatically generated realistic user messages based on the scenario description

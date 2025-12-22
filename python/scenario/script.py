@@ -1,5 +1,5 @@
 """
-Scenario script DSL (Domain Specific Language) module.
+Use the Scenario script DSL to define simulation flows and evaluate AI agent behavior in structured testing environments..
 
 This module provides a collection of functions that form a declarative language
 for controlling scenario execution flow. These functions can be used to create

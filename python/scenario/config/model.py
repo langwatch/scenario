@@ -1,5 +1,5 @@
 """
-Model configuration for Scenario.
+Configure model settings in Scenario to define underlying LLM behavior for AI agent testing environments.
 
 This module provides configuration classes for LLM model settings used by
 user simulator and judge agents in the Scenario framework.

@@ -1,21 +1,21 @@
 ---
 title: Test Fixtures for Deterministic Agent Tests
-description: Create repeatable tests with static fixtures. Use images, audio, and data files for offline-friendly, deterministic agent testing.
+description: Learn how to create repeatable, deterministic agent tests with static test fixtures. Complete guide to using images, audio clips, JSON payloads, and data files for offline-friendly testing that ensures consistent results and faster test execution.
 ---
 
-# Fixtures [Static test assets for deterministic scenarios]
+# Test Fixtures
 
-A _fixture_ is any static asset—image, audio clip, JSON payload—that your scenario test loads at runtime to ensure **repeatable, offline-friendly** execution.
+Fixtures are static assets (images, audio clips, JSON payloads) loaded at runtime by scenario tests to ensure **repeatable, offline-friendly** execution.
 
 :::tip
-**Why use fixtures?**
+**Benefits:**
 
 - **Determinism**: The exact same bytes are fed to the agent and judge on every run.
-- **Speed & cost**: No network fetches or external dependencies.
+- **Speed & Cost**: No network fetches or external dependencies.
 - **Debugging**: Easy to reproduce failures locally.
   :::
 
-## Where to put fixtures
+## Fixture Directory Structure
 
 - Create a `fixtures/` directory **next to your test file**.
 - Commit the asset (e.g. `scenario.webp`) to version control so CI has it.
@@ -27,7 +27,7 @@ javascript/examples/vitest/tests/
    └─ scenario.webp
 ```
 
-## Loading a fixture
+## Loading Fixtures
 
 :::code-group
 
@@ -139,7 +139,7 @@ async def test_image_analysis_with_fixtures():
 
 :::
 
-## Examples using fixtures
+## Fixture Examples
 
 - [Multimodal image analysis example](/examples/multimodal/multimodal-images) – loads a WebP image fixture.
 

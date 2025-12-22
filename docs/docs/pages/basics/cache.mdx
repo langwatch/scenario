@@ -1,6 +1,6 @@
 ---
 title: Caching for Deterministic Agent Tests
-description: Make scenario tests deterministic and faster with LLM call caching. Ensure consistent results across test runs while improving execution speed.
+description: Learn how to make scenario tests deterministic and faster with LLM call caching. Comprehensive guide to ensuring consistent test results across test runs while dramatically improving execution speed and reducing API costs.
 ---
 
 import { RefLink } from "../../components/RefLink";
@@ -17,7 +17,7 @@ Scenario caching is only available in the Python SDK for now, TypeScript support
 
 ### The Non-Deterministic Problem
 
-AI agents and LLM calls are inherently non-deterministic:
+Your AI agents and LLM calls are inherently non-deterministic:
 
 ```python
 # Same input, different outputs each time
@@ -43,7 +43,7 @@ scenario.configure(cache_key="my-test-suite-v1")
 # First run: makes real API calls, caches results
 result = await scenario.run(...)  # Takes 30 seconds
 
-# Subsequent runs: uses cached results
+# Subsequent runs: Scenario uses cached results
 result = await scenario.run(...)  # Takes 2 seconds, identical results
 ```
 
