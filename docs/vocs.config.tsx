@@ -227,6 +227,10 @@ export default defineConfig({
           link: "/basics/test-runner-integration",
         },
         {
+          text: "CI/CD Integration",
+          link: "/basics/ci-cd-integration",
+        },
+        {
           text: "Cache",
           link: "/basics/cache",
         },
