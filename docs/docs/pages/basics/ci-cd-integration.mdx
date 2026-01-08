@@ -1,0 +1,157 @@
+---
+title: CI/CD Integration
+description: Run Scenario tests in GitHub Actions. Complete workflows for TypeScript and Python with secrets management and batch tracking.
+---
+
+import { Callout } from "vocs/components";
+
+# CI/CD Integration
+
+Automate your Scenario tests in CI/CD pipelines to catch regressions early and maintain AI agent quality across your team. This guide shows you how to set up GitHub Actions for both TypeScript and Python.
+
+## Why Run Scenarios in CI/CD?
+
+Running Scenarios in CI/CD ensures agent behavior is checked automatically on every change. This catches behavior regressions from prompt edits, model updates, or refactors before they are merged or deployed, instead of relying on manual or ad-hoc testing.
+
+## Prerequisites
+
+- Scenario tests working locally
+- GitHub repository
+- API keys ready (OpenAI, LangWatch, etc.)
+
+## Quick Start: GitHub Actions Workflows
+
+Choose the workflow for your language and copy it to `.github/workflows/` in your repository:
+
+:::code-group
+
+```yaml [python]
+# .github/workflows/scenario-tests-python.yml
+name: Scenario Tests (Python)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run Scenario tests
+        run: uv run pytest tests/ -v
+        env:
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SCENARIO_BATCH_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+```
+
+```yaml [typescript]
+# .github/workflows/scenario-tests-typescript.yml
+name: Scenario Tests (TypeScript)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 10.22.0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 24.x
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Scenario tests
+        run: pnpm test
+        env:
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SCENARIO_BATCH_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+```
+
+:::
+
+## Setting Up Secrets
+
+Your workflow needs API keys to run. Set them up in GitHub:
+
+1. Go to your repository
+2. Click **Settings** → **Secrets and variables** → **Actions**
+3. Click **New repository secret**
+4. Add each secret:
+   - `LANGWATCH_API_KEY` — Get from [LangWatch Dashboard](https://app.langwatch.ai)
+   - `OPENAI_API_KEY` — Your OpenAI API key
+   - Other provider keys as needed (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, etc.)
+
+<Callout type="tip">
+**Pro tip:** Use `SCENARIO_BATCH_RUN_ID` to group all tests from a single CI run in the LangWatch dashboard. The pattern `${{ github.run_id }}-${{ github.run_attempt }}` ensures unique IDs for each CI execution.
+</Callout>
+
+## Customize Your Test Command
+
+Replace the test command in the workflow above with your project's command:
+
+**TypeScript:** Check `package.json` scripts — use `pnpm test`, `pnpm test:scenarios`, or `pnpm -F <package> test`
+
+**Python:** Use `uv run pytest tests/`, `make test`, or your custom pytest command
+
+:::info
+**Example:** Check out [data-analytics-agent](https://github.com/langwatch/data-analytics-agent) for a complete working setup.
+:::
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Tests timeout | Increase timeout in `vitest.config.ts` or `pytest.ini` |
+| Missing API keys | Verify secrets in repository Settings |
+| Browser window error | Set `SCENARIO_HEADLESS=true` |
+| Results not in LangWatch | Check `LANGWATCH_API_KEY` and `SCENARIO_BATCH_RUN_ID` |
+
+---
+
+## Next Steps
+
+Now that your tests run in CI/CD, explore other ways to improve your testing workflow:
+
+- [Configuration](/basics/configuration) - Configure environment variables and model settings
+- [Cache](/basics/cache) - Make tests deterministic and faster with caching
+- [Visualizations](/visualizations) - View test results in the LangWatch dashboard

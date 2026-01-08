@@ -227,6 +227,10 @@ export default defineConfig({
           link: "/basics/test-runner-integration",
         },
         {
+          text: "CI/CD Integration",
+          link: "/basics/ci-cd-integration",
+        },
+        {
           text: "Cache",
           link: "/basics/cache",
         },
@@ -333,6 +337,10 @@ export default defineConfig({
         {
           text: "Blackbox Testing",
           link: "/testing-guides/blackbox-testing",
+        },
+        {
+          text: "Agent Analytics",
+          link: "/testing-guides/agent-analytics",
         },
         {
           text: "Multimodal",
