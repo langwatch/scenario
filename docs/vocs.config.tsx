@@ -339,10 +339,6 @@ export default defineConfig({
           link: "/testing-guides/blackbox-testing",
         },
         {
-          text: "Agent Analytics",
-          link: "/testing-guides/agent-analytics",
-        },
-        {
           text: "Multimodal",
           items: [
             {
@@ -404,6 +400,19 @@ export default defineConfig({
               link: "/examples/testing-remote-agents/stateful",
             },
           ],
+        },
+      ],
+    },
+    {
+      text: "Examples",
+      items: [
+        {
+          text: "SQL Agent",
+          link: "/testing-guides/sql-agent",
+        },
+        {
+          text: "Customer Support Agent",
+          link: "/testing-guides/customer-support-agent",
         },
       ],
     },
