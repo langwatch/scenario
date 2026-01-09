@@ -1,0 +1,343 @@
+---
+title: Testing Customer Support Agents - Multi-Agent Coordination & Escalation
+description: Learn to test customer support agents with multi-agent coordination. Validate tool delegation, test fraud detection and escalation, handle multi-turn conversations, and ensure proper customer data handling.
+---
+
+# Testing Customer Support Agents [Validating multi-agent coordination and intelligent escalation]
+
+Customer support agents handle high volumes of routine inquiries instantly, reducing costs and wait times. These agents that coordinate multiple specialized sub-agents face unique testing challenges: they must investigate fraud correctly, handle complex multi-issue problems, and escalate to humans when appropriate.
+
+This guide demonstrates 3 essential testing scenarios to validate these critical capabilities.
+
+## Why Customer Support Agents Need Special Testing
+
+Unlike single-purpose agents, customer support agents:
+- **Must investigate security issues** like fraud using the right data exploration tools
+- **Handle complex multi-issue problems** that require knowledge base consultation and systematic approaches
+- **Recognize when to escalate** frustrated customers to human agents appropriately
+
+## Scenario 1: Fraud Investigation and Card Security
+Test that your support agent correctly handles fraud reports by calling the account exploration tool and responding with appropriate urgency:
+
+:::code-group
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import { openai } from "@ai-sdk/openai";
+
+describe("Customer Support Fraud Investigation", () => {
+  it("should investigate fraud and explore customer account", async () => {
+    const result = await scenario.run({
+      name: "fraud investigation and card security",
+      description:
+        "Customer discovers unauthorized transactions on their account and is worried about fraud. They need immediate help to secure their account and investigate the suspicious activity.",
+      agents: [
+        createBankSupportAgent(),
+        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.judgeAgent({
+          model: openai("gpt-4o"),
+          criteria: [
+            "Agent takes fraud concerns seriously and responds with urgency",
+            "Agent offers concrete security actions like card freezing",
+            "Agent provides clear next steps for fraud investigation",
+            "Agent maintains professional and reassuring tone",
+          ],
+        }),
+      ],
+      script: [
+        scenario.user(
+          "Hi, I just checked my account and there are transactions I didn't make. I think my card was stolen!"
+        ),
+        scenario.agent(),
+        checkCustomerExplorationCalled, // Custom assertion - define this to check if explore_customer_account tool was called
+        scenario.user(
+          "There's an $85 charge at Amazon and a $45 charge at some gas station. I definitely didn't make these purchases."
+        ),
+        scenario.agent(),
+        scenario.user(
+          "Yes, please help me secure my account right away. I'm worried about more charges."
+        ),
+        scenario.agent(),
+        verifyNoInappropriateTools, // Custom assertion - define this to verify no inappropriate tools were called
+        scenario.judge(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+import pytest
+import json
+import scenario
+from your_module import create_bank_support_agent
+
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_fraud_investigation_workflow():
+    """Test that the agent investigates fraud and explores customer account."""
+
+    result = await scenario.run(
+        name="fraud investigation and card security",
+        description="""
+            Customer discovers unauthorized transactions on their account and is worried about fraud.
+            They need immediate help to secure their account and investigate the suspicious activity.
+            The agent should use customer exploration tools to analyze the account.
+        """,
+        agents=[
+            create_bank_support_agent(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent takes fraud concerns seriously and responds with urgency",
+                    "Agent offers concrete security actions like card freezing",
+                    "Agent provides clear next steps for fraud investigation",
+                    "Agent maintains professional and reassuring tone",
+                ]
+            ),
+        ],
+        script=[
+            scenario.user(
+                "Hi, I just checked my account and there are transactions I didn't make. I think my card was stolen!"
+            ),
+            scenario.agent(),
+            check_customer_exploration_called,  # Custom assertion - define this to check if explore_customer_account tool was called
+            scenario.user(
+                "There's an $85 charge at Amazon and a $45 charge at some gas station. I definitely didn't make these purchases."
+            ),
+            scenario.agent(),
+            scenario.user(
+                "Yes, please help me secure my account right away. I'm worried about more charges."
+            ),
+            scenario.agent(),
+            verify_no_inappropriate_tools,  # Custom assertion - define this to verify no inappropriate tools were called
+            scenario.judge(),
+        ],
+    )
+
+    assert result.success, f"Fraud investigation test failed: {result.failure_reason}"
+```
+
+:::
+
+:::tip
+**Why this matters**: Fraud detection is critical for financial applications. This test verifies the agent: (1) calls the right tool to investigate account activity, (2) doesn't use inappropriate tools for security issues, and (3) responds with urgency and concrete security actions. Always test fraud handling before deploying to production.
+:::
+
+## Scenario 2: Complex Multi-Issue Banking Problem
+
+Test that your support agent uses the knowledge base appropriately when customers have multiple interconnected problems:
+
+:::code-group
+
+```typescript [typescript]
+describe("Customer Support Complex Issues", () => {
+  it("should use knowledge base for complex multi-part issues", async () => {
+    const result = await scenario.run({
+      name: "complex multi-issue banking problem",
+      description:
+        "Customer has multiple interconnected banking problems: locked online banking, unexpected fees, and missing direct deposit. They need systematic help and the agent should use knowledge base guidance.",
+      agents: [
+        createBankSupportAgent(),
+        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.judgeAgent({
+          model: openai("gpt-4o"),
+          criteria: [
+            "Agent addresses all parts of the multi-faceted problem",
+            "Agent provides systematic approach to resolving issues",
+            "Agent shows empathy for customer frustration",
+            "Agent offers clear next steps for each problem",
+          ],
+        }),
+      ],
+      script: [
+        scenario.user(
+          "I have multiple problems with my account. My online banking is locked, there's a $35 fee I don't understand, and my paycheck didn't deposit."
+        ),
+        scenario.agent(),
+        checkMessageSuggestionCalled, // Custom assertion - define this to check if get_message_suggestion tool was called
+        scenario.user(
+          "I've tried resetting my password multiple times and I really need access to pay my bills. This is really stressing me out."
+        ),
+        scenario.agent(),
+        scenario.judge(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_complex_issue_triggers_knowledge_base():
+    """Test that the agent uses knowledge base for complex multi-part issues."""
+
+    result = await scenario.run(
+        name="complex multi-issue banking problem",
+        description="""
+            Customer has multiple interconnected banking problems: locked online banking,
+            unexpected fees, and missing direct deposit. They need systematic help
+            and the agent should use knowledge base guidance.
+        """,
+        agents=[
+            create_bank_support_agent(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent addresses all parts of the multi-faceted problem",
+                    "Agent provides systematic approach to resolving issues",
+                    "Agent shows empathy for customer frustration",
+                    "Agent offers clear next steps for each problem",
+                ]
+            ),
+        ],
+        script=[
+            scenario.user(
+                "I have multiple problems with my account. My online banking is locked, there's a $35 fee I don't understand, and my paycheck didn't deposit."
+            ),
+            scenario.agent(),
+            check_message_suggestion_called,  # Custom assertion - define this to check if get_message_suggestion tool was called
+            scenario.user(
+                "I've tried resetting my password multiple times and I really need access to pay my bills. This is really stressing me out."
+            ),
+            scenario.agent(),
+            scenario.judge(),
+        ],
+    )
+
+    assert result.success, f"Complex issue test failed: {result.reasoning if hasattr(result, 'reasoning') else 'No failure reason available'}"
+```
+
+:::
+
+:::tip
+**Why this matters**: Complex, multi-part issues require different handling than simple queries. This test verifies the agent: (1) recognizes when to consult the knowledge base, (2) addresses all components of the problem systematically, and (3) shows empathy while providing actionable solutions. Knowledge base integration is essential for handling the long tail of support scenarios.
+:::
+
+## Scenario 3: Customer Escalation to Human Agent
+
+Test that your support agent properly handles escalation when customers explicitly demand to speak with a human or manager:
+
+:::code-group
+
+```typescript [typescript]
+describe("Customer Support Escalation", () => {
+  it("should escalate when customer demands human support", async () => {
+    const result = await scenario.run({
+      name: "customer escalation to human agent",
+      description:
+        "Customer has been dealing with an ongoing issue and is frustrated. They explicitly demand to speak with a human agent or manager. The agent should handle this professionally and escalate appropriately.",
+      agents: [
+        createBankSupportAgent(),
+        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.judgeAgent({
+          model: openai("gpt-4o"),
+          criteria: [
+            "Agent acknowledges customer's frustration empathetically",
+            "Agent offers to escalate when requested",
+            "Agent provides escalation timeline and process information",
+            "Agent maintains professionalism despite customer frustration",
+          ],
+        }),
+      ],
+      script: [
+        scenario.user(
+          "I've been calling about this same issue for two weeks and nobody can fix it. I want to speak to a real person who can actually help me!"
+        ),
+        scenario.agent(),
+        scenario.user(
+          "No more troubleshooting! I want a manager or supervisor right now. This is unacceptable service."
+        ),
+        scenario.agent(),
+        checkEscalationCalled, // Custom assertion - define this to check if escalate_to_human tool was called
+        scenario.judge(),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+```python [python]
+@pytest.mark.agent_test
+@pytest.mark.asyncio
+async def test_escalation_workflow():
+    """Test that the agent escalates when customer explicitly demands human help."""
+
+    result = await scenario.run(
+        name="customer escalation to human agent",
+        description="""
+            Customer has been dealing with an ongoing issue and is frustrated.
+            They explicitly demand to speak with a human agent or manager.
+            The agent should handle this professionally and escalate appropriately.
+        """,
+        agents=[
+            create_bank_support_agent(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent acknowledges customer's frustration empathetically",
+                    "Agent offers to escalate when requested",
+                    "Agent provides escalation timeline and process information",
+                    "Agent maintains professionalism despite customer frustration",
+                ]
+            ),
+        ],
+        script=[
+            scenario.user(
+                "I've been calling about this same issue for two weeks and nobody can fix it. I want to speak to a real person who can actually help me!"
+            ),
+            scenario.agent(),
+            scenario.user(
+                "No more troubleshooting! I want a manager or supervisor right now. This is unacceptable service."
+            ),
+            scenario.agent(),
+            check_escalation_called,  # Custom assertion - define this to check if escalate_to_human tool was called
+            scenario.judge(),
+        ],
+    )
+
+    assert result.success, f"Escalation test failed: {result.failure_reason}"
+```
+
+:::
+
+:::tip
+**Why this matters**: Proper escalation handling is critical for customer satisfaction. This test verifies the agent: (1) recognizes explicit escalation requests, (2) acknowledges customer frustration empathetically, (3) calls the escalation tool with appropriate reasoning, and (4) maintains professionalism. Failing to escalate when requested can severely damage customer relationships.
+:::
+
+## Best Practices Summary
+
+1. **Test fraud investigation workflows** - Verify the agent uses account exploration tools (not knowledge base) for security issues and responds with urgency
+2. **Test complex multi-issue handling** - Confirm the agent uses knowledge base guidance for interconnected problems and addresses all components systematically
+3. **Test escalation recognition** - Ensure the agent escalates when customers explicitly request human support, with empathy and professionalism
+4. **Use inline assertions** - Custom validation functions in the script verify specific tool calls and parameters
+5. **Combine assertions with judge criteria** - Technical checks (tool calls) + quality checks (empathy, completeness) = comprehensive validation
+
+## Full Production Example
+
+All scenarios above are taken directly from our complete reference implementation:
+
+### **[bank-example on GitHub](https://github.com/langwatch/bank-example)**
+
+A production-ready customer support agent built with better-agents that includes:
+- The exact 3 test scenarios shown above (plus 3 additional advanced scenarios)
+- Multi-agent coordinator with specialized sub-agents (Summary, Next Message, Customer Explorer)
+- Complete test suite with inline assertions and judge criteria
+- Production error handling and deployment patterns
+
+**Ready to build your own?** Start with [better-agents](https://github.com/langwatch/better-agents) to create production-ready AI agents with built-in testing, monitoring, and safety features.
+
+## See Also
+
+- [Tool Calling](/testing-guides/tool-calling) - Core patterns for testing tool usage and delegation
+- [Mocks](/testing-guides/mocks) - Customer data API and system mocking strategies
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing production endpoints
+- [The Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) - Where these tests fit in your overall testing strategy
