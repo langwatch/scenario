@@ -1,0 +1,162 @@
+---
+title: User Simulator Agent - Realistic Test Interactions
+description: Master the User Simulator Agent for realistic agent testing. Complete guide covering configuration options, persona customization, behavior patterns, and best practices for simulating diverse user interactions in Python and TypeScript.
+---
+
+import { Callout } from "vocs/components";
+
+# User Simulator Agent
+
+## Overview
+
+The **User Simulator Agent** is an LLM-powered agent that simulates realistic user behavior during scenario tests. Instead of writing scripted user messages, you describe the user's context and goals, and the simulator generates natural, contextually appropriate messages that drive the conversation forward.
+
+### When to Use the User Simulator
+
+The User Simulator is ideal for:
+
+- **Automatic Testing**: Let the conversation unfold naturally without scripting every message
+- **Diverse Scenarios**: Test how your agent handles different user personalities and communication styles
+- **Edge Cases**: Explore unexpected user behaviors and responses
+- **Multi-Turn Conversations**: Simulate realistic back-and-forth interactions
+
+### How It Works
+
+The user simulator:
+
+1. **Reads** the scenario description and conversation history
+2. **Generates** a natural user message based on context
+3. **Adapts** its communication style to match the described persona
+4. **Responds** realistically to the agent's messages
+
+---
+
+## Use Case Example: Testing a Frustrated Customer
+
+Let's test how a support agent handles an increasingly frustrated customer:
+
+:::code-group
+
+```python [python]
+import pytest
+import scenario
+
+class TechnicalSupportAgent(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        # Your technical support agent implementation
+        user_message = input.last_new_user_message_str()
+        return await my_support_bot.process(user_message)
+
+@pytest.mark.asyncio
+async def test_frustrated_customer_handling():
+    result = await scenario.run(
+        name="frustrated customer with internet issues",
+        description="""
+            User is a non-technical person experiencing slow internet for 3 days.
+            They've already tried calling support twice with no resolution.
+            They're frustrated and tired of technical jargon. They just want
+            their internet to work and are losing patience with troubleshooting steps.
+        """,
+        agents=[
+            TechnicalSupportAgent(),
+            scenario.UserSimulatorAgent(
+                model="openai/gpt-4o",
+                temperature=0.3  # Some variability for realistic frustration
+            ),
+            scenario.JudgeAgent(criteria=[
+                "Agent acknowledges the customer's frustration empathetically",
+                "Agent avoids excessive technical jargon",
+                "Agent provides simple, clear instructions",
+                "Agent offers escalation if troubleshooting doesn't work",
+                "Agent remains professional despite customer frustration"
+            ])
+        ],
+        max_turns=10
+    )
+    
+    assert result.success
+    print(f"Test completed with {len(result.messages)} messages")
+```
+
+```typescript [typescript]
+import scenario, { type AgentAdapter, AgentRole } from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+import { openai } from "@ai-sdk/openai";
+
+const technicalSupportAgent: AgentAdapter = {
+  role: AgentRole.AGENT,
+  async call(input) {
+    // Your technical support agent implementation
+    const userMessage = input.messages.filter((m) => m.role === "user").at(-1)?.content;
+    return await mySupportBot.process(userMessage);
+  },
+};
+
+describe("Frustrated Customer Handling", () => {
+  it("should handle a frustrated non-technical customer with empathy", async () => {
+    const result = await scenario.run({
+      name: "frustrated customer with internet issues",
+      description: `
+        User is a non-technical person experiencing slow internet for 3 days.
+        They've already tried calling support twice with no resolution.
+        They're frustrated and tired of technical jargon. They just want
+        their internet to work and are losing patience with troubleshooting steps.
+      `,
+      agents: [
+        technicalSupportAgent,
+        scenario.userSimulatorAgent({
+          model: openai("gpt-4o"),
+          temperature: 0.3,  // Some variability for realistic frustration
+        }),
+        scenario.judgeAgent({
+          model: openai("gpt-4o"),
+          criteria: [
+            "Agent acknowledges the customer's frustration empathetically",
+            "Agent avoids excessive technical jargon",
+            "Agent provides simple, clear instructions",
+            "Agent offers escalation if troubleshooting doesn't work",
+            "Agent remains professional despite customer frustration",
+          ],
+        }),
+      ],
+      maxTurns: 10,
+    });
+
+    expect(result.success).toBe(true);
+    console.log(`Test completed with ${result.messages.length} messages`);
+  }, 60_000);
+});
+```
+
+:::
+
+---
+
+## Configuration Reference
+
+<Callout type="info">
+  All parameters are optional. The user simulator will use global configuration defaults when parameters are not specified.
+</Callout>
+
+| Parameter | Type (Python / TypeScript) | Required | Default | Description |
+|-----------|---------------------------|----------|---------|-------------|
+| `model` | `str` / `LanguageModel` | No | Global config | LLM model identifier (PY: `"openai/gpt-4o"`, TS: `openai("gpt-4o")`). |
+| `temperature` | `float` / `number` | No | `0.0` | Sampling temperature (0.0-1.0). Higher values (0.3-0.7) create more varied user messages. |
+| `max_tokens` / `maxTokens` | `int` / `number` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
+| `system_prompt` / `systemPrompt` | `str` / `string` | No | Built-in | Custom system prompt to override default user simulation behavior. |
+| `api_base` | `str` | No | Global config | **Python only**: Base URL for custom API endpoints. |
+| `api_key` | `str` | No | Environment | **Python only**: API key for the model provider. |
+| `**extra_params` | `dict` | No | `{}` | **Python only**: Additional [LiteLLM parameters](https://docs.litellm.ai/docs/completion/input) (`headers`, `timeout`, `client`). |
+| `name` | `string` | No | `"User"` | **TypeScript only**: Display name in logs and traces. |
+
+---
+
+## Next Steps
+
+Explore related documentation:
+
+- [Judge Agent](/basics/judge-agent) - Configure automated evaluation
+- [Core Concepts](/basics/concepts) - Understand the simulation loop
+- [Writing Scenarios](/basics/writing-scenarios) - Best practices for scenario design
+- [Scripted Simulations](/basics/scripted-simulations) - Mix simulation with precise control
+- [Configuration](/basics/configuration) - Set global defaults for all simulators
