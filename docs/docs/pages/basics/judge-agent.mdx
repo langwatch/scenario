@@ -1,0 +1,161 @@
+---
+title: Judge Agent - Automated Test Evaluation
+description: Master the Judge Agent for automated scenario evaluation. Comprehensive guide covering configuration options, evaluation criteria design, custom system prompts, and best practices for reliable AI agent testing across Python and TypeScript.
+---
+
+import { Callout } from "vocs/components";
+
+# Judge Agent
+
+## Overview
+
+The **Judge Agent** is an LLM-powered evaluator that automatically determines whether your agent under test meets defined success criteria. Instead of writing complex assertion logic, you describe what success looks like in natural language, and the judge evaluates each conversation turn to decide whether to continue, succeed, or fail the test.
+
+After each agent response, the judge:
+
+1. **Reviews** the entire conversation history
+2. **Evaluates** against your defined criteria
+3. **Decides** whether to continue, succeed, or fail
+
+---
+
+## Use Case Example
+
+Let's test a customer support agent handling billing inquiries:
+
+:::code-group
+
+```python [python]
+import pytest
+import scenario
+
+@pytest.mark.asyncio
+async def test_billing_inquiry_quality():
+    result = await scenario.run(
+        name="billing inquiry handling",
+        description="""
+            User received an unexpected charge on their credit card and is
+            concerned but polite. They have their account information ready.
+        """,
+        agents=[
+            CustomerSupportAgent(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(criteria=[
+                "Agent asks for account information to investigate",
+                "Agent explains the charge clearly",
+                "Agent offers a solution or next steps",
+                "Agent maintains a helpful and empathetic tone",
+                "Agent should not make promises about refunds without verification"
+            ])
+        ],
+        max_turns=8
+    )
+    
+    assert result.success
+```
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+import { openai } from "@ai-sdk/openai";
+
+const result = await scenario.run({
+  name: "billing inquiry handling",
+  description: `
+    User received an unexpected charge on their credit card and is
+    concerned but polite. They have their account information ready.
+  `,
+  agents: [
+    customerSupportAgent,
+    scenario.userSimulatorAgent({ model: openai("gpt-4o") }),
+    scenario.judgeAgent({
+      model: openai("gpt-4o"),
+      criteria: [
+        "Agent asks for account information to investigate",
+        "Agent explains the charge clearly",
+        "Agent offers a solution or next steps",
+        "Agent maintains a helpful and empathetic tone",
+        "Agent should not make promises about refunds without verification",
+      ],
+    }),
+  ],
+  maxTurns: 8,
+});
+
+expect(result.success).toBe(true);
+```
+
+:::
+
+---
+
+## Configuration Reference
+
+<Callout type="info">
+  All parameters are optional except `criteria` in TypeScript. The judge uses global configuration defaults when parameters aren't specified.
+</Callout>
+
+| Parameter | Type (Python / TypeScript) | Required | Default | Description |
+|-----------|---------------------------|----------|---------|-------------|
+| `criteria` | `List[str]` / `string[]` | TS: Yes<br/>PY: No | `[]` | Success criteria to evaluate. Include positive requirements and negative constraints. |
+| `model` | `str` / `LanguageModel` | No | Global config | LLM model identifier (PY: `"openai/gpt-4o"`, TS: `openai("gpt-4o")`). |
+| `temperature` | `float` / `number` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
+| `max_tokens` / `maxTokens` | `int` / `number` | No | Model default | Maximum tokens for judge reasoning and explanations. |
+| `system_prompt` / `systemPrompt` | `str` / `string` | No | Built-in | Custom system prompt to override default judge behavior. |
+| `api_base` | `str` | No | Global config | **Python only**: Base URL for custom API endpoints. |
+| `api_key` | `str` | No | Environment | **Python only**: API key for the model provider. |
+| `**extra_params` | `dict` | No | `{}` | **Python only**: Additional [LiteLLM parameters](https://docs.litellm.ai/docs/completion/input) (`headers`, `timeout`, `client`). |
+| `name` | `string` | No | `"Judge"` | **TypeScript only**: Display name in logs and traces. |
+
+---
+
+## Writing Effective Criteria
+
+Good criteria are **specific**, **measurable**, **relevant**, and **actionable**:
+
+:::code-group
+
+```python [python]
+# Good - specific and measurable
+scenario.JudgeAgent(criteria=[
+    "Agent asks for the user's order number",
+    "Agent provides a tracking link",
+    "Agent offers to help with anything else",
+    "Agent should not promise delivery dates without checking the system"
+])
+
+# Avoid vague criteria
+scenario.JudgeAgent(criteria=[
+    "Agent is helpful",           # Too vague
+    "Agent does everything right", # Not measurable
+])
+```
+
+```typescript [typescript]
+// Good - specific and measurable
+scenario.judgeAgent({
+  criteria: [
+    "Agent asks for the user's order number",
+    "Agent provides a tracking link",
+    "Agent offers to help with anything else",
+    "Agent should not promise delivery dates without checking the system",
+  ],
+});
+
+// Avoid vague criteria
+scenario.judgeAgent({
+  criteria: [
+    "Agent is helpful",           // Too vague
+    "Agent does everything right", // Not measurable
+  ],
+});
+```
+
+:::
+
+
+## Next Steps
+
+- [User Simulator Agent](/basics/user-simulator) - Configure realistic user behavior
+- [Writing Scenarios](/basics/writing-scenarios) - Best practices for scenario design
+- [Scripted Simulations](/basics/scripted-simulations) - Combine judges with precise flow control
+- [Configuration](/basics/configuration) - Set global defaults for all judges

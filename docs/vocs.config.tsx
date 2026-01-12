@@ -215,6 +215,14 @@ export default defineConfig({
           link: "/basics/writing-scenarios",
         },
         {
+          text: "Judge Agent",
+          link: "/basics/judge-agent",
+        },
+        {
+          text: "User Simulator",
+          link: "/basics/user-simulator",
+        },
+        {
           text: "Scripted Simulations",
           link: "/basics/scripted-simulations",
         },
