@@ -371,7 +371,7 @@ export default defineConfig({
               link: "/examples/multimodal/multimodal-images",
             },
             {
-              text: "Files (coming soon)",
+              text: "Files",
               link: "/examples/multimodal/multimodal-files",
             },
           ],
