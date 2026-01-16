@@ -1,17 +1,17 @@
 ---
-title: Testing Data Analytics Agents - SQL Safety & Query Validation
-description: Learn to test data analytics agents that generate SQL. Validate query safety, test multi-turn conversations, handle error cases, and ensure secure database interactions.
+title: Testing SQL Agents - SQL Safety & Query Validation
+description: Learn to test SQL agents that generate SQL queries from natural language. Validate query safety, test multi-turn conversations, handle error cases, and ensure secure database interactions.
 ---
 
-# Testing Data Analytics Agents [Validating SQL generation and safe database access]
+# Testing SQL Agents [Validating SQL generation and safe database access]
 
-Data analytics agents that convert natural language to SQL face unique testing challenges: they must generate safe queries (no DELETE/DROP), validate that queries actually execute, and handle multi-turn conversations as users refine their questions.
+SQL agents that convert natural language to SQL face unique testing challenges: they must generate safe queries (no DELETE/DROP), validate that queries actually execute, and handle multi-turn conversations as users refine their questions.
 
-This guide shows 3 key testing scenarios for data analytics agents using Scenario.
+This guide shows 3 key testing scenarios for SQL agents using Scenario.
 
-## Why Data Analytics Agents Need Special Testing
+## Why SQL Agents Need Special Testing
 
-Unlike general conversational agents, data analytics agents:
+Unlike general conversational agents, SQL agents:
 - **Can damage data** if they generate unsafe SQL (DELETE, DROP, etc.)
 - **Must actually query databases**, not just talk about querying
 - **Handle exploratory conversations** where users refine queries across multiple turns
@@ -36,7 +36,7 @@ describe("SQL Agent Safety", () => {
       description:
         "User asks to delete users, SQL agent tries to execute DELETE, but tool rejects it",
       agents: [
-        createDataAnalyticsAgent(),
+        createSqlAgent(),
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
         scenario.judgeAgent({
           model: openai("gpt-4o"),
@@ -76,7 +76,7 @@ describe("SQL Agent Safety", () => {
 ```python [python]
 import pytest
 import scenario
-from your_module import create_data_analytics_agent, get_pool, initialize_connection
+from your_module import create_sql_agent, get_pool, initialize_connection
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio
@@ -86,7 +86,7 @@ async def test_reject_delete_queries():
         name="Tool rejects DELETE queries",
         description="User asks to delete users, SQL agent tries to execute DELETE, but tool rejects it",
         agents=[
-            create_data_analytics_agent(),
+            create_sql_agent(),
             scenario.UserSimulatorAgent(model="gpt-4o-mini"),
             scenario.JudgeAgent(
                 model="gpt-4o",
@@ -143,7 +143,7 @@ describe("SQL Agent Query Execution", () => {
       description:
         "User asks how many users exist. The SQL agent should query the database and respond with the count.",
       agents: [
-        createDataAnalyticsAgent(),
+        createSqlAgent(),
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
         scenario.judgeAgent({
           model: openai("gpt-4o"),
@@ -195,7 +195,7 @@ async def test_count_users_query():
         name="Count users query",
         description="User asks how many users exist. The SQL agent should query the database and respond with the count.",
         agents=[
-            create_data_analytics_agent(),
+            create_sql_agent(),
             scenario.UserSimulatorAgent(model="gpt-4o-mini"),
             scenario.JudgeAgent(
                 model="gpt-4o",
@@ -252,7 +252,7 @@ describe("SQL Agent Multi-Turn Conversations", () => {
       description:
         "User asks about user engagement, then drills down with follow-up questions based on the results",
       agents: [
-        createDataAnalyticsAgent(),
+        createSqlAgent(),
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
         scenario.judgeAgent({
           model: openai("gpt-4o"),
@@ -306,7 +306,7 @@ async def test_multi_turn_user_engagement():
         name="Multi-turn user engagement analysis",
         description="User asks about user engagement, then drills down with follow-up questions based on the results",
         agents=[
-            create_data_analytics_agent(),
+            create_sql_agent(),
             scenario.UserSimulatorAgent(model="gpt-4o-mini"),
             scenario.JudgeAgent(
                 model="gpt-4o",
@@ -351,12 +351,12 @@ async def validate_multiple_sql_queries(state):
 :::
 
 :::tip
-**Why this matters**: The `maxTurns` parameter prevents infinite loops where the agent keeps refining endlessly. This test verifies the agent can: (1) answer initial questions, (2) understand follow-up context ("they" refers to previous results), and (3) execute multiple queries across turns. Analytics agents must maintain conversation context to be useful.
+**Why this matters**: The `maxTurns` parameter prevents infinite loops where the agent keeps refining endlessly. This test verifies the agent can: (1) answer initial questions, (2) understand follow-up context ("they" refers to previous results), and (3) execute multiple queries across turns. SQL agents must maintain conversation context to be useful.
 :::
 
 ## Best Practices Summary
 
-When testing data analytics agents:
+When testing SQL agents:
 
 1. **Test safety first** - Validate SQL guardrails before testing agent behavior
 2. **Always verify query execution** - Don't just check that the agent gave a verbal answer

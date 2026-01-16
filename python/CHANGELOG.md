@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.15](https://github.com/langwatch/scenario/compare/python/v0.7.14...python/v0.7.15) (2026-01-13)
+
+
+### Features
+
+* **python:** add span-based evaluation for judge agent ([#188](https://github.com/langwatch/scenario/issues/188)) ([59352ec](https://github.com/langwatch/scenario/commit/59352ec0e36faf2efb3239fde4082d0ee0d80168))
+* **realtime:** add LangWatch Scenario expert voice agent demo ([#160](https://github.com/langwatch/scenario/issues/160)) ([8f67f24](https://github.com/langwatch/scenario/commit/8f67f24985cc337bb23a27423e5df277bb677994))
+
+
+### Miscellaneous
+
+* metadata ([#197](https://github.com/langwatch/scenario/issues/197)) ([bbde20b](https://github.com/langwatch/scenario/commit/bbde20bf9448f71ddbb811ff3cf4ed3014895dd4))
+
+
+### Code Refactoring
+
+* use SDK constants for thread ID attribute ([#195](https://github.com/langwatch/scenario/issues/195)) ([c621340](https://github.com/langwatch/scenario/commit/c621340ea90e7456887108f1c344a6128c97af6b))
+
 ## [0.7.14](https://github.com/langwatch/scenario/compare/python/v0.7.13...python/v0.7.14) (2025-10-21)
 
 
