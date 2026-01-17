@@ -3,4 +3,5 @@ export interface JudgeResult {
   reasoning: string;
   metCriteria: string[];
   unmetCriteria: string[];
+  evidence?: Record<string, string>;
 }

@@ -298,6 +298,7 @@ If you do have enough information, use the finish_test tool to determine if all 
 <rules>
 - Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criterias.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- For each criterion, provide evidence citing exact values or quotes from the transcript or tool output.
 </rules>
 """,
             },
@@ -374,13 +375,29 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                                 "type": "string",
                                 "description": "Explanation of what the final verdict should be",
                             },
+                            "evidence": {
+                                "type": "object",
+                                "properties": {
+                                    criteria_names[idx]: {
+                                        "type": "string",
+                                        "description": (
+                                            "Evidence supporting the criterion verdict, citing exact values or quotes "
+                                            "from the transcript or tool output."
+                                        ),
+                                    }
+                                    for idx, criterion in enumerate(self.criteria)
+                                },
+                                "required": criteria_names,
+                                "additionalProperties": False,
+                                "description": "Evidence for each criterion verdict",
+                            },
                             "verdict": {
                                 "type": "string",
                                 "enum": ["success", "failure", "inconclusive"],
                                 "description": "The final verdict of the test",
                             },
                         },
-                        "required": ["criteria", "reasoning", "verdict"],
+                        "required": ["criteria", "reasoning", "evidence", "verdict"],
                         "additionalProperties": False,
                     },
                 },
@@ -433,6 +450,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                         verdict = args.get("verdict", "inconclusive")
                         reasoning = args.get("reasoning", "No reasoning provided")
                         criteria = args.get("criteria", {})
+                        evidence = args.get("evidence", {})
 
                         # Handle case where LLM returns criteria as a JSON string instead of dict
                         # This can happen when the LLM is uncertain about the schema format
@@ -457,6 +475,12 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                                 "Using empty dict as fallback."
                             )
                             criteria = {}
+                        if not isinstance(evidence, dict):
+                            logger.warning(
+                                f"JudgeAgent: evidence is {type(evidence).__name__}, expected dict. "
+                                "Using empty dict as fallback."
+                            )
+                            evidence = {}
 
                         passed_criteria = [
                             self.criteria[idx]
@@ -476,6 +500,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                             reasoning=reasoning,
                             passed_criteria=passed_criteria,
                             failed_criteria=failed_criteria,
+                            evidence=evidence,
                         )
                     except json.JSONDecodeError:
                         raise Exception(

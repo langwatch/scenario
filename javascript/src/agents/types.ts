@@ -43,6 +43,10 @@ export interface FinishTestArgs {
    */
   criteria: Record<string, "true" | "false" | "inconclusive">;
   /**
+   * Evidence for each criterion verdict.
+   */
+  evidence: Record<string, string>;
+  /**
    * The reasoning behind the verdict.
    */
   reasoning: string;

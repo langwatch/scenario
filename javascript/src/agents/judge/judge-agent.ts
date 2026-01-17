@@ -63,6 +63,7 @@ ${criteriaList}
 <rules>
 - Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criteria.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- For each criterion, provide evidence citing exact values or quotes from the transcript or tool output.
 </rules>
 `.trim();
 }
@@ -91,6 +92,21 @@ function buildFinishTestTool(criteria: string[]): Tool {
         )
         .strict()
         .describe("Strict verdict for each criterion"),
+      evidence: z
+        .object(
+          Object.fromEntries(
+            criteriaNames.map((name) => [
+              name,
+              z
+                .string()
+                .describe(
+                  "Evidence supporting the criterion verdict, citing exact values or quotes."
+                ),
+            ])
+          )
+        )
+        .strict()
+        .describe("Evidence for each criterion verdict"),
       reasoning: z
         .string()
         .describe("Explanation of what the final verdict should be"),
@@ -226,6 +242,7 @@ class JudgeAgent extends JudgeAgentAdapter {
           const verdict = args.verdict || "inconclusive";
           const reasoning = args.reasoning || "No reasoning provided";
           const criteria = args.criteria || {};
+          const evidence = args.evidence || {};
           const criteriaValues = Object.values(criteria);
           const metCriteria = cfg.criteria.filter(
             (_, i) => criteriaValues[i] === "true"
@@ -239,6 +256,7 @@ class JudgeAgent extends JudgeAgentAdapter {
             reasoning,
             metCriteria,
             unmetCriteria,
+            evidence,
           };
           this.logger.debug("finish_test result", result);
           return result;

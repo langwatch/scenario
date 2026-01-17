@@ -10,6 +10,7 @@ from typing import (
     Optional,
     TypeAlias,
     Union,
+    TypedDict,
 )
 
 from openai.types.chat import (
@@ -36,6 +37,28 @@ else:
 # message types with the trace_id field
 
 
+class FileAttachment(TypedDict, total=False):
+    """
+    Represents a file attached to a conversation message.
+
+    This type allows agents to receive file metadata or content
+    for multimodal analysis.
+
+    Attributes:
+        id: Unique identifier for the file (e.g., S3 ID)
+        name: Original filename
+        mime_type: File type (e.g., 'application/pdf')
+        url: URL where the file can be downloaded
+        content: Raw text or base64 content of the file
+    """
+
+    id: str
+    name: str
+    mime_type: str
+    url: str
+    content: str
+
+
 class ChatCompletionDeveloperMessageParamWithTrace(ChatCompletionDeveloperMessageParam):
     trace_id: Optional[str]
 
@@ -46,6 +69,7 @@ class ChatCompletionSystemMessageParamWithTrace(ChatCompletionSystemMessageParam
 
 class ChatCompletionUserMessageParamWithTrace(ChatCompletionUserMessageParam):
     trace_id: Optional[str]
+    files: Optional[List[FileAttachment]]
 
 
 class ChatCompletionAssistantMessageParamWithTrace(ChatCompletionAssistantMessageParam):
@@ -196,6 +220,7 @@ class ScenarioResult(BaseModel):
         reasoning: Detailed explanation of why the scenario succeeded or failed
         passed_criteria: List of success criteria that were satisfied
         failed_criteria: List of success criteria that were not satisfied
+        evidence: Mapping of criterion identifiers to supporting evidence from the transcript/tool output
         total_time: Total execution time in seconds (if measured)
         agent_time: Time spent in agent calls in seconds (if measured)
 
@@ -227,6 +252,7 @@ class ScenarioResult(BaseModel):
     reasoning: Optional[str] = None
     passed_criteria: List[str] = []
     failed_criteria: List[str] = []
+    evidence: dict[str, str] = {}
     total_time: Optional[float] = None
     agent_time: Optional[float] = None
 
