@@ -3,8 +3,402 @@ title: Testing File Analysis Agents - PDF, CSV & Document Processing
 description: Learn how to test AI agents that analyze and process files like PDFs, CSVs, and other documents. Comprehensive guide for building Scenario tests where agents parse user-provided files and respond appropriately.
 ---
 
-# Multimodal File Analysis (Coming Soon)
+import { LanguageTabs } from "../../../components/LanguageTabs";
 
-This page will demonstrate how to build Scenario tests where the user provides **files** (PDF, CSV, etc.) as part of the conversation and the agent must parse and respond appropriately.
+# Multimodal File Analysis
 
-Stay tuned — examples and best-practices are in the works! 🚧
+This page demonstrates how to write Scenario tests where the user provides **files** (PDF, CSV, etc.) as part of the conversation and the agent must parse and respond appropriately.
+
+:::tip
+The focus here is on **testing** your file-handling agent, not building it. Your agent implementation can use any framework (LangChain, Agno, custom code, etc.) — Scenario tests are framework-agnostic.
+:::
+
+## Adding Files to Scenario Messages
+
+Files are included in scenario messages using the OpenAI `ChatCompletionMessageParam` format. You can pass file content as base64-encoded data using the `file` type with `file_data`:
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+import * as fs from "fs";
+
+// Encode file to base64
+const fileContent = fs.readFileSync("/path/to/document.pdf");
+const base64Data = fileContent.toString("base64");
+
+scenario.message({
+  role: "user",
+  content: [
+    { type: "text", text: "Please summarize this document." },
+    {
+      type: "file",
+      file: {
+        filename: "document.pdf",
+        file_data: `data:application/pdf;base64,${base64Data}`,
+      },
+    },
+  ],
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+import base64
+from pathlib import Path
+
+# Encode file to base64
+file_content = Path("/path/to/document.pdf").read_bytes()
+base64_data = base64.b64encode(file_content).decode()
+
+scenario.message({
+    "role": "user",
+    "content": [
+        {"type": "text", "text": "Please summarize this document."},
+        {
+            "type": "file",
+            "file": {
+                "filename": "document.pdf",
+                "file_data": f"data:application/pdf;base64,{base64_data}",
+            },
+        },
+    ],
+})
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+:::note
+**URL Support**: The OpenAI `ChatCompletionMessageParam` format requires base64-encoded file data, not URLs. If you need to load files from URLs, download them first and encode to base64. Here's a helper example:
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+import * as https from "https";
+import * as http from "http";
+
+async function loadFileFromUrl(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith("https") ? https : http;
+    client.get(url, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        const base64 = buffer.toString("base64");
+        const mimeType = res.headers["content-type"] || "application/octet-stream";
+        resolve(`data:${mimeType};base64,${base64}`);
+      });
+      res.on("error", reject);
+    });
+  });
+}
+
+// Usage
+const fileData = await loadFileFromUrl("https://example.com/document.pdf");
+scenario.message({
+  role: "user",
+  content: [
+    { type: "text", text: "Please summarize this document." },
+    {
+      type: "file",
+      file: {
+        filename: "document.pdf",
+        file_data: fileData,
+      },
+    },
+  ],
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+import base64
+from urllib.request import urlopen
+from urllib.parse import urlparse
+
+def load_file_from_url(url: str) -> str:
+    """Load a file from a URL and return as base64 data URL."""
+    with urlopen(url) as response:
+        file_content = response.read()
+        base64_data = base64.b64encode(file_content).decode()
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
+        return f"data:{content_type};base64,{base64_data}"
+
+# Usage
+file_data = load_file_from_url("https://example.com/document.pdf")
+scenario.message({
+    "role": "user",
+    "content": [
+        {"type": "text", "text": "Please summarize this document."},
+        {
+            "type": "file",
+            "file": {
+                "filename": "document.pdf",
+                "file_data": file_data,
+            },
+        },
+    ],
+})
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+:::
+
+## Example: PDF Summarization
+
+Test that your agent can read a PDF document and provide a meaningful summary.
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+import * as fs from "fs";
+import * as path from "path";
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+// Path to test fixtures
+const FIXTURES_DIR = path.join(__dirname, "fixtures");
+const PDF_PATH = path.join(FIXTURES_DIR, "sample_report.pdf");
+
+describe("PDF Analysis", () => {
+  it("should summarize a PDF document", async () => {
+    const result = await scenario.run({
+      name: "PDF Summarization",
+      description:
+        "Test that the agent can read a PDF document and provide a concise summary of its contents.",
+      agents: [
+        yourAgentAdapter,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent provides a clear summary of the PDF contents",
+            "Summary captures the key information from the document",
+            "Response is well-organized and easy to read",
+          ],
+        }),
+      ],
+      script: [
+        scenario.message({
+          role: "user",
+          content: [
+            { type: "text", text: "Please summarize this PDF document for me." },
+            {
+              type: "file",
+              file: {
+                filename: "sample_report.pdf",
+                file_data: `data:application/pdf;base64,${fs.readFileSync(PDF_PATH).toString("base64")}`,
+              },
+            },
+          ],
+        }),
+        scenario.agent(),
+        scenario.succeed("Agent successfully summarized the PDF document."),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+import base64
+from pathlib import Path
+import pytest
+import scenario
+
+# Path to test fixtures
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+PDF_PATH = FIXTURES_DIR / "sample_report.pdf"
+
+
+@pytest.mark.asyncio
+async def test_pdf_summarization():
+    """Test that the agent can summarize a PDF document."""
+
+    result = await scenario.run(
+        name="PDF Summarization",
+        description="Test that the agent can read a PDF document and provide a concise summary of its contents.",
+        agents=[
+            YourAgentAdapter(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent provides a clear summary of the PDF contents",
+                    "Summary captures the key information from the document",
+                    "Response is well-organized and easy to read",
+                ]
+            ),
+        ],
+        script=[
+            scenario.message({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Please summarize this PDF document for me."},
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": "sample_report.pdf",
+                            "file_data": f"data:application/pdf;base64,{base64.b64encode(PDF_PATH.read_bytes()).decode()}",
+                        },
+                    },
+                ],
+            }),
+            scenario.agent(),
+            scenario.succeed("Agent successfully summarized the PDF document."),
+        ],
+    )
+
+    assert result.success, f"Scenario failed: {result.reasoning}"
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+## Example: CSV Data Analysis
+
+Test that your agent can parse a CSV file and answer questions about the data.
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+import * as fs from "fs";
+import * as path from "path";
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+const FIXTURES_DIR = path.join(__dirname, "fixtures");
+const CSV_PATH = path.join(FIXTURES_DIR, "employee_database.csv");
+
+describe("CSV Analysis", () => {
+  it("should analyze employee data from CSV", async () => {
+    const result = await scenario.run({
+      name: "Employee Database Analysis",
+      description:
+        "Test that the agent can process an employee database CSV and provide accurate statistics about the workforce.",
+      agents: [
+        yourAgentAdapter,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent identifies the total number of employees",
+            "Agent mentions the different departments present",
+            "Agent provides relevant statistics or insights about the data",
+          ],
+        }),
+      ],
+      script: [
+        scenario.message({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Please analyze this employee database and give me a summary. How many employees are there? What departments exist?",
+            },
+            {
+              type: "file",
+              file: {
+                filename: "employee_database.csv",
+                file_data: `data:text/csv;base64,${fs.readFileSync(CSV_PATH).toString("base64")}`,
+              },
+            },
+          ],
+        }),
+        scenario.agent(),
+        scenario.succeed("Agent successfully analyzed the employee database."),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+import base64
+from pathlib import Path
+import pytest
+import scenario
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+CSV_PATH = FIXTURES_DIR / "employee_database.csv"
+
+
+@pytest.mark.asyncio
+async def test_csv_employee_analysis():
+    """Test that the agent can analyze employee CSV and provide insights."""
+
+    result = await scenario.run(
+        name="Employee Database Analysis",
+        description="Test that the agent can process an employee database CSV and provide accurate statistics about the workforce.",
+        agents=[
+            YourAgentAdapter(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent identifies the total number of employees",
+                    "Agent mentions the different departments present",
+                    "Agent provides relevant statistics or insights about the data",
+                ]
+            ),
+        ],
+        script=[
+            scenario.message({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Please analyze this employee database and give me a summary. How many employees are there? What departments exist?",
+                    },
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": "employee_database.csv",
+                            "file_data": f"data:text/csv;base64,{base64.b64encode(CSV_PATH.read_bytes()).decode()}",
+                        },
+                    },
+                ],
+            }),
+            scenario.agent(),
+            scenario.succeed("Agent successfully analyzed the employee database."),
+        ],
+    )
+
+    assert result.success, f"Scenario failed: {result.reasoning}"
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+## Real-World Example
+
+For a complete, production-ready example, see the [langwatch/multimodal-ai](https://github.com/langwatch/multimodal-ai) repository. It includes:
+
+- Full test scenarios for PDF and CSV analysis
+- AgentAdapter implementation for file handling
+- Organized fixture files and test structure
+- LangWatch instrumentation for observability
+
+**Ready to build your own?** Start with [better-agents](https://github.com/langwatch/better-agents) to create production-ready AI agents with built-in testing, monitoring, and safety features.
+
+## Related Guides
+
+- [Multimodal Images](./multimodal-images) — Testing agents that process images
+- [Audio to Text](./audio-to-text) — Testing agents that transcribe audio
+- [Fixtures Guide](/testing-guides/fixtures) — Managing test fixtures
