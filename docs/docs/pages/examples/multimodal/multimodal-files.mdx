@@ -10,8 +10,35 @@ import { LanguageTabs } from "../../../components/LanguageTabs";
 This page demonstrates how to write Scenario tests where the user provides **files** (PDF, CSV, etc.) as part of the conversation and the agent must parse and respond appropriately.
 
 :::tip
-The focus here is on **testing** your file-handling agent, not building it. Your agent implementation can use any framework (LangChain, Agno, custom code, etc.) — Scenario tests are framework-agnostic.
+The focus here is on **testing** your file-handling agent, not building it. Your agent implementation can use any framework (LangChain, Agno, custom code, etc.) — Scenario tests are framework-agnostic. If you want to see an example of how it's built, check out the [multimodal-ai repository](https://github.com/langwatch/multimodal-ai).
 :::
+
+## Understanding Test Fixtures
+
+Before diving into code, let's talk about **test fixtures** — the sample files you'll use to test your agent.
+
+### What Are Test Fixtures?
+
+Test fixtures are pre-prepared files (PDFs, CSVs, images, etc.) that serve as controlled inputs for your tests. Think of them as the "props" in your testing stage. Just like actors rehearse with the same props each time, your agent should be tested against consistent, well-defined files.
+
+### Why Fixtures Matter
+
+1. **Reproducibility**: Tests run the same way every time with the same inputs
+2. **Coverage**: Different fixtures test different scenarios (edge cases, happy paths, error conditions)
+3. **Documentation**: Fixtures serve as examples of what your agent should handle
+4. **Debugging**: When a test fails, you can inspect the exact file that caused the issue
+
+### Organizing Your Test Fixtures
+
+**You should create a dedicated `fixtures` folder** in your test directory to store all your test files. Organize them by file type (e.g., `fixtures/pdfs/`, `fixtures/csvs/`, `fixtures/images/`).
+
+**Key principles:**
+
+- **One folder per file type**: Separate PDFs, CSVs, images, etc.
+- **Descriptive names**: The filename should indicate what scenario it tests (e.g., `financial-report-2024-q1.pdf`, `employee-database-small.csv`)
+- **Multiple variants**: Have several examples for each scenario type (e.g., multiple financial reports, different-sized datasets)
+- **Include edge cases**: Empty files, corrupted files, unusually large files
+- **Version fixtures**: Keep different versions if testing historical behavior
 
 ## Adding Files to Scenario Messages
 
@@ -385,6 +412,401 @@ async def test_csv_employee_analysis():
 
 </LanguageTabs.MarkdownTab>
 </LanguageTabs>
+
+## Scaling Your Tests: Multiple Files
+
+As your test suite grows, you'll want to test your agent against **multiple files for the same scenario**. This ensures your agent works consistently across different variations of similar content.
+
+### Pattern 1: Looping Over Multiple Fixtures
+
+When you have several files that test the same capability (e.g., multiple financial reports), you can loop over them to run the same test scenario with each file. This is excellent for comprehensive coverage.
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+import * as fs from "fs";
+import * as path from "path";
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+const FIXTURES_DIR = path.join(__dirname, "fixtures", "pdfs");
+
+// Define multiple PDF fixtures for the same scenario type
+const FINANCIAL_REPORTS = [
+  "financial-report-2024-q1.pdf",
+  "financial-report-2024-q2.pdf",
+  "financial-report-2024-q3.pdf",
+  "financial-report-2024-q4.pdf",
+];
+
+describe("PDF Financial Analysis - Multiple Reports", () => {
+  // Loop over each financial report
+  FINANCIAL_REPORTS.forEach((filename) => {
+    it(`should extract revenue data from ${filename}`, async () => {
+      const pdfPath = path.join(FIXTURES_DIR, filename);
+      const fileContent = fs.readFileSync(pdfPath);
+      const base64Data = fileContent.toString("base64");
+
+      const result = await scenario.run({
+        name: `Financial Analysis - ${filename}`,
+        description: `Test revenue extraction from ${filename}`,
+        agents: [
+          yourAgentAdapter,
+          scenario.userSimulatorAgent(),
+          scenario.judgeAgent({
+            criteria: [
+              "Agent correctly identifies total revenue figures",
+              "Agent mentions the reporting period",
+              "Agent provides key financial metrics",
+            ],
+          }),
+        ],
+        script: [
+          scenario.message({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "What was the total revenue in this financial report?",
+              },
+              {
+                type: "file",
+                file: {
+                  filename,
+                  file_data: `data:application/pdf;base64,${base64Data}`,
+                },
+              },
+            ],
+          }),
+          scenario.agent(),
+          scenario.succeed("Agent successfully extracted revenue data."),
+        ],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+import base64
+from pathlib import Path
+import pytest
+import scenario
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "pdfs"
+
+# Define multiple PDF fixtures for the same scenario type
+FINANCIAL_REPORTS = [
+    "financial-report-2024-q1.pdf",
+    "financial-report-2024-q2.pdf",
+    "financial-report-2024-q3.pdf",
+    "financial-report-2024-q4.pdf",
+]
+
+
+# Loop over each financial report using pytest parametrize
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", FINANCIAL_REPORTS)
+async def test_extract_revenue_from_multiple_reports(filename: str):
+    """Test revenue extraction across multiple quarterly reports."""
+
+    pdf_path = FIXTURES_DIR / filename
+    file_content = pdf_path.read_bytes()
+    base64_data = base64.b64encode(file_content).decode()
+
+    result = await scenario.run(
+        name=f"Financial Analysis - {filename}",
+        description=f"Test revenue extraction from {filename}",
+        agents=[
+            YourAgentAdapter(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent correctly identifies total revenue figures",
+                    "Agent mentions the reporting period",
+                    "Agent provides key financial metrics",
+                ]
+            ),
+        ],
+        script=[
+            scenario.message({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "What was the total revenue in this financial report?",
+                    },
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": filename,
+                            "file_data": f"data:application/pdf;base64,{base64_data}",
+                        },
+                    },
+                ],
+            }),
+            scenario.agent(),
+            scenario.succeed("Agent successfully extracted revenue data."),
+        ],
+    )
+
+    assert result.success, f"Scenario failed for {filename}: {result.reasoning}"
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+**Benefits of looping:**
+- Tests all your fixtures automatically — add a new PDF and it's instantly tested
+- Identifies which specific files cause failures
+- Ensures consistent behavior across variations
+
+### Pattern 2: Random Selection for Diverse Testing
+
+Sometimes you want to test against **one random file** from a collection to keep test runs fast while still ensuring variety over time. This is useful for large fixture sets or in CI/CD pipelines.
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+import * as fs from "fs";
+import * as path from "path";
+import scenario from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+const FIXTURES_DIR = path.join(__dirname, "fixtures", "pdfs");
+
+const LEGAL_CONTRACTS = [
+  "employment-contract-2023.pdf",
+  "employment-contract-2024.pdf",
+  "vendor-agreement.pdf",
+  "service-level-agreement.pdf",
+  "non-disclosure-agreement.pdf",
+];
+
+describe("Legal Contract Analysis", () => {
+  it("should identify key terms in a random contract", async () => {
+    // Pick a random contract from the collection
+    const randomContract =
+      LEGAL_CONTRACTS[Math.floor(Math.random() * LEGAL_CONTRACTS.length)];
+    const pdfPath = path.join(FIXTURES_DIR, randomContract);
+
+    console.log(`Testing with: ${randomContract}`); // Helps with debugging
+
+    const result = await scenario.run({
+      name: `Legal Analysis - ${randomContract}`,
+      description:
+        "Test that agent can identify key contractual terms from legal documents",
+      agents: [
+        yourAgentAdapter,
+        scenario.userSimulatorAgent(),
+        scenario.judgeAgent({
+          criteria: [
+            "Agent identifies the type of legal document",
+            "Agent extracts key dates or terms",
+            "Agent mentions parties involved",
+          ],
+        }),
+      ],
+      script: [
+        scenario.message({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Please review this contract and tell me the key terms.",
+            },
+            {
+              type: "file",
+              file: {
+                filename: randomContract,
+                file_data: `data:application/pdf;base64,${fs.readFileSync(pdfPath).toString("base64")}`,
+              },
+            },
+          ],
+        }),
+        scenario.agent(),
+        scenario.succeed("Agent successfully analyzed the legal contract."),
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+import base64
+import random
+from pathlib import Path
+import pytest
+import scenario
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "pdfs"
+
+LEGAL_CONTRACTS = [
+    "employment-contract-2023.pdf",
+    "employment-contract-2024.pdf",
+    "vendor-agreement.pdf",
+    "service-level-agreement.pdf",
+    "non-disclosure-agreement.pdf",
+]
+
+
+@pytest.mark.asyncio
+async def test_identify_key_terms_random_contract():
+    """Test contract analysis with a randomly selected legal document."""
+
+    # Pick a random contract from the collection
+    random_contract = random.choice(LEGAL_CONTRACTS)
+    pdf_path = FIXTURES_DIR / random_contract
+
+    print(f"Testing with: {random_contract}")  # Helps with debugging
+
+    result = await scenario.run(
+        name=f"Legal Analysis - {random_contract}",
+        description="Test that agent can identify key contractual terms from legal documents",
+        agents=[
+            YourAgentAdapter(),
+            scenario.UserSimulatorAgent(),
+            scenario.JudgeAgent(
+                criteria=[
+                    "Agent identifies the type of legal document",
+                    "Agent extracts key dates or terms",
+                    "Agent mentions parties involved",
+                ]
+            ),
+        ],
+        script=[
+            scenario.message({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Please review this contract and tell me the key terms.",
+                    },
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": random_contract,
+                            "file_data": f"data:application/pdf;base64,{base64.b64encode(pdf_path.read_bytes()).decode()}",
+                        },
+                    },
+                ],
+            }),
+            scenario.agent(),
+            scenario.succeed("Agent successfully analyzed the legal contract."),
+        ],
+    )
+
+    assert result.success, f"Scenario failed for {random_contract}: {result.reasoning}"
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+**Benefits of random selection:**
+- Faster test runs (only one file per test)
+- Still ensures variety across multiple test executions
+- Good for CI/CD where you want quick feedback
+
+**Pro tip:** For comprehensive testing, use **looping in your full test suite** and **random selection in quick smoke tests** or during development.
+
+## Advanced: Cross-File Comparison and Multi-File Scenarios
+
+Real users often need to work with **multiple files simultaneously** — comparing reports, aggregating data across documents, or validating consistency between sources. Testing these scenarios ensures your agent can synthesize information across multiple files.
+
+### Why Test Multi-File Scenarios?
+
+1. **Context Management**: Validates that your agent can track information from multiple sources without confusion
+2. **Information Synthesis**: Tests the agent's ability to combine and compare data across documents
+3. **Real-World Relevance**: Users commonly upload multiple related files (e.g., "Compare Q1 and Q2 results")
+4. **Complex Reasoning**: Requires higher-level analysis than single-file processing
+
+### Providing Multiple Files in a Single Message
+
+To send multiple files at once, simply include multiple `file` objects in the content array:
+
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="typescript">
+
+```typescript
+scenario.message({
+  role: "user",
+  content: [
+    {
+      type: "text",
+      text: "Compare these two quarterly reports and tell me which had higher revenue."
+    },
+    {
+      type: "file",
+      file: {
+        filename: "q1-report.pdf",
+        file_data: `data:application/pdf;base64,${fs.readFileSync(q1Path).toString("base64")}`,
+      },
+    },
+    {
+      type: "file",
+      file: {
+        filename: "q2-report.pdf",
+        file_data: `data:application/pdf;base64,${fs.readFileSync(q2Path).toString("base64")}`,
+      },
+    },
+  ],
+});
+```
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="python">
+
+```python
+scenario.message({
+    "role": "user",
+    "content": [
+        {
+            "type": "text",
+            "text": "Compare these two quarterly reports and tell me which had higher revenue.",
+        },
+        {
+            "type": "file",
+            "file": {
+                "filename": "q1-report.pdf",
+                "file_data": f"data:application/pdf;base64,{base64.b64encode(q1_path.read_bytes()).decode()}",
+            },
+        },
+        {
+            "type": "file",
+            "file": {
+                "filename": "q2-report.pdf",
+                "file_data": f"data:application/pdf;base64,{base64.b64encode(q2_path.read_bytes()).decode()}",
+            },
+        },
+    ],
+})
+```
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
+
+**Other multi-file scenarios to test:**
+
+- **Aggregation**: "Here are 3 invoices — what's the total amount across all of them?"
+- **Cross-validation**: "Analyze this CSV and this PDF together — do the numbers match?"
+- **Data enrichment**: "Use this price list CSV to calculate totals for the items in this invoice PDF"
+
+Use `scenario.judgeAgent()` with criteria like:
+- "Agent correctly identifies which report had higher revenue"
+- "Agent mentions specific numbers from both files"
+- "Agent doesn't confuse data between the two documents"
 
 ## Real-World Example
 
