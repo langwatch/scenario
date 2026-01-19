@@ -228,7 +228,7 @@ describe("PDF Analysis", () => {
           ],
         }),
         scenario.agent(),
-        scenario.succeed("Agent successfully summarized the PDF document."),
+        scenario.judge(),
       ],
     });
 
@@ -284,7 +284,7 @@ async def test_pdf_summarization():
                 ],
             }),
             scenario.agent(),
-            scenario.succeed("Agent successfully summarized the PDF document."),
+            scenario.judge(),
         ],
     )
 
@@ -345,7 +345,7 @@ describe("CSV Analysis", () => {
           ],
         }),
         scenario.agent(),
-        scenario.succeed("Agent successfully analyzed the employee database."),
+        scenario.judge(),
       ],
     });
 
@@ -403,7 +403,7 @@ async def test_csv_employee_analysis():
                 ],
             }),
             scenario.agent(),
-            scenario.succeed("Agent successfully analyzed the employee database."),
+            scenario.judge(),
         ],
     )
 
@@ -480,7 +480,7 @@ describe("PDF Financial Analysis - Multiple Reports", () => {
             ],
           }),
           scenario.agent(),
-          scenario.succeed("Agent successfully extracted revenue data."),
+          scenario.judge(),
         ],
       });
 
@@ -552,7 +552,7 @@ async def test_extract_revenue_from_multiple_reports(filename: str):
                 ],
             }),
             scenario.agent(),
-            scenario.succeed("Agent successfully extracted revenue data."),
+            scenario.judge(),
         ],
     )
 
@@ -632,7 +632,7 @@ describe("Legal Contract Analysis", () => {
           ],
         }),
         scenario.agent(),
-        scenario.succeed("Agent successfully analyzed the legal contract."),
+        scenario.judge(),
       ],
     });
 
@@ -704,7 +704,7 @@ async def test_identify_key_terms_random_contract():
                 ],
             }),
             scenario.agent(),
-            scenario.succeed("Agent successfully analyzed the legal contract."),
+            scenario.judge(),
         ],
     )
 
