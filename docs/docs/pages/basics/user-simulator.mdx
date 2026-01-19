@@ -4,6 +4,7 @@ description: Master the User Simulator Agent for realistic agent testing. Comple
 ---
 
 import { Callout } from "vocs/components";
+import { LanguageTabs } from "../../components/LanguageTabs";
 
 # User Simulator Agent
 
@@ -138,16 +139,32 @@ describe("Frustrated Customer Handling", () => {
   All parameters are optional. The user simulator will use global configuration defaults when parameters are not specified.
 </Callout>
 
-| Parameter | Type (Python / TypeScript) | Required | Default | Description |
-|-----------|---------------------------|----------|---------|-------------|
-| `model` | `str` / `LanguageModel` | No | Global config | LLM model identifier (PY: `"openai/gpt-4o"`, TS: `openai("gpt-4o")`). |
-| `temperature` | `float` / `number` | No | `0.0` | Sampling temperature (0.0-1.0). Higher values (0.3-0.7) create more varied user messages. |
-| `max_tokens` / `maxTokens` | `int` / `number` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
-| `system_prompt` / `systemPrompt` | `str` / `string` | No | Built-in | Custom system prompt to override default user simulation behavior. |
-| `api_base` | `str` | No | Global config | **Python only**: Base URL for custom API endpoints. |
-| `api_key` | `str` | No | Environment | **Python only**: API key for the model provider. |
-| `**extra_params` | `dict` | No | `{}` | **Python only**: Additional [LiteLLM parameters](https://docs.litellm.ai/docs/completion/input) (`headers`, `timeout`, `client`). |
-| `name` | `string` | No | `"User"` | **TypeScript only**: Display name in logs and traces. |
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="python">
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `model` | `str` | No | Global config | LLM model identifier (e.g., `"openai/gpt-4o"`). |
+| `temperature` | `float` | No | `0.0` | Sampling temperature (0.0-1.0). Higher values (0.3-0.7) create more varied user messages. |
+| `max_tokens` | `int` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
+| `system_prompt` | `str` | No | Built-in | Custom system prompt to override default user simulation behavior. |
+| `api_base` | `str` | No | Global config | Base URL for custom API endpoints. |
+| `api_key` | `str` | No | Environment | API key for the model provider. |
+| `**extra_params` | `dict` | No | `{}` | Additional [LiteLLM parameters](https://docs.litellm.ai/docs/completion/input) (`headers`, `timeout`, `client`). |
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="typescript">
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-4o")`). |
+| `temperature` | `number` | No | `0.0` | Sampling temperature (0.0-1.0). Higher values (0.3-0.7) create more varied user messages. |
+| `maxTokens` | `number` | No | Model default | Maximum tokens for user messages. Keep reasonable for natural brevity. |
+| `systemPrompt` | `string` | No | Built-in | Custom system prompt to override default user simulation behavior. |
+| `name` | `string` | No | `"User"` | Display name in logs and traces. |
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
 
 ---
 

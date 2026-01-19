@@ -4,6 +4,7 @@ description: Master the Judge Agent for automated scenario evaluation. Comprehen
 ---
 
 import { Callout } from "vocs/components";
+import { LanguageTabs } from "../../components/LanguageTabs";
 
 # Judge Agent
 
@@ -94,17 +95,34 @@ expect(result.success).toBe(true);
   All parameters are optional except `criteria`. The judge uses global configuration defaults when parameters aren&apos;t specified.
 </Callout>
 
-| Parameter | Type (Python / TypeScript) | Required | Default | Description |
-|-----------|---------------------------|----------|---------|-------------|
-| `criteria` | `List[str]` / `string[]` | TS: Yes<br/>PY: No | `[]` | Success criteria to evaluate. Include positive requirements and negative constraints. |
-| `model` | `str` / `LanguageModel` | No | Global config | LLM model identifier (PY: `"openai/gpt-4o"`, TS: `openai("gpt-4o")`). |
-| `temperature` | `float` / `number` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
-| `max_tokens` / `maxTokens` | `int` / `number` | No | Model default | Maximum tokens for judge reasoning and explanations. |
-| `system_prompt` / `systemPrompt` | `str` / `string` | No | Built-in | Custom system prompt to override default judge behavior. |
-| `api_base` | `str` | No | Global config | **Python only**: Base URL for custom API endpoints. |
-| `api_key` | `str` | No | Environment | **Python only**: API key for the model provider. |
-| `**extra_params` | `dict` | No | `{}` | **Python only**: Additional [LiteLLM parameters](https://docs.litellm.ai/docs/completion/input) (`headers`, `timeout`, `client`). |
-| `name` | `string` | No | `"Judge"` | **TypeScript only**: Display name in logs and traces. |
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="python">
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `criteria` | `List[str]` | No | `[]` | Success criteria to evaluate. Include positive requirements and negative constraints. |
+| `model` | `str` | No | Global config | LLM model identifier (e.g., `"openai/gpt-4o"`). |
+| `temperature` | `float` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
+| `max_tokens` | `int` | No | Model default | Maximum tokens for judge reasoning and explanations. |
+| `system_prompt` | `str` | No | Built-in | Custom system prompt to override default judge behavior. |
+| `api_base` | `str` | No | Global config | Base URL for custom API endpoints. |
+| `api_key` | `str` | No | Environment | API key for the model provider. |
+| `**extra_params` | `dict` | No | `{}` | Additional [LiteLLM parameters](https://docs.litellm.ai/docs/completion/input) (`headers`, `timeout`, `client`). |
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="typescript">
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `criteria` | `string[]` | Yes | N/A | Success criteria to evaluate. Include positive requirements and negative constraints. |
+| `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-4o")`). |
+| `temperature` | `number` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
+| `maxTokens` | `number` | No | Model default | Maximum tokens for judge reasoning and explanations. |
+| `systemPrompt` | `string` | No | Built-in | Custom system prompt to override default judge behavior. |
+| `name` | `string` | No | `"Judge"` | Display name in logs and traces. |
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
 
 ---
 
