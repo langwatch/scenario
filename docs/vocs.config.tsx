@@ -211,6 +211,10 @@ export default defineConfig({
           link: "/basics/concepts",
         },
         {
+          text: "No-Code Scenario",
+          link: "/basics/no-code-scenario",
+        },
+        {
           text: "Writing Scenarios",
           link: "/basics/writing-scenarios",
         },

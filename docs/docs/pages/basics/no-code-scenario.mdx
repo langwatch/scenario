@@ -1,0 +1,50 @@
+---
+title: No-Code Scenario Builder
+description: Enable technical and non-technical team members to collaborate on agent testing. Build scenarios visually with AI or through the editor—no code required.
+---
+
+import { Image } from "../../components/Image";
+
+# No-Code Scenario Builder
+
+The visual scenario builder enables product managers, QA teams, and domain experts to create and refine test scenarios alongside engineers. Whether you use AI generation or build scenarios manually, everyone can contribute to improving agent quality without writing code.
+
+Access the scenario builder in the [Simulations Dashboard](https://app.langwatch.ai/@project/simulations/scenarios) under the **Scenarios** tab.
+
+## AI-Generated Scenarios
+
+Describe what you want to test and let AI generate the complete scenario—including user context, evaluation criteria, and expected behavior.
+
+<video
+  src="/images/scenarios-no-code.mp4"
+  autoPlay
+  loop
+  muted
+  playsInline
+  className="max-w-full rounded-lg my-4"
+/>
+
+AI generation accelerates scenario creation and helps uncover edge cases that might otherwise be missed.
+
+## Manual Scenario Editor
+
+Build scenarios from scratch or refine AI-generated ones. The editor provides full control over:
+
+- **Name** – Identify the scenario at a glance
+- **Label** – Categorize and organize scenarios
+- **Situation** – Define the user's context, intent, and constraints
+- **Criteria** – Set specific success conditions for evaluation
+
+<Image
+  src="/images/scenario-no-code-editor.png"
+  alt="Manual scenario editor on LangWatch"
+  style={{width: "100%", border: "1px solid #e0e0e0", borderRadius: "8px", marginTop: "20px", marginBottom: "20px"}}
+/>
+
+All scenarios can be viewed, edited, and run directly from the platform. Scenarios created visually work seamlessly with code-based tests, enabling teams to iterate faster regardless of technical background.
+
+## Cross-Platform Collaboration
+
+Scenarios built in the visual editor integrate directly with your test suite. Engineers can run them locally or in CI/CD, while non-technical team members contribute through the platform—bringing technical and non-technical perspectives together in one unified workflow.
+
+Learn more about [writing scenarios in code](/basics/writing-scenarios) or explore [scripted simulations](/basics/scripted-simulations) for advanced testing patterns.
