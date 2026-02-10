@@ -82,12 +82,15 @@ export function convertModelMessagesToAguiMessages(
 
       case msg.role === "tool":
         msg.content.map((p, i) => {
+          if ("type" in p && p.type !== "tool-result") return;
           aguiMessages.push({
             trace_id: msg.traceId,
             id: `${id}-${i}`,
             role: "tool",
             toolCallId: p.toolCallId,
-            content: JSON.stringify(p.output?.value),
+            content: JSON.stringify(
+              p.output && "value" in p.output ? p.output.value : p.output
+            ),
           });
         });
         break;

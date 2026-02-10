@@ -94,7 +94,7 @@ afterAll(async () => {
   conversations.clear();
 });
 
-describe.skip("Testing Remote Agents - Stateful with Thread ID", () => {
+describe("Testing Remote Agents - Stateful with Thread ID", () => {
   it("should maintain conversation state across multiple turns", async () => {
     const baseUrl = serverUrl;
 
@@ -146,7 +146,7 @@ describe.skip("Testing Remote Agents - Stateful with Thread ID", () => {
         scenario.agent(),
         scenario.judge(),
       ],
-      setId: "scenarios-github",
+      setId: "javascript-examples",
     });
 
     expect(result.success).toBe(true);

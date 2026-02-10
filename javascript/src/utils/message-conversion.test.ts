@@ -64,8 +64,8 @@ describe("convertModelMessagesToAguiMessages", () => {
 
   it("converts a tool message with multiple parts", () => {
     const arr = [
-      { toolCallId: "t1", output: { type: "json", value: { foo: "bar" } } },
-      { toolCallId: "t2", output: { type: "json", value: { baz: 42 } } },
+      { type: "tool-result", toolName: "tool1", toolCallId: "t1", output: { type: "json", value: { foo: "bar" } } },
+      { type: "tool-result", toolName: "tool2", toolCallId: "t2", output: { type: "json", value: { baz: 42 } } },
     ];
     const input = [makeModelMessage({ role: "tool", content: arr })];
     const result = convertModelMessagesToAguiMessages(input);
