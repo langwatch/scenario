@@ -57,3 +57,4 @@ jobs:
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --tag ${{ steps.disttag.outputs.tag }}
+        working-directory: javascript
