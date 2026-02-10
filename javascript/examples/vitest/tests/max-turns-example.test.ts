@@ -30,7 +30,7 @@ describe("when max turns is not set", () => {
       description:
         "This test case is used to test the max turns functionality of the scenario library.",
       agents: [mockAgent, mockUser, mockJudge],
-      setId: "scenarios-github",
+      setId: "javascript-examples",
     });
 
     expect(result.messages.length).toBe(20);
@@ -44,7 +44,7 @@ describe("when max turns is set to 20", () => {
       description:
         "This test case is used to test the max turns functionality of the scenario library.",
       agents: [mockAgent, mockUser, mockJudge],
-      setId: "scenarios-github",
+      setId: "javascript-examples",
       maxTurns: 20,
     });
 

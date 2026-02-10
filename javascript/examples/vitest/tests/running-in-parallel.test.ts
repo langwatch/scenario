@@ -43,7 +43,7 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
         }),
       ],
       maxTurns: 5,
-      setId: "scenarios-github",
+      setId: "javascript-examples",
     });
 
     try {
@@ -72,7 +72,7 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
         }),
       ],
       maxTurns: 5,
-      setId: "scenarios-github",
+      setId: "javascript-examples",
     });
 
     try {

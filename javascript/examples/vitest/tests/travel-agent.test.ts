@@ -184,7 +184,7 @@ describe("Travel Agent", () => {
         (state) => expect(state.hasToolCall("get_accomodation")).toBe(true),
         scenario.judge(),
       ],
-      setId: "scenarios-github",
+      setId: "javascript-examples",
     });
     expect(result.success).toBe(true);
   });

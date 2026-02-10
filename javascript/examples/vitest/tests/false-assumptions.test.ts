@@ -62,7 +62,7 @@ describe("False Assumptions", () => {
         // Time to make a judgment call
         scenario.judge(),
       ],
-      setId: "scenarios-github",
+      setId: "javascript-examples",
     });
 
     expect(result.success).toBe(true);

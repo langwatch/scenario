@@ -48,7 +48,7 @@ class RealtimeUserSimulatorAgent extends RealtimeAgentAdapter {
   }
 }
 
-describe.skip("Vegetarian Recipe Agent (Realtime API)", () => {
+describe("Vegetarian Recipe Agent (Realtime API)", () => {
   // Used for wrapping the agent under test in the adapter
   let realtimeAdapter: RealtimeAgentAdapter;
   // Used for simulating a user in voice conversations with the Realtime agent
@@ -132,7 +132,7 @@ describe.skip("Vegetarian Recipe Agent (Realtime API)", () => {
         scenario.agent(), // Audio response
         scenario.judge(), // Evaluates transcripts
       ],
-      setId: "scenarios-github",
+      setId: "realtime-examples",
     });
 
     try {
