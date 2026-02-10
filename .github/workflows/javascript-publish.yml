@@ -57,6 +57,3 @@ jobs:
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --tag ${{ steps.disttag.outputs.tag }}
-        working-directory: javascript
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
