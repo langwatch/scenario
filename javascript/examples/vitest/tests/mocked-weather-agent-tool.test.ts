@@ -81,7 +81,7 @@ describe("Mocked Weather Agent Tool", () => {
         scenario.agent(), // Agent processes the tool result
         scenario.succeed(),
       ],
-      setId: "javascript-examples",
+      setId: "scenarios-github",
     });
     expect(result.success).toBe(true);
   });

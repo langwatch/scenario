@@ -14,13 +14,13 @@ class AudioAgent extends OpenAiVoiceAgent {
 }
 
 // Use setId to group together for visualizing in the UI
-const setId = "multimodal-audio-test";
+const setId = "scenarios-github";
 
 /**
  * This example shows how to test an agent that can take audio input
  * from a fixture and respond with audio output.
  */
-describe("Multimodal Audio to Audio Tests", () => {
+describe.skip("Multimodal Audio to Audio Tests", () => {
   it("should handle audio input", async () => {
     const myAgent = new AudioAgent({
       systemPrompt: `

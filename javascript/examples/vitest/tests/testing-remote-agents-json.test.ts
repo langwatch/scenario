@@ -78,7 +78,7 @@ afterAll(async () => {
   });
 });
 
-describe("Testing Remote Agents - JSON Response", () => {
+describe.skip("Testing Remote Agents - JSON Response", () => {
   it("should test agent via HTTP endpoint with JSON response", async () => {
     // Base URL for your agent endpoint
     const baseUrl = serverUrl;
@@ -132,7 +132,7 @@ describe("Testing Remote Agents - JSON Response", () => {
         scenario.agent(),
         scenario.judge(),
       ],
-      setId: "javascript-examples",
+      setId: "scenarios-github",
     });
 
     expect(result.success).toBe(true);

@@ -6,20 +6,20 @@
  * scripts that precisely control how conversations unfold, when evaluations occur,
  * and when scenarios should succeed or fail.
  */
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
 
 /**
  * Add a specific message to the conversation.
  *
- * This function allows you to inject any CoreMessage compatible message directly
+ * This function allows you to inject any ModelMessage compatible message directly
  * into the conversation at a specific point in the script. Useful for
  * simulating tool responses, system messages, or specific conversational states.
  *
  * @param message The message to add to the conversation.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const message = (message: CoreMessage): ScriptStep => {
+export const message = (message: ModelMessage): ScriptStep => {
   return (_state, executor) => executor.message(message);
 };
 
@@ -34,7 +34,7 @@ export const message = (message: CoreMessage): ScriptStep => {
  *                If undefined, the agent under test will generate content automatically.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const agent = (content?: string | CoreMessage): ScriptStep => {
+export const agent = (content?: string | ModelMessage): ScriptStep => {
   return (_state, executor) => executor.agent(content);
 };
 
@@ -49,7 +49,7 @@ export const agent = (content?: string | CoreMessage): ScriptStep => {
  *                the judge evaluate based on its criteria.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const judge = (content?: string | CoreMessage): ScriptStep => {
+export const judge = (content?: string | ModelMessage): ScriptStep => {
   return async (_state, executor) => {
     await executor.judge(content);
   };
@@ -66,7 +66,7 @@ export const judge = (content?: string | CoreMessage): ScriptStep => {
  *                If undefined, the user simulator will generate content automatically.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const user = (content?: string | CoreMessage): ScriptStep => {
+export const user = (content?: string | ModelMessage): ScriptStep => {
   return (_state, executor) => executor.user(content);
 };
 

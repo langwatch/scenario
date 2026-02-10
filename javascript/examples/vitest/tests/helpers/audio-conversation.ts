@@ -12,7 +12,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ScenarioResult } from "@langwatch/scenario";
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { isAudioFilePart } from "./convert-core-messages-to-openai";
 
 /**
@@ -48,7 +48,7 @@ export async function saveConversationAudio(
   const audioSegments: AudioSegment[] = [];
 
   // Extract audio data from all messages
-  result.messages.forEach((message: CoreMessage, index: number) => {
+  result.messages.forEach((message: ModelMessage, index: number) => {
     if (message.content && Array.isArray(message.content)) {
       message.content.forEach((content: unknown) => {
         if (isAudioFilePart(content)) {
@@ -202,7 +202,7 @@ export async function concatenateWavFiles(
 export function getAudioSegments(result: ScenarioResult): AudioSegment[] {
   const audioSegments: AudioSegment[] = [];
 
-  result.messages.forEach((message: CoreMessage, index: number) => {
+  result.messages.forEach((message: ModelMessage, index: number) => {
     if (message.content && Array.isArray(message.content)) {
       message.content.forEach((content: unknown) => {
         if (isAudioFilePart(content)) {

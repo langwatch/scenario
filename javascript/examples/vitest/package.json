@@ -21,9 +21,10 @@
     "vitest-mock-extended": "3.1.0"
   },
   "dependencies": {
+    "@ai-sdk/xai": "3.0.50",
     "@langwatch/scenario": "workspace:*",
     "@openai/agents": "^0.3.3",
-    "ai": "5.0.104",
+    "ai": "^6.0.0",
     "express": "^5.1.0",
     "openai": "^6.9.1",
     "vite": "^7.2.4",

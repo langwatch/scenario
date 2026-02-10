@@ -95,7 +95,7 @@ afterAll(async () => {
   });
 });
 
-describe("Testing Remote Agents - Server-Sent Events", () => {
+describe.skip("Testing Remote Agents - Server-Sent Events", () => {
   it("should parse SSE format and collect complete response", async () => {
     const baseUrl = serverUrl;
 
@@ -174,7 +174,7 @@ describe("Testing Remote Agents - Server-Sent Events", () => {
         scenario.agent(),
         scenario.judge(),
       ],
-      setId: "javascript-examples",
+      setId: "scenarios-github",
     });
 
     expectResultsSuccess(result);

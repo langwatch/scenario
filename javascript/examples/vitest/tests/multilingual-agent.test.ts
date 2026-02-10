@@ -74,7 +74,7 @@ describe("Multilingual Agent", () => {
         scenario.agent(),
         scenario.judge(),
       ],
-      setId: "multilingual-scripted-complex",
+      setId: "scenarios-github",
     });
 
     try {
@@ -127,7 +127,7 @@ describe("Multilingual Agent", () => {
         scenario.proceed(),
         scenario.judge(),
       ],
-      setId: "multilingual-scripted-complex",
+      setId: "scenarios-github",
     });
 
     try {

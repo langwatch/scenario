@@ -12,7 +12,7 @@
  * - Caching to avoid re-transcribing the same audio
  * - Graceful fallback for transcription errors
  */
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import OpenAI from "openai";
 
 /**
@@ -34,8 +34,8 @@ const cache = new Map<string, string>();
  * @returns Messages with audio converted to text transcriptions
  */
 export async function sanitizeMessagesForV5(
-  messages: CoreMessage[]
-): Promise<CoreMessage[]> {
+  messages: ModelMessage[]
+): Promise<ModelMessage[]> {
   return await Promise.all(
     messages.map(async (message) => {
       if (message.role === "tool") {

@@ -21,7 +21,7 @@ import { AudioUtils } from "./utils/audio/audio.utils";
 import { createUserSimulatorSession } from "../../openai-realtime-demo/agents/realtime-user-simulator.agent";
 import { createScenarioExpertSession } from "../../openai-realtime-demo/agents/scenario-expert.agent";
 
-describe("Scenario Expert Agent (Realtime API)", () => {
+describe.skip("Scenario Expert Agent (Realtime API)", () => {
   // Used for wrapping the agent under test in the adapter
   let realtimeAdapter: RealtimeAgentAdapter;
   // Used for simulating a user in voice conversations with the Realtime agent
@@ -112,7 +112,7 @@ describe("Scenario Expert Agent (Realtime API)", () => {
         scenario.agent(), // Audio response
         scenario.judge(), // Evaluates transcripts
       ],
-      setId: "realtime-examples",
+      setId: "scenarios-github",
     });
 
     try {

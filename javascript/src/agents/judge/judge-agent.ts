@@ -1,4 +1,4 @@
-import { CoreMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
+import { ModelMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
 import { z } from "zod/v4";
 
 import { JudgeUtils } from "./judge-utils";
@@ -154,7 +154,7 @@ class JudgeAgent extends JudgeAgentAdapter {
     const systemPrompt =
       cfg.systemPrompt ??
       buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: contentForJudge },
     ];

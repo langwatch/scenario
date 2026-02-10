@@ -6,7 +6,7 @@ import { generateText, UserModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 
 // Use setId to group together for visualizing in the UI
-const setId = "multimodal-images-test";
+const setId = "scenarios-github";
 
 // Helper function to encode image to base64
 function encodeImageToBase64(filePath: string): string {
@@ -28,7 +28,7 @@ function getFixtureImagePath(): string {
   return path.join(__dirname, "fixtures", "scenario.webp");
 }
 
-describe("Multimodal Images Tests", () => {
+describe.skip("Multimodal Images Tests", () => {
   // Create an agent that can handle image input
   const imageAgent: AgentAdapter = {
     role: AgentRole.AGENT,

@@ -1,10 +1,10 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 import { messageRoleReversal, criterionToParamName } from "../utils";
 
 describe("messageRoleReversal", () => {
   it("should reverse user messages to assistant messages in simple segment", () => {
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "user", content: "Hello, how are you?" },
       { role: "user", content: "What's the weather like?" },
     ];
@@ -18,7 +18,7 @@ describe("messageRoleReversal", () => {
   });
 
   it("should reverse assistant messages to user messages in simple segment", () => {
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "assistant", content: "I'm doing well, thank you!" },
       { role: "assistant", content: "It's sunny today." },
     ];
@@ -32,7 +32,7 @@ describe("messageRoleReversal", () => {
   });
 
   it("should handle mixed user and assistant messages in simple segment", () => {
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "user", content: "Hello" },
       { role: "assistant", content: "Hi there!" },
       { role: "user", content: "How are you?" },
@@ -48,7 +48,7 @@ describe("messageRoleReversal", () => {
   });
 
   it("should preserve messages without string content unchanged", () => {
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "user", content: "Valid message" },
       { role: "user", content: null as unknown as string },
       { role: "user", content: undefined as unknown as string },
@@ -94,10 +94,10 @@ describe("messageRoleReversal", () => {
       ],
     };
 
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "user", content: "Calculate 2+2" },
-      assistantWithToolCall as CoreMessage,
-      toolMessage as CoreMessage,
+      assistantWithToolCall as ModelMessage,
+      toolMessage as ModelMessage,
       { role: "assistant", content: "The answer is 4" },
     ];
 
@@ -138,13 +138,13 @@ describe("messageRoleReversal", () => {
       ],
     };
 
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       // Part of segment 1 (will be preserved due to tool interaction later)
       { role: "user", content: "Hello" },
       { role: "assistant", content: "Hi there!" },
       { role: "user", content: "What's 5*6?" },
-      assistantWithToolCall as CoreMessage,
-      toolMessage as CoreMessage,
+      assistantWithToolCall as ModelMessage,
+      toolMessage as ModelMessage,
 
       // Segment 2: Simple conversation (should be reversed)
       { role: "assistant", content: "The result is 30" },
@@ -168,7 +168,7 @@ describe("messageRoleReversal", () => {
   });
 
   it("should preserve system messages unchanged", () => {
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "system", content: "You are a helpful assistant" },
       { role: "user", content: "Hello" },
       { role: "assistant", content: "Hi!" },
@@ -184,7 +184,7 @@ describe("messageRoleReversal", () => {
   });
 
   it("should handle empty array", () => {
-    const messages: CoreMessage[] = [];
+    const messages: ModelMessage[] = [];
     const result = messageRoleReversal(messages);
     expect(result).toEqual([]);
   });
@@ -202,7 +202,7 @@ describe("messageRoleReversal", () => {
       ],
     };
 
-    const messages: CoreMessage[] = [toolMessage as CoreMessage];
+    const messages: ModelMessage[] = [toolMessage as ModelMessage];
 
     const result = messageRoleReversal(messages);
 
@@ -216,9 +216,9 @@ describe("messageRoleReversal", () => {
       content: [{ type: "text", text: "Just text content" }],
     };
 
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "user", content: "Test" },
-      assistantWithTextOnly as CoreMessage,
+      assistantWithTextOnly as ModelMessage,
     ];
 
     const result = messageRoleReversal(messages);
@@ -254,11 +254,11 @@ describe("messageRoleReversal", () => {
       ],
     };
 
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "user", content: "First" },
-      toolMessage1 as CoreMessage,
+      toolMessage1 as ModelMessage,
       { role: "user", content: "Second" },
-      toolMessage2 as CoreMessage,
+      toolMessage2 as ModelMessage,
       { role: "user", content: "Third" },
     ];
 

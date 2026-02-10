@@ -52,7 +52,7 @@ describe("Vegetarian Recipe Agent", () => {
         scenario.agent(),
         scenario.judge(),
       ],
-      setId: "javascript-examples",
+      setId: "scenarios-github",
     });
 
     try {

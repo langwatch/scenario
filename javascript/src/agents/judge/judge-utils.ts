@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 
 /**
  * Truncates base64 media data to reduce token usage.
@@ -84,10 +84,10 @@ export const JudgeUtils = {
   /**
    * Builds a minimal transcript from messages for judge evaluation.
    * Truncates base64 media to reduce token usage.
-   * @param messages - Array of CoreMessage from conversation
+   * @param messages - Array of ModelMessage from conversation
    * @returns Plain text transcript with one message per line
    */
-  buildTranscriptFromMessages(messages: CoreMessage[]): string {
+  buildTranscriptFromMessages(messages: ModelMessage[]): string {
     return messages
       .map((msg) => {
         const truncatedContent = truncateBase64Media(msg.content);

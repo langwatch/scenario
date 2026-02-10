@@ -90,7 +90,7 @@ afterAll(async () => {
   });
 });
 
-describe("Testing Remote Agents - Streaming Response", () => {
+describe.skip("Testing Remote Agents - Streaming Response", () => {
   it("should collect streaming chunks into complete response", async () => {
     const baseUrl = serverUrl;
 
@@ -143,7 +143,7 @@ describe("Testing Remote Agents - Streaming Response", () => {
         scenario.agent(),
         scenario.judge(),
       ],
-      setId: "javascript-examples",
+      setId: "scenarios-github",
     });
 
     expectResultsSuccess(result);

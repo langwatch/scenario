@@ -23,7 +23,7 @@ describe("Scenario Error Handling", () => {
           scenario.userSimulatorAgent(),
           scenario.judgeAgent({ criteria: ["Agent should not throw errors"] }),
         ],
-        setId: "javascript-examples",
+        setId: "scenarios-github",
       })
     ).rejects.toThrow("Simulated agent failure");
   });

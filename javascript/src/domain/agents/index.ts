@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
@@ -27,11 +27,11 @@ export interface AgentInput {
   /**
    * The full history of messages in the conversation.
    */
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   /**
    * New messages added since the last time this agent was called.
    */
-  newMessages: CoreMessage[];
+  newMessages: ModelMessage[];
   /**
    * The role the agent is being asked to play in this turn.
    */

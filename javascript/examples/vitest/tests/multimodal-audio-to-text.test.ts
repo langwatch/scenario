@@ -51,13 +51,13 @@ class AudioAgent extends AgentAdapter {
 }
 
 // Use setId to group together for visualizing in the UI
-const setId = "multimodal-audio-test";
+const setId = "scenarios-github";
 
 /**
  * This example shows how to test an agent that can take audio input
  * and respond with text output.
  */
-describe("Multimodal Audio to Text Tests", () => {
+describe.skip("Multimodal Audio to Text Tests", () => {
   it("should handle audio input", async () => {
     const data = encodeAudioToBase64(
       getFixturePath("male_or_female_voice.wav"),

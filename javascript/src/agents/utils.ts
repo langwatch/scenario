@@ -1,8 +1,8 @@
 import { UserMessage } from "@ag-ui/core";
-import { CoreAssistantMessage, CoreMessage, CoreToolMessage } from "ai";
+import { AssistantModelMessage, ModelMessage, ToolModelMessage } from "ai";
 
-const toolMessageRole: CoreToolMessage["role"] = "tool";
-const assistantMessageRole: CoreAssistantMessage["role"] = "assistant";
+const toolMessageRole: ToolModelMessage["role"] = "tool";
+const assistantMessageRole: AssistantModelMessage["role"] = "assistant";
 const userMessageRole: UserMessage["role"] = "user";
 
 /**
@@ -20,9 +20,9 @@ const userMessageRole: UserMessage["role"] = "user";
  * // Returns: [[user, assistant, user, assistantWithTool, tool], [assistant]]
  * ```
  */
-const groupMessagesByToolBoundaries = (messages: CoreMessage[]): CoreMessage[][] => {
-  const segments: CoreMessage[][] = [];
-  let currentSegment: CoreMessage[] = [];
+const groupMessagesByToolBoundaries = (messages: ModelMessage[]): ModelMessage[][] => {
+  const segments: ModelMessage[][] = [];
+  let currentSegment: ModelMessage[] = [];
 
   for (const message of messages) {
     currentSegment.push(message);
@@ -49,7 +49,7 @@ const groupMessagesByToolBoundaries = (messages: CoreMessage[]): CoreMessage[][]
  * @param segment - Array of messages to check for tool interactions
  * @returns True if the segment contains tool messages or tool calls, false otherwise
  */
-const segmentHasToolMessages = (segment: CoreMessage[]): boolean => {
+const segmentHasToolMessages = (segment: ModelMessage[]): boolean => {
   return segment.some(message => {
     if (message.role === toolMessageRole) return true;
 
@@ -83,7 +83,7 @@ const segmentHasToolMessages = (segment: CoreMessage[]): boolean => {
  * // ]
  * ```
  */
-const reverseSegmentRoles = (segment: CoreMessage[]): CoreMessage[] => {
+const reverseSegmentRoles = (segment: ModelMessage[]): ModelMessage[] => {
   return segment.map(message => {
     const hasStringContent = typeof message.content === "string";
     if (!hasStringContent) return message;
@@ -135,7 +135,7 @@ const reverseSegmentRoles = (segment: CoreMessage[]): CoreMessage[] => {
  * // ]
  * ```
  */
-export const messageRoleReversal = (messages: CoreMessage[]): CoreMessage[] => {
+export const messageRoleReversal = (messages: ModelMessage[]): ModelMessage[] => {
   const segments = groupMessagesByToolBoundaries(messages);
 
   const processedSegments = segments.map(segment =>

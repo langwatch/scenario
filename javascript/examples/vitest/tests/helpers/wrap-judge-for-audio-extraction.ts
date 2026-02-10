@@ -22,7 +22,7 @@ import {
   AgentInput,
   type AgentReturnTypes,
 } from "@langwatch/scenario";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 
 /**
  * Wraps a judge agent to extract transcripts from audio messages before judging
@@ -62,7 +62,7 @@ export function wrapJudgeForAudioExtraction(judge: AgentAdapter): AgentAdapter {
  * @param messages - Original messages (may contain audio with transcripts)
  * @returns Messages with audio content replaced by transcript text
  */
-function extractTranscriptsFromMessages(messages: CoreMessage[]): CoreMessage[] {
+function extractTranscriptsFromMessages(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((msg) => {
     // Check if message has array content (may contain audio + transcripts)
     if (Array.isArray(msg.content)) {

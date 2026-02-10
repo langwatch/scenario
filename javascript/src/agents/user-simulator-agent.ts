@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 
 import { createLLMInvoker } from "./llm-invoker.factory";
 import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
@@ -47,7 +47,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     const systemPrompt =
       config?.systemPrompt ??
       buildSystemPrompt(input.scenarioConfig.description);
-    const messages: CoreMessage[] = [
+    const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "assistant", content: "Hello, how can I help you today" },
       ...input.messages,
@@ -78,7 +78,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       throw new Error("No response content from LLM");
     }
 
-    return { role: "user", content: messageContent } satisfies CoreMessage;
+    return { role: "user", content: messageContent } satisfies ModelMessage;
   };
 }
 

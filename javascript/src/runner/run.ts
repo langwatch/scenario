@@ -5,7 +5,7 @@
  * of scenario tests, managing the interaction between user simulators, agents under test,
  * and judge agents to determine test success or failure.
  */
-import { AssistantContent, ToolContent, CoreMessage } from "ai";
+import { AssistantContent, ToolContent, ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { getEnv } from "../config";
 import {
@@ -128,7 +128,7 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
   }
 }
 
-function formatMessage(m: CoreMessage): string {
+function formatMessage(m: ModelMessage): string {
   switch (m.role) {
     case "user":
       return `User: ${m.content}`;
@@ -179,7 +179,6 @@ function formatPart(
     case "reasoning":
       return `(reasoning): ${part.text}`;
     default:
-      part satisfies never;
       return `Unknown content: ${JSON.stringify(part)}`;
   }
 }

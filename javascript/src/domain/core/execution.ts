@@ -1,8 +1,8 @@
 import {
-  CoreAssistantMessage,
-  CoreMessage,
-  CoreToolMessage,
-  CoreUserMessage,
+  AssistantModelMessage,
+  ModelMessage,
+  ToolModelMessage,
+  UserModelMessage,
 } from "ai";
 import type { ScenarioConfig } from "../scenarios";
 
@@ -19,7 +19,7 @@ export interface ScenarioResult {
   /**
    * The sequence of messages exchanged during the scenario.
    */
-  messages: CoreMessage[];
+  messages: ModelMessage[];
 
   /**
    * The reasoning behind the scenario's outcome.
@@ -69,7 +69,7 @@ export interface ScenarioExecutionStateLike {
   /**
    * The sequence of messages exchanged during the scenario.
    */
-  get messages(): CoreMessage[];
+  get messages(): ModelMessage[];
 
   /**
    * The unique identifier for the execution thread.
@@ -86,32 +86,32 @@ export interface ScenarioExecutionStateLike {
    *
    * @param message - The core message to add.
    */
-  addMessage(message: CoreMessage): void;
+  addMessage(message: ModelMessage): void;
 
   /**
    * Retrieves the last message from the execution state.
    * @returns The last message.
    */
-  lastMessage(): CoreMessage;
+  lastMessage(): ModelMessage;
 
   /**
    * Retrieves the last user message from the execution state.
    * @returns The last user message.
    */
-  lastUserMessage(): CoreUserMessage;
+  lastUserMessage(): UserModelMessage;
 
   /**
    * Retrieves the last agent message from the execution state.
    * @returns The last agent message.
    */
-  lastAgentMessage(): CoreAssistantMessage;
+  lastAgentMessage(): AssistantModelMessage;
 
   /**
    * Retrieves the last tool call message for a specific tool.
    * @param toolName - The name of the tool.
    * @returns The last tool call message.
    */
-  lastToolCall(toolName: string): CoreToolMessage;
+  lastToolCall(toolName: string): ToolModelMessage;
 
   /**
    * Checks if a tool call for a specific tool exists in the execution state.

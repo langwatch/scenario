@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { AgentAdapter } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
@@ -94,7 +94,7 @@ export interface ScenarioExecutionLike {
   /**
    * The history of messages in the conversation.
    */
-  readonly messages: CoreMessage[];
+  readonly messages: ModelMessage[];
 
   /**
    * The ID of the conversation thread.
@@ -105,25 +105,25 @@ export interface ScenarioExecutionLike {
    * Adds a message to the conversation.
    * @param message The message to add.
    */
-  message(message: CoreMessage): Promise<void>;
+  message(message: ModelMessage): Promise<void>;
   /**
    * Adds a user message to the conversation.
    * If no content is provided, the user simulator will generate a message.
    * @param content The content of the user message.
    */
-  user(content?: string | CoreMessage): Promise<void>;
+  user(content?: string | ModelMessage): Promise<void>;
   /**
    * Adds an agent message to the conversation.
    * If no content is provided, the agent under test will generate a message.
    * @param content The content of the agent message.
    */
-  agent(content?: string | CoreMessage): Promise<void>;
+  agent(content?: string | ModelMessage): Promise<void>;
   /**
    * Invokes the judge agent to evaluate the current state.
    * @param content Optional message to the judge.
    * @returns The result of the scenario if the judge makes a final decision.
    */
-  judge(content?: string | CoreMessage): Promise<ScenarioResult | null>;
+  judge(content?: string | ModelMessage): Promise<ScenarioResult | null>;
   /**
    * Proceeds with the scenario automatically for a number of turns.
    * @param turns The number of turns to proceed. Defaults to running until the scenario ends.

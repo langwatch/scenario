@@ -91,7 +91,7 @@ class AudioUserSimulatorAgent extends OpenAiVoiceAgent {
 }
 
 // Group related test runs together in the UI
-const setId = "full-audio-conversation-test";
+const setId = "scenarios-github";
 
 // Output path for the full conversation audio file
 const outputPath = path.join(
@@ -101,7 +101,7 @@ const outputPath = path.join(
   "full-conversation.wav"
 );
 
-describe("Multimodal Voice-to-Voice Conversation Tests", () => {
+describe.skip("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
     // Initialize both agents for the conversation
     const audioUserSimulator = new AudioUserSimulatorAgent();

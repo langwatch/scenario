@@ -17,7 +17,7 @@ const dummyUserAgent: AgentAdapter = {
 };
 
 describe("Grouping Scenarios", () => {
-  const setId = "echo-agent-suite";
+  const setId = "scenarios-github";
 
   it("should succeed when the agent echoes the first message", async () => {
     const result = await scenario.run({

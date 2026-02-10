@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { JudgeUtils } from "../judge-utils";
 
 describe("JudgeUtils.buildTranscriptFromMessages", () => {
@@ -12,13 +12,13 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
   describe("when messages have string content", () => {
     it("formats single message as role: JSON.stringify(content)", () => {
-      const messages: CoreMessage[] = [{ role: "user", content: "hello" }];
+      const messages: ModelMessage[] = [{ role: "user", content: "hello" }];
       const result = JudgeUtils.buildTranscriptFromMessages(messages);
       expect(result).toBe('user: "hello"');
     });
 
     it("formats multiple messages with newlines", () => {
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         { role: "user", content: "hi" },
         { role: "assistant", content: "hello" },
       ];
@@ -29,7 +29,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
   describe("when messages have complex content", () => {
     it("stringifies array content", () => {
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         { role: "user", content: [{ type: "text", text: "hello" }] },
       ];
       const result = JudgeUtils.buildTranscriptFromMessages(messages);
@@ -37,7 +37,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
     });
 
     it("includes system messages", () => {
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         { role: "system", content: "You are helpful" },
         { role: "user", content: "hi" },
       ];
@@ -49,7 +49,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
   describe("when messages contain base64 media", () => {
     it("truncates base64 image data URLs", () => {
       const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ";
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: [
@@ -66,7 +66,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
     it("truncates webp images", () => {
       const base64Data = "UklGRgq1AQBXRUJQVlA4IP60AQBQaQed";
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: `data:image/webp;base64,${base64Data}`,
@@ -80,7 +80,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
     it("truncates audio data URLs", () => {
       const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ";
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: `data:audio/webm;base64,${base64Data}`,
@@ -94,7 +94,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
     it("truncates mp3 audio", () => {
       const base64Data = "SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMA";
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: `data:audio/mpeg;base64,${base64Data}`,
@@ -108,7 +108,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
     it("truncates video data URLs", () => {
       const base64Data = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE";
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: `data:video/mp4;base64,${base64Data}`,
@@ -122,7 +122,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
     it("truncates AI SDK file parts with mediaType", () => {
       const base64Data = "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibQ".repeat(50);
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: [
@@ -139,7 +139,7 @@ describe("JudgeUtils.buildTranscriptFromMessages", () => {
 
     it("truncates raw base64 in image parts", () => {
       const base64Data = "iVBORw0KGgoAAAANSUhEUg".repeat(100);
-      const messages: CoreMessage[] = [
+      const messages: ModelMessage[] = [
         {
           role: "user",
           content: [{ type: "image", image: base64Data }],

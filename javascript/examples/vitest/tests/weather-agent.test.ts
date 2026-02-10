@@ -113,7 +113,7 @@ describe("Weather Agent", () => {
         },
         scenario.succeed(),
       ],
-      setId: "javascript-examples",
+      setId: "scenarios-github",
     });
     expect(result.success).toBe(true);
   });

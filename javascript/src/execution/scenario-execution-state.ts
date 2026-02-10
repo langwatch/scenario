@@ -1,4 +1,4 @@
-import { CoreAssistantMessage, CoreMessage, CoreToolMessage } from "ai";
+import { AssistantModelMessage, ModelMessage, ToolModelMessage } from "ai";
 import { Observable, Subject } from "rxjs";
 import { ScenarioExecutionStateLike, ScenarioConfig } from "../domain";
 import { generateMessageId } from "../utils/ids";
@@ -22,7 +22,7 @@ export type StateChangeEvent = {
  * other related information.
  */
 export class ScenarioExecutionState implements ScenarioExecutionStateLike {
-  private _messages: (CoreMessage & { id: string; traceId?: string })[] = [];
+  private _messages: (ModelMessage & { id: string; traceId?: string })[] = [];
   private _currentTurn: number = 0;
   private _threadId: string = "";
 
@@ -39,7 +39,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     this.description = config.description;
   }
 
-  get messages(): CoreMessage[] {
+  get messages(): ModelMessage[] {
     return this._messages;
   }
 
@@ -65,7 +65,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
    * @param message - The message to add.
    * @param traceId - Optional trace ID to associate with the message.
    */
-  addMessage(message: CoreMessage & { traceId?: string }): void {
+  addMessage(message: ModelMessage & { traceId?: string }): void {
     const messageWithId = {
       ...message,
       id: generateMessageId(),
@@ -99,7 +99,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     return lastMessage;
   }
 
-  lastAgentMessage(): CoreAssistantMessage & { traceId?: string } {
+  lastAgentMessage(): AssistantModelMessage & { traceId?: string } {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
@@ -115,7 +115,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
     return lastMessage;
   }
 
-  lastToolCall(toolName: string): CoreToolMessage & { traceId?: string } {
+  lastToolCall(toolName: string): ToolModelMessage & { traceId?: string } {
     if (this._messages.length === 0) {
       throw new Error("No messages in history");
     }
@@ -128,7 +128,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
         )
     );
 
-    return lastMessage as CoreToolMessage;
+    return lastMessage as ToolModelMessage;
   }
 
   hasToolCall(toolName: string): boolean {
