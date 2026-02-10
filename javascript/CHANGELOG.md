@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.1](https://github.com/langwatch/scenario/compare/javascript/v0.4.0...javascript/v0.4.1) (2026-02-10)
+
+
+### Features
+
+* **python:** add span-based evaluation for judge agent ([#188](https://github.com/langwatch/scenario/issues/188)) ([59352ec](https://github.com/langwatch/scenario/commit/59352ec0e36faf2efb3239fde4082d0ee0d80168))
+
+
+### Bug Fixes
+
+* update description ([#151](https://github.com/langwatch/scenario/issues/151)) ([b17294c](https://github.com/langwatch/scenario/commit/b17294cfb7522f274e07bef6eb5f06c090d95ab6))
+
+
+### Miscellaneous
+
+* ai v5 to v6 ([#218](https://github.com/langwatch/scenario/issues/218)) ([3b053ec](https://github.com/langwatch/scenario/commit/3b053ec9a1ef7ace2e50ad799fbf0f868bc98b37))
+
+
+### Code Refactoring
+
+* use SDK constants for thread ID attribute ([#195](https://github.com/langwatch/scenario/issues/195)) ([c621340](https://github.com/langwatch/scenario/commit/c621340ea90e7456887108f1c344a6128c97af6b))
+
 ## [0.4.0](https://github.com/langwatch/scenario/compare/javascript/v0.3.1...javascript/v0.4.0) (2025-12-04)
 
 
