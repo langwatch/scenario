@@ -67,7 +67,7 @@ describe("messageRoleReversal", () => {
     ]);
   });
 
-  it("should preserve segments with tool messages unchanged", () => {
+  it("should summarize tool messages and reverse non-tool messages", () => {
     const assistantWithToolCall = {
       role: "assistant" as const,
       content: [
@@ -103,17 +103,15 @@ describe("messageRoleReversal", () => {
 
     const result = messageRoleReversal(messages);
 
-    // Segment 1: [user, assistant+tool, tool] preserved due to tools
-    // Segment 2: [assistant] gets reversed to user
     expect(result).toEqual([
-      { role: "user", content: "Calculate 2+2" },
-      assistantWithToolCall,
-      toolMessage,
-      { role: "user", content: "The answer is 4" }, // This gets reversed (new segment after tool)
+      { role: "assistant", content: "Calculate 2+2" },
+      { role: "user", content: '[Called tool calculator with: {"expression":"2+2"}]' },
+      { role: "user", content: '[Tool result from calculator: {"type":"json","value":4}]' },
+      { role: "user", content: "The answer is 4" },
     ]);
   });
 
-  it("should handle multiple segments - preserve tool segments, reverse simple segments", () => {
+  it("should handle conversation with multiple tool calls", () => {
     const assistantWithToolCall = {
       role: "assistant" as const,
       content: [
@@ -139,14 +137,11 @@ describe("messageRoleReversal", () => {
     };
 
     const messages: ModelMessage[] = [
-      // Part of segment 1 (will be preserved due to tool interaction later)
       { role: "user", content: "Hello" },
       { role: "assistant", content: "Hi there!" },
       { role: "user", content: "What's 5*6?" },
       assistantWithToolCall as ModelMessage,
       toolMessage as ModelMessage,
-
-      // Segment 2: Simple conversation (should be reversed)
       { role: "assistant", content: "The result is 30" },
       { role: "user", content: "Thanks!" },
     ];
@@ -154,14 +149,11 @@ describe("messageRoleReversal", () => {
     const result = messageRoleReversal(messages);
 
     expect(result).toEqual([
-      // Segment 1: Entire conversation up to tool preserved unchanged
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi there!" },
-      { role: "user", content: "What's 5*6?" },
-      assistantWithToolCall,
-      toolMessage,
-
-      // Segment 2: Reversed (new segment after tool)
+      { role: "assistant", content: "Hello" },
+      { role: "user", content: "Hi there!" },
+      { role: "assistant", content: "What's 5*6?" },
+      { role: "user", content: '[Called tool calc with: {"expr":"5*6"}]' },
+      { role: "user", content: '[Tool result from calc: {"type":"json","value":30}]' },
       { role: "user", content: "The result is 30" },
       { role: "assistant", content: "Thanks!" },
     ]);
@@ -189,7 +181,7 @@ describe("messageRoleReversal", () => {
     expect(result).toEqual([]);
   });
 
-  it("should handle segment with only tool messages", () => {
+  it("should handle only tool messages", () => {
     const toolMessage = {
       role: "tool" as const,
       content: [
@@ -206,8 +198,9 @@ describe("messageRoleReversal", () => {
 
     const result = messageRoleReversal(messages);
 
-    // Tool message should be preserved unchanged
-    expect(result).toEqual(messages);
+    expect(result).toEqual([
+      { role: "user", content: "[Tool result from test: test]" },
+    ]);
   });
 
   it("should reverse assistant message with array content when no tool calls", () => {
@@ -229,51 +222,55 @@ describe("messageRoleReversal", () => {
     ]);
   });
 
-  it("should create new segment after each tool message", () => {
-    const toolMessage1 = {
+  it("should handle tool-only agent response followed by user simulator call", () => {
+    // Simulates the case where agent returns only tool-call + tool-result
+    // with no final text response, and user simulator needs to respond
+    const assistantWithToolCall = {
+      role: "assistant" as const,
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "1",
+          toolName: "lookup",
+          input: { query: "headphones" },
+        },
+      ],
+    };
+
+    const toolMessage = {
       role: "tool" as const,
       content: [
         {
           type: "tool-result",
           toolCallId: "1",
-          toolName: "test",
-          output: { type: "json", value: "result1" },
-        },
-      ],
-    };
-
-    const toolMessage2 = {
-      role: "tool" as const,
-      content: [
-        {
-          type: "tool-result",
-          toolCallId: "2",
-          toolName: "test",
-          output: { type: "json", value: "result2" },
+          toolName: "lookup",
+          output: { type: "text", value: "headphones: $29.99, in stock" },
         },
       ],
     };
 
     const messages: ModelMessage[] = [
-      { role: "user", content: "First" },
-      toolMessage1 as ModelMessage,
-      { role: "user", content: "Second" },
-      toolMessage2 as ModelMessage,
-      { role: "user", content: "Third" },
+      { role: "system", content: "You are pretending to be a user" },
+      { role: "assistant", content: "Hello, how can I help you today" },
+      { role: "user", content: "do you have headphones?" },
+      assistantWithToolCall as ModelMessage,
+      toolMessage as ModelMessage,
     ];
 
     const result = messageRoleReversal(messages);
 
+    // After reversal, must end with user (not assistant) for Anthropic compatibility
     expect(result).toEqual([
-      // Segment 1: [user, tool] - preserved due to tool
-      { role: "user", content: "First" },
-      toolMessage1,
-      // Segment 2: [user, tool] - preserved due to tool
-      { role: "user", content: "Second" },
-      toolMessage2,
-      // Segment 3: [user] - reversed since no tools
-      { role: "assistant", content: "Third" },
+      { role: "system", content: "You are pretending to be a user" },
+      { role: "user", content: "Hello, how can I help you today" },
+      { role: "assistant", content: "do you have headphones?" },
+      { role: "user", content: '[Called tool lookup with: {"query":"headphones"}]' },
+      { role: "user", content: "[Tool result from lookup: headphones: $29.99, in stock]" },
     ]);
+
+    // Verify last message is "user" role (required by Anthropic)
+    const lastMessage = result[result.length - 1];
+    expect(lastMessage?.role).toBe("user");
   });
 });
 
