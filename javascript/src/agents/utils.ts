@@ -96,7 +96,7 @@ const reverseSegmentRoles = (segment: ModelMessage[]): ModelMessage[] => {
     return {
       ...message,
       role: newRole,
-    };
+    } as ModelMessage;
   });
 };
 
