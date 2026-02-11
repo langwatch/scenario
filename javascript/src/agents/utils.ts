@@ -85,9 +85,6 @@ const segmentHasToolMessages = (segment: ModelMessage[]): boolean => {
  */
 const reverseSegmentRoles = (segment: ModelMessage[]): ModelMessage[] => {
   return segment.map(message => {
-    const hasStringContent = typeof message.content === "string";
-    if (!hasStringContent) return message;
-
     const roleMap = {
       [userMessageRole]: assistantMessageRole,
       [assistantMessageRole]: userMessageRole,
@@ -97,8 +94,8 @@ const reverseSegmentRoles = (segment: ModelMessage[]): ModelMessage[] => {
     if (!newRole) return message;
 
     return {
+      ...message,
       role: newRole,
-      content: message.content as string,
     };
   });
 };
