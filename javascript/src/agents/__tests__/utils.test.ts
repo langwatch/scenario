@@ -47,7 +47,7 @@ describe("messageRoleReversal", () => {
     ]);
   });
 
-  it("should preserve messages without string content unchanged", () => {
+  it("should reverse roles for messages regardless of content type", () => {
     const messages: ModelMessage[] = [
       { role: "user", content: "Valid message" },
       { role: "user", content: null as unknown as string },
@@ -60,10 +60,10 @@ describe("messageRoleReversal", () => {
 
     expect(result).toEqual([
       { role: "assistant", content: "Valid message" },
-      { role: "user", content: null },
-      { role: "user", content: undefined },
+      { role: "assistant", content: null },
+      { role: "assistant", content: undefined },
       { role: "user", content: "" },
-      { role: "assistant", content: ["text part"] },
+      { role: "user", content: ["text part"] },
     ]);
   });
 
@@ -210,7 +210,7 @@ describe("messageRoleReversal", () => {
     expect(result).toEqual(messages);
   });
 
-  it("should handle assistant message with array content but no tool calls", () => {
+  it("should reverse assistant message with array content when no tool calls", () => {
     const assistantWithTextOnly = {
       role: "assistant" as const,
       content: [{ type: "text", text: "Just text content" }],
@@ -225,7 +225,7 @@ describe("messageRoleReversal", () => {
 
     expect(result).toEqual([
       { role: "assistant", content: "Test" },
-      assistantWithTextOnly,
+      { role: "user", content: [{ type: "text", text: "Just text content" }] },
     ]);
   });
 
