@@ -40,30 +40,89 @@ const groupMessagesByToolBoundaries = (messages: ModelMessage[]): ModelMessage[]
   return segments;
 };
 
+type ContentPart = {
+  input?: unknown;
+  output?: unknown;
+  result?: unknown;
+  toolName?: string;
+  type?: string;
+};
+
+const hasToolContent = (message: ModelMessage): boolean => {
+  if (message.role === toolMessageRole) return true;
+  if (!Array.isArray(message.content)) return false;
+  return message.content.some(part => {
+    if (!part || typeof part !== "object") return false;
+    const partType = "type" in part ? (part as { type?: string }).type : undefined;
+    return partType === "tool-call" || partType === "tool-result";
+  });
+};
+
 /**
  * Checks if a message segment contains any tool messages or tool calls.
  * Tool interactions include:
  * - Messages with role 'tool' (tool result messages)
- * - Assistant messages with tool-call parts in their content array
+ * - Assistant messages with tool-call/tool-result parts in their content array
  *
  * @param segment - Array of messages to check for tool interactions
  * @returns True if the segment contains tool messages or tool calls, false otherwise
  */
 const segmentHasToolMessages = (segment: ModelMessage[]): boolean => {
-  return segment.some(message => {
-    if (message.role === toolMessageRole) return true;
+  return segment.some(hasToolContent);
+};
 
-    if (message.role === assistantMessageRole && Array.isArray(message.content)) {
-      return message.content.some(part => part.type === 'tool-call');
-    }
+const stringifyValue = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "undefined";
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? String(value) : serialized;
+  } catch {
+    return String(value);
+  }
+};
 
-    return false;
-  });
+const summarizeToolMessage = (message: ModelMessage): string | null => {
+  if (message.role === toolMessageRole && !Array.isArray(message.content)) {
+    return `[Tool message: ${stringifyValue(message.content)}]`;
+  }
+
+  if (message.role === toolMessageRole) {
+    const toolResults = message.content
+      .filter(part => part.type === "tool-result")
+      .map(part => {
+        const contentPart = part as ContentPart;
+        const name = contentPart.toolName ?? "unknown tool";
+        const output = contentPart.output;
+        const value =
+          output &&
+          typeof output === "object" &&
+          "value" in output &&
+          typeof (output as { value?: unknown }).value === "string"
+            ? (output as { value: string }).value
+            : output ?? contentPart.result;
+        return `[Tool result from ${name}: ${stringifyValue(value)}]`;
+      });
+
+    return toolResults.length > 0 ? toolResults.join("\n") : null;
+  }
+
+  if (!Array.isArray(message.content)) return null;
+
+  const toolCalls = message.content
+    .filter(part => part.type === "tool-call")
+    .map(part => {
+      const contentPart = part as ContentPart;
+      const name = contentPart.toolName ?? "unknown tool";
+      return `[Called tool ${name} with: ${stringifyValue(contentPart.input)}]`;
+    });
+
+  return toolCalls.length > 0 ? toolCalls.join("\n") : null;
 };
 
 /**
  * Reverses the roles of user and assistant messages within a single segment.
- * Only processes messages with string content (including empty strings) - other message types are preserved unchanged.
+ * Preserves message content as-is while swapping roles.
  *
  * @param segment - Array of messages to reverse roles for
  * @returns New array with user ↔ assistant roles swapped for applicable messages
@@ -77,19 +136,19 @@ const segmentHasToolMessages = (segment: ModelMessage[]): boolean => {
  * ];
  * const reversed = reverseSegmentRoles(segment);
  * // Returns: [
- * //   { role: 'assistant', content: 'Hello' },    // Reversed (string content)
- * //   { role: 'user', content: 'Hi there' },      // Reversed (string content)
- * //   { role: 'user', content: null }              // Preserved (non-string content)
+ * //   { role: 'assistant', content: 'Hello' },
+ * //   { role: 'user', content: 'Hi there' },
+ * //   { role: 'assistant', content: null }
  * // ]
  * ```
  */
 const reverseSegmentRoles = (segment: ModelMessage[]): ModelMessage[] => {
-  return segment.map(message => {
-    const roleMap = {
-      [userMessageRole]: assistantMessageRole,
-      [assistantMessageRole]: userMessageRole,
-    };
+  const roleMap = {
+    [userMessageRole]: assistantMessageRole,
+    [assistantMessageRole]: userMessageRole,
+  };
 
+  return segment.map(message => {
     const newRole = roleMap[message.role as keyof typeof roleMap];
     if (!newRole) return message;
 
@@ -102,42 +161,30 @@ const reverseSegmentRoles = (segment: ModelMessage[]): ModelMessage[] => {
 
 /**
  * Reverses message roles in segments that don't contain tool messages.
- * This maintains proper conversation flow by only reversing roles when it's safe to do so.
- * Segments containing tool interactions are preserved unchanged to maintain the
- * assistant → tool → assistant flow required by language models.
- *
- * @param messages - Array of core messages to process
- * @returns New array with roles reversed in tool-free segments, tool segments unchanged
- *
- * @example
- * ```ts
- * const messages = [
- *   { role: 'user', content: 'Hello' },
- *   { role: 'assistant', content: 'Hi!' },
- *   { role: 'user', content: 'Calculate 2+2' },
- *   { role: 'assistant', content: [{ type: 'tool-call', ... }] },
- *   { role: 'tool', content: [{ type: 'tool-result', result: 4 }] },
- *   { role: 'assistant', content: 'The answer is 4' }
- * ];
- *
- * const reversed = messageRoleReversal(messages);
- * // Returns:
- * // [
- * //   { role: 'user', content: 'Hello' },                    // Preserved (tool segment)
- * //   { role: 'assistant', content: 'Hi!' },                 // Preserved (tool segment)
- * //   { role: 'user', content: 'Calculate 2+2' },            // Preserved (tool segment)
- * //   { role: 'assistant', content: [{ type: 'tool-call', ... }] }, // Preserved (tool segment)
- * //   { role: 'tool', content: [{ type: 'tool-result', result: 4 }] }, // Preserved (tool segment)
- * //   { role: 'user', content: 'The answer is 4' }           // Reversed (new segment after tool)
- * // ]
- * ```
+ * Segments with tool interactions keep non-tool messages unchanged, while tool
+ * messages are wrapped as plain-text user messages so the simulator can process them.
  */
 export const messageRoleReversal = (messages: ModelMessage[]): ModelMessage[] => {
   const segments = groupMessagesByToolBoundaries(messages);
 
-  const processedSegments = segments.map(segment =>
-    segmentHasToolMessages(segment) ? segment : reverseSegmentRoles(segment)
-  );
+  const processedSegments = segments.map(segment => {
+    if (!segmentHasToolMessages(segment)) {
+      return reverseSegmentRoles(segment);
+    }
+
+    return segment.flatMap(message => {
+      if (hasToolContent(message)) {
+        const summary = summarizeToolMessage(message);
+        if (!summary) return [];
+        return [{
+          role: userMessageRole,
+          content: summary,
+        } as ModelMessage];
+      }
+
+      return [message];
+    });
+  });
 
   return processedSegments.flat();
 };
