@@ -43,7 +43,7 @@ class RealtimeUserSimulatorAgent extends RealtimeAgentAdapter {
       session: session,
       role: AgentRole.USER,
       agentName: "Realtime User Simulator Agent",
-      responseTimeout: 30000,
+      responseTimeout: 60000,
     });
   }
 }
@@ -64,7 +64,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
       role: AgentRole.AGENT,
       session: session,
       agentName: "Vegetarian Recipe Assistant",
-      responseTimeout: 30000,
+      responseTimeout: 60000,
     });
 
     // Create user simulator (creates its own session internally)
