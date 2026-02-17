@@ -168,8 +168,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
 
-  /** Accumulated met criteria from inline judge checkpoints */
-  private accumulatedMetCriteria: string[] = [];
+  /** Accumulated results from inline judge checkpoints */
+  private checkpointResults: { metCriteria: string[]; unmetCriteria: string[] }[] = [];
 
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
@@ -338,11 +338,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         await this.executeScriptStep(scriptStep, i);
 
         if (this.result) {
-          if (this.accumulatedMetCriteria.length > 0) {
-            this.result.metCriteria = [
-              ...this.accumulatedMetCriteria,
-              ...this.result.metCriteria,
-            ];
+          // Merge any accumulated checkpoint results into the final result
+          if (this.checkpointResults.length > 0) {
+            const compiled = this.compileCheckpointResults();
+            this.result.metCriteria = [...compiled.metCriteria, ...this.result.metCriteria];
           }
 
           this.emitRunFinished({
@@ -357,18 +356,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         }
       }
 
-      if (this.accumulatedMetCriteria.length > 0) {
+      if (this.checkpointResults.length > 0) {
         // All inline criteria checkpoints passed
+        const compiled = this.compileCheckpointResults();
         this.setResult({
-          success: true,
+          success: compiled.unmetCriteria.length === 0,
           reasoning: "All inline criteria checkpoints passed",
-          metCriteria: this.accumulatedMetCriteria,
-          unmetCriteria: [],
+          metCriteria: compiled.metCriteria,
+          unmetCriteria: compiled.unmetCriteria,
         });
 
         this.emitRunFinished({
           scenarioRunId,
-          status: ScenarioRunStatus.SUCCESS,
+          status: this.result!.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
           result: this.result!,
         });
 
@@ -526,7 +526,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async callAgent(
     idx: number,
     role: AgentRole,
-    judgmentRequest: boolean = false
+    judgmentRequest: boolean = false,
+    criteria?: string[]
   ): Promise<void> {
     const agent = this.agents[idx];
     const agentName = agent.name ?? agent.constructor.name;
@@ -546,6 +547,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       newMessages: this.pendingMessages.get(idx) ?? [],
       requestedRole: role,
       judgmentRequest: judgmentRequest,
+      criteria: criteria,
       scenarioState: this.state,
       scenarioConfig: this.config,
     };
@@ -1039,39 +1041,32 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       return null;
     }
 
-    // Temporarily swap criteria for inline judge evaluation
-    let originalCriteria: string[] | undefined;
-    if (inlineCriteria !== undefined && role === AgentRole.JUDGE && agent instanceof JudgeAgentAdapter) {
-      originalCriteria = agent.criteria;
-      agent.criteria = inlineCriteria;
-    }
-
-    try {
-      await this.callAgent(index, role, judgmentRequest);
-    } finally {
-      if (originalCriteria !== undefined && agent instanceof JudgeAgentAdapter) {
-        agent.criteria = originalCriteria;
-      }
-    }
+    await this.callAgent(index, role, judgmentRequest, inlineCriteria);
 
     // Handle inline criteria checkpoint semantics
     if (this.result && inlineCriteria !== undefined) {
-      const result = this.result;
-      if (result.success) {
-        // Checkpoint passed: accumulate criteria, clear result, continue
-        this.accumulatedMetCriteria.push(...result.metCriteria);
+      this.checkpointResults.push({
+        metCriteria: this.result.metCriteria,
+        unmetCriteria: this.result.unmetCriteria,
+      });
+
+      if (this.result.success) {
+        // Checkpoint passed: clear result, continue script
         this._result = undefined;
         return null;
       } else {
-        // Checkpoint failed: merge accumulated criteria into result
-        result.metCriteria = [...this.accumulatedMetCriteria, ...result.metCriteria];
-        return result;
+        // Checkpoint failed: compile all results into the failing result
+        const compiled = this.compileCheckpointResults();
+        this.result.metCriteria = compiled.metCriteria;
+        this.result.unmetCriteria = compiled.unmetCriteria;
+        return this.result;
       }
     }
 
-    if (this.result && this.accumulatedMetCriteria.length > 0) {
-      // Final judge: merge accumulated criteria
-      this.result.metCriteria = [...this.accumulatedMetCriteria, ...this.result.metCriteria];
+    // Non-inline judge: merge any prior checkpoint results
+    if (this.result && this.checkpointResults.length > 0) {
+      const compiled = this.compileCheckpointResults();
+      this.result.metCriteria = [...compiled.metCriteria, ...this.result.metCriteria];
     }
 
     return this.result ?? null;
@@ -1110,12 +1105,22 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.totalStartTime = Date.now();
     this.pendingMessages.clear();
     this._result = undefined;
-    this.accumulatedMetCriteria = [];
+    this.checkpointResults = [];
 
     this.logger.debug(`[${this.config.id}] Reset complete`, {
       threadId: this.state.threadId,
       agentCount: this.agents.length,
     });
+  }
+
+  private compileCheckpointResults(): { metCriteria: string[]; unmetCriteria: string[] } {
+    const metCriteria: string[] = [];
+    const unmetCriteria: string[] = [];
+    for (const cp of this.checkpointResults) {
+      metCriteria.push(...cp.metCriteria);
+      unmetCriteria.push(...cp.unmetCriteria);
+    }
+    return { metCriteria, unmetCriteria };
   }
 
   private nextAgentForRole(role: AgentRole): {

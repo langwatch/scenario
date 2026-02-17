@@ -41,6 +41,10 @@ export interface AgentInput {
    */
   judgmentRequest: boolean;
   /**
+   * Optional criteria to evaluate, overriding the agent's configured criteria.
+   */
+  criteria?: string[];
+  /**
    * The current state of the scenario execution.
    */
   scenarioState: ScenarioExecutionStateLike;

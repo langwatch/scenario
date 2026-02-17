@@ -130,6 +130,7 @@ class AgentInput(BaseModel):
     messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     new_messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     judgment_request: bool = False
+    criteria: Optional[List[str]] = None
     scenario_state: ScenarioStateType
 
     def last_new_user_message(self) -> ChatCompletionUserMessageParam:

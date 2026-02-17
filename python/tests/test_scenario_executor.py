@@ -262,21 +262,23 @@ class InlineCriteriaMockJudgeAgent(JudgeAgent):
     async def call(self, input: AgentInput) -> scenario.AgentReturnTypes:
         if not input.judgment_request:
             return []
+        # Use criteria from input if provided, otherwise use self.criteria
+        effective_criteria = input.criteria if input.criteria is not None else self.criteria
         # Simple mock: succeed if criteria list contains "pass", fail if "fail"
-        has_fail = any("fail" in c.lower() for c in self.criteria)
+        has_fail = any("fail" in c.lower() for c in effective_criteria)
         if has_fail:
             return ScenarioResult(
                 success=False,
                 messages=[],
                 reasoning="Criteria failed",
-                passed_criteria=[c for c in self.criteria if "fail" not in c.lower()],
-                failed_criteria=[c for c in self.criteria if "fail" in c.lower()],
+                passed_criteria=[c for c in effective_criteria if "fail" not in c.lower()],
+                failed_criteria=[c for c in effective_criteria if "fail" in c.lower()],
             )
         return ScenarioResult(
             success=True,
             messages=[],
             reasoning="All criteria passed",
-            passed_criteria=list(self.criteria),
+            passed_criteria=list(effective_criteria),
             failed_criteria=[],
         )
 

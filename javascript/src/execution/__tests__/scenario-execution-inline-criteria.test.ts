@@ -36,17 +36,18 @@ class InlineCriteriaMockJudgeAgent extends JudgeAgentAdapter {
     if (!input.judgmentRequest) {
       return null;
     }
-    const hasFail = this.criteria.some((c) =>
+    const effectiveCriteria = input.criteria ?? this.criteria;
+    const hasFail = effectiveCriteria.some((c) =>
       c.toLowerCase().includes("fail")
     );
     if (hasFail) {
       return {
         success: false,
         reasoning: "Criteria failed",
-        metCriteria: this.criteria.filter(
+        metCriteria: effectiveCriteria.filter(
           (c) => !c.toLowerCase().includes("fail")
         ),
-        unmetCriteria: this.criteria.filter((c) =>
+        unmetCriteria: effectiveCriteria.filter((c) =>
           c.toLowerCase().includes("fail")
         ),
       };
@@ -54,7 +55,7 @@ class InlineCriteriaMockJudgeAgent extends JudgeAgentAdapter {
     return {
       success: true,
       reasoning: "All criteria passed",
-      metCriteria: [...this.criteria],
+      metCriteria: [...effectiveCriteria],
       unmetCriteria: [],
     };
   }
