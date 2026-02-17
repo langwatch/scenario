@@ -36,7 +36,7 @@ class InlineCriteriaMockJudgeAgent extends JudgeAgentAdapter {
     if (!input.judgmentRequest) {
       return null;
     }
-    const effectiveCriteria = input.criteria ?? this.criteria;
+    const effectiveCriteria = input.judgmentRequest.criteria ?? this.criteria;
     const hasFail = effectiveCriteria.some((c) =>
       c.toLowerCase().includes("fail")
     );

@@ -98,7 +98,7 @@ from .config import logging as _logging_config  # noqa: F401
 from . import _tracing  # noqa: F401
 
 # First import non-dependent modules
-from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes
+from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes, JudgmentRequest
 from .config import ScenarioConfig
 
 # Then import modules with dependencies

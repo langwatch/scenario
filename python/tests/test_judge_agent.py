@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 from openai import OpenAI
 from scenario import JudgeAgent
 from scenario.config import ModelConfig, ScenarioConfig
-from scenario.types import AgentInput
+from scenario.types import AgentInput, JudgmentRequest
 from scenario.cache import context_scenario
 from scenario.scenario_executor import ScenarioExecutor
 
@@ -51,7 +51,7 @@ async def test_judge_agent_merges_global_config_and_agent_params():
         thread_id="test",
         messages=[{"role": "user", "content": "Hello"}],
         new_messages=[],
-        judgment_request=True,
+        judgment_request=JudgmentRequest(),
         scenario_state=mock_scenario_state,
     )
 
@@ -115,7 +115,7 @@ async def test_judge_agent_with_string_default_model_config():
         thread_id="test",
         messages=[{"role": "user", "content": "Hello"}],
         new_messages=[],
-        judgment_request=True,
+        judgment_request=JudgmentRequest(),
         scenario_state=mock_scenario_state,
     )
 

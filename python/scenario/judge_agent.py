@@ -253,7 +253,11 @@ class JudgeAgent(AgentAdapter):
         """
 
         scenario = input.scenario_state
-        effective_criteria = input.criteria if input.criteria is not None else self.criteria
+        effective_criteria = (
+            input.judgment_request.criteria
+            if input.judgment_request and input.judgment_request.criteria is not None
+            else self.criteria
+        )
 
         # Build transcript and traces digest
         transcript = JudgeUtils.build_transcript_from_messages(input.messages)
@@ -388,7 +392,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             },
         ]
 
-        enforce_judgment = input.judgment_request
+        enforce_judgment = input.judgment_request is not None
         has_criteria = len(effective_criteria) > 0
 
         if enforce_judgment and not has_criteria:

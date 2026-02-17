@@ -93,6 +93,21 @@ class AgentRole(Enum):
     JUDGE = "Judge"
 
 
+class JudgmentRequest(BaseModel):
+    """
+    Encapsulates a request for the judge agent to evaluate the conversation.
+
+    When present on AgentInput, signals the judge to produce a verdict.
+    Optionally carries inline criteria that override the judge's own criteria.
+
+    Attributes:
+        criteria: Optional list of criteria to evaluate. When provided, overrides
+                 the judge agent's configured criteria for this evaluation.
+    """
+
+    criteria: Optional[List[str]] = None
+
+
 class AgentInput(BaseModel):
     """
     Input data structure passed to agent adapters during scenario execution.
@@ -105,7 +120,8 @@ class AgentInput(BaseModel):
         thread_id: Unique identifier for the conversation thread
         messages: Complete conversation history as OpenAI-compatible messages
         new_messages: Only the new messages since the agent's last call
-        judgment_request: Whether this call is requesting a judgment from a judge agent
+        judgment_request: When set, requests the judge to produce a verdict,
+                         optionally with inline criteria
         scenario_state: Current state of the scenario execution
 
     Example:
@@ -129,8 +145,7 @@ class AgentInput(BaseModel):
     # Prevent pydantic from validating/parsing the messages and causing issues: https://github.com/pydantic/pydantic/issues/9541
     messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     new_messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
-    judgment_request: bool = False
-    criteria: Optional[List[str]] = None
+    judgment_request: Optional[JudgmentRequest] = None
     scenario_state: ScenarioStateType
 
     def last_new_user_message(self) -> ChatCompletionUserMessageParam:

@@ -129,7 +129,7 @@ class JudgeAgent extends JudgeAgentAdapter {
   }
 
   async call(input: AgentInput): Promise<JudgeResult | null> {
-    const criteria = input.criteria ?? this.criteria;
+    const criteria = input.judgmentRequest?.criteria ?? this.criteria;
 
     this.logger.debug("call() invoked", {
       threadId: input.threadId,
@@ -175,7 +175,7 @@ class JudgeAgent extends JudgeAgentAdapter {
       finish_test: buildFinishTestTool(criteria),
     };
 
-    const enforceJudgement = input.judgmentRequest;
+    const enforceJudgement = input.judgmentRequest != null;
     const hasCriteria = criteria.length && criteria.length > 0;
 
     if (enforceJudgement && !hasCriteria) {

@@ -13,6 +13,7 @@ import {
   type ScenarioConfig,
   AgentRole,
   type AgentInput,
+  type JudgmentRequest,
   type ScriptStep,
   type AgentReturnTypes,
   type ScenarioExecutionLike,
@@ -526,8 +527,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async callAgent(
     idx: number,
     role: AgentRole,
-    judgmentRequest: boolean = false,
-    criteria?: string[]
+    judgmentRequest?: JudgmentRequest
   ): Promise<void> {
     const agent = this.agents[idx];
     const agentName = agent.name ?? agent.constructor.name;
@@ -547,7 +547,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       newMessages: this.pendingMessages.get(idx) ?? [],
       requestedRole: role,
       judgmentRequest: judgmentRequest,
-      criteria: criteria,
       scenarioState: this.state,
       scenarioConfig: this.config,
     };
@@ -784,7 +783,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null> {
-    return await this.scriptCallAgent(AgentRole.JUDGE, undefined, true, options?.criteria);
+    return await this.scriptCallAgent(AgentRole.JUDGE, undefined, { criteria: options?.criteria });
   }
 
   /**
@@ -975,14 +974,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async scriptCallAgent(
     role: AgentRole,
     content?: string | ModelMessage,
-    judgmentRequest: boolean = false,
-    inlineCriteria?: string[]
+    judgmentRequest?: JudgmentRequest
   ): Promise<ScenarioResult | null> {
     this.logger.debug(`[${this.config.id}] scriptCallAgent`, {
       role,
       hasContent: content !== undefined,
-      judgmentRequest,
-      hasInlineCriteria: inlineCriteria !== undefined,
+      judgmentRequest: judgmentRequest != null,
+      hasInlineCriteria: judgmentRequest?.criteria != null,
     });
 
     this.consumeUntilRole(role);
@@ -1041,10 +1039,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       return null;
     }
 
-    await this.callAgent(index, role, judgmentRequest, inlineCriteria);
+    await this.callAgent(index, role, judgmentRequest);
 
     // Handle inline criteria checkpoint semantics
-    if (this.result && inlineCriteria !== undefined) {
+    if (this.result && judgmentRequest?.criteria != null) {
       this.checkpointResults.push({
         metCriteria: this.result.metCriteria,
         unmetCriteria: this.result.unmetCriteria,

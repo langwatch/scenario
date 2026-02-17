@@ -28,7 +28,7 @@ async def test_should_be_able_to_override_scenario_agent():
         thread_id="1",
         messages=[],
         new_messages=[],
-        judgment_request=False,
+        judgment_request=None,
         scenario_state=cast(Any, None),
     )
 

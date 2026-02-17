@@ -17,6 +17,19 @@ export const allAgentRoles = [
 ] as const;
 
 /**
+ * Encapsulates a request for the judge agent to evaluate the conversation.
+ *
+ * When present on AgentInput, signals the judge to produce a verdict.
+ * Optionally carries inline criteria that override the judge's own criteria.
+ */
+export interface JudgmentRequest {
+  /**
+   * Optional criteria to evaluate, overriding the judge agent's configured criteria.
+   */
+  criteria?: string[];
+}
+
+/**
  * Input provided to an agent's `call` method.
  */
 export interface AgentInput {
@@ -37,13 +50,9 @@ export interface AgentInput {
    */
   requestedRole: AgentRole;
   /**
-   * Whether a judgment is being requested in this turn.
+   * When set, requests the judge to produce a verdict, optionally with inline criteria.
    */
-  judgmentRequest: boolean;
-  /**
-   * Optional criteria to evaluate, overriding the agent's configured criteria.
-   */
-  criteria?: string[];
+  judgmentRequest?: JudgmentRequest;
   /**
    * The current state of the scenario execution.
    */

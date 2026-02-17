@@ -48,6 +48,7 @@ from .types import (
     AgentInput,
     AgentRole,
     ChatCompletionMessageParamWithTrace,
+    JudgmentRequest,
     ScenarioResult,
     ScriptStep,
 )
@@ -545,7 +546,7 @@ class ScenarioExecutor:
             raise  # Re-raise the exception after cleanup
 
     async def _call_agent(
-        self, idx: int, role: AgentRole, request_judgment: bool = False, criteria: Optional[List[str]] = None
+        self, idx: int, role: AgentRole, judgment_request: Optional[JudgmentRequest] = None
     ) -> Union[List[ChatCompletionMessageParam], ScenarioResult, None]:
         agent = self.agents[idx]
 
@@ -604,8 +605,7 @@ class ScenarioExecutor:
                                     self._state.messages,
                                 ),
                                 new_messages=self._pending_messages.get(idx, []),
-                                judgment_request=request_judgment,
-                                criteria=criteria,
+                                judgment_request=judgment_request,
                                 scenario_state=self._state,
                             )
                         )
@@ -690,7 +690,7 @@ class ScenarioExecutor:
         criteria: Optional[List[str]] = None,
     ) -> Optional[ScenarioResult]:
         return await self._script_call_agent(
-            AgentRole.JUDGE, request_judgment=True, inline_criteria=criteria
+            AgentRole.JUDGE, judgment_request=JudgmentRequest(criteria=criteria)
         )
 
     async def proceed(
@@ -758,8 +758,7 @@ class ScenarioExecutor:
         self,
         role: AgentRole,
         content: Optional[Union[str, ChatCompletionMessageParam]] = None,
-        request_judgment: bool = False,
-        inline_criteria: Optional[List[str]] = None,
+        judgment_request: Optional[JudgmentRequest] = None,
     ) -> Optional[ScenarioResult]:
         self._consume_until_role(role)
         idx, next_agent = self._next_agent_for_role(role)
@@ -806,11 +805,11 @@ class ScenarioExecutor:
             return
 
         result = await self._call_agent(
-            idx, role=role, request_judgment=request_judgment, criteria=inline_criteria
+            idx, role=role, judgment_request=judgment_request
         )
 
         if isinstance(result, ScenarioResult):
-            if inline_criteria is not None:
+            if judgment_request is not None and judgment_request.criteria is not None:
                 # Checkpoint: record result
                 self._checkpoint_results.append({
                     "passed_criteria": result.passed_criteria,

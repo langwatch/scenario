@@ -2,7 +2,7 @@ import pytest
 import scenario
 from scenario import JudgeAgent, UserSimulatorAgent
 from scenario.agent_adapter import AgentAdapter
-from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
+from scenario.types import AgentInput, AgentReturnTypes, AgentRole, JudgmentRequest, ScenarioResult
 from scenario.script import user, agent, judge, succeed
 
 from scenario.scenario_executor import ScenarioExecutor
@@ -263,7 +263,11 @@ class InlineCriteriaMockJudgeAgent(JudgeAgent):
         if not input.judgment_request:
             return []
         # Use criteria from input if provided, otherwise use self.criteria
-        effective_criteria = input.criteria if input.criteria is not None else self.criteria
+        effective_criteria = (
+            input.judgment_request.criteria
+            if input.judgment_request and input.judgment_request.criteria is not None
+            else self.criteria
+        )
         # Simple mock: succeed if criteria list contains "pass", fail if "fail"
         has_fail = any("fail" in c.lower() for c in effective_criteria)
         if has_fail:
