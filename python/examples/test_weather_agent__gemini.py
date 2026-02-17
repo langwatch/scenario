@@ -47,6 +47,8 @@ async def test_weather_agent():
         script=[
             scenario.user(),
             scenario.agent(),
+            scenario.user(),
+            scenario.agent(),
             scenario.judge(),
         ],
         set_id="python-examples",
@@ -96,6 +98,7 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
                 "content": """
                     You are a helpful assistant that may help the user with weather information.
                     Do not guess the city if they don't provide it. Get the weather for multiple cities if they ask for it.
+                    When the user mentions specific cities, use the get_current_weather tool right away to check the weather.
                 """,
             },
             *messages,
