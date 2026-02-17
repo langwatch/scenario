@@ -226,13 +226,15 @@ class ScenarioExecutor:
         self._total_start_time = time.time()
         self._agent_times = {}
         self._checkpoint_results: List[dict] = []
+        self._is_last_script_step = False
 
         self._new_turn()
         self._state.current_turn = 0
 
         context_scenario.set(self)
 
-    def _compile_checkpoint_results(self) -> tuple[List[str], List[str]]:
+    @property
+    def _compiled_checkpoints(self) -> tuple[List[str], List[str]]:
         """Compile all checkpoint results into aggregated passed/failed criteria."""
         passed: List[str] = []
         failed: List[str] = []
@@ -467,7 +469,8 @@ class ScenarioExecutor:
 
             self.reset()
 
-            for script_step in self.script:
+            for i, script_step in enumerate(self.script):
+                self._is_last_script_step = (i == len(self.script) - 1)
                 callable = script_step(self._state)
                 if isinstance(callable, Awaitable):
                     result = await callable
@@ -476,10 +479,9 @@ class ScenarioExecutor:
                 self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
-                    # Merge any accumulated checkpoint results into the final result
-                    if self._checkpoint_results:
-                        compiled_passed, _ = self._compile_checkpoint_results()
-                        result.passed_criteria = compiled_passed + result.passed_criteria
+                    # Merge any accumulated checkpoint criteria into the final result
+                    compiled_passed, _ = self._compiled_checkpoints
+                    result.passed_criteria = compiled_passed + result.passed_criteria
 
                     status = (
                         ScenarioRunFinishedEventStatus.SUCCESS
@@ -491,7 +493,7 @@ class ScenarioExecutor:
 
             if self._checkpoint_results:
                 # All inline criteria checkpoints passed
-                compiled_passed, compiled_failed = self._compile_checkpoint_results()
+                compiled_passed, compiled_failed = self._compiled_checkpoints
                 agent_roles_agents_idx = [
                     idx
                     for idx, agent in enumerate(self.agents)
@@ -689,8 +691,12 @@ class ScenarioExecutor:
         self,
         criteria: Optional[List[str]] = None,
     ) -> Optional[ScenarioResult]:
+        # Inline criteria or last script step: force a verdict
+        # Middle of script without criteria: let the judge decide freely (may continue)
+        should_force_verdict = criteria is not None or self._is_last_script_step
         return await self._script_call_agent(
-            AgentRole.JUDGE, judgment_request=JudgmentRequest(criteria=criteria)
+            AgentRole.JUDGE,
+            judgment_request=JudgmentRequest(criteria=criteria) if should_force_verdict else None,
         )
 
     async def proceed(
@@ -821,15 +827,14 @@ class ScenarioExecutor:
                     return None
                 else:
                     # Checkpoint failed: compile all results into the failing result
-                    compiled_passed, compiled_failed = self._compile_checkpoint_results()
+                    compiled_passed, compiled_failed = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed
                     result.failed_criteria = compiled_failed
                     return result
             else:
-                # Non-inline judge: merge any prior checkpoint results
-                if self._checkpoint_results:
-                    compiled_passed, _ = self._compile_checkpoint_results()
-                    result.passed_criteria = compiled_passed + result.passed_criteria
+                # Merge any prior checkpoint criteria into the final result
+                compiled_passed, _ = self._compiled_checkpoints
+                result.passed_criteria = compiled_passed + result.passed_criteria
                 return result
 
     # Event handling methods

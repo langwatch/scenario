@@ -172,6 +172,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** Accumulated results from inline judge checkpoints */
   private checkpointResults: { metCriteria: string[]; unmetCriteria: string[] }[] = [];
 
+  /** Whether the currently executing script step is the last one */
+  private _isLastScriptStep = false;
+
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
 
@@ -248,7 +251,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    */
   private setResult(
     result: Omit<ScenarioResult, "messages" | "totalTime" | "agentTime">
-  ): void {
+  ): ScenarioResult {
     const agentRoleAgentsIdx = this.agents
       .map((agent, i) => ({ agent, idx: i }))
       .filter(({ agent }) => agent.role === AgentRole.AGENT)
@@ -266,6 +269,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       totalTime: this.totalTime,
       agentTime: totalAgentTime,
     };
+
+    return this._result;
 
     this.logger.debug(`[${this.config.id}] Result set`, {
       success: result.success,
@@ -334,16 +339,15 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     try {
       // Execute script steps - pass the execution context (this), not just state
       for (let i = 0; i < this.config.script.length; i++) {
+        this._isLastScriptStep = i === this.config.script.length - 1;
         const scriptStep = this.config.script[i];
 
         await this.executeScriptStep(scriptStep, i);
 
         if (this.result) {
-          // Merge any accumulated checkpoint results into the final result
-          if (this.checkpointResults.length > 0) {
-            const compiled = this.compileCheckpointResults();
-            this.result.metCriteria = [...compiled.metCriteria, ...this.result.metCriteria];
-          }
+          // Merge any accumulated checkpoint criteria into the final result
+          const cp = this.compiledCheckpoints;
+          this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
 
           this.emitRunFinished({
             scenarioRunId,
@@ -359,25 +363,25 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (this.checkpointResults.length > 0) {
         // All inline criteria checkpoints passed
-        const compiled = this.compileCheckpointResults();
-        this.setResult({
-          success: compiled.unmetCriteria.length === 0,
+        const cp = this.compiledCheckpoints;
+        const result = this.setResult({
+          success: cp.unmetCriteria.length === 0,
           reasoning: "All inline criteria checkpoints passed",
-          metCriteria: compiled.metCriteria,
-          unmetCriteria: compiled.unmetCriteria,
+          metCriteria: cp.metCriteria,
+          unmetCriteria: cp.unmetCriteria,
         });
 
         this.emitRunFinished({
           scenarioRunId,
-          status: this.result!.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
-          result: this.result!,
+          status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
+          result,
         });
 
-        return this.result!;
+        return result;
       }
 
       // If no conclusion reached, set max turns error
-      this.reachedMaxTurns(
+      const result = this.reachedMaxTurns(
         [
           "Reached end of script without conclusion, add one of the following to the end of the script:",
           "- `Scenario.proceed()` to let the simulation continue to play out",
@@ -386,13 +390,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         ].join("\n")
       );
 
-      this.emitRunFinished({ scenarioRunId, status: ScenarioRunStatus.FAILED });
+      this.emitRunFinished({ scenarioRunId, status: ScenarioRunStatus.FAILED, result });
 
-      return this.result!;
+      return result;
     } catch (error) {
       const errorInfo = extractErrorInfo(error);
 
-      this.setResult({
+      const result = this.setResult({
         success: false,
         reasoning: `Scenario failed with error: ${errorInfo.message}`,
         metCriteria: [],
@@ -403,7 +407,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       this.emitRunFinished({
         scenarioRunId,
         status: ScenarioRunStatus.ERROR,
-        result: this.result!,
+        result,
       });
 
       // Re-throw the error in case it was a vitest assertion error
@@ -783,7 +787,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null> {
-    return await this.scriptCallAgent(AgentRole.JUDGE, undefined, { criteria: options?.criteria });
+    // Inline criteria or last script step: force a verdict
+    // Middle of script without criteria: let the judge decide freely (may continue)
+    const shouldForceVerdict = options?.criteria != null || this._isLastScriptStep;
+    return await this.scriptCallAgent(
+      AgentRole.JUDGE,
+      undefined,
+      shouldForceVerdict ? { criteria: options?.criteria } : undefined
+    );
   }
 
   /**
@@ -884,14 +895,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async succeed(reasoning?: string): Promise<ScenarioResult> {
-    this.setResult({
+    return this.setResult({
       success: true,
       reasoning:
         reasoning || "Scenario marked as successful with Scenario.succeed()",
       metCriteria: [],
       unmetCriteria: [],
     });
-    return this.result!;
   }
 
   /**
@@ -918,13 +928,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async fail(reasoning?: string): Promise<ScenarioResult> {
-    this.setResult({
+    return this.setResult({
       success: false,
       reasoning: reasoning || "Scenario marked as failed with Scenario.fail()",
       metCriteria: [],
       unmetCriteria: [],
     });
-    return this.result!;
   }
 
   /**
@@ -1054,17 +1063,17 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         return null;
       } else {
         // Checkpoint failed: compile all results into the failing result
-        const compiled = this.compileCheckpointResults();
-        this.result.metCriteria = compiled.metCriteria;
-        this.result.unmetCriteria = compiled.unmetCriteria;
+        const cp = this.compiledCheckpoints;
+        this.result.metCriteria = cp.metCriteria;
+        this.result.unmetCriteria = cp.unmetCriteria;
         return this.result;
       }
     }
 
-    // Non-inline judge: merge any prior checkpoint results
-    if (this.result && this.checkpointResults.length > 0) {
-      const compiled = this.compileCheckpointResults();
-      this.result.metCriteria = [...compiled.metCriteria, ...this.result.metCriteria];
+    // Merge any prior checkpoint criteria into the final result
+    if (this.result) {
+      const cp = this.compiledCheckpoints;
+      this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
     }
 
     return this.result ?? null;
@@ -1111,7 +1120,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     });
   }
 
-  private compileCheckpointResults(): { metCriteria: string[]; unmetCriteria: string[] } {
+  /** Compiles all accumulated checkpoint results into aggregated met/unmet criteria. */
+  private get compiledCheckpoints(): { metCriteria: string[]; unmetCriteria: string[] } {
     const metCriteria: string[] = [];
     const unmetCriteria: string[] = [];
     for (const cp of this.checkpointResults) {
@@ -1239,8 +1249,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * @param errorMessage - Optional custom error message to use instead of the default
    */
-  private reachedMaxTurns(errorMessage?: string): void {
-    this.setResult({
+  private reachedMaxTurns(errorMessage?: string): ScenarioResult {
+    return this.setResult({
       success: false,
       reasoning:
         errorMessage ||
@@ -1251,6 +1261,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       unmetCriteria: this.getJudgeAgent()?.criteria ?? [],
     });
   }
+
 
   private getJudgeAgent(): JudgeAgentAdapter | null {
     return (
