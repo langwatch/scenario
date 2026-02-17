@@ -7,7 +7,7 @@ scripts that precisely control how conversations unfold, when evaluations occur,
 and when scenarios should succeed or fail.
 """
 
-from typing import Awaitable, Callable, Optional, Union, TYPE_CHECKING
+from typing import Awaitable, Callable, List, Optional, Union, TYPE_CHECKING
 
 from .types import ScriptStep
 
@@ -162,18 +162,22 @@ def agent(
 
 
 def judge(
-    content: Optional[Union[str, ChatCompletionMessageParam]] = None,
+    criteria: Optional[List[str]] = None,
 ) -> ScriptStep:
     """
     Invoke the judge agent to evaluate the current conversation state.
 
-    This function forces the judge agent to make a decision about whether
-    the scenario should continue or end with a success/failure verdict.
-    The judge will evaluate based on its configured criteria.
+    When criteria are provided inline, the judge evaluates only those criteria
+    as a checkpoint: if all pass, the scenario continues; if any fail, the
+    scenario fails immediately. This is the preferred way to pass criteria
+    when using scripts.
+
+    When no criteria are provided, the judge uses its own configured criteria
+    and returns a final verdict (success or failure), ending the scenario.
 
     Args:
-        content: Optional message content for the judge. Usually None to let
-                the judge evaluate based on its criteria.
+        criteria: Optional list of criteria to evaluate inline. When provided,
+                 acts as a checkpoint rather than a final judgment.
 
     Returns:
         ScriptStep function that can be used in scenario scripts
@@ -186,24 +190,30 @@ def judge(
             agents=[
                 my_agent,
                 scenario.UserSimulatorAgent(),
-                scenario.JudgeAgent(criteria=["Agent provides coding help effectively"])
+                scenario.JudgeAgent()
             ],
             script=[
                 scenario.user("Can you help me code?"),
                 scenario.agent(),
 
-                # Force judge evaluation after first exchange
-                scenario.judge(),  # May continue or end scenario
+                # Checkpoint: evaluate specific criteria, continue if met
+                scenario.judge(criteria=[
+                    "Agent should ask clarifying questions about the coding task",
+                ]),
 
-                # If scenario continues...
                 scenario.user(),
                 scenario.agent(),
-                scenario.judge(),  # Final evaluation
+
+                # Final evaluation with remaining criteria
+                scenario.judge(criteria=[
+                    "Agent provides working code example",
+                    "Agent explains the code clearly",
+                ]),
             ]
         )
         ```
     """
-    return lambda state: state._executor.judge(content)
+    return lambda state: state._executor.judge(criteria=criteria)
 
 
 def proceed(

@@ -3,6 +3,7 @@ import scenario
 from scenario import JudgeAgent, UserSimulatorAgent
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
+from scenario.script import user, agent, judge, succeed
 
 from scenario.scenario_executor import ScenarioExecutor
 
@@ -250,3 +251,202 @@ async def test_eliminate_pending_roles_in_order_also_on_scripted_scenarios():
         AgentRole.AGENT,
         AgentRole.JUDGE,
     ], "new turn started with all roles back"
+
+
+# --- Inline criteria tests ---
+
+
+class InlineCriteriaMockJudgeAgent(JudgeAgent):
+    """Judge that evaluates based on self.criteria and returns pass/fail."""
+
+    async def call(self, input: AgentInput) -> scenario.AgentReturnTypes:
+        if not input.judgment_request:
+            return []
+        # Simple mock: succeed if criteria list contains "pass", fail if "fail"
+        has_fail = any("fail" in c.lower() for c in self.criteria)
+        if has_fail:
+            return ScenarioResult(
+                success=False,
+                messages=[],
+                reasoning="Criteria failed",
+                passed_criteria=[c for c in self.criteria if "fail" not in c.lower()],
+                failed_criteria=[c for c in self.criteria if "fail" in c.lower()],
+            )
+        return ScenarioResult(
+            success=True,
+            messages=[],
+            reasoning="All criteria passed",
+            passed_criteria=list(self.criteria),
+            failed_criteria=[],
+        )
+
+
+@pytest.mark.asyncio
+async def test_inline_criteria_checkpoint_pass_continues():
+    """When inline criteria pass, the script should continue past the judge step."""
+    call_count = {"agent": 0}
+
+    class CountingAgent(AgentAdapter):
+        async def call(self, input: AgentInput) -> AgentReturnTypes:
+            call_count["agent"] += 1
+            return {"role": "assistant", "content": "response"}
+
+    executor = ScenarioExecutor(
+        name="test inline pass",
+        description="test",
+        agents=[
+            CountingAgent(),
+            MockUserSimulatorAgent(model="none"),
+            InlineCriteriaMockJudgeAgent(model="none"),
+        ],
+        script=[
+            user("hello"),
+            agent(),
+            judge(criteria=["criterion A passes"]),
+            user("follow up"),
+            agent(),
+            succeed(),
+        ],
+    )
+
+    result = await executor.run()
+    assert result.success, f"Expected success, got: {result.reasoning}"
+    assert call_count["agent"] == 2, "Agent should be called twice (before and after checkpoint)"
+    assert "criterion A passes" in result.passed_criteria
+
+
+@pytest.mark.asyncio
+async def test_inline_criteria_checkpoint_fail_stops():
+    """When inline criteria fail, the scenario should stop immediately."""
+    call_count = {"agent": 0}
+
+    class CountingAgent(AgentAdapter):
+        async def call(self, input: AgentInput) -> AgentReturnTypes:
+            call_count["agent"] += 1
+            return {"role": "assistant", "content": "response"}
+
+    executor = ScenarioExecutor(
+        name="test inline fail",
+        description="test",
+        agents=[
+            CountingAgent(),
+            MockUserSimulatorAgent(model="none"),
+            InlineCriteriaMockJudgeAgent(model="none"),
+        ],
+        script=[
+            user("hello"),
+            agent(),
+            judge(criteria=["this will fail"]),
+            user("should not reach"),
+            agent(),
+            succeed(),
+        ],
+    )
+
+    result = await executor.run()
+    assert not result.success, "Expected failure"
+    assert call_count["agent"] == 1, "Agent should only be called once (before the failed checkpoint)"
+    assert "this will fail" in result.failed_criteria
+
+
+@pytest.mark.asyncio
+async def test_multiple_inline_checkpoints_accumulate():
+    """Multiple passing checkpoints should accumulate passed criteria."""
+    executor = ScenarioExecutor(
+        name="test accumulate",
+        description="test",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(model="none"),
+            InlineCriteriaMockJudgeAgent(model="none"),
+        ],
+        script=[
+            user("hello"),
+            agent(),
+            judge(criteria=["criterion A passes"]),
+            user("more"),
+            agent(),
+            judge(criteria=["criterion B passes", "criterion C passes"]),
+        ],
+    )
+
+    result = await executor.run()
+    assert result.success, f"Expected success, got: {result.reasoning}"
+    assert "criterion A passes" in result.passed_criteria
+    assert "criterion B passes" in result.passed_criteria
+    assert "criterion C passes" in result.passed_criteria
+
+
+@pytest.mark.asyncio
+async def test_inline_criteria_end_of_script_succeeds():
+    """Script ending after all checkpoints passed should succeed."""
+    executor = ScenarioExecutor(
+        name="test end of script",
+        description="test",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(model="none"),
+            InlineCriteriaMockJudgeAgent(model="none"),
+        ],
+        script=[
+            user("hello"),
+            agent(),
+            judge(criteria=["criterion A passes"]),
+        ],
+    )
+
+    result = await executor.run()
+    assert result.success, f"Expected success, got: {result.reasoning}"
+    assert "criterion A passes" in result.passed_criteria
+
+
+@pytest.mark.asyncio
+async def test_inline_criteria_restores_original():
+    """After an inline judge call, the JudgeAgent's original criteria should be restored."""
+    judge_agent = InlineCriteriaMockJudgeAgent(model="none", criteria=["original criterion"])
+
+    executor = ScenarioExecutor(
+        name="test restore",
+        description="test",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(model="none"),
+            judge_agent,
+        ],
+        script=[
+            user("hello"),
+            agent(),
+            judge(criteria=["inline criterion passes"]),
+            succeed(),
+        ],
+    )
+
+    await executor.run()
+    assert judge_agent.criteria == ["original criterion"], "Original criteria should be restored"
+
+
+@pytest.mark.asyncio
+async def test_inline_criteria_fail_includes_accumulated():
+    """When a checkpoint fails after a previous one passed, accumulated criteria should be included."""
+    executor = ScenarioExecutor(
+        name="test fail with accumulated",
+        description="test",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(model="none"),
+            InlineCriteriaMockJudgeAgent(model="none"),
+        ],
+        script=[
+            user("hello"),
+            agent(),
+            judge(criteria=["criterion A passes"]),
+            user("more"),
+            agent(),
+            judge(criteria=["this will fail"]),
+        ],
+    )
+
+    result = await executor.run()
+    assert not result.success, "Expected failure"
+    assert "criterion A passes" in result.passed_criteria, "Previously accumulated criteria should be present"
+    assert "this will fail" in result.failed_criteria

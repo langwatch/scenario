@@ -117,20 +117,19 @@ describe("Testing Remote Agents - JSON Response", () => {
       agents: [
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
         jsonAgentAdapter,
-        scenario.judgeAgent({
-          model: openai("gpt-4o-mini"),
-          criteria: [
-            "Agent should respond helpfully to weather questions",
-            "Agent should provide specific weather information",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4o-mini") }),
       ],
       script: [
         scenario.user("What's the weather like today in Paris? Be specific."),
         scenario.agent(),
         scenario.user(),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent should respond helpfully to weather questions",
+            "Agent should provide specific weather information",
+          ],
+        }),
       ],
       setId: "javascript-examples",
     });

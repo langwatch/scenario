@@ -41,17 +41,20 @@ export const agent = (content?: string | ModelMessage): ScriptStep => {
 /**
  * Invoke the judge agent to evaluate the current conversation state.
  *
- * This function forces the judge agent to make a decision about whether
- * the scenario should continue or end with a success/failure verdict.
- * The judge will evaluate based on its configured criteria.
+ * When criteria are provided inline, the judge evaluates only those criteria
+ * as a checkpoint: if all pass, the scenario continues; if any fail, the
+ * scenario fails immediately. This is the preferred way to pass criteria
+ * when using scripts.
  *
- * @param content Optional message content for the judge. Usually undefined to let
- *                the judge evaluate based on its criteria.
+ * When no criteria are provided, the judge uses its own configured criteria
+ * and returns a final verdict (success or failure), ending the scenario.
+ *
+ * @param options Optional options object with inline criteria to evaluate.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const judge = (content?: string | ModelMessage): ScriptStep => {
+export const judge = (options?: { criteria: string[] }): ScriptStep => {
   return async (_state, executor) => {
-    await executor.judge(content);
+    await executor.judge(options);
   };
 };
 

@@ -30,7 +30,7 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
   /**
    * The criteria that the judge will use to evaluate the conversation.
    */
-  criteria: string[];
+  criteria?: string[];
   /**
    * Optional span collector for telemetry. Defaults to global singleton.
    */
@@ -124,7 +124,7 @@ class JudgeAgent extends JudgeAgentAdapter {
 
   constructor(private readonly cfg: JudgeAgentConfig) {
     super();
-    this.criteria = cfg.criteria;
+    this.criteria = cfg.criteria ?? [];
     this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
   }
 
@@ -153,7 +153,7 @@ class JudgeAgent extends JudgeAgentAdapter {
 
     const systemPrompt =
       cfg.systemPrompt ??
-      buildSystemPrompt(cfg.criteria, input.scenarioConfig.description);
+      buildSystemPrompt(this.criteria, input.scenarioConfig.description);
     const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: contentForJudge },
@@ -170,11 +170,11 @@ class JudgeAgent extends JudgeAgentAdapter {
     });
     const tools: ToolSet = {
       continue_test: buildContinueTestTool(),
-      finish_test: buildFinishTestTool(cfg.criteria),
+      finish_test: buildFinishTestTool(this.criteria),
     };
 
     const enforceJudgement = input.judgmentRequest;
-    const hasCriteria = cfg.criteria.length && cfg.criteria.length > 0;
+    const hasCriteria = this.criteria.length && this.criteria.length > 0;
 
     if (enforceJudgement && !hasCriteria) {
       return {
@@ -227,10 +227,10 @@ class JudgeAgent extends JudgeAgentAdapter {
           const reasoning = args.reasoning || "No reasoning provided";
           const criteria = args.criteria || {};
           const criteriaValues = Object.values(criteria);
-          const metCriteria = cfg.criteria.filter(
+          const metCriteria = this.criteria.filter(
             (_, i) => criteriaValues[i] === "true"
           );
-          const unmetCriteria = cfg.criteria.filter(
+          const unmetCriteria = this.criteria.filter(
             (_, i) => criteriaValues[i] !== "true"
           );
 
@@ -253,7 +253,7 @@ class JudgeAgent extends JudgeAgentAdapter {
             success: false,
             reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
             metCriteria: [],
-            unmetCriteria: cfg.criteria,
+            unmetCriteria: this.criteria,
           };
       }
     }
@@ -262,7 +262,7 @@ class JudgeAgent extends JudgeAgentAdapter {
       success: false,
       reasoning: `JudgeAgent: No tool call found in LLM output`,
       metCriteria: [],
-      unmetCriteria: cfg.criteria,
+      unmetCriteria: this.criteria,
     };
   }
 
@@ -323,6 +323,6 @@ class JudgeAgent extends JudgeAgentAdapter {
  * main();
  * ```
  */
-export const judgeAgent = (cfg: JudgeAgentConfig) => {
-  return new JudgeAgent(cfg);
+export const judgeAgent = (cfg?: JudgeAgentConfig) => {
+  return new JudgeAgent(cfg ?? {});
 };

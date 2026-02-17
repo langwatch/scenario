@@ -22,12 +22,12 @@ result = await scenario.run(
     agents=[
         MyAgent(),
         scenario.UserSimulatorAgent(),
-        scenario.JudgeAgent(criteria=["Agent responds helpfully"])
+        scenario.JudgeAgent(),
     ],
     script=[
         scenario.user("Hello, I need help"),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge(criteria=["Agent responds helpfully"]),
     ]
 )
 
@@ -41,12 +41,12 @@ const result = await scenario.run({
   agents: [
     myAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({ criteria: ["Agent responds helpfully"] }),
+    scenario.judgeAgent(),
   ],
   script: [
     scenario.user("Hello, I need help"),
     scenario.agent(),
-    scenario.judge(),
+    scenario.judge({ criteria: ["Agent responds helpfully"] }),
   ],
 });
 
@@ -282,22 +282,57 @@ Use <RefLink link={{ python: "script.html#scenario.script.message", typescript: 
 
 ### <RefLink link={{ python: "script.html#scenario.script.judge", typescript: "functions/judge.html" }}>`scenario.judge()`</RefLink>
 
-Force judge evaluation at specific points:
+Evaluate criteria at specific points in the conversation. When using scripts, pass criteria inline to `scenario.judge()` — this is the preferred approach:
 
-```python
+:::code-group
+
+```python [python]
 script=[
     scenario.user("I need help"),
     scenario.agent(),
 
-    # Force judge to evaluate now
-    scenario.judge(),
+    # Checkpoint: if criteria pass, continue; if any fail, stop immediately
+    scenario.judge(criteria=[
+        "Agent should ask clarifying questions",
+    ]),
 
-    # If conversation continues...
     scenario.user(),
     scenario.agent(),
-    scenario.judge()  # Final evaluation
+
+    # Final evaluation with remaining criteria
+    scenario.judge(criteria=[
+        "Agent provides a helpful response",
+        "Agent does not make things up",
+    ]),
 ]
 ```
+
+```typescript [typescript]
+const script = [
+  scenario.user("I need help"),
+  scenario.agent(),
+
+  // Checkpoint: if criteria pass, continue; if any fail, stop immediately
+  scenario.judge({
+    criteria: ["Agent should ask clarifying questions"],
+  }),
+
+  scenario.user(),
+  scenario.agent(),
+
+  // Final evaluation with remaining criteria
+  scenario.judge({
+    criteria: [
+      "Agent provides a helpful response",
+      "Agent does not make things up",
+    ],
+  }),
+];
+```
+
+:::
+
+Each `scenario.judge()` with inline criteria acts as a **checkpoint**: if all criteria pass, the script continues; if any fail, the scenario stops immediately with a failure. When the script ends after all checkpoints pass, the scenario succeeds with all accumulated passed criteria.
 
 ### <RefLink link={{ python: "script.html#scenario.script.proceed", typescript: "functions/proceed.html" }}>`scenario.proceed()`</RefLink>
 
@@ -542,7 +577,7 @@ result = await scenario.run(
     agents=[
         TravelAgent(),
         scenario.UserSimulatorAgent(),
-        scenario.JudgeAgent(criteria=["Agent handles additional requests smoothly"])
+        scenario.JudgeAgent(),
     ],
     script=[
         # Set up previous conversation context
@@ -554,7 +589,7 @@ result = await scenario.run(
         # Continue with new interaction
         scenario.user("Actually, can you also help me find hotels?"),
         scenario.agent(),
-        scenario.judge()
+        scenario.judge(criteria=["Agent handles additional requests smoothly"]),
     ]
 )
 ```
@@ -576,7 +611,7 @@ const script = [
   // Continue with new interaction
   scenario.user("Actually, can you also help me find hotels?"),
   scenario.agent(),
-  scenario.judge(),
+  scenario.judge({ criteria: ["Agent handles additional requests smoothly"] }),
 ];
 
 const result = await scenario.run({
@@ -586,9 +621,7 @@ const result = await scenario.run({
   agents: [
     travelAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({
-      criteria: ["Agent handles additional requests smoothly"],
-    }),
+    scenario.judgeAgent(),
   ],
   script,
 });

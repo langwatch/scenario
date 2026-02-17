@@ -224,6 +224,7 @@ class ScenarioExecutor:
         self._pending_messages = {}
         self._total_start_time = time.time()
         self._agent_times = {}
+        self._accumulated_passed_criteria: List[str] = []
 
         self._new_turn()
         self._state.current_turn = 0
@@ -465,6 +466,11 @@ class ScenarioExecutor:
                 self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
+                    if self._accumulated_passed_criteria:
+                        result.passed_criteria = (
+                            self._accumulated_passed_criteria
+                            + result.passed_criteria
+                        )
                     status = (
                         ScenarioRunFinishedEventStatus.SUCCESS
                         if result.success
@@ -473,14 +479,37 @@ class ScenarioExecutor:
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
-            result = self._reached_max_turns(
-                """Reached end of script without conclusion, add one of the following to the end of the script:
+            if self._accumulated_passed_criteria:
+                # All inline criteria checkpoints passed
+                agent_roles_agents_idx = [
+                    idx
+                    for idx, agent in enumerate(self.agents)
+                    if agent.role == AgentRole.AGENT
+                ]
+                agent_times = [
+                    self._agent_times[idx]
+                    for idx in agent_roles_agents_idx
+                    if idx in self._agent_times
+                ]
+                agent_time = sum(agent_times)
+
+                result = ScenarioResult(
+                    success=True,
+                    messages=self._state.messages,
+                    reasoning="All inline criteria checkpoints passed",
+                    passed_criteria=self._accumulated_passed_criteria,
+                    total_time=time.time() - self._total_start_time,
+                    agent_time=agent_time,
+                )
+            else:
+                result = self._reached_max_turns(
+                    """Reached end of script without conclusion, add one of the following to the end of the script:
 
 - `scenario.proceed()` to let the simulation continue to play out
 - `scenario.judge()` to force criteria judgement
 - `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
-                """
-            )
+                    """
+                )
 
             status = (
                 ScenarioRunFinishedEventStatus.SUCCESS
@@ -645,10 +674,11 @@ class ScenarioExecutor:
         await self._script_call_agent(AgentRole.AGENT, content)
 
     async def judge(
-        self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
+        self,
+        criteria: Optional[List[str]] = None,
     ) -> Optional[ScenarioResult]:
         return await self._script_call_agent(
-            AgentRole.JUDGE, content, request_judgment=True
+            AgentRole.JUDGE, request_judgment=True, inline_criteria=criteria
         )
 
     async def proceed(
@@ -717,6 +747,7 @@ class ScenarioExecutor:
         role: AgentRole,
         content: Optional[Union[str, ChatCompletionMessageParam]] = None,
         request_judgment: bool = False,
+        inline_criteria: Optional[List[str]] = None,
     ) -> Optional[ScenarioResult]:
         self._consume_until_role(role)
         idx, next_agent = self._next_agent_for_role(role)
@@ -762,11 +793,37 @@ class ScenarioExecutor:
                 print_openai_messages(self._scenario_name(), [message])
             return
 
-        result = await self._call_agent(
-            idx, role=role, request_judgment=request_judgment
-        )
+        # Temporarily swap criteria for inline judge evaluation
+        original_criteria = None
+        if inline_criteria is not None and role == AgentRole.JUDGE:
+            original_criteria = next_agent.criteria  # type: ignore
+            next_agent.criteria = inline_criteria  # type: ignore
+
+        try:
+            result = await self._call_agent(
+                idx, role=role, request_judgment=request_judgment
+            )
+        finally:
+            if original_criteria is not None:
+                next_agent.criteria = original_criteria  # type: ignore
+
         if isinstance(result, ScenarioResult):
-            return result
+            if inline_criteria is not None:
+                # Checkpoint judge: pass = continue, fail = stop
+                if result.success:
+                    self._accumulated_passed_criteria.extend(result.passed_criteria)
+                    return None
+                else:
+                    result.passed_criteria = (
+                        self._accumulated_passed_criteria + result.passed_criteria
+                    )
+                    return result
+            else:
+                # Final judge: merge accumulated criteria and return
+                result.passed_criteria = (
+                    self._accumulated_passed_criteria + result.passed_criteria
+                )
+                return result
 
     # Event handling methods
 

@@ -61,12 +61,7 @@ describe("Image Analysis with Fixtures", () => {
       agents: [
         imageAnalysisAgent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
-          criteria: [
-            "Agent should acknowledge the presence of an image",
-            "Agent should provide some analysis or description",
-          ],
-        }),
+        scenario.judgeAgent(),
       ],
       script: [
         {
@@ -79,6 +74,13 @@ describe("Image Analysis with Fixtures", () => {
             },
           ],
         },
+        scenario.agent(),
+        scenario.judge({
+          criteria: [
+            "Agent should acknowledge the presence of an image",
+            "Agent should provide some analysis or description",
+          ],
+        }),
       ],
     });
 
@@ -114,10 +116,7 @@ async def test_image_analysis_with_fixtures():
         agents=[
             ImageAnalysisAgent(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(criteria=[
-                "Agent should acknowledge the presence of an image",
-                "Agent should provide some analysis or description",
-            ])
+            scenario.JudgeAgent()
         ],
         script=[
             {
@@ -127,6 +126,11 @@ async def test_image_analysis_with_fixtures():
                     {"type": "image", "image": get_data_url_from_fixture("scenario.webp", "image/webp")},
                 ],
             },
+            scenario.agent(),
+            scenario.judge(criteria=[
+                "Agent should acknowledge the presence of an image",
+                "Agent should provide some analysis or description",
+            ]),
         ],
     )
 

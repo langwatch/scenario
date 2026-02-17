@@ -94,12 +94,7 @@ describe("Scenario Expert Agent (Realtime API)", () => {
         audioUserSim, // Audio user simulator (generates voice)
         wrapJudgeForAudioTranscription(
           // Judge with audio transcription
-          scenario.judgeAgent({
-            criteria: [
-              "Agent explains what Scenario is or how it helps test AI agents",
-              "Agent is helpful and informative",
-            ],
-          })
+          scenario.judgeAgent()
         ),
       ],
       script: [
@@ -110,7 +105,12 @@ describe("Scenario Expert Agent (Realtime API)", () => {
         scenario.agent(), // Audio response
         scenario.user(), // Audio follow-up
         scenario.agent(), // Audio response
-        scenario.judge(), // Evaluates transcripts
+        scenario.judge({
+          criteria: [
+            "Agent explains what Scenario is or how it helps test AI agents",
+            "Agent is helpful and informative",
+          ],
+        }), // Evaluates transcripts
       ],
       setId: "realtime-examples",
     });

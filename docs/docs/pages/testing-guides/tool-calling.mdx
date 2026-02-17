@@ -34,15 +34,15 @@ async def test_weather_agent_tool_call():
         agents=[
             WeatherAgent(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(criteria=[
-                "Agent should call the weather tool with the correct location"
-            ])
+            scenario.JudgeAgent()
         ],
         script=[
             scenario.user(),
             scenario.agent(),
             check_for_weather_tool_call, # Assertion function as a script step
-            scenario.succeed(),
+            scenario.judge(criteria=[
+                "Agent should call the weather tool with the correct location"
+            ]),
         ],
     )
 ```
@@ -140,14 +140,14 @@ result = await scenario.run(
     agents=[
         WeatherAgent(),
         scenario.UserSimulatorAgent(),
-        scenario.JudgeAgent(criteria=[
-            "The agent should call the get_current_weather tool with the correct location (Rome) and use the result to answer the user's question."
-        ])
+        scenario.JudgeAgent()
     ],
     script=[
         scenario.user("Should I bring an umbrella to Rome?"),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge(criteria=[
+            "The agent should call the get_current_weather tool with the correct location (Rome) and use the result to answer the user's question."
+        ]),
     ],
 )
 ```
@@ -158,16 +158,16 @@ const result = await scenario.run({
   agents: [
     weatherAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({
-      criteria: [
-        "The agent should call the get_current_weather tool with the correct location (Rome) and use the result to answer the user's question."
-      ],
-    })
+    scenario.judgeAgent()
   ],
   script: [
     scenario.user("Should I bring an umbrella to Rome?"),
     scenario.agent(),
-    scenario.judge(), // JudgeAgent will evaluate based on criteria
+    scenario.judge({
+      criteria: [
+        "The agent should call the get_current_weather tool with the correct location (Rome) and use the result to answer the user's question."
+      ],
+    }), // JudgeAgent will evaluate based on criteria
   ],
 });
 ```

@@ -73,7 +73,12 @@ describe("Multimodal Images Tests", () => {
       agents: [
         imageAgent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
+        scenario.judgeAgent(),
+      ],
+      script: [
+        scenario.message(imageMessage),
+        scenario.agent(),
+        scenario.judge({
           criteria: [
             "Agent acknowledges the image input",
             "Agent provides a descriptive analysis of the image",
@@ -81,11 +86,6 @@ describe("Multimodal Images Tests", () => {
             "Agent demonstrates understanding of the multimodal input",
           ],
         }),
-      ],
-      script: [
-        scenario.message(imageMessage),
-        scenario.agent(),
-        scenario.judge(),
       ],
       setId,
     });
@@ -117,18 +117,18 @@ describe("Multimodal Images Tests", () => {
       agents: [
         imageAgent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
+        scenario.judgeAgent(),
+      ],
+      script: [
+        scenario.message(imageOnlyMessage),
+        scenario.agent(),
+        scenario.judge({
           criteria: [
             "Agent recognizes the image input",
             "Agent provides meaningful analysis without text prompt",
             "Agent demonstrates image understanding capabilities",
           ],
         }),
-      ],
-      script: [
-        scenario.message(imageOnlyMessage),
-        scenario.agent(),
-        scenario.judge(),
       ],
       setId,
     });
@@ -164,7 +164,12 @@ describe("Multimodal Images Tests", () => {
       agents: [
         imageAgent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
+        scenario.judgeAgent(),
+      ],
+      script: [
+        scenario.message(complexMessage),
+        scenario.agent(),
+        scenario.judge({
           criteria: [
             "Agent identifies colors in the image",
             "Agent recognizes shapes present",
@@ -172,11 +177,6 @@ describe("Multimodal Images Tests", () => {
             "Agent addresses all aspects of the complex query",
           ],
         }),
-      ],
-      script: [
-        scenario.message(complexMessage),
-        scenario.agent(),
-        scenario.judge(),
       ],
       setId,
     });

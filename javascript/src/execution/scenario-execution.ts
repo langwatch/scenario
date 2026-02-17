@@ -168,6 +168,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** Timestamp when execution started (for total time calculation) */
   private totalStartTime: number = 0;
 
+  /** Accumulated met criteria from inline judge checkpoints */
+  private accumulatedMetCriteria: string[] = [];
+
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
 
@@ -335,6 +338,13 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         await this.executeScriptStep(scriptStep, i);
 
         if (this.result) {
+          if (this.accumulatedMetCriteria.length > 0) {
+            this.result.metCriteria = [
+              ...this.accumulatedMetCriteria,
+              ...this.result.metCriteria,
+            ];
+          }
+
           this.emitRunFinished({
             scenarioRunId,
             status: this.result.success
@@ -345,6 +355,24 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
           return this.result;
         }
+      }
+
+      if (this.accumulatedMetCriteria.length > 0) {
+        // All inline criteria checkpoints passed
+        this.setResult({
+          success: true,
+          reasoning: "All inline criteria checkpoints passed",
+          metCriteria: this.accumulatedMetCriteria,
+          unmetCriteria: [],
+        });
+
+        this.emitRunFinished({
+          scenarioRunId,
+          status: ScenarioRunStatus.SUCCESS,
+          result: this.result!,
+        });
+
+        return this.result!;
       }
 
       // If no conclusion reached, set max turns error
@@ -739,25 +767,22 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * This method is part of the ScenarioExecutionLike interface used by script steps.
    *
-   * @param content - Optional message to pass to the judge agent for additional context
+   * @param options - Optional options with inline criteria to evaluate as a checkpoint.
    * @returns A promise that resolves with:
    *   - ScenarioResult if the judge makes a final decision, or
    *   - Null if the conversation should continue
    *
    * @example
    * ```typescript
-   * // Let judge evaluate current state
+   * // Let judge evaluate with its configured criteria
    * const result = await execution.judge();
-   * if (result) {
-   *   console.log(`Judge decided: ${result.success ? 'pass' : 'fail'}`);
-   * }
    *
-   * // Provide additional context to judge
-   * const result = await execution.judge("Please consider the user's satisfaction level");
+   * // Evaluate inline criteria as a checkpoint
+   * const result = await execution.judge({ criteria: ["Agent responded helpfully"] });
    * ```
    */
-  async judge(content?: string | ModelMessage): Promise<ScenarioResult | null> {
-    return await this.scriptCallAgent(AgentRole.JUDGE, content, true);
+  async judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null> {
+    return await this.scriptCallAgent(AgentRole.JUDGE, undefined, true, options?.criteria);
   }
 
   /**
@@ -948,18 +973,17 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   private async scriptCallAgent(
     role: AgentRole,
     content?: string | ModelMessage,
-    judgmentRequest: boolean = false
+    judgmentRequest: boolean = false,
+    inlineCriteria?: string[]
   ): Promise<ScenarioResult | null> {
     this.logger.debug(`[${this.config.id}] scriptCallAgent`, {
       role,
       hasContent: content !== undefined,
       judgmentRequest,
+      hasInlineCriteria: inlineCriteria !== undefined,
     });
 
     this.consumeUntilRole(role);
-
-    let index = -1;
-    let agent: AgentAdapter | null = null;
 
     let nextAgent = this.getNextAgentForRole(role);
     if (!nextAgent) {
@@ -996,8 +1020,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       );
     }
 
-    index = nextAgent.index;
-    agent = nextAgent.agent;
+    const index = nextAgent.index;
+    const agent = nextAgent.agent;
 
     this.removePendingAgent(agent);
 
@@ -1015,9 +1039,41 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       return null;
     }
 
-    await this.callAgent(index, role, judgmentRequest);
+    // Temporarily swap criteria for inline judge evaluation
+    let originalCriteria: string[] | undefined;
+    if (inlineCriteria !== undefined && role === AgentRole.JUDGE && agent instanceof JudgeAgentAdapter) {
+      originalCriteria = agent.criteria;
+      agent.criteria = inlineCriteria;
+    }
 
-    // The result may have been set by callAgent if the agent made a decision
+    try {
+      await this.callAgent(index, role, judgmentRequest);
+    } finally {
+      if (originalCriteria !== undefined && agent instanceof JudgeAgentAdapter) {
+        agent.criteria = originalCriteria;
+      }
+    }
+
+    // Handle inline criteria checkpoint semantics
+    if (this.result && inlineCriteria !== undefined) {
+      const result = this.result;
+      if (result.success) {
+        // Checkpoint passed: accumulate criteria, clear result, continue
+        this.accumulatedMetCriteria.push(...result.metCriteria);
+        this._result = undefined;
+        return null;
+      } else {
+        // Checkpoint failed: merge accumulated criteria into result
+        result.metCriteria = [...this.accumulatedMetCriteria, ...result.metCriteria];
+        return result;
+      }
+    }
+
+    if (this.result && this.accumulatedMetCriteria.length > 0) {
+      // Final judge: merge accumulated criteria
+      this.result.metCriteria = [...this.accumulatedMetCriteria, ...this.result.metCriteria];
+    }
+
     return this.result ?? null;
   }
 
@@ -1054,6 +1110,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.totalStartTime = Date.now();
     this.pendingMessages.clear();
     this._result = undefined;
+    this.accumulatedMetCriteria = [];
 
     this.logger.debug(`[${this.config.id}] Reset complete`, {
       threadId: this.state.threadId,

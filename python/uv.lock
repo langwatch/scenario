@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [[package]]
@@ -1049,7 +1049,7 @@ wheels = [
 
 [[package]]
 name = "langwatch-scenario"
-version = "0.7.14"
+version = "0.7.15"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

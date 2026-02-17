@@ -38,17 +38,7 @@ async def test_vibe_coding():
         agents=[
             Agent(template_path),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "agent reads the file before making changes",
-                    "agent modified the index.css file",
-                    "agent modified the Index.tsx file",
-                    "agent created a comprehensive landing page",
-                    "agent extended the landing page with a new section",
-                    "agent DOES NOT say it can't read the file",
-                    "agent DOES NOT produce incomplete code or is too lazy to finish",
-                ],
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.user("hello, I want a landing page for my dog walking startup"),
@@ -56,7 +46,15 @@ async def test_vibe_coding():
             check_tool_calls,
             scenario.user(),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(criteria=[
+                "agent reads the file before making changes",
+                "agent modified the index.css file",
+                "agent modified the Index.tsx file",
+                "agent created a comprehensive landing page",
+                "agent extended the landing page with a new section",
+                "agent DOES NOT say it can't read the file",
+                "agent DOES NOT produce incomplete code or is too lazy to finish",
+            ]),
         ]
     )
 

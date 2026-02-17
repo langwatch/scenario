@@ -31,12 +31,7 @@ describe("False Assumptions", () => {
       description: "The agent makes false assumption that the user is talking about an ATM bank, and user corrects it that they actually mean river banks",
       agents: [
         agent,
-        scenario.judgeAgent({
-          criteria: [
-            "user should get good recommendations on river crossing",
-            "agent should NOT keep following up about ATM recommendation after user has corrected them that they are actually just hiking",
-          ],
-        }),
+        scenario.judgeAgent(),
         scenario.userSimulatorAgent(),
       ],
       maxTurns: 10,
@@ -60,7 +55,12 @@ describe("False Assumptions", () => {
         ),
 
         // Time to make a judgment call
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "user should get good recommendations on river crossing",
+            "agent should NOT keep following up about ATM recommendation after user has corrected them that they are actually just hiking",
+          ],
+        }),
       ],
       setId: "javascript-examples",
     });

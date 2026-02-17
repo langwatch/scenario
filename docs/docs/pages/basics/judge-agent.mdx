@@ -92,7 +92,7 @@ expect(result.success).toBe(true);
 ## Configuration Reference
 
 <Callout type="info">
-  All parameters are optional except `criteria`. The judge uses global configuration defaults when parameters aren&apos;t specified.
+  All parameters are optional. When using [scripted simulations](/basics/scripted-simulations), prefer passing criteria inline to `scenario.judge(criteria=[...])` instead — see [Inline Criteria](/basics/scripted-simulations#scenariojudge). The judge uses global configuration defaults when parameters aren&apos;t specified.
 </Callout>
 
 <LanguageTabs>
@@ -114,7 +114,7 @@ expect(result.success).toBe(true);
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `criteria` | `string[]` | Yes | N/A | Success criteria to evaluate. Include positive requirements and negative constraints. |
+| `criteria` | `string[]` | No | `[]` | Success criteria to evaluate. Include positive requirements and negative constraints. |
 | `model` | `LanguageModel` | No | Global config | LLM model identifier (e.g., `openai("gpt-4o")`). |
 | `temperature` | `number` | No | `0.0` | Sampling temperature (0.0-1.0). Use 0.0-0.2 for consistent evaluation. |
 | `maxTokens` | `number` | No | Model default | Maximum tokens for judge reasoning and explanations. |

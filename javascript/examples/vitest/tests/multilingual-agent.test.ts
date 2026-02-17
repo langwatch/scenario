@@ -41,17 +41,7 @@ describe("Multilingual Agent", () => {
       agents: [
         agent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
-          model: openai("gpt-4.1-nano"),
-          criteria: [
-            "Translation is accurate",
-            "Translation preserves original meaning",
-            "Translation preserves punctuation",
-            "Translation preserves emojis",
-            "Response remains in the language of the original request",
-            "Agent handles translation requests among English, French, Spanish, Chinese, and German",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4.1-nano") }),
       ],
       script: [
         scenario.user(
@@ -72,7 +62,16 @@ describe("Multilingual Agent", () => {
           "Do all of the permutations for the supported languages at once"
         ),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Translation is accurate",
+            "Translation preserves original meaning",
+            "Translation preserves punctuation",
+            "Translation preserves emojis",
+            "Response remains in the language of the original request",
+            "Agent handles translation requests among English, French, Spanish, Chinese, and German",
+          ],
+        }),
       ],
       setId: "multilingual-scripted-complex",
     });
@@ -108,15 +107,7 @@ describe("Multilingual Agent", () => {
         scenario.userSimulatorAgent({
           temperature: 0.9,
         }),
-        scenario.judgeAgent({
-          criteria: [
-            "Handles all supported languages (English, French, Spanish, Chinese (Simplified), German)",
-            "Successfully handles translation requests for any combination of supported languages",
-            "Translations are accurate and faithfully preserve meaning and emoji characters",
-            "Punctuation is correct for target language",
-            "Responds in the language of any given request",
-          ],
-        }),
+        scenario.judgeAgent(),
       ],
       maxTurns: 20,
       script: [
@@ -125,7 +116,15 @@ describe("Multilingual Agent", () => {
           "Now, translate our whole conversation into English, but succinctly"
         ),
         scenario.proceed(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Handles all supported languages (English, French, Spanish, Chinese (Simplified), German)",
+            "Successfully handles translation requests for any combination of supported languages",
+            "Translations are accurate and faithfully preserve meaning and emoji characters",
+            "Punctuation is correct for target language",
+            "Responds in the language of any given request",
+          ],
+        }),
       ],
       setId: "multilingual-scripted-complex",
     });

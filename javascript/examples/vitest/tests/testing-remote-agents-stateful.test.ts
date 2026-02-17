@@ -130,21 +130,20 @@ describe("Testing Remote Agents - Stateful with Thread ID", () => {
       agents: [
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
         statefulAdapter,
-        scenario.judgeAgent({
-          model: openai("gpt-4o-mini"),
-          criteria: [
-            "Agent should provide helpful travel information about Paris",
-            "Agent should answer follow-up questions with context from previous conversation",
-            "Agent should maintain conversational continuity",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4o-mini") }),
       ],
       script: [
         scenario.user("Tell me about visiting Paris"),
         scenario.agent(),
         scenario.user("How long should I stay there?"), // Requires context
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent should provide helpful travel information about Paris",
+            "Agent should answer follow-up questions with context from previous conversation",
+            "Agent should maintain conversational continuity",
+          ],
+        }),
       ],
       setId: "javascript-examples",
     });

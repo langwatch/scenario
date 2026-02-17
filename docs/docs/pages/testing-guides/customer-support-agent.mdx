@@ -35,15 +35,7 @@ describe("Customer Support Fraud Investigation", () => {
       agents: [
         createBankSupportAgent(),
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
-        scenario.judgeAgent({
-          model: openai("gpt-4o"),
-          criteria: [
-            "Agent takes fraud concerns seriously and responds with urgency",
-            "Agent offers concrete security actions like card freezing",
-            "Agent provides clear next steps for fraud investigation",
-            "Agent maintains professional and reassuring tone",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4o") }),
       ],
       script: [
         scenario.user(
@@ -60,7 +52,14 @@ describe("Customer Support Fraud Investigation", () => {
         ),
         scenario.agent(),
         verifyNoInappropriateTools, // Custom assertion - define this to verify no inappropriate tools were called
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent takes fraud concerns seriously and responds with urgency",
+            "Agent offers concrete security actions like card freezing",
+            "Agent provides clear next steps for fraud investigation",
+            "Agent maintains professional and reassuring tone",
+          ],
+        }),
       ],
     });
 
@@ -90,14 +89,7 @@ async def test_fraud_investigation_workflow():
         agents=[
             create_bank_support_agent(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent takes fraud concerns seriously and responds with urgency",
-                    "Agent offers concrete security actions like card freezing",
-                    "Agent provides clear next steps for fraud investigation",
-                    "Agent maintains professional and reassuring tone",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.user(
@@ -114,7 +106,14 @@ async def test_fraud_investigation_workflow():
             ),
             scenario.agent(),
             verify_no_inappropriate_tools,  # Custom assertion - define this to verify no inappropriate tools were called
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent takes fraud concerns seriously and responds with urgency",
+                    "Agent offers concrete security actions like card freezing",
+                    "Agent provides clear next steps for fraud investigation",
+                    "Agent maintains professional and reassuring tone",
+                ]
+            ),
         ],
     )
 
@@ -143,15 +142,7 @@ describe("Customer Support Complex Issues", () => {
       agents: [
         createBankSupportAgent(),
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
-        scenario.judgeAgent({
-          model: openai("gpt-4o"),
-          criteria: [
-            "Agent addresses all parts of the multi-faceted problem",
-            "Agent provides systematic approach to resolving issues",
-            "Agent shows empathy for customer frustration",
-            "Agent offers clear next steps for each problem",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4o") }),
       ],
       script: [
         scenario.user(
@@ -163,7 +154,14 @@ describe("Customer Support Complex Issues", () => {
           "I've tried resetting my password multiple times and I really need access to pay my bills. This is really stressing me out."
         ),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent addresses all parts of the multi-faceted problem",
+            "Agent provides systematic approach to resolving issues",
+            "Agent shows empathy for customer frustration",
+            "Agent offers clear next steps for each problem",
+          ],
+        }),
       ],
     });
 
@@ -188,14 +186,7 @@ async def test_complex_issue_triggers_knowledge_base():
         agents=[
             create_bank_support_agent(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent addresses all parts of the multi-faceted problem",
-                    "Agent provides systematic approach to resolving issues",
-                    "Agent shows empathy for customer frustration",
-                    "Agent offers clear next steps for each problem",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.user(
@@ -207,7 +198,14 @@ async def test_complex_issue_triggers_knowledge_base():
                 "I've tried resetting my password multiple times and I really need access to pay my bills. This is really stressing me out."
             ),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent addresses all parts of the multi-faceted problem",
+                    "Agent provides systematic approach to resolving issues",
+                    "Agent shows empathy for customer frustration",
+                    "Agent offers clear next steps for each problem",
+                ]
+            ),
         ],
     )
 
@@ -236,15 +234,7 @@ describe("Customer Support Escalation", () => {
       agents: [
         createBankSupportAgent(),
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
-        scenario.judgeAgent({
-          model: openai("gpt-4o"),
-          criteria: [
-            "Agent acknowledges customer's frustration empathetically",
-            "Agent offers to escalate when requested",
-            "Agent provides escalation timeline and process information",
-            "Agent maintains professionalism despite customer frustration",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4o") }),
       ],
       script: [
         scenario.user(
@@ -256,7 +246,14 @@ describe("Customer Support Escalation", () => {
         ),
         scenario.agent(),
         checkEscalationCalled, // Custom assertion - define this to check if escalate_to_human tool was called
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent acknowledges customer's frustration empathetically",
+            "Agent offers to escalate when requested",
+            "Agent provides escalation timeline and process information",
+            "Agent maintains professionalism despite customer frustration",
+          ],
+        }),
       ],
     });
 
@@ -281,14 +278,7 @@ async def test_escalation_workflow():
         agents=[
             create_bank_support_agent(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent acknowledges customer's frustration empathetically",
-                    "Agent offers to escalate when requested",
-                    "Agent provides escalation timeline and process information",
-                    "Agent maintains professionalism despite customer frustration",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.user(
@@ -300,7 +290,14 @@ async def test_escalation_workflow():
             ),
             scenario.agent(),
             check_escalation_called,  # Custom assertion - define this to check if escalate_to_human tool was called
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent acknowledges customer's frustration empathetically",
+                    "Agent offers to escalate when requested",
+                    "Agent provides escalation timeline and process information",
+                    "Agent maintains professionalism despite customer frustration",
+                ]
+            ),
         ],
     )
 

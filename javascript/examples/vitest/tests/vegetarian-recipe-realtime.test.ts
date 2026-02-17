@@ -113,14 +113,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
         audioUserSim, // Audio user simulator (generates voice)
         wrapJudgeForAudioTranscription(
           // Judge with audio transcription
-          scenario.judgeAgent({
-            criteria: [
-              "Agent should provide a vegetarian recipe",
-              "Recipe should include ingredients",
-              "Recipe should include cooking steps",
-              "Agent should be helpful and encouraging",
-            ],
-          })
+          scenario.judgeAgent()
         ),
       ],
       script: [
@@ -130,7 +123,14 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
         scenario.agent("What kind of vegetarian recipe are you looking for?"), // Send text input (realtime agent -> user simulator)
         scenario.user(), // Audio follow-up
         scenario.agent(), // Audio response
-        scenario.judge(), // Evaluates transcripts
+        scenario.judge({
+          criteria: [
+            "Agent should provide a vegetarian recipe",
+            "Recipe should include ingredients",
+            "Recipe should include cooking steps",
+            "Agent should be helpful and encouraging",
+          ],
+        }), // Evaluates transcripts
       ],
       setId: "realtime-examples",
     });

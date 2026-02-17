@@ -89,17 +89,17 @@ describe("Judge Tool Calls Without Telemetry", () => {
       agents: [
         weatherAgent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
+        scenario.judgeAgent(),
+      ],
+      script: [
+        scenario.user("What's the weather in Paris?"),
+        scenario.agent(),
+        scenario.judge({
           criteria: [
             "The agent called the get_weather tool with city 'Paris'",
             "The tool returned weather data",
           ],
         }),
-      ],
-      script: [
-        scenario.user("What's the weather in Paris?"),
-        scenario.agent(),
-        scenario.judge(),
       ],
     });
 

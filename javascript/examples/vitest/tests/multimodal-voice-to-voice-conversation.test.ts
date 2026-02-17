@@ -110,10 +110,7 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
     // Create judge agent to evaluate conversation quality
     // Wrap with audio handler to transcribe audio before judging
     const conversationJudge = wrapJudgeForAudioTranscription(
-      scenario.judgeAgent({
-        model: openai("gpt-4o"),
-        criteria: ["The conversation flows naturally between user and agent"],
-      })
+      scenario.judgeAgent({ model: openai("gpt-4o") })
     );
 
     // Execute the full audio conversation scenario
@@ -132,7 +129,9 @@ describe("Multimodal Voice-to-Voice Conversation Tests", () => {
         },
 
         // Step 3: Have judge evaluate the conversation quality
-        scenario.judge(),
+        scenario.judge({
+          criteria: ["The conversation flows naturally between user and agent"],
+        }),
       ],
       setId,
     });

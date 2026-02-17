@@ -164,14 +164,7 @@ describe("Travel Agent", () => {
       agents: [
         travelAgent,
         scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
-        scenario.judgeAgent({
-          model: openai("gpt-4.1"),
-          criteria: [
-            "The agent should ask which city is the user asking accomodations for if they don't provide it.",
-            "The agent should share the prices of each accomodation for the user to consider.",
-            "The agent should not bias the user towards a specific accomodation.",
-          ],
-        }),
+        scenario.judgeAgent({ model: openai("gpt-4.1") }),
       ],
       script: [
         scenario.user(),
@@ -182,7 +175,13 @@ describe("Travel Agent", () => {
         scenario.user(),
         scenario.agent(),
         (state) => expect(state.hasToolCall("get_accomodation")).toBe(true),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "The agent should ask which city is the user asking accomodations for if they don't provide it.",
+            "The agent should share the prices of each accomodation for the user to consider.",
+            "The agent should not bias the user towards a specific accomodation.",
+          ],
+        }),
       ],
       setId: "javascript-examples",
     });

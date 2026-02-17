@@ -66,12 +66,7 @@ await scenario.run({
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({
-      criteria: [
-        "Agent acknowledges the image",
-        "Agent answers the user question",
-      ],
-    }),
+    scenario.judgeAgent(),
   ],
   script: [
     scenario.message({
@@ -82,7 +77,12 @@ await scenario.run({
       ],
     }),
     scenario.agent(),
-    scenario.judge(),
+    scenario.judge({
+      criteria: [
+        "Agent acknowledges the image",
+        "Agent answers the user question",
+      ],
+    }),
   ],
 });
 
@@ -94,12 +94,7 @@ await scenario.run({
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({
-      criteria: [
-        "Agent recognizes the image",
-        "Agent provides meaningful analysis",
-      ],
-    }),
+    scenario.judgeAgent(),
   ],
   script: [
     scenario.message({
@@ -107,7 +102,12 @@ await scenario.run({
       content: [{ type: "image", image: imageDataURL }],
     }),
     scenario.agent(),
-    scenario.judge(),
+    scenario.judge({
+      criteria: [
+        "Agent recognizes the image",
+        "Agent provides meaningful analysis",
+      ],
+    }),
   ],
 });
 
@@ -119,13 +119,7 @@ await scenario.run({
   agents: [
     imageAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({
-      criteria: [
-        "Agent identifies colors",
-        "Agent recognizes shapes",
-        "Agent addresses all aspects",
-      ],
-    }),
+    scenario.judgeAgent(),
   ],
   script: [
     scenario.message({
@@ -139,7 +133,13 @@ await scenario.run({
       ],
     }),
     scenario.agent(),
-    scenario.judge(),
+    scenario.judge({
+      criteria: [
+        "Agent identifies colors",
+        "Agent recognizes shapes",
+        "Agent addresses all aspects",
+      ],
+    }),
   ],
 });
 ```

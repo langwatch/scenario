@@ -139,20 +139,20 @@ const result = await scenario.run({
   agents: [
     scenario.userSimulatorAgent(),
     statefulAdapter,
-    scenario.judgeAgent({
-      criteria: [
-        "Agent should provide initial information",
-        "Agent should answer follow-up with context from previous answer",
-        "Agent should maintain conversational continuity",
-      ],
-    }),
+    scenario.judgeAgent(),
   ],
   script: [
     scenario.user("Tell me about Paris"),
     scenario.agent(),
     scenario.user("How long should I stay there?"), // Requires context!
     scenario.agent(),
-    scenario.judge(),
+    scenario.judge({
+      criteria: [
+        "Agent should provide initial information",
+        "Agent should answer follow-up with context from previous answer",
+        "Agent should maintain conversational continuity",
+      ],
+    }),
   ],
 });
 ```

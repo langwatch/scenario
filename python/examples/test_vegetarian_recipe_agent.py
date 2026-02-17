@@ -28,22 +28,22 @@ async def test_vegetarian_recipe_agent():
         agents=[
             Agent(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent should not ask more than two follow-up questions",
-                    "Agent should generate a recipe",
-                    "Recipe should include a list of ingredients",
-                    "Recipe should include step-by-step cooking instructions",
-                    "Recipe should be vegetarian and not include any sort of meat",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.user("quick recipe for dinner"),
             scenario.agent(),
+            scenario.judge(criteria=[
+                "Agent should not ask more than two follow-up questions",
+            ]),
             scenario.user(),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(criteria=[
+                "Agent should generate a recipe",
+                "Recipe should include a list of ingredients",
+                "Recipe should include step-by-step cooking instructions",
+                "Recipe should be vegetarian and not include any sort of meat",
+            ]),
         ],
         set_id="python-examples",
     )

@@ -282,7 +282,7 @@ result = await scenario.run(
     agents=[
         MyAgent(),
         scenario.UserSimulatorAgent(),
-        scenario.JudgeAgent(criteria=["Agent handles edge case properly"])
+        scenario.JudgeAgent(),
     ],
     script=[
         scenario.user("I have a complex request"),
@@ -293,7 +293,7 @@ result = await scenario.run(
             else None
         ),
         scenario.proceed(turns=2),
-        scenario.succeed("Edge case handled correctly")
+        scenario.succeed("Edge case handled correctly"),
     ]
 )
 
@@ -307,7 +307,7 @@ const result = await scenario.run({
   agents: [
     myAgent,
     scenario.userSimulatorAgent(),
-    scenario.judgeAgent({ criteria: ["Agent handles edge case properly"] }),
+    scenario.judgeAgent(),
   ],
   script: [
     scenario.user("I have a complex request"),

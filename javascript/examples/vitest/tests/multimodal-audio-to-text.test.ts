@@ -86,14 +86,7 @@ describe("Multimodal Audio to Text Tests", () => {
     } satisfies UserModelMessage;
 
     const audioJudge = wrapJudgeForAudioTranscription(
-      scenario.judgeAgent({
-        model: openai("gpt-5"),
-        criteria: [
-          "The agent guesses it's a male voice",
-          "The agent repeats the question",
-          "The agent says what format the input was in (audio or text)",
-        ],
-      }),
+      scenario.judgeAgent({ model: openai("gpt-5") }),
     );
 
     const result = await scenario.run({
@@ -104,7 +97,13 @@ describe("Multimodal Audio to Text Tests", () => {
       script: [
         scenario.message(audioMessage),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "The agent guesses it's a male voice",
+            "The agent repeats the question",
+            "The agent says what format the input was in (audio or text)",
+          ],
+        }),
       ],
       setId,
     });

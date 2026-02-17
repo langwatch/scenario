@@ -97,18 +97,18 @@ describe("Span-Based Evaluation", () => {
       agents: [
         observableAgent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
+        scenario.judgeAgent(),
+      ],
+      script: [
+        scenario.user("Is product SKU-123 in stock?"),
+        scenario.agent(),
+        scenario.judge({
           criteria: [
             "A fraud check HTTP call was made (http.fraud_check span exists)",
             "A database query was performed (db.query span exists)",
             "The check_inventory tool was called for the product",
           ],
         }),
-      ],
-      script: [
-        scenario.user("Is product SKU-123 in stock?"),
-        scenario.agent(),
-        scenario.judge(),
       ],
       maxTurns: 5,
     });

@@ -205,13 +205,7 @@ describe("PDF Analysis", () => {
       agents: [
         yourAgentAdapter,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
-          criteria: [
-            "Agent provides a clear summary of the PDF contents",
-            "Summary captures the key information from the document",
-            "Response is well-organized and easy to read",
-          ],
-        }),
+        scenario.judgeAgent(),
       ],
       script: [
         scenario.message({
@@ -228,7 +222,13 @@ describe("PDF Analysis", () => {
           ],
         }),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent provides a clear summary of the PDF contents",
+            "Summary captures the key information from the document",
+            "Response is well-organized and easy to read",
+          ],
+        }),
       ],
     });
 
@@ -261,13 +261,7 @@ async def test_pdf_summarization():
         agents=[
             YourAgentAdapter(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent provides a clear summary of the PDF contents",
-                    "Summary captures the key information from the document",
-                    "Response is well-organized and easy to read",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.message({
@@ -284,7 +278,13 @@ async def test_pdf_summarization():
                 ],
             }),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent provides a clear summary of the PDF contents",
+                    "Summary captures the key information from the document",
+                    "Response is well-organized and easy to read",
+                ]
+            ),
         ],
     )
 
@@ -319,13 +319,7 @@ describe("CSV Analysis", () => {
       agents: [
         yourAgentAdapter,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
-          criteria: [
-            "Agent identifies the total number of employees",
-            "Agent mentions the different departments present",
-            "Agent provides relevant statistics or insights about the data",
-          ],
-        }),
+        scenario.judgeAgent(),
       ],
       script: [
         scenario.message({
@@ -345,7 +339,13 @@ describe("CSV Analysis", () => {
           ],
         }),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent identifies the total number of employees",
+            "Agent mentions the different departments present",
+            "Agent provides relevant statistics or insights about the data",
+          ],
+        }),
       ],
     });
 
@@ -377,13 +377,7 @@ async def test_csv_employee_analysis():
         agents=[
             YourAgentAdapter(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent identifies the total number of employees",
-                    "Agent mentions the different departments present",
-                    "Agent provides relevant statistics or insights about the data",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.message({
@@ -403,7 +397,13 @@ async def test_csv_employee_analysis():
                 ],
             }),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent identifies the total number of employees",
+                    "Agent mentions the different departments present",
+                    "Agent provides relevant statistics or insights about the data",
+                ]
+            ),
         ],
     )
 
@@ -454,13 +454,7 @@ describe("PDF Financial Analysis - Multiple Reports", () => {
         agents: [
           yourAgentAdapter,
           scenario.userSimulatorAgent(),
-          scenario.judgeAgent({
-            criteria: [
-              "Agent correctly identifies total revenue figures",
-              "Agent mentions the reporting period",
-              "Agent provides key financial metrics",
-            ],
-          }),
+          scenario.judgeAgent(),
         ],
         script: [
           scenario.message({
@@ -480,7 +474,13 @@ describe("PDF Financial Analysis - Multiple Reports", () => {
             ],
           }),
           scenario.agent(),
-          scenario.judge(),
+          scenario.judge({
+            criteria: [
+              "Agent correctly identifies total revenue figures",
+              "Agent mentions the reporting period",
+              "Agent provides key financial metrics",
+            ],
+          }),
         ],
       });
 
@@ -526,13 +526,7 @@ async def test_extract_revenue_from_multiple_reports(filename: str):
         agents=[
             YourAgentAdapter(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent correctly identifies total revenue figures",
-                    "Agent mentions the reporting period",
-                    "Agent provides key financial metrics",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.message({
@@ -552,7 +546,13 @@ async def test_extract_revenue_from_multiple_reports(filename: str):
                 ],
             }),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent correctly identifies total revenue figures",
+                    "Agent mentions the reporting period",
+                    "Agent provides key financial metrics",
+                ]
+            ),
         ],
     )
 
@@ -606,13 +606,7 @@ describe("Legal Contract Analysis", () => {
       agents: [
         yourAgentAdapter,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({
-          criteria: [
-            "Agent identifies the type of legal document",
-            "Agent extracts key dates or terms",
-            "Agent mentions parties involved",
-          ],
-        }),
+        scenario.judgeAgent(),
       ],
       script: [
         scenario.message({
@@ -632,7 +626,13 @@ describe("Legal Contract Analysis", () => {
           ],
         }),
         scenario.agent(),
-        scenario.judge(),
+        scenario.judge({
+          criteria: [
+            "Agent identifies the type of legal document",
+            "Agent extracts key dates or terms",
+            "Agent mentions parties involved",
+          ],
+        }),
       ],
     });
 
@@ -678,13 +678,7 @@ async def test_identify_key_terms_random_contract():
         agents=[
             YourAgentAdapter(),
             scenario.UserSimulatorAgent(),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent identifies the type of legal document",
-                    "Agent extracts key dates or terms",
-                    "Agent mentions parties involved",
-                ]
-            ),
+            scenario.JudgeAgent(),
         ],
         script=[
             scenario.message({
@@ -704,7 +698,13 @@ async def test_identify_key_terms_random_contract():
                 ],
             }),
             scenario.agent(),
-            scenario.judge(),
+            scenario.judge(
+                criteria=[
+                    "Agent identifies the type of legal document",
+                    "Agent extracts key dates or terms",
+                    "Agent mentions parties involved",
+                ]
+            ),
         ],
     )
 

@@ -161,18 +161,17 @@ describe("Testing Remote Agents - Server-Sent Events", () => {
       agents: [
         scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
         sseAdapter,
-        scenario.judgeAgent({
-          model: openai("gpt-4o-mini"),
+        scenario.judgeAgent({ model: openai("gpt-4o-mini") }),
+      ],
+      script: [
+        scenario.user("What's the weather like in Tokyo today?"),
+        scenario.agent(),
+        scenario.judge({
           criteria: [
             "Agent should provide weather information",
             "Response should be complete and coherent",
           ],
         }),
-      ],
-      script: [
-        scenario.user("What's the weather like in Tokyo today?"),
-        scenario.agent(),
-        scenario.judge(),
       ],
       setId: "javascript-examples",
     });
