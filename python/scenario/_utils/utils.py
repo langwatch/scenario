@@ -12,6 +12,7 @@ from typing import (
     Any,
     Iterator,
     Optional,
+    Sequence,
     Union,
     TypeVar,
     Awaitable,
@@ -440,7 +441,7 @@ def _summarize_tool_message(message: Any) -> Optional[str]:
 
 
 def reverse_roles(
-    messages: list[ChatCompletionMessageParam],
+    messages: Sequence[ChatCompletionMessageParam],
 ) -> list[ChatCompletionMessageParam]:
     """
     Reverses user <-> assistant roles for the user simulator agent.
@@ -486,7 +487,7 @@ def reverse_roles(
             continue
 
         if isinstance(message, dict):
-            message["role"] = new_role
+            message["role"] = new_role  # type: ignore[typeddict-item]
         else:
             message.role = new_role  # type: ignore
 

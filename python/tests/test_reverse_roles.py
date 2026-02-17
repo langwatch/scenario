@@ -118,6 +118,7 @@ class TestSummarizeToolMessage:
             ],
         }
         result = _summarize_tool_message(msg)
+        assert result is not None
         assert '[Called tool search with: {"q": "foo"}]' in result
         assert '[Called tool fetch with: {"url": "bar"}]' in result
 
@@ -142,7 +143,7 @@ class TestReverseRoles:
             {"role": "user", "content": "Hello, how are you?"},
             {"role": "user", "content": "What's the weather like?"},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "assistant", "content": "Hello, how are you?"},
             {"role": "assistant", "content": "What's the weather like?"},
@@ -153,7 +154,7 @@ class TestReverseRoles:
             {"role": "assistant", "content": "I'm doing well, thank you!"},
             {"role": "assistant", "content": "It's sunny today."},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "user", "content": "I'm doing well, thank you!"},
             {"role": "user", "content": "It's sunny today."},
@@ -165,7 +166,7 @@ class TestReverseRoles:
             {"role": "assistant", "content": "Hi there!"},
             {"role": "user", "content": "How are you?"},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "assistant", "content": "Hello"},
             {"role": "user", "content": "Hi there!"},
@@ -178,7 +179,7 @@ class TestReverseRoles:
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi!"},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "system", "content": "You are a helpful assistant"},
             {"role": "assistant", "content": "Hello"},
@@ -214,7 +215,7 @@ class TestReverseRoles:
             },
             {"role": "assistant", "content": "The answer is 4"},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "assistant", "content": "Calculate 2+2"},
             {"role": "user", "content": '[Called tool calculator with: {"expression": "2+2"}]'},
@@ -242,7 +243,7 @@ class TestReverseRoles:
             {"role": "assistant", "content": "The result is 30"},
             {"role": "user", "content": "Thanks!"},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "assistant", "content": "Hello"},
             {"role": "user", "content": "Hi there!"},
@@ -281,7 +282,7 @@ class TestReverseRoles:
                 "content": "headphones: $29.99, in stock",
             },
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result == [
             {"role": "system", "content": "You are pretending to be a user"},
             {"role": "user", "content": "Hello, how can I help you today"},
@@ -312,11 +313,11 @@ class TestReverseRoles:
                 ],
             },
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert len(result) == 1
         assert result[0]["role"] == "user"
-        assert '[Called tool search with: {"q": "foo"}]' in result[0]["content"]
-        assert '[Called tool fetch with: {"url": "bar"}]' in result[0]["content"]
+        assert '[Called tool search with: {"q": "foo"}]' in str(result[0]["content"])
+        assert '[Called tool fetch with: {"url": "bar"}]' in str(result[0]["content"])
 
     def test_assistant_with_content_and_tool_calls_drops_content(self):
         """When assistant has both text content and tool_calls, only tool calls
@@ -334,11 +335,11 @@ class TestReverseRoles:
                 ],
             },
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert len(result) == 1
         assert result[0]["role"] == "user"
-        assert "Let me check that for you" not in result[0]["content"]
-        assert '[Called tool search with: {"q": "test"}]' in result[0]["content"]
+        assert "Let me check that for you" not in str(result[0]["content"])
+        assert '[Called tool search with: {"q": "test"}]' in str(result[0]["content"])
 
     def test_does_not_mutate_original_messages(self):
         """reverse_roles should deep copy messages, not mutate originals."""
@@ -346,7 +347,7 @@ class TestReverseRoles:
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi!"},
         ]
-        reverse_roles(messages)
+        reverse_roles(messages)  # type: ignore[arg-type]
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "assistant"
 
@@ -356,7 +357,7 @@ class TestReverseRoles:
             {"role": "user", "content": "test"},
             {"role": "assistant", "content": None},
         ]
-        result = reverse_roles(messages)
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result[0]["role"] == "assistant"
         assert result[1]["role"] == "user"
         assert result[1]["content"] is None
