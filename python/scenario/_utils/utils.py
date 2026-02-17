@@ -485,7 +485,7 @@ def reverse_roles(
             reversed_messages.append(message)
             continue
 
-        if type(message) == dict:
+        if isinstance(message, dict):
             message["role"] = new_role
         else:
             message.role = new_role  # type: ignore
