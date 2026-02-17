@@ -34,11 +34,12 @@ async def test_vegetarian_recipe_agent():
             scenario.user("quick recipe for dinner"),
             scenario.agent(),
             scenario.judge(criteria=[
-                "Agent should not ask more than two follow-up questions",
+                "Agent either asks a relevant follow-up question or starts providing a recipe",
             ]),
             scenario.user(),
             scenario.agent(),
             scenario.judge(criteria=[
+                "Agent should not ask more than two follow-up questions",
                 "Agent should generate a recipe",
                 "Recipe should include a list of ingredients",
                 "Recipe should include step-by-step cooking instructions",
