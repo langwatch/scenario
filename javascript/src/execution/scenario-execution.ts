@@ -172,9 +172,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** Accumulated results from inline judge checkpoints */
   private checkpointResults: { metCriteria: string[]; unmetCriteria: string[] }[] = [];
 
-  /** Whether the currently executing script step is the last one */
-  private _isLastScriptStep = false;
-
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
 
@@ -339,7 +336,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     try {
       // Execute script steps - pass the execution context (this), not just state
       for (let i = 0; i < this.config.script.length; i++) {
-        this._isLastScriptStep = i === this.config.script.length - 1;
         const scriptStep = this.config.script[i];
 
         await this.executeScriptStep(scriptStep, i);
@@ -787,13 +783,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null> {
-    // Inline criteria or last script step: force a verdict
-    // Middle of script without criteria: let the judge decide freely (may continue)
-    const shouldForceVerdict = options?.criteria != null || this._isLastScriptStep;
     return await this.scriptCallAgent(
       AgentRole.JUDGE,
       undefined,
-      shouldForceVerdict ? { criteria: options?.criteria } : undefined
+      { criteria: options?.criteria }
     );
   }
 

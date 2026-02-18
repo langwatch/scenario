@@ -226,7 +226,6 @@ class ScenarioExecutor:
         self._total_start_time = time.time()
         self._agent_times = {}
         self._checkpoint_results: List[dict] = []
-        self._is_last_script_step = False
 
         self._new_turn()
         self._state.current_turn = 0
@@ -470,7 +469,6 @@ class ScenarioExecutor:
             self.reset()
 
             for i, script_step in enumerate(self.script):
-                self._is_last_script_step = (i == len(self.script) - 1)
                 callable = script_step(self._state)
                 if isinstance(callable, Awaitable):
                     result = await callable
@@ -691,12 +689,9 @@ class ScenarioExecutor:
         self,
         criteria: Optional[List[str]] = None,
     ) -> Optional[ScenarioResult]:
-        # Inline criteria or last script step: force a verdict
-        # Middle of script without criteria: let the judge decide freely (may continue)
-        should_force_verdict = criteria is not None or self._is_last_script_step
         return await self._script_call_agent(
             AgentRole.JUDGE,
-            judgment_request=JudgmentRequest(criteria=criteria) if should_force_verdict else None,
+            judgment_request=JudgmentRequest(criteria=criteria),
         )
 
     async def proceed(
