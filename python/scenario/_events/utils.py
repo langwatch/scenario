@@ -59,6 +59,8 @@ def convert_messages_to_api_client_messages(
 
             if tool_calls:
                 for tool_call in tool_calls:
+                    if "function" not in tool_call:
+                        continue
                     api_tool_calls.append(
                         ToolCall(
                             id=tool_call.get("id", str(PKSUID("scenariotoolcall"))),
