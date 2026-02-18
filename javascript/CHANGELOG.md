@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.2](https://github.com/langwatch/scenario/compare/javascript/v0.4.1...javascript/v0.4.2) (2026-02-18)
+
+
+### Features
+
+* inline criteria on scenario.judge() script steps ([#223](https://github.com/langwatch/scenario/issues/223)) ([84767fa](https://github.com/langwatch/scenario/commit/84767fae39b47c9a91e6659497271b470374a318))
+
+
+### Bug Fixes
+
+* scenarios v3 model spec ([#220](https://github.com/langwatch/scenario/issues/220)) ([c2a3914](https://github.com/langwatch/scenario/commit/c2a391417827096c04e139889c70a5aca6bdfce6))
+
 ## [0.4.1](https://github.com/langwatch/scenario/compare/javascript/v0.4.0...javascript/v0.4.1) (2026-02-10)
 
 
