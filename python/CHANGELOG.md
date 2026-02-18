@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.16](https://github.com/langwatch/scenario/compare/python/v0.7.15...python/v0.7.16) (2026-02-18)
+
+
+### Features
+
+* inline criteria on scenario.judge() script steps ([#223](https://github.com/langwatch/scenario/issues/223)) ([84767fa](https://github.com/langwatch/scenario/commit/84767fae39b47c9a91e6659497271b470374a318))
+
 ## [0.7.15](https://github.com/langwatch/scenario/compare/python/v0.7.14...python/v0.7.15) (2026-01-13)
 
 
