@@ -78,7 +78,7 @@ const callTravelAgent = async (
   };
 
   const response = await generateText({
-    model: openai("gpt-4.1"),
+    model: openai("gpt-4.1-mini"),
     messages: [
       {
         role: "system",
@@ -163,8 +163,8 @@ describe("Travel Agent", () => {
       `,
       agents: [
         travelAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
-        scenario.judgeAgent({ model: openai("gpt-4.1") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-4.1-mini") }),
       ],
       script: [
         scenario.user(),

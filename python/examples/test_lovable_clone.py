@@ -4,7 +4,7 @@ from examples.lovable_clone.lovable_agent import LovableAgent
 import scenario
 
 scenario.configure(
-    default_model="openai/gpt-4.1",
+    default_model="openai/gpt-4.1-mini",
 )
 
 

@@ -97,7 +97,7 @@ describe("Weather Agent", () => {
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
-          model: openai("gpt-4.1"),
+          model: openai("gpt-4.1-mini"),
           system: `You are a helpful assistant that may help the user with weather information.`,
           messages: input.messages,
           tools: { get_current_weather: getCurrentWeather },
@@ -150,7 +150,7 @@ describe("Weather Agent", () => {
         "The user asks for the weather in a specific city, and the agent should use the weather tool to find it.",
       agents: [
         weatherAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
       ],
       script: [
         scenario.user("What's the weather like in Barcelona?"),

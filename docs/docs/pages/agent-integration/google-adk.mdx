@@ -19,7 +19,7 @@ from google.adk.models.lite_llm import LiteLlm
 
 agent = Agent(
     name="customer_support_agent",
-    model=LiteLlm(model="openai/gpt-4.1"),
+    model=LiteLlm(model="openai/gpt-4.1-mini"),
     description="Customer support agent for XPTO Telecom",
     instruction=SYSTEM_PROMPT,
     tools=[

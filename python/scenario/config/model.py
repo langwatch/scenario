@@ -20,7 +20,7 @@ class ModelConfig(BaseModel):
     including headers, timeout, client, and other provider-specific options.
 
     Attributes:
-        model: The model identifier (e.g., "openai/gpt-4.1", "anthropic/claude-3-sonnet")
+        model: The model identifier (e.g., "openai/gpt-4.1-mini", "anthropic/claude-3-sonnet")
         api_base: Optional base URL where the model is hosted
         api_key: Optional API key for the model provider
         temperature: Sampling temperature for response generation (0.0 = deterministic, 1.0 = creative)
@@ -30,7 +30,7 @@ class ModelConfig(BaseModel):
         ```
         # Basic configuration
         model_config = ModelConfig(
-            model="openai/gpt-4.1",
+            model="openai/gpt-4.1-mini",
             api_base="https://api.openai.com/v1",
             api_key="your-api-key",
             temperature=0.1,

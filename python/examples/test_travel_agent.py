@@ -35,9 +35,9 @@ async def test_travel_agent():
         """,
         agents=[
             TravelAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4.1"),
+            scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
             scenario.JudgeAgent(
-                model="openai/gpt-4.1",
+                model="openai/gpt-4.1-mini",
                 criteria=[
                     "The agent should ask which city is the user asking accomodations for if they don't provide it.",
                     "The agent should share the prices of each accomodation for the user to consider.",
@@ -135,7 +135,7 @@ def travel_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
     ]
 
     response = litellm.completion(
-        model="openai/gpt-4.1",
+        model="openai/gpt-4.1-mini",
         messages=[
             {
                 "role": "system",

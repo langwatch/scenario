@@ -25,7 +25,7 @@ Basic Usage:
     import scenario
 
     # Configure global settings
-    scenario.configure(default_model="openai/gpt-4.1")
+    scenario.configure(default_model="openai/gpt-4.1-mini")
 
     # Create your agent adapter
     class MyAgent(scenario.AgentAdapter):

@@ -8,7 +8,7 @@ import pytest
 import scenario
 import litellm
 
-scenario.configure(default_model="openai/gpt-4.1")
+scenario.configure(default_model="openai/gpt-4.1-mini")
 
 
 @pytest.mark.agent_test
@@ -60,7 +60,7 @@ import litellm
 @scenario.cache()
 def vegetarian_recipe_agent(messages) -> scenario.AgentReturnTypes:
     response = litellm.completion(
-        model="openai/gpt-4.1",
+        model="openai/gpt-4.1-mini",
         messages=[
             {
                 "role": "system",

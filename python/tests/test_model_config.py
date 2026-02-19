@@ -24,7 +24,7 @@ def test_modelconfig_api_base_field():
 @pytest.mark.asyncio
 async def test_user_simulator_agent_uses_modelconfig_api_base():
     model_config = ModelConfig(
-        model="openai/gpt-4.1", api_base="https://custom-api-base.example.com"
+        model="openai/gpt-4.1-mini", api_base="https://custom-api-base.example.com"
     )
     agent = UserSimulatorAgent(model=model_config.model, api_base=model_config.api_base)
     agent_input = MagicMock(spec=AgentInput)

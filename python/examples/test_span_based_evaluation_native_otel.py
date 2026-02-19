@@ -168,7 +168,7 @@ async def test_native_otel_span_evaluation():
             NativeOtelAgent(),
             scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
             scenario.JudgeAgent(
-                model="openai/gpt-4.1",
+                model="openai/gpt-4.1-mini",
                 criteria=[
                     "A fraud check HTTP call was made (http.fraud_check span exists)",
                     "A database query was performed (db.query span exists)",

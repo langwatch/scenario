@@ -19,7 +19,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
 llm = init_chat_model(
-    "openai:gpt-4.1",
+    "openai:gpt-4.1-mini",
     temperature=0,
     api_key=os.getenv("OPENAI_API_KEY"),
 )

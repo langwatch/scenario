@@ -3,7 +3,7 @@ import { defineConfig } from "@langwatch/scenario";
 
 export default defineConfig({
   defaultModel: {
-    model: openai("gpt-4.1"),
+    model: openai("gpt-4.1-mini"),
   },
   headless: true,
 });

@@ -27,7 +27,7 @@ async def test_mocked_weather_agent_tool():
         """,
         agents=[
             WeatherAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4.1"),
+            scenario.UserSimulatorAgent(model="openai/gpt-4.1-mini"),
         ],
         script=[
             scenario.message(
@@ -99,7 +99,7 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
     ]
 
     response = litellm.completion(
-        model="openai/gpt-4.1",
+        model="openai/gpt-4.1-mini",
         messages=[
             {
                 "role": "system",

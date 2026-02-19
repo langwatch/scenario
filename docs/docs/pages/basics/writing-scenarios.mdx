@@ -44,8 +44,8 @@ const result = await scenario.run({
   description: "detailed scenario context",
   agents: [
     yourAgent,
-    scenario.userSimulatorAgent({ model: openai("gpt-4.1") }),
-    scenario.judgeAgent({ model: openai("gpt-4.1"), criteria: ["success criteria"] }),
+    scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+    scenario.judgeAgent({ model: openai("gpt-4.1-mini"), criteria: ["success criteria"] }),
   ],
   script: [], // Optional
 });
