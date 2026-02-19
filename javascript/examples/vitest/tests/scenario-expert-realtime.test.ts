@@ -77,8 +77,10 @@ describe("Scenario Expert Agent (Realtime API)", () => {
     // Start real-time audio player and hook into both transports
     // to stream audio chunks as they arrive from each speaker
     audioPlayer.start();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     hookTransportToPlayer(agentSession as any, audioPlayer, "Scenario Expert");
     hookTransportToPlayer(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       userSimSession as any,
       audioPlayer,
       "Realtime User Simulator"
