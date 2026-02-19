@@ -6,16 +6,16 @@
  * full control over the prompt, model, and response parsing.
  */
 
-import { generateObject } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { z } from "zod/v4";
 import scenario, {
   type AgentInput,
   type AgentReturnTypes,
   AgentAdapter,
   AgentRole,
 } from "@langwatch/scenario";
+import { generateObject } from "ai";
 import { describe, it, expect } from "vitest";
+import { z } from "zod/v4";
 
 class CustomLLMJudge extends AgentAdapter {
   role = AgentRole.JUDGE;

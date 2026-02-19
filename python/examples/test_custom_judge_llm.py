@@ -88,7 +88,7 @@ Return a result for each criterion using the exact criterion text.""",
             },
         )
 
-        result = json.loads(response.choices[0].message.content)
+        result = json.loads(response.choices[0].message.content)  # type: ignore[union-attr]
 
         results_map = {r["criterion"]: r["met"] for r in result["results"]}
         passed = [c for c in effective_criteria if results_map.get(c, False)]
