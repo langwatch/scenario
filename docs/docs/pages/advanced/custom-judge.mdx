@@ -1,15 +1,19 @@
 ---
 title: Custom Judge - Build Your Own Evaluation Logic
-description: Go beyond the built-in judge agent. Learn how to customize evaluation with custom prompts, build fully custom judge classes with LLM calls, deterministic checks, or hybrid approaches.
+description: Go beyond the built-in judge agent. Learn how to customize evaluation with custom prompts, build fully custom judge classes with your preferred LLM provider or agent framework.
 ---
 
 import { Callout } from "vocs/components";
 
 # Custom Judge
 
-The built-in `JudgeAgent` handles most evaluation needs out of the box. But sometimes you need more control: a domain-specific prompt, a deterministic check, a different LLM provider, or a hybrid approach that combines LLM reasoning with programmatic assertions.
+The built-in `JudgeAgent` handles most evaluation needs out of the box. But sometimes you need more control: a domain-specific prompt, a different LLM provider, or a custom agent framework for evaluation.
 
 This guide walks through three levels of customization, from lightest to most involved.
+
+<Callout type="tip">
+  For simple deterministic checks (tool calls, message structure, state assertions), [script lambdas](/basics/scripted-simulations) are usually a better fit. Custom judges shine when you need LLM reasoning, a different model, or a full agent that can use tools — think code execution, filesystem access, or web search to verify the agent's work.
+</Callout>
 
 ## How Judging Works
 
@@ -209,40 +213,6 @@ Your `call()` method should return:
 | `ScenarioResult(success=True, ...)` | End with success |
 | `ScenarioResult(success=False, ...)` | End with failure |
 
-### What the judge receives
-
-The `input.messages` array contains the full conversation history. The message format depends on the language:
-
-:::code-group
-
-```json [Python (OpenAI format)]
-[
-  {"role": "user", "content": "What's the weather in Barcelona?"},
-  {"role": "assistant", "content": null, "tool_calls": [
-    {"id": "call_1", "function": {"name": "get_weather", "arguments": "{\"city\": \"Barcelona\"}"}}
-  ]},
-  {"role": "tool", "tool_call_id": "call_1", "content": "Sunny, 24°C"},
-  {"role": "assistant", "content": "It's sunny and 24°C in Barcelona!"}
-]
-```
-
-```json [TypeScript (Vercel AI SDK format)]
-[
-  {"role": "user", "content": "What's the weather in Barcelona?"},
-  {"role": "assistant", "content": [
-    {"type": "tool-call", "toolName": "get_weather", "toolCallId": "call_1", "args": {"city": "Barcelona"}}
-  ]},
-  {"role": "tool", "content": [
-    {"type": "tool-result", "toolName": "get_weather", "toolCallId": "call_1", "result": "Sunny, 24°C"}
-  ]},
-  {"role": "assistant", "content": "It's sunny and 24°C in Barcelona!"}
-]
-```
-
-:::
-
-If your agent is instrumented with OpenTelemetry, the built-in judge also receives formatted traces showing internal spans, durations, and attributes. Custom judges can access these too via the `JudgeSpanCollector`.
-
 ### Inline criteria support
 
 When using [scripted simulations](/basics/scripted-simulations) with `scenario.judge(criteria=[...])`, the inline criteria are passed through `input.judgment_request.criteria`. A custom judge should respect this to work with checkpoints:
@@ -259,117 +229,6 @@ effective_criteria = (
 
 ```typescript [typescript]
 const criteria = input.judgmentRequest?.criteria ?? this.criteria;
-```
-
-:::
-
-### Example: Deterministic judge
-
-A judge that uses programmatic checks instead of LLM calls. Fast, cheap, and fully deterministic:
-
-:::code-group
-
-```python [python]
-import scenario
-from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
-
-class ToolCallJudge(scenario.AgentAdapter):
-    """Judge that verifies specific tools were called with expected arguments."""
-    role = scenario.AgentRole.JUDGE
-
-    def __init__(self, required_tools: list[str]):
-        self.required_tools = required_tools
-        self.criteria = [f"Agent calls {tool}" for tool in required_tools]
-
-    async def call(self, input: AgentInput) -> AgentReturnTypes:
-        if not input.judgment_request:
-            return []  # Not asked to judge yet, continue
-
-        # Collect all tool calls from the conversation
-        called_tools = set()
-        for msg in input.messages:
-            if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                for tc in msg["tool_calls"]:
-                    called_tools.add(tc["function"]["name"])
-
-        # Check each required tool
-        passed = [t for t in self.required_tools if t in called_tools]
-        failed = [t for t in self.required_tools if t not in called_tools]
-
-        return ScenarioResult(
-            success=len(failed) == 0,
-            messages=[],
-            reasoning=f"Called: {passed}. Missing: {failed}." if failed
-                else f"All required tools called: {passed}",
-            passed_criteria=[f"Agent calls {t}" for t in passed],
-            failed_criteria=[f"Agent calls {t}" for t in failed],
-        )
-
-# Usage
-result = await scenario.run(
-    name="tool usage verification",
-    description="User asks about the weather in two cities",
-    agents=[
-        WeatherAgent(),
-        scenario.UserSimulatorAgent(),
-        ToolCallJudge(required_tools=["get_weather"]),
-    ],
-)
-```
-
-```typescript [typescript]
-import scenario, {
-  type AgentInput,
-  type AgentReturnTypes,
-  AgentAdapter,
-  AgentRole,
-} from "@langwatch/scenario";
-
-class ToolCallJudge extends AgentAdapter {
-  role = AgentRole.JUDGE;
-  criteria: string[];
-  requiredTools: string[];
-
-  constructor(requiredTools: string[]) {
-    super();
-    this.requiredTools = requiredTools;
-    this.criteria = requiredTools.map((t) => `Agent calls ${t}`);
-  }
-
-  async call(input: AgentInput): Promise<AgentReturnTypes> {
-    if (!input.judgmentRequest) {
-      return null; // Not asked to judge yet, continue
-    }
-
-    // Collect tool names from Vercel AI SDK message format
-    const calledTools = new Set<string>();
-    for (const msg of input.messages) {
-      if (msg.role === "assistant" && Array.isArray(msg.content)) {
-        for (const part of msg.content) {
-          if (
-            typeof part === "object" &&
-            "type" in part &&
-            part.type === "tool-call"
-          ) {
-            calledTools.add((part as { toolName: string }).toolName);
-          }
-        }
-      }
-    }
-
-    const passed = this.requiredTools.filter((t) => calledTools.has(t));
-    const failed = this.requiredTools.filter((t) => !calledTools.has(t));
-
-    return {
-      success: failed.length === 0,
-      reasoning: failed.length > 0
-        ? `Called: ${passed}. Missing: ${failed}.`
-        : `All required tools called: ${passed}`,
-      metCriteria: passed.map((t) => `Agent calls ${t}`),
-      unmetCriteria: failed.map((t) => `Agent calls ${t}`),
-    };
-  }
-}
 ```
 
 :::
@@ -550,69 +409,6 @@ Return a result for each criterion using the exact criterion text.`,
 
 :::
 
-### Example: Hybrid judge
-
-Combine deterministic checks with LLM evaluation. Use programmatic assertions for things that can be checked mechanically, and LLM judgment for subjective criteria:
-
-:::code-group
-
-```python [python]
-import scenario
-from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
-
-class HybridJudge(scenario.AgentAdapter):
-    role = scenario.AgentRole.JUDGE
-
-    def __init__(self):
-        self.llm_judge = scenario.JudgeAgent(
-            criteria=["Agent maintains a professional tone"],
-        )
-        self.criteria = [
-            "Agent calls search_inventory tool",
-            "Agent maintains a professional tone",
-        ]
-
-    async def call(self, input: AgentInput) -> AgentReturnTypes:
-        if not input.judgment_request:
-            return []
-
-        # Deterministic check: was the tool called?
-        tool_called = any(
-            tc["function"]["name"] == "search_inventory"
-            for msg in input.messages
-            if msg.get("role") == "assistant" and msg.get("tool_calls")
-            for tc in msg["tool_calls"]
-        )
-
-        # LLM check: tone and quality
-        llm_result = await self.llm_judge.call(input)
-
-        # Combine results
-        passed = []
-        failed = []
-
-        if tool_called:
-            passed.append("Agent calls search_inventory tool")
-        else:
-            failed.append("Agent calls search_inventory tool")
-
-        if isinstance(llm_result, ScenarioResult):
-            passed.extend(llm_result.passed_criteria)
-            failed.extend(llm_result.failed_criteria)
-        else:
-            return []  # LLM judge wants to continue
-
-        return ScenarioResult(
-            success=len(failed) == 0,
-            messages=[],
-            reasoning=f"Tool called: {tool_called}. "
-                + (llm_result.reasoning if isinstance(llm_result, ScenarioResult) else ""),
-            passed_criteria=passed,
-            failed_criteria=failed,
-        )
-```
-
-:::
 
 ---
 
@@ -622,7 +418,7 @@ A few things we've learned from building and using the default judge:
 
 - **Use `temperature=0.0`** for evaluation. You want consistent, reproducible verdicts. Save creativity for the user simulator.
 
-- **Keep criteria evaluable from the transcript.** The judge sees the conversation as text. A criterion like "Agent queries the database" can only be verified if tool calls are visible in the messages or traces. If something is invisible to the judge, use a deterministic check instead.
+- **Keep criteria evaluable from the transcript.** The judge sees the conversation as text. A criterion like "Agent queries the database" can only be verified if tool calls are visible in the messages or traces.
 
 - **Return `[]` (continue) when you don't have enough information.** Don't guess. The built-in judge's `continue_test` / `finish_test` tool pattern exists for this reason — it forces an explicit decision.
 
