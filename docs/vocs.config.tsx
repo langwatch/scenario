@@ -309,6 +309,10 @@ export default defineConfig({
       text: "Advanced",
       items: [
         {
+          text: "Custom Judge",
+          link: "/advanced/custom-judge",
+        },
+        {
           text: "Custom Clients",
           link: "/advanced/custom-clients",
         },
