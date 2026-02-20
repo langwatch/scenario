@@ -16,6 +16,7 @@ import scenario, {
   type AudioResponseEvent,
 } from "@langwatch/scenario";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { connectWithRetry } from "./helpers/connect-with-retry";
 import { wrapJudgeForAudioTranscription } from "./helpers/wrap-judge-for-audio-transcription";
 import { AudioUtils } from "./utils/audio/audio.utils";
 import {
@@ -71,8 +72,11 @@ describe("Scenario Expert Agent (Realtime API)", () => {
       collectedAudio.push(event);
     });
 
-    // Connect both sessions (adapter handles connection)
-    await Promise.all([realtimeAdapter.connect(), audioUserSim.connect()]);
+    // Connect with retry to handle transient 504s from OpenAI's Realtime API
+    await Promise.all([
+      connectWithRetry(realtimeAdapter),
+      connectWithRetry(audioUserSim),
+    ]);
 
     // Start real-time audio player and hook into both transports
     // to stream audio chunks as they arrive from each speaker
