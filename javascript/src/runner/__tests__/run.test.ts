@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { run, type RunOptions } from "../run";
-import { AgentRole, type AgentAdapter, type AgentInput } from "../../domain";
+import { AgentRole, type AgentAdapter, type AgentInput, type ScenarioConfig } from "../../domain";
 import type { ScenarioEvent } from "../../events/schema";
 
 // Mock the EventBus - must use function keyword for constructor
@@ -63,7 +63,7 @@ class TestJudgeAgent implements AgentAdapter {
   }
 }
 
-function createScenarioConfig(name = "Test Scenario") {
+function createScenarioConfig(name = "Test Scenario"): ScenarioConfig {
   return {
     name,
     description: `Scenario ${name}`,
@@ -245,6 +245,34 @@ describe("run", () => {
 
       expect(runStartedA?.metadata?.name).toBe("Scenario-A");
       expect(runStartedB?.metadata?.name).toBe("Scenario-B");
+    });
+  });
+
+  describe("metadata", () => {
+    it("includes user metadata in RUN_STARTED event", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      const config = createScenarioConfig();
+      config.metadata = { promptId: "abc-123", environment: "staging" };
+
+      await run(config);
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.metadata?.promptId).toBe("abc-123");
+      expect(runStartedEvent?.metadata?.environment).toBe("staging");
+    });
+
+    it("preserves name and description over user metadata", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      const config = createScenarioConfig("My Scenario");
+      config.metadata = { name: "overridden", description: "overridden" };
+
+      await run(config);
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.metadata?.name).toBe("My Scenario");
+      expect(runStartedEvent?.metadata?.description).toBe("Scenario My Scenario");
     });
   });
 });

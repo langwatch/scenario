@@ -9,6 +9,7 @@ and judge agents to determine test success or failure.
 import json
 import sys
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Dict,
@@ -137,6 +138,7 @@ class ScenarioExecutor:
         debug: Optional[bool] = None,
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -159,11 +161,15 @@ class ScenarioExecutor:
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
+            metadata: Optional metadata to attach to the scenario run.
+                     Accepts arbitrary key-value pairs. The ``langwatch`` key
+                     is reserved for platform-internal use.
         """
         self.name = name
         self.description = description
         self.agents = agents
         self.script = script or [proceed()]
+        self.metadata = metadata
 
         config = ScenarioConfig(
             max_turns=max_turns,
@@ -892,6 +898,10 @@ class ScenarioExecutor:
             name=self.name,
             description=self.description,
         )
+        if self.metadata:
+            for key, value in self.metadata.items():
+                if key not in ("name", "description"):
+                    metadata.additional_properties[key] = value
 
         event = ScenarioRunStartedEvent(
             **common_fields,
@@ -968,6 +978,7 @@ async def run(
     debug: Optional[bool] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -986,6 +997,9 @@ async def run(
         debug: Enable debug mode for step-by-step execution
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
+        metadata: Optional metadata to attach to the scenario run.
+                 Accepts arbitrary key-value pairs. The ``langwatch`` key
+                 is reserved for platform-internal use.
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -1041,6 +1055,7 @@ async def run(
         debug=debug,
         script=script,
         set_id=set_id,
+        metadata=metadata,
     )
 
     # We'll use a thread pool to run the execution logic, we

@@ -214,6 +214,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId,
+      metadata: config.metadata,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
@@ -1307,6 +1308,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_STARTED,
       metadata: {
+        ...this.config.metadata,
         name: this.config.name,
         description: this.config.description,
       },
