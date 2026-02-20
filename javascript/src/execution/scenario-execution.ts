@@ -38,7 +38,6 @@ import {
   generateScenarioId,
   generateScenarioRunId,
   generateThreadId,
-  getBatchRunId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
 
@@ -187,13 +186,24 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   public readonly events$: Observable<ScenarioEvent> =
     this.eventSubject.asObservable();
 
+  /** Batch run ID for grouping scenario runs */
+  private batchRunId: string;
+
+  /** The run ID for the current execution */
+  private scenarioRunId?: string;
+
   /**
    * Creates a new ScenarioExecution instance.
    *
    * @param config - The scenario configuration containing agents, settings, and metadata
    * @param script - The ordered sequence of script steps that define the test flow
+   * @param batchRunId - Batch run ID for grouping scenario runs
    */
-  constructor(config: ScenarioConfig, script: ScriptStep[]) {
+  constructor(config: ScenarioConfig, script: ScriptStep[], batchRunId: string) {
+    if (!batchRunId) {
+      throw new Error("batchRunId is required");
+    }
+    this.batchRunId = batchRunId;
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -247,8 +257,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * @param result - The final scenario result (without messages/timing, which will be added automatically)
    */
   private setResult(
-    result: Omit<ScenarioResult, "messages" | "totalTime" | "agentTime">
+    result: Omit<ScenarioResult, "runId" | "messages" | "totalTime" | "agentTime">
   ): ScenarioResult {
+    if (!this.scenarioRunId) {
+      throw new Error("Cannot set result: scenarioRunId has not been initialized. This is a bug in ScenarioExecution.");
+    }
+
     const agentRoleAgentsIdx = this.agents
       .map((agent, i) => ({ agent, idx: i }))
       .filter(({ agent }) => agent.role === AgentRole.AGENT)
@@ -261,13 +275,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     const totalAgentTime = agentTimes.reduce((sum, time) => sum + time, 0);
 
     this._result = {
+      runId: this.scenarioRunId,
       ...result,
       messages: this.state.messages,
       totalTime: this.totalTime,
       agentTime: totalAgentTime,
     };
-
-    return this._result;
 
     this.logger.debug(`[${this.config.id}] Result set`, {
       success: result.success,
@@ -276,6 +289,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       agentTime: totalAgentTime,
       messageCount: this.state.messages.length,
     });
+
+    return this._result;
   }
 
   /**
@@ -321,6 +336,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.reset();
 
     const scenarioRunId = generateScenarioRunId();
+    this.scenarioRunId = scenarioRunId;
     this.logger.debug(`[${this.config.id}] Generated run ID: ${scenarioRunId}`);
     this.emitRunStarted({ scenarioRunId });
 
@@ -1276,7 +1292,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return {
       type: "placeholder", // This will be replaced by the specific event type
       timestamp: Date.now(),
-      batchRunId: getBatchRunId(),
+      batchRunId: this.batchRunId,
       scenarioId: this.config.id,
       scenarioRunId,
       scenarioSetId: this.config.setId,

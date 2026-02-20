@@ -1,0 +1,38 @@
+{
+  "name": "@langwatch/scenario",
+  "version": "0.4.0",
+  "private": true,
+  "scripts": {
+    "prepare": "cd javascript && npm install --legacy-peer-deps && npm run build"
+  },
+  "main": "javascript/dist/index.js",
+  "module": "javascript/dist/index.mjs",
+  "types": "javascript/dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./javascript/dist/index.d.ts",
+      "require": "./javascript/dist/index.js",
+      "import": "./javascript/dist/index.mjs"
+    },
+    "./integrations/vitest/reporter": {
+      "types": "./javascript/dist/integrations/vitest/reporter.d.ts",
+      "require": "./javascript/dist/integrations/vitest/reporter.js",
+      "import": "./javascript/dist/integrations/vitest/reporter.mjs"
+    },
+    "./integrations/vitest/setup": {
+      "types": "./javascript/dist/integrations/vitest/setup.d.ts",
+      "require": "./javascript/dist/integrations/vitest/setup.js",
+      "import": "./javascript/dist/integrations/vitest/setup.mjs"
+    },
+    "./integrations/vitest/setup-global": {
+      "types": "./javascript/dist/integrations/vitest/setup-global.d.ts",
+      "require": "./javascript/dist/integrations/vitest/setup-global.js",
+      "import": "./javascript/dist/integrations/vitest/setup-global.mjs"
+    },
+    "./integrations/vitest/config": {
+      "types": "./javascript/dist/integrations/vitest/config.d.ts",
+      "require": "./javascript/dist/integrations/vitest/config.js",
+      "import": "./javascript/dist/integrations/vitest/config.mjs"
+    }
+  }
+}

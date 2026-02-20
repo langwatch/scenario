@@ -90,7 +90,8 @@ describe("Inline criteria on judge()", () => {
         user("follow up"),
         agent(),
         succeed(),
-      ]
+      ],
+      "test-batch-id"
     );
 
     const result = await execution.execute();
@@ -127,7 +128,8 @@ describe("Inline criteria on judge()", () => {
         user("should not reach"),
         agent(),
         succeed(),
-      ]
+      ],
+      "test-batch-id"
     );
 
     const result = await execution.execute();
@@ -154,7 +156,8 @@ describe("Inline criteria on judge()", () => {
         user("more"),
         agent(),
         judge({ criteria: ["criterion B passes", "criterion C passes"] }),
-      ]
+      ],
+      "test-batch-id"
     );
 
     const result = await execution.execute();
@@ -179,7 +182,8 @@ describe("Inline criteria on judge()", () => {
         user("hello"),
         agent(),
         judge({ criteria: ["criterion A passes"] }),
-      ]
+      ],
+      "test-batch-id"
     );
 
     const result = await execution.execute();
@@ -205,7 +209,8 @@ describe("Inline criteria on judge()", () => {
         agent(),
         judge({ criteria: ["inline criterion passes"] }),
         succeed(),
-      ]
+      ],
+      "test-batch-id"
     );
 
     await execution.execute();
@@ -230,7 +235,8 @@ describe("Inline criteria on judge()", () => {
         user("more"),
         agent(),
         judge({ criteria: ["this will fail"] }),
-      ]
+      ],
+      "test-batch-id"
     );
 
     const result = await execution.execute();

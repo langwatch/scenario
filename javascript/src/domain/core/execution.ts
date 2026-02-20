@@ -12,6 +12,11 @@ import type { ScenarioConfig } from "../scenarios";
  */
 export interface ScenarioResult {
   /**
+   * Unique identifier for this scenario run.
+   */
+  runId: string;
+
+  /**
    * Indicates whether the scenario was successful.
    */
   success: boolean;

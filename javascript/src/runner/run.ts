@@ -1,9 +1,11 @@
 /**
  * Scenario execution engine for agent testing.
  *
- * This file contains the core `run` function that orchestrates the execution
- * of scenario tests, managing the interaction between user simulators, agents under test,
- * and judge agents to determine test success or failure.
+ * Orchestrates the execution of scenario tests, managing user simulators,
+ * agents under test, and judge agents. Each `run()` call creates an isolated
+ * EventBus, enabling safe concurrent execution with different configs.
+ *
+ * @see docs/adr/001-scenario-concurrency-model.md
  */
 import { AssistantContent, ToolContent, ModelMessage } from "ai";
 import { Subscription } from "rxjs";
@@ -17,7 +19,27 @@ import {
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
-import { generateThreadId } from "../utils/ids";
+import { generateThreadId, getBatchRunId } from "../utils/ids";
+/**
+ * Configuration for LangWatch event reporting.
+ * All fields are optional — any omitted fields fall back to environment variables.
+ */
+export interface LangwatchConfig {
+  /** The endpoint URL to send events to. Falls back to LANGWATCH_ENDPOINT env var. */
+  endpoint?: string;
+  /** The API key for authentication. Falls back to LANGWATCH_API_KEY env var. */
+  apiKey?: string;
+}
+
+/**
+ * Options for running a scenario.
+ */
+export interface RunOptions {
+  /** LangWatch configuration for event reporting. Overrides environment variables. */
+  langwatch?: LangwatchConfig;
+  /** Batch run ID for grouping scenario runs. Overrides SCENARIO_BATCH_RUN_ID env var. */
+  batchRunId?: string;
+}
 
 /**
  * High-level interface for running a scenario test.
@@ -68,7 +90,7 @@ import { generateThreadId } from "../utils/ids";
  * main();
  * ```
  */
-export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
+export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<ScenarioResult> {
   if (!cfg.name) {
     throw new Error("Scenario name is required");
   }
@@ -96,16 +118,19 @@ export async function run(cfg: ScenarioConfig): Promise<ScenarioResult> {
   }
 
   const steps = cfg.script || [proceed()];
-  const execution = new ScenarioExecution(cfg, steps);
+
+  const batchRunId = options?.batchRunId ?? getBatchRunId();
+  const execution = new ScenarioExecution(cfg, steps, batchRunId);
 
   let eventBus: EventBus | null = null;
   let subscription: Subscription | null = null;
 
   try {
     const envConfig = getEnv();
+    // Use programmatic config if provided, otherwise fall back to env vars
     eventBus = new EventBus({
-      endpoint: envConfig.LANGWATCH_ENDPOINT,
-      apiKey: envConfig.LANGWATCH_API_KEY,
+      endpoint: options?.langwatch?.endpoint ?? envConfig.LANGWATCH_ENDPOINT,
+      apiKey: options?.langwatch?.apiKey ?? envConfig.LANGWATCH_API_KEY,
     });
     eventBus.listen();
 
