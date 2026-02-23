@@ -329,6 +329,10 @@ export default defineConfig({
           text: "Domain-Driven TDD",
           link: "/best-practices/domain-driven-tdd",
         },
+        {
+          text: "Red-Teaming Your Agent",
+          link: "/best-practices/red-teaming-your-agent",
+        },
       ],
     },
     {

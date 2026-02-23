@@ -1,0 +1,87 @@
+---
+title: Red-Teaming Your Agent
+description: Learn how to use adversarial simulation to find security vulnerabilities in AI agents before they reach production. Covers goal hijacking, prompt injection, system prompt extraction, and multi-turn crescendo attacks using Scenario.
+---
+
+import { Authors } from "vocs/components";
+
+# Red-Teaming Your Agent
+
+Most teams building AI agents focus on whether their agent does the right thing. Very few test what happens when someone is actively trying to make it do the *wrong* thing.
+
+As agents gain access to tools, databases, APIs, and the ability to take real-world actions, they become high-value targets. The attack surface is real, the techniques are well-documented, and the consequences — data exfiltration, unauthorized actions, system compromise — are serious.
+
+A happy-path eval tells you the agent works when users cooperate. It tells you nothing about what happens when they don't.
+
+## Why Agents Are Structurally Vulnerable
+
+Researchers from ETH Zurich, Microsoft, Google, and IBM studied how LLM-based agents fail under adversarial conditions ([Design Patterns for Securing LLM Agents against Prompt Injections, 2025](https://arxiv.org/abs/2506.08837)). Their finding: the problem isn't just that models can be tricked — it's that the *architecture* of most agents makes them structurally vulnerable.
+
+An agent that ingests raw external content and operates with unrestricted tool access isn't a question of *if* it will be exploited, but when.
+
+The paper proposes concrete mitigations: least-privilege access, map-reduce isolation of untrusted inputs, dual-LLM architectures that separate trusted reasoning from untrusted content. These are worth implementing. But they're not enough on their own.
+
+Your agent's security emerges from the specific combination of your architecture, your prompts, your tools, and the model you're running — and all of those change. A prompt edit, a new tool integration, or a model update can reopen an attack path that was previously closed. Without continuous adversarial testing, you won't find out until something breaks in production.
+
+:::warning
+Security vulnerabilities in agents don't surface in standard quality evaluations. They require purpose-built adversarial scenarios with [judge criteria](/basics/judge-agent) specifically designed to detect when an attack has succeeded.
+:::
+
+## The Attack Surface
+
+The attack surfaces below are drawn from the [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/) and the [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+
+### System Prompt Extraction
+
+A crafted multi-turn conversation that coerces the agent into revealing its system prompt and internal logic — handing an attacker the blueprint to break the agent further.
+
+In simulations with 50+ turns, agents have leaked full system prompt contents they had no explicit permission to share.
+
+### Unauthorized Data Access
+
+Agents that query databases or handle user data frequently expose information users shouldn't have access to. This is often not an LLM failure — it's a permissions failure that the agent becomes a proxy for. The agent reaches further than it should because the authorization layer beneath it wasn't designed with an adversarial LLM in mind.
+
+### Dangerous Code Execution
+
+For agents that can write and run code, an adversary can coerce destructive operations when the execution environment isn't sandboxed and the model isn't explicitly constrained by the surrounding architecture.
+
+### Web Injection and Exfiltration
+
+Any agent with web access can be jailbroken via content on a malicious page, or manipulated into posting sensitive data to attacker-controlled endpoints. Agents that write to shared systems — documents, wikis, databases — can have jailbreak payloads embedded in that content, which then execute when the agent or another system reads it later.
+
+### Looping / Denial of Service
+
+Inducing the agent into an infinite reasoning loop that burns through tokens, triggers rate limits, and degrades service for legitimate users. Less dramatic than the others, but a real production risk.
+
+## Adversarial Testing with Scenario
+
+The same simulation framework you use for [functional testing](/basics/writing-scenarios) can be turned into a systematic adversary — a simulated attacker that applies known techniques across multiple turns, with a [judge](/basics/judge-agent) configured to detect when an attack actually succeeds.
+
+### Multi-Turn Crescendo Attacks
+
+The first adversarial pattern we're implementing is the **crescendo attack**: an adversary that gradually escalates pressure over many turns to extract behavior the agent would refuse if asked directly.
+
+It works because agents that hold a boundary at turn 1 often don't hold it at turn 15. Vulnerabilities that don't appear in standard testing show up immediately under adversarial simulation.
+
+:::info
+This feature is currently in active development. We're validating crescendo and other adversarial patterns against real agent implementations. [Book a call](https://langwatch.ai/get-a-demo) if you want to be involved in early testing.
+:::
+
+## Making Security Testing Part of Your Workflow
+
+The goal is to run adversarial scenarios in the same [CI/CD pipeline](/basics/ci-cd-integration) as your functional tests — before every deployment, not after an incident.
+
+A practical approach:
+
+1. **Identify your highest-risk attack surfaces** — which tools have the most dangerous permissions? Which data does the agent have access to?
+2. **Write adversarial scenarios** targeting those surfaces using the patterns above
+3. **Write judge criteria that detect success from the attacker's perspective** — what does a successful attack look like?
+4. **Run them in CI alongside functional tests** — a passing functional suite with a failing red-team suite is a deploy you should block
+
+See the [Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) for how adversarial simulations fit alongside unit tests and standard evals in a complete testing strategy.
+
+## See Also
+
+- [Judge Agent](/basics/judge-agent) — configuring evaluation criteria for pass/fail decisions
+- [CI/CD Integration](/basics/ci-cd-integration) — running scenarios in your deployment pipeline
+- [The Agent Testing Pyramid](/best-practices/the-agent-testing-pyramid) — how adversarial testing fits alongside unit tests and evals
