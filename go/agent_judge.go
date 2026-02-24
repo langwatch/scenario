@@ -2,15 +2,13 @@ package scenario
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/langwatch/scenario/go/internal"
 	"github.com/langwatch/scenario/go/internal/libraries/ptr"
-
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared"
 )
 
 const (
@@ -68,7 +66,8 @@ type JudgeAgentConfig struct {
 }
 
 type JudgeAgent struct {
-	cfg JudgeAgentConfig
+	cfg           JudgeAgentConfig
+	spanCollector *SpanCollector
 }
 
 func NewJudgeAgent(cfg JudgeAgentConfig) *JudgeAgent {
@@ -81,88 +80,144 @@ func (a *JudgeAgent) Role() AgentRole {
 	return AgentRoleJudge
 }
 
+// GetCriteria returns the judge's configured criteria.
+func (a *JudgeAgent) GetCriteria() []string {
+	return a.cfg.Criteria
+}
+
 func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, error) {
+	// Resolve criteria: use JudgmentRequest criteria if provided, otherwise configured criteria
+	criteria := a.cfg.Criteria
+	if input.JudgmentRequest != nil && len(input.JudgmentRequest.Criteria) > 0 {
+		criteria = input.JudgmentRequest.Criteria
+	}
+
 	var systemPrompt string
 	if a.cfg.SystemPrompt != nil {
 		systemPrompt = *a.cfg.SystemPrompt
 	} else {
-		systemPrompt = buildJudgePrompt(a.cfg.Criteria, input.ScenarioConfig.Description)
+		systemPrompt = buildJudgePrompt(criteria, input.ScenarioConfig.Description)
 	}
 
 	lastMessage := input.ScenarioState.CurrentTurn() >= input.ScenarioConfig.MaxTurns
-	enforceJudgement := input.JudgmentRequest
-	hasCriteria := len(a.cfg.Criteria) > 0
-	messages := append(
-		[]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemPrompt)},
-		input.Messages...,
-	)
+	enforceJudgement := input.JudgmentRequest != nil
+	forceDecision := input.JudgmentRequest != nil && input.JudgmentRequest.ForceDecision
+	hasCriteria := len(criteria) > 0
+
+	// Build transcript from messages
+	transcript := buildTranscriptFromMessages(input.Messages)
+
+	// Build OTel digest if span collector is available
+	digest := ""
+	if a.spanCollector != nil {
+		spans := a.spanCollector.GetSpansForThread(input.ThreadID)
+		formatter := &SpanDigestFormatter{}
+		digest = formatter.Format(spans)
+	}
+
+	// Combine transcript and OTel digest for the judge
+	contentForJudge := fmt.Sprintf(`<transcript>
+%s
+</transcript>
+<opentelemetry_traces>
+%s
+</opentelemetry_traces>`, transcript, digest)
+
+	messages := []Message{
+		SystemMsg(systemPrompt),
+		UserMsg(contentForJudge),
+	}
 
 	if lastMessage {
-		messages = append(messages, openai.UserMessage(lastMessagePrompt))
+		messages = append(messages, UserMsg(lastMessagePrompt))
 	}
 
 	if enforceJudgement && !hasCriteria {
 		return NewScenarioResultAgentReturn(ScenarioResult{
 			Success:       false,
-			Messages:      []openai.ChatCompletionMessageParamUnion{},
+			Messages:      []Message{},
 			Reasoning:     ptr.Ptr("TestingAgent was called as a judge, but it has no criteria to judge against"),
 			MetCriteria:   []string{},
 			UnmetCriteria: []string{},
 		}), nil
 	}
 
-	params := openai.ChatCompletionNewParams{
-		Messages:    messages,
-		Model:       a.cfg.Model,
-		Temperature: openai.Opt(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
-		Tools:       createJudgeAgentTools(a.cfg.Criteria),
+	// Build tools — only include continue_test when not forcing a decision
+	tools := createJudgeAgentTools(criteria, forceDecision)
+
+	params := InferenceParams{
+		Model:    a.cfg.Model,
+		Messages: messages,
+		Temperature: ptr.Ptr(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
+		Tools:    tools,
 	}
 	if a.cfg.MaxTokens != nil {
-		params.MaxCompletionTokens = openai.Opt(*a.cfg.MaxTokens)
+		params.MaxTokens = a.cfg.MaxTokens
 	}
 
-	completion, err := a.cfg.OpenAIClient.Chat.Completions.New(ctx, params)
+	// Force tool_choice to finish_test when ForceDecision or last message
+	if (forceDecision || lastMessage) && hasCriteria {
+		params.ToolChoice = &ToolChoice{
+			Type:         "function",
+			FunctionName: "finish_test",
+		}
+	}
+
+	result, err := a.cfg.LLM.Inference(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(completion.Choices) == 0 {
-		return nil, errors.New("judge agent had no response choices")
-	}
-
-	completionChoice := completion.Choices[0]
-	if len(completionChoice.Message.ToolCalls) == 0 {
+	if len(result.Message.ToolCalls) == 0 {
 		return nil, errors.New("judge agent response has no tool calls")
 	}
 
-	toolCall := completionChoice.Message.ToolCalls[0]
-	if toolCall.Type != "function" {
-		return nil, errors.New("judge agent response tool call is of an unknown type")
-	}
+	toolCall := result.Message.ToolCalls[0]
 
-	switch toolCall.Function.Name {
+	switch toolCall.Name {
 	case "continue_test":
-		return NewEmptyAgentReturn(), nil
+		// Return nil to signal continue
+		return nil, nil
 
 	case "finish_test":
-		toolArguments, err := internal.ParseJudgeAgentFinishTestToolArguments(toolCall.Function.Arguments)
+		toolArguments, err := internal.ParseJudgeAgentFinishTestToolArguments(toolCall.Arguments)
 		if err != nil {
-			return nil, errors.New("")
+			return nil, fmt.Errorf("failed to parse finish_test arguments: %w", err)
 		}
 
 		passedCriteria := []string{}
 		failedCriteria := []string{}
 
+		// Map param names back to original criteria
+		paramToCriterion := make(map[string]string)
+		for _, c := range criteria {
+			paramToCriterion[criterionNameToParamName(c)] = c
+		}
+
 		for key, reasoning := range toolArguments.Criteria {
+			criterion := key
+			if original, ok := paramToCriterion[key]; ok {
+				criterion = original
+			}
+
 			reasoningBool, ok := reasoning.(bool)
-			if !ok {
+			if ok {
+				if reasoningBool {
+					passedCriteria = append(passedCriteria, criterion)
+				} else {
+					failedCriteria = append(failedCriteria, criterion)
+				}
 				continue
 			}
 
-			if reasoningBool == true {
-				passedCriteria = append(passedCriteria, key)
-			} else {
-				failedCriteria = append(failedCriteria, key)
+			// Handle string values like "true", "false", "inconclusive"
+			reasoningStr, ok := reasoning.(string)
+			if ok {
+				if reasoningStr == "true" {
+					passedCriteria = append(passedCriteria, criterion)
+				} else {
+					failedCriteria = append(failedCriteria, criterion)
+				}
 			}
 		}
 
@@ -179,7 +234,7 @@ func (a *JudgeAgent) Call(ctx context.Context, input AgentInput) (*AgentReturn, 
 	}
 }
 
-func createJudgeAgentTools(criteria []string) []openai.ChatCompletionToolParam {
+func createJudgeAgentTools(criteria []string, forceDecision bool) []ToolDefinition {
 	criteriaMap := map[string]any{}
 	criteriaNames := []string{}
 	for _, criterion := range criteria {
@@ -191,50 +246,64 @@ func createJudgeAgentTools(criteria []string) []openai.ChatCompletionToolParam {
 		}
 	}
 
-	tools := []openai.ChatCompletionToolParam{{
-		Type: "function",
-		Function: shared.FunctionDefinitionParam{
+	tools := []ToolDefinition{}
+
+	// Only include continue_test when not forcing a decision
+	if !forceDecision {
+		tools = append(tools, ToolDefinition{
 			Name:        "continue_test",
-			Description: openai.Opt("Continue the test with the next step"),
-			Strict:      openai.Opt(true),
-			Parameters: openai.FunctionParameters{
+			Description: "Continue the test with the next step",
+			Strict:      true,
+			Parameters: map[string]any{
 				"type":                 "object",
-				"properties":           map[any]any{},
+				"properties":           map[string]any{},
 				"required":             []any{},
 				"additionalProperties": false,
 			},
-		},
-	}, {
-		Type: "function",
-		Function: shared.FunctionDefinitionParam{
-			Name:        "finish_test",
-			Description: openai.Opt("Complete the test with a final verdict"),
-			Strict:      openai.Opt(true),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[any]any{
-					"criteria": map[any]any{
-						"type":                 "object",
-						"properties":           criteriaMap,
-						"required":             criteriaNames,
-						"additionalProperties": false,
-						"description":          "Strict verdict for each criterion",
-					},
-					"reasoning": map[any]any{
-						"type":        "string",
-						"description": "Explanation of what the final verdict should be",
-					},
-					"verdict": map[any]any{
-						"type":        "string",
-						"enum":        []any{"success", "failure", "inconclusive"},
-						"description": "The final verdict of the test",
-					},
+		})
+	}
+
+	tools = append(tools, ToolDefinition{
+		Name:        "finish_test",
+		Description: "Complete the test with a final verdict",
+		Strict:      true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"criteria": map[string]any{
+					"type":                 "object",
+					"properties":           criteriaMap,
+					"required":             criteriaNames,
+					"additionalProperties": false,
+					"description":          "Strict verdict for each criterion",
 				},
-				"required":             []any{"criteria", "reasoning", "verdict"},
-				"additionalProperties": false,
+				"reasoning": map[string]any{
+					"type":        "string",
+					"description": "Explanation of what the final verdict should be",
+				},
+				"verdict": map[string]any{
+					"type":        "string",
+					"enum":        []any{"success", "failure", "inconclusive"},
+					"description": "The final verdict of the test",
+				},
 			},
+			"required":             []any{"criteria", "reasoning", "verdict"},
+			"additionalProperties": false,
 		},
-	}}
+	})
 
 	return tools
+}
+
+// buildTranscriptFromMessages builds a plain-text transcript from messages for judge evaluation.
+func buildTranscriptFromMessages(messages []Message) string {
+	var lines []string
+	for _, msg := range messages {
+		contentJSON, err := json.Marshal(msg.Content)
+		if err != nil {
+			contentJSON = []byte(msg.Content)
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", msg.Role, string(contentJSON)))
+	}
+	return strings.Join(lines, "\n")
 }

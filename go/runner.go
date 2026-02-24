@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 )
 
 var (
@@ -15,7 +16,42 @@ var (
 	ErrAgentWithInvalidRole         = errors.New("agent with invalid role")
 )
 
-func Run(ctx context.Context, cfg ScenarioConfig) (*ScenarioResult, error) {
+// RunOptions configures optional behavior for Run().
+type RunOptions struct {
+	// Endpoint is the LangWatch API endpoint for event reporting.
+	Endpoint string
+	// APIKey is the LangWatch API key for authentication.
+	APIKey string
+	// BatchRunID groups scenario runs. Falls back to SCENARIO_BATCH_RUN_ID env var.
+	BatchRunID string
+}
+
+// RunOption configures a RunOptions.
+type RunOption func(*RunOptions)
+
+// WithEndpoint sets the LangWatch endpoint.
+func WithEndpoint(endpoint string) RunOption {
+	return func(o *RunOptions) { o.Endpoint = endpoint }
+}
+
+// WithAPIKey sets the LangWatch API key.
+func WithAPIKey(apiKey string) RunOption {
+	return func(o *RunOptions) { o.APIKey = apiKey }
+}
+
+// WithBatchRunID sets the batch run ID.
+func WithBatchRunID(batchRunID string) RunOption {
+	return func(o *RunOptions) { o.BatchRunID = batchRunID }
+}
+
+func Run(ctx context.Context, cfg ScenarioConfig, opts ...RunOption) (*ScenarioResult, error) {
+	// Apply options
+	options := &RunOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Validate
 	if cfg.Name == "" {
 		return nil, ErrScenarioNameRequired
 	}
@@ -35,17 +71,102 @@ func Run(ctx context.Context, cfg ScenarioConfig) (*ScenarioResult, error) {
 		return nil, err
 	}
 
+	// Apply defaults
 	if cfg.ThreadID == "" {
 		cfg.ThreadID = generateThreadID(ctx)
 	}
+	if cfg.ID == "" {
+		cfg.ID = generateScenarioID(ctx)
+	}
 
-	if len(cfg.Script) == 0 {
-		cfg.Script = []ScriptStep{
+	script := cfg.Script
+	if len(script) == 0 {
+		script = []ScriptStep{
 			Proceed(),
 		}
 	}
 
-	return nil, nil
+	// Determine batch run ID
+	batchRunID := options.BatchRunID
+	if batchRunID == "" {
+		batchRunID = getBatchRunID(ctx)
+	}
+
+	// Create event bus
+	eventBus := NewEventBus()
+
+	// Apply default SetID
+	if cfg.SetID == "" {
+		cfg.SetID = "default"
+	}
+
+	// Optionally set up event reporter
+	endpoint := options.Endpoint
+	if endpoint == "" {
+		endpoint = os.Getenv("LANGWATCH_ENDPOINT")
+	}
+	if endpoint == "" {
+		endpoint = "https://app.langwatch.ai"
+	}
+	apiKey := options.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("LANGWATCH_API_KEY")
+	}
+
+	// Show greeting banner
+	showGreeting(apiKey)
+
+	reporter := NewEventReporter(endpoint, apiKey)
+	ch := eventBus.Subscribe()
+
+	// Start reporter goroutine
+	reporterDone := make(chan struct{})
+	scenarioSetID := cfg.SetID
+	go func() {
+		defer close(reporterDone)
+		reporter.ReportEvents(ch, func(setURL string) {
+			showWatchMessage(setURL, scenarioSetID)
+		})
+	}()
+
+	// Set up observability (OTel tracing) if API key is configured
+	var obsHandle *ObservabilityHandle
+	if apiKey != "" {
+		var err error
+		obsHandle, err = setupObservability(ctx, endpoint, apiKey)
+		if err != nil {
+			// Non-fatal: continue without observability
+			obsHandle = nil
+		}
+	}
+
+	// Wire span collector into judge agents
+	if obsHandle != nil {
+		for _, agent := range cfg.Agents {
+			if ja, ok := agent.(*JudgeAgent); ok {
+				ja.spanCollector = obsHandle.collector
+			}
+		}
+	}
+
+	// Create execution and run
+	execution := NewScenarioExecution(cfg, script, eventBus, batchRunID)
+	if obsHandle != nil {
+		execution.tracer = obsHandle.tracer
+		execution.spanCollector = obsHandle.collector
+	}
+	result := execution.Run(ctx)
+
+	// Drain event bus and wait for reporter
+	eventBus.Drain()
+	<-reporterDone
+
+	// Shutdown observability
+	if obsHandle != nil {
+		obsHandle.Shutdown(ctx)
+	}
+
+	return result, nil
 }
 
 func validateAgentsSlice(agents []AgentAdapter) error {
