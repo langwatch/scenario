@@ -3,15 +3,11 @@ package scenario
 import (
 	"errors"
 	"time"
-
-	"github.com/langwatch/scenario/go/internal/libraries/ptr"
-	"github.com/openai/openai-go"
 )
 
-// ScenarioExecutionState represents the immutable state of a scenario at a given turn.
-// A new state should be created for each turn/iteration and passed down.
+// ScenarioExecutionState represents the mutable state of a scenario execution.
 type ScenarioExecutionState struct {
-	messages    []openai.ChatCompletionMessageParamUnion
+	messages    []Message
 	currentTurn int
 	threadID    string
 	description string
@@ -22,7 +18,7 @@ type ScenarioExecutionState struct {
 // NewScenarioExecutionState creates a new initial state for a scenario.
 func NewScenarioExecutionState(cfg ScenarioConfig) *ScenarioExecutionState {
 	return &ScenarioExecutionState{
-		messages:    []openai.ChatCompletionMessageParamUnion{},
+		messages:    []Message{},
 		currentTurn: 0,
 		threadID:    cfg.ThreadID,
 		description: cfg.Description,
@@ -31,11 +27,15 @@ func NewScenarioExecutionState(cfg ScenarioConfig) *ScenarioExecutionState {
 	}
 }
 
-func (s *ScenarioExecutionState) AddMessage(msg openai.ChatCompletionMessageParamUnion) {
+func (s *ScenarioExecutionState) AddMessage(msg Message) {
 	s.messages = append(s.messages, msg)
 }
 
-func (s *ScenarioExecutionState) LastMessage() (*openai.ChatCompletionMessageParamUnion, error) {
+func (s *ScenarioExecutionState) IncrementTurn() {
+	s.currentTurn++
+}
+
+func (s *ScenarioExecutionState) LastMessage() (*Message, error) {
 	if len(s.messages) == 0 {
 		return nil, errors.New("no messages in execution state history")
 	}
@@ -43,46 +43,51 @@ func (s *ScenarioExecutionState) LastMessage() (*openai.ChatCompletionMessagePar
 	return &s.messages[len(s.messages)-1], nil
 }
 
-func (s *ScenarioExecutionState) LastUserMessage() (*openai.ChatCompletionUserMessageParam, error) {
+func (s *ScenarioExecutionState) LastUserMessage() (*Message, error) {
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		msg := s.messages[i]
-
-		if ptr.ValueOrZero(msg.GetRole()) == "user" {
-			return msg.OfUser, nil
+		if s.messages[i].Role == MessageRoleUser {
+			return &s.messages[i], nil
 		}
 	}
 
 	return nil, errors.New("no user messages in execution state history")
 }
 
-func (s *ScenarioExecutionState) LastToolCall(toolName string) (*openai.ChatCompletionToolMessageParam, *openai.ChatCompletionMessageToolCallParam, error) {
-	toolCallIDToParam := make(map[string]*openai.ChatCompletionMessageToolCallParam)
+// LastAssistantMessage returns the last assistant message in the state.
+func (s *ScenarioExecutionState) LastAssistantMessage() (*Message, error) {
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		if s.messages[i].Role == MessageRoleAssistant {
+			return &s.messages[i], nil
+		}
+	}
 
-	// collect tool call ids/params
+	return nil, errors.New("no assistant messages in execution state history")
+}
+
+func (s *ScenarioExecutionState) LastToolCall(toolName string) (*Message, *ToolCall, error) {
+	toolCallIDToParam := make(map[string]*ToolCall)
+
+	// collect tool call ids/params from assistant messages
 	for i := len(s.messages) - 1; i >= 0; i-- {
 		msg := s.messages[i]
-		if ptr.ValueOrZero(msg.GetRole()) == "assistant" && msg.OfAssistant != nil {
-			for _, tc := range msg.OfAssistant.ToolCalls {
-				// Only store if matches toolName
-				if tc.Function.Name == toolName {
-					// Need pointer to tc for return
-					tcCopy := tc
-					toolCallIDToParam[tc.ID] = &tcCopy
+		if msg.Role == MessageRoleAssistant {
+			for j := range msg.ToolCalls {
+				tc := &msg.ToolCalls[j]
+				if tc.Name == toolName {
+					toolCallIDToParam[tc.ID] = tc
 				}
 			}
 		}
 	}
 
-	// find the last tool message with a matching tool name
+	// find the last tool message with a matching tool call ID
 	for i := len(s.messages) - 1; i >= 0; i-- {
 		msg := s.messages[i]
-		if ptr.ValueOrZero(msg.GetRole()) != "tool" || msg.OfTool == nil {
+		if msg.Role != MessageRoleTool {
 			continue
 		}
-		toolMsg := msg.OfTool
-		toolCallID := toolMsg.ToolCallID
-		if tc, ok := toolCallIDToParam[toolCallID]; ok {
-			return toolMsg, tc, nil
+		if tc, ok := toolCallIDToParam[msg.ToolCallID]; ok {
+			return &s.messages[i], tc, nil
 		}
 	}
 
@@ -91,16 +96,12 @@ func (s *ScenarioExecutionState) LastToolCall(toolName string) (*openai.ChatComp
 
 func (s *ScenarioExecutionState) HasToolCall(toolName string) bool {
 	_, _, err := s.LastToolCall(toolName)
-	if err != nil {
-		return false
-	}
-
-	return true
+	return err == nil
 }
 
 // Messages returns a copy of the messages in the state.
-func (s *ScenarioExecutionState) Messages() []openai.ChatCompletionMessageParamUnion {
-	return append([]openai.ChatCompletionMessageParamUnion(nil), s.messages...)
+func (s *ScenarioExecutionState) Messages() []Message {
+	return append([]Message(nil), s.messages...)
 }
 
 // CurrentTurn returns the current turn number.

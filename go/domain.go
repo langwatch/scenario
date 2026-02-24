@@ -3,8 +3,6 @@ package scenario
 import (
 	"context"
 	"time"
-
-	"github.com/openai/openai-go"
 )
 
 type ScriptStep func(
@@ -18,35 +16,41 @@ type ProceedCallback func(state ExecutionState) error
 type ExecutionState interface {
 	Config() ScenarioConfig
 	Description() string
-	Messages() []openai.ChatCompletionMessageParamUnion
+	Messages() []Message
 	ThreadID() string
 	CurrentTurn() int
 
-	AddMessage(message openai.ChatCompletionMessageParamUnion)
+	AddMessage(message Message)
+	IncrementTurn()
 
-	LastMessage() (*openai.ChatCompletionMessageParamUnion, error)
-	LastUserMessage() (*openai.ChatCompletionUserMessageParam, error)
+	LastMessage() (*Message, error)
+	LastUserMessage() (*Message, error)
+	LastAssistantMessage() (*Message, error)
 
-	LastToolCall(toolName string) (*openai.ChatCompletionToolMessageParam, *openai.ChatCompletionMessageToolCallParam, error)
+	LastToolCall(toolName string) (*Message, *ToolCall, error)
 	HasToolCall(toolName string) bool
 }
 
 type Execution interface {
-	Messages() []openai.ChatCompletionMessageParamUnion
+	Messages() []Message
 	ThreadID() string
 
 	Run(ctx context.Context) *ScenarioResult
 
-	Message(ctx context.Context, message openai.ChatCompletionMessageParamUnion) error
+	Message(ctx context.Context, message Message) error
 
 	UserString(ctx context.Context, content string) error
-	UserMessage(ctx context.Context, message openai.ChatCompletionUserMessageParam) error
+	UserMessage(ctx context.Context, message Message) error
 
 	AgentString(ctx context.Context, content string) error
-	AgentMessage(ctx context.Context, message openai.ChatCompletionAssistantMessageParam) error
+	AgentMessage(ctx context.Context, message Message) error
 
 	JudgeString(ctx context.Context, content string) (*ScenarioResult, error)
-	JudgeMessage(ctx context.Context, message openai.ChatCompletionMessageParamUnion) (*ScenarioResult, error)
+	JudgeMessage(ctx context.Context, message Message) (*ScenarioResult, error)
+
+	User(ctx context.Context) error
+	Agent(ctx context.Context) error
+	Judge(ctx context.Context, opts ...JudgeOption) (*ScenarioResult, error)
 
 	Proceed(ctx context.Context, opts ...ProceedOption) (*ScenarioResult, error)
 
@@ -73,8 +77,9 @@ func WithProceedOnStep(onStep ProceedCallback) ProceedOption {
 }
 
 type ScenarioResult struct {
+	RunID         string
 	Success       bool
-	Messages      []openai.ChatCompletionMessageParamUnion
+	Messages      []Message
 	Reasoning     *string
 	MetCriteria   []string
 	UnmetCriteria []string

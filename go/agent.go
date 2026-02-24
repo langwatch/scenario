@@ -2,8 +2,6 @@ package scenario
 
 import (
 	"context"
-
-	"github.com/openai/openai-go"
 )
 
 type AgentRole string
@@ -23,19 +21,43 @@ const (
 type AgentConfig struct {
 	Name string
 
-	Model        string
-	OpenAIClient *openai.Client
+	Model string
+	LLM   Inference
 
 	Temperature *float64
 	MaxTokens   *int64
 }
 
+// JudgmentRequest encapsulates a request for the judge agent to evaluate the conversation.
+// When present on AgentInput, signals the judge to produce a verdict.
+type JudgmentRequest struct {
+	// Criteria to evaluate, overriding the judge agent's configured criteria.
+	Criteria []string
+	// ForceDecision forces the judge to use finish_test (no continue_test option).
+	ForceDecision bool
+}
+
+// JudgeOption configures optional behavior for a Judge() script step.
+type JudgeOption func(*JudgeOptions)
+
+// JudgeOptions holds options for a Judge() script step call.
+type JudgeOptions struct {
+	Criteria []string
+}
+
+// WithJudgeCriteria sets inline criteria for a judge checkpoint.
+func WithJudgeCriteria(criteria ...string) JudgeOption {
+	return func(o *JudgeOptions) {
+		o.Criteria = criteria
+	}
+}
+
 type AgentInput struct {
 	ThreadID        string
-	Messages        []openai.ChatCompletionMessageParamUnion
-	NewMessages     []openai.ChatCompletionMessageParamUnion
+	Messages        []Message
+	NewMessages     []Message
 	RequestedRole   AgentRole
-	JudgmentRequest bool
+	JudgmentRequest *JudgmentRequest
 	ScenarioState   ExecutionState
 	ScenarioConfig  ScenarioConfig
 }
@@ -50,8 +72,8 @@ type AgentReturn struct {
 
 	StringValue         string
 	ScenarioResultValue ScenarioResult
-	MessagesValue       []openai.ChatCompletionMessageParamUnion
-	MessageValue        openai.ChatCompletionMessageParamUnion
+	MessagesValue       []Message
+	MessageValue        Message
 }
 
 func NewStringAgentReturn(s string) *AgentReturn {
@@ -60,12 +82,12 @@ func NewStringAgentReturn(s string) *AgentReturn {
 func NewScenarioResultAgentReturn(r ScenarioResult) *AgentReturn {
 	return &AgentReturn{Kind: AgentReturnScenarioResult, ScenarioResultValue: r}
 }
-func NewMessagesAgentReturn(msgs []openai.ChatCompletionMessageParamUnion) *AgentReturn {
+func NewMessagesAgentReturn(msgs []Message) *AgentReturn {
 	return &AgentReturn{Kind: AgentReturnMessages, MessagesValue: msgs}
 }
 func NewEmptyAgentReturn() *AgentReturn {
-	return &AgentReturn{Kind: AgentReturnMessages, MessagesValue: []openai.ChatCompletionMessageParamUnion{}}
+	return &AgentReturn{Kind: AgentReturnMessages, MessagesValue: []Message{}}
 }
-func NewMessageAgentReturn(msg openai.ChatCompletionMessageParamUnion) *AgentReturn {
+func NewMessageAgentReturn(msg Message) *AgentReturn {
 	return &AgentReturn{Kind: AgentReturnMessage, MessageValue: msg}
 }

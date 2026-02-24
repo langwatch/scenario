@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"github.com/langwatch/scenario/go/internal/libraries/ptr"
-
-	"github.com/openai/openai-go"
 )
 
 const userSimulatorPrompt = `
@@ -62,30 +60,33 @@ func (a *UserSimulatorAgent) Call(ctx context.Context, input AgentInput) (*Agent
 		systemPrompt = buildUserSimulatorPrompt(input.ScenarioConfig.Description)
 	}
 
-	messages := append(
-		[]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemPrompt)},
-		input.Messages...,
-	)
+	messages := []Message{
+		SystemMsg(systemPrompt),
+	}
+	messages = append(messages, input.Messages...)
 
-	params := openai.ChatCompletionNewParams{
-		Messages:    messages,
+	// Role reversal: swap user<->assistant before calling LLM
+	// LLM models are biased to always be the assistant not the user
+	reversedMessages := messageRoleReversal(messages)
+
+	params := InferenceParams{
 		Model:       a.cfg.Model,
-		Temperature: openai.Opt(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
+		Messages:    reversedMessages,
+		Temperature: ptr.Ptr(ptr.ValueOrDefault(a.cfg.Temperature, 0.0)),
 	}
 	if a.cfg.MaxTokens != nil {
-		params.MaxCompletionTokens = openai.Opt(*a.cfg.MaxTokens)
+		params.MaxTokens = a.cfg.MaxTokens
 	}
 
-	completion, err := a.cfg.OpenAIClient.Chat.Completions.New(ctx, params)
+	result, err := a.cfg.LLM.Inference(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(completion.Choices) == 0 {
-		return nil, errors.New("user simulator agent had no response choices")
+	if result.Message.Content == "" && len(result.Message.ToolCalls) == 0 {
+		return nil, errors.New("user simulator agent had no response content")
 	}
 
-	return NewMessageAgentReturn(openai.ChatCompletionMessageParamUnion{
-		OfAssistant: ptr.Ptr(completion.Choices[0].Message.ToAssistantMessageParam()),
-	}), nil
+	// Return as a user message string (the LLM generated as assistant, but we want it as user)
+	return NewStringAgentReturn(result.Message.Content), nil
 }
