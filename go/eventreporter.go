@@ -37,7 +37,7 @@ type eventPayload struct {
 	ScenarioSetID  string      `json:"scenarioSetId,omitempty"`
 	Metadata       interface{} `json:"metadata,omitempty"`
 	Messages       interface{} `json:"messages,omitempty"`
-	Status         string      `json:"status,omitempty"`
+	Status         ScenarioRunStatus `json:"status,omitempty"`
 	Results        interface{} `json:"results,omitempty"`
 }
 
@@ -146,14 +146,14 @@ func (r *EventReporter) buildPayload(event ScenarioEvent) *eventPayload {
 		}
 
 	case RunFinishedEvent:
-		status := "failed"
+		status := ScenarioRunStatusFailed
 		verdict := "failure"
 		if e.Result != nil && e.Result.Success {
-			status = "success"
+			status = ScenarioRunStatusSuccess
 			verdict = "success"
 		}
 		if e.Result != nil && e.Result.Error != nil {
-			status = "error"
+			status = ScenarioRunStatusError
 		}
 
 		var results *runFinishedResults
