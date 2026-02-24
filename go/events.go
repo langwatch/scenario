@@ -8,10 +8,22 @@ import (
 type ScenarioEventType string
 
 const (
-	EventRunStarted      ScenarioEventType = "RUN_STARTED"
-	EventMessageSnapshot ScenarioEventType = "MESSAGE_SNAPSHOT"
-	EventRunFinished     ScenarioEventType = "RUN_FINISHED"
-	EventError           ScenarioEventType = "ERROR"
+	EventRunStarted      ScenarioEventType = "SCENARIO_RUN_STARTED"
+	EventMessageSnapshot ScenarioEventType = "SCENARIO_MESSAGE_SNAPSHOT"
+	EventRunFinished     ScenarioEventType = "SCENARIO_RUN_FINISHED"
+	EventError           ScenarioEventType = "SCENARIO_ERROR"
+)
+
+// ScenarioRunStatus represents the status of a scenario run.
+type ScenarioRunStatus string
+
+const (
+	ScenarioRunStatusSuccess    ScenarioRunStatus = "SUCCESS"
+	ScenarioRunStatusError      ScenarioRunStatus = "ERROR"
+	ScenarioRunStatusCancelled  ScenarioRunStatus = "CANCELLED"
+	ScenarioRunStatusInProgress ScenarioRunStatus = "IN_PROGRESS"
+	ScenarioRunStatusPending    ScenarioRunStatus = "PENDING"
+	ScenarioRunStatusFailed     ScenarioRunStatus = "FAILED"
 )
 
 // ScenarioEvent is the interface for all scenario events.
