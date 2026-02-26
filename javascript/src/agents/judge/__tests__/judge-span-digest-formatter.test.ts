@@ -1,35 +1,7 @@
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { describe, it, expect } from "vitest";
 import { attributes } from "langwatch/observability";
 import { JudgeSpanDigestFormatter } from "../judge-span-digest-formatter";
-
-/**
- * Creates a mock ReadableSpan for testing.
- */
-function createSpan(params: {
-  spanId: string;
-  name: string;
-  startTime: [number, number];
-  endTime: [number, number];
-  parentSpanId?: string;
-  attributes?: Record<string, unknown>;
-  events?: Array<{ name: string; attributes?: Record<string, unknown> }>;
-  status?: { code: number; message?: string };
-}): ReadableSpan {
-  return {
-    name: params.name,
-    spanContext: () => ({ spanId: params.spanId, traceId: "trace-1" }),
-    parentSpanId: params.parentSpanId,
-    parentSpanContext: params.parentSpanId
-      ? { spanId: params.parentSpanId }
-      : undefined,
-    startTime: params.startTime,
-    endTime: params.endTime,
-    attributes: params.attributes ?? {},
-    events: params.events ?? [],
-    status: params.status ?? { code: 0 },
-  } as unknown as ReadableSpan;
-}
+import { createSpan } from "./helpers/create-span";
 
 const formatter = new JudgeSpanDigestFormatter();
 
@@ -431,6 +403,140 @@ describe("JudgeSpanDigestFormatter", () => {
       expect(result2).toContain(longContent);
       expect(result1).not.toContain("[DUPLICATE - SEE ABOVE]");
       expect(result2).not.toContain("[DUPLICATE - SEE ABOVE]");
+    });
+  });
+
+  describe("formatStructureOnly", () => {
+    describe("when no spans", () => {
+      it("returns empty digest marker", () => {
+        expect(formatter.formatStructureOnly([])).toBe("No spans recorded.");
+      });
+    });
+
+    describe("when given spans with attributes and events", () => {
+      it("shows only index, timestamp, name, duration - omits attributes and events", () => {
+        const span = createSpan({
+          spanId: "span-1",
+          name: "llm.chat",
+          startTime: [1700000000, 0],
+          endTime: [1700000000, 500_000_000],
+          attributes: {
+            "gen_ai.prompt": "Hello",
+            "gen_ai.completion": "Hi there!",
+            model: "gpt-4",
+          },
+          events: [
+            {
+              name: "token.generated",
+              attributes: { token: "Hi" },
+            },
+          ],
+        });
+
+        const result = formatter.formatStructureOnly([span]);
+        expect(result).toContain("[1]");
+        expect(result).toContain("llm.chat");
+        expect(result).toContain("500ms");
+        expect(result).not.toContain("gen_ai.prompt");
+        expect(result).not.toContain("Hello");
+        expect(result).not.toContain("Hi there!");
+        expect(result).not.toContain("gpt-4");
+        expect(result).not.toContain("token.generated");
+      });
+    });
+
+    describe("when given nested parent-child spans", () => {
+      it("preserves tree structure with indentation", () => {
+        const spans = [
+          createSpan({
+            spanId: "parent",
+            name: "agent.run",
+            startTime: [1700000000, 0],
+            endTime: [1700000001, 0],
+          }),
+          createSpan({
+            spanId: "child-1",
+            name: "llm.call",
+            parentSpanId: "parent",
+            startTime: [1700000000, 100_000_000],
+            endTime: [1700000000, 500_000_000],
+          }),
+          createSpan({
+            spanId: "child-2",
+            name: "tool.execute",
+            parentSpanId: "parent",
+            startTime: [1700000000, 600_000_000],
+            endTime: [1700000000, 900_000_000],
+          }),
+        ];
+
+        const result = formatter.formatStructureOnly(spans);
+        expect(result).toContain("[1]");
+        expect(result).toContain("agent.run");
+        expect(result).toContain("[2]");
+        expect(result).toContain("llm.call");
+        expect(result).toContain("[3]");
+        expect(result).toContain("tool.execute");
+      });
+    });
+
+    describe("when given spans with errors", () => {
+      it("includes error indicator on error spans and error summary section", () => {
+        const spans = [
+          createSpan({
+            spanId: "span-1",
+            name: "successful.operation",
+            startTime: [1700000000, 0],
+            endTime: [1700000000, 100_000_000],
+          }),
+          createSpan({
+            spanId: "span-2",
+            name: "failed.operation",
+            startTime: [1700000000, 200_000_000],
+            endTime: [1700000000, 300_000_000],
+            status: { code: 2, message: "Connection refused" },
+          }),
+        ];
+
+        const result = formatter.formatStructureOnly(spans);
+        expect(result).toContain("ERROR");
+        expect(result).toContain("Connection refused");
+        expect(result).toContain("=== ERRORS ===");
+      });
+    });
+
+    it("includes header with span count and total duration", () => {
+      const spans = [
+        createSpan({
+          spanId: "span-1",
+          name: "op1",
+          startTime: [1700000000, 0],
+          endTime: [1700000001, 0],
+        }),
+        createSpan({
+          spanId: "span-2",
+          name: "op2",
+          startTime: [1700000001, 0],
+          endTime: [1700000002, 0],
+        }),
+      ];
+
+      const result = formatter.formatStructureOnly(spans);
+      expect(result).toContain("Spans: 2");
+      expect(result).toContain("Total Duration:");
+    });
+
+    it("does not include usage hint (caller is responsible for appending it)", () => {
+      const span = createSpan({
+        spanId: "span-1",
+        name: "test",
+        startTime: [1700000000, 0],
+        endTime: [1700000000, 100_000_000],
+      });
+
+      const result = formatter.formatStructureOnly([span]);
+      expect(result).not.toContain("expand_trace");
+      expect(result).not.toContain("grep_trace");
     });
   });
 });

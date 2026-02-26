@@ -1,7 +1,18 @@
-import { ModelMessage, ToolSet, Tool, ToolChoice, tool } from "ai";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import {
+  ModelMessage,
+  ToolSet,
+  Tool,
+  ToolChoice,
+  tool,
+  stepCountIs,
+  hasToolCall,
+} from "ai";
 import { z } from "zod/v4";
 
 import { JudgeUtils } from "./judge-utils";
+import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
+import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
@@ -35,6 +46,22 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    * Optional span collector for telemetry. Defaults to global singleton.
    */
   spanCollector?: JudgeSpanCollector;
+  /**
+   * Token threshold for switching to structure-only trace rendering.
+   * When the full trace digest exceeds this estimated token count,
+   * the judge receives a structure-only view with expand_trace and
+   * grep_trace tools for progressive discovery.
+   *
+   * @default 8096
+   */
+  tokenThreshold?: number;
+  /**
+   * Maximum number of tool-calling steps for progressive trace discovery.
+   * Only applies when the trace exceeds the token threshold.
+   *
+   * @default 10
+   */
+  maxDiscoverySteps?: number;
 }
 
 function buildSystemPrompt(criteria: string[], description: string): string {
@@ -102,6 +129,48 @@ function buildFinishTestTool(criteria: string[]): Tool {
 }
 
 /**
+ * Builds the expand_trace and grep_trace tools for progressive trace discovery.
+ * These tools allow the judge to drill into large traces on demand rather than
+ * receiving the entire trace content upfront.
+ *
+ * @param spans - The full array of ReadableSpan objects for the trace
+ * @returns ToolSet containing expand_trace and grep_trace tools
+ */
+function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
+  return {
+    expand_trace: tool({
+      description:
+        "Expand one or more spans to see their full details (attributes, events, content). Use a single index like 5 or a range like '10-15'.",
+      inputSchema: z.object({
+        index: z
+          .number()
+          .optional()
+          .describe("Single span index to expand"),
+        range: z
+          .string()
+          .optional()
+          .describe('Range of span indices to expand, e.g. "10-15"'),
+      }),
+      execute: async ({ index, range }) => {
+        return expandTrace(spans, { index, range });
+      },
+    }),
+    grep_trace: tool({
+      description:
+        "Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context.",
+      inputSchema: z.object({
+        pattern: z
+          .string()
+          .describe("Search pattern (case-insensitive)"),
+      }),
+      execute: async ({ pattern }) => {
+        return grepTrace(spans, pattern);
+      },
+    }),
+  };
+}
+
+/**
  * Agent that evaluates conversations against success criteria.
  *
  * This is the default judge agent that is used if no judge agent is provided.
@@ -138,8 +207,24 @@ class JudgeAgent extends JudgeAgentAdapter {
       judgmentRequest: input.judgmentRequest,
     });
 
-    const digest = this.getOpenTelemetryTracesDigest(input.threadId);
-    this.logger.debug("OpenTelemetry traces built", { digest });
+    const spans = this.spanCollector.getSpansForThread(input.threadId);
+    const fullDigest = judgeSpanDigestFormatter.format(spans);
+    const tokenThreshold =
+      this.cfg.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
+    const isLargeTrace =
+      spans.length > 0 && estimateTokens(fullDigest) > tokenThreshold;
+
+    const digest = isLargeTrace
+      ? judgeSpanDigestFormatter.formatStructureOnly(spans) +
+        "\n\nUse expand_trace(spanIndex) to see span details or grep_trace(pattern) to search across spans."
+      : fullDigest;
+
+    this.logger.debug("OpenTelemetry traces built", {
+      digest,
+      isLargeTrace,
+      estimatedTokens: estimateTokens(fullDigest),
+    });
+
     const transcript = JudgeUtils.buildTranscriptFromMessages(input.messages);
 
     const contentForJudge = `
@@ -170,9 +255,11 @@ class JudgeAgent extends JudgeAgentAdapter {
       ...projectConfig?.defaultModel,
       ...cfg,
     });
+
     const tools: ToolSet = {
       continue_test: buildContinueTestTool(),
       finish_test: buildFinishTestTool(criteria),
+      ...(isLargeTrace ? buildProgressiveDiscoveryTools(spans) : {}),
     };
 
     const enforceJudgement = input.judgmentRequest != null;
@@ -197,16 +284,30 @@ class JudgeAgent extends JudgeAgentAdapter {
       toolChoice,
       isLastMessage,
       enforceJudgement,
+      isLargeTrace,
     });
 
-    const completion = await this.invokeLLM({
+    const maxDiscoverySteps = this.cfg.maxDiscoverySteps ?? 10;
+
+    const llmParams: InvokeLLMParams = {
       model: mergedConfig.model,
       messages: messages,
       temperature: mergedConfig.temperature ?? 0.0,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
       toolChoice,
-    });
+    };
+
+    // Enable multi-step tool execution for progressive trace discovery
+    if (isLargeTrace) {
+      llmParams.stopWhen = [
+        stepCountIs(maxDiscoverySteps),
+        hasToolCall("finish_test"),
+        hasToolCall("continue_test"),
+      ];
+    }
+
+    const completion = await this.invokeLLM(llmParams);
 
     this.logger.debug("LLM response received", {
       toolCallCount: completion.toolCalls?.length ?? 0,
@@ -216,10 +317,21 @@ class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
-    // Prefer tool call, fallback to JSON
+    return this.parseToolCalls(completion, criteria);
+  }
+
+  private parseToolCalls(
+    completion: InvokeLLMResult,
+    criteria: string[]
+  ): JudgeResult | null {
     let args: FinishTestArgs | undefined;
     if (completion.toolCalls?.length) {
-      const toolCall = completion.toolCalls[0];
+      // In multi-step mode, find the terminal tool call (finish_test or continue_test)
+      const terminalCall = completion.toolCalls.find(
+        (tc) =>
+          tc.toolName === "finish_test" || tc.toolName === "continue_test"
+      );
+      const toolCall = terminalCall ?? completion.toolCalls[0];
 
       switch (toolCall.toolName) {
         case "finish_test": {
@@ -266,12 +378,6 @@ class JudgeAgent extends JudgeAgentAdapter {
       metCriteria: [],
       unmetCriteria: criteria,
     };
-  }
-
-  private getOpenTelemetryTracesDigest(threadId: string): string {
-    const spans = this.spanCollector.getSpansForThread(threadId);
-    const digest = judgeSpanDigestFormatter.format(spans);
-    return digest;
   }
 }
 
