@@ -122,7 +122,7 @@ class JudgeSpanCollector(SpanProcessor):
         self._spans = [
             s
             for s in self._spans
-            if (s.get_span_context().span_id if s.get_span_context() else 0)
+            if (ctx.span_id if (ctx := s.get_span_context()) else 0)
             not in thread_span_ids
         ]
 

@@ -1,5 +1,4 @@
 import { trace } from "@opentelemetry/api";
-import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { setupObservability } from "langwatch/observability/node";
 import type { SetupObservabilityOptions } from "langwatch/observability/node";
 import { LangWatchTraceExporter } from "langwatch/observability";
@@ -28,11 +27,13 @@ let initialized = false;
  */
 function getConcreteProvider(
   provider: unknown
-): { addSpanProcessor: (processor: SpanProcessor) => void } | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): { addSpanProcessor: (processor: any) => void } | undefined {
   if (!provider || typeof provider !== "object") return undefined;
 
   if (typeof (provider as Record<string, unknown>).addSpanProcessor === "function") {
-    return provider as { addSpanProcessor: (processor: SpanProcessor) => void };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return provider as { addSpanProcessor: (processor: any) => void };
   }
 
   // Check one level of delegate (ProxyTracerProvider pattern)
@@ -44,7 +45,8 @@ function getConcreteProvider(
 
   if (delegate && typeof delegate === "object") {
     if (typeof (delegate as Record<string, unknown>).addSpanProcessor === "function") {
-      return delegate as { addSpanProcessor: (processor: SpanProcessor) => void };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return delegate as { addSpanProcessor: (processor: any) => void };
     }
   }
 
@@ -119,7 +121,11 @@ export function ensureTracingInitialized(
  * so they are not silently dropped when attaching to an existing provider.
  */
 function attachToExistingProvider(
-  provider: { addSpanProcessor: (processor: SpanProcessor) => void },
+  // Use `any` for the processor parameter to avoid version conflicts between
+  // @opentelemetry/sdk-trace-base versions that pnpm may resolve differently
+  // for this package vs the langwatch SDK. The types are structurally identical.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  provider: { addSpanProcessor: (processor: any) => void },
   options?: Partial<SetupObservabilityOptions>
 ): void {
   provider.addSpanProcessor(judgeSpanCollector);
@@ -131,7 +137,8 @@ function attachToExistingProvider(
   }
 
   if (options?.traceExporter) {
-    provider.addSpanProcessor(new SimpleSpanProcessor(options.traceExporter));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    provider.addSpanProcessor(new SimpleSpanProcessor(options.traceExporter as any));
   }
 
   const envConfig = getEnv();
@@ -140,7 +147,8 @@ function attachToExistingProvider(
       apiKey: envConfig.LANGWATCH_API_KEY,
       endpoint: envConfig.LANGWATCH_ENDPOINT,
     });
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    provider.addSpanProcessor(new SimpleSpanProcessor(exporter as any));
   }
 }
 
@@ -153,7 +161,8 @@ function initializeFullSetup(
 ): void {
   const envConfig = getEnv();
 
-  const spanProcessors: SpanProcessor[] = [judgeSpanCollector];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const spanProcessors: any[] = [judgeSpanCollector];
   if (options?.spanProcessors) {
     spanProcessors.push(...options.spanProcessors);
   }

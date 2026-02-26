@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 
 // Use vi.hoisted to define mock values that are available inside vi.mock factories
 const { mockSetupObservability, mockGetTracerProvider, mockJudgeSpanCollector, mockGetEnv } = vi.hoisted(() => ({
@@ -98,7 +97,7 @@ describe("setup", () => {
       });
 
       it("forwards user-provided options to setupObservability", () => {
-        const customProcessor: SpanProcessor = {
+        const customProcessor = {
           onStart: vi.fn(),
           onEnd: vi.fn(),
           forceFlush: vi.fn().mockResolvedValue(undefined),
@@ -160,7 +159,7 @@ describe("setup", () => {
       });
 
       it("forwards user-provided spanProcessors to existing provider", () => {
-        const customProcessor: SpanProcessor = {
+        const customProcessor = {
           onStart: vi.fn(),
           onEnd: vi.fn(),
           forceFlush: vi.fn().mockResolvedValue(undefined),
