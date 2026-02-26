@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.3](https://github.com/langwatch/scenario/compare/javascript/v0.4.2...javascript/v0.4.3) (2026-02-26)
+
+
+### Features
+
+* add extensible metadata support to ScenarioConfig ([#228](https://github.com/langwatch/scenario/issues/228)) ([36c2179](https://github.com/langwatch/scenario/commit/36c21790ff252a6f77a3251f16ff644d9cb5b11f))
+* add extensible metadata support to ScenarioConfig ([#234](https://github.com/langwatch/scenario/issues/234)) ([36c2179](https://github.com/langwatch/scenario/commit/36c21790ff252a6f77a3251f16ff644d9cb5b11f))
+* add runId to results and langwatch config options ([#207](https://github.com/langwatch/scenario/issues/207)) ([5cad11b](https://github.com/langwatch/scenario/commit/5cad11b9f0e97b5d1ad4a81370f8db74f76e4fa5))
+* add runId to results and programmatic langwatch config ([5cad11b](https://github.com/langwatch/scenario/commit/5cad11b9f0e97b5d1ad4a81370f8db74f76e4fa5))
+* lazy observability init with configurable span filtering (TypeScript + Python) ([#237](https://github.com/langwatch/scenario/issues/237)) ([8b02161](https://github.com/langwatch/scenario/commit/8b02161f22c343631be71f9061e3f4e149e5e0b5))
+* stream realtime conversation audio through ffplay during tests ([b255eda](https://github.com/langwatch/scenario/commit/b255edad21440d3a86bff9262c6efb4893cfd968))
+
+
+### Bug Fixes
+
+* add connection retry for flaky realtime API tests ([#233](https://github.com/langwatch/scenario/issues/233)) ([25d73c5](https://github.com/langwatch/scenario/commit/25d73c51d5ee8c6a0c9c6512c8cf328f74ee3d14)), closes [#232](https://github.com/langwatch/scenario/issues/232)
+* correct OpenTelemetry span parenting for scenario turns ([#239](https://github.com/langwatch/scenario/issues/239)) ([55beb9b](https://github.com/langwatch/scenario/commit/55beb9ba340ce0b36cabd9e30025c5d580cd5298))
+
+
+### Miscellaneous
+
+* switch gpt-4.1 to gpt-4.1-mini to reduce costs ([bcf5365](https://github.com/langwatch/scenario/commit/bcf53655eff3f60f7143ac63cdb072dc676cb2cc))
+* switch gpt-4.1 to gpt-5-mini to reduce costs ([#231](https://github.com/langwatch/scenario/issues/231)) ([bcf5365](https://github.com/langwatch/scenario/commit/bcf53655eff3f60f7143ac63cdb072dc676cb2cc))
+
+
+### Documentation
+
+* add custom judge documentation ([#227](https://github.com/langwatch/scenario/issues/227)) ([0b02068](https://github.com/langwatch/scenario/commit/0b02068b78c22c12db61e08631a8937bbc54ef19))
+
 ## [0.4.2](https://github.com/langwatch/scenario/compare/javascript/v0.4.1...javascript/v0.4.2) (2026-02-18)
 
 
