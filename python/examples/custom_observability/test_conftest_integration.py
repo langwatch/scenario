@@ -7,7 +7,7 @@ pytest does when it loads conftest.py before running tests.
 """
 import asyncio
 
-# Import conftest to trigger setup_scenario_tracing() -- pytest does this
+# Import conftest to trigger scenario.configure() -- pytest does this
 # automatically, but when running standalone we need to do it explicitly.
 import conftest  # noqa: F401
 
@@ -43,22 +43,17 @@ class EchoAgent(AgentAdapter):
 
 
 async def main():
-    # Verify OTel is initialized (conftest.py ran setup_scenario_tracing)
-    provider = trace.get_tracer_provider()
-    is_sdk = isinstance(provider, TracerProvider)
-    print(f"Provider type: {type(provider).__name__}")
-    print(f"Is SDK TracerProvider: {is_sdk}")
+    # Before run(), tracing is NOT initialized yet (lazy init).
+    # scenario.configure(observability=...) only stores the config.
+    provider_before = trace.get_tracer_provider()
+    print(f"Provider before run(): {type(provider_before).__name__}")
 
-    if not is_sdk:
-        print("\nFAIL: TracerProvider not initialized by conftest.py")
-        exit(1)
-
-    # Create server noise
+    # Create server noise (these should be filtered by scenario_only)
     noise_tracer = trace.get_tracer("http-server")
     noise_span = noise_tracer.start_span("GET /api/health")
     noise_span.end()
 
-    # Run scenario
+    # Run scenario -- this triggers lazy tracing initialization
     print("\nRunning scenario (tracing configured by conftest.py)...")
 
     result = await run(
@@ -68,6 +63,16 @@ async def main():
         script=[user("Hello from conftest test!"), agent(), succeed()],
     )
 
+    # After run(), tracing should now be initialized
+    provider_after = trace.get_tracer_provider()
+    is_sdk = isinstance(provider_after, TracerProvider)
+    print(f"Provider after run(): {type(provider_after).__name__}")
+    print(f"Is SDK TracerProvider: {is_sdk}")
+
+    if not is_sdk:
+        print("\nFAIL: TracerProvider not initialized after run()")
+        exit(1)
+
     print(f"\nScenario result: {'passed' if result.success else 'failed'}")
 
     if not result.success:
@@ -76,8 +81,9 @@ async def main():
 
     print("\nPASS: conftest.py-based setup works correctly")
     print("   scenario.configure(observability=...) called by conftest.py before run()")
-    print("   run() used the config's observability settings")
+    print("   run() lazily initialized tracing using the config's observability settings")
     exit(0)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

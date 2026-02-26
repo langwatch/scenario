@@ -4,27 +4,33 @@ import os
 # Ensure no LangWatch data is sent
 os.environ["LANGWATCH_API_KEY"] = ""
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
 
-# Check the provider BEFORE importing scenario
-provider_before = trace.get_tracer_provider()
-print(f"Provider before import: {type(provider_before).__name__}")
+def main():
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
 
-# Import scenario
-import scenario
+    # Check the provider BEFORE importing scenario
+    provider_before = trace.get_tracer_provider()
+    print(f"Provider before import: {type(provider_before).__name__}")
 
-# Check after import
-provider_after = trace.get_tracer_provider()
-print(f"Provider after import: {type(provider_after).__name__}")
+    # Import scenario
+    import scenario  # noqa: F401
 
-# Verify no TracerProvider was set
-is_sdk_provider = isinstance(provider_after, TracerProvider)
-print(f"Is SDK TracerProvider: {is_sdk_provider}")
+    # Check after import
+    provider_after = trace.get_tracer_provider()
+    print(f"Provider after import: {type(provider_after).__name__}")
 
-if is_sdk_provider:
-    print("\nFAIL: Importing scenario auto-initialized OTel")
-    exit(1)
+    # Verify no TracerProvider was set
+    is_sdk_provider = isinstance(provider_after, TracerProvider)
+    print(f"Is SDK TracerProvider: {is_sdk_provider}")
 
-print("\nPASS: No auto-initialization on import")
-exit(0)
+    if is_sdk_provider:
+        print("\nFAIL: Importing scenario auto-initialized OTel")
+        exit(1)
+
+    print("\nPASS: No auto-initialization on import")
+    exit(0)
+
+
+if __name__ == "__main__":
+    main()
