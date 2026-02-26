@@ -335,7 +335,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     });
 
     this.reset();
-    this.newTurn(); // Create Turn 1's span (reset initializes at turn 0, newTurn increments to 1)
+    // Create the initial turn span via newTurn() and then reset the counter
+    // back to 0. This matches the original reset() behavior — newTurn() creates
+    // the span and sets currentTurn=1, then we override to 0 so the first
+    // newTurn() in the execution loop correctly advances to 1.
+    this.newTurn();
+    this.state.currentTurn = 0;
 
     const scenarioRunId = generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
