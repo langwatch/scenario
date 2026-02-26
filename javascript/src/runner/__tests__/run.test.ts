@@ -17,7 +17,19 @@ vi.mock("../../events/event-bus", () => ({
 
 // Mock the tracing setup
 vi.mock("../../tracing/setup", () => ({
-  observabilityHandle: undefined,
+  ensureTracingInitialized: vi.fn(),
+}));
+
+// Mock the project config loader
+vi.mock("../../config/get-project-config", () => ({
+  getProjectConfig: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock the judge span collector
+vi.mock("../../agents/judge/judge-span-collector", () => ({
+  judgeSpanCollector: {
+    clearSpansForThread: vi.fn(),
+  },
 }));
 
 // Mock getLangWatchTracer
@@ -162,6 +174,39 @@ describe("run", () => {
         endpoint: "https://custom.endpoint.com",
         apiKey: "custom-api-key",
       });
+    });
+  });
+
+  describe("tracing initialization", () => {
+    it("calls ensureTracingInitialized once per run", async () => {
+      const { ensureTracingInitialized } = await import("../../tracing/setup");
+
+      await run(createScenarioConfig());
+
+      expect(ensureTracingInitialized).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes project config observability options to ensureTracingInitialized", async () => {
+      const { ensureTracingInitialized } = await import("../../tracing/setup");
+      const { getProjectConfig } = await import("../../config/get-project-config");
+      const observabilityOptions = { serviceName: "test-service" };
+      vi.mocked(getProjectConfig).mockResolvedValueOnce({
+        headless: false,
+        observability: observabilityOptions,
+      });
+
+      await run(createScenarioConfig());
+
+      expect(ensureTracingInitialized).toHaveBeenCalledWith(observabilityOptions);
+    });
+
+    it("calls clearSpansForThread after scenario completes", async () => {
+      const { judgeSpanCollector } = await import("../../agents/judge/judge-span-collector");
+
+      await run(createScenarioConfig());
+
+      expect(judgeSpanCollector.clearSpansForThread).toHaveBeenCalledTimes(1);
+      expect(judgeSpanCollector.clearSpansForThread).toHaveBeenCalledWith(expect.any(String));
     });
   });
 

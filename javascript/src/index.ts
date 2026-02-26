@@ -1,4 +1,3 @@
-import "./tracing";
 import * as agents from "./agents";
 import * as domain from "./domain";
 import * as execution from "./execution";
@@ -11,6 +10,10 @@ export * from "./domain";
 export * from "./execution";
 export * from "./runner";
 export * from "./script";
+
+// Tracing public API
+export { setupScenarioTracing } from "./tracing/setup";
+export { scenarioOnly, withCustomScopes } from "./tracing/filters";
 
 type ScenarioApi = typeof agents &
   typeof domain &

@@ -316,6 +316,10 @@ export default defineConfig({
           text: "Custom Clients",
           link: "/advanced/custom-clients",
         },
+        {
+          text: "Custom Observability",
+          link: "/advanced/custom-observability",
+        },
       ],
     },
     {

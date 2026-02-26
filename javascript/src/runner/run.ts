@@ -20,6 +20,9 @@ import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
 import { generateThreadId, getBatchRunId } from "../utils/ids";
+import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
+import { ensureTracingInitialized } from "../tracing/setup";
+import { getProjectConfig } from "../config/get-project-config";
 /**
  * Configuration for LangWatch event reporting.
  * All fields are optional — any omitted fields fall back to environment variables.
@@ -126,6 +129,10 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
   let subscription: Subscription | null = null;
 
   try {
+    // Lazily initialize tracing using project config observability options
+    const projectConfig = await getProjectConfig();
+    ensureTracingInitialized(projectConfig?.observability);
+
     const envConfig = getEnv();
     // Use programmatic config if provided, otherwise fall back to env vars
     eventBus = new EventBus({
@@ -150,6 +157,9 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
   } finally {
     await eventBus?.drain();
     subscription?.unsubscribe();
+    if (cfg.threadId) {
+      judgeSpanCollector.clearSpansForThread(cfg.threadId);
+    }
   }
 }
 
