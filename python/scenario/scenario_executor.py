@@ -1046,8 +1046,10 @@ async def run(
         ```
     """
     from ._tracing import ensure_tracing_initialized
+    from .config import ScenarioConfig
 
-    ensure_tracing_initialized()
+    config = ScenarioConfig.default_config
+    ensure_tracing_initialized(config.observability if config else None)
 
     scenario = ScenarioExecutor(
         name=name,

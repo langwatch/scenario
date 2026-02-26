@@ -63,16 +63,28 @@ def setup_scenario_tracing(
     _initialized = True
 
 
-def ensure_tracing_initialized() -> None:
+def ensure_tracing_initialized(observability: Optional[dict] = None) -> None:
     """Ensures tracing is initialized before a scenario run.
 
     Called internally by run(). If setup_scenario_tracing() was already
     called, this is a no-op.
+
+    Args:
+        observability: Optional dict from ScenarioConfig.observability with keys:
+            span_filter, span_processors, trace_exporter, instrumentors.
     """
     global _initialized
     if _initialized:
         return
-    _do_setup()
+    if observability:
+        _do_setup(
+            span_filter=observability.get("span_filter"),
+            span_processors=observability.get("span_processors"),
+            trace_exporter=observability.get("trace_exporter"),
+            instrumentors=observability.get("instrumentors"),
+        )
+    else:
+        _do_setup()
     _initialized = True
 
 

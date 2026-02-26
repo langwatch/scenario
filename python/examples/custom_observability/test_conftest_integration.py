@@ -2,8 +2,8 @@
 
 This test must be run from the examples/custom_observability/ directory
 so that conftest.py is importable. The conftest module calls
-setup_scenario_tracing() at import time, simulating what pytest does
-when it loads conftest.py before running tests.
+scenario.configure(observability=...) at import time, simulating what
+pytest does when it loads conftest.py before running tests.
 """
 import asyncio
 
@@ -75,8 +75,8 @@ async def main():
         exit(1)
 
     print("\nPASS: conftest.py-based setup works correctly")
-    print("   setup_scenario_tracing() called by conftest.py before run()")
-    print("   run() skipped its own lazy initialization")
+    print("   scenario.configure(observability=...) called by conftest.py before run()")
+    print("   run() used the config's observability settings")
     exit(0)
 
 

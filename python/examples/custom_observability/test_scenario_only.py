@@ -11,6 +11,7 @@ from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+import scenario
 from scenario import (
     run,
     AgentRole,
@@ -20,7 +21,6 @@ from scenario import (
     user,
     agent,
     succeed,
-    setup_scenario_tracing,
     scenario_only,
 )
 
@@ -38,11 +38,13 @@ def get_scope_name(span: ReadableSpan) -> str:
 memory_exporter = InMemorySpanExporter()
 collector_processor = SimpleSpanProcessor(memory_exporter)
 
-# Step 2: Initialize scenario tracing with custom config
-setup_scenario_tracing(
-    span_filter=scenario_only,
-    span_processors=[collector_processor],
-    instrumentors=[],  # disable auto-instrumentation
+# Step 2: Configure scenario with observability options
+scenario.configure(
+    observability={
+        "span_filter": scenario_only,
+        "span_processors": [collector_processor],
+        "instrumentors": [],  # disable auto-instrumentation
+    }
 )
 
 # Step 3: Simulate "server noise" -- create spans that should be filtered out

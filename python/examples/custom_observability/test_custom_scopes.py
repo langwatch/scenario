@@ -11,6 +11,7 @@ from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+import scenario
 from scenario import (
     run,
     AgentRole,
@@ -20,7 +21,6 @@ from scenario import (
     user,
     agent,
     succeed,
-    setup_scenario_tracing,
     with_custom_scopes,
 )
 
@@ -36,10 +36,12 @@ def get_scope_name(span: ReadableSpan) -> str:
 
 memory_exporter = InMemorySpanExporter()
 
-setup_scenario_tracing(
-    span_filter=with_custom_scopes("my-app/database"),
-    span_processors=[SimpleSpanProcessor(memory_exporter)],
-    instrumentors=[],
+scenario.configure(
+    observability={
+        "span_filter": with_custom_scopes("my-app/database"),
+        "span_processors": [SimpleSpanProcessor(memory_exporter)],
+        "instrumentors": [],
+    }
 )
 
 # Simulate DB spans (should be kept)
