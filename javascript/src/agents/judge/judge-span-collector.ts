@@ -60,7 +60,7 @@ export class JudgeSpanCollector implements SpanProcessor {
       if (span.attributes[attributes.ATTR_LANGWATCH_THREAD_ID] === threadId) {
         return true;
       }
-      const parentId = span.parentSpanId;
+      const parentId = getParentSpanId(span);
       if (parentId && spanMap.has(parentId)) {
         return belongsToThread(spanMap.get(parentId)!, visited);
       }
@@ -69,6 +69,20 @@ export class JudgeSpanCollector implements SpanProcessor {
 
     return this.spans.filter((span) => belongsToThread(span));
   }
+}
+
+/**
+ * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
+ * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
+ * The LangWatch SDK's internal spans still use the v1 parentSpanContext field.
+ */
+function getParentSpanId(span: ReadableSpan): string | undefined {
+  if (span.parentSpanId) return span.parentSpanId;
+  // Fall back to v1 API used by LangWatch SDK's span implementation
+  const legacy = (span as unknown as Record<string, unknown>).parentSpanContext as
+    | { spanId?: string }
+    | undefined;
+  return legacy?.spanId;
 }
 
 /**

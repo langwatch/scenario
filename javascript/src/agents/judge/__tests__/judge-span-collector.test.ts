@@ -19,6 +19,9 @@ function createSpan({
   return {
     spanContext: () => ({ spanId, traceId: "trace-1", traceFlags: 1, isRemote: false }),
     parentSpanId: parentSpanId,
+    parentSpanContext: parentSpanId
+      ? { spanId: parentSpanId, traceId: "trace-1", traceFlags: 1, isRemote: false }
+      : undefined,
     attributes,
     name: `span-${spanId}`,
     kind: 0,
