@@ -96,7 +96,7 @@ export class JudgeSpanDigestFormatter {
 
     for (const span of spans) {
       const node = spanMap.get(span.spanContext().spanId)!;
-      const parentId = span.parentSpanContext?.spanId;
+      const parentId = span.parentSpanId;
 
       if (parentId && spanMap.has(parentId)) {
         spanMap.get(parentId)!.children.push(node);

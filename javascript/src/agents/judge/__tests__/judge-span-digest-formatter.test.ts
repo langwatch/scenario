@@ -19,9 +19,7 @@ function createSpan(params: {
   return {
     name: params.name,
     spanContext: () => ({ spanId: params.spanId, traceId: "trace-1" }),
-    parentSpanContext: params.parentSpanId
-      ? { spanId: params.parentSpanId }
-      : undefined,
+    parentSpanId: params.parentSpanId,
     startTime: params.startTime,
     endTime: params.endTime,
     attributes: params.attributes ?? {},

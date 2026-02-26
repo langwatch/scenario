@@ -60,7 +60,7 @@ export class JudgeSpanCollector implements SpanProcessor {
       if (span.attributes[attributes.ATTR_LANGWATCH_THREAD_ID] === threadId) {
         return true;
       }
-      const parentId = span.parentSpanContext?.spanId;
+      const parentId = span.parentSpanId;
       if (parentId && spanMap.has(parentId)) {
         return belongsToThread(spanMap.get(parentId)!, visited);
       }
