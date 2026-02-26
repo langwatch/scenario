@@ -179,3 +179,95 @@ class TestGetSpansForThread:
 
         assert len(result) == 1
         assert result[0].name == "span_a"
+
+    def test_handles_cycle_in_parent_chain(self) -> None:
+        """Should not infinite loop when parent chain contains a cycle."""
+        collector = JudgeSpanCollector()
+
+        # Create a cycle: span1 -> span2 -> span1
+        span1 = create_mock_span(
+            span_id=1,
+            name="span1",
+            parent_span_id=2,
+            attributes={},
+        )
+        span2 = create_mock_span(
+            span_id=2,
+            name="span2",
+            parent_span_id=1,
+            attributes={},
+        )
+        collector.on_end(span1)
+        collector.on_end(span2)
+
+        # Should not hang or raise - just return empty since neither has the thread ID
+        result = collector.get_spans_for_thread("thread-123")
+
+        assert len(result) == 0
+
+
+class TestClearSpansForThread:
+    """Tests for clear_spans_for_thread method."""
+
+    def test_removes_spans_for_specified_thread(self) -> None:
+        """Should remove all spans belonging to the specified thread."""
+        collector = JudgeSpanCollector()
+        span_a = create_mock_span(
+            span_id=1,
+            name="span_a",
+            attributes={AttributeKey.LangWatchThreadId: "thread-A"},
+        )
+        span_b = create_mock_span(
+            span_id=2,
+            name="span_b",
+            attributes={AttributeKey.LangWatchThreadId: "thread-B"},
+        )
+        collector.on_end(span_a)
+        collector.on_end(span_b)
+
+        collector.clear_spans_for_thread("thread-A")
+
+        assert len(collector._spans) == 1
+        assert collector._spans[0].name == "span_b"
+
+    def test_removes_child_spans_of_thread(self) -> None:
+        """Should remove child spans when parent belongs to the thread."""
+        collector = JudgeSpanCollector()
+        parent = create_mock_span(
+            span_id=1,
+            name="parent",
+            attributes={AttributeKey.LangWatchThreadId: "thread-A"},
+        )
+        child = create_mock_span(
+            span_id=2,
+            name="child",
+            parent_span_id=1,
+            attributes={},
+        )
+        other = create_mock_span(
+            span_id=3,
+            name="other",
+            attributes={AttributeKey.LangWatchThreadId: "thread-B"},
+        )
+        collector.on_end(parent)
+        collector.on_end(child)
+        collector.on_end(other)
+
+        collector.clear_spans_for_thread("thread-A")
+
+        assert len(collector._spans) == 1
+        assert collector._spans[0].name == "other"
+
+    def test_noop_when_thread_not_found(self) -> None:
+        """Should leave all spans intact when thread ID does not match."""
+        collector = JudgeSpanCollector()
+        span = create_mock_span(
+            span_id=1,
+            name="span",
+            attributes={AttributeKey.LangWatchThreadId: "thread-A"},
+        )
+        collector.on_end(span)
+
+        collector.clear_spans_for_thread("thread-nonexistent")
+
+        assert len(collector._spans) == 1

@@ -1045,6 +1045,10 @@ async def run(
         print(f"Conversation had {len(result.messages)} messages")
         ```
     """
+    from ._tracing import ensure_tracing_initialized
+
+    ensure_tracing_initialized()
+
     scenario = ScenarioExecutor(
         name=name,
         description=description,
@@ -1069,7 +1073,17 @@ async def run(
             asyncio.set_event_loop(loop)
 
             try:
-                return loop.run_until_complete(scenario.run())
+                result = loop.run_until_complete(scenario.run())
+
+                # Clean up spans for this thread to prevent memory buildup
+                from ._tracing import judge_span_collector
+
+                if hasattr(scenario, "_state") and scenario._state:
+                    judge_span_collector.clear_spans_for_thread(
+                        scenario._state.thread_id
+                    )
+
+                return result
             finally:
                 scenario.event_bus.drain()
                 loop.close()
