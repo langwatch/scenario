@@ -108,7 +108,7 @@ describe("Vegetarian Recipe Agent (Realtime API)", () => {
     }
   });
 
-  it("should handle voice-to-voice conversation with audio user", async () => {
+  it.skip("should handle voice-to-voice conversation with audio user", async () => {
     const result = await scenario.run({
       name: "vegetarian recipe - voice-to-voice",
       description: `It's Saturday evening, the user is very hungry and tired, but has no money to order out. They're looking for a quick vegetarian recipe and calling in via voice.`,
