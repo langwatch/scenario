@@ -19,6 +19,7 @@ import {
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
+import { observabilityHandle } from "../tracing/setup";
 import { generateThreadId, getBatchRunId } from "../utils/ids";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { ensureTracingInitialized } from "../tracing/setup";
@@ -155,6 +156,7 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
 
     return result;
   } finally {
+    await observabilityHandle?.shutdown();
     await eventBus?.drain();
     subscription?.unsubscribe();
     if (cfg.threadId) {
