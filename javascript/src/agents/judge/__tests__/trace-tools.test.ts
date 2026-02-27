@@ -133,7 +133,7 @@ describe("expandTrace", () => {
   });
 
   describe("when result exceeds token budget", () => {
-    it("truncates to approximately 4000 tokens and adds truncation note", () => {
+    it("truncates to approximately 4096 tokens and adds truncation note", () => {
       // Create a span with massive content
       const bigSpans = [
         createSpan({
@@ -147,7 +147,7 @@ describe("expandTrace", () => {
         }),
       ];
       const result = expandTrace(bigSpans, { index: 1 });
-      // 4000 tokens * 4 chars = 16000 chars max
+      // 4096 tokens * 4 chars = 16384 chars max
       expect(result.length).toBeLessThanOrEqual(17000); // some slack for truncation note
       expect(result).toContain("[TRUNCATED]");
     });
@@ -211,7 +211,7 @@ describe("grepTrace", () => {
   });
 
   describe("when grep result exceeds token budget", () => {
-    it("truncates total output to approximately 4000 tokens", () => {
+    it("truncates total output to approximately 4096 tokens", () => {
       const bigSpans = Array.from({ length: 10 }, (_, i) =>
         createSpan({
           spanId: `span-${i}`,
@@ -222,7 +222,7 @@ describe("grepTrace", () => {
         })
       );
       const result = grepTrace(bigSpans, "match_");
-      // 4000 tokens * 4 chars = 16000 max
+      // 4096 tokens * 4 chars = 16384 max
       expect(result.length).toBeLessThanOrEqual(17000);
     });
   });

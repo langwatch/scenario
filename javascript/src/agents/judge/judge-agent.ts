@@ -52,7 +52,7 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    * the judge receives a structure-only view with expand_trace and
    * grep_trace tools for progressive discovery.
    *
-   * @default 8096
+   * @default 8192
    */
   tokenThreshold?: number;
   /**

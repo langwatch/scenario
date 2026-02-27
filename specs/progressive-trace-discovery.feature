@@ -11,14 +11,14 @@ Feature: Progressive trace discovery for large OTEL traces
 
   @unit
   Scenario: Small traces are rendered inline as before
-    Given a trace with 10 spans totaling under 8096 estimated tokens
+    Given a trace with 10 spans totaling under 8192 estimated tokens
     When the judge formats the trace
     Then the full trace digest is rendered inline with all attributes and events
     And no expand or grep tools are provided to the judge
 
   @unit
   Scenario: Large traces trigger structure-only mode
-    Given a trace with 200 spans totaling over 8096 estimated tokens
+    Given a trace with 200 spans totaling over 8192 estimated tokens
     When the judge formats the trace
     Then only the span tree structure is rendered (names, durations, error indicators)
     And span attributes, events, and content are omitted
@@ -29,7 +29,7 @@ Feature: Progressive trace discovery for large OTEL traces
     Given a rendered trace digest string
     When estimating its token count
     Then the estimate uses a ~4 characters per token ratio
-    And the threshold for switching modes is configurable (default 8096 tokens)
+    And the threshold for switching modes is configurable (default 8192 tokens)
 
   # --- Structure-Only Rendering ---
 
@@ -141,7 +141,7 @@ Feature: Progressive trace discovery for large OTEL traces
   Scenario: Expand results are truncated to fit within budget
     Given a trace in structure-only mode
     And the judge calls expand_trace on a span with massive content
-    When the expand result exceeds 4000 estimated tokens
+    When the expand result exceeds 4096 estimated tokens
     Then the result is truncated with a note about the truncation
     And suggests using grep_trace to find specific content within the span
 
@@ -150,7 +150,7 @@ Feature: Progressive trace discovery for large OTEL traces
     Given a trace where matching spans have very long content
     When the judge calls grep_trace
     Then each match result is capped to show only the matching line with context
-    And total grep output is limited to 4000 estimated tokens
+    And total grep output is limited to 4096 estimated tokens
 
   # --- Reusable Utilities for Custom Judges ---
 
@@ -202,6 +202,6 @@ Feature: Progressive trace discovery for large OTEL traces
 
   @integration
   Scenario: Trace just at the token threshold boundary renders inline
-    Given a trace that renders to exactly 8096 estimated tokens
+    Given a trace that renders to exactly 8192 estimated tokens
     When the judge formats the trace
     Then it renders inline (threshold is exclusive - must exceed to trigger structure-only)

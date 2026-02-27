@@ -3,10 +3,8 @@
  * Traces exceeding this estimated token count will be rendered in
  * structure-only mode with expand/grep tools available to the judge.
  *
- * Note: 8096 is intentional and was chosen as the threshold value for this
- * feature. It is not a typo for 8192 (power of two).
  */
-export const DEFAULT_TOKEN_THRESHOLD = 8096;
+export const DEFAULT_TOKEN_THRESHOLD = 8192;
 
 /**
  * Estimates the number of tokens in a text string using a character-based heuristic.

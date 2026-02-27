@@ -12,7 +12,7 @@ import {
 } from "./span-utils";
 
 /** Maximum estimated tokens for a single tool result. */
-const TOOL_RESULT_TOKEN_BUDGET = 4000;
+const TOOL_RESULT_TOKEN_BUDGET = 4096;
 /** Maximum characters for a single tool result (~4000 tokens * 4 chars). */
 const TOOL_RESULT_CHAR_BUDGET = TOOL_RESULT_TOKEN_BUDGET * 4;
 /** Maximum number of grep matches returned. */
