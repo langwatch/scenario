@@ -5,27 +5,7 @@ from unittest.mock import MagicMock
 from langwatch.attributes import AttributeKey
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 
-
-def create_mock_span(
-    *,
-    span_id: int,
-    name: str,
-    parent_span_id: int | None = None,
-    attributes: dict | None = None,
-) -> MagicMock:
-    """Creates a mock ReadableSpan for testing."""
-    span = MagicMock()
-    span.name = name
-    span.get_span_context.return_value.span_id = span_id
-    span.attributes = attributes or {}
-
-    if parent_span_id is not None:
-        span.parent = MagicMock()
-        span.parent.span_id = parent_span_id
-    else:
-        span.parent = None
-
-    return span
+from tests.helpers.create_span import create_mock_span
 
 
 class TestJudgeSpanCollector:
