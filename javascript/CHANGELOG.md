@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/langwatch/scenario/compare/javascript/v0.4.3...javascript/v0.4.4) (2026-02-27)
+
+
+### Features
+
+* progressive trace discovery for large OTEL traces ([#240](https://github.com/langwatch/scenario/issues/240)) ([8d4d058](https://github.com/langwatch/scenario/commit/8d4d058d30fdcc4e2da62851d64ccd4bbbcaf194))
+
 ## [0.4.3](https://github.com/langwatch/scenario/compare/javascript/v0.4.2...javascript/v0.4.3) (2026-02-26)
 
 
