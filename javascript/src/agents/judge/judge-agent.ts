@@ -182,6 +182,8 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
 class JudgeAgent extends JudgeAgentAdapter {
   private logger = new Logger("JudgeAgent");
   private readonly spanCollector: JudgeSpanCollector;
+  private readonly tokenThreshold: number;
+  private readonly maxDiscoverySteps: number;
   role: AgentRole = AgentRole.JUDGE;
   criteria: string[];
 
@@ -195,6 +197,8 @@ class JudgeAgent extends JudgeAgentAdapter {
     super();
     this.criteria = cfg.criteria ?? [];
     this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
+    this.tokenThreshold = cfg.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
+    this.maxDiscoverySteps = cfg.maxDiscoverySteps ?? 10;
   }
 
   async call(input: AgentInput): Promise<JudgeResult | null> {
@@ -208,22 +212,7 @@ class JudgeAgent extends JudgeAgentAdapter {
     });
 
     const spans = this.spanCollector.getSpansForThread(input.threadId);
-    const fullDigest = judgeSpanDigestFormatter.format(spans);
-    const tokenThreshold =
-      this.cfg.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
-    const isLargeTrace =
-      spans.length > 0 && estimateTokens(fullDigest) > tokenThreshold;
-
-    const digest = isLargeTrace
-      ? judgeSpanDigestFormatter.formatStructureOnly(spans) +
-        "\n\nUse expand_trace(spanIndex) to see span details or grep_trace(pattern) to search across spans."
-      : fullDigest;
-
-    this.logger.debug("OpenTelemetry traces built", {
-      digest,
-      isLargeTrace,
-      estimatedTokens: estimateTokens(fullDigest),
-    });
+    const { digest, isLargeTrace } = this.buildTraceDigest(spans);
 
     const transcript = JudgeUtils.buildTranscriptFromMessages(input.messages);
 
@@ -250,7 +239,6 @@ class JudgeAgent extends JudgeAgentAdapter {
       input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
 
     const projectConfig = await getProjectConfig();
-    // Merge the agent config with the project config and validate
     const mergedConfig = modelSchema.parse({
       ...projectConfig?.defaultModel,
       ...cfg,
@@ -287,27 +275,63 @@ class JudgeAgent extends JudgeAgentAdapter {
       isLargeTrace,
     });
 
-    const maxDiscoverySteps = this.cfg.maxDiscoverySteps ?? 10;
-
-    const llmParams: InvokeLLMParams = {
+    const completion = await this.invokeLLMWithDiscovery({
       model: mergedConfig.model,
-      messages: messages,
+      messages,
       temperature: mergedConfig.temperature ?? 0.0,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
       toolChoice,
-    };
+      isLargeTrace,
+    });
 
-    // Enable multi-step tool execution for progressive trace discovery
+    return this.parseToolCalls(completion, criteria);
+  }
+
+  /**
+   * Builds the trace digest, choosing between full inline rendering
+   * and structure-only mode based on estimated token count.
+   */
+  private buildTraceDigest(spans: ReadableSpan[]): {
+    digest: string;
+    isLargeTrace: boolean;
+  } {
+    const fullDigest = judgeSpanDigestFormatter.format(spans);
+    const isLargeTrace =
+      spans.length > 0 && estimateTokens(fullDigest) > this.tokenThreshold;
+
+    const digest = isLargeTrace
+      ? judgeSpanDigestFormatter.formatStructureOnly(spans) +
+        "\n\nUse expand_trace(spanIndex) to see span details or grep_trace(pattern) to search across spans."
+      : fullDigest;
+
+    this.logger.debug("Trace digest built", {
+      isLargeTrace,
+      estimatedTokens: estimateTokens(fullDigest),
+    });
+
+    return { digest, isLargeTrace };
+  }
+
+  /**
+   * Invokes the LLM, enabling multi-step tool execution for large traces.
+   * In multi-step mode, the AI SDK loops automatically: the judge can call
+   * expand_trace/grep_trace tools multiple times before reaching a terminal
+   * tool (finish_test/continue_test) or hitting the step limit.
+   */
+  private async invokeLLMWithDiscovery({
+    isLargeTrace,
+    ...params
+  }: InvokeLLMParams & { isLargeTrace: boolean }): Promise<InvokeLLMResult> {
     if (isLargeTrace) {
-      llmParams.stopWhen = [
-        stepCountIs(maxDiscoverySteps),
+      params.stopWhen = [
+        stepCountIs(this.maxDiscoverySteps),
         hasToolCall("finish_test"),
         hasToolCall("continue_test"),
       ];
     }
 
-    const completion = await this.invokeLLM(llmParams);
+    const completion = await this.invokeLLM(params);
 
     this.logger.debug("LLM response received", {
       toolCallCount: completion.toolCalls?.length ?? 0,
@@ -317,7 +341,7 @@ class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
-    return this.parseToolCalls(completion, criteria);
+    return completion;
   }
 
   private parseToolCalls(
