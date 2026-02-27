@@ -526,6 +526,57 @@ describe("JudgeSpanDigestFormatter", () => {
       expect(result).toContain("Total Duration:");
     });
 
+    describe("when spans have gen_ai.usage token attributes", () => {
+      it("shows total token count in the duration parenthetical", () => {
+        const spans = [
+          createSpan({
+            spanId: "parent",
+            name: "agent.run",
+            startTime: [1700000000, 0],
+            endTime: [1700000010, 0],
+          }),
+          createSpan({
+            spanId: "llm-1",
+            name: "chat claude-opus-4-6",
+            parentSpanId: "parent",
+            startTime: [1700000001, 0],
+            endTime: [1700000006, 0],
+            attributes: {
+              "gen_ai.usage.input_tokens": 18000,
+              "gen_ai.usage.output_tokens": 3693,
+            },
+          }),
+          createSpan({
+            spanId: "tool-1",
+            name: "execute_tool exec",
+            parentSpanId: "parent",
+            startTime: [1700000006, 0],
+            endTime: [1700000007, 500_000_000],
+          }),
+        ];
+
+        const result = formatter.formatStructureOnly(spans);
+        expect(result).toContain("chat claude-opus-4-6 (5.00s, 21693 tokens)");
+        expect(result).not.toContain("execute_tool exec (1.50s,");
+        expect(result).toContain("execute_tool exec (1.50s)");
+      });
+
+      it("shows tokens when only input_tokens is present", () => {
+        const span = createSpan({
+          spanId: "llm",
+          name: "llm.call",
+          startTime: [1700000000, 0],
+          endTime: [1700000001, 0],
+          attributes: {
+            "gen_ai.usage.input_tokens": 500,
+          },
+        });
+
+        const result = formatter.formatStructureOnly([span]);
+        expect(result).toContain("llm.call (1.00s, 500 tokens)");
+      });
+    });
+
     it("does not include usage hint (caller is responsible for appending it)", () => {
       const span = createSpan({
         spanId: "span-1",

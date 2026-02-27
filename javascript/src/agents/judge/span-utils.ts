@@ -49,6 +49,19 @@ export function getStatusIndicator(span: ReadableSpan): string {
 }
 
 /**
+ * Returns a token usage string for LLM spans using the GenAI OTel semantic convention
+ * attributes (gen_ai.usage.input_tokens + gen_ai.usage.output_tokens).
+ * Returns empty string if no usage attributes are present.
+ */
+export function getTokenUsage(span: ReadableSpan): string {
+  const input = span.attributes["gen_ai.usage.input_tokens"];
+  const output = span.attributes["gen_ai.usage.output_tokens"];
+  if (input == null && output == null) return "";
+  const total = (Number(input) || 0) + (Number(output) || 0);
+  return `, ${total} tokens`;
+}
+
+/**
  * Removes internal/infrastructure attributes from a span's attribute map.
  * Strips the `langwatch.` prefix from remaining keys and deduplicates.
  */

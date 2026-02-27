@@ -5,6 +5,7 @@ import {
   formatDuration,
   calculateSpanDuration,
   getStatusIndicator,
+  getTokenUsage,
   cleanAttributes,
   looksLikeJson,
 } from "./span-utils";
@@ -174,12 +175,13 @@ export class JudgeSpanDigestFormatter {
     const duration = calculateSpanDuration(span);
     const timestamp = new Date(hrTimeToMs(span.startTime)).toISOString();
     const status = getStatusIndicator(span);
+    const tokens = getTokenUsage(span);
 
     const prefix = this.getTreePrefix(depth, isLast);
     lines.push(
       `${prefix}[${sequence}] ${timestamp} ${
         span.name
-      } (${formatDuration(duration)})${status}`
+      } (${formatDuration(duration)}${tokens})${status}`
     );
     lines.push("");
 
