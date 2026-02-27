@@ -142,17 +142,12 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
       description:
         "Expand one or more spans to see their full details (attributes, events, content). Use the span ID shown in brackets in the trace skeleton.",
       inputSchema: z.object({
-        span_id: z
-          .string()
-          .optional()
-          .describe("Single span ID (or prefix) to expand"),
         span_ids: z
           .array(z.string())
-          .optional()
-          .describe("Multiple span IDs (or prefixes) to expand"),
+          .describe("Span IDs (or 8-char prefixes) to expand"),
       }),
-      execute: async ({ span_id, span_ids }) => {
-        return expandTrace(spans, { spanId: span_id, spanIds: span_ids });
+      execute: async ({ span_ids }) => {
+        return expandTrace(spans, span_ids);
       },
     }),
     grep_trace: tool({

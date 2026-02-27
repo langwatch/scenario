@@ -201,7 +201,7 @@ class TestProgressiveDiscoveryLoop:
         expand_tool_call = MagicMock()
         expand_tool_call.id = "call_1"
         expand_tool_call.function.name = "expand_trace"
-        expand_tool_call.function.arguments = json.dumps({"span_id": "10000000"})
+        expand_tool_call.function.arguments = json.dumps({"span_ids": ["10000000"]})
         expand_response.choices[0].message.tool_calls = [expand_tool_call]
         expand_response.choices[0].message.content = None
         expand_response.choices[0].message.role = "assistant"
@@ -287,7 +287,7 @@ class TestProgressiveDiscoveryLoop:
             expand_tool_call = MagicMock()
             expand_tool_call.id = "call_x"
             expand_tool_call.function.name = "expand_trace"
-            expand_tool_call.function.arguments = json.dumps({"span_id": "10000000"})
+            expand_tool_call.function.arguments = json.dumps({"span_ids": ["10000000"]})
             expand_response.choices[0].message.tool_calls = [expand_tool_call]
             expand_response.choices[0].message.content = None
             expand_response.choices[0].message.role = "assistant"

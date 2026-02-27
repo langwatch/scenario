@@ -508,17 +508,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "span_id": {
-                                "type": "string",
-                                "description": "Single span ID (or prefix) to expand",
-                            },
                             "span_ids": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "Multiple span IDs (or prefixes) to expand",
+                                "description": "Span IDs (or 8-char prefixes) to expand",
                             },
                         },
-                        "required": [],
+                        "required": ["span_ids"],
                         "additionalProperties": False,
                     },
                 },
@@ -668,8 +664,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         if tool_call.function.name == "expand_trace":
             return expand_trace(
                 spans,
-                span_id=args.get("span_id"),
-                span_ids=args.get("span_ids"),
+                span_ids=args.get("span_ids", []),
             )
         elif tool_call.function.name == "grep_trace":
             return grep_trace(spans, args.get("pattern", ""))

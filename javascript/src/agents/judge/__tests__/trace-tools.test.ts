@@ -71,7 +71,7 @@ describe("expandTrace", () => {
 
   describe("when given a valid span ID", () => {
     it("returns full span details with all attributes and events", () => {
-      const result = expandTrace(spans, { spanId: "b1c2d3e4" });
+      const result = expandTrace(spans, ["b1c2d3e4"]);
       expect(result).toContain("llm.call");
       expect(result).toContain("gen_ai.prompt");
       expect(result).toContain("What is the weather in Paris?");
@@ -80,7 +80,7 @@ describe("expandTrace", () => {
     });
 
     it("shows the span ID in brackets", () => {
-      const result = expandTrace(spans, { spanId: "b1c2d3e4" });
+      const result = expandTrace(spans, ["b1c2d3e4"]);
       expect(result).toContain("[b1c2d3e4]");
       expect(result).toContain("llm.call");
     });
@@ -88,7 +88,7 @@ describe("expandTrace", () => {
 
   describe("when given multiple span IDs", () => {
     it("returns full details for all matching spans", () => {
-      const result = expandTrace(spans, { spanIds: ["b1c2d3e4", "c2d3e4f5"] });
+      const result = expandTrace(spans, ["b1c2d3e4", "c2d3e4f5"]);
       expect(result).toContain("llm.call");
       expect(result).toContain("tool.fetch_report");
       expect(result).toContain("gen_ai.prompt");
@@ -98,7 +98,7 @@ describe("expandTrace", () => {
 
   describe("when given a non-matching span ID", () => {
     it("returns error message with available span IDs", () => {
-      const result = expandTrace(spans, { spanId: "ffffffff" });
+      const result = expandTrace(spans, ["ffffffff"]);
       expect(result).toContain("no spans matched");
       expect(result).toContain("a0b1c2d3");
     });
@@ -106,7 +106,7 @@ describe("expandTrace", () => {
 
   describe("when span has events", () => {
     it("includes events in the expanded output", () => {
-      const result = expandTrace(spans, { spanId: "d3e4f567" });
+      const result = expandTrace(spans, ["d3e4f567"]);
       expect(result).toContain("token.generated");
       expect(result).toContain("token: The");
     });
@@ -114,7 +114,7 @@ describe("expandTrace", () => {
 
   describe("when span has error status", () => {
     it("includes error indicator", () => {
-      const result = expandTrace(spans, { spanId: "e4f56789" });
+      const result = expandTrace(spans, ["e4f56789"]);
       expect(result).toContain("ERROR");
       expect(result).toContain("Connection refused");
     });
@@ -133,7 +133,7 @@ describe("expandTrace", () => {
           },
         }),
       ];
-      const result = expandTrace(bigSpans, { spanId: "aabb0011" });
+      const result = expandTrace(bigSpans, ["aabb0011"]);
       // 4096 tokens * 4 chars = 16384 chars max
       expect(result.length).toBeLessThanOrEqual(17000); // some slack for truncation note
       expect(result).toContain("[TRUNCATED]");
@@ -156,7 +156,7 @@ describe("expandTrace", () => {
           endTime: [1700000000, 300_000_000],
         }),
       ];
-      const result = expandTrace(prefixSpans, { spanId: "aa11bb22" });
+      const result = expandTrace(prefixSpans, ["aa11bb22"]);
       expect(result).toContain("first.op");
       expect(result).toContain("second.op");
     });
@@ -164,14 +164,14 @@ describe("expandTrace", () => {
 
   describe("when no parameters provided", () => {
     it("returns error message", () => {
-      const result = expandTrace(spans, {});
+      const result = expandTrace(spans, []);
       expect(result).toContain("Error");
     });
   });
 
   describe("when spans are empty", () => {
     it("returns no spans message", () => {
-      const result = expandTrace([], { spanId: "anything" });
+      const result = expandTrace([], ["anything"]);
       expect(result).toBe("No spans recorded.");
     });
   });

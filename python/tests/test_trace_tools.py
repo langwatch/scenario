@@ -81,7 +81,7 @@ class TestExpandTraceValidSpanId:
     def test_returns_full_span_details_with_all_attributes(self) -> None:
         spans = build_span_set()
         # b1c2d3e4 is the first 8 hex chars of 0xB1C2D3E4F5678901
-        result = expand_trace(spans, span_id="b1c2d3e4")
+        result = expand_trace(spans, span_ids=["b1c2d3e4"])
 
         assert "llm.call" in result
         assert "gen_ai.prompt" in result
@@ -91,7 +91,7 @@ class TestExpandTraceValidSpanId:
 
     def test_shows_span_id_in_brackets(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, span_id="b1c2d3e4")
+        result = expand_trace(spans, span_ids=["b1c2d3e4"])
 
         assert "[b1c2d3e4]" in result
         assert "llm.call" in result
@@ -115,7 +115,7 @@ class TestExpandTraceNonMatchingId:
 
     def test_returns_error_with_available_ids(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, span_id="ffffffff")
+        result = expand_trace(spans, span_ids=["ffffffff"])
 
         assert "no spans matched" in result
         assert "a0b1c2d3" in result
@@ -126,7 +126,7 @@ class TestExpandTraceEvents:
 
     def test_includes_events_in_expanded_output(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, span_id="d3e4f567")
+        result = expand_trace(spans, span_ids=["d3e4f567"])
 
         assert "token.generated" in result
         assert "token: The" in result
@@ -137,7 +137,7 @@ class TestExpandTraceError:
 
     def test_includes_error_indicator(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, span_id="e4f56789")
+        result = expand_trace(spans, span_ids=["e4f56789"])
 
         assert "ERROR" in result
         assert "Connection refused" in result
@@ -147,16 +147,16 @@ class TestExpandTraceEmpty:
     """Tests for expand_trace with empty spans."""
 
     def test_returns_no_spans_message(self) -> None:
-        result = expand_trace([], span_id="anything")
+        result = expand_trace([], span_ids=["anything"])
         assert result == "No spans recorded."
 
 
-class TestExpandTraceNoParams:
-    """Tests for expand_trace without span_id or span_ids."""
+class TestExpandTraceEmptyIds:
+    """Tests for expand_trace with empty span_ids list."""
 
     def test_returns_error_message(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans)
+        result = expand_trace(spans, span_ids=[])
 
         assert "Error" in result
 
@@ -172,7 +172,7 @@ class TestExpandTraceTruncation:
             end_time=1700000001_000_000_000,
             attributes={"massive.content": "x" * 20000},
         )
-        result = expand_trace([big_span], span_id="aabb0011")
+        result = expand_trace([big_span], span_ids=["aabb0011"])
 
         # 4096 tokens * 4 chars = 16384 chars max + some slack for truncation note
         assert len(result) <= 17000
@@ -197,7 +197,7 @@ class TestExpandTracePrefixMatch:
                 end_time=1700000000_300_000_000,
             ),
         ]
-        result = expand_trace(spans, span_id="aa11bb22")
+        result = expand_trace(spans, span_ids=["aa11bb22"])
 
         assert "first.op" in result
         assert "second.op" in result

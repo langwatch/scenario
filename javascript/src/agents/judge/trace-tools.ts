@@ -103,12 +103,12 @@ function spanToSearchableText(span: ReadableSpan): string {
  * starts with that prefix.
  *
  * @param spans - The full array of ReadableSpan objects for the trace
- * @param options - Either a single `spanId` or an array of `spanIds` (prefix-matched)
- * @returns Formatted string with full span details, truncated to ~4000 tokens
+ * @param spanIds - Span IDs or prefixes to expand
+ * @returns Formatted string with full span details, truncated to ~4096 tokens
  */
 export function expandTrace(
   spans: ReadableSpan[],
-  { spanId, spanIds }: { spanId?: string; spanIds?: string[] }
+  spanIds: string[]
 ): string {
   const nodes = indexSpans(spans);
 
@@ -116,20 +116,14 @@ export function expandTrace(
     return "No spans recorded.";
   }
 
-  // Collect all prefixes to match
-  const prefixes: string[] = [];
-  if (spanIds != null) {
-    prefixes.push(...spanIds);
-  } else if (spanId != null) {
-    prefixes.push(spanId);
-  } else {
-    return "Error: provide either span_id or span_ids parameter.";
+  if (spanIds.length === 0) {
+    return "Error: provide at least one span ID.";
   }
 
   // Match nodes by prefix
   const selected = nodes.filter((n) => {
     const fullId = n.span.spanContext().spanId;
-    return prefixes.some((prefix) => fullId.startsWith(prefix));
+    return spanIds.some((prefix) => fullId.startsWith(prefix));
   });
 
   if (selected.length === 0) {

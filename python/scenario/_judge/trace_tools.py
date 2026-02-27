@@ -10,7 +10,7 @@ also available as standalone utilities.
 import json
 import re
 from dataclasses import dataclass
-from typing import List, NamedTuple, Optional, Sequence
+from typing import List, NamedTuple, Sequence
 
 from opentelemetry.sdk.trace import ReadableSpan
 
@@ -131,9 +131,7 @@ def _span_to_searchable_text(span: ReadableSpan) -> str:
 
 def expand_trace(
     spans: Sequence[ReadableSpan],
-    *,
-    span_id: Optional[str] = None,
-    span_ids: Optional[List[str]] = None,
+    span_ids: List[str],
 ) -> str:
     """
     Expands one or more spans from a trace, returning their full details
@@ -145,25 +143,18 @@ def expand_trace(
 
     Args:
         spans: The full array of ReadableSpan objects for the trace.
-        span_id: Single span ID (or prefix) to expand.
-        span_ids: Multiple span IDs (or prefixes) to expand.
+        span_ids: Span IDs (or 8-char prefixes) to expand.
 
     Returns:
-        Formatted string with full span details, truncated to ~4000 tokens.
+        Formatted string with full span details, truncated to ~4096 tokens.
     """
     nodes = _index_spans(spans)
 
     if len(nodes) == 0:
         return "No spans recorded."
 
-    # Collect all prefixes to match
-    prefixes: List[str] = []
-    if span_ids is not None:
-        prefixes.extend(span_ids)
-    elif span_id is not None:
-        prefixes.append(span_id)
-    else:
-        return "Error: provide either span_id or span_ids parameter."
+    if len(span_ids) == 0:
+        return "Error: provide at least one span ID."
 
     # Match nodes by prefix
     selected = [
@@ -171,7 +162,7 @@ def expand_trace(
         for n in nodes
         if any(
             _get_span_id_hex(n.span).startswith(prefix)
-            for prefix in prefixes
+            for prefix in span_ids
         )
     ]
 
