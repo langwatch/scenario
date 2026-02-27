@@ -7,13 +7,14 @@
 export const DEFAULT_TOKEN_THRESHOLD = 8192;
 
 /**
- * Estimates the number of tokens in a text string using a character-based heuristic.
- * Uses approximately 4 characters per token ratio, which is a reasonable
- * approximation for English text with typical LLM tokenizers.
+ * Estimates the number of tokens in a text string using a byte-based heuristic.
+ * Uses UTF-8 byte length divided by 4, which accounts for multi-byte characters
+ * (emojis, CJK, etc.) that typically consume more tokens than ASCII text.
  *
  * @param text - The text to estimate token count for
  * @returns Estimated token count
  */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  const byteLength = new TextEncoder().encode(text).byteLength;
+  return Math.ceil(byteLength / 4);
 }
