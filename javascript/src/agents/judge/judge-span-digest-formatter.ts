@@ -96,7 +96,7 @@ export class JudgeSpanDigestFormatter {
 
     for (const span of spans) {
       const node = spanMap.get(span.spanContext().spanId)!;
-      const parentId = span.parentSpanContext?.spanId;
+      const parentId = getParentSpanId(span);
 
       if (parentId && spanMap.has(parentId)) {
         spanMap.get(parentId)!.children.push(node);
@@ -287,6 +287,17 @@ export class JudgeSpanDigestFormatter {
       .filter((s) => s.status.code === 2)
       .map((s) => `- ${s.name}: ${s.status.message ?? "unknown error"}`);
   }
+}
+
+/**
+ * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
+ * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
+ */
+function getParentSpanId(span: ReadableSpan): string | undefined {
+  if (span.parentSpanId) return span.parentSpanId;
+  const legacy = (span as unknown as Record<string, unknown>)
+    .parentSpanContext as { spanId?: string } | undefined;
+  return legacy?.spanId;
 }
 
 /**
