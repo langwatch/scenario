@@ -30,7 +30,7 @@ class TestJudgeSpanDigestFormatterSingleSpan:
         formatter = JudgeSpanDigestFormatter()
         # 100ms duration (in nanoseconds)
         span = create_mock_span(
-            span_id=1,
+            span_id=0xA1B2C3D400000000,
             name="llm.chat",
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,
@@ -46,7 +46,7 @@ class TestJudgeSpanDigestFormatterSingleSpan:
         """Should include span attributes."""
         formatter = JudgeSpanDigestFormatter()
         span = create_mock_span(
-            span_id=1,
+            span_id=0xA1B2C3D400000000,
             name="test",
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,
@@ -72,13 +72,13 @@ class TestJudgeSpanDigestFormatterMultipleSpans:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="second",
                 start_time=1700000001_000_000_000,
                 end_time=1700000001_100_000_000,
             ),
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="first",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_100_000_000,
@@ -91,18 +91,18 @@ class TestJudgeSpanDigestFormatterMultipleSpans:
         second_idx = result.index("second")
         assert first_idx < second_idx
 
-    def test_assigns_sequence_numbers(self) -> None:
-        """Should assign sequence numbers to spans."""
+    def test_shows_span_ids(self) -> None:
+        """Should show truncated span IDs."""
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="first",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_100_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="second",
                 start_time=1700000001_000_000_000,
                 end_time=1700000001_100_000_000,
@@ -111,8 +111,8 @@ class TestJudgeSpanDigestFormatterMultipleSpans:
 
         result = formatter.format(spans)
 
-        assert "[1]" in result
-        assert "[2]" in result
+        assert "[aaaa0000]" in result
+        assert "[bbbb0000]" in result
 
 
 class TestJudgeSpanDigestFormatterHierarchy:
@@ -123,15 +123,15 @@ class TestJudgeSpanDigestFormatterHierarchy:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0x1111000000000000,
                 name="parent",
                 start_time=1700000000_000_000_000,
                 end_time=1700000001_000_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0x2222000000000000,
                 name="child",
-                parent_span_id=1,
+                parent_span_id=0x1111000000000000,
                 start_time=1700000000_100_000_000,
                 end_time=1700000000_500_000_000,
             ),
@@ -154,7 +154,7 @@ class TestJudgeSpanDigestFormatterErrors:
         """Should mark spans with error status."""
         formatter = JudgeSpanDigestFormatter()
         span = create_mock_span(
-            span_id=1,
+            span_id=0xAAAA000000000000,
             name="failed.operation",
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,
@@ -172,13 +172,13 @@ class TestJudgeSpanDigestFormatterErrors:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="successful",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_100_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="failed",
                 start_time=1700000000_200_000_000,
                 end_time=1700000000_300_000_000,
@@ -204,7 +204,7 @@ class TestJudgeSpanDigestFormatterEvents:
         event.attributes = {"token": "Hello", "index": 0}
 
         span = create_mock_span(
-            span_id=1,
+            span_id=0xAAAA000000000000,
             name="llm.stream",
             start_time=1700000000_000_000_000,
             end_time=1700000001_000_000_000,
@@ -224,7 +224,7 @@ class TestJudgeSpanDigestFormatterFiltering:
         """Should exclude thread.id, scenario.id, scenario.name."""
         formatter = JudgeSpanDigestFormatter()
         span = create_mock_span(
-            span_id=1,
+            span_id=0xAAAA000000000000,
             name="test",
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,
@@ -253,14 +253,14 @@ class TestJudgeSpanDigestFormatterDeduplication:
         long_content = "This is a long string that exceeds the threshold for deduplication testing purposes."
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="first",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_100_000_000,
                 attributes={"content": long_content},
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="second",
                 start_time=1700000000_200_000_000,
                 end_time=1700000000_300_000_000,
@@ -279,14 +279,14 @@ class TestJudgeSpanDigestFormatterDeduplication:
         short_content = "Short"
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="first",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_100_000_000,
                 attributes={"content": short_content},
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="second",
                 start_time=1700000000_200_000_000,
                 end_time=1700000000_300_000_000,
@@ -307,7 +307,7 @@ class TestJudgeSpanDigestFormatterDeduplication:
             "This content appears in both calls but should show fully each time."
         )
         span = create_mock_span(
-            span_id=1,
+            span_id=0xAAAA000000000000,
             name="test",
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,
@@ -335,14 +335,14 @@ class TestFormatStructureOnlyEmpty:
 class TestFormatStructureOnlyOmitsDetails:
     """Tests for format_structure_only omitting attributes and events."""
 
-    def test_shows_index_timestamp_name_duration_omits_attributes_and_events(self) -> None:
+    def test_shows_span_id_timestamp_name_duration_omits_attributes_and_events(self) -> None:
         formatter = JudgeSpanDigestFormatter()
         event = MagicMock()
         event.name = "token.generated"
         event.attributes = {"token": "Hi"}
 
         span = create_mock_span(
-            span_id=1,
+            span_id=0xA1B2C3D400000000,
             name="llm.chat",
             start_time=1700000000_000_000_000,
             end_time=1700000000_500_000_000,
@@ -356,7 +356,7 @@ class TestFormatStructureOnlyOmitsDetails:
 
         result = formatter.format_structure_only([span])
 
-        assert "[1]" in result
+        assert "[a1b2c3d4]" in result
         assert "llm.chat" in result
         assert "500ms" in result
         # Should NOT contain attributes or events
@@ -374,22 +374,22 @@ class TestFormatStructureOnlyHierarchy:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0x1111000000000000,
                 name="agent.run",
                 start_time=1700000000_000_000_000,
                 end_time=1700000001_000_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0x2222000000000000,
                 name="llm.call",
-                parent_span_id=1,
+                parent_span_id=0x1111000000000000,
                 start_time=1700000000_100_000_000,
                 end_time=1700000000_500_000_000,
             ),
             create_mock_span(
-                span_id=3,
+                span_id=0x3333000000000000,
                 name="tool.execute",
-                parent_span_id=1,
+                parent_span_id=0x1111000000000000,
                 start_time=1700000000_600_000_000,
                 end_time=1700000000_900_000_000,
             ),
@@ -397,11 +397,11 @@ class TestFormatStructureOnlyHierarchy:
 
         result = formatter.format_structure_only(spans)
 
-        assert "[1]" in result
+        assert "[11110000]" in result
         assert "agent.run" in result
-        assert "[2]" in result
+        assert "[22220000]" in result
         assert "llm.call" in result
-        assert "[3]" in result
+        assert "[33330000]" in result
         assert "tool.execute" in result
 
 
@@ -412,13 +412,13 @@ class TestFormatStructureOnlyErrors:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="successful.operation",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_100_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="failed.operation",
                 start_time=1700000000_200_000_000,
                 end_time=1700000000_300_000_000,
@@ -441,13 +441,13 @@ class TestFormatStructureOnlyHeader:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xAAAA000000000000,
                 name="op1",
                 start_time=1700000000_000_000_000,
                 end_time=1700000001_000_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0xBBBB000000000000,
                 name="op2",
                 start_time=1700000001_000_000_000,
                 end_time=1700000002_000_000_000,
@@ -467,15 +467,15 @@ class TestFormatStructureOnlyTokenUsage:
         formatter = JudgeSpanDigestFormatter()
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0x1111000000000000,
                 name="agent.run",
                 start_time=1700000000_000_000_000,
                 end_time=1700000010_000_000_000,
             ),
             create_mock_span(
-                span_id=2,
+                span_id=0x2222000000000000,
                 name="chat claude-opus-4-6",
-                parent_span_id=1,
+                parent_span_id=0x1111000000000000,
                 start_time=1700000001_000_000_000,
                 end_time=1700000006_000_000_000,
                 attributes={
@@ -484,9 +484,9 @@ class TestFormatStructureOnlyTokenUsage:
                 },
             ),
             create_mock_span(
-                span_id=3,
+                span_id=0x3333000000000000,
                 name="execute_tool exec",
-                parent_span_id=1,
+                parent_span_id=0x1111000000000000,
                 start_time=1700000006_000_000_000,
                 end_time=1700000007_500_000_000,
             ),
@@ -502,7 +502,7 @@ class TestFormatStructureOnlyTokenUsage:
     def test_shows_tokens_when_only_input_tokens_present(self) -> None:
         formatter = JudgeSpanDigestFormatter()
         span = create_mock_span(
-            span_id=1,
+            span_id=0xAAAA000000000000,
             name="llm.call",
             start_time=1700000000_000_000_000,
             end_time=1700000001_000_000_000,
@@ -519,7 +519,7 @@ class TestFormatStructureOnlyTokenUsage:
         """Caller is responsible for appending usage hint, not the formatter."""
         formatter = JudgeSpanDigestFormatter()
         span = create_mock_span(
-            span_id=1,
+            span_id=0xAAAA000000000000,
             name="test",
             start_time=1700000000_000_000_000,
             end_time=1700000000_100_000_000,

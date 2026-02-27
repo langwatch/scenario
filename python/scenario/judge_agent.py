@@ -473,7 +473,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         if is_large_trace:
             digest = (
                 judge_span_digest_formatter.format_structure_only(spans)
-                + "\n\nUse expand_trace(spanIndex) to see span details or grep_trace(pattern) to search across spans."
+                + "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
             )
         else:
             digest = full_digest
@@ -502,19 +502,20 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "name": "expand_trace",
                     "description": (
                         "Expand one or more spans to see their full details "
-                        "(attributes, events, content). Use a single index like 5 "
-                        'or a range like "10-15".'
+                        "(attributes, events, content). Use the span ID shown "
+                        "in brackets in the trace skeleton."
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "index": {
-                                "type": "integer",
-                                "description": "Single span index to expand",
-                            },
-                            "range": {
+                            "span_id": {
                                 "type": "string",
-                                "description": 'Range of span indices to expand, e.g. "10-15"',
+                                "description": "Single span ID (or prefix) to expand",
+                            },
+                            "span_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Multiple span IDs (or prefixes) to expand",
                             },
                         },
                         "required": [],
@@ -667,8 +668,8 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         if tool_call.function.name == "expand_trace":
             return expand_trace(
                 spans,
-                index=args.get("index"),
-                range_str=args.get("range"),
+                span_id=args.get("span_id"),
+                span_ids=args.get("span_ids"),
             )
         elif tool_call.function.name == "grep_trace":
             return grep_trace(spans, args.get("pattern", ""))

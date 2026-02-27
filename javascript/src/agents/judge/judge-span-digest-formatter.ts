@@ -58,14 +58,12 @@ export class JudgeSpanDigestFormatter {
       "",
     ];
 
-    let sequence = 1;
     const rootCount = tree.length;
     tree.forEach((node, idx) => {
-      sequence = this.renderStructureNode(
+      this.renderStructureNode(
         node,
         lines,
         0,
-        sequence,
         idx === rootCount - 1
       );
     });
@@ -114,14 +112,12 @@ export class JudgeSpanDigestFormatter {
       "",
     ];
 
-    let sequence = 1;
     const rootCount = tree.length;
     tree.forEach((node, idx) => {
-      sequence = this.renderNode(
+      this.renderNode(
         node,
         lines,
         0,
-        sequence,
         idx === rootCount - 1
       );
     });
@@ -168,10 +164,10 @@ export class JudgeSpanDigestFormatter {
     node: FormatterSpanNode,
     lines: string[],
     depth: number,
-    sequence: number,
     isLast: boolean = true
-  ): number {
+  ): void {
     const span = node.span;
+    const shortId = span.spanContext().spanId.slice(0, 8);
     const duration = calculateSpanDuration(span);
     const timestamp = new Date(hrTimeToMs(span.startTime)).toISOString();
     const status = getStatusIndicator(span);
@@ -179,42 +175,38 @@ export class JudgeSpanDigestFormatter {
 
     const prefix = this.getTreePrefix(depth, isLast);
     lines.push(
-      `${prefix}[${sequence}] ${timestamp} ${
+      `${prefix}[${shortId}] ${timestamp} ${
         span.name
       } (${formatDuration(duration)}${tokens})${status}`
     );
     lines.push("");
 
-    let nextSeq = sequence + 1;
     const childCount = node.children.length;
     node.children.forEach((child, idx) => {
-      nextSeq = this.renderStructureNode(
+      this.renderStructureNode(
         child,
         lines,
         depth + 1,
-        nextSeq,
         idx === childCount - 1
       );
     });
-
-    return nextSeq;
   }
 
   private renderNode(
     node: FormatterSpanNode,
     lines: string[],
     depth: number,
-    sequence: number,
     isLast: boolean = true
-  ): number {
+  ): void {
     const span = node.span;
+    const shortId = span.spanContext().spanId.slice(0, 8);
     const duration = calculateSpanDuration(span);
     const timestamp = new Date(hrTimeToMs(span.startTime)).toISOString();
     const status = getStatusIndicator(span);
 
     const prefix = this.getTreePrefix(depth, isLast);
     lines.push(
-      `${prefix}[${sequence}] ${timestamp} ${
+      `${prefix}[${shortId}] ${timestamp} ${
         span.name
       } (${formatDuration(duration)})${status}`
     );
@@ -241,31 +233,27 @@ export class JudgeSpanDigestFormatter {
 
     lines.push("");
 
-    let nextSeq = sequence + 1;
     const childCount = node.children.length;
     node.children.forEach((child, idx) => {
-      nextSeq = this.renderNode(
+      this.renderNode(
         child,
         lines,
         depth + 1,
-        nextSeq,
         idx === childCount - 1
       );
     });
-
-    return nextSeq;
   }
 
   private getTreePrefix(depth: number, isLast: boolean): string {
     if (depth === 0) return "";
-    const connector = isLast ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
-    return "\u2502   ".repeat(depth - 1) + connector;
+    const connector = isLast ? "└── " : "├── ";
+    return "│   ".repeat(depth - 1) + connector;
   }
 
   private getAttrIndent(depth: number, isLast: boolean): string {
     if (depth === 0) return "    ";
-    const continuation = isLast ? "    " : "\u2502   ";
-    return "\u2502   ".repeat(depth - 1) + continuation + "    ";
+    const continuation = isLast ? "    " : "│   ";
+    return "│   ".repeat(depth - 1) + continuation + "    ";
   }
 
   /**

@@ -31,7 +31,7 @@ function renderFullSpanNode(node: SpanNode): string[] {
 
   const lines: string[] = [];
   lines.push(
-    `[${node.index}] ${timestamp} ${span.name} (${formatDuration(duration)})${status}`
+    `[${node.shortId}] ${timestamp} ${span.name} (${formatDuration(duration)})${status}`
   );
 
   const attrs = cleanAttributes(span.attributes);
@@ -64,7 +64,7 @@ function truncateToCharBudget(text: string): string {
   const truncated = text.slice(0, TOOL_RESULT_CHAR_BUDGET);
   return (
     truncated +
-    "\n\n[TRUNCATED] Output exceeded ~4000 token budget. Use grep_trace(pattern) to search for specific content, or expand_trace with a narrower range."
+    "\n\n[TRUNCATED] Output exceeded ~4000 token budget. Use grep_trace(pattern) to search for specific content, or expand_trace with fewer span IDs."
   );
 }
 
@@ -98,13 +98,17 @@ function spanToSearchableText(span: ReadableSpan): string {
  * Expands one or more spans from a trace, returning their full details
  * (attributes, events, status) with tree position context.
  *
+ * Spans are matched by prefix: the caller can pass the truncated 8-char
+ * span ID shown in the skeleton and it will match any span whose full ID
+ * starts with that prefix.
+ *
  * @param spans - The full array of ReadableSpan objects for the trace
- * @param options - Either a single `index` or a `range` string like "10-15"
+ * @param options - Either a single `spanId` or an array of `spanIds` (prefix-matched)
  * @returns Formatted string with full span details, truncated to ~4000 tokens
  */
 export function expandTrace(
   spans: ReadableSpan[],
-  { index, range }: { index?: number; range?: string }
+  { spanId, spanIds }: { spanId?: string; spanIds?: string[] }
 ): string {
   const nodes = indexSpans(spans);
 
@@ -112,30 +116,26 @@ export function expandTrace(
     return "No spans recorded.";
   }
 
-  // Parse range into start/end indices
-  let startIdx: number;
-  let endIdx: number;
-
-  if (range != null) {
-    const parts = range.split("-").map(Number);
-    startIdx = parts[0]!;
-    endIdx = parts[1] ?? startIdx;
-  } else if (index != null) {
-    startIdx = index;
-    endIdx = index;
+  // Collect all prefixes to match
+  const prefixes: string[] = [];
+  if (spanIds != null) {
+    prefixes.push(...spanIds);
+  } else if (spanId != null) {
+    prefixes.push(spanId);
   } else {
-    return "Error: provide either index or range parameter.";
+    return "Error: provide either span_id or span_ids parameter.";
   }
 
-  const maxIndex = nodes.length;
-  if (startIdx < 1 || endIdx > maxIndex || startIdx > endIdx) {
-    return `Error: span index out of range. Valid range is 1-${maxIndex}.`;
-  }
+  // Match nodes by prefix
+  const selected = nodes.filter((n) => {
+    const fullId = n.span.spanContext().spanId;
+    return prefixes.some((prefix) => fullId.startsWith(prefix));
+  });
 
-  // Find the requested nodes by index
-  const selected = nodes.filter(
-    (n) => n.index >= startIdx && n.index <= endIdx
-  );
+  if (selected.length === 0) {
+    const available = nodes.map((n) => n.shortId).join(", ");
+    return `Error: no spans matched the given ID(s). Available span IDs: ${available}`;
+  }
 
   const lines: string[] = [];
   for (const node of selected) {
@@ -187,7 +187,7 @@ export function grepTrace(spans: ReadableSpan[], pattern: string): string {
   for (const { node, matchingLines } of limited) {
     const duration = calculateSpanDuration(node.span);
     lines.push(
-      `--- [${node.index}] ${node.span.name} (${formatDuration(duration)}) ---`
+      `--- [${node.shortId}] ${node.span.name} (${formatDuration(duration)}) ---`
     );
     for (const line of matchingLines) {
       lines.push(`  ${line}`);

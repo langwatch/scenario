@@ -6,12 +6,13 @@ import { truncateMediaUrl, truncateMediaPart } from "./truncate-media";
 
 /**
  * Represents a span node in the hierarchy tree.
- * The `index` field is a 1-based sequence number assigned after sorting by start time.
+ * The `shortId` field is the first 8 hex characters of the span ID,
+ * used as a stable reference that LLMs can use directly from the skeleton.
  */
 export interface SpanNode {
   span: ReadableSpan;
   children: SpanNode[];
-  index: number;
+  shortId: string;
 }
 
 /**
@@ -43,7 +44,7 @@ export function calculateSpanDuration(span: ReadableSpan): number {
  */
 export function getStatusIndicator(span: ReadableSpan): string {
   if (span.status.code === 2) {
-    return ` \u26A0\uFE0F ERROR: ${span.status.message ?? "unknown"}`;
+    return ` ⚠️ ERROR: ${span.status.message ?? "unknown"}`;
   }
   return "";
 }
@@ -135,18 +136,18 @@ export function looksLikeJson(str: string): boolean {
 }
 
 /**
- * Sorts spans by start time and assigns 1-based sequence indices.
- * Returns a flat array of SpanNodes with index set.
+ * Sorts spans by start time and assigns truncated span IDs (first 8 hex chars).
+ * Returns a flat array of SpanNodes with shortId set.
  */
 export function indexSpans(spans: ReadableSpan[]): SpanNode[] {
   const sorted = [...spans].sort((a, b) => {
     return hrTimeToMs(a.startTime) - hrTimeToMs(b.startTime);
   });
 
-  return sorted.map((span, i) => ({
+  return sorted.map((span) => ({
     span,
     children: [],
-    index: i + 1,
+    shortId: span.spanContext().spanId.slice(0, 8),
   }));
 }
 

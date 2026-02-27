@@ -35,10 +35,10 @@ MAX_GREP_MATCHES = 20
 
 @dataclass
 class _IndexedSpan:
-    """A span with a 1-based sequence index assigned after sorting."""
+    """A span with a truncated span ID (first 8 hex chars) assigned from the span context."""
 
     span: ReadableSpan
-    index: int
+    short_id: str
 
 
 class _GrepMatch(NamedTuple):
@@ -48,10 +48,19 @@ class _GrepMatch(NamedTuple):
     matching_lines: list[str]
 
 
+def _get_span_id_hex(span: ReadableSpan) -> str:
+    """Returns the full 16-char hex representation of a span's ID."""
+    ctx = span.get_span_context()
+    return format(ctx.span_id, "016x") if ctx else "0" * 16
+
+
 def _index_spans(spans: Sequence[ReadableSpan]) -> List[_IndexedSpan]:
-    """Sorts spans by start time and assigns 1-based sequence indices."""
+    """Sorts spans by start time and assigns truncated span IDs (first 8 hex chars)."""
     sorted_spans = sorted(spans, key=lambda s: s.start_time or 0)
-    return [_IndexedSpan(span=span, index=i + 1) for i, span in enumerate(sorted_spans)]
+    return [
+        _IndexedSpan(span=span, short_id=_get_span_id_hex(span)[:8])
+        for span in sorted_spans
+    ]
 
 
 def _truncate_to_char_budget(text: str) -> str:
@@ -63,7 +72,7 @@ def _truncate_to_char_budget(text: str) -> str:
         truncated
         + "\n\n[TRUNCATED] Output exceeded ~4000 token budget. "
         "Use grep_trace(pattern) to search for specific content, "
-        "or expand_trace with a narrower range."
+        "or expand_trace with fewer span IDs."
     )
 
 
@@ -76,7 +85,7 @@ def _render_full_span(indexed: _IndexedSpan) -> List[str]:
 
     lines: List[str] = []
     lines.append(
-        f"[{indexed.index}] {timestamp} {span.name} ({format_duration(duration)}){status}"
+        f"[{indexed.short_id}] {timestamp} {span.name} ({format_duration(duration)}){status}"
     )
 
     attrs = clean_attributes(dict(span.attributes) if span.attributes else {})
@@ -123,17 +132,21 @@ def _span_to_searchable_text(span: ReadableSpan) -> str:
 def expand_trace(
     spans: Sequence[ReadableSpan],
     *,
-    index: Optional[int] = None,
-    range_str: Optional[str] = None,
+    span_id: Optional[str] = None,
+    span_ids: Optional[List[str]] = None,
 ) -> str:
     """
     Expands one or more spans from a trace, returning their full details
     (attributes, events, status) with tree position context.
 
+    Spans are matched by prefix: the caller can pass the truncated 8-char
+    span ID shown in the skeleton and it will match any span whose full ID
+    starts with that prefix.
+
     Args:
         spans: The full array of ReadableSpan objects for the trace.
-        index: Single span index to expand (1-based).
-        range_str: Range of span indices to expand, e.g. "10-15".
+        span_id: Single span ID (or prefix) to expand.
+        span_ids: Multiple span IDs (or prefixes) to expand.
 
     Returns:
         Formatted string with full span details, truncated to ~4000 tokens.
@@ -143,23 +156,28 @@ def expand_trace(
     if len(nodes) == 0:
         return "No spans recorded."
 
-    # Parse range into start/end indices
-    if range_str is not None:
-        parts = range_str.split("-")
-        start_idx = int(parts[0])
-        end_idx = int(parts[1]) if len(parts) > 1 else start_idx
-    elif index is not None:
-        start_idx = index
-        end_idx = index
+    # Collect all prefixes to match
+    prefixes: List[str] = []
+    if span_ids is not None:
+        prefixes.extend(span_ids)
+    elif span_id is not None:
+        prefixes.append(span_id)
     else:
-        return "Error: provide either index or range parameter."
+        return "Error: provide either span_id or span_ids parameter."
 
-    max_index = len(nodes)
-    if start_idx < 1 or end_idx > max_index or start_idx > end_idx:
-        return f"Error: span index out of range. Valid range is 1-{max_index}."
+    # Match nodes by prefix
+    selected = [
+        n
+        for n in nodes
+        if any(
+            _get_span_id_hex(n.span).startswith(prefix)
+            for prefix in prefixes
+        )
+    ]
 
-    # Find requested nodes by index
-    selected = [n for n in nodes if start_idx <= n.index <= end_idx]
+    if not selected:
+        available = ", ".join(n.short_id for n in nodes)
+        return f"Error: no spans matched the given ID(s). Available span IDs: {available}"
 
     lines: List[str] = []
     for node in selected:
@@ -211,7 +229,7 @@ def grep_trace(spans: Sequence[ReadableSpan], pattern: str) -> str:
     for match in limited:
         duration = calculate_span_duration(match.span.span)
         lines.append(
-            f"--- [{match.span.index}] {match.span.span.name} ({format_duration(duration)}) ---"
+            f"--- [{match.span.short_id}] {match.span.span.name} ({format_duration(duration)}) ---"
         )
         for line in match.matching_lines:
             lines.append(f"  {line}")

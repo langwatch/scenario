@@ -6,16 +6,16 @@ import { createSpan } from "./helpers/create-span";
 function buildSpanSet(): ReadableSpan[] {
   return [
     createSpan({
-      spanId: "root",
+      spanId: "a0b1c2d3e4f56789",
       name: "agent.run",
       startTime: [1700000000, 0],
       endTime: [1700000002, 0],
       attributes: { "agent.type": "rag" },
     }),
     createSpan({
-      spanId: "child-1",
+      spanId: "b1c2d3e4f5678901",
       name: "llm.call",
-      parentSpanId: "root",
+      parentSpanId: "a0b1c2d3e4f56789",
       startTime: [1700000000, 100_000_000],
       endTime: [1700000000, 500_000_000],
       attributes: {
@@ -25,9 +25,9 @@ function buildSpanSet(): ReadableSpan[] {
       },
     }),
     createSpan({
-      spanId: "child-2",
+      spanId: "c2d3e4f567890123",
       name: "tool.fetch_report",
-      parentSpanId: "root",
+      parentSpanId: "a0b1c2d3e4f56789",
       startTime: [1700000000, 600_000_000],
       endTime: [1700000000, 900_000_000],
       attributes: {
@@ -37,9 +37,9 @@ function buildSpanSet(): ReadableSpan[] {
       },
     }),
     createSpan({
-      spanId: "child-3",
+      spanId: "d3e4f56789012345",
       name: "llm.completion",
-      parentSpanId: "root",
+      parentSpanId: "a0b1c2d3e4f56789",
       startTime: [1700000001, 0],
       endTime: [1700000001, 500_000_000],
       attributes: {
@@ -55,9 +55,9 @@ function buildSpanSet(): ReadableSpan[] {
       ],
     }),
     createSpan({
-      spanId: "error-span",
+      spanId: "e4f5678901234567",
       name: "failed.operation",
-      parentSpanId: "root",
+      parentSpanId: "a0b1c2d3e4f56789",
       startTime: [1700000001, 600_000_000],
       endTime: [1700000001, 700_000_000],
       status: { code: 2, message: "Connection refused" },
@@ -69,9 +69,9 @@ function buildSpanSet(): ReadableSpan[] {
 describe("expandTrace", () => {
   const spans = buildSpanSet();
 
-  describe("when given a valid single span index", () => {
+  describe("when given a valid span ID", () => {
     it("returns full span details with all attributes and events", () => {
-      const result = expandTrace(spans, { index: 2 });
+      const result = expandTrace(spans, { spanId: "b1c2d3e4" });
       expect(result).toContain("llm.call");
       expect(result).toContain("gen_ai.prompt");
       expect(result).toContain("What is the weather in Paris?");
@@ -79,17 +79,16 @@ describe("expandTrace", () => {
       expect(result).toContain("gpt-4");
     });
 
-    it("shows the span position in hierarchy", () => {
-      // child span should show its tree context
-      const result = expandTrace(spans, { index: 2 });
-      expect(result).toContain("[2]");
+    it("shows the span ID in brackets", () => {
+      const result = expandTrace(spans, { spanId: "b1c2d3e4" });
+      expect(result).toContain("[b1c2d3e4]");
       expect(result).toContain("llm.call");
     });
   });
 
-  describe("when given a valid range", () => {
-    it("returns full details for spans in the range", () => {
-      const result = expandTrace(spans, { range: "2-3" });
+  describe("when given multiple span IDs", () => {
+    it("returns full details for all matching spans", () => {
+      const result = expandTrace(spans, { spanIds: ["b1c2d3e4", "c2d3e4f5"] });
       expect(result).toContain("llm.call");
       expect(result).toContain("tool.fetch_report");
       expect(result).toContain("gen_ai.prompt");
@@ -97,28 +96,17 @@ describe("expandTrace", () => {
     });
   });
 
-  describe("when given an invalid span index", () => {
-    it("returns error message with valid range for out-of-bounds index", () => {
-      const result = expandTrace(spans, { index: 99 });
-      expect(result).toContain("out of range");
-      expect(result).toContain("1");
-      expect(result).toContain("5");
-    });
-
-    it("returns error for index 0", () => {
-      const result = expandTrace(spans, { index: 0 });
-      expect(result).toContain("out of range");
-    });
-
-    it("returns error for negative index", () => {
-      const result = expandTrace(spans, { index: -1 });
-      expect(result).toContain("out of range");
+  describe("when given a non-matching span ID", () => {
+    it("returns error message with available span IDs", () => {
+      const result = expandTrace(spans, { spanId: "ffffffff" });
+      expect(result).toContain("no spans matched");
+      expect(result).toContain("a0b1c2d3");
     });
   });
 
   describe("when span has events", () => {
     it("includes events in the expanded output", () => {
-      const result = expandTrace(spans, { index: 4 });
+      const result = expandTrace(spans, { spanId: "d3e4f567" });
       expect(result).toContain("token.generated");
       expect(result).toContain("token: The");
     });
@@ -126,7 +114,7 @@ describe("expandTrace", () => {
 
   describe("when span has error status", () => {
     it("includes error indicator", () => {
-      const result = expandTrace(spans, { index: 5 });
+      const result = expandTrace(spans, { spanId: "e4f56789" });
       expect(result).toContain("ERROR");
       expect(result).toContain("Connection refused");
     });
@@ -134,10 +122,9 @@ describe("expandTrace", () => {
 
   describe("when result exceeds token budget", () => {
     it("truncates to approximately 4096 tokens and adds truncation note", () => {
-      // Create a span with massive content
       const bigSpans = [
         createSpan({
-          spanId: "big",
+          spanId: "aabb00112233aabb",
           name: "big.span",
           startTime: [1700000000, 0],
           endTime: [1700000001, 0],
@@ -146,10 +133,46 @@ describe("expandTrace", () => {
           },
         }),
       ];
-      const result = expandTrace(bigSpans, { index: 1 });
+      const result = expandTrace(bigSpans, { spanId: "aabb0011" });
       // 4096 tokens * 4 chars = 16384 chars max
       expect(result.length).toBeLessThanOrEqual(17000); // some slack for truncation note
       expect(result).toContain("[TRUNCATED]");
+    });
+  });
+
+  describe("when prefix matches multiple spans", () => {
+    it("returns all matching spans", () => {
+      const prefixSpans = [
+        createSpan({
+          spanId: "aa11bb22cc33dd44",
+          name: "first.op",
+          startTime: [1700000000, 0],
+          endTime: [1700000000, 100_000_000],
+        }),
+        createSpan({
+          spanId: "aa11bb22dd44ee55",
+          name: "second.op",
+          startTime: [1700000000, 200_000_000],
+          endTime: [1700000000, 300_000_000],
+        }),
+      ];
+      const result = expandTrace(prefixSpans, { spanId: "aa11bb22" });
+      expect(result).toContain("first.op");
+      expect(result).toContain("second.op");
+    });
+  });
+
+  describe("when no parameters provided", () => {
+    it("returns error message", () => {
+      const result = expandTrace(spans, {});
+      expect(result).toContain("Error");
+    });
+  });
+
+  describe("when spans are empty", () => {
+    it("returns no spans message", () => {
+      const result = expandTrace([], { spanId: "anything" });
+      expect(result).toBe("No spans recorded.");
     });
   });
 });
@@ -158,10 +181,10 @@ describe("grepTrace", () => {
   const spans = buildSpanSet();
 
   describe("when pattern matches span attributes", () => {
-    it("returns matching spans with tree position headers", () => {
+    it("returns matching spans with span ID headers", () => {
       const result = grepTrace(spans, "fetch_report");
       expect(result).toContain("fetch_report");
-      expect(result).toContain("[3]");
+      expect(result).toContain("[c2d3e4f5]");
       expect(result).toContain("tool.fetch_report");
     });
   });
@@ -195,7 +218,7 @@ describe("grepTrace", () => {
     it("limits to first 20 matches and indicates more exist", () => {
       const manySpans = Array.from({ length: 30 }, (_, i) =>
         createSpan({
-          spanId: `span-${i}`,
+          spanId: `${i.toString(16).padStart(16, "0")}`,
           name: `operation-${i}`,
           startTime: [1700000000 + i, 0],
           endTime: [1700000000 + i, 100_000_000],
@@ -203,8 +226,8 @@ describe("grepTrace", () => {
         })
       );
       const result = grepTrace(manySpans, "matching_value");
-      // Count the number of span headers
-      const matchHeaders = result.match(/\[\d+\]/g) ?? [];
+      // Count the number of span headers (8-char hex IDs in brackets)
+      const matchHeaders = result.match(/\[[0-9a-f]{8}\]/g) ?? [];
       expect(matchHeaders.length).toBeLessThanOrEqual(20);
       expect(result).toContain("more match");
     });
@@ -214,7 +237,7 @@ describe("grepTrace", () => {
     it("truncates total output to approximately 4096 tokens", () => {
       const bigSpans = Array.from({ length: 10 }, (_, i) =>
         createSpan({
-          spanId: `span-${i}`,
+          spanId: `${i.toString(16).padStart(16, "0")}`,
           name: `operation-${i}`,
           startTime: [1700000000 + i, 0],
           endTime: [1700000000 + i, 100_000_000],

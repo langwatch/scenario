@@ -23,7 +23,7 @@ def create_large_trace() -> list:
     for i in range(200):
         spans.append(
             create_mock_span(
-                span_id=i + 1,
+                span_id=0x1000000000000000 + i,
                 name=f"operation-{i}",
                 start_time=1700000000_000_000_000 + i * 100_000_000,
                 end_time=1700000000_000_000_000 + (i + 1) * 100_000_000,
@@ -97,7 +97,7 @@ class TestBuildTraceDigestSmallTrace:
         """Small traces render inline with all attributes."""
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xA1B2C3D400000000,
                 name="llm.call",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_500_000_000,
@@ -201,7 +201,7 @@ class TestProgressiveDiscoveryLoop:
         expand_tool_call = MagicMock()
         expand_tool_call.id = "call_1"
         expand_tool_call.function.name = "expand_trace"
-        expand_tool_call.function.arguments = json.dumps({"index": 1})
+        expand_tool_call.function.arguments = json.dumps({"span_id": "10000000"})
         expand_response.choices[0].message.tool_calls = [expand_tool_call]
         expand_response.choices[0].message.content = None
         expand_response.choices[0].message.role = "assistant"
@@ -287,7 +287,7 @@ class TestProgressiveDiscoveryLoop:
             expand_tool_call = MagicMock()
             expand_tool_call.id = "call_x"
             expand_tool_call.function.name = "expand_trace"
-            expand_tool_call.function.arguments = json.dumps({"index": 1})
+            expand_tool_call.function.arguments = json.dumps({"span_id": "10000000"})
             expand_response.choices[0].message.tool_calls = [expand_tool_call]
             expand_response.choices[0].message.content = None
             expand_response.choices[0].message.role = "assistant"
@@ -423,7 +423,7 @@ class TestConfigurableThreshold:
         # Create a trace that is small but exceeds a very low threshold
         spans = [
             create_mock_span(
-                span_id=1,
+                span_id=0xA1B2C3D400000000,
                 name="llm.call",
                 start_time=1700000000_000_000_000,
                 end_time=1700000000_500_000_000,
@@ -466,7 +466,7 @@ class TestBoundaryThreshold:
         def make_spans(padding: str) -> list:
             return [
                 create_mock_span(
-                    span_id=1,
+                    span_id=0xA1B2C3D400000000,
                     name="boundary.span",
                     start_time=1700000000_000_000_000,
                     end_time=1700000001_000_000_000,

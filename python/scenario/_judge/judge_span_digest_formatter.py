@@ -74,11 +74,10 @@ class JudgeSpanDigestFormatter:
             "",
         ]
 
-        sequence = 1
         root_count = len(tree)
         for idx, node in enumerate(tree):
-            sequence = self._render_structure_node(
-                node, lines, depth=0, sequence=sequence, is_last=(idx == root_count - 1)
+            self._render_structure_node(
+                node, lines, depth=0, is_last=(idx == root_count - 1)
             )
 
         errors = self._collect_errors(spans)
@@ -130,11 +129,10 @@ class JudgeSpanDigestFormatter:
             "",
         ]
 
-        sequence = 1
         root_count = len(tree)
         for idx, node in enumerate(tree):
-            sequence = self._render_node(
-                node, lines, depth=0, sequence=sequence, is_last=(idx == root_count - 1)
+            self._render_node(
+                node, lines, depth=0, is_last=(idx == root_count - 1)
             )
 
         errors = self._collect_errors(spans)
@@ -181,11 +179,12 @@ class JudgeSpanDigestFormatter:
         node: SpanNode,
         lines: List[str],
         depth: int,
-        sequence: int,
         is_last: bool = True,
-    ) -> int:
+    ) -> None:
         """Renders a span node in structure-only mode (no attributes/events)."""
         span = node.span
+        span_ctx = span.get_span_context()
+        short_id = format(span_ctx.span_id if span_ctx else 0, "016x")[:8]
         duration = calculate_span_duration(span)
         timestamp = format_timestamp(span.start_time or 0)
         status = get_status_indicator(span)
@@ -193,36 +192,34 @@ class JudgeSpanDigestFormatter:
 
         prefix = self._get_tree_prefix(depth, is_last)
         lines.append(
-            f"{prefix}[{sequence}] {timestamp} {span.name} ({format_duration(duration)}{tokens}){status}"
+            f"{prefix}[{short_id}] {timestamp} {span.name} ({format_duration(duration)}{tokens}){status}"
         )
         lines.append("")
 
-        next_seq = sequence + 1
         child_count = len(node.children)
         for idx, child in enumerate(node.children):
-            next_seq = self._render_structure_node(
-                child, lines, depth + 1, next_seq, is_last=(idx == child_count - 1)
+            self._render_structure_node(
+                child, lines, depth + 1, is_last=(idx == child_count - 1)
             )
-
-        return next_seq
 
     def _render_node(
         self,
         node: SpanNode,
         lines: List[str],
         depth: int,
-        sequence: int,
         is_last: bool = True,
-    ) -> int:
+    ) -> None:
         """Renders a span node and its children."""
         span = node.span
+        span_ctx = span.get_span_context()
+        short_id = format(span_ctx.span_id if span_ctx else 0, "016x")[:8]
         duration = calculate_span_duration(span)
         timestamp = format_timestamp(span.start_time or 0)
         status = get_status_indicator(span)
 
         prefix = self._get_tree_prefix(depth, is_last)
         lines.append(
-            f"{prefix}[{sequence}] {timestamp} {span.name} ({format_duration(duration)}){status}"
+            f"{prefix}[{short_id}] {timestamp} {span.name} ({format_duration(duration)}){status}"
         )
 
         attr_indent = self._get_attr_indent(depth, is_last)
@@ -242,28 +239,25 @@ class JudgeSpanDigestFormatter:
 
         lines.append("")
 
-        next_seq = sequence + 1
         child_count = len(node.children)
         for idx, child in enumerate(node.children):
-            next_seq = self._render_node(
-                child, lines, depth + 1, next_seq, is_last=(idx == child_count - 1)
+            self._render_node(
+                child, lines, depth + 1, is_last=(idx == child_count - 1)
             )
-
-        return next_seq
 
     def _get_tree_prefix(self, depth: int, is_last: bool) -> str:
         """Gets tree drawing prefix for a given depth."""
         if depth == 0:
             return ""
-        connector = "\u2514\u2500\u2500 " if is_last else "\u251c\u2500\u2500 "
-        return "\u2502   " * (depth - 1) + connector
+        connector = "└── " if is_last else "├── "
+        return "│   " * (depth - 1) + connector
 
     def _get_attr_indent(self, depth: int, is_last: bool) -> str:
         """Gets attribute indentation for a given depth."""
         if depth == 0:
             return "    "
-        continuation = "    " if is_last else "\u2502   "
-        return "\u2502   " * (depth - 1) + continuation + "    "
+        continuation = "    " if is_last else "│   "
+        return "│   " * (depth - 1) + continuation + "    "
 
     def _format_value(self, value: Any) -> str:
         """Formats a value for display with deduplication."""

@@ -10,7 +10,7 @@ import { createSpan } from "./helpers/create-span";
 function createSmallTrace(): ReadableSpan[] {
   return [
     createSpan({
-      spanId: "span-1",
+      spanId: "a1b2c3d4e5f67890",
       name: "llm.call",
       startTime: [1700000000, 0],
       endTime: [1700000000, 500_000_000],
@@ -23,7 +23,7 @@ function createLargeTrace(): ReadableSpan[] {
   // Create spans with enough attributes to exceed the token threshold
   return Array.from({ length: 200 }, (_, i) =>
     createSpan({
-      spanId: `span-${i}`,
+      spanId: `${i.toString(16).padStart(16, "0")}`,
       name: `operation-${i}`,
       startTime: [1700000000 + i, 0],
       endTime: [1700000000 + i, 100_000_000],
@@ -285,7 +285,7 @@ describe("JudgeAgent", () => {
 
       const spans = [
         createSpan({
-          spanId: "span-1",
+          spanId: "a1b2c3d400000000",
           name: "test.operation",
           startTime: [1700000000, 0],
           endTime: [1700000000, 100_000_000],

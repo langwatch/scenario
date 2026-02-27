@@ -140,19 +140,19 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
   return {
     expand_trace: tool({
       description:
-        "Expand one or more spans to see their full details (attributes, events, content). Use a single index like 5 or a range like '10-15'.",
+        "Expand one or more spans to see their full details (attributes, events, content). Use the span ID shown in brackets in the trace skeleton.",
       inputSchema: z.object({
-        index: z
-          .number()
-          .optional()
-          .describe("Single span index to expand"),
-        range: z
+        span_id: z
           .string()
           .optional()
-          .describe('Range of span indices to expand, e.g. "10-15"'),
+          .describe("Single span ID (or prefix) to expand"),
+        span_ids: z
+          .array(z.string())
+          .optional()
+          .describe("Multiple span IDs (or prefixes) to expand"),
       }),
-      execute: async ({ index, range }) => {
-        return expandTrace(spans, { index, range });
+      execute: async ({ span_id, span_ids }) => {
+        return expandTrace(spans, { spanId: span_id, spanIds: span_ids });
       },
     }),
     grep_trace: tool({
@@ -302,7 +302,7 @@ class JudgeAgent extends JudgeAgentAdapter {
 
     const digest = isLargeTrace
       ? judgeSpanDigestFormatter.formatStructureOnly(spans) +
-        "\n\nUse expand_trace(spanIndex) to see span details or grep_trace(pattern) to search across spans."
+        "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
       : fullDigest;
 
     this.logger.debug("Trace digest built", {

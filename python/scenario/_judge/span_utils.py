@@ -87,7 +87,7 @@ def get_status_indicator(span: ReadableSpan) -> str:
     """
     if span.status.status_code == StatusCode.ERROR:
         message = span.status.description or "unknown"
-        return f" \u26a0\ufe0f ERROR: {message}"
+        return f" ⚠️ ERROR: {message}"
     return ""
 
 

@@ -17,16 +17,16 @@ def build_span_set():
 
     return [
         create_mock_span(
-            span_id=100,
+            span_id=0xA0B1C2D3E4F56789,
             name="agent.run",
             start_time=1700000000_000_000_000,
             end_time=1700000002_000_000_000,
             attributes={"agent.type": "rag"},
         ),
         create_mock_span(
-            span_id=101,
+            span_id=0xB1C2D3E4F5678901,
             name="llm.call",
-            parent_span_id=100,
+            parent_span_id=0xA0B1C2D3E4F56789,
             start_time=1700000000_100_000_000,
             end_time=1700000000_500_000_000,
             attributes={
@@ -36,9 +36,9 @@ def build_span_set():
             },
         ),
         create_mock_span(
-            span_id=102,
+            span_id=0xC2D3E4F567890123,
             name="tool.fetch_report",
-            parent_span_id=100,
+            parent_span_id=0xA0B1C2D3E4F56789,
             start_time=1700000000_600_000_000,
             end_time=1700000000_900_000_000,
             attributes={
@@ -48,9 +48,9 @@ def build_span_set():
             },
         ),
         create_mock_span(
-            span_id=103,
+            span_id=0xD3E4F56789012345,
             name="llm.completion",
-            parent_span_id=100,
+            parent_span_id=0xA0B1C2D3E4F56789,
             start_time=1700000001_000_000_000,
             end_time=1700000001_500_000_000,
             attributes={
@@ -60,9 +60,9 @@ def build_span_set():
             events=[event],
         ),
         create_mock_span(
-            span_id=104,
+            span_id=0xE4F5678901234567,
             name="failed.operation",
-            parent_span_id=100,
+            parent_span_id=0xA0B1C2D3E4F56789,
             start_time=1700000001_600_000_000,
             end_time=1700000001_700_000_000,
             status_code=StatusCode.ERROR,
@@ -75,12 +75,13 @@ def build_span_set():
 # ─── expand_trace tests ──────────────────────────────────────────────
 
 
-class TestExpandTraceValidIndex:
-    """Tests for expand_trace with valid single span index."""
+class TestExpandTraceValidSpanId:
+    """Tests for expand_trace with valid span ID."""
 
     def test_returns_full_span_details_with_all_attributes(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, index=2)
+        # b1c2d3e4 is the first 8 hex chars of 0xB1C2D3E4F5678901
+        result = expand_trace(spans, span_id="b1c2d3e4")
 
         assert "llm.call" in result
         assert "gen_ai.prompt" in result
@@ -88,20 +89,20 @@ class TestExpandTraceValidIndex:
         assert "gen_ai.completion" in result
         assert "gpt-4" in result
 
-    def test_shows_span_position_in_hierarchy(self) -> None:
+    def test_shows_span_id_in_brackets(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, index=2)
+        result = expand_trace(spans, span_id="b1c2d3e4")
 
-        assert "[2]" in result
+        assert "[b1c2d3e4]" in result
         assert "llm.call" in result
 
 
-class TestExpandTraceRange:
-    """Tests for expand_trace with a range of spans."""
+class TestExpandTraceMultipleSpanIds:
+    """Tests for expand_trace with multiple span IDs."""
 
-    def test_returns_full_details_for_spans_in_range(self) -> None:
+    def test_returns_full_details_for_all_matching_spans(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, range_str="2-3")
+        result = expand_trace(spans, span_ids=["b1c2d3e4", "c2d3e4f5"])
 
         assert "llm.call" in result
         assert "tool.fetch_report" in result
@@ -109,28 +110,15 @@ class TestExpandTraceRange:
         assert "fetch_report" in result
 
 
-class TestExpandTraceInvalidIndex:
-    """Tests for expand_trace with invalid span index."""
+class TestExpandTraceNonMatchingId:
+    """Tests for expand_trace with non-matching span ID."""
 
-    def test_returns_error_with_valid_range_for_out_of_bounds(self) -> None:
+    def test_returns_error_with_available_ids(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, index=99)
+        result = expand_trace(spans, span_id="ffffffff")
 
-        assert "out of range" in result
-        assert "1" in result
-        assert "5" in result
-
-    def test_returns_error_for_index_zero(self) -> None:
-        spans = build_span_set()
-        result = expand_trace(spans, index=0)
-
-        assert "out of range" in result
-
-    def test_returns_error_for_negative_index(self) -> None:
-        spans = build_span_set()
-        result = expand_trace(spans, index=-1)
-
-        assert "out of range" in result
+        assert "no spans matched" in result
+        assert "a0b1c2d3" in result
 
 
 class TestExpandTraceEvents:
@@ -138,7 +126,7 @@ class TestExpandTraceEvents:
 
     def test_includes_events_in_expanded_output(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, index=4)
+        result = expand_trace(spans, span_id="d3e4f567")
 
         assert "token.generated" in result
         assert "token: The" in result
@@ -149,7 +137,7 @@ class TestExpandTraceError:
 
     def test_includes_error_indicator(self) -> None:
         spans = build_span_set()
-        result = expand_trace(spans, index=5)
+        result = expand_trace(spans, span_id="e4f56789")
 
         assert "ERROR" in result
         assert "Connection refused" in result
@@ -159,12 +147,12 @@ class TestExpandTraceEmpty:
     """Tests for expand_trace with empty spans."""
 
     def test_returns_no_spans_message(self) -> None:
-        result = expand_trace([], index=1)
+        result = expand_trace([], span_id="anything")
         assert result == "No spans recorded."
 
 
 class TestExpandTraceNoParams:
-    """Tests for expand_trace without index or range."""
+    """Tests for expand_trace without span_id or span_ids."""
 
     def test_returns_error_message(self) -> None:
         spans = build_span_set()
@@ -178,17 +166,41 @@ class TestExpandTraceTruncation:
 
     def test_truncates_massive_content_and_adds_note(self) -> None:
         big_span = create_mock_span(
-            span_id=1,
+            span_id=0xAABB001122334455,
             name="big.span",
             start_time=1700000000_000_000_000,
             end_time=1700000001_000_000_000,
             attributes={"massive.content": "x" * 20000},
         )
-        result = expand_trace([big_span], index=1)
+        result = expand_trace([big_span], span_id="aabb0011")
 
         # 4096 tokens * 4 chars = 16384 chars max + some slack for truncation note
         assert len(result) <= 17000
         assert "[TRUNCATED]" in result
+
+
+class TestExpandTracePrefixMatch:
+    """Tests for prefix matching in expand_trace."""
+
+    def test_prefix_matches_multiple_spans(self) -> None:
+        spans = [
+            create_mock_span(
+                span_id=0xAA11BB2200000001,
+                name="first.op",
+                start_time=1700000000_000_000_000,
+                end_time=1700000000_100_000_000,
+            ),
+            create_mock_span(
+                span_id=0xAA11BB2200000002,
+                name="second.op",
+                start_time=1700000000_200_000_000,
+                end_time=1700000000_300_000_000,
+            ),
+        ]
+        result = expand_trace(spans, span_id="aa11bb22")
+
+        assert "first.op" in result
+        assert "second.op" in result
 
 
 # ─── grep_trace tests ────────────────────────────────────────────────
@@ -197,12 +209,12 @@ class TestExpandTraceTruncation:
 class TestGrepTraceMatching:
     """Tests for grep_trace matching span attributes."""
 
-    def test_returns_matching_spans_with_tree_position_headers(self) -> None:
+    def test_returns_matching_spans_with_span_id_headers(self) -> None:
         spans = build_span_set()
         result = grep_trace(spans, "fetch_report")
 
         assert "fetch_report" in result
-        assert "[3]" in result
+        assert "[c2d3e4f5]" in result
         assert "tool.fetch_report" in result
 
 
@@ -244,7 +256,7 @@ class TestGrepTraceMaxMatches:
     def test_limits_to_first_20_matches_and_indicates_more(self) -> None:
         many_spans = [
             create_mock_span(
-                span_id=i,
+                span_id=0x1000000000000000 + i,
                 name=f"operation-{i}",
                 start_time=1700000000_000_000_000 + i * 1_000_000_000,
                 end_time=1700000000_000_000_000 + i * 1_000_000_000 + 100_000_000,
@@ -254,9 +266,9 @@ class TestGrepTraceMaxMatches:
         ]
         result = grep_trace(many_spans, "matching_value")
 
-        # Count span headers
+        # Count span headers (8-char hex IDs in brackets)
         import re
-        match_headers = re.findall(r"\[\d+\]", result)
+        match_headers = re.findall(r"\[[0-9a-f]{8}\]", result)
         assert len(match_headers) <= 20
         assert "more match" in result
 
@@ -267,7 +279,7 @@ class TestGrepTraceTruncation:
     def test_truncates_total_output_to_approximately_4096_tokens(self) -> None:
         big_spans = [
             create_mock_span(
-                span_id=i,
+                span_id=0x2000000000000000 + i,
                 name=f"operation-{i}",
                 start_time=1700000000_000_000_000 + i * 1_000_000_000,
                 end_time=1700000000_000_000_000 + i * 1_000_000_000 + 100_000_000,
