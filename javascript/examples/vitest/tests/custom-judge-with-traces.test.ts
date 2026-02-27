@@ -7,6 +7,7 @@
  * the agent's internal behavior beyond just its text responses.
  */
 
+import { openai } from "@ai-sdk/openai";
 import scenario, {
   type AgentInput,
   type AgentReturnTypes,
@@ -15,7 +16,6 @@ import scenario, {
   judgeSpanCollector,
   grepTrace,
 } from "@langwatch/scenario";
-import { openai } from "@ai-sdk/openai";
 import { describe, it, expect } from "vitest";
 
 class ToolVerifyingJudge extends AgentAdapter {
