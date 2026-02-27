@@ -309,6 +309,10 @@ export default defineConfig({
       text: "Advanced",
       items: [
         {
+          text: "How Judging Works",
+          link: "/advanced/how-judging-works",
+        },
+        {
           text: "Custom Judge",
           link: "/advanced/custom-judge",
         },

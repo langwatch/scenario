@@ -95,4 +95,14 @@ export const examples = [
     sourcePath: "javascript/examples/vitest/tests/llm-provider-mocking.test.ts",
     label: "typescript",
   },
+  // Custom judge with traces examples
+  {
+    sourcePath: "python/examples/test_custom_judge_with_traces.py",
+    label: "python",
+  },
+  {
+    sourcePath:
+      "javascript/examples/vitest/tests/custom-judge-with-traces.test.ts",
+    label: "typescript",
+  },
 ];
