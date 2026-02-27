@@ -12,7 +12,7 @@ from scenario._judge.estimate_tokens import DEFAULT_TOKEN_THRESHOLD
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
-from scenario.types import AgentInput, JudgmentRequest
+from scenario.types import AgentInput, JudgmentRequest, ScenarioResult
 
 from tests.helpers.create_span import create_mock_span
 
@@ -310,7 +310,9 @@ class TestProgressiveDiscoveryLoop:
             # Should stop after max_discovery_steps
             assert call_count <= 3
             # Should return a result indicating max steps hit
+            assert isinstance(result, ScenarioResult)
             assert result.success is False
+            assert result.reasoning is not None
             assert "maximum discovery steps" in result.reasoning
 
 
@@ -340,6 +342,7 @@ class TestProgressiveDiscoveryVerdicts:
         ):
             result = await judge.call(create_base_input())
 
+            assert isinstance(result, ScenarioResult)
             assert result.success is False
             assert result.reasoning == "Agent responded but did not use tools"
             assert "Agent responds correctly" in result.passed_criteria

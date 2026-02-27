@@ -108,8 +108,8 @@ def get_token_usage(span: ReadableSpan) -> str:
     output_tokens = attrs.get("gen_ai.usage.output_tokens")
     if input_tokens is None and output_tokens is None:
         return ""
-    total = (int(input_tokens) if input_tokens is not None else 0) + (
-        int(output_tokens) if output_tokens is not None else 0
+    total = (int(str(input_tokens)) if input_tokens is not None else 0) + (
+        int(str(output_tokens)) if output_tokens is not None else 0
     )
     return f", {total} tokens"
 
