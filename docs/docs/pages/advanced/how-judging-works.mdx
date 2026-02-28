@@ -1,0 +1,203 @@
+---
+title: How Judging Works - Understanding the Judge Evaluation Loop
+description: Learn how the Scenario judge evaluates AI agents. Understand the judging loop, what the judge receives, how OpenTelemetry traces are rendered, and how progressive trace discovery works for large traces.
+---
+
+import { Callout } from "vocs/components";
+
+# How Judging Works
+
+Before customizing the judge, it helps to understand what happens under the hood when a `scenario.judge()` step runs.
+
+---
+
+## The Judging Loop
+
+```
+                        ┌──────────────────────────────────┐
+                        │         Scenario Loop            │
+                        │                                  │
+                        │  user() ──► agent() ──► judge()  │
+                        │    │           │           │     │
+                        │    ▼           ▼           ▼     │
+                        │  "Help me"  "Sure,..."   ????    │
+                        └────────────────────────────┬─────┘
+                                                     │
+                         ┌───────────────────────────┘
+                         │
+                         ▼
+               ┌─────────────────────┐
+               │   Judge receives    │
+               │                     │
+               │  - Full transcript  │
+               │  - OTel traces      │
+               │  - Criteria list    │
+               │  - Scenario desc    │
+               └────────┬────────────┘
+                        │
+                        ▼
+               ┌─────────────────────┐
+               │   Judge decides     │
+               │                     │
+               │  continue_test ───────► loop continues
+               │       or            │
+               │  finish_test ─────────► ScenarioResult
+               │   (verdict +        │     success/failure
+               │    per-criterion    │     + reasoning
+               │    true/false)      │
+               └─────────────────────┘
+```
+
+Each time the judge is invoked, it receives an `AgentInput` and must decide: should the conversation continue, or is there enough information to deliver a verdict?
+
+---
+
+## What the Judge Receives
+
+The judge's `call()` method receives an `AgentInput` with:
+
+- **`input.messages`** — the full conversation history (OpenAI message format)
+- **`input.judgment_request`** — present when a verdict is expected; may contain `.criteria` for inline overrides
+- **`input.scenario_state`** — scenario metadata (description, current turn, max turns)
+
+The built-in judge formats these into two sections:
+
+1. **Transcript** — a plain-text rendering of the conversation
+2. **OpenTelemetry traces digest** — a rendering of all OTel spans collected during the scenario run
+
+Both are passed to the LLM as context for evaluation.
+
+---
+
+## How Traces Are Rendered
+
+The judge collects OpenTelemetry spans from the agent under test via a span collector (a standard OTel `SpanProcessor`). How those spans are rendered depends on their size.
+
+### Full Inline (default)
+
+When the trace is small (estimated at fewer than **8,192 tokens**), the judge receives the full trace inline — every span with its attributes, events, and content:
+
+```
+Spans: 3 | Total Duration: 1.2s
+
+[1] 2025-01-15T10:00:00.000Z agent.run (1.2s)
+    agent.name: weather-bot
+
+  └── [2] 2025-01-15T10:00:00.100Z ai.chat (0.8s)
+        gen_ai.usage.input_tokens: 150
+        gen_ai.usage.output_tokens: 42
+        gen_ai.response.text: The weather in SF is 72°F and sunny.
+
+    └── [3] 2025-01-15T10:00:00.200Z tool.call (0.3s)
+          tool.name: weather_lookup
+          tool.parameters: {"city": "San Francisco"}
+          tool.result: {"temp": 72, "condition": "sunny"}
+```
+
+### Structure-Only + Progressive Discovery
+
+When the trace is large (exceeds **8,192 estimated tokens**), the judge receives a structure-only view — span names, durations, token usage, and tree hierarchy, but no attributes or events:
+
+```
+Spans: 47 | Total Duration: 12.4s
+
+[1] 2025-01-15T10:00:00.000Z agent.run (12.4s)
+  └── [2] 2025-01-15T10:00:00.100Z ai.chat (3.2s, 892 tokens)
+    └── [3] 2025-01-15T10:00:01.200Z tool.call (1.1s)
+    └── [4] 2025-01-15T10:00:02.500Z ai.chat (2.8s, 1204 tokens)
+      └── [5] 2025-01-15T10:00:03.800Z tool.call (0.9s)
+...
+
+Use expand_trace(spanIndex) to see span details or grep_trace(pattern) to search across spans.
+```
+
+The judge also receives two additional tools — `expand_trace` and `grep_trace` — that let it drill into spans on demand.
+
+---
+
+## Progressive Discovery Tools
+
+When the trace exceeds the token threshold, the judge can use two tools to explore the trace interactively:
+
+### `expand_trace`
+
+Expands one or more spans to show their full details (attributes, events, content).
+
+| Parameter | Description |
+|-----------|-------------|
+| `index` | Single span index to expand (e.g., `5`) |
+| `range` | Range of span indices (e.g., `"10-15"`) |
+
+The judge might call `expand_trace(index=3)` to see the full attributes of the tool call at position 3, or `expand_trace(range="2-5")` to see a group of related spans.
+
+### `grep_trace`
+
+Searches across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context.
+
+| Parameter | Description |
+|-----------|-------------|
+| `pattern` | Search string (case-insensitive) |
+
+The judge might call `grep_trace(pattern="weather_lookup")` to find all spans that mention a specific tool, or `grep_trace(pattern="error")` to locate failures.
+
+Results are limited to **20 matches** and truncated to approximately **4,096 tokens** per tool call to keep context manageable.
+
+---
+
+## The Decision Loop
+
+The built-in judge uses function calling to make structured decisions. It has two terminal tools:
+
+- **`continue_test`** — let the conversation continue; the judge needs more information
+- **`finish_test`** — deliver a verdict with per-criterion pass/fail and reasoning
+
+When progressive discovery is active, the judge can call `expand_trace` and `grep_trace` multiple times before reaching a terminal decision. The AI SDK handles this loop automatically — the judge calls discovery tools, gets results, reasons about them, and eventually calls `finish_test` or `continue_test`.
+
+The loop is bounded by `maxDiscoverySteps` (default: **10**) to prevent runaway tool calling.
+
+---
+
+## Configuration
+
+You can tune the trace rendering behavior when creating a judge:
+
+:::code-group
+
+```python [python]
+import scenario
+
+judge = scenario.JudgeAgent(
+    criteria=["Agent uses the weather tool"],
+    token_threshold=4096,      # Switch to structure-only at 4K tokens (default: 8192)
+    max_discovery_steps=5,     # Allow up to 5 discovery tool calls (default: 10)
+)
+```
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+
+const judge = scenario.judgeAgent({
+    criteria: ["Agent uses the weather tool"],
+    tokenThreshold: 4096,      // Switch to structure-only at 4K tokens (default: 8192)
+    maxDiscoverySteps: 5,      // Allow up to 5 discovery tool calls (default: 10)
+});
+```
+
+:::
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `tokenThreshold` / `token_threshold` | `8192` | Estimated token count above which traces switch to structure-only rendering |
+| `maxDiscoverySteps` / `max_discovery_steps` | `10` | Maximum number of `expand_trace`/`grep_trace` calls the judge can make before being forced to decide |
+
+<Callout type="info">
+  Token estimation uses byte-length heuristics (`byteLength / 4`), not a real tokenizer. The threshold is intentionally conservative to keep the judge&apos;s context window manageable.
+</Callout>
+
+---
+
+## Next Steps
+
+- [Custom Judge](/advanced/custom-judge) — Customize evaluation with custom prompts, trace-aware judges, or fully custom implementations
+- [Judge Agent](/basics/judge-agent) — Configuration reference for the built-in judge
+- [Custom Observability](/advanced/custom-observability) — Control which OpenTelemetry spans are collected

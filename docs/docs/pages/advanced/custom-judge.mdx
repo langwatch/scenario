@@ -9,58 +9,15 @@ import { Callout } from "vocs/components";
 
 The built-in `JudgeAgent` handles most evaluation needs out of the box. But sometimes you need more control: a domain-specific prompt, a different LLM provider, or a custom agent framework for evaluation.
 
-This guide walks through three levels of customization, from lightest to most involved.
+This guide walks through three levels of customization, from lightest to most involved, plus how to access OpenTelemetry traces in custom judges.
+
+<Callout type="info">
+  **Prerequisite:** Read [How Judging Works](/advanced/how-judging-works) first to understand the judging loop, what the judge receives, and how traces are rendered (including progressive trace discovery for large traces).
+</Callout>
 
 <Callout type="tip">
   For simple deterministic checks (tool calls, message structure, state assertions), [script lambdas](/basics/scripted-simulations) are usually a better fit. Custom judges shine when you need LLM reasoning, a different model, or a full agent that can use tools — think code execution, filesystem access, or web search to verify the agent&apos;s work.
 </Callout>
-
-## How Judging Works
-
-Before customizing, it helps to understand the judging workflow:
-
-```
-                        ┌──────────────────────────────────┐
-                        │         Scenario Loop            │
-                        │                                  │
-                        │  user() ──► agent() ──► judge()  │
-                        │    │           │           │     │
-                        │    ▼           ▼           ▼     │
-                        │  "Help me"  "Sure,..."   ????    │
-                        └────────────────────────────┬─────┘
-                                                     │
-                         ┌───────────────────────────┘
-                         │
-                         ▼
-               ┌─────────────────────┐
-               │   Judge receives    │
-               │                     │
-               │  - Full transcript  │
-               │  - OTel traces      │
-               │  - Criteria list    │
-               │  - Scenario desc    │
-               └────────┬────────────┘
-                        │
-                        ▼
-               ┌─────────────────────┐
-               │   Judge decides     │
-               │                     │
-               │  continue_test ───────► loop continues
-               │       or            │
-               │  finish_test ─────────► ScenarioResult
-               │   (verdict +        │     success/failure
-               │    per-criterion    │     + reasoning
-               │    true/false)      │
-               └─────────────────────┘
-```
-
-The judge receives an `AgentInput` with:
-
-- **`input.messages`** — the full conversation history (OpenAI message format)
-- **`input.judgment_request`** — present when a verdict is requested; may contain `.criteria` for inline overrides
-- **`input.scenario_state`** — scenario metadata (description, current turn, max turns)
-
-The built-in judge formats these into a transcript and OpenTelemetry traces digest, then uses function calling (`continue_test` / `finish_test`) to make structured decisions.
 
 ## Level 1: Custom System Prompt
 
@@ -410,6 +367,174 @@ Return a result for each criterion using the exact criterion text.`,
 :::
 
 
+## Accessing Traces in Custom Judges
+
+The built-in judge automatically renders OpenTelemetry traces for the LLM. But in a fully custom judge, you may want to inspect the raw spans yourself — for example, to verify specific tool calls were made, check latency, or search for patterns.
+
+### Getting the Spans
+
+Use the span collector to retrieve all spans recorded during the current scenario thread:
+
+:::code-group
+
+```python [python]
+from scenario._tracing import judge_span_collector
+
+spans = judge_span_collector.get_spans_for_thread(input.thread_id)
+```
+
+```typescript [typescript]
+import { judgeSpanCollector } from "@langwatch/scenario";
+
+const spans = judgeSpanCollector.getSpansForThread(input.threadId);
+```
+
+:::
+
+### Using Trace Tools
+
+Once you have the spans, you can use `grep_trace` and `expand_trace` to search and inspect them — the same tools the built-in judge uses for progressive discovery:
+
+:::code-group
+
+```python [python]
+from scenario._judge.trace_tools import grep_trace, expand_trace
+
+# Search for a specific tool call
+result = grep_trace(spans, "weather_lookup")
+
+# Expand a specific span to see full details
+details = expand_trace(spans, index=3)
+```
+
+```typescript [typescript]
+import { grepTrace, expandTrace } from "@langwatch/scenario";
+
+// Search for a specific tool call
+const result = grepTrace(spans, "weather_lookup");
+
+// Expand a specific span to see full details
+const details = expandTrace(spans, { index: 3 });
+```
+
+:::
+
+### Example: Trace-Aware Custom Judge
+
+A complete example of a custom judge that verifies an agent called a specific tool by inspecting OpenTelemetry traces:
+
+:::code-group
+
+```python [python]
+# [test_custom_judge_with_traces.py]
+
+import pytest
+import scenario
+from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
+from scenario._tracing import judge_span_collector
+from scenario._judge.trace_tools import grep_trace
+
+scenario.configure(default_model="openai/gpt-4.1-mini")
+
+
+class ToolVerifyingJudge(scenario.AgentAdapter):
+    """A custom judge that checks if the agent called a specific tool by
+    inspecting OpenTelemetry traces collected during the scenario run."""
+
+    role = scenario.AgentRole.JUDGE
+
+    def __init__(self, required_tool: str):
+        self.required_tool = required_tool
+
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
+        if not input.judgment_request:
+            return []
+
+        # Collect all spans recorded for this scenario thread
+        spans = judge_span_collector.get_spans_for_thread(input.thread_id)
+
+        # Search the spans for evidence of the required tool call
+        result = grep_trace(spans, self.required_tool)
+
+        if "No matches found" in result:
+            return ScenarioResult(
+                success=False,
+                messages=[],
+                reasoning=f"Tool '{self.required_tool}' was not found in the trace. "
+                f"Grep result: {result}",
+                passed_criteria=[],
+                failed_criteria=[f"Agent must call the '{self.required_tool}' tool"],
+            )
+
+        return ScenarioResult(
+            success=True,
+            messages=[],
+            reasoning=f"Tool '{self.required_tool}' was found in the trace. "
+            f"Grep result: {result}",
+            passed_criteria=[f"Agent must call the '{self.required_tool}' tool"],
+            failed_criteria=[],
+        )
+```
+
+```typescript [typescript]
+// [custom-judge-with-traces.test.ts]
+
+import { openai } from "@ai-sdk/openai";
+import scenario, {
+  type AgentInput,
+  type AgentReturnTypes,
+  AgentAdapter,
+  AgentRole,
+  judgeSpanCollector,
+  grepTrace,
+} from "@langwatch/scenario";
+import { describe, it, expect } from "vitest";
+
+class ToolVerifyingJudge extends AgentAdapter {
+  role = AgentRole.JUDGE;
+  requiredTool: string;
+
+  constructor(requiredTool: string) {
+    super();
+    this.requiredTool = requiredTool;
+  }
+
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    if (!input.judgmentRequest) {
+      return null;
+    }
+
+    // Collect all spans recorded for this scenario thread
+    const spans = judgeSpanCollector.getSpansForThread(input.threadId);
+
+    // Search the spans for evidence of the required tool call
+    const result = grepTrace(spans, this.requiredTool);
+
+    if (result.includes("No matches found") || result.includes("No spans recorded")) {
+      return {
+        success: false,
+        reasoning: `Tool '${this.requiredTool}' was not found in the trace. Grep result: ${result}`,
+        metCriteria: [],
+        unmetCriteria: [`Agent must call the '${this.requiredTool}' tool`],
+      };
+    }
+
+    return {
+      success: true,
+      reasoning: `Tool '${this.requiredTool}' was found in the trace. Grep result: ${result}`,
+      metCriteria: [`Agent must call the '${this.requiredTool}' tool`],
+      unmetCriteria: [],
+    };
+  }
+}
+```
+
+:::
+
+<Callout type="tip">
+  For the full runnable test, see the [Python example](https://github.com/langwatch/scenario/blob/main/python/examples/test_custom_judge_with_traces.py) and [TypeScript example](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/custom-judge-with-traces.test.ts).
+</Callout>
+
 ---
 
 ## Good Practices
@@ -432,7 +557,9 @@ A few things we've learned from building and using the default judge:
 
 ## Next Steps
 
+- [How Judging Works](/advanced/how-judging-works) — Understand the judging loop, trace rendering, and progressive discovery
 - [Judge Agent](/basics/judge-agent) — Configuration reference for the built-in judge
 - [Scripted Simulations](/basics/scripted-simulations) — Use inline criteria with `scenario.judge(criteria=[...])`
+- [Custom Observability](/advanced/custom-observability) — Control which OpenTelemetry spans are collected
 - [Tool Calling](/testing-guides/tool-calling) — Test and verify agent tool usage
 - [Configuration](/basics/configuration) — Set global defaults for models and API keys
