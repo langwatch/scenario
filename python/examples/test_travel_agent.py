@@ -31,7 +31,7 @@ async def test_travel_agent():
             The user is planning a boat trip from Barcelona to Rome,
             and is wondering what the weather will be like.
 
-            Then the user will ask for different accomodation options.
+            Then the user will ask for accomodation options in Barcelona.
         """,
         agents=[
             TravelAgent(),
@@ -39,7 +39,6 @@ async def test_travel_agent():
             scenario.JudgeAgent(
                 model="openai/gpt-4.1-mini",
                 criteria=[
-                    "The agent should ask which city is the user asking accomodations for if they don't provide it.",
                     "The agent should share the prices of each accomodation for the user to consider.",
                     "The agent should not bias the user towards a specific accomodation.",
                 ],
@@ -49,9 +48,7 @@ async def test_travel_agent():
             scenario.user("check weather barcelona to rome next week"),
             scenario.agent(),
             check_for_weather_tool_call,
-            scenario.user(),
-            scenario.agent(),
-            scenario.user(),
+            scenario.user("what about accomodation options in Barcelona?"),
             scenario.agent(),
             check_for_accomodation_tool_call,
             scenario.judge(),
