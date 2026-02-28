@@ -74,7 +74,7 @@ async def test_user_is_hungry():
     # Define the scenario
     result = await scenario.run(
         name="hungry user",
-        description="User is very very hungry, they say they could eat a cow",
+        description="User is very very hungry and wants a big, filling meal",
         agents=[
             VegetarianRecipeAgentAdapter(),
             scenario.UserSimulatorAgent(),
@@ -88,7 +88,13 @@ async def test_user_is_hungry():
                 ]
             ),
         ],
-        max_turns=5,
+        script=[
+            scenario.user("I'm starving! I need something really filling for dinner tonight"),
+            scenario.agent(),
+            scenario.user(),
+            scenario.agent(),
+            scenario.judge(),
+        ],
         set_id="python-examples",
     )
 
