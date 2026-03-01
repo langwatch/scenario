@@ -41,7 +41,7 @@ async def test_lovable_clone():
                     "agent reads the files before go and making changes",
                     "agent modified the index.css file, not only the Index.tsx file",
                     "agent created a comprehensive landing page",
-                    "agent extended the landing page with a new section",
+                    "agent made multiple changes or iterations on the landing page",
                     "agent should NOT say it can't read the file",
                     "agent should NOT produce incomplete code or be too lazy to finish",
                 ],
