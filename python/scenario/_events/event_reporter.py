@@ -35,7 +35,9 @@ class EventReporter:
         langwatch_settings = LangWatchSettings()
 
         # Allow constructor parameters to override settings
-        self.endpoint = endpoint or langwatch_settings.endpoint
+        # Strip trailing slashes to avoid double-slash URLs (e.g. HttpUrl adds trailing /)
+        raw_endpoint = endpoint or str(langwatch_settings.endpoint)
+        self.endpoint = raw_endpoint.rstrip("/") if raw_endpoint else ""
         self.api_key = api_key or langwatch_settings.api_key
         self.logger = logging.getLogger(__name__)
         self.event_alert_message_logger = EventAlertMessageLogger()
@@ -65,10 +67,15 @@ class EventReporter:
             return result
 
         try:
+            url = f"{self.endpoint}/api/scenario-events"
+            payload = event.to_dict()
+            self.logger.debug(
+                f"[{event_type}] POST {url} payload keys={list(payload.keys())} ({event.scenario_run_id})"
+            )
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 response = await client.post(
-                    f"{self.endpoint}/api/scenario-events",
-                    json=event.to_dict(),
+                    url,
+                    json=payload,
                     headers={
                         "Content-Type": "application/json",
                         "X-Auth-Token": self.api_key,

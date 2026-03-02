@@ -93,6 +93,10 @@ Integration with Testing Frameworks:
 For more examples and detailed documentation, visit: https://github.com/langwatch/scenario
 """
 
+# Drop unsupported params (e.g. temperature for gpt-5 models) instead of raising errors
+import litellm
+litellm.drop_params = True
+
 # Setup logging and tracing infrastructure (side-effect imports)
 from .config import logging as _logging_config  # noqa: F401
 from . import _tracing  # noqa: F401
@@ -107,8 +111,9 @@ from .scenario_state import ScenarioState
 from .agent_adapter import AgentAdapter
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
+from .red_team_agent import RedTeamAgent
 from .cache import scenario_cache
-from .script import message, user, agent, judge, proceed, succeed, fail
+from .script import message, user, agent, judge, proceed, succeed, fail, marathon_script
 
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
@@ -133,6 +138,7 @@ __all__ = [
     "judge",
     "agent",
     "user",
+    "marathon_script",
     # Types
     "ScenarioResult",
     "AgentInput",
@@ -143,6 +149,7 @@ __all__ = [
     "ScenarioState",
     "AgentAdapter",
     "UserSimulatorAgent",
+    "RedTeamAgent",
     "JudgeAgent",
 ]
 __version__ = "0.1.0"
