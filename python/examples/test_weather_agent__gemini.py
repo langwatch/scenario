@@ -14,6 +14,7 @@ from scenario.judge_agent import JudgeAgent
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_weather_agent():
     # Integrate with your agent

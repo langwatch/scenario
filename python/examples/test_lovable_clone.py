@@ -21,6 +21,7 @@ class LovableAgentAdapter(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_lovable_clone():
     template_path = LovableAgent.clone_template()

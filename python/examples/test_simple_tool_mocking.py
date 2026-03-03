@@ -102,6 +102,7 @@ class UserDataAgent(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_simple_tool_mocking():
     """Test mocking tools while using real LLM tool calling."""

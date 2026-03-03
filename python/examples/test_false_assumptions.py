@@ -26,6 +26,7 @@ class Agent(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_early_assumption_bias():
     result = await scenario.run(

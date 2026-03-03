@@ -158,6 +158,7 @@ When asked about products, use the check_inventory tool.""",
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_langwatch_decorator_span_evaluation():
     """

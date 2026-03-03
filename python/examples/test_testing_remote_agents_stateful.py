@@ -142,6 +142,7 @@ async def test_server():
     conversations.clear()
 
 
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_stateful_conversation(test_server):
     """

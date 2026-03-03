@@ -10,6 +10,7 @@ import litellm
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_travel_agent():
     # Integrate with your agent

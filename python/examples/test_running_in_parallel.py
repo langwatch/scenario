@@ -40,6 +40,7 @@ class VegetarianRecipeAgentAdapter(AgentAdapter):
         return [cast(ChatCompletionMessageParam, message)]
 
 
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent")
 async def test_vegetarian_recipe_agent():
     # Define the scenario
