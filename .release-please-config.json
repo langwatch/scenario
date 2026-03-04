@@ -6,7 +6,7 @@
       "release-type": "node",
       "include-component-in-tag": true,
       "include-v-in-tag": true,
-      "prerelease": true,
+      "prerelease": false,
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
@@ -21,7 +21,7 @@
       "release-type": "python",
       "include-component-in-tag": true,
       "include-v-in-tag": true,
-      "prerelease": true,
+      "prerelease": false,
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
