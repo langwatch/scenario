@@ -16,6 +16,10 @@ permissions:
 
 jobs:
   evaluate:
+    # Skip fork PRs: secrets are unavailable and GITHUB_TOKEN is read-only
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:
