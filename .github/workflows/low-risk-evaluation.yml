@@ -1,6 +1,8 @@
 name: Low-Risk PR Evaluation
 
 on:
+  pull_request:
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -20,11 +22,40 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Resolve PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Remove stale low-risk-change label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.pr.outputs.number }};
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: "low-risk-change",
+              });
+              core.info(`Removed stale low-risk-change label from PR #${prNumber}.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.info("No low-risk-change label to remove.");
+            }
+
       - name: Fetch PR metadata and diff
         id: pr-data
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           gh pr view "$PR_NUMBER" --json title,body --template '{{.title}}' > /tmp/pr_title.txt
           gh pr view "$PR_NUMBER" --json title,body --template '{{.body}}' > /tmp/pr_body.txt
@@ -75,7 +106,7 @@ jobs:
         id: evaluate
         if: steps.pr-data.outputs.oversized == 'false' && steps.path-check.outputs.blocked == 'false'
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.LOW_RISK_OPENAI_API_KEY }}
         run: |
           POLICY=$(cat docs/LOW_RISK_PULL_REQUESTS.md)
           PR_TITLE=$(cat /tmp/pr_title.txt)
@@ -89,7 +120,7 @@ jobs:
             --arg body "$PR_BODY" \
             --arg diff "$PR_DIFF" \
             '{
-              model: "gpt-5-mini",
+              model: "gpt-4.1-mini",
               temperature: 0,
               response_format: {
                 type: "json_schema",
@@ -159,7 +190,7 @@ jobs:
       - name: Apply label and comment
         uses: actions/github-script@v7
         env:
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           QUALIFIES: ${{ steps.oversized.outputs.qualifies || steps.restricted.outputs.qualifies || steps.evaluate.outputs.qualifies }}
           SCOPE: ${{ steps.oversized.outputs.scope || steps.restricted.outputs.scope || steps.evaluate.outputs.scope }}
           REASONING: ${{ steps.oversized.outputs.reasoning || steps.restricted.outputs.reasoning || steps.evaluate.outputs.reasoning }}
@@ -198,17 +229,6 @@ jobs:
 
               core.info(`PR #${prNumber} labeled as low-risk-change.`);
             } else {
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: prNumber,
-                  name: "low-risk-change",
-                });
-              } catch (error) {
-                if (error.status !== 404) throw error;
-              }
-
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
