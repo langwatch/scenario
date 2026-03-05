@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.5](https://github.com/langwatch/scenario/compare/javascript/v0.4.4...javascript/v0.4.5) (2026-03-05)
+
+
+### Features
+
+* progressive trace discovery for Python SDK + span ID improvements (both languages) ([#242](https://github.com/langwatch/scenario/issues/242)) ([716c8b7](https://github.com/langwatch/scenario/commit/716c8b71215f12e8548f642e4e99c9c8054d1e72))
+
+
+### Bug Fixes
+
+* allow judge discovery tools before forced verdict on large traces ([#251](https://github.com/langwatch/scenario/issues/251)) ([3c32b01](https://github.com/langwatch/scenario/commit/3c32b0181d550e363d42438051bd48b8e4dd7880))
+
 ## [0.4.4](https://github.com/langwatch/scenario/compare/javascript/v0.4.3...javascript/v0.4.4) (2026-02-27)
 
 
