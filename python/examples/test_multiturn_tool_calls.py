@@ -78,7 +78,9 @@ TOOLS = [search_products, check_stock]
 
 
 @scenario.cache()
-def shopping_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
+def shopping_agent(messages, response_messages: list | None = None) -> scenario.AgentReturnTypes:
+    if response_messages is None:
+        response_messages = []
     response = litellm.completion(
         model="openai/gpt-4.1-nano",
         messages=[

@@ -382,11 +382,14 @@ def check_valid_return_type(return_value: Any, class_name: str) -> None:
 
 
 def _stringify_value(value: Any) -> str:
-    """Convert a value to a string representation for tool summaries."""
+    """Convert a value to a string representation for tool summaries.
+
+    Strings are returned as-is. All other values go through json.dumps so that
+    None becomes "null", dicts/lists get JSON notation, and numbers stringify
+    without a Python-specific repr. Non-serializable objects fall back to str().
+    """
     if isinstance(value, str):
         return value
-    if value is None:
-        return "None"
     try:
         return json.dumps(value)
     except (TypeError, ValueError):
@@ -416,6 +419,11 @@ def _summarize_tool_message(message: Any) -> Optional[str]:
     Handles OpenAI message format:
     - Tool results: {"role": "tool", "tool_call_id": "...", "name": "...", "content": "..."}
     - Tool calls: {"role": "assistant", "tool_calls": [{"function": {"name": "...", "arguments": "..."}}]}
+
+    Note: when an assistant message has both text content and tool_calls, the text
+    content is intentionally dropped and only the tool calls are summarized. This
+    matches the JS messageRoleReversal() behaviour — the tool-call summary is what
+    the user simulator needs to understand what the agent did.
     """
     role = safe_attr_or_key(message, "role")
 
@@ -484,6 +492,20 @@ def reverse_roles(
         if not new_role:
             # Preserve system and other messages unchanged
             reversed_messages.append(message)
+            continue
+
+        # Skip bare role-only messages that have no content key at all.
+        # Some models (notably Anthropic) occasionally emit {"role": "assistant"}
+        # with no content field; passing that on as {"role": "user"} would cause
+        # an API validation error on the user simulator's next request.
+        # Note: explicit content=None is kept — that is valid in the OpenAI format
+        # for assistant messages that accompany tool_calls.
+        has_content_key = (
+            "content" in message
+            if isinstance(message, dict)
+            else hasattr(message, "content")
+        )
+        if not has_content_key:
             continue
 
         if isinstance(message, dict):

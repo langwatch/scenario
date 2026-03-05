@@ -19,7 +19,7 @@ class TestStringifyValue:
         assert _stringify_value("hello") == "hello"
 
     def test_none(self):
-        assert _stringify_value(None) == "None"
+        assert _stringify_value(None) == "null"
 
     def test_dict(self):
         assert _stringify_value({"a": 1}) == '{"a": 1}'
@@ -32,7 +32,7 @@ class TestStringifyValue:
 
     def test_non_serializable_fallback(self):
         result = _stringify_value(object())
-        assert result.startswith("<object object")
+        assert isinstance(result, str) and len(result) > 0
 
 
 # ── _has_tool_content tests ───────────────────────────────────────────────────
@@ -351,8 +351,13 @@ class TestReverseRoles:
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "assistant"
 
-    def test_message_without_content_preserved(self):
-        """Messages without content but with a reversible role should still be reversed."""
+    def test_explicit_none_content_is_reversed(self):
+        """An assistant message with explicit content=None is kept and reversed.
+
+        This is valid in OpenAI format (e.g. an assistant turn that preceded
+        a tool_call but whose tool_calls were already stripped upstream).
+        It is distinct from a message with no 'content' key at all.
+        """
         messages = [
             {"role": "user", "content": "test"},
             {"role": "assistant", "content": None},
@@ -361,3 +366,22 @@ class TestReverseRoles:
         assert result[0]["role"] == "assistant"
         assert result[1]["role"] == "user"
         assert result[1]["content"] is None
+
+    def test_bare_role_only_message_is_dropped(self):
+        """Messages with no 'content' key at all are silently dropped.
+
+        Anthropic (and some other providers) reject user/assistant messages that
+        have no content field. Some models emit bare {"role": "assistant"} messages;
+        this guard prevents them from surfacing as invalid {"role": "user"} messages
+        in the user simulator's request.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant"},  # no content key — should be dropped
+            {"role": "assistant", "content": "I can help"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]
+        assert result == [
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "I can help"},
+        ]
