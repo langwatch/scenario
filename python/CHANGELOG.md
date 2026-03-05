@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.18](https://github.com/langwatch/scenario/compare/python/v0.7.17...python/v0.7.18) (2026-03-05)
+
+
+### Bug Fixes
+
+* allow judge discovery tools before forced verdict on large traces ([#251](https://github.com/langwatch/scenario/issues/251)) ([3c32b01](https://github.com/langwatch/scenario/commit/3c32b0181d550e363d42438051bd48b8e4dd7880))
+* resolve pyright type errors in judge discovery integration test ([96e385b](https://github.com/langwatch/scenario/commit/96e385b4cb497e8ea4e172d9c598a86b75f8671c))
+
 ## [0.7.17](https://github.com/langwatch/scenario/compare/python/v0.7.16...python/v0.7.17) (2026-03-03)
 
 

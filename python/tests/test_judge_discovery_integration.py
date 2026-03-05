@@ -408,9 +408,10 @@ async def test_sonnet_uses_discovery_tools_before_verdict():
     print(f"Total LLM calls: {len(call_log)}")
     for i, call in enumerate(call_log):
         print(f"  Call {i+1}: tool_choice={call['tool_choice']}")
-    print(f"Result: success={result.success if hasattr(result, 'success') else 'N/A'}")
-    if hasattr(result, "reasoning"):
-        print(f"Reasoning: {result.reasoning[:200]}...")
+    print(f"Result: success={getattr(result, 'success', 'N/A')}")
+    reasoning = getattr(result, "reasoning", None)
+    if reasoning:
+        print(f"Reasoning: {reasoning[:200]}...")
 
     # The judge should have made at least 2 calls:
     # 1+ discovery calls (expand_trace/grep_trace) + 1 finish_test
