@@ -528,3 +528,134 @@ class TestBoundaryThreshold:
             # Content should contain full attributes
             user_msg = call_kwargs["messages"][1]
             assert "content:" in user_msg["content"]
+
+
+class TestDiscoveryBeforeEnforcedVerdict:
+    """Tests for discovery tools being available before enforced verdicts."""
+
+    @pytest.mark.asyncio
+    async def test_enforced_judgment_allows_discovery_before_verdict(self) -> None:
+        """When judgment is enforced with a large trace, the judge should be
+        able to use discovery tools before being forced to finish_test.
+
+        This is a regression test: previously tool_choice was forced to
+        finish_test on every iteration, preventing the judge from ever
+        calling expand_trace/grep_trace.
+        """
+        large_trace = create_large_trace()
+        collector = create_mock_collector(large_trace)
+        judge = JudgeAgent(
+            criteria=["Agent calls the weather tool"],
+            span_collector=collector,
+        )
+
+        # Simulate enforced judgment (judgment_request is not None)
+        input_ = create_base_input()
+        input_.judgment_request = JudgmentRequest(criteria=None)
+
+        # Track what tool_choice was passed on each call
+        tool_choices = []
+
+        # First call: LLM wants to expand a span
+        expand_response = MagicMock()
+        expand_response.choices = [MagicMock()]
+        expand_tool_call = MagicMock()
+        expand_tool_call.id = "call_1"
+        expand_tool_call.function.name = "expand_trace"
+        expand_tool_call.function.arguments = json.dumps({"span_ids": ["10000000"]})
+        expand_response.choices[0].message.tool_calls = [expand_tool_call]
+        expand_response.choices[0].message.content = None
+        expand_response.choices[0].message.role = "assistant"
+
+        # Second call: LLM finishes
+        finish_response = mock_litellm_response("finish_test", {
+            "criteria": {"agent_calls_the_weather_tool": "true"},
+            "reasoning": "Found weather tool in expanded span",
+            "verdict": "success",
+        })
+
+        call_count = 0
+
+        def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            tool_choices.append(kwargs.get("tool_choice"))
+            if call_count == 1:
+                return expand_response
+            return finish_response
+
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=mock_completion,
+        ):
+            result = await judge.call(input_)
+
+            # Should have made 2 LLM calls (expand + finish)
+            assert call_count == 2, (
+                f"Expected 2 LLM calls (discovery + verdict), got {call_count}. "
+                "The judge was likely forced to finish_test on the first call."
+            )
+            # First call should NOT be forced to finish_test
+            assert tool_choices[0] != {"type": "function", "function": {"name": "finish_test"}}, (
+                "First discovery call should not force finish_test tool_choice"
+            )
+
+    @pytest.mark.asyncio
+    async def test_last_message_allows_discovery_before_verdict(self) -> None:
+        """When it's the last message with a large trace, discovery tools
+        should still be usable before the final verdict."""
+        large_trace = create_large_trace()
+        collector = create_mock_collector(large_trace)
+        judge = JudgeAgent(
+            criteria=["Agent calls the weather tool"],
+            span_collector=collector,
+        )
+
+        # Simulate last message (current_turn == max_turns)
+        input_ = create_base_input()
+        input_.scenario_state.current_turn = 10
+        input_.scenario_state.config.max_turns = 10
+
+        tool_choices = []
+
+        # First call: grep
+        grep_response = MagicMock()
+        grep_response.choices = [MagicMock()]
+        grep_tool_call = MagicMock()
+        grep_tool_call.id = "call_1"
+        grep_tool_call.function.name = "grep_trace"
+        grep_tool_call.function.arguments = json.dumps({"pattern": "weather"})
+        grep_response.choices[0].message.tool_calls = [grep_tool_call]
+        grep_response.choices[0].message.content = None
+        grep_response.choices[0].message.role = "assistant"
+
+        # Second call: finish
+        finish_response = mock_litellm_response("finish_test", {
+            "criteria": {"agent_calls_the_weather_tool": "true"},
+            "reasoning": "Found weather tool in grep results",
+            "verdict": "success",
+        })
+
+        call_count = 0
+
+        def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            tool_choices.append(kwargs.get("tool_choice"))
+            if call_count == 1:
+                return grep_response
+            return finish_response
+
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=mock_completion,
+        ):
+            result = await judge.call(input_)
+
+            assert call_count == 2, (
+                f"Expected 2 LLM calls (discovery + verdict), got {call_count}. "
+                "The judge was likely forced to finish_test on the first call."
+            )
+            assert tool_choices[0] != {"type": "function", "function": {"name": "finish_test"}}, (
+                "First discovery call should not force finish_test tool_choice"
+            )

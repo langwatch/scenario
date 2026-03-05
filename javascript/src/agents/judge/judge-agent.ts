@@ -313,12 +313,17 @@ class JudgeAgent extends JudgeAgentAdapter {
    * In multi-step mode, the AI SDK loops automatically: the judge can call
    * expand_trace/grep_trace tools multiple times before reaching a terminal
    * tool (finish_test/continue_test) or hitting the step limit.
+   *
+   * When the trace is large, toolChoice is relaxed to "required" so the
+   * judge can freely pick discovery tools (expand_trace/grep_trace) before
+   * being forced to a terminal decision.
    */
   private async invokeLLMWithDiscovery({
     isLargeTrace,
     ...params
   }: InvokeLLMParams & { isLargeTrace: boolean }): Promise<InvokeLLMResult> {
     if (isLargeTrace) {
+      params.toolChoice = "required";
       params.stopWhen = [
         stepCountIs(this.maxDiscoverySteps),
         hasToolCall("finish_test"),

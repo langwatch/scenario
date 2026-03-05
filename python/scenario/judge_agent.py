@@ -558,10 +558,14 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         reaching a terminal tool (finish_test/continue_test) or hitting the
         max discovery steps limit.
 
+        On intermediate steps, tool_choice is "required" so the judge can freely
+        pick expand_trace/grep_trace. On the final step, the original tool_choice
+        (which may force finish_test) is applied.
+
         Args:
             messages: The conversation messages so far.
             tools: The tool definitions.
-            tool_choice: The tool choice constraint.
+            tool_choice: The tool choice constraint for the final step.
             spans: The spans for executing expand/grep tools.
             effective_criteria: The criteria to judge against.
 
@@ -571,6 +575,12 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         terminal_tool_names = {"finish_test", "continue_test"}
 
         for step in range(self._max_discovery_steps):
+            # Use "required" for intermediate steps so the judge can use
+            # discovery tools; only apply the forced tool_choice on the
+            # last allowed step.
+            is_last_step = step == self._max_discovery_steps - 1
+            step_tool_choice = tool_choice if is_last_step else "required"
+
             response = cast(
                 ModelResponse,
                 litellm.completion(
@@ -581,7 +591,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     api_base=self.api_base,
                     max_tokens=self.max_tokens,
                     tools=tools,
-                    tool_choice=tool_choice,
+                    tool_choice=step_tool_choice,
                     **self._extra_params,
                 ),
             )
