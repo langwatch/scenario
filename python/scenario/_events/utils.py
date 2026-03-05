@@ -42,6 +42,12 @@ def convert_messages_to_api_client_messages(
         role = message.get("role")
         content = message.get("content")
 
+        # Only include trace_id in additional_properties when it has a value
+        trace_props = {}
+        trace_id = message.get("trace_id")
+        if trace_id is not None:
+            trace_props["trace_id"] = trace_id
+
         if role == "user":
             if not content:
                 raise ValueError(f"User message at index {i} missing required content")
@@ -50,7 +56,7 @@ def convert_messages_to_api_client_messages(
                 role="user",
                 content=str(content),
             )
-            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            message_.additional_properties = trace_props
             converted_messages.append(message_)
         elif role == "assistant":
             # Handle tool calls if present
@@ -78,7 +84,7 @@ def convert_messages_to_api_client_messages(
                 content=str(content),
                 tool_calls=api_tool_calls,
             )
-            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            message_.additional_properties = trace_props
             converted_messages.append(message_)
         elif role == "system":
             if not content:
@@ -86,7 +92,7 @@ def convert_messages_to_api_client_messages(
                     f"System message at index {i} missing required content"
                 )
             message_ = SystemMessage(id=message_id, role="system", content=str(content))
-            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            message_.additional_properties = trace_props
             converted_messages.append(message_)
         elif role == "tool":
             tool_call_id = message.get("tool_call_id")
@@ -107,7 +113,7 @@ def convert_messages_to_api_client_messages(
                 content=str(content),
                 tool_call_id=tool_call_id,
             )
-            message_.additional_properties = {"trace_id": message.get("trace_id")}
+            message_.additional_properties = trace_props
             converted_messages.append(message_)
         else:
             raise ValueError(f"Unsupported message role '{role}' at index {i}")
