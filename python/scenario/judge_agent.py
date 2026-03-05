@@ -408,7 +408,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         ]
 
         if is_large_trace:
-            tools.extend(self._build_progressive_discovery_tools())
+            tools = self._build_progressive_discovery_tools() + tools
 
         enforce_judgment = input.judgment_request is not None
         has_criteria = len(effective_criteria) > 0

@@ -240,9 +240,9 @@ class JudgeAgent extends JudgeAgentAdapter {
     });
 
     const tools: ToolSet = {
+      ...(isLargeTrace ? buildProgressiveDiscoveryTools(spans) : {}),
       continue_test: buildContinueTestTool(),
       finish_test: buildFinishTestTool(criteria),
-      ...(isLargeTrace ? buildProgressiveDiscoveryTools(spans) : {}),
     };
 
     const enforceJudgement = input.judgmentRequest != null;
