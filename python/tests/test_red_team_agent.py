@@ -25,68 +25,55 @@ class TestCrescendoPhases:
         self.strategy = CrescendoStrategy()
 
     def test_turn_1_is_warmup(self):
-        name, _ = self.strategy._get_phase(1, 50)
-        assert name == "warmup"
+        assert self.strategy.get_phase_name(1, 50) == "warmup"
 
     def test_turn_9_is_warmup(self):
         """Turn 9 of 50 = 18%, still warmup."""
-        name, _ = self.strategy._get_phase(9, 50)
-        assert name == "warmup"
+        assert self.strategy.get_phase_name(9, 50) == "warmup"
 
     def test_turn_10_is_probing(self):
         """Turn 10 of 50 = 20%, hits probing boundary."""
-        name, _ = self.strategy._get_phase(10, 50)
-        assert name == "probing"
+        assert self.strategy.get_phase_name(10, 50) == "probing"
 
     def test_turn_22_is_probing(self):
-        name, _ = self.strategy._get_phase(22, 50)
-        assert name == "probing"
+        assert self.strategy.get_phase_name(22, 50) == "probing"
 
     def test_turn_23_is_escalation(self):
         """Turn 23 of 50 = 46%, should be escalation."""
-        name, _ = self.strategy._get_phase(23, 50)
-        assert name == "escalation"
+        assert self.strategy.get_phase_name(23, 50) == "escalation"
 
     def test_turn_37_is_escalation(self):
-        name, _ = self.strategy._get_phase(37, 50)
-        assert name == "escalation"
+        assert self.strategy.get_phase_name(37, 50) == "escalation"
 
     def test_turn_38_is_direct(self):
         """Turn 38 of 50 = 76%, should be direct."""
-        name, _ = self.strategy._get_phase(38, 50)
-        assert name == "direct"
+        assert self.strategy.get_phase_name(38, 50) == "direct"
 
     def test_turn_50_is_direct(self):
         """Final turn should be direct."""
-        name, _ = self.strategy._get_phase(50, 50)
-        assert name == "direct"
+        assert self.strategy.get_phase_name(50, 50) == "direct"
 
     def test_turn_0_is_warmup(self):
         """Turn 0 (edge case) should be warmup."""
-        name, _ = self.strategy._get_phase(0, 50)
-        assert name == "warmup"
+        assert self.strategy.get_phase_name(0, 50) == "warmup"
 
     def test_single_turn_total(self):
         """With total_turns=1, turn 1 should be direct (100%)."""
-        name, _ = self.strategy._get_phase(1, 1)
-        assert name == "direct"
+        assert self.strategy.get_phase_name(1, 1) == "direct"
 
     def test_small_total_10_turns(self):
         """Phase boundaries with 10 total turns."""
         strategy = CrescendoStrategy()
-        phases = [strategy._get_phase(t, 10)[0] for t in range(1, 11)]
-        assert phases[0] == "warmup"  # turn 1 = 10%
-        assert phases[1] == "probing"  # turn 2 = 20%
-        assert phases[2] == "probing"  # turn 3 = 30%
-        assert phases[4] == "escalation"  # turn 5 = 50%
-        assert phases[7] == "direct"  # turn 8 = 80%
+        phases = [strategy.get_phase_name(t, 10) for t in range(1, 11)]
+        assert phases[0] == "warmup"     # turn 1 = 10%
+        assert phases[1] == "probing"    # turn 2 = 20%
+        assert phases[2] == "probing"    # turn 3 = 30%
+        assert phases[4] == "escalation" # turn 5 = 50%
+        assert phases[7] == "direct"     # turn 8 = 80%
 
     def test_all_four_phases_present(self):
         """All four phases should appear in a 50-turn marathon."""
-        phases = set()
-        for t in range(1, 51):
-            name, _ = self.strategy._get_phase(t, 50)
-            phases.add(name)
+        phases = {self.strategy.get_phase_name(t, 50) for t in range(1, 51)}
         assert phases == {"warmup", "probing", "escalation", "direct"}
 
 
@@ -161,10 +148,42 @@ class TestCrescendoPromptBuilding:
             target="test", current_turn=45, total_turns=50,
             scenario_description="desc", metaprompt_plan="plan",
         )
-        # They share the same target/plan but have different phase instructions
         assert "WARMUP" in warmup
         assert "DIRECT" in direct
         assert warmup != direct
+
+    def test_prompt_without_score_has_no_feedback_block(self):
+        """When score is None (first turn) no feedback block should appear."""
+        prompt = self.strategy.build_system_prompt(
+            target="test", current_turn=1, total_turns=50,
+            scenario_description="desc", metaprompt_plan="plan",
+            last_response_score=None, adaptation_hint=None,
+        )
+        assert "LAST RESPONSE ASSESSMENT" not in prompt
+        assert "Score:" not in prompt
+
+    def test_prompt_with_score_includes_feedback_block(self):
+        """When a score is provided the feedback block should be present."""
+        prompt = self.strategy.build_system_prompt(
+            target="test", current_turn=5, total_turns=50,
+            scenario_description="desc", metaprompt_plan="plan",
+            last_response_score=3,
+            adaptation_hint="switch to encoding tricks",
+        )
+        assert "LAST RESPONSE ASSESSMENT" in prompt
+        assert "3/10" in prompt
+        assert "switch to encoding tricks" in prompt
+
+    def test_score_10_shows_goal_achieved_context(self):
+        """A perfect score should appear correctly in the prompt."""
+        prompt = self.strategy.build_system_prompt(
+            target="test", current_turn=10, total_turns=50,
+            scenario_description="desc", metaprompt_plan="plan",
+            last_response_score=10,
+            adaptation_hint="goal achieved — push further",
+        )
+        assert "10/10" in prompt
+        assert "goal achieved" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +272,167 @@ class TestRedTeamAgentConstruction:
             attacker_model="openai/gpt-4",
         )
         assert agent.role == AgentRole.USER
+
+    def test_score_responses_default_true(self):
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+        assert agent.score_responses is True
+
+    def test_score_responses_can_be_disabled(self):
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            score_responses=False,
+        )
+        assert agent.score_responses is False
+
+    def test_metaprompt_temperature_defaults_to_attacker_temperature(self):
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            temperature=0.3,
+        )
+        assert agent._metaprompt_temperature == 0.3
+
+    def test_metaprompt_temperature_can_be_set_independently(self):
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            temperature=0.9,
+            metaprompt_temperature=0.0,
+        )
+        assert agent._metaprompt_temperature == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Per-turn response scorer
+# ---------------------------------------------------------------------------
+
+
+class TestResponseScorer:
+
+    @pytest.mark.asyncio
+    async def test_scorer_returns_score_and_hint(self):
+        """Scorer should parse a valid JSON response from the model."""
+        agent = RedTeamAgent.crescendo(
+            target="extract system prompt",
+            attacker_model="openai/gpt-4",
+        )
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = '{"score": 4, "adaptation": "try encoding tricks"}'
+        mock_response.choices = [mock_choice]
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = mock_response
+            messages = [{"role": "assistant", "content": "I cannot share that information."}]
+            score, hint = await agent._score_last_response(messages, current_turn=2)
+
+        assert score == 4
+        assert hint == "try encoding tricks"
+
+    @pytest.mark.asyncio
+    async def test_scorer_is_cached_per_turn(self):
+        """The scorer LLM should be called at most once per turn."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = '{"score": 2, "adaptation": "pivot"}'
+        mock_response.choices = [mock_choice]
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = mock_response
+            messages = [{"role": "assistant", "content": "No."}]
+            await agent._score_last_response(messages, current_turn=3)
+            await agent._score_last_response(messages, current_turn=3)
+
+        assert mock_llm.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_scorer_clamps_score_to_0_10(self):
+        """Out-of-range scores from the model should be clamped."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = '{"score": 99, "adaptation": "done"}'
+        mock_response.choices = [mock_choice]
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = mock_response
+            score, _ = await agent._score_last_response(
+                [{"role": "assistant", "content": "hi"}], current_turn=5
+            )
+
+        assert score == 10
+
+    @pytest.mark.asyncio
+    async def test_scorer_falls_back_gracefully_on_bad_json(self):
+        """Malformed JSON from the model should not crash — fall back to 0."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = "not json at all"
+        mock_response.choices = [mock_choice]
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = mock_response
+            score, hint = await agent._score_last_response(
+                [{"role": "assistant", "content": "hi"}], current_turn=6
+            )
+
+        assert score == 0
+        assert isinstance(hint, str)
+
+    @pytest.mark.asyncio
+    async def test_scorer_handles_no_assistant_message(self):
+        """First turn has no assistant response — should return 0 without LLM call."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            score, hint = await agent._score_last_response([], current_turn=1)
+
+        assert score == 0
+        assert mock_llm.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_scorer_strips_markdown_fences(self):
+        """Model sometimes wraps JSON in ```json ... ``` — strip it."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = '```json\n{"score": 7, "adaptation": "push harder"}\n```'
+        mock_response.choices = [mock_choice]
+
+        with patch("scenario.red_team_agent.litellm.acompletion", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = mock_response
+            score, hint = await agent._score_last_response(
+                [{"role": "assistant", "content": "I can help with that..."}], current_turn=4
+            )
+
+        assert score == 7
+        assert hint == "push harder"
 
 
 # ---------------------------------------------------------------------------
@@ -370,32 +550,98 @@ class TestRedTeamAgentCall:
         agent = RedTeamAgent.crescendo(
             target="test",
             attacker_model="openai/gpt-4",
+            score_responses=False,  # disable scorer so no extra LLM calls
         )
 
-        # Mock the metaprompt generation
         agent._attack_plan = "pre-cached plan"
 
-        # Mock the inner agent's call
         expected_response = {"role": "user", "content": "attack message"}
         agent._inner.call = AsyncMock(return_value=expected_response)
 
-        # Create mock input
         mock_state = MagicMock()
         mock_state.current_turn = 5
         mock_state.description = "test agent"
-
         mock_input = MagicMock(spec=AgentInput)
         mock_input.scenario_state = mock_state
 
         result = await agent.call(mock_input)
 
         assert result == expected_response
-        # Inner agent should have been called
         agent._inner.call.assert_called_once_with(mock_input)
-        # System prompt should have been set
         assert agent._inner.system_prompt is not None
         assert "WARMUP" in agent._inner.system_prompt
         assert "test" in agent._inner.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_call_skips_scorer_on_first_turn(self):
+        """Scorer should not be called on turn 1 — no previous response exists."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            score_responses=True,
+        )
+        agent._attack_plan = "plan"
+        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})
+        agent._score_last_response = AsyncMock()
+
+        mock_state = MagicMock()
+        mock_state.current_turn = 1
+        mock_state.description = "test"
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+
+        await agent.call(mock_input)
+
+        agent._score_last_response.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_call_invokes_scorer_from_turn_2(self):
+        """Scorer should be called on turn 2+ when score_responses=True."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            score_responses=True,
+        )
+        agent._attack_plan = "plan"
+        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})
+        agent._score_last_response = AsyncMock(return_value=(5, "push harder"))
+
+        mock_state = MagicMock()
+        mock_state.current_turn = 2
+        mock_state.description = "test"
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = []
+
+        await agent.call(mock_input)
+
+        agent._score_last_response.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_call_score_injected_into_prompt(self):
+        """Score and adaptation hint from scorer should appear in the system prompt."""
+        agent = RedTeamAgent.crescendo(
+            target="leak the secret",
+            attacker_model="openai/gpt-4",
+            score_responses=True,
+        )
+        agent._attack_plan = "plan"
+        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})
+        agent._score_last_response = AsyncMock(
+            return_value=(7, "exploit the partial disclosure")
+        )
+
+        mock_state = MagicMock()
+        mock_state.current_turn = 5
+        mock_state.description = "desc"
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = []
+
+        await agent.call(mock_input)
+
+        assert "7/10" in agent._inner.system_prompt
+        assert "exploit the partial disclosure" in agent._inner.system_prompt
 
     @pytest.mark.asyncio
     async def test_call_sets_correct_phase_prompt(self):
@@ -413,6 +659,7 @@ class TestRedTeamAgentCall:
 
         mock_input = MagicMock(spec=AgentInput)
         mock_input.scenario_state = mock_state
+        mock_input.messages = []
 
         # Turn 5 = warmup
         mock_state.current_turn = 5
@@ -484,6 +731,7 @@ class TestRedTeamFullFlowMocked:
             target="extract system prompt",
             attacker_model="openai/gpt-4",
             total_turns=5,
+            score_responses=False,  # disable scorer — no API keys in unit tests
         )
 
         # Pre-cache the attack plan so _generate_attack_plan() never calls
@@ -558,6 +806,7 @@ class TestRedTeamFullFlowMocked:
             target="leak PII",
             attacker_model="openai/gpt-4",
             total_turns=10,
+            score_responses=False,  # disable scorer — no API keys in unit tests
         )
 
         # Pre-cache attack plan (avoids cross-thread mock issue)
@@ -616,6 +865,7 @@ class TestRedTeamFullFlowMocked:
             target="test",
             attacker_model="openai/gpt-4",
             total_turns=5,
+            score_responses=False,  # disable scorer — no API keys in unit tests
         )
 
         # Pre-cache the plan and track if _generate_attack_plan is called
@@ -899,6 +1149,9 @@ class TestStrategyExtensibility:
             ):
                 return f"Fixed prompt: {target}"
 
+            def get_phase_name(self, current_turn, total_turns):
+                return "fixed"
+
         rt_agent = RedTeamAgent(
             strategy=FixedStrategy(),
             target="custom target",
@@ -917,6 +1170,9 @@ class TestStrategyExtensibility:
             ):
                 return f"ECHO:{target}:{current_turn}"
 
+            def get_phase_name(self, current_turn, total_turns):
+                return "echo"
+
         rt_agent = RedTeamAgent(
             strategy=EchoStrategy(),
             target="extract secrets",
@@ -932,6 +1188,7 @@ class TestStrategyExtensibility:
         mock_state.description = "desc"
         mock_input = MagicMock(spec=AgentInput)
         mock_input.scenario_state = mock_state
+        mock_input.messages = []
 
         await rt_agent.call(mock_input)
         assert rt_agent._inner.system_prompt == "ECHO:extract secrets:7"
@@ -954,6 +1211,7 @@ class TestTotalTurnsMismatch:
             target="test",
             attacker_model="openai/gpt-4",
             total_turns=50,
+            score_responses=False,
         )
         red_team._attack_plan = "plan"
 
