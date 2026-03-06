@@ -165,7 +165,7 @@ Reply with exactly this JSON and nothing else:
         model: scorerModel,
         messages: [{ role: "user", content: scorePrompt }],
         temperature: 0.0,
-        maxTokens: 120,
+        maxOutputTokens: 120,
       });
 
       let raw = (result.text ?? "").trim();
