@@ -45,7 +45,7 @@ describe("CrescendoStrategy", () => {
   });
 
   it("returns direct at boundary turn 75", () => {
-    // Turn 75 / 100 = 0.75, which is in direct [0.75, 1.01)
+    // Turn 75 / 100 = 0.75, which is in direct [0.75, Infinity)
     const phase = strategy.getPhase(75, 100);
     expect(phase.name).toBe("direct");
   });
@@ -76,6 +76,20 @@ describe("CrescendoStrategy", () => {
     expect(strategy.getPhaseName(15, 50)).toBe("probing");
     expect(strategy.getPhaseName(30, 50)).toBe("escalation");
     expect(strategy.getPhaseName(40, 50)).toBe("direct");
+  });
+
+  it("direct phase turn range is clamped to totalTurns", () => {
+    const prompt = strategy.buildSystemPrompt({
+      target: "test",
+      currentTurn: 40,
+      totalTurns: 50,
+      scenarioDescription: "desc",
+      metapromptPlan: "plan",
+    });
+    // Direct phase [0.75, Infinity) should show "turns 38-50", not "turns 38-2500"
+    expect(prompt).toContain("DIRECT");
+    expect(prompt).toMatch(/turns 3[78]-50/);
+    expect(prompt).not.toContain("2500");
   });
 
   it("prompt without score has no feedback block", () => {

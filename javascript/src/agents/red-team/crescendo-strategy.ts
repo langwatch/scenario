@@ -81,7 +81,7 @@ export class CrescendoStrategy implements RedTeamStrategy {
         const startTurn = Math.max(1, Math.floor(phase.start * totalTurns) + 1);
         const endTurn = Math.min(
           totalTurns,
-          Math.floor(Math.min(phase.end, totalTurns) * totalTurns)
+          Math.floor(Math.min(phase.end, 1.0) * totalTurns)
         );
         return `turns ${startTurn}-${endTurn}`;
       }
