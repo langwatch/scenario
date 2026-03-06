@@ -116,7 +116,7 @@ export class EventBus {
    * Times out after the specified duration to prevent blocking indefinitely
    * when the events endpoint is slow or unavailable.
    */
-  async drain(timeoutMs: number = 30_000): Promise<void> {
+  async drain(timeoutMs: number = 300_000): Promise<void> {
     this.logger.debug("Draining event stream");
 
     // Complete the stream, but don't unsubscribe the Subject itself!!!
