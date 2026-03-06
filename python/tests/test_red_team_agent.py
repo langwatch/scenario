@@ -1298,3 +1298,99 @@ class TestTemperatureBug:
             assert agent.temperature == 0.7
         finally:
             ScenarioConfig.default_config = original
+
+
+# ---------------------------------------------------------------------------
+# Refusal detection
+# ---------------------------------------------------------------------------
+
+
+class TestRefusalDetection:
+    """Tests for pattern-based refusal detection."""
+
+    def setup_method(self):
+        self.agent = RedTeamAgent.crescendo(
+            target="test target",
+            attacker_model="openai/gpt-4",
+            attack_plan="pre-baked plan",
+        )
+
+    @pytest.mark.parametrize("phrase", [
+        "I cannot help with that request.",
+        "I can't assist with that.",
+        "I'm not able to provide that information.",
+        "I must decline your request.",
+        "I'm unable to comply with that.",
+        "That is against my guidelines.",
+        "This violates my policy on harmful content.",
+        "That's not something I can help with.",
+        "I have to refuse that request.",
+        "I won't be able to do that for you.",
+        "I'm not going to provide that information.",
+    ])
+    def test_hard_refusal_detected(self, phrase):
+        assert self.agent._detect_refusal(phrase) == "hard"
+
+    @pytest.mark.parametrize("phrase", [
+        "I'd prefer not to go into that topic.",
+        "I'm not comfortable discussing that.",
+        "Let me redirect our conversation.",
+        "Instead, I can help you with something else.",
+        "However, I can help with a related topic.",
+    ])
+    def test_soft_refusal_detected(self, phrase):
+        assert self.agent._detect_refusal(phrase) == "soft"
+
+    def test_none_for_normal_responses(self):
+        assert self.agent._detect_refusal("Sure, I can help with that!") == "none"
+        assert self.agent._detect_refusal("Here is the information you requested.") == "none"
+        assert self.agent._detect_refusal("Let me look that up for you.") == "none"
+
+    def test_case_insensitive(self):
+        assert self.agent._detect_refusal("I CANNOT help with that") == "hard"
+        assert self.agent._detect_refusal("I Can't Do That") == "hard"
+        assert self.agent._detect_refusal("I'D PREFER NOT TO discuss that") == "soft"
+
+    @pytest.mark.asyncio
+    async def test_hard_refusal_skips_scorer(self):
+        """Hard refusal should set score=0 without calling the LLM scorer."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            attack_plan="pre-baked plan",
+            score_responses=True,
+            detect_refusals=True,
+        )
+        messages = [{"role": "assistant", "content": "I cannot help with that request."}]
+        last_content = agent._get_last_assistant_content(messages)
+        refusal = agent._detect_refusal(last_content)
+        assert refusal == "hard"
+        # Verify the pattern detection itself — the LLM scorer would not be called
+        # because call() short-circuits before reaching _score_last_response
+
+    def test_soft_refusal_does_not_short_circuit(self):
+        """Soft refusal should not short-circuit — LLM scorer would still be called."""
+        result = self.agent._detect_refusal("I'd prefer not to discuss that, but I can help with other things.")
+        assert result == "soft"
+
+    def test_none_does_not_short_circuit(self):
+        """Normal response should not short-circuit — LLM scorer would still be called."""
+        result = self.agent._detect_refusal("Sure, here is the information you need.")
+        assert result == "none"
+
+    def test_detect_refusals_config_default_true(self):
+        """detect_refusals should default to True."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+        )
+        assert agent.detect_refusals is True
+
+    def test_detect_refusals_config_opt_out(self):
+        """detect_refusals can be set to False."""
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            attacker_model="openai/gpt-4",
+            detect_refusals=False,
+        )
+        assert agent.detect_refusals is False
