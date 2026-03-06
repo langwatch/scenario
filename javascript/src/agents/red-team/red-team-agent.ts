@@ -149,7 +149,7 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
     return "";
   }
 
-  detectRefusal(content: string): "hard" | "soft" | "none" {
+  private detectRefusal(content: string): "hard" | "soft" | "none" {
     const lower = content.toLowerCase();
     for (const pattern of RedTeamAgentImpl.HARD_REFUSAL_PATTERNS) {
       if (lower.includes(pattern)) return "hard";
