@@ -8,7 +8,7 @@ systematically probe an agent's safety boundaries across many turns.
 import asyncio
 import json
 import logging
-from typing import Callable, List, Optional, Union, cast
+from typing import Callable, List, Literal, Optional, Union, cast
 
 import litellm
 from opentelemetry import trace
@@ -357,7 +357,7 @@ class RedTeamAgent(AgentAdapter):
                 return str(content)
         return ""
 
-    def _detect_refusal(self, content: str) -> str:
+    def _detect_refusal(self, content: str) -> Literal["hard", "soft", "none"]:
         """Classify content as 'hard', 'soft', or 'none' refusal."""
         lower = content.lower()
         for pattern in self._HARD_REFUSAL_PATTERNS:
