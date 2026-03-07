@@ -324,6 +324,10 @@ export default defineConfig({
           text: "Custom Observability",
           link: "/advanced/custom-observability",
         },
+        {
+          text: "Red Teaming",
+          link: "/advanced/red-teaming",
+        },
       ],
     },
     {
