@@ -1,4 +1,4 @@
-"""Tests for langwatch.scope attribute on scenario root spans."""
+"""Tests for langwatch.origin attribute on scenario root spans."""
 
 import pytest
 from typing import List, Sequence
@@ -77,16 +77,16 @@ def in_memory_exporter():
 
 
 class TestLangwatchScopeAttribute:
-    """Tests for langwatch.scope = 'simulation' on root spans."""
+    """Tests for langwatch.origin = 'simulation' on root spans."""
 
     @pytest.mark.asyncio
     async def test_sets_langwatch_scope_simulation_on_root_span(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """The root span created by _new_turn has langwatch.scope = 'simulation'."""
+        """The root span created by _new_turn has langwatch.origin = 'simulation'."""
         executor = ScenarioExecutor(
             name="scope test",
-            description="test langwatch.scope attribute",
+            description="test langwatch.origin attribute",
             agents=[
                 MockAgent(),
                 MockUserSimulatorAgent(model="none"),
@@ -103,19 +103,19 @@ class TestLangwatchScopeAttribute:
 
         for span in turn_spans:
             attrs = dict(span.attributes or {})
-            assert "langwatch.scope" in attrs, (
-                f"Root span should have 'langwatch.scope' attribute. "
+            assert "langwatch.origin" in attrs, (
+                f"Root span should have 'langwatch.origin' attribute. "
                 f"Found attributes: {list(attrs.keys())}"
             )
-            assert attrs["langwatch.scope"] == "simulation", (
-                f"langwatch.scope should be 'simulation', got '{attrs.get('langwatch.scope')}'"
+            assert attrs["langwatch.origin"] == "simulation", (
+                f"langwatch.origin should be 'simulation', got '{attrs.get('langwatch.origin')}'"
             )
 
     @pytest.mark.asyncio
     async def test_scope_attribute_persists_across_turns(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """Each new turn creates a new root span, all have langwatch.scope = 'simulation'."""
+        """Each new turn creates a new root span, all have langwatch.origin = 'simulation'."""
 
         class MultiTurnJudge(JudgeAgent):
             call_count = 0
@@ -133,7 +133,7 @@ class TestLangwatchScopeAttribute:
 
         executor = ScenarioExecutor(
             name="multi-turn scope test",
-            description="test langwatch.scope persists across turns",
+            description="test langwatch.origin persists across turns",
             agents=[
                 MockAgent(),
                 MockUserSimulatorAgent(model="none"),
@@ -152,7 +152,7 @@ class TestLangwatchScopeAttribute:
 
         for i, span in enumerate(turn_spans):
             attrs = dict(span.attributes or {})
-            assert attrs.get("langwatch.scope") == "simulation", (
-                f"Turn span {i} missing langwatch.scope = 'simulation'. "
-                f"Got: {attrs.get('langwatch.scope')}"
+            assert attrs.get("langwatch.origin") == "simulation", (
+                f"Turn span {i} missing langwatch.origin = 'simulation'. "
+                f"Got: {attrs.get('langwatch.origin')}"
             )

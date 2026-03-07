@@ -43,7 +43,7 @@ class MockJudgeAgent extends JudgeAgentAdapter {
   }
 }
 
-describe("langwatch.scope attribute", () => {
+describe("langwatch.origin attribute", () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
 
@@ -61,11 +61,11 @@ describe("langwatch.scope attribute", () => {
   });
 
   describe("when a scenario turn starts", () => {
-    it("sets langwatch.scope to 'simulation' on the turn span", async () => {
+    it("sets langwatch.origin to 'simulation' on the turn span", async () => {
       const execution = new ScenarioExecution(
         {
           name: "scope test",
-          description: "test langwatch.scope attribute",
+          description: "test langwatch.origin attribute",
           agents: [
             new MockAgent(),
             new MockUserSimulatorAgent(),
@@ -88,7 +88,7 @@ describe("langwatch.scope attribute", () => {
 
       for (const span of turnSpans) {
         expect(span.attributes).toHaveProperty(
-          "langwatch.scope",
+          "langwatch.origin",
           "simulation"
         );
       }
@@ -96,7 +96,7 @@ describe("langwatch.scope attribute", () => {
   });
 
   describe("when a scenario runs multiple turns", () => {
-    it("sets langwatch.scope to 'simulation' on every turn span", async () => {
+    it("sets langwatch.origin to 'simulation' on every turn span", async () => {
       let judgeCallCount = 0;
 
       class MultiTurnJudge extends JudgeAgentAdapter {
@@ -119,7 +119,7 @@ describe("langwatch.scope attribute", () => {
       const execution = new ScenarioExecution(
         {
           name: "multi-turn scope test",
-          description: "test langwatch.scope persists",
+          description: "test langwatch.origin persists",
           agents: [
             new MockAgent(),
             new MockUserSimulatorAgent(),
@@ -138,7 +138,7 @@ describe("langwatch.scope attribute", () => {
 
       for (const span of turnSpans) {
         expect(span.attributes).toHaveProperty(
-          "langwatch.scope",
+          "langwatch.origin",
           "simulation"
         );
       }
