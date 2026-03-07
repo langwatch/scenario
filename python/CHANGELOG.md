@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.19](https://github.com/langwatch/scenario/compare/python/v0.7.18...python/v0.7.19) (2026-03-07)
+
+
+### Features
+
+* add langwatch.origin="simulation" span attribute ([#264](https://github.com/langwatch/scenario/issues/264)) ([30fbdf0](https://github.com/langwatch/scenario/commit/30fbdf006c688ce43db1ad61e678fb0e28578266))
+
+
+### Miscellaneous
+
+* change license from MIT to AGPLv3 ([#258](https://github.com/langwatch/scenario/issues/258)) ([d3ac921](https://github.com/langwatch/scenario/commit/d3ac9213c0a1406aab630c3a034b2dcbb2166976))
+
 ## [0.7.18](https://github.com/langwatch/scenario/compare/python/v0.7.17...python/v0.7.18) (2026-03-05)
 
 
