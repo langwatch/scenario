@@ -199,14 +199,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * @param script - The ordered sequence of script steps that define the test flow
    * @param batchRunId - Batch run ID for grouping scenario runs
    */
-  private hasExplicitScript: boolean;
-
-  constructor(config: ScenarioConfig, script: ScriptStep[], batchRunId: string, hasExplicitScript = false) {
+  constructor(config: ScenarioConfig, script: ScriptStep[], batchRunId: string) {
     if (!batchRunId) {
       throw new Error("batchRunId is required");
     }
     this.batchRunId = batchRunId;
-    this.hasExplicitScript = hasExplicitScript;
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -488,7 +485,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (onTurn) await onTurn(this.state);
 
-      if (!this.hasExplicitScript && this.state.currentTurn >= this.config.maxTurns) {
+      if (this.state.currentTurn >= this.config.maxTurns) {
         this.logger.debug(
           `[${this.config.id}] Reached max turns: ${this.state.currentTurn}`
         );
