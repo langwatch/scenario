@@ -117,10 +117,11 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
     cfg.threadId = generateThreadId();
   }
 
+  const hasExplicitScript = cfg.script != null;
   const steps = cfg.script || [proceed()];
 
   const batchRunId = options?.batchRunId ?? getBatchRunId();
-  const execution = new ScenarioExecution(cfg, steps, batchRunId);
+  const execution = new ScenarioExecution(cfg, steps, batchRunId, hasExplicitScript);
 
   let eventBus: EventBus | null = null;
   let subscription: Subscription | null = null;

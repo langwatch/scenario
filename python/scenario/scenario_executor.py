@@ -163,6 +163,7 @@ class ScenarioExecutor:
         self.name = name
         self.description = description
         self.agents = agents
+        self._has_explicit_script = script is not None
         self.script = script or [proceed()]
 
         config = ScenarioConfig(
@@ -401,7 +402,7 @@ class ScenarioExecutor:
             if on_turn:
                 await await_if_awaitable(on_turn(self._state))
 
-            if self._state.current_turn >= (self.config.max_turns or 10):
+            if not self._has_explicit_script and self._state.current_turn >= (self.config.max_turns or 10):
                 return self._reached_max_turns()
 
         current_role = self._pending_roles_on_turn[0]
