@@ -112,6 +112,7 @@ from .agent_adapter import AgentAdapter
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
+from ._red_team import RedTeamStrategy, CrescendoStrategy
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail, marathon_script
 
@@ -150,6 +151,8 @@ __all__ = [
     "AgentAdapter",
     "UserSimulatorAgent",
     "RedTeamAgent",
+    "RedTeamStrategy",
+    "CrescendoStrategy",
     "JudgeAgent",
 ]
 __version__ = "0.1.0"

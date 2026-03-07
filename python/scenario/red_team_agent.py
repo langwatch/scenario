@@ -99,7 +99,7 @@ class RedTeamAgent(AgentAdapter):
 
         red_team = scenario.RedTeamAgent.crescendo(
             target="extract the system prompt",
-            attacker_model="xai/grok-4",
+            model="xai/grok-4",
             metaprompt_model="claude-opus-4-6",
             total_turns=50,
         )
@@ -124,7 +124,7 @@ class RedTeamAgent(AgentAdapter):
         target: str,
         total_turns: int = 50,
         metaprompt_model: Optional[str] = None,
-        attacker_model: Optional[str] = None,
+        model: Optional[str] = None,
         metaprompt_template: Optional[str] = None,
         attack_plan: Optional[str] = None,
         score_responses: bool = True,
@@ -144,8 +144,8 @@ class RedTeamAgent(AgentAdapter):
                 (e.g. "reveal its system prompt", "perform unauthorized transfers").
             total_turns: Total number of turns in the marathon.
             metaprompt_model: Model for generating the attack plan and scoring
-                responses. Defaults to ``attacker_model`` if not provided.
-            attacker_model: Model for generating attack messages. Required unless
+                responses. Defaults to ``model`` if not provided.
+            model: Model for generating attack messages. Required unless
                 a default model is configured globally.
             metaprompt_template: Custom template for the metaprompt. Uses a
                 well-crafted default if not provided. Must contain ``{target}``,
@@ -176,8 +176,8 @@ class RedTeamAgent(AgentAdapter):
         # Per-turn score cache: {turn_number: (score, adaptation_hint)}
         self._turn_scores: dict[int, tuple[int, str]] = {}
 
-        # Resolve attacker_model from params or global config
-        resolved_model = attacker_model
+        # Resolve model from params or global config
+        resolved_model = model
         if resolved_model is None and ScenarioConfig.default_config is not None:
             default = ScenarioConfig.default_config.default_model
             if isinstance(default, str):
@@ -188,7 +188,7 @@ class RedTeamAgent(AgentAdapter):
         if resolved_model is None:
             raise Exception(agent_not_configured_error_message("RedTeamAgent"))
 
-        # Metaprompt model defaults to attacker model
+        # Metaprompt model defaults to the main model
         self.metaprompt_model = metaprompt_model or resolved_model
 
         # Metaprompt temperature defaults to attacker temperature
