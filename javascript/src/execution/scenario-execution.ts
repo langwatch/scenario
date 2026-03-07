@@ -1218,6 +1218,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     // Create new turn trace context (equivalent to Python's langwatch.trace())
     this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
       attributes: {
+        "langwatch.scope": "simulation",
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,
         [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,

@@ -356,6 +356,9 @@ class ScenarioExecutor:
             },
         ).__enter__()
 
+        if self._trace.root_span is not None:
+            self._trace.root_span.set_attributes({"langwatch.scope": "simulation"})
+
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
             AgentRole.USER,
