@@ -31,6 +31,7 @@ class MockUserSimulatorAgent extends UserSimulatorAgentAdapter {
 }
 
 class MockJudgeAgent extends JudgeAgentAdapter {
+  criteria = ["test criterion passes"];
   async call(input: AgentInput) {
     if (!input.judgmentRequest) return null;
     return {
@@ -99,6 +100,7 @@ describe("langwatch.scope attribute", () => {
       let judgeCallCount = 0;
 
       class MultiTurnJudge extends JudgeAgentAdapter {
+        criteria = ["test"];
         async call(input: AgentInput) {
           if (!input.judgmentRequest) return null;
           judgeCallCount++;

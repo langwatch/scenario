@@ -11,6 +11,7 @@ from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 from scenario.scenario_executor import ScenarioExecutor
 
 from opentelemetry import trace
+from opentelemetry.util._once import Once
 from opentelemetry.sdk.trace import TracerProvider, ReadableSpan
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
 
@@ -57,7 +58,7 @@ class MockAgent(AgentAdapter):
 
 def _reset_otel():
     """Force-reset the global OTel tracer provider singleton."""
-    trace._TRACER_PROVIDER_SET_ONCE = trace.Once()
+    trace._TRACER_PROVIDER_SET_ONCE = Once()
     trace._TRACER_PROVIDER = None
     trace._PROXY_TRACER_PROVIDER = trace.ProxyTracerProvider()
 
