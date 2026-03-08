@@ -59,6 +59,10 @@ class TestAgent implements AgentAdapter {
   async call(_input: AgentInput): Promise<string> {
     return "Test response";
   }
+
+  stream() {
+    return null;
+  }
 }
 
 class TestJudgeAgent implements AgentAdapter {
@@ -72,6 +76,10 @@ class TestJudgeAgent implements AgentAdapter {
       metCriteria: ["criterion1"],
       unmetCriteria: [],
     };
+  }
+
+  stream() {
+    return null;
   }
 }
 
