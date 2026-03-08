@@ -1,6 +1,6 @@
+import { generate, parse } from "@langwatch/ksuid";
 import crypto from "node:crypto";
 import process from "node:process";
-import { generate, parse } from "xksuid";
 
 let batchRunId: string | undefined;
 
@@ -9,7 +9,7 @@ let batchRunId: string | undefined;
  * @returns A new thread ID.
  */
 export function generateThreadId(): string {
-  return `scenariothread_${generate()}`;
+  return generate("scenariothread").toString();
 }
 
 /**
@@ -17,7 +17,7 @@ export function generateThreadId(): string {
  * @returns A new scenario run ID.
  */
 export function generateScenarioRunId(): string {
-  return `scenariorun_${generate()}`;
+  return generate("scenariorun").toString();
 }
 
 /**
@@ -25,7 +25,7 @@ export function generateScenarioRunId(): string {
  * @returns A new scenario ID.
  */
 export function generateScenarioId(): string {
-  return `scenario_${generate()}`;
+  return generate("scenario").toString();
 }
 
 /**
@@ -40,8 +40,12 @@ export function getBatchRunId(): string {
   }
 
   // If the batch run id is set in the environment, use it
-  if (process.env.SCENARIO_BATCH_RUN_ID) {
-    return (batchRunId = process.env.SCENARIO_BATCH_RUN_ID);
+  if (
+    process.env.SCENARIO_BATCH_RUN_ID &&
+    typeof process.env.SCENARIO_BATCH_RUN_ID === "string"
+  ) {
+    batchRunId = process.env.SCENARIO_BATCH_RUN_ID;
+    return batchRunId;
   }
 
   // If we are running inside a vitest (without global setup) or jest test runner, and
@@ -52,13 +56,19 @@ export function getBatchRunId(): string {
     const year = now.getUTCFullYear();
     const week = String(getISOWeekNumber(now)).padStart(2, "0");
     const raw = `${parentProcessId}_${year}_w${week}`;
-    const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 12);
+    const hash = crypto
+      .createHash("sha256")
+      .update(raw)
+      .digest("hex")
+      .slice(0, 12);
 
-    return (batchRunId = `scenariobatch_${hash}`);
+    batchRunId = `scenariobatch_${hash}`;
+    return batchRunId;
   }
 
   // Fallback to creating a new batch run id, and caching it
-  return (batchRunId = `scenariobatch_${generate()}`);
+  batchRunId = generate("scenariobatch").toString();
+  return batchRunId;
 }
 
 /**
@@ -67,13 +77,17 @@ export function getBatchRunId(): string {
  * @returns The ISO week number.
  */
 function getISOWeekNumber(date: Date): number {
-  const tmp = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const tmp = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
   const dayNum = tmp.getUTCDay() || 7;
 
   tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
 
   const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  const weekNo = Math.ceil(
+    ((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+  );
 
   return weekNo;
 }
@@ -83,7 +97,7 @@ function getISOWeekNumber(date: Date): number {
  * @returns A new message ID.
  */
 export function generateMessageId(): string {
-  return `scenariomsg_${generate()}`;
+  return generate("scenariomsg").toString();
 }
 
 /**
