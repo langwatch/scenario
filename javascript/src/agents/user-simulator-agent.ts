@@ -1,10 +1,20 @@
 import { ModelMessage } from "ai";
 
-import { createLLMInvoker } from "./llm-invoker.factory";
-import { TestingAgentConfig, InvokeLLMParams, InvokeLLMResult } from "./types";
+import { createLLMInvoker, createStreamLLMInvoker } from "./llm-invoker.factory";
+import {
+  TestingAgentConfig,
+  InvokeLLMParams,
+  InvokeLLMResult,
+  InvokeStreamLLMParams,
+  StreamLLMResult,
+} from "./types";
 import { messageRoleReversal } from "./utils";
 import { getProjectConfig } from "../config";
-import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
+import {
+  AgentInput,
+  UserSimulatorAgentAdapter,
+  type AgentStreamPart,
+} from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 
@@ -35,13 +45,20 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
    */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
+    createLLMInvoker(this.logger);
+
+  /**
+   * Streaming LLM invocation function. Can be overridden to customize streaming behavior.
+   */
+  streamLLM: (params: InvokeStreamLLMParams) => StreamLLMResult =
+    createStreamLLMInvoker(this.logger);
 
   constructor(private readonly cfg?: TestingAgentConfig) {
     super();
   }
 
-  call = async (input: AgentInput) => {
+  private async buildLLMParams(input: AgentInput) {
     const config = this.cfg;
 
     const systemPrompt =
@@ -54,24 +71,25 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     ];
 
     const projectConfig = await getProjectConfig();
-    // Merge the agent config with the project config and validate
     const mergedConfig = modelSchema.parse({
       ...projectConfig?.defaultModel,
       ...config,
     });
 
-    // User to assistant role reversal
-    // LLM models are biased to always be the assistant not the user, so we need to do
-    // this reversal otherwise models like GPT 4.5 is super confused, and Claude 3.7
-    // even starts throwing exceptions.
     const reversedMessages = messageRoleReversal(messages);
 
-    const completion = await this.invokeLLM({
+    return {
       model: mergedConfig.model,
       messages: reversedMessages,
       temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
-    });
+    };
+  }
+
+  call = async (input: AgentInput) => {
+    const params = await this.buildLLMParams(input);
+
+    const completion = await this.invokeLLM(params);
 
     const messageContent = completion.text;
     if (!messageContent) {
@@ -80,6 +98,47 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
 
     return { role: "user", content: messageContent } satisfies ModelMessage;
   };
+
+  stream(input: AgentInput): AsyncIterable<AgentStreamPart> | null {
+    const self = this;
+
+    return {
+      async *[Symbol.asyncIterator]() {
+        const params = await self.buildLLMParams(input);
+        const result = self.streamLLM(params);
+
+        for await (const part of result.fullStream) {
+          switch (part.type) {
+            case "text-delta":
+              yield { type: "text-delta", delta: part.text } as const;
+              break;
+            case "tool-input-start":
+              yield {
+                type: "tool-call-start",
+                toolCallId: part.id,
+                toolCallName: part.toolName,
+              } as const;
+              break;
+            case "tool-input-delta":
+              yield {
+                type: "tool-call-delta",
+                toolCallId: part.id,
+                delta: part.delta,
+              } as const;
+              break;
+            case "tool-call":
+              yield {
+                type: "tool-call-end",
+                toolCallId: part.toolCallId,
+                toolCallName: part.toolName,
+                args: part.input,
+              } as const;
+              break;
+          }
+        }
+      },
+    };
+  }
 }
 
 /**
