@@ -3,10 +3,9 @@ import { trace } from "@opentelemetry/api";
 import { ModelMessage } from "ai";
 import { getLangWatchTracer } from "langwatch";
 import { attributes } from "langwatch/observability";
-import { filter, Observable, Subject } from "rxjs";
+import { Observable, Subject } from "rxjs";
 import {
   ScenarioExecutionState,
-  StateChangeEventType,
 } from "./scenario-execution-state";
 import {
   type ScenarioResult,
@@ -27,7 +26,6 @@ import {
 import {
   ScenarioEvent,
   ScenarioEventType,
-  ScenarioMessageSnapshotEvent,
   ScenarioRunFinishedEvent,
   ScenarioRunStartedEvent,
   ScenarioRunStatus,
@@ -35,6 +33,7 @@ import {
 } from "../events/schema";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
+  generateMessageId,
   generateScenarioId,
   generateScenarioRunId,
   generateThreadId,
@@ -180,7 +179,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * Events include:
    * - RUN_STARTED: When scenario execution begins
-   * - MESSAGE_SNAPSHOT: After each message is added to the conversation
+   * - TEXT_MESSAGE_START/END: After each message is added to the conversation
    * - RUN_FINISHED: When scenario execution completes (success/failure/error)
    */
   public readonly events$: Observable<ScenarioEvent> =
@@ -191,6 +190,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
   /** The run ID for the current execution */
   private scenarioRunId?: string;
+
+  /** Pre-generated scenario run ID from platform (if provided) */
+  private readonly preGeneratedScenarioRunId?: string;
+
+  /** 0-based counter for message ordering */
+  private messageCounter = 0;
 
   /**
    * Creates a new ScenarioExecution instance.
@@ -204,6 +209,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       throw new Error("batchRunId is required");
     }
     this.batchRunId = batchRunId;
+    this.preGeneratedScenarioRunId = config.__UNSAFE__scenarioRunId;
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -342,19 +348,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.newTurn();
     this.state.currentTurn = 0;
 
-    const scenarioRunId = generateScenarioRunId();
+    const scenarioRunId = this.preGeneratedScenarioRunId ?? generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
     this.logger.debug(`[${this.config.id}] Generated run ID: ${scenarioRunId}`);
     this.emitRunStarted({ scenarioRunId });
-
-    // Create subscription with captured runId (closure)
-    const subscription = this.state.events$
-      .pipe(
-        filter((event) => event.type === StateChangeEventType.MESSAGE_ADDED)
-      )
-      .subscribe(() => {
-        this.emitMessageSnapshot({ scenarioRunId });
-      });
 
     try {
       // Execute script steps - pass the execution context (this), not just state
@@ -559,6 +556,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   ): Promise<void> {
     const agent = this.agents[idx];
     const agentName = agent.name ?? agent.constructor.name;
+    const scenarioRunId = this.scenarioRunId!;
 
     this.logger.debug(`[${this.config.id}] callAgent started`, {
       agentIdx: idx,
@@ -580,7 +578,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     };
 
     // Create agent span as child of the turn span
-    // Following OpenTelemetry docs: create context with parent span right before creating child
     const agentContext = this.currentTurnSpan
       ? trace.setSpan(context.active(), this.currentTurnSpan)
       : context.active();
@@ -606,10 +603,29 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           agentContext,
           async (agentSpan) => {
           agentSpan.setType("agent");
-
-          // Set input for the span
           agentSpan.setInput("chat_messages", this.state.messages);
 
+          const roleString = role === AgentRole.USER ? "user" : "assistant";
+
+          // Try streaming first (guard for plain-object agents without stream method)
+          const stream =
+            typeof agent.stream === "function"
+              ? agent.stream(agentInput)
+              : null;
+
+          if (stream) {
+            await this.handleStreamingAgent({
+              stream,
+              idx,
+              roleString,
+              scenarioRunId,
+              agentSpan,
+              startTime,
+            });
+            return;
+          }
+
+          // Non-streaming fallback
           const agentResponse = await agent.call(agentInput);
           const endTime = Date.now();
           const duration = endTime - startTime;
@@ -638,27 +654,23 @@ export class ScenarioExecution implements ScenarioExecutionLike {
                 success: (agentResponse as { success: boolean }).success,
               }
             );
-            // JudgeResult is automatically augmented with messages by setResult
             this.setResult(agentResponse);
             return;
           }
 
           const messages = convertAgentReturnTypesToMessages(
             agentResponse,
-            role === AgentRole.USER ? "user" : "assistant"
+            roleString,
           );
 
-          // Set output for the span
           if (messages.length > 0) {
             agentSpan.setOutput("chat_messages", messages);
           }
 
-          // Set metrics if available (would need to be extracted from agent response)
           const metrics: Record<string, number> = {
             duration: endTime - startTime,
           };
 
-          // Add token usage if available from agent response
           if (agentResponse && typeof agentResponse === "object") {
             const usage = (
               agentResponse as {
@@ -681,14 +693,39 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
           agentSpan.setMetrics(metrics);
 
-          // Add traceId to each message for proper correlation
           const traceId = agentSpan.spanContext().traceId.toString();
 
+          // Emit START → END for each message, then addMessage + broadcast
           for (const message of messages) {
-            this.state.addMessage({
-              ...message,
-              traceId,
+            const messageId = generateMessageId();
+            const messageIndex = this.messageCounter++;
+            const aguiMessages = convertModelMessagesToAguiMessages([
+              { ...message, id: messageId },
+            ]);
+            const aguiMessage = aguiMessages[0];
+
+            this.emitTextMessageStart({
+              scenarioRunId,
+              messageId,
+              role: message.role,
+              messageIndex,
             });
+            this.emitTextMessageEnd({
+              scenarioRunId,
+              messageId,
+              role: message.role,
+              content:
+                aguiMessage && typeof aguiMessage.content === "string"
+                  ? aguiMessage.content
+                  : typeof message.content === "string"
+                    ? message.content
+                    : JSON.stringify(message.content),
+              message: aguiMessage ?? {},
+              traceId,
+              messageIndex,
+            });
+
+            this.state.addMessage({ ...message, traceId }, messageId);
             this.broadcastMessage(message, idx);
           }
         }
@@ -697,6 +734,127 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } catch (error) {
       throw new Error(`[${agentName}] ${error}`, { cause: error });
     }
+  }
+
+  /**
+   * Handles a streaming agent response: emits START, CONTENT deltas, and END events,
+   * then assembles the final message and adds it to state.
+   */
+  private async handleStreamingAgent({
+    stream,
+    idx,
+    roleString,
+    scenarioRunId,
+    agentSpan,
+    startTime,
+  }: {
+    stream: AsyncIterable<import("../domain").AgentStreamPart>;
+    idx: number;
+    roleString: "user" | "assistant";
+    scenarioRunId: string;
+    agentSpan: { setOutput: (type: string, data: unknown) => void; setMetrics: (m: Record<string, number>) => void; spanContext: () => { traceId: { toString: () => string } } };
+    startTime: number;
+  }): Promise<void> {
+    const messageId = generateMessageId();
+    const messageIndex = this.messageCounter++;
+    const traceId = agentSpan.spanContext().traceId.toString();
+
+    this.emitTextMessageStart({
+      scenarioRunId,
+      messageId,
+      role: roleString,
+      messageIndex,
+    });
+
+    let accumulatedText = "";
+    const toolCalls: Array<{
+      toolCallId: string;
+      toolName: string;
+      args: unknown;
+    }> = [];
+
+    for await (const part of stream) {
+      switch (part.type) {
+        case "text-delta":
+          accumulatedText += part.delta;
+          this.emitTextMessageContent({
+            scenarioRunId,
+            messageId,
+            delta: part.delta,
+          });
+          break;
+        case "tool-call-start":
+          this.emitToolCallStart({
+            scenarioRunId,
+            toolCallId: part.toolCallId,
+            toolCallName: part.toolCallName,
+            parentMessageId: messageId,
+          });
+          break;
+        case "tool-call-delta":
+          this.emitToolCallArgs({
+            scenarioRunId,
+            toolCallId: part.toolCallId,
+            delta: part.delta,
+          });
+          break;
+        case "tool-call-end":
+          toolCalls.push({
+            toolCallId: part.toolCallId,
+            toolName: part.toolCallName,
+            args: part.args,
+          });
+          this.emitToolCallEnd({
+            scenarioRunId,
+            toolCallId: part.toolCallId,
+          });
+          break;
+      }
+    }
+
+    // Assemble final ModelMessage
+    const message = (
+      toolCalls.length > 0
+        ? {
+            role: roleString as "assistant",
+            content: [
+              ...(accumulatedText
+                ? [{ type: "text" as const, text: accumulatedText }]
+                : []),
+              ...toolCalls.map((tc) => ({
+                type: "tool-call" as const,
+                toolCallId: tc.toolCallId,
+                toolName: tc.toolName,
+                input: tc.args,
+              })),
+            ],
+          }
+        : { role: roleString, content: accumulatedText }
+    ) satisfies ModelMessage;
+
+    const aguiMessages = convertModelMessagesToAguiMessages([
+      { ...message, id: messageId },
+    ]);
+
+    this.emitTextMessageEnd({
+      scenarioRunId,
+      messageId,
+      role: roleString,
+      content: accumulatedText,
+      message: aguiMessages[0] ?? {},
+      traceId,
+      messageIndex,
+    });
+
+    const endTime = Date.now();
+    this.addAgentTime(idx, endTime - startTime);
+    this.pendingMessages.delete(idx);
+
+    agentSpan.setOutput("chat_messages", [message]);
+    agentSpan.setMetrics({ duration: endTime - startTime });
+
+    this.state.addMessage({ ...message, traceId }, messageId);
+    this.broadcastMessage(message, idx);
   }
 
   /**
@@ -1068,7 +1226,35 @@ export class ScenarioExecution implements ScenarioExecutionLike {
               content,
             } as ModelMessage)
           : content;
-      this.state.addMessage(message);
+
+      const messageId = generateMessageId();
+      const messageIndex = this.messageCounter++;
+      const aguiMessages = convertModelMessagesToAguiMessages([
+        { ...message, id: messageId },
+      ]);
+      const aguiMessage = aguiMessages[0];
+
+      this.emitTextMessageStart({
+        scenarioRunId: this.scenarioRunId!,
+        messageId,
+        role: message.role,
+        messageIndex,
+      });
+      this.emitTextMessageEnd({
+        scenarioRunId: this.scenarioRunId!,
+        messageId,
+        role: message.role,
+        content:
+          aguiMessage && typeof aguiMessage.content === "string"
+            ? aguiMessage.content
+            : typeof message.content === "string"
+              ? message.content
+              : JSON.stringify(message.content),
+        message: aguiMessage ?? {},
+        messageIndex,
+      });
+
+      this.state.addMessage(message, messageId);
       this.broadcastMessage(message, index);
 
       return null;
@@ -1142,6 +1328,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.pendingMessages.clear();
     this._result = undefined;
     this.checkpointResults = [];
+    this.messageCounter = 0;
 
     this.logger.debug(`[${this.config.id}] Reset complete`, {
       threadId: this.state.threadId,
@@ -1336,15 +1523,138 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
-   * Emits a message snapshot event containing current conversation history.
+   * Emits a text message start event (placeholder for in-progress visibility).
    */
-  private emitMessageSnapshot({ scenarioRunId }: { scenarioRunId: string }) {
+  private emitTextMessageStart({
+    scenarioRunId,
+    messageId,
+    role,
+    messageIndex,
+  }: {
+    scenarioRunId: string;
+    messageId: string;
+    role: string;
+    messageIndex?: number;
+  }) {
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
-      type: ScenarioEventType.MESSAGE_SNAPSHOT,
-      messages: convertModelMessagesToAguiMessages(this.state.messages),
-      // Add any other required fields from MessagesSnapshotEventSchema
-    } as ScenarioMessageSnapshotEvent);
+      type: ScenarioEventType.TEXT_MESSAGE_START,
+      messageId,
+      role,
+      messageIndex,
+    } as ScenarioEvent);
+  }
+
+  /**
+   * Emits a text message end event (complete message with full content).
+   */
+  private emitTextMessageEnd({
+    scenarioRunId,
+    messageId,
+    role,
+    content,
+    message,
+    traceId,
+    messageIndex,
+  }: {
+    scenarioRunId: string;
+    messageId: string;
+    role: string;
+    content: string;
+    message: Record<string, unknown>;
+    traceId?: string;
+    messageIndex?: number;
+  }) {
+    this.emitEvent({
+      ...this.makeBaseEvent({ scenarioRunId }),
+      type: ScenarioEventType.TEXT_MESSAGE_END,
+      messageId,
+      role,
+      content,
+      message,
+      traceId,
+      messageIndex,
+    } as ScenarioEvent);
+  }
+
+  /**
+   * Emits a text message content delta event (streaming).
+   */
+  private emitTextMessageContent({
+    scenarioRunId,
+    messageId,
+    delta,
+  }: {
+    scenarioRunId: string;
+    messageId: string;
+    delta: string;
+  }) {
+    this.emitEvent({
+      ...this.makeBaseEvent({ scenarioRunId }),
+      type: ScenarioEventType.TEXT_MESSAGE_CONTENT,
+      messageId,
+      delta,
+    } as ScenarioEvent);
+  }
+
+  /**
+   * Emits a tool call start event.
+   */
+  private emitToolCallStart({
+    scenarioRunId,
+    toolCallId,
+    toolCallName,
+    parentMessageId,
+  }: {
+    scenarioRunId: string;
+    toolCallId: string;
+    toolCallName: string;
+    parentMessageId: string;
+  }) {
+    this.emitEvent({
+      ...this.makeBaseEvent({ scenarioRunId }),
+      type: ScenarioEventType.TOOL_CALL_START,
+      toolCallId,
+      toolCallName,
+      parentMessageId,
+    } as ScenarioEvent);
+  }
+
+  /**
+   * Emits a tool call args delta event.
+   */
+  private emitToolCallArgs({
+    scenarioRunId,
+    toolCallId,
+    delta,
+  }: {
+    scenarioRunId: string;
+    toolCallId: string;
+    delta: string;
+  }) {
+    this.emitEvent({
+      ...this.makeBaseEvent({ scenarioRunId }),
+      type: ScenarioEventType.TOOL_CALL_ARGS,
+      toolCallId,
+      delta,
+    } as ScenarioEvent);
+  }
+
+  /**
+   * Emits a tool call end event.
+   */
+  private emitToolCallEnd({
+    scenarioRunId,
+    toolCallId,
+  }: {
+    scenarioRunId: string;
+    toolCallId: string;
+  }) {
+    this.emitEvent({
+      ...this.makeBaseEvent({ scenarioRunId }),
+      type: ScenarioEventType.TOOL_CALL_END,
+      toolCallId,
+    } as ScenarioEvent);
   }
 
   /**

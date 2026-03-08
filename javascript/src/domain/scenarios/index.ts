@@ -56,6 +56,12 @@ export interface ScenarioConfig {
   threadId?: string;
 
   /**
+   * @internal Pre-generated scenario run ID. Platform use only.
+   * If provided, the SDK uses this instead of generating its own.
+   */
+  __UNSAFE__scenarioRunId?: string;
+
+  /**
    * Optional identifier to group this scenario into a set ("Simulation Set").
    * This is useful for organizing related scenarios in the UI and for reporting.
    * If not provided, the scenario will not be grouped into a set.

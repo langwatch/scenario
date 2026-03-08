@@ -12,8 +12,9 @@ export enum StateChangeEventType {
 // Generic discriminated union - extensible structure
 export type StateChangeEvent = {
   type: StateChangeEventType.MESSAGE_ADDED;
+  messageId: string;
+  message: ModelMessage & { id: string; traceId?: string };
 };
-// Future event types go here
 
 /**
  * Manages the state of a scenario execution.
@@ -65,14 +66,21 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
    * @param message - The message to add.
    * @param traceId - Optional trace ID to associate with the message.
    */
-  addMessage(message: ModelMessage & { traceId?: string }): void {
+  addMessage(
+    message: ModelMessage & { traceId?: string },
+    messageId?: string
+  ): void {
     const messageWithId = {
       ...message,
-      id: generateMessageId(),
+      id: messageId ?? generateMessageId(),
     };
     this._messages.push(messageWithId);
     // Emit event when message is added
-    this.eventSubject.next({ type: StateChangeEventType.MESSAGE_ADDED });
+    this.eventSubject.next({
+      type: StateChangeEventType.MESSAGE_ADDED,
+      messageId: messageWithId.id,
+      message: messageWithId,
+    });
   }
 
   lastMessage() {
