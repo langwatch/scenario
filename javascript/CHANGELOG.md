@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.6](https://github.com/langwatch/scenario/compare/javascript/v0.4.5...javascript/v0.4.6) (2026-03-07)
+
+
+### Features
+
+* add langwatch.origin="simulation" span attribute ([#264](https://github.com/langwatch/scenario/issues/264)) ([30fbdf0](https://github.com/langwatch/scenario/commit/30fbdf006c688ce43db1ad61e678fb0e28578266))
+
+
+### Bug Fixes
+
+* add timeout to EventBus.drain() to prevent test hangs ([#261](https://github.com/langwatch/scenario/issues/261)) ([2353f35](https://github.com/langwatch/scenario/commit/2353f35d41a13d5c172f3538d6e5e02894a13797))
+
+
+### Miscellaneous
+
+* change license from MIT to AGPLv3 ([#258](https://github.com/langwatch/scenario/issues/258)) ([d3ac921](https://github.com/langwatch/scenario/commit/d3ac9213c0a1406aab630c3a034b2dcbb2166976))
+
 ## [0.4.5](https://github.com/langwatch/scenario/compare/javascript/v0.4.4...javascript/v0.4.5) (2026-03-05)
 
 
