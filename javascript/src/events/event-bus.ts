@@ -5,6 +5,9 @@ import {
   Subject,
   Observable,
   Subscription,
+  filter,
+  groupBy,
+  mergeMap,
   tap,
   map,
 } from "rxjs";
@@ -13,8 +16,24 @@ import { EventReporter } from "./event-reporter";
 import { ScenarioEvent, ScenarioEventType } from "./schema";
 import { Logger } from "../utils/logger";
 
+/** Streaming events are fire-and-forget — best effort, no ordering needed. */
+const FIRE_AND_FORGET_EVENTS = new Set<string>([
+  ScenarioEventType.TEXT_MESSAGE_CONTENT,
+  ScenarioEventType.TOOL_CALL_START,
+  ScenarioEventType.TOOL_CALL_ARGS,
+  ScenarioEventType.TOOL_CALL_END,
+]);
+
 /**
  * Manages scenario event publishing, subscription, and processing pipeline.
+ *
+ * Lifecycle events (RUN_STARTED, TEXT_MESSAGE_START/END, RUN_FINISHED) are
+ * grouped by scenarioRunId so events within one run stay ordered while
+ * different runs proceed concurrently.
+ *
+ * Streaming events (TEXT_MESSAGE_CONTENT, TOOL_CALL_*) are fire-and-forget:
+ * posted concurrently with no ordering guarantees. Failures are logged but
+ * don't block anything.
  */
 export class EventBus {
   private static registry = new Set<EventBus>();
@@ -24,6 +43,8 @@ export class EventBus {
   private processingPromise: Promise<void> | null = null;
   private logger = new Logger("scenario.events.EventBus");
   private static globalListeners: Array<(bus: EventBus) => void> = [];
+  private pendingRuns = new Set<string>();
+  private resolveProcessing: (() => void) | null = null;
 
   constructor(config: { endpoint: string; apiKey: string | undefined }) {
     this.eventReporter = new EventReporter(config);
@@ -56,7 +77,7 @@ export class EventBus {
 
   /**
    * Begins listening for and processing events.
-   * Returns a promise that resolves when a RUN_FINISHED event is fully processed.
+   * Returns a promise that resolves when all RUN_FINISHED events have been processed.
    */
   listen(): Promise<void> {
     this.logger.debug("Listening for events");
@@ -66,28 +87,57 @@ export class EventBus {
     }
 
     this.processingPromise = new Promise<void>((resolve, reject) => {
+      this.resolveProcessing = resolve;
+
+      // Fire-and-forget path: streaming events posted concurrently, best-effort
       this.events$
         .pipe(
-          // Post events and get results
-          concatMap(async (event: ScenarioEvent) => {
-            this.logger.debug(`[${event.type}] Processing event`, { event });
-            const result = await this.eventReporter.postEvent(event);
-            return { event, result };
-          }),
+          filter((event) => FIRE_AND_FORGET_EVENTS.has(event.type)),
+          mergeMap((event) =>
+            this.eventReporter.postEvent(event).catch((err) => {
+              this.logger.debug(`[${event.type}] Fire-and-forget POST failed (non-fatal)`, err);
+            }),
+          ),
+        )
+        .subscribe();
 
-          // Handle watch messages reactively
-          tap(async ({ event, result }) => {
-            if (event.type === ScenarioEventType.RUN_STARTED && result.setUrl) {
-              await this.eventAlertMessageLogger.handleWatchMessage({
-                scenarioSetId: event.scenarioSetId,
-                scenarioRunId: event.scenarioRunId,
-                setUrl: result.setUrl,
-              });
-            }
-          }),
+      // Ordered path: lifecycle events grouped by run, sequential within each run
+      this.events$
+        .pipe(
+          filter((event) => !FIRE_AND_FORGET_EVENTS.has(event.type)),
 
-          // Extract just the event for downstream processing
-          map(({ event }) => event),
+          // Group by scenarioRunId: each run gets its own serial queue
+          groupBy((event) => event.scenarioRunId),
+
+          // Process groups concurrently, events within a group sequentially
+          mergeMap((group$) =>
+            group$.pipe(
+              concatMap(async (event: ScenarioEvent) => {
+                this.logger.debug(`[${event.type}] Processing event`, { event });
+
+                if (event.type === ScenarioEventType.RUN_STARTED) {
+                  this.pendingRuns.add(event.scenarioRunId);
+                }
+
+                const result = await this.eventReporter.postEvent(event);
+                return { event, result };
+              }),
+
+              // Handle watch messages reactively
+              tap(async ({ event, result }) => {
+                if (event.type === ScenarioEventType.RUN_STARTED && result.setUrl) {
+                  await this.eventAlertMessageLogger.handleWatchMessage({
+                    scenarioSetId: event.scenarioSetId,
+                    scenarioRunId: event.scenarioRunId,
+                    setUrl: result.setUrl,
+                  });
+                }
+              }),
+
+              // Extract just the event for downstream processing
+              map(({ event }) => event),
+            ),
+          ),
 
           catchError((error: unknown) => {
             this.logger.error("Error in event stream:", error);
@@ -98,7 +148,10 @@ export class EventBus {
           next: (event: ScenarioEvent) => {
             this.logger.debug(`[${event.type}] Event processed`, { event });
             if (event.type === ScenarioEventType.RUN_FINISHED) {
-              resolve();
+              this.pendingRuns.delete(event.scenarioRunId);
+              if (this.pendingRuns.size === 0 && this.resolveProcessing) {
+                this.resolveProcessing();
+              }
             }
           },
           error: (error: unknown) => {

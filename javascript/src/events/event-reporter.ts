@@ -82,18 +82,16 @@ export class EventReporter {
    * Converts message content objects to strings when needed.
    */
   private processEventForApi(event: ScenarioEvent): ScenarioEvent {
-    if (event.type === ScenarioEventType.MESSAGE_SNAPSHOT) {
+    if (event.type === ScenarioEventType.TEXT_MESSAGE_END) {
       return {
         ...event,
-        messages: event.messages.map((message) => ({
-          ...message,
-          content:
-            typeof message.content !== "string"
-              ? JSON.stringify(message.content)
-              : message.content,
-        })),
+        content:
+          event.content !== undefined && typeof event.content !== "string"
+            ? JSON.stringify(event.content)
+            : event.content,
       };
     }
+
     return event;
   }
 }
