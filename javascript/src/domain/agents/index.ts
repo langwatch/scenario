@@ -2,7 +2,9 @@ import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
+import type { AgentStreamPart } from "./types/agent-stream.types";
 export * from "./types/agent-return.types";
+export * from "./types/agent-stream.types";
 
 export enum AgentRole {
   USER = "User",
@@ -101,6 +103,16 @@ export abstract class AgentAdapter {
    * @returns The agent's response.
    */
   abstract call(input: AgentInput): Promise<AgentReturnTypes>;
+
+  /**
+   * Optional streaming method. Returns an async iterable of stream parts,
+   * or null to fall back to `call()`.
+   *
+   * Override this method to enable streaming for your agent.
+   */
+  stream(_input: AgentInput): AsyncIterable<AgentStreamPart> | null {
+    return null;
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 import { ModelConfig } from "../domain/core/schemas/model.schema";
 
 /**
@@ -15,6 +15,17 @@ export type InvokeLLMResult = Pick<
   Awaited<ReturnType<typeof generateText>>,
   "text" | "content" | "toolCalls" | "toolResults"
 >;
+
+/**
+ * Parameters for streaming LLM invocation.
+ * Same shape as InvokeLLMParams (streamText accepts the same params).
+ */
+export type InvokeStreamLLMParams = Parameters<typeof streamText>[0];
+
+/**
+ * Result from streaming LLM invocation.
+ */
+export type StreamLLMResult = ReturnType<typeof streamText>;
 
 /**
  * General configuration for a testing agent.
