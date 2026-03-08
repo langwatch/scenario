@@ -17,6 +17,12 @@ export enum ScenarioEventType {
   RUN_STARTED = "SCENARIO_RUN_STARTED",
   RUN_FINISHED = "SCENARIO_RUN_FINISHED",
   MESSAGE_SNAPSHOT = "SCENARIO_MESSAGE_SNAPSHOT",
+  TEXT_MESSAGE_START = "SCENARIO_TEXT_MESSAGE_START",
+  TEXT_MESSAGE_END = "SCENARIO_TEXT_MESSAGE_END",
+  TEXT_MESSAGE_CONTENT = "SCENARIO_TEXT_MESSAGE_CONTENT",
+  TOOL_CALL_START = "SCENARIO_TOOL_CALL_START",
+  TOOL_CALL_ARGS = "SCENARIO_TOOL_CALL_ARGS",
+  TOOL_CALL_END = "SCENARIO_TOOL_CALL_END",
 }
 
 export enum ScenarioRunStatus {
@@ -115,6 +121,65 @@ export const scenarioMessageSnapshotSchema = MessagesSnapshotEventSchema.merge(
 );
 
 /**
+ * Scenario Text Message Start Event Schema
+ */
+export const scenarioTextMessageStartSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TEXT_MESSAGE_START),
+  messageId: z.string(),
+  role: z.string(),
+  messageIndex: z.number().optional(),
+});
+
+/**
+ * Scenario Text Message End Event Schema
+ */
+export const scenarioTextMessageEndSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TEXT_MESSAGE_END),
+  messageId: z.string(),
+  role: z.string(),
+  content: z.string().optional(),
+  message: z.record(z.unknown()).optional(),
+  traceId: z.string().optional(),
+  messageIndex: z.number().optional(),
+});
+
+/**
+ * Scenario Text Message Content Event Schema (broadcast only, streaming delta)
+ */
+export const scenarioTextMessageContentSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TEXT_MESSAGE_CONTENT),
+  messageId: z.string(),
+  delta: z.string(),
+});
+
+/**
+ * Scenario Tool Call Start Event Schema (broadcast only)
+ */
+export const scenarioToolCallStartSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TOOL_CALL_START),
+  toolCallId: z.string(),
+  toolCallName: z.string(),
+  parentMessageId: z.string().optional(),
+});
+
+/**
+ * Scenario Tool Call Args Event Schema (broadcast only)
+ */
+export const scenarioToolCallArgsSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TOOL_CALL_ARGS),
+  toolCallId: z.string(),
+  delta: z.string(),
+});
+
+/**
+ * Scenario Tool Call End Event Schema (broadcast only)
+ */
+export const scenarioToolCallEndSchema = baseScenarioEventSchema.extend({
+  type: z.literal(ScenarioEventType.TOOL_CALL_END),
+  toolCallId: z.string(),
+});
+
+/**
  * Scenario Event Union Schema
  * Discriminated union of all possible scenario event types.
  * Enables type-safe handling of different event types based on the 'type' field.
@@ -123,6 +188,12 @@ export const scenarioEventSchema = z.discriminatedUnion("type", [
   scenarioRunStartedSchema,
   scenarioRunFinishedSchema,
   scenarioMessageSnapshotSchema,
+  scenarioTextMessageStartSchema,
+  scenarioTextMessageEndSchema,
+  scenarioTextMessageContentSchema,
+  scenarioToolCallStartSchema,
+  scenarioToolCallArgsSchema,
+  scenarioToolCallEndSchema,
 ]);
 
 export type ScenarioRunStartedEvent = z.infer<typeof scenarioRunStartedSchema>;
@@ -132,6 +203,12 @@ export type ScenarioRunFinishedEvent = z.infer<
 export type ScenarioMessageSnapshotEvent = z.infer<
   typeof scenarioMessageSnapshotSchema
 >;
+export type ScenarioTextMessageStartEvent = z.infer<typeof scenarioTextMessageStartSchema>;
+export type ScenarioTextMessageEndEvent = z.infer<typeof scenarioTextMessageEndSchema>;
+export type ScenarioTextMessageContentEvent = z.infer<typeof scenarioTextMessageContentSchema>;
+export type ScenarioToolCallStartEvent = z.infer<typeof scenarioToolCallStartSchema>;
+export type ScenarioToolCallArgsEvent = z.infer<typeof scenarioToolCallArgsSchema>;
+export type ScenarioToolCallEndEvent = z.infer<typeof scenarioToolCallEndSchema>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 
 // Define response schemas
