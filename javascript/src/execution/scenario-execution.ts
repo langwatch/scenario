@@ -434,8 +434,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.currentTurnSpan.end();
         this.currentTurnSpan = undefined;
       }
-      // Clean up the subscription when execution is done
-      subscription.unsubscribe();
     }
   }
 
