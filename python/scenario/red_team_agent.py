@@ -188,6 +188,12 @@ class RedTeamAgent(AgentAdapter):
         # Per-turn score cache: {turn_number: (score, adaptation_hint)}
         self._turn_scores: dict[int, tuple[int, str]] = {}
 
+        # Backtracking state — removes refused exchanges so the target
+        # "forgets" it ever refused and the attacker retries cleanly.
+        self._MAX_BACKTRACKS = 10
+        self._backtracks_remaining = self._MAX_BACKTRACKS
+        self._backtrack_history: list[dict] = []  # [{"turn": int, "attack": str, "refusal": str}]
+
         # Resolve model from params or global config
         resolved_model = model
         if resolved_model is None and ScenarioConfig.default_config is not None:
@@ -311,7 +317,13 @@ class RedTeamAgent(AgentAdapter):
                     f"{self.success_confirm_turns} consecutive turns)"
                 )
 
-        for _ in range(turns):
+        # Pad for potential backtracks so effective turns ≈ requested turns.
+        # Each backtrack wastes one iteration (the attack is regenerated from
+        # a pruned context), so we add _MAX_BACKTRACKS extra iterations.
+        # Early exit prevents running excess iterations if the attack succeeds.
+        total_iterations = turns + self._MAX_BACKTRACKS
+
+        for _ in range(total_iterations):
             steps.append(user())
             steps.append(agent())
             steps.append(_early_exit_check)
@@ -419,6 +431,16 @@ class RedTeamAgent(AgentAdapter):
             role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
             content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
             if role == "assistant" and content:
+                return str(content)
+        return ""
+
+    @staticmethod
+    def _get_last_user_content(messages: list) -> str:
+        """Get the content of the last user message."""
+        for msg in reversed(messages):
+            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+            if role == "user" and content:
                 return str(content)
         return ""
 
@@ -549,11 +571,47 @@ Reply with exactly this JSON and nothing else:
             # Generate attack plan on first call (cached for all subsequent turns)
             attack_plan = await self._generate_attack_plan(description)
 
+            # ----------------------------------------------------------
+            # Backtrack on hard refusal: remove the refused exchange so
+            # the target "forgets" it ever refused.  The attacker retries
+            # from a clean slate with a different technique.
+            # ----------------------------------------------------------
+            did_backtrack = False
+            if current_turn > 1 and self._backtracks_remaining > 0:
+                last_content = self._get_last_assistant_content(input.messages)
+                if last_content and self._detect_refusal(last_content) == "hard":
+                    # Store refusal info for attacker adaptation
+                    last_user = self._get_last_user_content(input.messages)
+                    self._backtrack_history.append({
+                        "turn": current_turn - 1,
+                        "attack": last_user,
+                        "refusal": last_content[:200],
+                    })
+                    # Remove the refused exchange: find last user msg, delete from there
+                    for i in range(len(input.messages) - 1, -1, -1):
+                        msg = input.messages[i]
+                        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+                        if role == "user":
+                            del input.messages[i:]
+                            break
+                    self._backtracks_remaining -= 1
+                    did_backtrack = True
+                    # Cache a score of 0 for this turn (no LLM call needed)
+                    self._turn_scores[current_turn] = (0, "Backtracked due to hard refusal")
+                    logger.debug(
+                        "RedTeamAgent backtrack: turn=%d backtracks_remaining=%d",
+                        current_turn, self._backtracks_remaining,
+                    )
+
+            span.set_attribute("red_team.did_backtrack", did_backtrack)
+            span.set_attribute("red_team.backtracks_remaining", self._backtracks_remaining)
+
             # Score the target's last response to feed back into the attacker.
             # Skip on turn 1 — there is no previous response to score yet.
+            # Skip when backtracked — we already know it was a refusal.
             last_response_score: Optional[int] = None
             adaptation_hint: Optional[str] = None
-            if self.score_responses and current_turn > 1:
+            if self.score_responses and current_turn > 1 and not did_backtrack:
                 # Try pattern-based refusal detection first to skip LLM scorer
                 if self.detect_refusals:
                     last_content = self._get_last_assistant_content(input.messages)
@@ -578,6 +636,7 @@ Reply with exactly this JSON and nothing else:
                 metaprompt_plan=attack_plan,
                 last_response_score=last_response_score,
                 adaptation_hint=adaptation_hint,
+                backtrack_history=self._backtrack_history,
             )
 
             phase_name = self._strategy.get_phase_name(current_turn, self.total_turns)

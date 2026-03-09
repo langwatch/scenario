@@ -17,6 +17,7 @@ class RedTeamStrategy(ABC):
         metaprompt_plan: str = "",
         last_response_score: Optional[int] = None,
         adaptation_hint: Optional[str] = None,
+        backtrack_history: Optional[list] = None,
         **kwargs,
     ) -> str:
         """Return the system prompt for this turn.
@@ -31,6 +32,9 @@ class RedTeamStrategy(ABC):
                 the attack goal. None on the first turn (no response yet).
             adaptation_hint: One-sentence instruction on how to adapt this turn
                 based on the previous response score. None on the first turn.
+            backtrack_history: List of dicts with keys "turn", "attack", "refusal"
+                for approaches that were backtracked due to hard refusals.
+                The target does NOT remember these exchanges.
             **kwargs: Additional strategy-specific parameters.
         """
         ...
