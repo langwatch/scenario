@@ -6,8 +6,8 @@ of the Scenario testing framework, including execution parameters and debugging 
 """
 
 import os
-from typing import Optional, Union, ClassVar
-from pydantic import BaseModel
+from typing import Any, Dict, Optional, Union, ClassVar
+from pydantic import BaseModel, ConfigDict
 
 from .model import ModelConfig
 
@@ -26,28 +26,26 @@ class ScenarioConfig(BaseModel):
         verbose: Whether to show detailed output during execution (True/False or verbosity level)
         cache_key: Key for caching scenario results to ensure deterministic behavior
         debug: Whether to enable debug mode with step-by-step interaction
+        observability: OpenTelemetry tracing configuration (span_filter, instrumentors, etc.)
 
     Example:
         ```
+        import scenario
+        from scenario import scenario_only
+
         # Configure globally for all scenarios
         scenario.configure(
             default_model="openai/gpt-4.1-mini",
             max_turns=15,
-            verbose=True,
-            cache_key="my-test-suite-v1",
-            debug=False
-        )
-
-        # Or create a specific config instance
-        config = ScenarioConfig(
-            default_model=ModelConfig(
-                model="openai/gpt-4.1-mini",
-                temperature=0.2
-            ),
-            max_turns=20
+            observability={
+                "span_filter": scenario_only,
+                "instrumentors": [],
+            },
         )
         ```
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     default_model: Optional[Union[str, ModelConfig]] = None
     max_turns: Optional[int] = 10
@@ -59,6 +57,7 @@ class ScenarioConfig(BaseModel):
         "0",
         "",
     ]
+    observability: Optional[Dict[str, Any]] = None
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
 
@@ -71,6 +70,7 @@ class ScenarioConfig(BaseModel):
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
         headless: Optional[bool] = None,
+        observability: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Set global configuration settings for all scenario executions.
@@ -84,17 +84,23 @@ class ScenarioConfig(BaseModel):
             verbose: Enable verbose output during scenario execution
             cache_key: Cache key for deterministic scenario behavior across runs
             debug: Enable debug mode for step-by-step execution with user intervention
+            observability: OpenTelemetry tracing configuration. Accepts:
+                - span_filter: Callable filter (use scenario_only or with_custom_scopes())
+                - span_processors: List of additional SpanProcessors
+                - trace_exporter: Custom SpanExporter
+                - instrumentors: List of OTel instrumentors (pass [] to disable auto-instrumentation)
 
         Example:
             ```
             import scenario
+            from scenario import scenario_only
 
-            # Set up default configuration
             scenario.configure(
                 default_model="openai/gpt-4.1-mini",
-                max_turns=15,
-                verbose=True,
-                debug=False
+                observability={
+                    "span_filter": scenario_only,
+                    "instrumentors": [],
+                },
             )
 
             # All subsequent scenario runs will use these defaults
@@ -115,6 +121,7 @@ class ScenarioConfig(BaseModel):
                 cache_key=cache_key,
                 debug=debug,
                 headless=headless,
+                observability=observability,
             )
         )
 

@@ -75,7 +75,7 @@ export const scenarioRunStartedSchema = baseScenarioEventSchema.extend({
   metadata: z.object({
     name: z.string().optional(),
     description: z.string().optional(),
-  }),
+  }).catchall(z.unknown()),
 });
 
 /**

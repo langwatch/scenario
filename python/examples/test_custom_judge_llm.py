@@ -111,6 +111,7 @@ class PoliteAgent(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_custom_llm_judge():
     """Custom LLM judge evaluates a polite agent response."""

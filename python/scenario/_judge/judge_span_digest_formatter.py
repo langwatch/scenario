@@ -5,15 +5,21 @@ Formats OpenTelemetry spans into a plain-text digest for judge evaluation.
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Sequence
 
-from langwatch.attributes import AttributeKey
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import StatusCode
-from opentelemetry.util.types import AttributeValue
 
 from .deep_transform import deep_transform
+from .span_utils import (
+    calculate_span_duration,
+    clean_attributes,
+    format_duration,
+    format_timestamp,
+    get_status_indicator,
+    get_token_usage,
+    hr_time_to_ms,
+)
 from .string_deduplicator import StringDeduplicator
 from .truncate_media import truncate_media_url, truncate_media_part
 
@@ -38,6 +44,49 @@ class JudgeSpanDigestFormatter:
 
     def __init__(self) -> None:
         self._deduplicator = StringDeduplicator(threshold=50)
+
+    def format_structure_only(self, spans: Sequence[ReadableSpan]) -> str:
+        """
+        Formats spans into a structure-only digest showing span tree hierarchy
+        without attributes, events, or content. Used for large traces that
+        exceed the token threshold, paired with expand_trace/grep_trace tools.
+
+        Args:
+            spans: All spans for a thread.
+
+        Returns:
+            Plain text digest with only structural information.
+        """
+        logger.debug(
+            "format_structure_only() called",
+            extra={"span_count": len(spans)},
+        )
+
+        if not spans:
+            return "No spans recorded."
+
+        sorted_spans = self._sort_by_start_time(spans)
+        tree = self._build_hierarchy(sorted_spans)
+        total_duration = self._calculate_total_duration(sorted_spans)
+
+        lines: List[str] = [
+            f"Spans: {len(spans)} | Total Duration: {format_duration(total_duration)}",
+            "",
+        ]
+
+        root_count = len(tree)
+        for idx, node in enumerate(tree):
+            self._render_structure_node(
+                node, lines, depth=0, is_last=(idx == root_count - 1)
+            )
+
+        errors = self._collect_errors(spans)
+        if errors:
+            lines.append("")
+            lines.append("=== ERRORS ===")
+            lines.extend(errors)
+
+        return "\n".join(lines)
 
     def format(self, spans: Sequence[ReadableSpan]) -> str:
         """
@@ -76,15 +125,14 @@ class JudgeSpanDigestFormatter:
         )
 
         lines: List[str] = [
-            f"Spans: {len(spans)} | Total Duration: {self._format_duration(total_duration)}",
+            f"Spans: {len(spans)} | Total Duration: {format_duration(total_duration)}",
             "",
         ]
 
-        sequence = 1
         root_count = len(tree)
         for idx, node in enumerate(tree):
-            sequence = self._render_node(
-                node, lines, depth=0, sequence=sequence, is_last=(idx == root_count - 1)
+            self._render_node(
+                node, lines, depth=0, is_last=(idx == root_count - 1)
             )
 
         errors = self._collect_errors(spans)
@@ -97,7 +145,7 @@ class JudgeSpanDigestFormatter:
 
     def _sort_by_start_time(self, spans: Sequence[ReadableSpan]) -> List[ReadableSpan]:
         """Sorts spans by start time."""
-        return sorted(spans, key=lambda s: self._hr_time_to_ms(s.start_time or 0))
+        return sorted(spans, key=lambda s: hr_time_to_ms(s.start_time or 0))
 
     def _build_hierarchy(self, spans: List[ReadableSpan]) -> List[SpanNode]:
         """Builds a tree structure from flat span list."""
@@ -126,27 +174,56 @@ class JudgeSpanDigestFormatter:
 
         return roots
 
+    def _render_structure_node(
+        self,
+        node: SpanNode,
+        lines: List[str],
+        depth: int,
+        is_last: bool = True,
+    ) -> None:
+        """Renders a span node in structure-only mode (no attributes/events)."""
+        span = node.span
+        span_ctx = span.get_span_context()
+        short_id = format(span_ctx.span_id if span_ctx else 0, "016x")[:8]
+        duration = calculate_span_duration(span)
+        timestamp = format_timestamp(span.start_time or 0)
+        status = get_status_indicator(span)
+        tokens = get_token_usage(span)
+
+        prefix = self._get_tree_prefix(depth, is_last)
+        lines.append(
+            f"{prefix}[{short_id}] {timestamp} {span.name} ({format_duration(duration)}{tokens}){status}"
+        )
+        lines.append("")
+
+        child_count = len(node.children)
+        for idx, child in enumerate(node.children):
+            self._render_structure_node(
+                child, lines, depth + 1, is_last=(idx == child_count - 1)
+            )
+
     def _render_node(
         self,
         node: SpanNode,
         lines: List[str],
         depth: int,
-        sequence: int,
         is_last: bool = True,
-    ) -> int:
+    ) -> None:
         """Renders a span node and its children."""
         span = node.span
-        duration = self._calculate_span_duration(span)
-        timestamp = self._format_timestamp(span.start_time or 0)
-        status = self._get_status_indicator(span)
+        span_ctx = span.get_span_context()
+        short_id = format(span_ctx.span_id if span_ctx else 0, "016x")[:8]
+        duration = calculate_span_duration(span)
+        timestamp = format_timestamp(span.start_time or 0)
+        status = get_status_indicator(span)
 
         prefix = self._get_tree_prefix(depth, is_last)
         lines.append(
-            f"{prefix}[{sequence}] {timestamp} {span.name} ({self._format_duration(duration)}){status}"
+            f"{prefix}[{short_id}] {timestamp} {span.name} ({format_duration(duration)}){status}"
         )
 
         attr_indent = self._get_attr_indent(depth, is_last)
-        attrs = self._clean_attributes(dict(span.attributes) if span.attributes else {})
+        attrs = clean_attributes(dict(span.attributes) if span.attributes else {})
         for key, value in attrs.items():
             lines.append(f"{attr_indent}{key}: {self._format_value(value)}")
 
@@ -154,7 +231,7 @@ class JudgeSpanDigestFormatter:
             for event in span.events:
                 lines.append(f"{attr_indent}[event] {event.name}")
                 if event.attributes:
-                    event_attrs = self._clean_attributes(dict(event.attributes))
+                    event_attrs = clean_attributes(dict(event.attributes))
                     for key, value in event_attrs.items():
                         lines.append(
                             f"{attr_indent}  {key}: {self._format_value(value)}"
@@ -162,14 +239,11 @@ class JudgeSpanDigestFormatter:
 
         lines.append("")
 
-        next_seq = sequence + 1
         child_count = len(node.children)
         for idx, child in enumerate(node.children):
-            next_seq = self._render_node(
-                child, lines, depth + 1, next_seq, is_last=(idx == child_count - 1)
+            self._render_node(
+                child, lines, depth + 1, is_last=(idx == child_count - 1)
             )
-
-        return next_seq
 
     def _get_tree_prefix(self, depth: int, is_last: bool) -> str:
         """Gets tree drawing prefix for a given depth."""
@@ -185,33 +259,8 @@ class JudgeSpanDigestFormatter:
         continuation = "    " if is_last else "│   "
         return "│   " * (depth - 1) + continuation + "    "
 
-    def _clean_attributes(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
-        """Cleans attributes by removing internal keys."""
-        cleaned: Dict[str, Any] = {}
-        seen: set = set()
-
-        excluded_keys = [
-            AttributeKey.LangWatchThreadId,
-            "langwatch.scenario.id",
-            "langwatch.scenario.name",
-        ]
-
-        for key, value in attrs.items():
-            if key in excluded_keys:
-                continue
-            clean_key = (
-                key.replace("langwatch.", "", 1)
-                if key.startswith("langwatch.")
-                else key
-            )
-            if clean_key not in seen:
-                seen.add(clean_key)
-                cleaned[clean_key] = value
-
-        return cleaned
-
     def _format_value(self, value: Any) -> str:
-        """Formats a value for display."""
+        """Formats a value for display with deduplication."""
         processed = self._transform_value(value)
         if isinstance(processed, str):
             return processed
@@ -260,42 +309,13 @@ class JudgeSpanDigestFormatter:
             t.startswith("[") and t.endswith("]")
         )
 
-    def _hr_time_to_ms(self, hr_time: int) -> float:
-        """Converts nanoseconds to milliseconds."""
-        return hr_time / 1_000_000
-
-    def _calculate_span_duration(self, span: ReadableSpan) -> float:
-        """Calculates span duration in milliseconds."""
-        start = span.start_time or 0
-        end = span.end_time or 0
-        return self._hr_time_to_ms(end) - self._hr_time_to_ms(start)
-
     def _calculate_total_duration(self, spans: List[ReadableSpan]) -> float:
         """Calculates total duration from first start to last end."""
         if not spans:
             return 0
-        first = self._hr_time_to_ms(spans[0].start_time or 0)
-        last = max(self._hr_time_to_ms(s.end_time or 0) for s in spans)
+        first = hr_time_to_ms(spans[0].start_time or 0)
+        last = max(hr_time_to_ms(s.end_time or 0) for s in spans)
         return last - first
-
-    def _format_duration(self, ms: float) -> str:
-        """Formats duration in human-readable form."""
-        if ms < 1000:
-            return f"{round(ms)}ms"
-        return f"{ms / 1000:.2f}s"
-
-    def _format_timestamp(self, hr_time: int) -> str:
-        """Formats nanoseconds timestamp as ISO string."""
-        ms = self._hr_time_to_ms(hr_time)
-        dt = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
-        return dt.isoformat().replace("+00:00", "Z")
-
-    def _get_status_indicator(self, span: ReadableSpan) -> str:
-        """Gets error indicator if span has error status."""
-        if span.status.status_code == StatusCode.ERROR:
-            message = span.status.description or "unknown"
-            return f" ⚠️ ERROR: {message}"
-        return ""
 
     def _collect_errors(self, spans: Sequence[ReadableSpan]) -> List[str]:
         """Collects error messages from failed spans."""

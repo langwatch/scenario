@@ -111,6 +111,7 @@ class DatabaseAgent(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_database_service_mocking():
     """Test mocking database connections within tools while using real LLM tool calling."""

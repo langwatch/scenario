@@ -10,7 +10,7 @@ success/failure verdicts.
 import json
 import logging
 import re
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional, Sequence, cast
 
 import litellm
 from litellm import Choices
@@ -22,6 +22,8 @@ from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
 from ._judge import JudgeUtils, judge_span_digest_formatter
+from ._judge.estimate_tokens import estimate_tokens, DEFAULT_TOKEN_THRESHOLD
+from ._judge.trace_tools import expand_trace, grep_trace
 from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 
@@ -109,6 +111,8 @@ class JudgeAgent(AgentAdapter):
     system_prompt: Optional[str]
     _extra_params: dict
     _span_collector: JudgeSpanCollector
+    _token_threshold: int
+    _max_discovery_steps: int
 
     def __init__(
         self,
@@ -121,6 +125,8 @@ class JudgeAgent(AgentAdapter):
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         span_collector: Optional[JudgeSpanCollector] = None,
+        token_threshold: int = DEFAULT_TOKEN_THRESHOLD,
+        max_discovery_steps: int = 10,
         **extra_params,
     ):
         """
@@ -142,6 +148,12 @@ class JudgeAgent(AgentAdapter):
             system_prompt: Custom system prompt to override default judge behavior.
                           Use this to create specialized evaluation perspectives.
             span_collector: Optional span collector for telemetry. Defaults to global singleton.
+            token_threshold: Estimated token count above which traces switch to
+                            structure-only rendering with progressive discovery tools.
+                            Defaults to 8192.
+            max_discovery_steps: Maximum number of expand/grep tool calls the judge
+                                can make before being forced to return a verdict.
+                                Defaults to 10.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -179,6 +191,8 @@ class JudgeAgent(AgentAdapter):
         self.max_tokens = max_tokens
         self.system_prompt = system_prompt
         self._span_collector = span_collector or judge_span_collector
+        self._token_threshold = token_threshold
+        self._max_discovery_steps = max_discovery_steps
 
         if model:
             self.model = model
@@ -261,16 +275,17 @@ class JudgeAgent(AgentAdapter):
 
         # Build transcript and traces digest
         transcript = JudgeUtils.build_transcript_from_messages(input.messages)
-        traces_digest = self._get_opentelemetry_traces_digest(input.thread_id)
+        spans = self._span_collector.get_spans_for_thread(input.thread_id)
+        digest, is_large_trace = self._build_trace_digest(spans)
 
-        logger.debug(f"OpenTelemetry traces built: {traces_digest[:200]}...")
+        logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
         content_for_judge = f"""
 <transcript>
 {transcript}
 </transcript>
 <opentelemetry_traces>
-{traces_digest}
+{digest}
 </opentelemetry_traces>
 """
 
@@ -278,7 +293,7 @@ class JudgeAgent(AgentAdapter):
             [f"{idx + 1}. {criterion}" for idx, criterion in enumerate(effective_criteria)]
         )
 
-        messages = [
+        messages: List[dict] = [
             {
                 "role": "system",
                 "content": self.system_prompt
@@ -337,7 +352,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )[:70]
             for criterion in effective_criteria
         ]
-        tools = [
+        tools: List[dict] = [
             {
                 "type": "function",
                 "function": {
@@ -392,6 +407,9 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             },
         ]
 
+        if is_large_trace:
+            tools = self._build_progressive_discovery_tools() + tools
+
         enforce_judgment = input.judgment_request is not None
         has_criteria = len(effective_criteria) > 0
 
@@ -402,6 +420,23 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 reasoning="TestingAgent was called as a judge, but it has no criteria to judge against",
             )
 
+        tool_choice: Any = (
+            {"type": "function", "function": {"name": "finish_test"}}
+            if (is_last_message or enforce_judgment) and has_criteria
+            else "required"
+        )
+
+        # Multi-step discovery loop for large traces
+        if is_large_trace:
+            return self._run_discovery_loop(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                spans=spans,
+                effective_criteria=effective_criteria,
+            )
+
+        # Standard single-call path for small traces
         response = cast(
             ModelResponse,
             litellm.completion(
@@ -412,81 +447,312 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 api_base=self.api_base,
                 max_tokens=self.max_tokens,
                 tools=tools,
-                tool_choice=(
-                    {"type": "function", "function": {"name": "finish_test"}}
-                    if (is_last_message or enforce_judgment) and has_criteria
-                    else "required"
-                ),
+                tool_choice=tool_choice,
                 **self._extra_params,
             ),
         )
 
-        # Extract the content from the response
-        if hasattr(response, "choices") and len(response.choices) > 0:
-            message = cast(Choices, response.choices[0]).message
+        return self._parse_response(response, effective_criteria, messages)
 
-            # Check if the LLM chose to use the tool
-            if message.tool_calls:
-                tool_call = message.tool_calls[0]
-                if tool_call.function.name == "continue_test":
-                    return []
+    def _build_trace_digest(self, spans: Sequence[Any]) -> tuple[str, bool]:
+        """
+        Builds the trace digest, choosing between full inline rendering
+        and structure-only mode based on estimated token count.
 
-                if tool_call.function.name == "finish_test":
-                    # Parse the tool call arguments
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                        verdict = args.get("verdict", "inconclusive")
-                        reasoning = args.get("reasoning", "No reasoning provided")
-                        criteria_verdicts = args.get("criteria", {})
+        Args:
+            spans: The spans for this thread.
 
-                        passed_criteria = [
-                            effective_criteria[idx]
-                            for idx, criterion in enumerate(criteria_verdicts.values())
-                            if criterion == "true"
-                        ]
-                        failed_criteria = [
-                            effective_criteria[idx]
-                            for idx, criterion in enumerate(criteria_verdicts.values())
-                            if criterion == "false" or criterion == "inconclusive"
-                        ]
+        Returns:
+            Tuple of (digest_string, is_large_trace).
+        """
+        full_digest = judge_span_digest_formatter.format(spans)
+        is_large_trace = (
+            len(spans) > 0 and estimate_tokens(full_digest) > self._token_threshold
+        )
 
-                        # Return the appropriate ScenarioResult based on the verdict
-                        return ScenarioResult(
-                            success=verdict == "success" and len(failed_criteria) == 0,
-                            messages=cast(Any, messages),
-                            reasoning=reasoning,
-                            passed_criteria=passed_criteria,
-                            failed_criteria=failed_criteria,
-                        )
-                    except json.JSONDecodeError:
-                        raise Exception(
-                            f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
-                        )
+        if is_large_trace:
+            digest = (
+                judge_span_digest_formatter.format_structure_only(spans)
+                + "\n\nUse expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans. Reference spans by the ID shown in brackets."
+            )
+        else:
+            digest = full_digest
 
-                else:
-                    raise Exception(
-                        f"Invalid tool call from judge agent: {tool_call.function.name}"
-                    )
+        logger.debug(
+            "Trace digest built",
+            extra={
+                "is_large_trace": is_large_trace,
+                "estimated_tokens": estimate_tokens(full_digest),
+            },
+        )
 
-            else:
+        return digest, is_large_trace
+
+    def _build_progressive_discovery_tools(self) -> List[dict]:
+        """
+        Builds the expand_trace and grep_trace tool definitions for litellm.
+
+        Returns:
+            List of tool definition dicts for litellm function calling.
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "expand_trace",
+                    "description": (
+                        "Expand one or more spans to see their full details "
+                        "(attributes, events, content). Use the span ID shown "
+                        "in brackets in the trace skeleton."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "span_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Span IDs (or 8-char prefixes) to expand",
+                            },
+                        },
+                        "required": ["span_ids"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "grep_trace",
+                    "description": (
+                        "Search across all span attributes, events, and content "
+                        "for a pattern (case-insensitive). Returns matching spans with context."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {
+                                "type": "string",
+                                "description": "Search pattern (case-insensitive)",
+                            },
+                        },
+                        "required": ["pattern"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ]
+
+    def _run_discovery_loop(
+        self,
+        *,
+        messages: List[dict],
+        tools: List[dict],
+        tool_choice: Any,
+        spans: Sequence[Any],
+        effective_criteria: List[str],
+    ) -> AgentReturnTypes:
+        """
+        Runs the multi-step discovery loop for large traces.
+
+        The judge can call expand_trace/grep_trace tools multiple times before
+        reaching a terminal tool (finish_test/continue_test) or hitting the
+        max discovery steps limit.
+
+        On intermediate steps, tool_choice is "required" so the judge can freely
+        pick expand_trace/grep_trace. On the final step, the original tool_choice
+        (which may force finish_test) is applied.
+
+        Args:
+            messages: The conversation messages so far.
+            tools: The tool definitions.
+            tool_choice: The tool choice constraint for the final step.
+            spans: The spans for executing expand/grep tools.
+            effective_criteria: The criteria to judge against.
+
+        Returns:
+            AgentReturnTypes from the terminal tool call.
+        """
+        terminal_tool_names = {"finish_test", "continue_test"}
+
+        for step in range(self._max_discovery_steps):
+            # Use "required" for intermediate steps so the judge can use
+            # discovery tools; only apply the forced tool_choice on the
+            # last allowed step.
+            is_last_step = step == self._max_discovery_steps - 1
+            step_tool_choice = tool_choice if is_last_step else "required"
+
+            response = cast(
+                ModelResponse,
+                litellm.completion(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    api_key=self.api_key,
+                    api_base=self.api_base,
+                    max_tokens=self.max_tokens,
+                    tools=tools,
+                    tool_choice=step_tool_choice,
+                    **self._extra_params,
+                ),
+            )
+
+            if not hasattr(response, "choices") or len(response.choices) == 0:
                 raise Exception(
-                    f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
+                    f"Unexpected response format from LLM: {response.__repr__()}"
                 )
 
+            message = cast(Choices, response.choices[0]).message
+            if not message.tool_calls:
+                # No tool calls - try to parse as a response
+                return self._parse_response(response, effective_criteria, messages)
+
+            # Check for terminal tool call
+            terminal_call = next(
+                (tc for tc in message.tool_calls if tc.function.name in terminal_tool_names),
+                None,
+            )
+            if terminal_call:
+                return self._parse_response(response, effective_criteria, messages)
+
+            # Execute discovery tools and add results to messages
+            # Add the assistant message with tool calls
+            messages.append({
+                "role": "assistant",
+                "content": message.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in message.tool_calls
+                ],
+            })
+
+            for tc in message.tool_calls:
+                tool_result = self._execute_discovery_tool(tc, spans)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": tool_result,
+                })
+
+        # Hit max steps - force verdict with available information
+        logger.warning(
+            f"Progressive discovery hit max steps ({self._max_discovery_steps})"
+        )
+        return ScenarioResult(
+            success=False,
+            messages=cast(Any, messages),
+            reasoning=(
+                f"Judge exhausted maximum discovery steps ({self._max_discovery_steps}) "
+                "without reaching a verdict."
+            ),
+            passed_criteria=[],
+            failed_criteria=effective_criteria,
+        )
+
+    def _execute_discovery_tool(self, tool_call: Any, spans: Sequence[Any]) -> str:
+        """
+        Executes an expand_trace or grep_trace tool call.
+
+        Args:
+            tool_call: The tool call from the LLM response.
+            spans: The spans to operate on.
+
+        Returns:
+            The tool result string.
+        """
+        try:
+            args = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError:
+            return f"Error: could not parse arguments: {tool_call.function.arguments}"
+
+        if tool_call.function.name == "expand_trace":
+            return expand_trace(
+                spans,
+                span_ids=args.get("span_ids", []),
+            )
+        elif tool_call.function.name == "grep_trace":
+            return grep_trace(spans, args.get("pattern", ""))
         else:
+            return f"Unknown tool: {tool_call.function.name}"
+
+    def _parse_response(
+        self,
+        response: Any,
+        effective_criteria: List[str],
+        messages: List[dict],
+    ) -> AgentReturnTypes:
+        """
+        Parses a litellm response into the appropriate return type.
+
+        Handles finish_test, continue_test, and error cases.
+
+        Args:
+            response: The litellm ModelResponse.
+            effective_criteria: The criteria to evaluate against.
+            messages: The conversation messages (for inclusion in ScenarioResult).
+
+        Returns:
+            AgentReturnTypes: Either an empty list (continue) or ScenarioResult.
+        """
+        if not hasattr(response, "choices") or len(response.choices) == 0:
             raise Exception(
                 f"Unexpected response format from LLM: {response.__repr__()}"
             )
 
-    def _get_opentelemetry_traces_digest(self, thread_id: str) -> str:
-        """
-        Retrieves and formats OpenTelemetry traces for a thread.
+        message = cast(Choices, response.choices[0]).message
 
-        Args:
-            thread_id: The thread identifier to get traces for
+        if not message.tool_calls:
+            raise Exception(
+                f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
+            )
 
-        Returns:
-            Formatted digest of traces
-        """
-        spans = self._span_collector.get_spans_for_thread(thread_id)
-        return judge_span_digest_formatter.format(spans)
+        # In multi-step mode, find the terminal tool call
+        terminal_names = {"finish_test", "continue_test"}
+        terminal_call = next(
+            (tc for tc in message.tool_calls if tc.function.name in terminal_names),
+            None,
+        )
+        tool_call = terminal_call or message.tool_calls[0]
+
+        if tool_call.function.name == "continue_test":
+            return []
+
+        if tool_call.function.name == "finish_test":
+            try:
+                args = json.loads(tool_call.function.arguments)
+                verdict = args.get("verdict", "inconclusive")
+                reasoning = args.get("reasoning", "No reasoning provided")
+                criteria_verdicts = args.get("criteria", {})
+
+                passed_criteria = [
+                    effective_criteria[idx]
+                    for idx, criterion in enumerate(criteria_verdicts.values())
+                    if criterion == "true"
+                ]
+                failed_criteria = [
+                    effective_criteria[idx]
+                    for idx, criterion in enumerate(criteria_verdicts.values())
+                    if criterion == "false" or criterion == "inconclusive"
+                ]
+
+                return ScenarioResult(
+                    success=verdict == "success" and len(failed_criteria) == 0,
+                    messages=cast(Any, messages),
+                    reasoning=reasoning,
+                    passed_criteria=passed_criteria,
+                    failed_criteria=failed_criteria,
+                )
+            except json.JSONDecodeError:
+                raise Exception(
+                    f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
+                )
+
+        raise Exception(
+            f"Invalid tool call from judge agent: {tool_call.function.name}"
+        )

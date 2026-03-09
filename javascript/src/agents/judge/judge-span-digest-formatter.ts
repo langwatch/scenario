@@ -1,17 +1,27 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
-import { attributes } from "langwatch/observability";
 
-import { deepTransform } from "./deep-transform";
+import {
+  hrTimeToMs,
+  formatDuration,
+  calculateSpanDuration,
+  getStatusIndicator,
+  getTokenUsage,
+  cleanAttributes,
+  looksLikeJson,
+} from "./span-utils";
 import { StringDeduplicator } from "./string-deduplicator";
 import { truncateMediaUrl, truncateMediaPart } from "./truncate-media";
+import { deepTransform } from "./deep-transform";
 import { Logger } from "../../utils/logger";
 
 /**
- * Represents a span node in the hierarchy tree.
+ * Represents a span node in the formatter's hierarchy tree.
+ * Unlike the shared SpanNode, this does not include an `index` field;
+ * sequence numbers are computed during rendering via a running counter.
  */
-interface SpanNode {
+interface FormatterSpanNode {
   span: ReadableSpan;
-  children: SpanNode[];
+  children: FormatterSpanNode[];
 }
 
 /**
@@ -21,6 +31,52 @@ interface SpanNode {
 export class JudgeSpanDigestFormatter {
   private readonly logger = new Logger("JudgeSpanDigestFormatter");
   private readonly deduplicator = new StringDeduplicator({ threshold: 50 });
+
+  /**
+   * Formats spans into a structure-only digest showing span tree hierarchy
+   * without attributes, events, or content. Used for large traces that
+   * exceed the token threshold, paired with expand_trace/grep_trace tools.
+   *
+   * @param spans - All spans for a thread
+   * @returns Plain text digest with only structural information
+   */
+  formatStructureOnly(spans: ReadableSpan[]): string {
+    this.logger.debug("formatStructureOnly() called", {
+      spanCount: spans.length,
+    });
+
+    if (spans.length === 0) {
+      return "No spans recorded.";
+    }
+
+    const sortedSpans = this.sortByStartTime(spans);
+    const tree = this.buildHierarchy(sortedSpans);
+    const totalDuration = this.calculateTotalDuration(sortedSpans);
+
+    const lines: string[] = [
+      `Spans: ${spans.length} | Total Duration: ${formatDuration(totalDuration)}`,
+      "",
+    ];
+
+    const rootCount = tree.length;
+    tree.forEach((node, idx) => {
+      this.renderStructureNode(
+        node,
+        lines,
+        0,
+        idx === rootCount - 1
+      );
+    });
+
+    const errors = this.collectErrors(spans);
+    if (errors.length > 0) {
+      lines.push("");
+      lines.push("=== ERRORS ===");
+      errors.forEach((e) => lines.push(e));
+    }
+
+    return lines.join("\n");
+  }
 
   /**
    * Formats spans into a complete digest with full content and nesting.
@@ -50,20 +106,18 @@ export class JudgeSpanDigestFormatter {
     });
 
     const lines: string[] = [
-      `Spans: ${spans.length} | Total Duration: ${this.formatDuration(
+      `Spans: ${spans.length} | Total Duration: ${formatDuration(
         totalDuration
       )}`,
       "",
     ];
 
-    let sequence = 1;
     const rootCount = tree.length;
     tree.forEach((node, idx) => {
-      sequence = this.renderNode(
+      this.renderNode(
         node,
         lines,
         0,
-        sequence,
         idx === rootCount - 1
       );
     });
@@ -80,15 +134,13 @@ export class JudgeSpanDigestFormatter {
 
   private sortByStartTime(spans: ReadableSpan[]): ReadableSpan[] {
     return [...spans].sort((a, b) => {
-      const aTime = this.hrTimeToMs(a.startTime);
-      const bTime = this.hrTimeToMs(b.startTime);
-      return aTime - bTime;
+      return hrTimeToMs(a.startTime) - hrTimeToMs(b.startTime);
     });
   }
 
-  private buildHierarchy(spans: ReadableSpan[]): SpanNode[] {
-    const spanMap = new Map<string, SpanNode>();
-    const roots: SpanNode[] = [];
+  private buildHierarchy(spans: ReadableSpan[]): FormatterSpanNode[] {
+    const spanMap = new Map<string, FormatterSpanNode>();
+    const roots: FormatterSpanNode[] = [];
 
     for (const span of spans) {
       spanMap.set(span.spanContext().spanId, { span, children: [] });
@@ -96,7 +148,7 @@ export class JudgeSpanDigestFormatter {
 
     for (const span of spans) {
       const node = spanMap.get(span.spanContext().spanId)!;
-      const parentId = span.parentSpanContext?.spanId;
+      const parentId = getParentSpanId(span);
 
       if (parentId && spanMap.has(parentId)) {
         spanMap.get(parentId)!.children.push(node);
@@ -108,30 +160,62 @@ export class JudgeSpanDigestFormatter {
     return roots;
   }
 
-  private renderNode(
-    node: SpanNode,
+  private renderStructureNode(
+    node: FormatterSpanNode,
     lines: string[],
     depth: number,
-    sequence: number,
     isLast: boolean = true
-  ): number {
+  ): void {
     const span = node.span;
-    const duration = this.calculateSpanDuration(span);
-    const timestamp = this.formatTimestamp(span.startTime);
-    const status = this.getStatusIndicator(span);
+    const shortId = span.spanContext().spanId.slice(0, 8);
+    const duration = calculateSpanDuration(span);
+    const timestamp = new Date(hrTimeToMs(span.startTime)).toISOString();
+    const status = getStatusIndicator(span);
+    const tokens = getTokenUsage(span);
 
     const prefix = this.getTreePrefix(depth, isLast);
     lines.push(
-      `${prefix}[${sequence}] ${new Date(timestamp).toISOString()} ${
+      `${prefix}[${shortId}] ${timestamp} ${
         span.name
-      } (${this.formatDuration(duration)})${status}`
+      } (${formatDuration(duration)}${tokens})${status}`
+    );
+    lines.push("");
+
+    const childCount = node.children.length;
+    node.children.forEach((child, idx) => {
+      this.renderStructureNode(
+        child,
+        lines,
+        depth + 1,
+        idx === childCount - 1
+      );
+    });
+  }
+
+  private renderNode(
+    node: FormatterSpanNode,
+    lines: string[],
+    depth: number,
+    isLast: boolean = true
+  ): void {
+    const span = node.span;
+    const shortId = span.spanContext().spanId.slice(0, 8);
+    const duration = calculateSpanDuration(span);
+    const timestamp = new Date(hrTimeToMs(span.startTime)).toISOString();
+    const status = getStatusIndicator(span);
+
+    const prefix = this.getTreePrefix(depth, isLast);
+    lines.push(
+      `${prefix}[${shortId}] ${timestamp} ${
+        span.name
+      } (${formatDuration(duration)})${status}`
     );
 
     const attrIndent = this.getAttrIndent(depth, isLast);
-    const attrs = this.cleanAttributes(span.attributes);
+    const attrs = cleanAttributes(span.attributes);
     if (Object.keys(attrs).length > 0) {
       for (const [key, value] of Object.entries(attrs)) {
-        lines.push(`${attrIndent}${key}: ${this.formatValue(value)}`);
+        lines.push(`${attrIndent}${key}: ${this.formatValueWithDedup(value)}`);
       }
     }
 
@@ -139,9 +223,9 @@ export class JudgeSpanDigestFormatter {
       for (const event of span.events) {
         lines.push(`${attrIndent}[event] ${event.name}`);
         if (event.attributes) {
-          const eventAttrs = this.cleanAttributes(event.attributes);
+          const eventAttrs = cleanAttributes(event.attributes);
           for (const [key, value] of Object.entries(eventAttrs)) {
-            lines.push(`${attrIndent}  ${key}: ${this.formatValue(value)}`);
+            lines.push(`${attrIndent}  ${key}: ${this.formatValueWithDedup(value)}`);
           }
         }
       }
@@ -149,19 +233,15 @@ export class JudgeSpanDigestFormatter {
 
     lines.push("");
 
-    let nextSeq = sequence + 1;
     const childCount = node.children.length;
     node.children.forEach((child, idx) => {
-      nextSeq = this.renderNode(
+      this.renderNode(
         child,
         lines,
         depth + 1,
-        nextSeq,
         idx === childCount - 1
       );
     });
-
-    return nextSeq;
   }
 
   private getTreePrefix(depth: number, isLast: boolean): string {
@@ -176,110 +256,47 @@ export class JudgeSpanDigestFormatter {
     return "│   ".repeat(depth - 1) + continuation + "    ";
   }
 
-  private cleanAttributes(
-    attrs: Record<string, unknown>
-  ): Record<string, unknown> {
-    const cleaned: Record<string, unknown> = {};
-    const seen = new Set<string>();
-
-    const excludedKeys = [
-      attributes.ATTR_LANGWATCH_THREAD_ID,
-      "langwatch.scenario.id",
-      "langwatch.scenario.name",
-    ];
-
-    for (const [key, value] of Object.entries(attrs)) {
-      if (excludedKeys.includes(key)) {
-        continue;
-      }
-      const cleanKey = key.replace(/^(langwatch)\./, "");
-      if (!seen.has(cleanKey)) {
-        seen.add(cleanKey);
-        cleaned[cleanKey] = value;
-      }
-    }
-
-    return cleaned;
-  }
-
-  private formatValue(value: unknown): string {
-    const processed = this.transformValue(value);
+  /**
+   * Formats a value with deduplication applied. Used by the `format()` method
+   * to reduce token usage by replacing repeated strings with markers.
+   */
+  private formatValueWithDedup(value: unknown): string {
+    const processed = this.transformValueWithDedup(value);
     return typeof processed === "string"
       ? processed
       : JSON.stringify(processed);
   }
 
-  private transformValue(value: unknown): unknown {
+  private transformValueWithDedup(value: unknown): unknown {
     return deepTransform(value, (v) => {
-      // AI SDK media parts — special objects
       const mediaPart = truncateMediaPart(v);
       if (mediaPart) return mediaPart;
-
-      // Not a string → continue traversal
       if (typeof v !== "string") return v;
-
-      // String transforms
-      return this.transformString(v);
+      return this.transformStringWithDedup(v);
     });
   }
 
-  private transformString(str: string): string {
-    // JSON strings — parse and recurse
-    if (this.looksLikeJson(str)) {
+  private transformStringWithDedup(str: string): string {
+    if (looksLikeJson(str)) {
       try {
-        const processed = this.transformValue(JSON.parse(str));
+        const processed = this.transformValueWithDedup(JSON.parse(str));
         return JSON.stringify(processed);
       } catch {
         /* not valid JSON */
       }
     }
 
-    // Data URLs → marker
     const truncated = truncateMediaUrl(str);
     if (truncated !== str) return truncated;
 
-    // Dedup
     return this.deduplicator.process(str);
-  }
-
-  private looksLikeJson(str: string): boolean {
-    const t = str.trim();
-    return (
-      (t.startsWith("{") && t.endsWith("}")) ||
-      (t.startsWith("[") && t.endsWith("]"))
-    );
-  }
-
-  private hrTimeToMs(hrTime: [number, number]): number {
-    return hrTime[0] * 1000 + hrTime[1] / 1_000_000;
-  }
-
-  private calculateSpanDuration(span: ReadableSpan): number {
-    return this.hrTimeToMs(span.endTime) - this.hrTimeToMs(span.startTime);
   }
 
   private calculateTotalDuration(spans: ReadableSpan[]): number {
     if (spans.length === 0) return 0;
-    const first = this.hrTimeToMs(spans[0].startTime);
-    const last = Math.max(...spans.map((s) => this.hrTimeToMs(s.endTime)));
+    const first = hrTimeToMs(spans[0].startTime);
+    const last = Math.max(...spans.map((s) => hrTimeToMs(s.endTime)));
     return last - first;
-  }
-
-  private formatDuration(ms: number): string {
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-  }
-
-  private formatTimestamp(hrTime: [number, number]): string {
-    const ms = this.hrTimeToMs(hrTime);
-    return new Date(ms).toISOString();
-  }
-
-  private getStatusIndicator(span: ReadableSpan): string {
-    if (span.status.code === 2) {
-      return ` ⚠️ ERROR: ${span.status.message ?? "unknown"}`;
-    }
-    return "";
   }
 
   private collectErrors(spans: ReadableSpan[]): string[] {
@@ -287,6 +304,19 @@ export class JudgeSpanDigestFormatter {
       .filter((s) => s.status.code === 2)
       .map((s) => `- ${s.name}: ${s.status.message ?? "unknown error"}`);
   }
+}
+
+/**
+ * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
+ * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
+ * The LangWatch SDK's internal spans still use the v1 parentSpanContext field.
+ */
+function getParentSpanId(span: ReadableSpan): string | undefined {
+  if (span.parentSpanId) return span.parentSpanId;
+  const legacy = (span as unknown as Record<string, unknown>).parentSpanContext as
+    | { spanId?: string }
+    | undefined;
+  return legacy?.spanId;
 }
 
 /**

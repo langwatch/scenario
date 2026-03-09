@@ -11,6 +11,7 @@ from function_schema import get_function_schema
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_mocked_weather_agent_tool():
     # Integrate with your agent

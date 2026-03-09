@@ -133,6 +133,8 @@ describe("Scenario Expert Agent (Realtime API)", () => {
         scenario.agent(), // Audio response
         scenario.user(), // Audio follow-up
         scenario.agent(), // Audio response
+        scenario.user(), // Audio follow-up
+        scenario.agent(), // Audio response
         scenario.judge({
           criteria: [
             "Agent explains what Scenario is or how it helps test AI agents",

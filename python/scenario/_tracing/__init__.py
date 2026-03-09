@@ -1,20 +1,21 @@
 """
 Tracing infrastructure for scenario testing.
 
-This module sets up OpenTelemetry instrumentation with LangWatch,
-registering the JudgeSpanCollector to capture spans for judge evaluation.
-
-Importing this module triggers setup as a side-effect.
+This module provides configurable OpenTelemetry instrumentation.
+Tracing is initialized lazily on the first run() call, or explicitly
+via setup_scenario_tracing().
 """
 
-from .setup import setup_observability
+from .setup import setup_scenario_tracing, ensure_tracing_initialized, _reset_tracing_for_tests
 from .judge_span_collector import judge_span_collector, JudgeSpanCollector
-
-# Trigger setup on import
-setup_observability()
+from .filters import scenario_only, with_custom_scopes, SpanFilter
 
 __all__ = [
     "judge_span_collector",
     "JudgeSpanCollector",
-    "setup_observability",
+    "setup_scenario_tracing",
+    "ensure_tracing_initialized",
+    "scenario_only",
+    "with_custom_scopes",
+    "SpanFilter",
 ]

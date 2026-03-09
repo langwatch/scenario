@@ -214,6 +214,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId,
+      metadata: config.metadata,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
@@ -334,6 +335,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     });
 
     this.reset();
+    // Create the initial turn span via newTurn() and then reset the counter
+    // back to 0. This matches the original reset() behavior — newTurn() creates
+    // the span and sets currentTurn=1, then we override to 0 so the first
+    // newTurn() in the execution loop correctly advances to 1.
+    this.newTurn();
+    this.state.currentTurn = 0;
 
     const scenarioRunId = generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
@@ -425,6 +432,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       // Re-throw the error in case it was a vitest assertion error
       throw error;
     } finally {
+      // End the last turn span to prevent leaked/un-ended spans
+      if (this.currentTurnSpan) {
+        this.currentTurnSpan.end();
+        this.currentTurnSpan = undefined;
+      }
       // Clean up the subscription when execution is done
       subscription.unsubscribe();
     }
@@ -580,15 +592,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }.call`;
 
     try {
-      await this.tracer.withActiveSpan(
-        agentSpanName,
-        {
-          attributes: {
-            [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+      // Wrap in context.with() so that context.active() returns the turn span
+      // context for ALL async continuations, including those created internally
+      // by the Vercel AI SDK. Without this, detached spans lose their parent.
+      await context.with(agentContext, () =>
+        this.tracer.withActiveSpan(
+          agentSpanName,
+          {
+            attributes: {
+              [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+            },
           },
-        },
-        agentContext,
-        async (agentSpan) => {
+          agentContext,
+          async (agentSpan) => {
           agentSpan.setType("agent");
 
           // Set input for the span
@@ -676,6 +692,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
             this.broadcastMessage(message, idx);
           }
         }
+        )
       );
     } catch (error) {
       throw new Error(`[${agentName}] ${error}`, { cause: error });
@@ -1099,7 +1116,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * - Creates a new ScenarioExecutionState with the current config
    * - Sets up the thread ID (generates new one if not provided)
    * - Initializes all agents
-   * - Starts the first turn
+   * - Initializes turn state (pending agents/roles) without creating a trace span
    * - Records the start time for performance tracking
    * - Clears any pending messages
    * - Clears the result from any previous execution
@@ -1116,7 +1133,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.state = new ScenarioExecutionState(this.config);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
-    this.newTurn();
+    // Initialize turn state without creating a span yet. execute() calls
+    // newTurn() immediately after reset() to create the Turn 1 span.
+    this.pendingAgentsOnTurn = new Set(this.agents);
+    this.pendingRolesOnTurn = [AgentRole.USER, AgentRole.AGENT, AgentRole.JUDGE];
     this.state.currentTurn = 0;
     this.totalStartTime = Date.now();
     this.pendingMessages.clear();
@@ -1198,6 +1218,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     // Create new turn trace context (equivalent to Python's langwatch.trace())
     this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
       attributes: {
+        "langwatch.origin": "simulation",
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,
         [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
@@ -1307,6 +1328,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.RUN_STARTED,
       metadata: {
+        ...this.config.metadata,
         name: this.config.name,
         description: this.config.description,
       },

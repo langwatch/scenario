@@ -1,0 +1,192 @@
+---
+title: How Judging Works - Inside the Built-in Judge
+description: Understand how the built-in judge evaluates conversations — the judging loop, trace rendering, progressive discovery for large traces, and the decision-making process.
+---
+
+import { Callout } from "vocs/components";
+
+# How Judging Works [Inside the built-in judge]
+
+The built-in judge is an LLM-powered evaluator that watches the conversation after each turn. It receives the full transcript plus OpenTelemetry traces collected during the agent's execution, and uses function calling to make structured decisions — either continuing the simulation or ending it with a per-criterion verdict.
+
+This page explains what happens under the hood: the judging loop, how traces are rendered, how progressive discovery works for large traces, and the decision-making contract.
+
+---
+
+## The Judging Loop
+
+After every agent turn, the scenario runner calls the judge. The judge sees the full conversation so far, any OTel traces captured during the agent's execution, and the scenario criteria. It then decides whether to continue or finish:
+
+```
+                        ┌──────────────────────────────────┐
+                        │         Scenario Loop            │
+                        │                                  │
+                        │  user() ──► agent() ──► judge()  │
+                        │    │           │           │     │
+                        │    ▼           ▼           ▼     │
+                        │  "Help me"  "Sure,..."   ????    │
+                        └────────────────────────────┬─────┘
+                                                     │
+                         ┌───────────────────────────┘
+                         │
+                         ▼
+               ┌─────────────────────┐
+               │   Judge receives    │
+               │                     │
+               │  - Full transcript  │
+               │  - OTel traces      │
+               │  - Criteria list    │
+               │  - Scenario desc    │
+               └────────┬────────────┘
+                        │
+                        ▼
+               ┌─────────────────────┐
+               │   Judge decides     │
+               │                     │
+               │  continue_test ───────► loop continues
+               │       or            │
+               │  finish_test ─────────► ScenarioResult
+               │   (verdict +        │     success/failure
+               │    per-criterion    │     + reasoning
+               │    true/false)      │
+               └─────────────────────┘
+```
+
+The loop repeats until the judge calls `finish_test` or the maximum number of turns is reached.
+
+---
+
+## What the Judge Receives
+
+The judge is called with an `AgentInput` containing:
+
+- **`input.messages`** -- the full conversation history in OpenAI message format. This includes all user, assistant, and tool messages from every turn so far.
+- **`input.judgment_request`** -- present when a verdict is expected. May contain `.criteria` for inline overrides (used by [scripted simulations](/basics/scripted-simulations)).
+- **`input.scenario_state`** -- scenario metadata including the description, current turn number, and maximum turns allowed.
+
+The built-in judge formats these into two main sections for the LLM:
+
+1. **Transcript** -- Messages formatted as `role: content` pairs, giving the judge a clear view of the conversation flow.
+2. **OTel traces** -- A digest of all spans collected during the agent's execution, showing what happened internally (LLM calls, tool invocations, errors, timing).
+
+---
+
+## How Traces Are Rendered
+
+The trace digest is the judge's window into the agent's internal behavior. The rendering strategy depends on the size of the trace.
+
+### Full Inline Mode (default)
+
+When the rendered trace digest is under approximately 8192 estimated tokens, the judge sees every span's full details inline -- name, duration, all attributes, events, and errors. This works well for simple agents with a handful of spans.
+
+Here is an example of what a full trace digest looks like:
+
+```
+agent.run (2.00s)
+├── [a0b1c2d3] llm.call (400ms)
+│     model: gpt-4
+│     gen_ai.prompt: "What is the weather in Paris?"
+│     gen_ai.completion: "Let me check the weather for you."
+├── [c2d3e4f5] tool.fetch_weather (300ms)
+│     tool.name: fetch_weather
+│     tool.input: {"city": "Paris"}
+│     tool.output: {"temp": 22, "condition": "sunny"}
+└── [d3e4f567] llm.completion (500ms)
+      gen_ai.prompt: "Summarize the weather report"
+      gen_ai.completion: "The weather in Paris is sunny with a temperature of 22°C."
+```
+
+Every span includes its full attributes and content, so the judge can inspect prompts, completions, tool inputs/outputs, and errors without any extra steps.
+
+### Structure-Only Mode + Progressive Discovery
+
+When traces exceed approximately 8192 estimated tokens -- common with complex agents that make many LLM calls or tool invocations -- sending the full trace would consume too much of the judge's context window. Instead, the judge receives a **structure-only** view showing just span names, durations, and hierarchy, with 8-character span IDs in brackets:
+
+```
+agent.run (2.00s)
+├── [a0b1c2d3] llm.call (400ms, 1500 tokens)
+├── [c2d3e4f5] tool.fetch_weather (300ms)
+├── [d3e4f567] llm.completion (500ms, 800 tokens)
+└── [e4f56789] failed.operation (100ms) ⚠️ ERROR: Connection refused
+
+Use expand_trace(span_id) to see span details or grep_trace(pattern) to search across spans.
+```
+
+The judge then gets two additional tools to drill into the trace on demand:
+
+**`expand_trace`** -- Expand one or more spans by ID (or 8-character prefix) to see full attributes, events, and content. The judge calls this when it needs to inspect a specific span in detail, for example to read the prompt sent to an LLM or the output of a tool call.
+
+**`grep_trace`** -- Search across all span attributes, events, and content for a pattern (case-insensitive). Returns matching spans with context, limited to 20 matches. This is useful when the judge needs to find a specific keyword, API endpoint, or error message across a large trace without expanding every span individually.
+
+The judge can call these tools multiple times in a loop before making its final `continue_test` or `finish_test` decision. This keeps the initial context compact while allowing deep inspection when needed.
+
+<Callout type="info">
+  Progressive discovery means the judge behaves like a developer debugging a trace: it starts with the high-level structure, notices something interesting (an error, an unexpectedly slow span, a suspicious tool call), and drills in. This is far more token-efficient than dumping the entire trace into the prompt.
+</Callout>
+
+---
+
+## The Decision Tools
+
+The judge uses function calling to communicate its decisions. Two tools are always available:
+
+### `continue_test`
+
+Let the conversation continue. The judge does not have enough information yet to make a verdict -- for example, the user has only asked one question and the criteria require a multi-turn interaction. Calling this returns control to the scenario loop, which runs the next user turn.
+
+### `finish_test`
+
+End the simulation with a verdict. This tool takes:
+
+- **`verdict`** -- One of `"success"`, `"failure"`, or `"inconclusive"`. Determines the overall test outcome.
+- **`criteria`** -- A per-criterion result mapping each criterion to `"true"`, `"false"`, or `"inconclusive"`. This powers the detailed breakdown in test output and the [visualization dashboard](/visualizations).
+- **`reasoning`** -- A free-text explanation of why the judge reached this verdict. Included in test output for debugging.
+
+The judge is expected to evaluate every criterion independently. A single failed criterion results in an overall `"failure"` verdict from the built-in judge.
+
+---
+
+## Configuration
+
+You can tune how trace rendering and progressive discovery behave:
+
+:::code-group
+
+```python [python]
+import scenario
+
+judge = scenario.JudgeAgent(
+    criteria=["Agent uses the correct API endpoint"],
+    # Traces under 8192 estimated tokens are rendered inline (default)
+    token_threshold=8192,
+    # Max expand/grep tool calls before forcing a verdict (default: 10)
+    max_discovery_steps=10,
+)
+```
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+
+const judge = scenario.judgeAgent({
+    criteria: ["Agent uses the correct API endpoint"],
+    // Traces under 8192 estimated tokens are rendered inline (default)
+    tokenThreshold: 8192,
+    // Max expand/grep tool calls before forcing a verdict (default: 10)
+    maxDiscoverySteps: 10,
+});
+```
+
+:::
+
+<Callout type="tip">
+  For most use cases, the defaults work well. Lower `token_threshold` if your judge model has a small context window. Increase `max_discovery_steps` for very complex traces where the judge needs more exploration.
+</Callout>
+
+---
+
+## Next Steps
+
+- [Custom Judge](/advanced/custom-judge) -- Build your own evaluation logic, including accessing traces
+- [Judge Agent](/basics/judge-agent) -- Configuration reference for the built-in judge
+- [Custom Observability](/advanced/custom-observability) -- Control OpenTelemetry tracing configuration
+- [Scripted Simulations](/basics/scripted-simulations) -- Combine judges with precise flow control

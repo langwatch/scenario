@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { run, type RunOptions } from "../run";
-import { AgentRole, type AgentAdapter, type AgentInput } from "../../domain";
+import { AgentRole, type AgentAdapter, type AgentInput, type ScenarioConfig } from "../../domain";
 import type { ScenarioEvent } from "../../events/schema";
 
 // Mock the EventBus - must use function keyword for constructor
@@ -17,7 +17,19 @@ vi.mock("../../events/event-bus", () => ({
 
 // Mock the tracing setup
 vi.mock("../../tracing/setup", () => ({
-  observabilityHandle: undefined,
+  ensureTracingInitialized: vi.fn(),
+}));
+
+// Mock the project config loader
+vi.mock("../../config/get-project-config", () => ({
+  getProjectConfig: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock the judge span collector
+vi.mock("../../agents/judge/judge-span-collector", () => ({
+  judgeSpanCollector: {
+    clearSpansForThread: vi.fn(),
+  },
 }));
 
 // Mock getLangWatchTracer
@@ -63,7 +75,7 @@ class TestJudgeAgent implements AgentAdapter {
   }
 }
 
-function createScenarioConfig(name = "Test Scenario") {
+function createScenarioConfig(name = "Test Scenario"): ScenarioConfig {
   return {
     name,
     description: `Scenario ${name}`,
@@ -165,6 +177,39 @@ describe("run", () => {
     });
   });
 
+  describe("tracing initialization", () => {
+    it("calls ensureTracingInitialized once per run", async () => {
+      const { ensureTracingInitialized } = await import("../../tracing/setup");
+
+      await run(createScenarioConfig());
+
+      expect(ensureTracingInitialized).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes project config observability options to ensureTracingInitialized", async () => {
+      const { ensureTracingInitialized } = await import("../../tracing/setup");
+      const { getProjectConfig } = await import("../../config/get-project-config");
+      const observabilityOptions = { serviceName: "test-service" };
+      vi.mocked(getProjectConfig).mockResolvedValueOnce({
+        headless: false,
+        observability: observabilityOptions,
+      });
+
+      await run(createScenarioConfig());
+
+      expect(ensureTracingInitialized).toHaveBeenCalledWith(observabilityOptions);
+    });
+
+    it("calls clearSpansForThread after scenario completes", async () => {
+      const { judgeSpanCollector } = await import("../../agents/judge/judge-span-collector");
+
+      await run(createScenarioConfig());
+
+      expect(judgeSpanCollector.clearSpansForThread).toHaveBeenCalledTimes(1);
+      expect(judgeSpanCollector.clearSpansForThread).toHaveBeenCalledWith(expect.any(String));
+    });
+  });
+
   describe("concurrency safety", () => {
     it("creates separate EventBus instances for concurrent runs", async () => {
       const { EventBus } = await import("../../events/event-bus");
@@ -245,6 +290,34 @@ describe("run", () => {
 
       expect(runStartedA?.metadata?.name).toBe("Scenario-A");
       expect(runStartedB?.metadata?.name).toBe("Scenario-B");
+    });
+  });
+
+  describe("metadata", () => {
+    it("includes user metadata in RUN_STARTED event", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      const config = createScenarioConfig();
+      config.metadata = { promptId: "abc-123", environment: "staging" };
+
+      await run(config);
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.metadata?.promptId).toBe("abc-123");
+      expect(runStartedEvent?.metadata?.environment).toBe("staging");
+    });
+
+    it("preserves name and description over user metadata", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      const config = createScenarioConfig("My Scenario");
+      config.metadata = { name: "overridden", description: "overridden" };
+
+      await run(config);
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.metadata?.name).toBe("My Scenario");
+      expect(runStartedEvent?.metadata?.description).toBe("Scenario My Scenario");
     });
   });
 });
