@@ -8,7 +8,7 @@ systematically probe an agent's safety boundaries across many turns.
 import asyncio
 import json
 import logging
-from typing import Callable, List, Literal, Optional, Union, cast
+from typing import Callable, List, Literal, Optional, cast
 
 import litellm
 from opentelemetry import trace
@@ -24,7 +24,7 @@ from scenario.script import user, agent, judge, marathon_script as _marathon_scr
 from scenario._utils.utils import await_if_awaitable
 
 from ._error_messages import agent_not_configured_error_message
-from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult, ScriptStep
+from .types import AgentInput, AgentReturnTypes, AgentRole, ScriptStep
 
 
 logger = logging.getLogger("scenario")

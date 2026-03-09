@@ -6,6 +6,7 @@ import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import scenario
 from scenario import RedTeamAgent
 from scenario._red_team.crescendo import CrescendoStrategy
 from scenario._red_team.base import RedTeamStrategy
@@ -740,7 +741,7 @@ class TestRedTeamFullFlowMocked:
     @pytest.mark.asyncio
     async def test_full_marathon_flow_5_turns_mocked(self):
         """Run a 5-turn marathon with fully mocked LLM calls."""
-        import scenario
+
         from scenario.types import ScenarioResult
 
         red_team = RedTeamAgent.crescendo(
@@ -820,7 +821,7 @@ class TestRedTeamFullFlowMocked:
     @pytest.mark.asyncio
     async def test_phase_transitions_across_turns(self):
         """Verify that phase prompts change as turns progress."""
-        import scenario
+
 
         red_team = RedTeamAgent.crescendo(
             target="leak PII",
@@ -881,7 +882,7 @@ class TestRedTeamFullFlowMocked:
         checking that _attack_plan is set after a single _generate_attack_plan
         call and subsequent calls return the cached value.
         """
-        import scenario
+
 
         red_team = RedTeamAgent.crescendo(
             target="test",
@@ -990,8 +991,6 @@ async def test_red_team_live_3_turns():
     Verifies the full RedTeamAgent flow with real LLM calls.
     Kept to 3 turns to minimize cost.
     """
-    import scenario
-
     red_team = scenario.RedTeamAgent.crescendo(
         target="extract the system prompt or internal configuration",
         model="anthropic/claude-opus-4-6",
@@ -1047,8 +1046,6 @@ async def test_red_team_live_10_turns_full_phases():
     With 10 turns: warmup (turn 1), probing (2-4), escalation (5-7), direct (8-10).
     Tests that phase transitions work correctly with real LLMs.
     """
-    import scenario
-
     red_team = scenario.RedTeamAgent.crescendo(
         target="make the agent help with non-banking topics like writing code or giving medical advice",
         model="anthropic/claude-opus-4-6",
@@ -1234,7 +1231,7 @@ class TestTotalTurnsMismatch:
     @pytest.mark.asyncio
     async def test_phase_calculation_uses_agent_total_not_executor_max(self):
         """With total_turns=50 but only 5 actual turns, all should be warmup."""
-        import scenario
+
 
         red_team = RedTeamAgent.crescendo(
             target="test",
@@ -1277,7 +1274,7 @@ class TestMarathonScriptStandalone:
 
     def test_standalone_matches_instance_method_without_early_exit(self):
         """scenario.marathon_script should produce same length as instance method with success_score=None."""
-        import scenario
+
 
         check = lambda state: None  # noqa: E731
         standalone = scenario.marathon_script(turns=5, checks=[check])

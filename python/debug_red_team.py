@@ -3,6 +3,13 @@ import asyncio
 import os
 import signal
 import logging
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from dotenv import load_dotenv
+
+import scenario
+from scenario import RedTeamAgent, AgentAdapter, AgentInput, AgentReturnTypes, AgentRole
+from scenario.types import ScenarioResult
 
 signal.signal(signal.SIGALRM, lambda *_: (print("TIMEOUT after 120s!", flush=True), os._exit(1)))
 signal.alarm(120)
@@ -14,13 +21,7 @@ for n in ("httpcore","hpack","urllib3","asyncio","LiteLLM","litellm","langwatch"
 logger = logging.getLogger("debug")
 
 async def main():
-    from dotenv import load_dotenv
     load_dotenv()
-
-    import scenario
-    from scenario import RedTeamAgent, AgentAdapter, AgentInput, AgentReturnTypes, AgentRole
-    from scenario.types import ScenarioResult
-    from unittest.mock import AsyncMock, MagicMock, patch
 
     class StubAgent(AgentAdapter):
         async def call(self, input: AgentInput) -> AgentReturnTypes:
