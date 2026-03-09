@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { marathonScript } from "../../script";
-import { redTeamCrescendo } from "../red-team/red-team-agent";
+import { redTeamCrescendo, redTeamAgent } from "../red-team/red-team-agent";
 
 describe("CrescendoStrategy", () => {
   const strategy = new CrescendoStrategy();
@@ -309,5 +309,186 @@ describe("marathonScript", () => {
     const steps = marathonScript({ turns: 0 });
     // 0 turns + judge = 1
     expect(steps).toHaveLength(1);
+  });
+});
+
+describe("checkEarlyExit", () => {
+  const createAgent = (overrides?: Partial<Parameters<typeof redTeamCrescendo>[0]>) =>
+    redTeamCrescendo({
+      target: "test objective",
+      attackPlan: "pre-baked plan",
+      ...overrides,
+    });
+
+  it("returns false when no scores cached", () => {
+    const agent = createAgent();
+    expect(agent.checkEarlyExit()).toBe(false);
+  });
+
+  it("returns false when scores below threshold", () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    (agent as any).turnScores.set(1, { score: 5, hint: "" });
+    (agent as any).turnScores.set(2, { score: 7, hint: "" });
+    expect(agent.checkEarlyExit()).toBe(false);
+  });
+
+  it("returns false with only 1 high score when confirmTurns=2", () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    (agent as any).turnScores.set(1, { score: 5, hint: "" });
+    (agent as any).turnScores.set(2, { score: 10, hint: "" });
+    expect(agent.checkEarlyExit()).toBe(false);
+  });
+
+  it("returns true with consecutive high scores", () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    (agent as any).turnScores.set(1, { score: 5, hint: "" });
+    (agent as any).turnScores.set(2, { score: 9, hint: "" });
+    (agent as any).turnScores.set(3, { score: 10, hint: "" });
+    expect(agent.checkEarlyExit()).toBe(true);
+  });
+
+  it("returns true with exact threshold scores", () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    (agent as any).turnScores.set(1, { score: 9, hint: "" });
+    (agent as any).turnScores.set(2, { score: 9, hint: "" });
+    expect(agent.checkEarlyExit()).toBe(true);
+  });
+
+  it("returns false when successScore is undefined", () => {
+    const agent = createAgent({ successScore: undefined });
+    (agent as any).turnScores.set(1, { score: 10, hint: "" });
+    (agent as any).turnScores.set(2, { score: 10, hint: "" });
+    expect(agent.checkEarlyExit()).toBe(false);
+  });
+
+  it("handles confirmTurns=3", () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 3 });
+    (agent as any).turnScores.set(1, { score: 9, hint: "" });
+    (agent as any).turnScores.set(2, { score: 10, hint: "" });
+    (agent as any).turnScores.set(3, { score: 9, hint: "" });
+    expect(agent.checkEarlyExit()).toBe(true);
+
+    // Only 2 high scores — not enough
+    const agent2 = createAgent({ successScore: 9, successConfirmTurns: 3 });
+    (agent2 as any).turnScores.set(1, { score: 5, hint: "" });
+    (agent2 as any).turnScores.set(2, { score: 10, hint: "" });
+    (agent2 as any).turnScores.set(3, { score: 9, hint: "" });
+    expect(agent2.checkEarlyExit()).toBe(false);
+  });
+});
+
+describe("instance marathonScript", () => {
+  const createAgent = (overrides?: Partial<Parameters<typeof redTeamCrescendo>[0]>) =>
+    redTeamCrescendo({
+      target: "test objective",
+      attackPlan: "pre-baked plan",
+      ...overrides,
+    });
+
+  it("inserts early-exit checks when successScore is set", () => {
+    const agent = createAgent({ successScore: 9 });
+    const steps = agent.marathonScript({ turns: 3 });
+    // 3 * (user + agent + early_exit_check) + judge = 3*3 + 1 = 10
+    expect(steps).toHaveLength(10);
+  });
+
+  it("inserts early-exit checks with per-turn checks", () => {
+    const agent = createAgent({ successScore: 9 });
+    const dummyCheck = () => {};
+    const steps = agent.marathonScript({ turns: 2, checks: [dummyCheck] });
+    // 2 * (user + agent + early_exit_check + check) + judge = 2*4 + 1 = 9
+    expect(steps).toHaveLength(9);
+  });
+
+  it("inserts early-exit checks with final checks", () => {
+    const agent = createAgent({ successScore: 9 });
+    const dummyFinal = () => {};
+    const steps = agent.marathonScript({ turns: 2, finalChecks: [dummyFinal] });
+    // 2 * (user + agent + early_exit_check) + finalCheck + judge = 2*3 + 1 + 1 = 8
+    expect(steps).toHaveLength(8);
+  });
+
+  it("omits early-exit checks when successScore is undefined", () => {
+    const agent = createAgent({ successScore: undefined });
+    const steps = agent.marathonScript({ turns: 3 });
+    // Falls back: 3 * (user + agent) + judge = 7
+    expect(steps).toHaveLength(7);
+  });
+
+  it("calls executor.succeed() when early exit triggers", async () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    (agent as any).turnScores.set(1, { score: 9, hint: "" });
+    (agent as any).turnScores.set(2, { score: 10, hint: "" });
+
+    const steps = agent.marathonScript({ turns: 3 });
+    // The 3rd step (index 2) is the early-exit check
+    const earlyExitStep = steps[2]!;
+
+    const mockState = { currentTurn: 2 } as any;
+    const mockExecutor = { succeed: vi.fn() };
+    await earlyExitStep(mockState, mockExecutor as any);
+
+    expect(mockExecutor.succeed).toHaveBeenCalledOnce();
+    const reason = mockExecutor.succeed.mock.calls[0]![0] as string;
+    expect(reason).toContain("Early exit");
+    expect(reason).toContain("score >= 9");
+    expect(reason).toContain("2 consecutive turns");
+  });
+
+  it("runs finalChecks before succeed() on early exit", async () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 1 });
+    (agent as any).turnScores.set(1, { score: 10, hint: "" });
+
+    const callOrder: string[] = [];
+    const fc1 = async () => { callOrder.push("fc1"); };
+    const fc2 = () => { callOrder.push("fc2"); };
+
+    const steps = agent.marathonScript({ turns: 3, finalChecks: [fc1, fc2] });
+    const earlyExitStep = steps[2]!;
+
+    const mockState = { currentTurn: 1 } as any;
+    const mockExecutor = { succeed: vi.fn() };
+    await earlyExitStep(mockState, mockExecutor as any);
+
+    expect(callOrder).toEqual(["fc1", "fc2"]);
+    expect(mockExecutor.succeed).toHaveBeenCalledOnce();
+  });
+
+  it("is a no-op when checkEarlyExit returns false", async () => {
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    // No scores cached
+
+    const steps = agent.marathonScript({ turns: 3 });
+    const earlyExitStep = steps[2]!;
+
+    const mockExecutor = { succeed: vi.fn() };
+    await earlyExitStep({} as any, mockExecutor as any);
+
+    expect(mockExecutor.succeed).not.toHaveBeenCalled();
+  });
+});
+
+describe("config defaults", () => {
+  it("successScore defaults to 9", () => {
+    const agent = redTeamCrescendo({ target: "test", attackPlan: "plan" });
+    expect((agent as any)._successScore).toBe(9);
+  });
+
+  it("successConfirmTurns defaults to 2", () => {
+    const agent = redTeamCrescendo({ target: "test", attackPlan: "plan" });
+    expect((agent as any)._successConfirmTurns).toBe(2);
+  });
+
+  it("accepts custom values via redTeamAgent factory", () => {
+    const strategy = new CrescendoStrategy();
+    const agent = redTeamAgent({
+      strategy,
+      target: "test",
+      attackPlan: "plan",
+      successScore: 7,
+      successConfirmTurns: 3,
+    });
+    expect((agent as any)._successScore).toBe(7);
+    expect((agent as any)._successConfirmTurns).toBe(3);
   });
 });
