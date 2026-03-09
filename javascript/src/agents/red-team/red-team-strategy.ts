@@ -1,3 +1,9 @@
+export interface BacktrackEntry {
+  turn: number;
+  attack: string;
+  refusal: string;
+}
+
 export interface RedTeamStrategy {
   buildSystemPrompt(params: {
     target: string;
@@ -7,6 +13,7 @@ export interface RedTeamStrategy {
     metapromptPlan: string;
     lastResponseScore?: number;
     adaptationHint?: string;
+    backtrackHistory?: BacktrackEntry[];
   }): string;
 
   getPhaseName(currentTurn: number, totalTurns: number): string;

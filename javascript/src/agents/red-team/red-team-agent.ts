@@ -1,6 +1,6 @@
 import { generateText, LanguageModel } from "ai";
 
-import { RedTeamStrategy } from "./red-team-strategy";
+import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { CrescendoStrategy } from "./crescendo-strategy";
 import {
   DEFAULT_METAPROMPT_TEMPLATE,
@@ -97,6 +97,12 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
   // Per-turn score cache: Map<turnNumber, { score, hint }>
   private turnScores: Map<number, { score: number; hint: string }> = new Map();
 
+  // Backtracking state — removes refused exchanges so the target
+  // "forgets" it ever refused and the attacker retries cleanly.
+  private static readonly MAX_BACKTRACKS = 10;
+  private backtracksRemaining = RedTeamAgentImpl.MAX_BACKTRACKS;
+  private backtrackHistory: BacktrackEntry[] = [];
+
   constructor(config: RedTeamAgentConfig) {
     super();
     this.strategy = config.strategy;
@@ -158,6 +164,16 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg && "role" in msg && msg.role === "assistant" && "content" in msg && msg.content) {
+        return typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+      }
+    }
+    return "";
+  }
+
+  private getLastUserContent(messages: AgentInput["messages"]): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg && "role" in msg && msg.role === "user" && "content" in msg && msg.content) {
         return typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
       }
     }
@@ -278,7 +294,15 @@ Reply with exactly this JSON and nothing else:
     const { turns, checks = [], finalChecks = [] } = options;
     const steps: ScriptStep[] = [];
 
-    for (let i = 0; i < turns; i++) {
+    // Pad for potential backtracks so effective turns ≈ requested turns.
+    // Each backtrack wastes one iteration (the attack is regenerated from
+    // a pruned context), so we add MAX_BACKTRACKS extra iterations.
+    // Early exit prevents running excess iterations if the attack succeeds.
+    const totalIterations = this._successScore !== undefined
+      ? turns + RedTeamAgentImpl.MAX_BACKTRACKS
+      : turns;
+
+    for (let i = 0; i < totalIterations; i++) {
       steps.push(user());
       steps.push(agent());
       if (this._successScore !== undefined) {
@@ -308,11 +332,43 @@ Reply with exactly this JSON and nothing else:
     // Generate attack plan on first call (cached for all subsequent turns)
     const attackPlan = await this.getAttackPlan(description);
 
+    // ----------------------------------------------------------
+    // Backtrack on hard refusal: remove the refused exchange so
+    // the target "forgets" it ever refused.  The attacker retries
+    // from a clean slate with a different technique.
+    // ----------------------------------------------------------
+    let didBacktrack = false;
+    if (currentTurn > 1 && this.backtracksRemaining > 0) {
+      const lastContent = this.getLastAssistantContent(input.messages);
+      if (lastContent && this.detectRefusal(lastContent) === "hard") {
+        // Store refusal info for attacker adaptation
+        const lastUser = this.getLastUserContent(input.messages);
+        this.backtrackHistory.push({
+          turn: currentTurn - 1,
+          attack: lastUser,
+          refusal: lastContent.slice(0, 200),
+        });
+        // Remove the refused exchange: find last user msg, delete from there
+        for (let i = input.messages.length - 1; i >= 0; i--) {
+          const msg = input.messages[i];
+          if (msg && "role" in msg && msg.role === "user") {
+            input.messages.splice(i);
+            break;
+          }
+        }
+        this.backtracksRemaining--;
+        didBacktrack = true;
+        // Cache a score of 0 for this turn (no LLM call needed)
+        this.turnScores.set(currentTurn, { score: 0, hint: "Backtracked due to hard refusal" });
+      }
+    }
+
     // Score the target's last response to feed back into the attacker.
     // Skip on turn 1 — there is no previous response to score yet.
+    // Skip when backtracked — we already know it was a refusal.
     let lastResponseScore: number | undefined;
     let adaptationHint: string | undefined;
-    if (this.scoreResponses && currentTurn > 1) {
+    if (this.scoreResponses && currentTurn > 1 && !didBacktrack) {
       // Try pattern-based refusal detection first to skip LLM scorer
       if (this.detectRefusals) {
         const lastContent = this.getLastAssistantContent(input.messages);
@@ -342,6 +398,7 @@ Reply with exactly this JSON and nothing else:
       metapromptPlan: attackPlan,
       lastResponseScore,
       adaptationHint,
+      backtrackHistory: this.backtrackHistory,
     });
 
     // Create a new inner agent per turn with the phase-aware system prompt
