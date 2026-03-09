@@ -309,12 +309,24 @@ export default defineConfig({
       text: "Advanced",
       items: [
         {
+          text: "How Judging Works",
+          link: "/advanced/how-judging-works",
+        },
+        {
           text: "Custom Judge",
           link: "/advanced/custom-judge",
         },
         {
           text: "Custom Clients",
           link: "/advanced/custom-clients",
+        },
+        {
+          text: "Custom Observability",
+          link: "/advanced/custom-observability",
+        },
+        {
+          text: "Red Teaming",
+          link: "/advanced/red-teaming",
         },
       ],
     },

@@ -1,0 +1,239 @@
+---
+title: Custom Observability - Control OpenTelemetry Tracing
+description: Configure OpenTelemetry tracing in @langwatch/scenario. Filter spans with scenarioOnly and withCustomScopes presets, use setupScenarioTracing for explicit control, and integrate with existing OTel providers like @vercel/otel.
+---
+
+import { Callout } from "vocs/components";
+
+# Custom Observability [Control which spans Scenario exports]
+
+By default, Scenario lazily initializes OpenTelemetry tracing on the first `run()` call and auto-instruments your process. This works well when running scenarios in isolation (e.g., via `vitest` or `pytest`), but can cause problems when scenarios run inside a production server.
+
+## Why This Matters
+
+If you run scenarios inside a long-lived process -- for example, a Next.js server with Inngest cron jobs that periodically test your agents -- the default auto-instrumentation will capture **every** span in that process: HTTP requests, middleware, database queries, and more. All of those unrelated spans get exported alongside your scenario traces, adding noise and cost.
+
+The observability config gives you control over:
+
+- **Which spans are exported** via filter presets
+- **Which instrumentations are active** (or disabled entirely)
+- **When tracing initializes** via explicit setup calls
+
+---
+
+## Scenario-Only Spans
+
+The simplest filter. Use `scenario_only` (Python) or `scenarioOnly` (TypeScript) to export only spans created by Scenario, discarding everything else.
+
+This is the right choice when you want clean scenario traces without any server noise.
+
+:::code-group
+
+```python [python]
+# conftest.py
+import scenario
+from scenario import scenario_only
+
+scenario.configure(
+    observability={
+        "span_filter": scenario_only,
+        "instrumentors": [],  # disable auto-instrumentation
+    }
+)
+```
+
+```typescript [typescript]
+// scenario.config.js
+import { defineConfig, scenarioOnly } from "@langwatch/scenario";
+import { LangWatchTraceExporter } from "langwatch/observability";
+
+export default defineConfig({
+  observability: {
+    traceExporter: new LangWatchTraceExporter({
+      filters: scenarioOnly,
+    }),
+    instrumentations: [], // disable auto-instrumentation
+  },
+});
+```
+
+:::
+
+Disabling auto-instrumentation (`"instrumentors": []` in Python, `instrumentations: []` in TypeScript) prevents Scenario from registering any OpenTelemetry instrumentations (HTTP, fetch, etc.), so only the spans Scenario itself creates are recorded.
+
+---
+
+## Scenario + Custom-Tagged Spans
+
+Sometimes you want to see more than just scenario spans -- for example, database queries or custom service calls that your agent makes. The `with_custom_scopes()` (Python) or `withCustomScopes()` (TypeScript) filter includes Scenario spans plus any additional instrumentation scopes you specify.
+
+### Step 1: Configure the filter
+
+:::code-group
+
+```python [python]
+# conftest.py
+import scenario
+from scenario import with_custom_scopes
+
+scenario.configure(
+    observability={
+        "span_filter": with_custom_scopes("my-app/database", "my-app/agent"),
+        "instrumentors": [],  # disable auto-instrumentation
+    }
+)
+```
+
+```typescript [typescript]
+// scenario.config.js
+import { defineConfig, withCustomScopes } from "@langwatch/scenario";
+import { LangWatchTraceExporter } from "langwatch/observability";
+
+export default defineConfig({
+  observability: {
+    traceExporter: new LangWatchTraceExporter({
+      filters: withCustomScopes("my-app/database", "my-app/agent"),
+    }),
+    instrumentations: [], // disable auto-instrumentation
+  },
+});
+```
+
+:::
+
+### Step 2: Tag your spans
+
+In your application code, create a tracer with the matching scope name and wrap the operations you want to capture:
+
+:::code-group
+
+```python [python]
+from opentelemetry import trace
+
+tracer = trace.get_tracer("my-app/database")
+
+async def query_database(sql: str):
+    with tracer.start_as_current_span("db.query") as span:
+        result = await db.execute(sql)
+        return result
+```
+
+```typescript [typescript]
+import { trace } from "@opentelemetry/api";
+
+const tracer = trace.getTracer("my-app/database");
+
+async function queryDatabase(sql: string) {
+  return tracer.startActiveSpan("db.query", async (span) => {
+    try {
+      const result = await db.execute(sql);
+      return result;
+    } finally {
+      span.end();
+    }
+  });
+}
+```
+
+:::
+
+Only spans from Scenario, `my-app/database`, and `my-app/agent` will be exported. Everything else (HTTP middleware, framework internals, etc.) is filtered out.
+
+---
+
+## Explicit Initialization
+
+By default, tracing initializes lazily on the first `run()` call. If you need tracing active before that -- for example, to capture spans during test setup or agent warm-up -- you can call `setup_scenario_tracing()` explicitly for immediate initialization.
+
+:::code-group
+
+```python [python]
+from scenario import setup_scenario_tracing
+
+# Initialize tracing immediately, before any run() call
+setup_scenario_tracing(
+    instrumentors=[],  # disable auto-instrumentation
+)
+```
+
+```typescript [typescript]
+import { setupScenarioTracing } from "@langwatch/scenario";
+
+// Initialize tracing immediately, before any run() call
+setupScenarioTracing({
+  instrumentations: [], // disable auto-instrumentation
+});
+```
+
+:::
+
+These accept the same options as the observability config. Once called, subsequent `run()` calls skip their own initialization.
+
+<Callout type="info">
+  If you configure observability via both `scenario.configure()` / `scenario.config.js` and the explicit setup call, the explicit call wins -- `run()` will not re-initialize tracing.
+</Callout>
+
+---
+
+## Pre-Existing OpenTelemetry Provider
+
+If your application already initializes OpenTelemetry -- for example, via `@vercel/otel`, Datadog, or your own `TracerProvider` -- Scenario detects this automatically and adds its span processors to the existing provider. No configuration needed.
+
+```
+Your app initializes OTel (e.g., @vercel/otel)
+         |
+         v
+  Scenario run() is called
+         |
+         v
+  Scenario detects existing provider
+         |
+         v
+  Adds judgeSpanCollector + LangWatch exporter
+  to the existing provider
+         |
+         v
+  Your existing spans continue flowing
+  to your existing exporters, while
+  scenario spans also go to LangWatch
+```
+
+This means you can add Scenario to a project that already has observability set up without any configuration changes. Scenario will not overwrite or interfere with your existing tracing setup.
+
+<Callout type="tip">
+  When a pre-existing provider is detected, the observability config is ignored -- Scenario only attaches its processors to the provider that is already running.
+</Callout>
+
+---
+
+## Configuration Reference
+
+### Python
+
+Configuration is passed via `scenario.configure(observability={...})` in `conftest.py`:
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `span_filter` | `SpanFilter` (callable) | Filter function. Use `scenario_only` or `with_custom_scopes()` presets. |
+| `span_processors` | `List[SpanProcessor]` | Additional span processors. The internal `judge_span_collector` is always added. |
+| `trace_exporter` | `SpanExporter` | Custom span exporter. Wrapped with `span_filter` if both provided. |
+| `instrumentors` | `List[Instrumentor]` | OTel instrumentors. Pass `[]` to disable auto-instrumentation. |
+
+### TypeScript
+
+The `observability` key in `scenario.config.js` accepts a subset of `SetupObservabilityOptions` from the `langwatch` SDK:
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `traceExporter` | `SpanExporter` | Custom span exporter. Use `LangWatchTraceExporter` with `filters` for span filtering. |
+| `instrumentations` | `Instrumentation[]` | OpenTelemetry instrumentations to register. Set to `[]` to disable auto-instrumentation. |
+| `spanProcessors` | `SpanProcessor[]` | Additional span processors. The internal `judgeSpanCollector` is always added automatically. |
+| `langwatch` | `{ apiKey, endpoint }` | Override LangWatch connection settings. Falls back to environment variables if not set. |
+
+---
+
+## Next Steps
+
+- [Configuration](/basics/configuration) -- Environment variables and config file reference
+- [Custom Clients](/advanced/custom-clients) -- Configure custom LLM clients and parameters
+- [Simulations Visualizer](/visualizations) -- View scenario traces in the LangWatch dashboard

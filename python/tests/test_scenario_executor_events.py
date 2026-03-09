@@ -280,3 +280,69 @@ async def test_error_includes_agent_class_name() -> None:
 
     # Error should include the agent class name
     assert "FailingAgent" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_user_metadata_appears_in_run_started_event() -> None:
+    """User metadata should appear in RUN_STARTED event's additional_properties."""
+    mock_reporter = MockEventReporter()
+    event_bus = ScenarioEventBus(event_reporter=mock_reporter)
+
+    executor = ScenarioExecutor(
+        name="metadata scenario",
+        description="test metadata",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test criteria"]),
+        ],
+        event_bus=event_bus,
+        metadata={"promptId": "abc-123", "environment": "staging"},
+    )
+
+    events: List[ScenarioEvent] = []
+    executor.events.subscribe(events.append)
+    await executor.run()
+
+    start_event: ScenarioRunStartedEvent = next(
+        e for e in events if isinstance(e, ScenarioRunStartedEvent)
+    )
+
+    metadata_dict = start_event.metadata.to_dict()
+    assert metadata_dict["promptId"] == "abc-123"
+    assert metadata_dict["environment"] == "staging"
+    assert metadata_dict["name"] == "metadata scenario"
+    assert metadata_dict["description"] == "test metadata"
+
+
+@pytest.mark.asyncio
+async def test_name_and_description_take_precedence_over_metadata() -> None:
+    """Config name/description should take precedence over same keys in metadata."""
+    mock_reporter = MockEventReporter()
+    event_bus = ScenarioEventBus(event_reporter=mock_reporter)
+
+    executor = ScenarioExecutor(
+        name="real name",
+        description="real description",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(model="none"),
+            MockJudgeAgent(model="none", criteria=["test criteria"]),
+        ],
+        event_bus=event_bus,
+        metadata={"name": "overridden", "description": "overridden"},
+    )
+
+    events: List[ScenarioEvent] = []
+    executor.events.subscribe(events.append)
+    await executor.run()
+
+    start_event: ScenarioRunStartedEvent = next(
+        e for e in events if isinstance(e, ScenarioRunStartedEvent)
+    )
+
+    assert start_event.metadata.name == "real name"
+    assert start_event.metadata.description == "real description"
+    metadata_dict = start_event.metadata.to_dict()
+    assert metadata_dict["name"] == "real name"
+    assert metadata_dict["description"] == "real description"

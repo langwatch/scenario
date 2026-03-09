@@ -9,6 +9,7 @@ and judge agents to determine test success or failure.
 import json
 import sys
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Dict,
@@ -137,6 +138,7 @@ class ScenarioExecutor:
         debug: Optional[bool] = None,
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -159,11 +161,15 @@ class ScenarioExecutor:
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
+            metadata: Optional metadata to attach to the scenario run.
+                     Accepts arbitrary key-value pairs. The ``langwatch`` key
+                     is reserved for platform-internal use.
         """
         self.name = name
         self.description = description
         self.agents = agents
         self.script = script or [proceed()]
+        self.metadata = metadata
 
         config = ScenarioConfig(
             max_turns=max_turns,
@@ -349,6 +355,9 @@ class ScenarioExecutor:
                 "scenario.turn": self._state.current_turn,
             },
         ).__enter__()
+
+        if self._trace.root_span is not None:
+            self._trace.root_span.set_attributes({"langwatch.origin": "simulation"})
 
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
@@ -892,6 +901,10 @@ class ScenarioExecutor:
             name=self.name,
             description=self.description,
         )
+        if self.metadata:
+            for key, value in self.metadata.items():
+                if key not in ("name", "description"):
+                    metadata.additional_properties[key] = value
 
         event = ScenarioRunStartedEvent(
             **common_fields,
@@ -968,6 +981,7 @@ async def run(
     debug: Optional[bool] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -986,6 +1000,9 @@ async def run(
         debug: Enable debug mode for step-by-step execution
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
+        metadata: Optional metadata to attach to the scenario run.
+                 Accepts arbitrary key-value pairs. The ``langwatch`` key
+                 is reserved for platform-internal use.
 
     Returns:
         ScenarioResult containing the test outcome, conversation history,
@@ -1031,6 +1048,12 @@ async def run(
         print(f"Conversation had {len(result.messages)} messages")
         ```
     """
+    from ._tracing import ensure_tracing_initialized
+    from .config import ScenarioConfig
+
+    config = ScenarioConfig.default_config
+    ensure_tracing_initialized(config.observability if config else None)
+
     scenario = ScenarioExecutor(
         name=name,
         description=description,
@@ -1041,6 +1064,7 @@ async def run(
         debug=debug,
         script=script,
         set_id=set_id,
+        metadata=metadata,
     )
 
     # We'll use a thread pool to run the execution logic, we
@@ -1054,7 +1078,17 @@ async def run(
             asyncio.set_event_loop(loop)
 
             try:
-                return loop.run_until_complete(scenario.run())
+                result = loop.run_until_complete(scenario.run())
+
+                # Clean up spans for this thread to prevent memory buildup
+                from ._tracing import judge_span_collector
+
+                if hasattr(scenario, "_state") and scenario._state:
+                    judge_span_collector.clear_spans_for_thread(
+                        scenario._state.thread_id
+                    )
+
+                return result
             finally:
                 scenario.event_bus.drain()
                 loop.close()

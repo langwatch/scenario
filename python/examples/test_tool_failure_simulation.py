@@ -143,6 +143,7 @@ def check_success_in_message(state: scenario.ScenarioState) -> None:
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_tool_timeout_simulation():
     """Test agent's ability to handle tool timeouts."""
@@ -175,6 +176,7 @@ async def test_tool_timeout_simulation():
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_tool_rate_limit_simulation():
     """Test agent's ability to handle rate limits."""

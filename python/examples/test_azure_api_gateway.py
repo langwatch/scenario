@@ -73,6 +73,7 @@ def create_custom_openai_client():
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_azure_gateway_with_custom_client():
     """

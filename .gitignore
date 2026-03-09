@@ -184,3 +184,5 @@ docs/docs/public/reference/javascript/**/*
 !docs/docs/public/reference/javascript/.gitkeep
 docs/docs/public/reference/python/**/*
 !docs/docs/public/reference/python/.gitkeep
+
+.claude/worktrees

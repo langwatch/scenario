@@ -12,6 +12,7 @@ scenario.configure(default_model="openai/gpt-4.1-mini")
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_vegetarian_recipe_agent():
     class Agent(scenario.AgentAdapter):

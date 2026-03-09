@@ -61,6 +61,13 @@ export interface ScenarioConfig {
    * If not provided, the scenario will not be grouped into a set.
    */
   setId?: string;
+
+  /**
+   * Optional metadata to attach to the scenario run.
+   * Accepts arbitrary key-value pairs (e.g. prompt IDs, environments, versions).
+   * The `langwatch` key is reserved for platform-internal use.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**

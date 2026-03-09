@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.7.19](https://github.com/langwatch/scenario/compare/python/v0.7.18...python/v0.7.19) (2026-03-07)
+
+
+### Features
+
+* add langwatch.origin="simulation" span attribute ([#264](https://github.com/langwatch/scenario/issues/264)) ([30fbdf0](https://github.com/langwatch/scenario/commit/30fbdf006c688ce43db1ad61e678fb0e28578266))
+
+
+### Miscellaneous
+
+* change license from MIT to AGPLv3 ([#258](https://github.com/langwatch/scenario/issues/258)) ([d3ac921](https://github.com/langwatch/scenario/commit/d3ac9213c0a1406aab630c3a034b2dcbb2166976))
+
+## [0.7.18](https://github.com/langwatch/scenario/compare/python/v0.7.17...python/v0.7.18) (2026-03-05)
+
+
+### Bug Fixes
+
+* allow judge discovery tools before forced verdict on large traces ([#251](https://github.com/langwatch/scenario/issues/251)) ([3c32b01](https://github.com/langwatch/scenario/commit/3c32b0181d550e363d42438051bd48b8e4dd7880))
+* resolve pyright type errors in judge discovery integration test ([96e385b](https://github.com/langwatch/scenario/commit/96e385b4cb497e8ea4e172d9c598a86b75f8671c))
+
+## [0.7.17](https://github.com/langwatch/scenario/compare/python/v0.7.16...python/v0.7.17) (2026-03-03)
+
+
+### Features
+
+* add extensible metadata support to ScenarioConfig ([#228](https://github.com/langwatch/scenario/issues/228)) ([36c2179](https://github.com/langwatch/scenario/commit/36c21790ff252a6f77a3251f16ff644d9cb5b11f))
+* add extensible metadata support to ScenarioConfig ([#234](https://github.com/langwatch/scenario/issues/234)) ([36c2179](https://github.com/langwatch/scenario/commit/36c21790ff252a6f77a3251f16ff644d9cb5b11f))
+* lazy observability init with configurable span filtering (TypeScript + Python) ([#237](https://github.com/langwatch/scenario/issues/237)) ([8b02161](https://github.com/langwatch/scenario/commit/8b02161f22c343631be71f9061e3f4e149e5e0b5))
+* progressive trace discovery for Python SDK + span ID improvements (both languages) ([#242](https://github.com/langwatch/scenario/issues/242)) ([716c8b7](https://github.com/langwatch/scenario/commit/716c8b71215f12e8548f642e4e99c9c8054d1e72))
+
+
+### Bug Fixes
+
+* add flaky markers to all LLM-calling example tests ([#244](https://github.com/langwatch/scenario/issues/244)) ([72c6a88](https://github.com/langwatch/scenario/commit/72c6a888fd5812936e73c3f983799693ba68881a))
+
+
+### Miscellaneous
+
+* switch gpt-4.1 to gpt-4.1-mini to reduce costs ([bcf5365](https://github.com/langwatch/scenario/commit/bcf53655eff3f60f7143ac63cdb072dc676cb2cc))
+* switch gpt-4.1 to gpt-5-mini to reduce costs ([#231](https://github.com/langwatch/scenario/issues/231)) ([bcf5365](https://github.com/langwatch/scenario/commit/bcf53655eff3f60f7143ac63cdb072dc676cb2cc))
+
+
+### Documentation
+
+* add custom judge documentation ([#227](https://github.com/langwatch/scenario/issues/227)) ([0b02068](https://github.com/langwatch/scenario/commit/0b02068b78c22c12db61e08631a8937bbc54ef19))
+
 ## [0.7.16](https://github.com/langwatch/scenario/compare/python/v0.7.15...python/v0.7.16) (2026-02-18)
 
 

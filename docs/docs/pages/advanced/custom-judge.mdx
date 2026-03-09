@@ -15,52 +15,9 @@ This guide walks through three levels of customization, from lightest to most in
   For simple deterministic checks (tool calls, message structure, state assertions), [script lambdas](/basics/scripted-simulations) are usually a better fit. Custom judges shine when you need LLM reasoning, a different model, or a full agent that can use tools — think code execution, filesystem access, or web search to verify the agent&apos;s work.
 </Callout>
 
-## How Judging Works
-
-Before customizing, it helps to understand the judging workflow:
-
-```
-                        ┌──────────────────────────────────┐
-                        │         Scenario Loop            │
-                        │                                  │
-                        │  user() ──► agent() ──► judge()  │
-                        │    │           │           │     │
-                        │    ▼           ▼           ▼     │
-                        │  "Help me"  "Sure,..."   ????    │
-                        └────────────────────────────┬─────┘
-                                                     │
-                         ┌───────────────────────────┘
-                         │
-                         ▼
-               ┌─────────────────────┐
-               │   Judge receives    │
-               │                     │
-               │  - Full transcript  │
-               │  - OTel traces      │
-               │  - Criteria list    │
-               │  - Scenario desc    │
-               └────────┬────────────┘
-                        │
-                        ▼
-               ┌─────────────────────┐
-               │   Judge decides     │
-               │                     │
-               │  continue_test ───────► loop continues
-               │       or            │
-               │  finish_test ─────────► ScenarioResult
-               │   (verdict +        │     success/failure
-               │    per-criterion    │     + reasoning
-               │    true/false)      │
-               └─────────────────────┘
-```
-
-The judge receives an `AgentInput` with:
-
-- **`input.messages`** — the full conversation history (OpenAI message format)
-- **`input.judgment_request`** — present when a verdict is requested; may contain `.criteria` for inline overrides
-- **`input.scenario_state`** — scenario metadata (description, current turn, max turns)
-
-The built-in judge formats these into a transcript and OpenTelemetry traces digest, then uses function calling (`continue_test` / `finish_test`) to make structured decisions.
+<Callout type="info">
+  Before customizing, it helps to understand how the built-in judge works — the judging loop, trace rendering modes, and the decision-making process. See [How Judging Works](/advanced/how-judging-works) for the full picture.
+</Callout>
 
 ## Level 1: Custom System Prompt
 
@@ -409,6 +366,161 @@ Return a result for each criterion using the exact criterion text.`,
 
 :::
 
+## Accessing Traces in Custom Judges
+
+The built-in judge automatically receives OpenTelemetry traces from your agent's execution. When building a custom judge, you can access these traces too — useful for verifying tool calls, checking LLM prompts, or inspecting execution flow beyond what's visible in the conversation transcript.
+
+### Getting spans from the collector
+
+The `JudgeSpanCollector` captures all spans emitted during the scenario. Use `get_spans_for_thread` to get spans for the current conversation:
+
+:::code-group
+
+```python [python]
+from scenario._tracing import judge_span_collector
+
+# Inside your judge's call() method:
+spans = judge_span_collector.get_spans_for_thread(input.thread_id)
+# spans is a list of OpenTelemetry ReadableSpan objects
+```
+
+```typescript [typescript]
+import { judgeSpanCollector } from "@langwatch/scenario";
+
+// Inside your judge's call() method:
+const spans = judgeSpanCollector.getSpansForThread(input.threadId);
+// spans is an array of OpenTelemetry ReadableSpan objects
+```
+
+:::
+
+### Using trace discovery tools
+
+For large traces, you can reuse the same `expand_trace` and `grep_trace` utilities that the built-in judge uses for progressive discovery:
+
+:::code-group
+
+```python [python]
+from scenario._judge.trace_tools import expand_trace, grep_trace
+
+# Expand specific spans by their 8-char ID prefix
+details = expand_trace(spans, span_ids=["a0b1c2d3", "d3e4f567"])
+
+# Search across all span content
+matches = grep_trace(spans, "fetch_weather")
+```
+
+```typescript [typescript]
+import { expandTrace, grepTrace } from "@langwatch/scenario";
+
+// Expand specific spans by their 8-char ID prefix
+const details = expandTrace(spans, ["a0b1c2d3", "d3e4f567"]);
+
+// Search across all span content
+const matches = grepTrace(spans, "fetch_weather");
+```
+
+:::
+
+Both functions return formatted strings ready to include in an LLM prompt. Results are capped at ~4096 tokens to stay within reasonable context limits.
+
+### Example: Judge that verifies tool usage via traces
+
+A custom judge that checks whether the agent actually called a specific tool by inspecting the trace, rather than relying on what appears in the conversation:
+
+:::code-group
+
+```python [python]
+import scenario
+from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
+from scenario._tracing import judge_span_collector
+from scenario._judge.trace_tools import grep_trace
+
+class ToolVerifyingJudge(scenario.AgentAdapter):
+    role = scenario.AgentRole.JUDGE
+
+    def __init__(self, required_tool: str, criteria: list[str]):
+        self.required_tool = required_tool
+        self.criteria = criteria
+
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
+        if not input.judgment_request:
+            return []
+
+        spans = judge_span_collector.get_spans_for_thread(input.thread_id)
+        tool_matches = grep_trace(spans, self.required_tool)
+
+        if "No matches found" in tool_matches:
+            return ScenarioResult(
+                success=False,
+                messages=[],
+                reasoning=f"Agent never called the '{self.required_tool}' tool",
+                passed_criteria=[],
+                failed_criteria=self.criteria,
+            )
+
+        return ScenarioResult(
+            success=True,
+            messages=[],
+            reasoning=f"Agent correctly used the '{self.required_tool}' tool",
+            passed_criteria=self.criteria,
+            failed_criteria=[],
+        )
+```
+
+```typescript [typescript]
+import scenario, {
+  type AgentInput,
+  type AgentReturnTypes,
+  AgentAdapter,
+  AgentRole,
+  judgeSpanCollector,
+  grepTrace,
+} from "@langwatch/scenario";
+
+class ToolVerifyingJudge extends AgentAdapter {
+  role = AgentRole.JUDGE;
+  requiredTool: string;
+  criteria: string[];
+
+  constructor(requiredTool: string, criteria: string[]) {
+    super();
+    this.requiredTool = requiredTool;
+    this.criteria = criteria;
+  }
+
+  async call(input: AgentInput): Promise<AgentReturnTypes> {
+    if (!input.judgmentRequest) {
+      return null;
+    }
+
+    const spans = judgeSpanCollector.getSpansForThread(input.threadId);
+    const toolMatches = grepTrace(spans, this.requiredTool);
+
+    if (toolMatches.includes("No matches found")) {
+      return {
+        success: false,
+        reasoning: `Agent never called the '${this.requiredTool}' tool`,
+        metCriteria: [],
+        unmetCriteria: this.criteria,
+      };
+    }
+
+    return {
+      success: true,
+      reasoning: `Agent correctly used the '${this.requiredTool}' tool`,
+      metCriteria: this.criteria,
+      unmetCriteria: [],
+    };
+  }
+}
+```
+
+:::
+
+<Callout type="tip">
+  This pattern is powerful for testing tool-calling agents. The conversation transcript shows what the agent *said*, but traces show what it *did* — which tools were called, with what arguments, and what they returned.
+</Callout>
 
 ---
 

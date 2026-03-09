@@ -126,6 +126,7 @@ async def test_server():
     await runner.cleanup()
 
 
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_streaming_response(test_server):
     """

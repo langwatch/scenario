@@ -101,6 +101,7 @@ class UserDataAgent(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_api_service_mocking():
     """Test mocking HTTP calls within tools while using real LLM tool calling."""

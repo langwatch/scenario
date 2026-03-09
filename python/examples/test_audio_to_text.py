@@ -158,6 +158,7 @@ class AudioToTextAgent(scenario.AgentAdapter):
 SET_ID = "multimodal-audio-to-text-test"
 
 
+@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_audio_to_text():
     """

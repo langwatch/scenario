@@ -34,5 +34,9 @@
       "require": "./javascript/dist/integrations/vitest/config.js",
       "import": "./javascript/dist/integrations/vitest/config.mjs"
     }
+  },
+  "dependencies": {
+    "@opentelemetry/sdk-node": "^0.212.0",
+    "langwatch": "^0.16.1"
   }
 }

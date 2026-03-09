@@ -97,13 +97,16 @@ For more examples and detailed documentation, visit: https://github.com/langwatc
 import litellm
 litellm.drop_params = True
 
-# Setup logging and tracing infrastructure (side-effect imports)
+# Setup logging infrastructure (side-effect import)
 from .config import logging as _logging_config  # noqa: F401
 from . import _tracing  # noqa: F401
 
 # First import non-dependent modules
 from .types import ScenarioResult, AgentInput, AgentRole, AgentReturnTypes, JudgmentRequest
 from .config import ScenarioConfig
+
+# Tracing public API
+from ._tracing import setup_scenario_tracing, scenario_only, with_custom_scopes
 
 # Then import modules with dependencies
 from .scenario_executor import run
@@ -140,6 +143,10 @@ __all__ = [
     "agent",
     "user",
     "marathon_script",
+    # Tracing
+    "setup_scenario_tracing",
+    "scenario_only",
+    "with_custom_scopes",
     # Types
     "ScenarioResult",
     "AgentInput",

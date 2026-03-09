@@ -63,21 +63,68 @@ class JudgeSpanCollector(SpanProcessor):
             span_id = span_ctx.span_id if span_ctx else 0
             span_map[span_id] = span
 
-        def belongs_to_thread(span: ReadableSpan) -> bool:
-            """Check if span or any ancestor belongs to thread."""
-            attrs = span.attributes or {}
-            if attrs.get(AttributeKey.LangWatchThreadId) == thread_id:
-                return True
+        return [
+            s
+            for s in self._spans
+            if self._belongs_to_thread(s, thread_id, span_map, set())
+        ]
 
-            parent_ctx = span.parent
-            if parent_ctx is not None:
-                parent_id = parent_ctx.span_id
-                if parent_id in span_map:
-                    return belongs_to_thread(span_map[parent_id])
+    def _belongs_to_thread(
+        self,
+        span: ReadableSpan,
+        thread_id: str,
+        span_map: Dict[int, ReadableSpan],
+        visited: set,
+    ) -> bool:
+        """Check if span or any ancestor belongs to thread.
 
+        Uses a visited set to protect against cycles in parent chains.
+        """
+        span_ctx = span.get_span_context()
+        span_id = span_ctx.span_id if span_ctx else 0
+        if span_id in visited:
             return False
+        visited.add(span_id)
 
-        return [s for s in self._spans if belongs_to_thread(s)]
+        attrs = span.attributes or {}
+        if attrs.get(AttributeKey.LangWatchThreadId) == thread_id:
+            return True
+
+        parent_ctx = span.parent
+        if parent_ctx is not None:
+            parent_id = parent_ctx.span_id
+            if parent_id in span_map:
+                return self._belongs_to_thread(
+                    span_map[parent_id], thread_id, span_map, visited
+                )
+
+        return False
+
+    def clear_spans_for_thread(self, thread_id: str) -> None:
+        """Remove all spans associated with a specific thread.
+
+        Called after a scenario run completes to prevent memory buildup
+        in long-lived processes.
+        """
+        span_map: Dict[int, ReadableSpan] = {}
+        for span in self._spans:
+            span_ctx = span.get_span_context()
+            span_id = span_ctx.span_id if span_ctx else 0
+            span_map[span_id] = span
+
+        thread_span_ids = set()
+        for span in self._spans:
+            if self._belongs_to_thread(span, thread_id, span_map, set()):
+                span_ctx = span.get_span_context()
+                if span_ctx:
+                    thread_span_ids.add(span_ctx.span_id)
+
+        self._spans = [
+            s
+            for s in self._spans
+            if (ctx.span_id if (ctx := s.get_span_context()) else 0)
+            not in thread_span_ids
+        ]
 
 
 # Singleton instance

@@ -1,0 +1,19 @@
+{
+  "name": "custom-observability-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:no-auto-init": "tsx test-no-auto-init.ts",
+    "test:scenario-only": "tsx test-scenario-only.ts",
+    "test:custom-scopes": "tsx test-custom-scopes.ts",
+    "test:config-file": "tsx test-config-file.ts",
+    "test:all": "tsx test-no-auto-init.ts && tsx test-scenario-only.ts && tsx test-custom-scopes.ts && tsx test-config-file.ts"
+  },
+  "dependencies": {
+    "@langwatch/scenario": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
+    "tsx": "^4.19.0"
+  }
+}

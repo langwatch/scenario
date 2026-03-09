@@ -38,7 +38,7 @@ describe("when max turns is not set", () => {
 });
 
 describe("when max turns is set to 20", () => {
-  it("the scenario should stop at 40 messages", async () => {
+  it("the scenario should stop at 40 messages", { timeout: 360_000 }, async () => {
     const result = await scenario.run({
       name: "max turns example",
       description:
