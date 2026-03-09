@@ -12,7 +12,6 @@ from scenario._red_team.crescendo import CrescendoStrategy
 from scenario._red_team.base import RedTeamStrategy
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole
-from scenario.script import user, agent, judge
 
 
 # ---------------------------------------------------------------------------
@@ -895,7 +894,6 @@ class TestRedTeamFullFlowMocked:
 
         # Pre-cache the plan and track if _generate_attack_plan is called
         generate_call_count = 0
-        original_generate = red_team._generate_attack_plan
 
         async def tracking_generate(description):
             nonlocal generate_call_count
@@ -1770,7 +1768,7 @@ class TestMarathonScriptEarlyExit:
         early_exit_step = steps[2]
         step_result = early_exit_step(mock_state)
         if inspect.isawaitable(step_result):
-            await step_result
+            _ = await step_result
 
         mock_executor.succeed.assert_called_once()
         call_args = mock_executor.succeed.call_args
@@ -1809,7 +1807,7 @@ class TestMarathonScriptEarlyExit:
         early_exit_step = steps[2]
         step_result = early_exit_step(mock_state)
         if inspect.isawaitable(step_result):
-            await step_result
+            _ = await step_result
 
         assert call_order == ["fc1", "fc2"]
         mock_executor.succeed.assert_called_once()
@@ -1829,6 +1827,6 @@ class TestMarathonScriptEarlyExit:
         early_exit_step = steps[2]
         step_result = early_exit_step(mock_state)
         if inspect.isawaitable(step_result):
-            await step_result
+            _ = await step_result
 
         mock_state._executor.succeed.assert_not_called()

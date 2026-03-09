@@ -37,7 +37,7 @@ class RedTeamStrategy(ABC):
                 The target does NOT remember these exchanges.
             **kwargs: Additional strategy-specific parameters.
         """
-        ...
+        raise NotImplementedError
 
     @abstractmethod
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
@@ -52,4 +52,4 @@ class RedTeamStrategy(ABC):
         Returns:
             Phase name string (e.g. "warmup", "probing", "escalation", "direct").
         """
-        ...
+        raise NotImplementedError

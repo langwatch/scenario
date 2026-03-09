@@ -316,6 +316,7 @@ class RedTeamAgent(AgentAdapter):
                     f"(score >= {self.success_score} for "
                     f"{self.success_confirm_turns} consecutive turns)"
                 )
+            return None
 
         # Pad for potential backtracks so effective turns ≈ requested turns.
         # Each backtrack wastes one iteration (the attack is regenerated from
