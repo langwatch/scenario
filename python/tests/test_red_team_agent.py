@@ -1244,14 +1244,17 @@ class TestTotalTurnsMismatch:
 class TestMarathonScriptStandalone:
     """Test the marathon_script function exported from scenario.script."""
 
-    def test_standalone_matches_class_method(self):
-        """scenario.marathon_script should produce same result as RedTeamAgent.marathon_script."""
+    def test_standalone_matches_instance_method_without_early_exit(self):
+        """scenario.marathon_script should produce same length as instance method with success_score=None."""
         import scenario
 
         check = lambda state: None  # noqa: E731
         standalone = scenario.marathon_script(turns=5, checks=[check])
-        class_method = RedTeamAgent.marathon_script(turns=5, checks=[check])
-        assert len(standalone) == len(class_method)
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4", success_score=None,
+        )
+        instance_method = agent.marathon_script(turns=5, checks=[check])
+        assert len(standalone) == len(instance_method)
 
     def test_standalone_basic_length(self):
         from scenario.script import marathon_script
@@ -1394,3 +1397,191 @@ class TestRefusalDetection:
             detect_refusals=False,
         )
         assert agent.detect_refusals is False
+
+
+# ---------------------------------------------------------------------------
+# Early exit on success
+# ---------------------------------------------------------------------------
+
+
+class TestCheckEarlyExit:
+    """Tests for check_early_exit() method."""
+
+    def test_returns_false_when_no_scores(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+        )
+        assert agent.check_early_exit() is False
+
+    def test_returns_false_when_scores_below_threshold(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=2,
+        )
+        agent._turn_scores = {1: (5, "hint"), 2: (7, "hint")}
+        assert agent.check_early_exit() is False
+
+    def test_returns_false_with_only_one_high_score(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=2,
+        )
+        agent._turn_scores = {1: (5, "hint"), 2: (10, "hint")}
+        assert agent.check_early_exit() is False
+
+    def test_returns_true_with_consecutive_high_scores(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=2,
+        )
+        agent._turn_scores = {1: (5, "hint"), 2: (9, "hint"), 3: (10, "hint")}
+        assert agent.check_early_exit() is True
+
+    def test_returns_true_with_exact_threshold(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=2,
+        )
+        agent._turn_scores = {1: (9, "hint"), 2: (9, "hint")}
+        assert agent.check_early_exit() is True
+
+    def test_returns_false_when_success_score_is_none(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=None,
+        )
+        agent._turn_scores = {1: (10, "hint"), 2: (10, "hint")}
+        assert agent.check_early_exit() is False
+
+    def test_confirm_turns_3(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=3,
+        )
+        agent._turn_scores = {1: (9, ""), 2: (10, ""), 3: (9, "")}
+        assert agent.check_early_exit() is True
+
+        # Only 2 high scores — not enough for confirm_turns=3
+        agent._turn_scores = {1: (5, ""), 2: (10, ""), 3: (9, "")}
+        assert agent.check_early_exit() is False
+
+
+class TestMarathonScriptEarlyExit:
+    """Tests for the instance marathon_script with early-exit checks."""
+
+    def test_inserts_early_exit_checks_when_success_score_set(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9,
+        )
+        steps = agent.marathon_script(turns=3)
+        # 3 * (user + agent + early_exit_check) + judge = 3*3 + 1 = 10
+        assert len(steps) == 10
+
+    def test_inserts_early_exit_checks_with_checks(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9,
+        )
+        dummy_check = lambda state: None
+        steps = agent.marathon_script(turns=2, checks=[dummy_check])
+        # 2 * (user + agent + early_exit_check + check) + judge = 2*4 + 1 = 9
+        assert len(steps) == 9
+
+    def test_inserts_early_exit_checks_with_final_checks(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9,
+        )
+        dummy_final = lambda state: None
+        steps = agent.marathon_script(turns=2, final_checks=[dummy_final])
+        # 2 * (user + agent + early_exit_check) + final_check + judge = 2*3 + 1 + 1 = 8
+        assert len(steps) == 8
+
+    def test_omits_early_exit_checks_when_success_score_none(self):
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=None,
+        )
+        steps = agent.marathon_script(turns=3)
+        # Falls back to plain marathon_script: 3 * (user + agent) + judge = 7
+        assert len(steps) == 7
+
+    @pytest.mark.asyncio
+    async def test_early_exit_check_calls_succeed(self):
+        """When check_early_exit() is True, the check step should call succeed()."""
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=2,
+        )
+        agent._turn_scores = {1: (9, ""), 2: (10, "")}
+
+        mock_executor = AsyncMock()
+        mock_executor.succeed = AsyncMock(return_value=MagicMock())
+
+        mock_state = MagicMock()
+        mock_state.current_turn = 2
+        mock_state._executor = mock_executor
+
+        steps = agent.marathon_script(turns=3)
+        # The 3rd step (index 2) should be the early-exit check
+        early_exit_step = steps[2]
+        result = await early_exit_step(mock_state)
+
+        mock_executor.succeed.assert_called_once()
+        call_args = mock_executor.succeed.call_args
+        assert "Early exit" in call_args[0][0]
+        assert "score >= 9" in call_args[0][0]
+        assert "2 consecutive turns" in call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_early_exit_check_runs_final_checks(self):
+        """When early exit triggers, final_checks should run before succeed()."""
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=1,
+        )
+        agent._turn_scores = {1: (10, "")}
+
+        call_order = []
+
+        async def final_check_1(state):
+            call_order.append("fc1")
+
+        def final_check_2(state):
+            call_order.append("fc2")
+
+        mock_executor = AsyncMock()
+        mock_executor.succeed = AsyncMock(return_value=MagicMock())
+
+        mock_state = MagicMock()
+        mock_state.current_turn = 1
+        mock_state._executor = mock_executor
+
+        steps = agent.marathon_script(
+            turns=3,
+            final_checks=[final_check_1, final_check_2],
+        )
+        early_exit_step = steps[2]
+        await early_exit_step(mock_state)
+
+        assert call_order == ["fc1", "fc2"]
+        mock_executor.succeed.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_early_exit_check_noop_when_not_triggered(self):
+        """When check_early_exit() is False, the check step should be a no-op."""
+        agent = RedTeamAgent.crescendo(
+            target="test", model="openai/gpt-4",
+            success_score=9, success_confirm_turns=2,
+        )
+        # No scores cached — check_early_exit() returns False
+        mock_state = MagicMock()
+        mock_state._executor = AsyncMock()
+
+        steps = agent.marathon_script(turns=3)
+        early_exit_step = steps[2]
+        result = await early_exit_step(mock_state)
+
+        assert result is None
+        mock_state._executor.succeed.assert_not_called()
