@@ -1388,7 +1388,7 @@ class TestRefusalDetection:
             model="openai/gpt-4",
             attack_plan="pre-baked plan",
             score_responses=True,
-            detect_refusals=True,
+            fast_refusal_detection=True,
         )
         messages = [{"role": "assistant", "content": "I cannot help with that request."}]
         last_content = agent._get_last_assistant_content(messages)
@@ -1407,22 +1407,22 @@ class TestRefusalDetection:
         result = self.agent._detect_refusal("Sure, here is the information you need.")
         assert result == "none"
 
-    def test_detect_refusals_config_default_true(self):
-        """detect_refusals should default to True."""
+    def test_fast_refusal_detection_config_default_true(self):
+        """fast_refusal_detection should default to True."""
         agent = RedTeamAgent.crescendo(
             target="test",
             model="openai/gpt-4",
         )
-        assert agent.detect_refusals is True
+        assert agent.fast_refusal_detection is True
 
-    def test_detect_refusals_config_opt_out(self):
-        """detect_refusals can be set to False."""
+    def test_fast_refusal_detection_config_opt_out(self):
+        """fast_refusal_detection can be set to False."""
         agent = RedTeamAgent.crescendo(
             target="test",
             model="openai/gpt-4",
-            detect_refusals=False,
+            fast_refusal_detection=False,
         )
-        assert agent.detect_refusals is False
+        assert agent.fast_refusal_detection is False
 
 
 # ---------------------------------------------------------------------------
@@ -1439,7 +1439,7 @@ class TestBacktracking:
             model="openai/gpt-4",
             attack_plan="pre-baked plan",
             score_responses=True,
-            detect_refusals=True,
+            fast_refusal_detection=True,
         )
         defaults.update(kwargs)
         return RedTeamAgent.crescendo(**defaults)  # type: ignore[arg-type]
