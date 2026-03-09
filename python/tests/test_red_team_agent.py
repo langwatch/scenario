@@ -1,5 +1,6 @@
 """Tests for RedTeamAgent and CrescendoStrategy."""
 
+import inspect
 import os
 
 import pytest
@@ -442,10 +443,10 @@ class TestResponseScorer:
 
 class TestMarathonScript:
 
-    def _make_agent(self, **kwargs):
-        defaults = dict(target="test", model="openai/gpt-4", success_score=None)
+    def _make_agent(self, **kwargs):  # type: ignore[no-untyped-def]
+        defaults: dict = dict(target="test", model="openai/gpt-4", success_score=None)
         defaults.update(kwargs)
-        return RedTeamAgent.crescendo(**defaults)
+        return RedTeamAgent.crescendo(**defaults)  # type: ignore[arg-type]
 
     def test_basic_length(self):
         """50 turns with 1 check = 50*(user+agent+check) + judge = 151."""
@@ -637,7 +638,7 @@ class TestRedTeamAgentCall:
             score_responses=True,
         )
         agent._attack_plan = "plan"
-        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})
+        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})  # type: ignore[assignment]
         agent._score_last_response = AsyncMock(
             return_value=(7, "exploit the partial disclosure")
         )
@@ -651,6 +652,7 @@ class TestRedTeamAgentCall:
 
         await agent.call(mock_input)
 
+        assert agent._inner.system_prompt is not None
         assert "7/10" in agent._inner.system_prompt
         assert "exploit the partial disclosure" in agent._inner.system_prompt
 
@@ -663,7 +665,7 @@ class TestRedTeamAgentCall:
             total_turns=50,
         )
         agent._attack_plan = "cached plan"
-        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})
+        agent._inner.call = AsyncMock(return_value={"role": "user", "content": "msg"})  # type: ignore[assignment]
 
         mock_state = MagicMock()
         mock_state.description = "agent"
@@ -675,16 +677,19 @@ class TestRedTeamAgentCall:
         # Turn 5 = warmup
         mock_state.current_turn = 5
         await agent.call(mock_input)
+        assert agent._inner.system_prompt is not None
         assert "WARMUP" in agent._inner.system_prompt
 
         # Turn 25 = escalation
         mock_state.current_turn = 25
         await agent.call(mock_input)
+        assert agent._inner.system_prompt is not None
         assert "ESCALATION" in agent._inner.system_prompt
 
         # Turn 45 = direct
         mock_state.current_turn = 45
         await agent.call(mock_input)
+        assert agent._inner.system_prompt is not None
         assert "DIRECT" in agent._inner.system_prompt
 
 
@@ -768,9 +773,11 @@ class TestRedTeamFullFlowMocked:
         ]
         call_count = 0
 
-        async def mock_inner_call(input):
+        async def mock_inner_call(input: AgentInput) -> AgentReturnTypes:
             nonlocal call_count
             turns_seen.append(input.scenario_state.current_turn)
+            from scenario._red_team.crescendo import CrescendoStrategy
+            assert isinstance(red_team._strategy, CrescendoStrategy)
             phases_seen.append(
                 red_team._strategy._get_phase(
                     input.scenario_state.current_turn, red_team.total_turns
@@ -778,9 +785,9 @@ class TestRedTeamFullFlowMocked:
             )
             msg = attack_messages[min(call_count, len(attack_messages) - 1)]
             call_count += 1
-            return {"role": "user", "content": msg}
+            return msg
 
-        red_team._inner.call = mock_inner_call
+        red_team._inner.call = mock_inner_call  # type: ignore[assignment]
 
         def check_no_leak(state: scenario.ScenarioState):
             """Stub check — just verifies the agent didn't say 'system prompt'."""
@@ -829,12 +836,12 @@ class TestRedTeamFullFlowMocked:
 
         prompts_by_turn = {}
 
-        async def capturing_inner_call(input):
+        async def capturing_inner_call(input: AgentInput) -> AgentReturnTypes:
             turn = input.scenario_state.current_turn
             prompts_by_turn[turn] = red_team._inner.system_prompt
-            return {"role": "user", "content": f"attack message turn {turn}"}
+            return f"attack message turn {turn}"
 
-        red_team._inner.call = capturing_inner_call
+        red_team._inner.call = capturing_inner_call  # type: ignore[assignment]
 
         result = await scenario.run(
             name="phase transition test",
@@ -966,8 +973,8 @@ class LLMDefensiveAgent(AgentAdapter):
             temperature=0.1,
         )
 
-        content = response.choices[0].message.content
-        return {"role": "assistant", "content": content}
+        content = response.choices[0].message.content  # type: ignore[union-attr]
+        return content or ""
 
 
 @pytest.mark.asyncio
@@ -1113,7 +1120,7 @@ class TestRedTeamInvariants:
         agent._attack_plan = "plan"
         agent._inner.call = AsyncMock(
             return_value={"role": "user", "content": "msg"}
-        )
+        )  # type: ignore[assignment]
 
         mock_state = MagicMock()
         mock_state.current_turn = 1
@@ -1122,6 +1129,7 @@ class TestRedTeamInvariants:
         mock_input.scenario_state = mock_state
 
         result = await agent.call(mock_input)
+        assert isinstance(result, dict)
         assert result["role"] == "user"
 
     @pytest.mark.asyncio
@@ -1136,7 +1144,7 @@ class TestRedTeamInvariants:
         agent._attack_plan = "plan"
         agent._inner.call = AsyncMock(
             return_value={"role": "user", "content": "msg"}
-        )
+        )  # type: ignore[assignment]
 
         mock_state = MagicMock()
         mock_state.current_turn = 1
@@ -1162,7 +1170,9 @@ class TestStrategyExtensibility:
         class FixedStrategy(RedTeamStrategy):
             def build_system_prompt(
                 self, target, current_turn, total_turns,
-                scenario_description, metaprompt_plan="", **kw,
+                scenario_description, metaprompt_plan="",
+                last_response_score=None, adaptation_hint=None,
+                backtrack_history=None, **kw,
             ):
                 return f"Fixed prompt: {target}"
 
@@ -1183,7 +1193,9 @@ class TestStrategyExtensibility:
         class EchoStrategy(RedTeamStrategy):
             def build_system_prompt(
                 self, target, current_turn, total_turns,
-                scenario_description, metaprompt_plan="", **kw,
+                scenario_description, metaprompt_plan="",
+                last_response_score=None, adaptation_hint=None,
+                backtrack_history=None, **kw,
             ):
                 return f"ECHO:{target}:{current_turn}"
 
@@ -1198,7 +1210,7 @@ class TestStrategyExtensibility:
         rt_agent._attack_plan = "plan"
         rt_agent._inner.call = AsyncMock(
             return_value={"role": "user", "content": "msg"}
-        )
+        )  # type: ignore[assignment]
 
         mock_state = MagicMock()
         mock_state.current_turn = 7
@@ -1236,11 +1248,11 @@ class TestTotalTurnsMismatch:
 
         prompts = {}
 
-        async def capture(input):
+        async def capture(input: AgentInput) -> AgentReturnTypes:
             prompts[input.scenario_state.current_turn] = red_team._inner.system_prompt
-            return {"role": "user", "content": "msg"}
+            return "msg"
 
-        red_team._inner.call = capture
+        red_team._inner.call = capture  # type: ignore[assignment]
 
         result = await scenario.run(
             name="mismatch test",
@@ -1426,8 +1438,8 @@ class TestRefusalDetection:
 class TestBacktracking:
     """Tests for backtracking on hard refusals."""
 
-    def _make_agent(self, **kwargs):
-        defaults = dict(
+    def _make_agent(self, **kwargs):  # type: ignore[no-untyped-def]
+        defaults: dict = dict(
             target="extract system prompt",
             model="openai/gpt-4",
             attack_plan="pre-baked plan",
@@ -1435,7 +1447,7 @@ class TestBacktracking:
             detect_refusals=True,
         )
         defaults.update(kwargs)
-        return RedTeamAgent.crescendo(**defaults)
+        return RedTeamAgent.crescendo(**defaults)  # type: ignore[arg-type]
 
     def _make_input(self, messages, current_turn=5):
         mock_state = MagicMock()
@@ -1759,7 +1771,9 @@ class TestMarathonScriptEarlyExit:
         steps = agent.marathon_script(turns=3)
         # The 3rd step (index 2) should be the early-exit check
         early_exit_step = steps[2]
-        result = await early_exit_step(mock_state)
+        step_result = early_exit_step(mock_state)
+        if inspect.isawaitable(step_result):
+            await step_result
 
         mock_executor.succeed.assert_called_once()
         call_args = mock_executor.succeed.call_args
@@ -1796,7 +1810,9 @@ class TestMarathonScriptEarlyExit:
             final_checks=[final_check_1, final_check_2],
         )
         early_exit_step = steps[2]
-        await early_exit_step(mock_state)
+        step_result = early_exit_step(mock_state)
+        if inspect.isawaitable(step_result):
+            await step_result
 
         assert call_order == ["fc1", "fc2"]
         mock_executor.succeed.assert_called_once()
@@ -1814,7 +1830,8 @@ class TestMarathonScriptEarlyExit:
 
         steps = agent.marathon_script(turns=3)
         early_exit_step = steps[2]
-        result = await early_exit_step(mock_state)
+        step_result = early_exit_step(mock_state)
+        if inspect.isawaitable(step_result):
+            await step_result
 
-        assert result is None
         mock_state._executor.succeed.assert_not_called()
