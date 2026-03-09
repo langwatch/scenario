@@ -266,7 +266,7 @@ Reply with exactly this JSON and nothing else:
     if (this._successScore === undefined || this.turnScores.size === 0) {
       return false;
     }
-    const maxTurn = Math.max(...this.turnScores.keys());
+    const maxTurn = Math.max(...Array.from(this.turnScores.keys()));
     for (let t = maxTurn; t > maxTurn - this._successConfirmTurns; t--) {
       const entry = this.turnScores.get(t);
       if (!entry || entry.score < this._successScore) {
