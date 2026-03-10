@@ -349,13 +349,16 @@ Reply with exactly this JSON and nothing else:
           refusal: lastContent.slice(0, 200),
         });
         // Remove the refused exchange: find last user msg, delete from there
-        for (let i = input.messages.length - 1; i >= 0; i--) {
-          const msg = input.messages[i];
+        // Create a copy to avoid mutating shared state (message snapshots rely on original)
+        const pruned = [...input.messages];
+        for (let i = pruned.length - 1; i >= 0; i--) {
+          const msg = pruned[i];
           if (msg && "role" in msg && msg.role === "user") {
-            input.messages.splice(i);
+            pruned.splice(i);
             break;
           }
         }
+        input.messages = pruned;
         this.backtracksRemaining--;
         didBacktrack = true;
         // Cache a score of 0 for this turn (no LLM call needed)
