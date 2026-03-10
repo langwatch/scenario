@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.20](https://github.com/langwatch/scenario/compare/python/v0.7.19...python/v0.7.20) (2026-03-10)
+
+
+### Features
+
+* backtracking on hard refusals for RedTeamAgent ([#270](https://github.com/langwatch/scenario/issues/270)) ([62190a0](https://github.com/langwatch/scenario/commit/62190a0bd8dcf1314a148f25b60c8816af95561b))
+
+
+### Bug Fixes
+
+* align red teaming nomenclature between TypeScript and Python ([62190a0](https://github.com/langwatch/scenario/commit/62190a0bd8dcf1314a148f25b60c8816af95561b))
+* resolve CI test failures blocking JS publish ([#275](https://github.com/langwatch/scenario/issues/275)) ([049a13b](https://github.com/langwatch/scenario/commit/049a13b7ae03e5985dc01d64ebd1b1c37999dfba))
+
 ## [0.7.19](https://github.com/langwatch/scenario/compare/python/v0.7.18...python/v0.7.19) (2026-03-07)
 
 
