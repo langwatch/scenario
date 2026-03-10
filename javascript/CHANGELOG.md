@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.7](https://github.com/langwatch/scenario/compare/javascript/v0.4.6...javascript/v0.4.7) (2026-03-10)
+
+
+### Features
+
+* add backtracking on hard refusals for RedTeamAgent (TypeScript) ([#271](https://github.com/langwatch/scenario/issues/271)) ([79157cd](https://github.com/langwatch/scenario/commit/79157cdf340b5f99e07935a308ff49a3b84f8fca))
+* backtracking on hard refusals for RedTeamAgent ([#270](https://github.com/langwatch/scenario/issues/270)) ([62190a0](https://github.com/langwatch/scenario/commit/62190a0bd8dcf1314a148f25b60c8816af95561b))
+
+
+### Bug Fixes
+
+* align red teaming nomenclature between TypeScript and Python ([62190a0](https://github.com/langwatch/scenario/commit/62190a0bd8dcf1314a148f25b60c8816af95561b))
+* resolve CI test failures blocking JS publish ([#275](https://github.com/langwatch/scenario/issues/275)) ([049a13b](https://github.com/langwatch/scenario/commit/049a13b7ae03e5985dc01d64ebd1b1c37999dfba))
+
 ## [0.4.6](https://github.com/langwatch/scenario/compare/javascript/v0.4.5...javascript/v0.4.6) (2026-03-07)
 
 
