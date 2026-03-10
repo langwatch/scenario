@@ -210,8 +210,8 @@ const attacker = scenario.redTeamCrescendo({
   metapromptTemperature: 0.7,             // defaults to temperature
 
   attackPlan: undefined,                  // skip planner, use this plan
-  metapromptTemplate: undefined,          // custom planning prompt
   maxTokens: undefined,
+  // metapromptTemplate is only available via redTeamAgent() (not redTeamCrescendo)
 });
 ```
 
@@ -232,7 +232,7 @@ const attacker = scenario.redTeamCrescendo({
 | Attack temperature | `temperature` | `temperature` | `0.7` | Temperature for attack messages. |
 | Planner temperature | `metaprompt_temperature` | `metapromptTemperature` | same as `temperature` | Temperature for planning and scoring. |
 | Custom plan | `attack_plan` | `attackPlan` | auto-generated | Provide a plan string to skip the planner LLM call. |
-| Custom template | `metaprompt_template` | `metapromptTemplate` | built-in | Override the planning prompt. |
+| Custom template | `metaprompt_template` | `metapromptTemplate`* | built-in | Override the planning prompt. *TS: only via `redTeamAgent()`, not `redTeamCrescendo()`. |
 | Max tokens | `max_tokens` | `maxTokens` | model default | Cap tokens per attack message. |
 | API base | `api_base` | — | global | Custom API endpoint (Python only). |
 | API key | `api_key` | — | env | API key override (Python only). |
