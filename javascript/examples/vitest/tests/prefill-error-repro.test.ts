@@ -25,7 +25,7 @@ const agentWithArrayContent: AgentAdapter = {
 };
 
 describe("Reproduce: assistant message prefill error", () => {
-  it("should fail when agent returns array content and user simulator is Claude", async () => {
+  it.skipIf(!process.env.ANTHROPIC_API_KEY)("should fail when agent returns array content and user simulator is Claude", async () => {
     const result = await scenario.run({
       name: "prefill error repro",
       description: "User asks for help analyzing sales data, agent responds with array content",

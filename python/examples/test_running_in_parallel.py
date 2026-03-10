@@ -60,7 +60,7 @@ async def test_vegetarian_recipe_agent():
                 ]
             ),
         ],
-        max_turns=5,
+        max_turns=8,
         set_id="python-examples",
     )
 

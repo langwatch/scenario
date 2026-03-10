@@ -24,7 +24,7 @@ describe("Demo: Lightweight Scenarios", () => {
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
-        model: openai("gpt-5.2"),
+        model: openai("gpt-4o-mini"),
         messages: [
           { role: "system", content: "You are a clear, concise assistant." },
           ...input.messages,
