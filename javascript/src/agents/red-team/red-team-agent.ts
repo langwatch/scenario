@@ -407,7 +407,17 @@ Reply with exactly this JSON and nothing else:
     if (currentTurn > 1 && !didBacktrack) {
       const targetResponse = this.getLastAssistantContent(input.messages);
 
-      // Score the response (feeds into H_attacker as annotation)
+      // Append target response to H_attacker FIRST as user message
+      // so the attacker sees the response before the score annotation
+      // (attacker is "assistant", target responses are "user" in H_attacker)
+      if (targetResponse) {
+        this.attackerHistory.push({
+          role: "user",
+          content: targetResponse,
+        });
+      }
+
+      // Score the response and append annotation AFTER the response
       if (this.scoreResponses) {
         if (this.detectRefusals) {
           const refusal = this.detectRefusal(targetResponse);
@@ -432,15 +442,6 @@ Reply with exactly this JSON and nothing else:
           content: `[SCORE] ${lastResponseScore}/10 | [HINT] ${adaptationHint}`,
         });
       }
-
-      // Append target response to H_attacker as user message
-      // (attacker is "assistant", target responses are "user" in H_attacker)
-      if (targetResponse) {
-        this.attackerHistory.push({
-          role: "user",
-          content: targetResponse,
-        });
-      }
     }
 
     // ----------------------------------------------------------
@@ -454,11 +455,23 @@ Reply with exactly this JSON and nothing else:
       metapromptPlan: attackPlan,
     });
 
-    // Initialize or update H_attacker system prompt
+    // Initialize or update H_attacker system prompt.
+    // System prompt is always slot [0].  If the history already has
+    // entries (e.g. a backtrack marker was appended before the first
+    // system prompt was set), insert at position 0 rather than
+    // overwriting whatever is currently there.
     if (this.attackerHistory.length === 0) {
       this.attackerHistory = [{ role: "system", content: systemPrompt }];
-    } else {
+    } else if (
+      this.attackerHistory[0]!.role === "system" &&
+      !this.attackerHistory[0]!.content.startsWith("[")
+    ) {
+      // Slot 0 is a previous system prompt — update it
       this.attackerHistory[0] = { role: "system", content: systemPrompt };
+    } else {
+      // Slot 0 is not a system prompt (e.g. backtrack marker added
+      // before first prompt was set) — insert at front
+      this.attackerHistory.unshift({ role: "system", content: systemPrompt });
     }
 
     // Call attacker LLM directly (no inner agent wrapper)

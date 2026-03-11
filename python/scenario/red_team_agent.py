@@ -88,12 +88,19 @@ class RedTeamAgent(AgentAdapter):
     Uses a ``RedTeamStrategy`` (e.g. Crescendo) to generate turn-aware adversarial
     system prompts that escalate across the conversation.
 
+    Uses **dual conversation histories**:
+      - **H_target** (``state.messages``): Clean user/assistant messages only.
+        The target never sees scores, backtrack markers, or attacker strategy.
+      - **H_attacker** (``_attacker_history``): Private history containing the
+        system prompt, attacker's messages, target response summaries,
+        ``[SCORE]`` annotations, and ``[BACKTRACKED]`` markers.
+
     The agent operates in two phases:
       1. **Metaprompt** (once): Calls ``metaprompt_model`` to generate a tailored
          attack plan based on the target and description.
-      2. **Per-turn**: Uses the strategy to build a phase-aware system prompt that
-         includes the attack plan, then delegates to an inner ``UserSimulatorAgent``
-         to generate the actual attack message.
+      2. **Per-turn**: Uses the strategy to build a phase-aware system prompt,
+         calls the attacker LLM directly with H_attacker, and returns the
+         attack message for H_target.
 
     Example::
 
@@ -688,7 +695,16 @@ Reply with exactly this JSON and nothing else:
             if current_turn > 1 and not did_backtrack:
                 target_response = self._get_last_assistant_content(input.messages)
 
-                # Score the response (feeds into H_attacker as annotation)
+                # Append target response to H_attacker FIRST as user message
+                # so the attacker sees the response before the score annotation
+                # (attacker is "assistant", target responses are "user" in H_attacker)
+                if target_response:
+                    self._attacker_history.append({
+                        "role": "user",
+                        "content": target_response,
+                    })
+
+                # Score the response and append annotation AFTER the response
                 if self.score_responses:
                     if self.fast_refusal_detection:
                         refusal = self._detect_refusal(target_response)
@@ -707,14 +723,6 @@ Reply with exactly this JSON and nothing else:
                         "content": f"[SCORE] {last_response_score}/10 | [HINT] {adaptation_hint}",
                     })
                     span.set_attribute("red_team.last_response_score", last_response_score)
-
-                # Append target response to H_attacker as user message
-                # (attacker is "assistant", target responses are "user" in H_attacker)
-                if target_response:
-                    self._attacker_history.append({
-                        "role": "user",
-                        "content": target_response,
-                    })
 
             # ----------------------------------------------------------
             # Build turn-aware system prompt via strategy (static per-phase)
@@ -739,11 +747,20 @@ Reply with exactly this JSON and nothing else:
                 strategy_name,
             )
 
-            # Initialize or update H_attacker system prompt
+            # Initialize or update H_attacker system prompt.
+            # System prompt is always slot [0].  If the history already has
+            # entries (e.g. a backtrack marker was appended before the first
+            # system prompt was set), insert at position 0 rather than
+            # overwriting whatever is currently there.
             if not self._attacker_history:
                 self._attacker_history = [{"role": "system", "content": system_prompt}]
-            else:
+            elif self._attacker_history[0].get("role") == "system" and not self._attacker_history[0].get("content", "").startswith("["):
+                # Slot 0 is a previous system prompt — update it
                 self._attacker_history[0] = {"role": "system", "content": system_prompt}
+            else:
+                # Slot 0 is not a system prompt (e.g. backtrack marker added
+                # before first prompt was set) — insert at front
+                self._attacker_history.insert(0, {"role": "system", "content": system_prompt})
 
             # Call attacker LLM directly (no inner agent wrapper)
             attack_text = await self._call_attacker_llm()
