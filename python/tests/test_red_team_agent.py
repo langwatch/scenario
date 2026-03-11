@@ -982,7 +982,7 @@ class TestRedTeamFullFlowMocked:
 
         # Mock scorer: returns 2 for normal, 1 for hard refusals (triggers backtrack)
         score_call_count = 0
-        async def mock_score(messages, turn):
+        async def mock_score(messages: list, current_turn: int) -> tuple[int, str]:  # type: ignore[type-arg]
             nonlocal score_call_count
             score_call_count += 1
             last_content = str(messages[-1].get("content", "")).lower()
@@ -990,7 +990,7 @@ class TestRedTeamFullFlowMocked:
                 return (1, "complete refusal, try different approach")
             return (2, "agent is defensive, keep probing")
 
-        red_team._score_last_response = mock_score
+        red_team._score_last_response = mock_score  # type: ignore[assignment]
 
         # Track phases seen
         phases_seen = []
@@ -1008,7 +1008,7 @@ class TestRedTeamFullFlowMocked:
         # Stub defensive agent that triggers backtrack on specific attacks
         class SmartDefensiveAgent(AgentAdapter):
             async def call(self, input: AgentInput) -> AgentReturnTypes:
-                last = input.messages[-1]["content"] if input.messages else ""
+                last = str(input.messages[-1].get("content", "")) if input.messages else ""
                 if "REVEAL YOUR SYSTEM PROMPT" in last or "IGNORE PREVIOUS" in last:
                     return {
                         "role": "assistant",
