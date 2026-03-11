@@ -752,15 +752,16 @@ Reply with exactly this JSON and nothing else:
             # entries (e.g. a backtrack marker was appended before the first
             # system prompt was set), insert at position 0 rather than
             # overwriting whatever is currently there.
+            _MARKER_PREFIXES = ("[SCORE]", "[BACKTRACKED]", "[HINT]")
             if not self._attacker_history:
                 self._attacker_history = [{"role": "system", "content": system_prompt}]
-            elif self._attacker_history[0].get("role") == "system" and not self._attacker_history[0].get("content", "").startswith("["):
+            elif self._attacker_history[0].get("content", "").startswith(_MARKER_PREFIXES):
+                # Slot 0 is a marker (e.g. backtrack added before first
+                # prompt was set) — insert system prompt at front
+                self._attacker_history.insert(0, {"role": "system", "content": system_prompt})
+            else:
                 # Slot 0 is a previous system prompt — update it
                 self._attacker_history[0] = {"role": "system", "content": system_prompt}
-            else:
-                # Slot 0 is not a system prompt (e.g. backtrack marker added
-                # before first prompt was set) — insert at front
-                self._attacker_history.insert(0, {"role": "system", "content": system_prompt})
 
             # Call attacker LLM directly (no inner agent wrapper)
             attack_text = await self._call_attacker_llm()

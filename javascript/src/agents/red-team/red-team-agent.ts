@@ -460,18 +460,17 @@ Reply with exactly this JSON and nothing else:
     // entries (e.g. a backtrack marker was appended before the first
     // system prompt was set), insert at position 0 rather than
     // overwriting whatever is currently there.
+    const MARKER_PREFIXES = ["[SCORE]", "[BACKTRACKED]", "[HINT]"];
+    const isMarker = (c: string) => MARKER_PREFIXES.some((p) => c.startsWith(p));
     if (this.attackerHistory.length === 0) {
       this.attackerHistory = [{ role: "system", content: systemPrompt }];
-    } else if (
-      this.attackerHistory[0]!.role === "system" &&
-      !this.attackerHistory[0]!.content.startsWith("[")
-    ) {
+    } else if (isMarker(this.attackerHistory[0]!.content)) {
+      // Slot 0 is a marker (e.g. backtrack added before first
+      // prompt was set) — insert system prompt at front
+      this.attackerHistory.unshift({ role: "system", content: systemPrompt });
+    } else {
       // Slot 0 is a previous system prompt — update it
       this.attackerHistory[0] = { role: "system", content: systemPrompt };
-    } else {
-      // Slot 0 is not a system prompt (e.g. backtrack marker added
-      // before first prompt was set) — insert at front
-      this.attackerHistory.unshift({ role: "system", content: systemPrompt });
     }
 
     // Call attacker LLM directly (no inner agent wrapper)

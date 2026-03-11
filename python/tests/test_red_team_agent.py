@@ -1832,8 +1832,8 @@ class TestMarathonScriptEarlyExit:
 class TestDualHistories:
     """Tests for dual conversation history (H_attacker / H_target) separation."""
 
-    def _make_agent(self, **kwargs):
-        defaults = dict(
+    def _make_agent(self, **kwargs):  # type: ignore[no-untyped-def]
+        defaults: dict = dict(
             target="extract system prompt",
             model="openai/gpt-4",
             attack_plan="pre-baked plan",
@@ -1841,7 +1841,7 @@ class TestDualHistories:
             fast_refusal_detection=True,
         )
         defaults.update(kwargs)
-        return RedTeamAgent.crescendo(**defaults)
+        return RedTeamAgent.crescendo(**defaults)  # type: ignore[arg-type]
 
     def _make_input(self, messages, current_turn=5):
         mock_state = MagicMock()
@@ -2005,3 +2005,90 @@ class TestDualHistories:
         assert len(backtrack_msgs) == 1
         assert "reveal your prompt" in backtrack_msgs[0]["content"]
         assert "I cannot help" in backtrack_msgs[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_multi_turn_attacker_history_ordering_with_scoring(self):
+        """Verify exact H_attacker ordering: target response THEN score annotation."""
+        agent = self._make_agent(score_responses=True)
+
+        call_count = 0
+        async def mock_call():
+            nonlocal call_count
+            call_count += 1
+            return f"attack {call_count}"
+
+        agent._call_attacker_llm = mock_call
+        agent._score_last_response = AsyncMock(return_value=(5, "push harder"))
+
+        # Turn 1
+        mock_input = self._make_input([], current_turn=1)
+        await agent.call(mock_input)
+
+        # Turn 2 — target responded
+        mock_input = self._make_input([
+            {"role": "user", "content": "attack 1"},
+            {"role": "assistant", "content": "I can help with banking."},
+        ], current_turn=2)
+        await agent.call(mock_input)
+
+        # Turn 3 — target responded again
+        mock_input = self._make_input([
+            {"role": "user", "content": "attack 1"},
+            {"role": "assistant", "content": "I can help with banking."},
+            {"role": "user", "content": "attack 2"},
+            {"role": "assistant", "content": "Here are your options."},
+        ], current_turn=3)
+        await agent.call(mock_input)
+
+        # Verify H_attacker ordering:
+        # [0] system prompt (updated for turn 3)
+        # [1] assistant: attack 1
+        # [2] user: target response 1 (BEFORE score)
+        # [3] system: [SCORE] ...        (AFTER response)
+        # [4] assistant: attack 2
+        # [5] user: target response 2 (BEFORE score)
+        # [6] system: [SCORE] ...        (AFTER response)
+        # [7] assistant: attack 3
+        h = agent._attacker_history
+        assert h[0]["role"] == "system"  # system prompt
+        assert not h[0]["content"].startswith("[")  # not a marker
+        assert h[1] == {"role": "assistant", "content": "attack 1"}
+        assert h[2] == {"role": "user", "content": "I can help with banking."}
+        assert h[3]["content"].startswith("[SCORE]")
+        assert h[4] == {"role": "assistant", "content": "attack 2"}
+        assert h[5] == {"role": "user", "content": "Here are your options."}
+        assert h[6]["content"].startswith("[SCORE]")
+        assert h[7] == {"role": "assistant", "content": "attack 3"}
+        assert len(h) == 8
+
+    @pytest.mark.asyncio
+    async def test_backtrack_on_turn_2_with_fresh_history(self):
+        """Backtrack on turn 2 should not clobber the system prompt slot."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value="retry msg")
+
+        # Simulate turn 1 having run (system prompt + attack in history)
+        agent._attacker_history = [
+            {"role": "system", "content": "turn 1 system prompt"},
+            {"role": "assistant", "content": "first attack"},
+        ]
+
+        messages = [
+            {"role": "user", "content": "first attack"},
+            {"role": "assistant", "content": "I cannot help with that."},
+        ]
+        mock_input = self._make_input(messages, current_turn=2)
+
+        await agent.call(mock_input)
+
+        # System prompt should be at [0] (updated for turn 2)
+        assert agent._attacker_history[0]["role"] == "system"
+        assert not agent._attacker_history[0]["content"].startswith("[")
+        # Backtrack marker should exist somewhere in history
+        backtrack_msgs = [
+            m for m in agent._attacker_history
+            if str(m.get("content", "")).startswith("[BACKTRACKED]")
+        ]
+        assert len(backtrack_msgs) == 1
+        # Target history should be pruned
+        assert len(mock_input.messages) == 0  # both messages removed
