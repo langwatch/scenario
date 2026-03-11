@@ -763,9 +763,6 @@ class TestRedTeamFullFlowMocked:
         ]
         call_count = 0
 
-        # Store the original call method so we can capture turn info
-        _original_call = red_team.call
-
         async def capturing_call(input: AgentInput) -> AgentReturnTypes:
             nonlocal call_count
             turns_seen.append(input.scenario_state.current_turn)
