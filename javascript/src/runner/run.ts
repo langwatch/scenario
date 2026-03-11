@@ -43,10 +43,10 @@ export interface RunOptions {
   /** Batch run ID for grouping scenario runs. Overrides SCENARIO_BATCH_RUN_ID env var. */
   batchRunId?: string;
   /**
-   * Pre-generated run ID for the scenario execution.
+   * Pre-assigned run ID for the scenario execution.
    * When provided, the SDK uses this ID instead of generating a new one.
-   * This enables the platform to assign stable IDs before execution begins,
-   * preventing duplicate entries in the grid.
+   *
+   * @internal Platform use only — not part of the public API.
    */
   runId?: string;
 }
