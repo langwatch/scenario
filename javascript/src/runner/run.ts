@@ -42,6 +42,13 @@ export interface RunOptions {
   langwatch?: LangwatchConfig;
   /** Batch run ID for grouping scenario runs. Overrides SCENARIO_BATCH_RUN_ID env var. */
   batchRunId?: string;
+  /**
+   * Pre-generated run ID for the scenario execution.
+   * When provided, the SDK uses this ID instead of generating a new one.
+   * This enables the platform to assign stable IDs before execution begins,
+   * preventing duplicate entries in the grid.
+   */
+  runId?: string;
 }
 
 /**
@@ -123,7 +130,7 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
   const steps = cfg.script || [proceed()];
 
   const batchRunId = options?.batchRunId ?? getBatchRunId();
-  const execution = new ScenarioExecution(cfg, steps, batchRunId);
+  const execution = new ScenarioExecution(cfg, steps, batchRunId, options?.runId);
 
   let eventBus: EventBus | null = null;
   let subscription: Subscription | null = null;

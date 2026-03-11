@@ -192,14 +192,20 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** The run ID for the current execution */
   private scenarioRunId?: string;
 
+  /** Pre-assigned run ID (provided externally, e.g. by the platform) */
+  private preAssignedRunId?: string;
+
   /**
    * Creates a new ScenarioExecution instance.
    *
    * @param config - The scenario configuration containing agents, settings, and metadata
    * @param script - The ordered sequence of script steps that define the test flow
    * @param batchRunId - Batch run ID for grouping scenario runs
+   * @param runId - Optional pre-assigned run ID. When provided, the execution uses this
+   *   ID instead of generating a new one. This prevents duplicate entries when the
+   *   platform pre-creates placeholder rows with a known ID.
    */
-  constructor(config: ScenarioConfig, script: ScriptStep[], batchRunId: string) {
+  constructor(config: ScenarioConfig, script: ScriptStep[], batchRunId: string, runId?: string) {
     if (!batchRunId) {
       throw new Error("batchRunId is required");
     }
@@ -218,6 +224,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
+    this.preAssignedRunId = runId;
 
     this.reset();
   }
@@ -342,9 +349,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.newTurn();
     this.state.currentTurn = 0;
 
-    const scenarioRunId = generateScenarioRunId();
+    const scenarioRunId = this.preAssignedRunId ?? generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
-    this.logger.debug(`[${this.config.id}] Generated run ID: ${scenarioRunId}`);
+    this.logger.debug(`[${this.config.id}] ${this.preAssignedRunId ? "Using pre-assigned" : "Generated"} run ID: ${scenarioRunId}`);
     this.emitRunStarted({ scenarioRunId });
 
     // Create subscription with captured runId (closure)

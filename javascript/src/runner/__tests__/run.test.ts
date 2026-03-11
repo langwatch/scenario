@@ -134,6 +134,21 @@ describe("run", () => {
 
       expect(result1.runId).not.toBe(result2.runId);
     });
+
+    it("uses pre-assigned runId when provided in options", async () => {
+      const result = await run(createScenarioConfig(), { runId: "scenariorun_custom123" });
+
+      expect(result.runId).toBe("scenariorun_custom123");
+    });
+
+    it("emits pre-assigned runId in events", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      await run(createScenarioConfig(), { runId: "scenariorun_preassigned" });
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.scenarioRunId).toBe("scenariorun_preassigned");
+    });
   });
 
   describe("batchRunId", () => {
