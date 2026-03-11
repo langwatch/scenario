@@ -349,7 +349,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.newTurn();
     this.state.currentTurn = 0;
 
-    const scenarioRunId = this.preAssignedRunId ?? generateScenarioRunId();
+    const scenarioRunId = this.preAssignedRunId || generateScenarioRunId();
     this.scenarioRunId = scenarioRunId;
     this.logger.debug(`[${this.config.id}] ${this.preAssignedRunId ? "Using pre-assigned" : "Generated"} run ID: ${scenarioRunId}`);
     this.emitRunStarted({ scenarioRunId });

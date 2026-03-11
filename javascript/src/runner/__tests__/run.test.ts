@@ -149,6 +149,13 @@ describe("run", () => {
       const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
       expect(runStartedEvent?.scenarioRunId).toBe("scenariorun_preassigned");
     });
+
+    it("generates a new runId when empty string is provided", async () => {
+      const result = await run(createScenarioConfig(), { runId: "" });
+
+      expect(result.runId).toMatch(/^scenariorun_/);
+      expect(result.runId).not.toBe("");
+    });
   });
 
   describe("batchRunId", () => {
