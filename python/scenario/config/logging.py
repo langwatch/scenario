@@ -39,5 +39,21 @@ def configure_logging() -> None:
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
+    # Optional file handler: set SCENARIO_LOG_FILE to write logs to a file.
+    # Useful for inspecting RedTeamAgent dual-history state across turns.
+    log_file: Optional[str] = os.environ.get("SCENARIO_LOG_FILE")
+    if log_file:
+        # Avoid duplicate file handlers on re-import
+        if not any(
+            isinstance(h, logging.FileHandler) and h.baseFilename == os.path.abspath(log_file)
+            for h in logger.handlers
+        ):
+            file_handler = logging.FileHandler(log_file, mode="a")
+            file_handler.setLevel(level)
+            file_handler.setFormatter(logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            ))
+            logger.addHandler(file_handler)
+
 
 configure_logging()

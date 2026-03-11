@@ -769,5 +769,25 @@ Reply with exactly this JSON and nothing else:
             # Append attacker's response to H_attacker
             self._attacker_history.append({"role": "assistant", "content": attack_text})
 
+            # Structured debug log — written at DEBUG level so users can
+            # enable it with SCENARIO_LOG_LEVEL=DEBUG or by configuring the
+            # "scenario" logger.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "RedTeamAgent turn_detail: %s",
+                    json.dumps({
+                        "turn": current_turn,
+                        "total_turns": self.total_turns,
+                        "phase": phase_name,
+                        "did_backtrack": did_backtrack,
+                        "backtracks_remaining": self._backtracks_remaining,
+                        "score": last_response_score,
+                        "hint": adaptation_hint,
+                        "attack": attack_text[:200],
+                        "h_attacker_len": len(self._attacker_history),
+                        "h_target_len": len(input.messages),
+                    }),
+                )
+
             # Return as user message — executor adds this to H_target
             return {"role": "user", "content": attack_text}
