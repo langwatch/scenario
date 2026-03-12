@@ -186,3 +186,4 @@ docs/docs/public/reference/python/**/*
 !docs/docs/public/reference/python/.gitkeep
 
 .claude/worktrees
+.worktrees
