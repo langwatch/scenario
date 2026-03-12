@@ -2341,12 +2341,12 @@ class TestRedTeamAgentReuse:
 class TestRollbackMessagesTo:
     """Tests for the rollback_messages_to method on ScenarioExecutor."""
 
-    def _make_executor(self):
+    def _make_executor(self):  # type: ignore[no-untyped-def]
         """Create a minimal ScenarioExecutor with mocked internals."""
         from scenario.scenario_executor import ScenarioExecutor
         executor = ScenarioExecutor.__new__(ScenarioExecutor)
-        executor._state = MagicMock()
-        executor._pending_messages = {}
+        executor._state = MagicMock()  # type: ignore[assignment]
+        executor._pending_messages = {}  # type: ignore[assignment]
         return executor
 
     def test_rollback_truncates_messages(self):
@@ -2356,7 +2356,7 @@ class TestRollbackMessagesTo:
         m1 = {"role": "assistant", "content": "hi"}
         m2 = {"role": "user", "content": "tell me more"}
         m3 = {"role": "assistant", "content": "sure"}
-        executor._state.messages = [m0, m1, m2, m3]
+        executor._state.messages = [m0, m1, m2, m3]  # type: ignore[assignment]
 
         executor.rollback_messages_to(2)
 
@@ -2368,9 +2368,9 @@ class TestRollbackMessagesTo:
         m0 = {"role": "user", "content": "hello"}
         m1 = {"role": "assistant", "content": "hi"}
         m2 = {"role": "user", "content": "tell me more"}
-        executor._state.messages = [m0, m1, m2]
+        executor._state.messages = [m0, m1, m2]  # type: ignore[assignment]
         # Agent 0 has m1 and m2 pending; agent 1 has only m2
-        executor._pending_messages = {0: [m1, m2], 1: [m2]}
+        executor._pending_messages = {0: [m1, m2], 1: [m2]}  # type: ignore[assignment]
 
         executor.rollback_messages_to(2)
 
@@ -2384,7 +2384,7 @@ class TestRollbackMessagesTo:
         m0 = {"role": "user", "content": "hello"}
         m1 = {"role": "assistant", "content": "hi"}
         m2 = {"role": "user", "content": "tell me more"}
-        executor._state.messages = [m0, m1, m2]
+        executor._state.messages = [m0, m1, m2]  # type: ignore[assignment]
 
         removed = executor.rollback_messages_to(1)
 
@@ -2394,7 +2394,7 @@ class TestRollbackMessagesTo:
     def test_rollback_negative_index_raises(self):
         """Negative index should raise ValueError."""
         executor = self._make_executor()
-        executor._state.messages = [{"role": "user", "content": "hello"}]
+        executor._state.messages = [{"role": "user", "content": "hello"}]  # type: ignore[assignment]
 
         with pytest.raises(ValueError, match="index must be >= 0"):
             executor.rollback_messages_to(-1)
@@ -2403,7 +2403,7 @@ class TestRollbackMessagesTo:
         """Index beyond message length should be a no-op (clamp)."""
         executor = self._make_executor()
         m0 = {"role": "user", "content": "hello"}
-        executor._state.messages = [m0]
+        executor._state.messages = [m0]  # type: ignore[assignment]
 
         removed = executor.rollback_messages_to(100)
 
@@ -2413,7 +2413,7 @@ class TestRollbackMessagesTo:
     def test_rollback_empty_messages_returns_empty(self):
         """Rollback on empty message list should return empty."""
         executor = self._make_executor()
-        executor._state.messages = []
+        executor._state.messages = []  # type: ignore[assignment]
 
         removed = executor.rollback_messages_to(0)
 
