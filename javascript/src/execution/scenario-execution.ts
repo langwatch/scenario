@@ -227,6 +227,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           queue.filter((m: ModelMessage) => !removedSet.has(m))
         );
       });
+      this.logger.debug(`[${this.config.id}] rollbackMessagesTo removed ${removedSet.size} message(s)`);
     });
 
     this.reset();

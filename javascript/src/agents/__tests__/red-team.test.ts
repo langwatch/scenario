@@ -763,4 +763,46 @@ describe("rollbackMessagesTo", () => {
     expect(removed).toHaveLength(2);
     expect(state.messages).toHaveLength(1);
   });
+
+  it("throws RangeError on negative index", () => {
+    const state = new ScenarioExecutionState({
+      description: "test",
+      id: "test-id",
+      maxTurns: 10,
+      verbose: false,
+    } as any);
+
+    state.addMessage({ role: "user", content: [{ type: "text", text: "hello" }] });
+
+    expect(() => state.rollbackMessagesTo(-1)).toThrow(RangeError);
+  });
+
+  it("clamps index past end and returns empty", () => {
+    const state = new ScenarioExecutionState({
+      description: "test",
+      id: "test-id",
+      maxTurns: 10,
+      verbose: false,
+    } as any);
+
+    state.addMessage({ role: "user", content: [{ type: "text", text: "hello" }] });
+
+    const removed = state.rollbackMessagesTo(100);
+
+    expect(removed).toHaveLength(0);
+    expect(state.messages).toHaveLength(1);
+  });
+
+  it("returns empty on empty message list", () => {
+    const state = new ScenarioExecutionState({
+      description: "test",
+      id: "test-id",
+      maxTurns: 10,
+      verbose: false,
+    } as any);
+
+    const removed = state.rollbackMessagesTo(0);
+
+    expect(removed).toHaveLength(0);
+  });
 });

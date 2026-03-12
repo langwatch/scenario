@@ -131,8 +131,10 @@ export interface ScenarioExecutionStateLike {
    * Truncates the message list and cleans up any pending message queues
    * so no agent sees stale messages.
    *
-   * @param index - Truncate point. Messages at positions >= index are removed.
-   * @returns The removed messages.
+   * @param index - Truncate point (clamped to `[0, messages.length]`).
+   *   Messages at positions >= index are removed.
+   * @returns The removed messages (empty array if nothing to remove).
+   * @throws {RangeError} If `index` is negative.
    */
   rollbackMessagesTo(index: number): ModelMessage[];
 }

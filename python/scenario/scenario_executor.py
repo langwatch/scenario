@@ -318,13 +318,34 @@ class ScenarioExecutor:
         Truncates state.messages and removes matching references from
         _pending_messages queues so no agent sees stale messages.
 
+        .. note::
+            This method is safe to call only during an agent's ``call()``
+            invocation.  The executor runs agents sequentially, so no
+            other agent can observe stale ``new_messages`` references.
+            Calling this from outside that flow may leave already-delivered
+            ``new_messages`` out of sync.
+
         Args:
-            index: Truncate point. Messages at positions >= index are removed.
+            index: Truncate point.  Messages at positions >= index are
+                removed.  Clamped to ``[0, len(messages)]``.
 
         Returns:
-            The removed messages.
+            The removed messages (empty list if nothing to remove).
+
+        Raises:
+            ValueError: If *index* is negative.
         """
+        if index < 0:
+            raise ValueError(
+                f"rollback_messages_to: index must be >= 0, got {index}"
+            )
+        # Clamp to message length — rolling back past the end is a no-op.
+        index = min(index, len(self._state.messages))
+
         removed = list(self._state.messages[index:])
+        if not removed:
+            return []
+
         removed_ids = set(id(m) for m in removed)
 
         del self._state.messages[index:]
@@ -334,6 +355,20 @@ class ScenarioExecutor:
                 m for m in self._pending_messages[idx]
                 if id(m) not in removed_ids
             ]
+
+        # Annotate the current trace span so the rollback is visible in
+        # tracing dashboards (the removed messages themselves are gone from
+        # the conversation, but this event records *that* it happened).
+        if hasattr(self, "_trace") and self._trace is not None:
+            try:
+                self._trace.update(
+                    metadata={
+                        "scenario.rollback_index": index,
+                        "scenario.rollback_removed_count": len(removed),
+                    }
+                )
+            except Exception:
+                pass  # tracing is best-effort
 
         return cast(List[ChatCompletionMessageParam], removed)
 

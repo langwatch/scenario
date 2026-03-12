@@ -2390,3 +2390,31 @@ class TestRollbackMessagesTo:
 
         assert removed == [m1, m2]
         assert executor._state.messages == [m0]
+
+    def test_rollback_negative_index_raises(self):
+        """Negative index should raise ValueError."""
+        executor = self._make_executor()
+        executor._state.messages = [{"role": "user", "content": "hello"}]
+
+        with pytest.raises(ValueError, match="index must be >= 0"):
+            executor.rollback_messages_to(-1)
+
+    def test_rollback_past_end_clamps(self):
+        """Index beyond message length should be a no-op (clamp)."""
+        executor = self._make_executor()
+        m0 = {"role": "user", "content": "hello"}
+        executor._state.messages = [m0]
+
+        removed = executor.rollback_messages_to(100)
+
+        assert removed == []
+        assert executor._state.messages == [m0]
+
+    def test_rollback_empty_messages_returns_empty(self):
+        """Rollback on empty message list should return empty."""
+        executor = self._make_executor()
+        executor._state.messages = []
+
+        removed = executor.rollback_messages_to(0)
+
+        assert removed == []

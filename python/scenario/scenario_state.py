@@ -99,12 +99,22 @@ class ScenarioState(BaseModel):
         """
         self._executor.add_message(message)
 
-    def rollback_messages_to(self, index: int):
+    def rollback_messages_to(self, index: int) -> list:
         """Remove all messages from position `index` onward.
 
-        Delegates to the executor to ensure pending queues are cleaned up.
+        Delegates to the executor to ensure pending queues are cleaned up
+        and trace metadata is recorded.
+
+        Args:
+            index: Truncate point (clamped to ``[0, len(messages)]``).
+
+        Returns:
+            The removed messages.
+
+        Raises:
+            ValueError: If *index* is negative.
         """
-        self._executor.rollback_messages_to(index)
+        return self._executor.rollback_messages_to(index)
 
     def last_message(self) -> ChatCompletionMessageParam:
         """
