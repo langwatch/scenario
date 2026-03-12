@@ -38,6 +38,7 @@ import {
   generateScenarioRunId,
   generateThreadId,
 } from "../utils/ids";
+import { getEnv } from "../config/env";
 import { Logger } from "../utils/logger";
 
 /**
@@ -197,6 +198,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** 0-based counter for message ordering */
   private messageCounter = 0;
 
+  /** Whether to emit granular message events (START/END/CONTENT/TOOL_CALL_*) */
+  private readonly sendGranularEvents: boolean;
+
   /**
    * Creates a new ScenarioExecution instance.
    *
@@ -210,6 +214,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
     this.batchRunId = batchRunId;
     this.preGeneratedScenarioRunId = config.__UNSAFE__scenarioRunId;
+    this.sendGranularEvents = getEnv().SCENARIO_SEND_GRANULAR_EVENTS;
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -1534,6 +1539,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     role: string;
     messageIndex?: number;
   }) {
+    if (!this.sendGranularEvents) return;
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.TEXT_MESSAGE_START,
@@ -1563,6 +1569,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     traceId?: string;
     messageIndex?: number;
   }) {
+    if (!this.sendGranularEvents) return;
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.TEXT_MESSAGE_END,
@@ -1587,6 +1594,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     messageId: string;
     delta: string;
   }) {
+    if (!this.sendGranularEvents) return;
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.TEXT_MESSAGE_CONTENT,
@@ -1609,6 +1617,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     toolCallName: string;
     parentMessageId: string;
   }) {
+    if (!this.sendGranularEvents) return;
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.TOOL_CALL_START,
@@ -1630,6 +1639,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     toolCallId: string;
     delta: string;
   }) {
+    if (!this.sendGranularEvents) return;
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.TOOL_CALL_ARGS,
@@ -1648,6 +1658,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     scenarioRunId: string;
     toolCallId: string;
   }) {
+    if (!this.sendGranularEvents) return;
     this.emitEvent({
       ...this.makeBaseEvent({ scenarioRunId }),
       type: ScenarioEventType.TOOL_CALL_END,

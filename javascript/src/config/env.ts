@@ -55,6 +55,16 @@ const envSchema = z.object({
    * If not provided, a random ID will be generated.
    */
   SCENARIO_BATCH_RUN_ID: z.string().optional(),
+
+  /**
+   * Enables sending granular message events (TEXT_MESSAGE_START, TEXT_MESSAGE_END,
+   * TEXT_MESSAGE_CONTENT, TOOL_CALL_*) to the collector.
+   * When not set, only MESSAGE_SNAPSHOT and lifecycle events are sent.
+   */
+  SCENARIO_SEND_GRANULAR_EVENTS: z
+    .string()
+    .optional()
+    .transform((val) => Boolean(val)),
 });
 
 /**
