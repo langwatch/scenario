@@ -592,7 +592,7 @@ Reply with exactly this JSON and nothing else:
         )
         content = cast(Choices, response.choices[0]).message.content
         if content is None:
-            raise Exception("Attacker model returned no content")
+            raise RuntimeError("Attacker model returned no content")
         return content
 
     def _reset_run_state(self) -> None:

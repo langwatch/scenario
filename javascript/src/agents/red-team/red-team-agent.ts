@@ -105,7 +105,13 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
   // Attacker's private conversation history (H_attacker).
   // Separate from state.messages (H_target) to prevent strategy
   // leakage, enable proper backtracking, and allow score annotations.
-  private attackerHistory: Array<{ role: string; content: string }> = [];
+  // Typed loosely because these are simple text-only messages sent
+  // directly to the attacker LLM, not the structured ModelMessage
+  // objects used by the executor.
+  private attackerHistory: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }> = [];
 
   constructor(config: RedTeamAgentConfig) {
     super();
