@@ -3,6 +3,8 @@ import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { marathonScript } from "../../script";
 import { redTeamCrescendo, redTeamAgent } from "../red-team/red-team-agent";
+import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
+import { AgentRole } from "../../domain";
 
 describe("CrescendoStrategy", () => {
   const strategy = new CrescendoStrategy();
@@ -613,5 +615,152 @@ describe("config defaults", () => {
     });
     expect((agent as any)._successScore).toBe(7);
     expect((agent as any)._successConfirmTurns).toBe(3);
+  });
+});
+
+describe("RedTeamAgent reuse across runs", () => {
+  const createAgent = (overrides?: Partial<Parameters<typeof redTeamCrescendo>[0]>) =>
+    redTeamCrescendo({
+      target: "extract system prompt",
+      attackPlan: "pre-baked plan",
+      scoreResponses: false,
+      ...overrides,
+    });
+
+  const makeInput = (messages: any[], currentTurn = 1) => ({
+    threadId: "test-thread",
+    messages,
+    newMessages: [],
+    requestedRole: AgentRole.USER,
+    judgmentRequest: undefined,
+    scenarioState: {
+      currentTurn,
+      description: "test agent",
+      config: { description: "test agent" },
+      messages,
+      threadId: "t",
+      addMessage: () => {},
+      rollbackMessagesTo: (idx: number) => messages.splice(idx),
+      lastMessage: () => messages[messages.length - 1],
+      lastUserMessage: () => messages.findLast((m: any) => m.role === "user"),
+      lastAgentMessage: () => messages.findLast((m: any) => m.role === "assistant"),
+      lastToolCall: () => undefined,
+      hasToolCall: () => false,
+    } as any,
+    scenarioConfig: { description: "test agent" } as any,
+  });
+
+  it("resets turnScores on turn 1", async () => {
+    const agent = createAgent();
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("attack");
+    // Simulate leftover state from a previous run
+    internal.turnScores.set(1, { score: 5, hint: "hint" });
+    internal.turnScores.set(2, { score: 7, hint: "hint" });
+
+    await agent.call(makeInput([], 1));
+
+    expect(internal.turnScores.has(2)).toBe(false);
+  });
+
+  it("resets attackerHistory on turn 1", async () => {
+    const agent = createAgent();
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("attack");
+    internal.attackerHistory = [
+      { role: "system", content: "old prompt" },
+      { role: "assistant", content: "old attack" },
+    ];
+
+    await agent.call(makeInput([], 1));
+
+    // Should have been rebuilt from scratch
+    expect(internal.attackerHistory.length).toBe(2);
+    expect(internal.attackerHistory[internal.attackerHistory.length - 1].content).toBe("attack");
+    expect(internal.attackerHistory[0].content).not.toBe("old prompt");
+  });
+
+  it("resets backtracksRemaining on turn 1", async () => {
+    const agent = createAgent();
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("attack");
+    internal.backtracksRemaining = 0;
+
+    await agent.call(makeInput([], 1));
+
+    expect(internal.backtracksRemaining).toBe(10); // MAX_BACKTRACKS
+  });
+
+  it("preserves attackPlanValue on turn 1", async () => {
+    const agent = createAgent();
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("attack");
+    const originalPlan = internal.attackPlanValue;
+
+    await agent.call(makeInput([], 1));
+
+    expect(internal.attackPlanValue).toBe(originalPlan);
+  });
+});
+
+describe("rollbackMessagesTo", () => {
+  it("truncates messages at the given index", () => {
+    const state = new ScenarioExecutionState({
+      description: "test",
+      id: "test-id",
+      maxTurns: 10,
+      verbose: false,
+    } as any);
+
+    state.addMessage({ role: "user", content: [{ type: "text", text: "hello" }] });
+    state.addMessage({ role: "assistant", content: [{ type: "text", text: "hi" }] });
+    state.addMessage({ role: "user", content: [{ type: "text", text: "more" }] });
+    state.addMessage({ role: "assistant", content: [{ type: "text", text: "sure" }] });
+
+    state.rollbackMessagesTo(2);
+
+    expect(state.messages).toHaveLength(2);
+    expect((state.messages[0] as any).content[0].text).toBe("hello");
+    expect((state.messages[1] as any).content[0].text).toBe("hi");
+  });
+
+  it("calls the registered onRollback handler", () => {
+    const state = new ScenarioExecutionState({
+      description: "test",
+      id: "test-id",
+      maxTurns: 10,
+      verbose: false,
+    } as any);
+
+    state.addMessage({ role: "user", content: [{ type: "text", text: "hello" }] });
+    state.addMessage({ role: "assistant", content: [{ type: "text", text: "hi" }] });
+    state.addMessage({ role: "user", content: [{ type: "text", text: "more" }] });
+
+    const handler = vi.fn();
+    state.setOnRollback(handler);
+
+    state.rollbackMessagesTo(1);
+
+    expect(handler).toHaveBeenCalledOnce();
+    const removedSet = handler.mock.calls[0]![0] as Set<object>;
+    expect(removedSet.size).toBe(2);
+  });
+
+  it("returns removed messages", () => {
+    const state = new ScenarioExecutionState({
+      description: "test",
+      id: "test-id",
+      maxTurns: 10,
+      verbose: false,
+    } as any);
+
+    state.addMessage({ role: "user", content: [{ type: "text", text: "hello" }] });
+    state.addMessage({ role: "assistant", content: [{ type: "text", text: "hi" }] });
+    state.addMessage({ role: "user", content: [{ type: "text", text: "more" }] });
+
+    const removed = state.rollbackMessagesTo(1);
+
+    expect(removed).toHaveLength(2);
+    expect(state.messages).toHaveLength(1);
   });
 });

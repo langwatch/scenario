@@ -1586,6 +1586,8 @@ class TestBacktracking:
         mock_state = MagicMock()
         mock_state.current_turn = current_turn
         mock_state.description = "test agent"
+        # Wire rollback to actually truncate the messages list
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
         mock_input = MagicMock(spec=AgentInput)
         mock_input.scenario_state = mock_state
         mock_input.messages = messages
@@ -1996,6 +1998,8 @@ class TestDualHistories:
         mock_state = MagicMock()
         mock_state.current_turn = current_turn
         mock_state.description = "test agent"
+        # Wire rollback to actually truncate the messages list
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
         mock_input = MagicMock(spec=AgentInput)
         mock_input.scenario_state = mock_state
         mock_input.messages = messages
@@ -2241,3 +2245,148 @@ class TestDualHistories:
         assert len(backtrack_msgs) == 1
         # Target history should be pruned
         assert len(mock_input.messages) == 0  # both messages removed
+
+
+# ---------------------------------------------------------------------------
+# RedTeamAgent reuse across scenario.run() calls
+# ---------------------------------------------------------------------------
+
+
+class TestRedTeamAgentReuse:
+    """Tests that instance state resets on turn 1 for safe reuse."""
+
+    def _make_agent(self, **kwargs):  # type: ignore[no-untyped-def]
+        defaults: dict = dict(
+            target="extract system prompt",
+            model="openai/gpt-4",
+            attack_plan="pre-baked plan",
+            score_responses=False,
+        )
+        defaults.update(kwargs)
+        return RedTeamAgent.crescendo(**defaults)  # type: ignore[arg-type]
+
+    def _make_input(self, messages, current_turn=1):
+        mock_state = MagicMock()
+        mock_state.current_turn = current_turn
+        mock_state.description = "test agent"
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = messages
+        return mock_input
+
+    @pytest.mark.asyncio
+    async def test_reuse_resets_turn_scores(self):
+        """_turn_scores should be cleared when turn 1 starts a new run."""
+        agent = self._make_agent(score_responses=True)
+        agent._call_attacker_llm = AsyncMock(return_value="attack")
+        # Simulate leftover state from a previous run
+        agent._turn_scores = {1: (5, "hint"), 2: (7, "hint")}
+
+        mock_input = self._make_input([], current_turn=1)
+        await agent.call(mock_input)
+
+        # Old scores should be gone; only new entries (if any) remain
+        assert 2 not in agent._turn_scores
+
+    @pytest.mark.asyncio
+    async def test_reuse_resets_attacker_history(self):
+        """_attacker_history should be cleared on turn 1."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value="attack")
+        # Simulate leftover state
+        agent._attacker_history = [
+            {"role": "system", "content": "old prompt"},
+            {"role": "assistant", "content": "old attack"},
+        ]
+
+        mock_input = self._make_input([], current_turn=1)
+        await agent.call(mock_input)
+
+        # Should have been rebuilt from scratch (system + new assistant)
+        assert len(agent._attacker_history) == 2
+        assert agent._attacker_history[-1]["content"] == "attack"
+        assert agent._attacker_history[0]["content"] != "old prompt"
+
+    @pytest.mark.asyncio
+    async def test_reuse_resets_backtracks_remaining(self):
+        """_backtracks_remaining should reset to _MAX_BACKTRACKS on turn 1."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value="attack")
+        agent._backtracks_remaining = 0
+
+        mock_input = self._make_input([], current_turn=1)
+        await agent.call(mock_input)
+
+        assert agent._backtracks_remaining == agent._MAX_BACKTRACKS
+
+    @pytest.mark.asyncio
+    async def test_reuse_preserves_attack_plan(self):
+        """_attack_plan should NOT be cleared on turn 1 (expensive to regenerate)."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value="attack")
+        original_plan = agent._attack_plan
+
+        mock_input = self._make_input([], current_turn=1)
+        await agent.call(mock_input)
+
+        assert agent._attack_plan == original_plan
+
+
+# ---------------------------------------------------------------------------
+# ScenarioExecutor.rollback_messages_to()
+# ---------------------------------------------------------------------------
+
+
+class TestRollbackMessagesTo:
+    """Tests for the rollback_messages_to method on ScenarioExecutor."""
+
+    def _make_executor(self):
+        """Create a minimal ScenarioExecutor with mocked internals."""
+        from scenario.scenario_executor import ScenarioExecutor
+        executor = ScenarioExecutor.__new__(ScenarioExecutor)
+        executor._state = MagicMock()
+        executor._pending_messages = {}
+        return executor
+
+    def test_rollback_truncates_messages(self):
+        """Messages at index and beyond should be removed."""
+        executor = self._make_executor()
+        m0 = {"role": "user", "content": "hello"}
+        m1 = {"role": "assistant", "content": "hi"}
+        m2 = {"role": "user", "content": "tell me more"}
+        m3 = {"role": "assistant", "content": "sure"}
+        executor._state.messages = [m0, m1, m2, m3]
+
+        executor.rollback_messages_to(2)
+
+        assert executor._state.messages == [m0, m1]
+
+    def test_rollback_cleans_pending_queues(self):
+        """Removed messages should be purged from _pending_messages."""
+        executor = self._make_executor()
+        m0 = {"role": "user", "content": "hello"}
+        m1 = {"role": "assistant", "content": "hi"}
+        m2 = {"role": "user", "content": "tell me more"}
+        executor._state.messages = [m0, m1, m2]
+        # Agent 0 has m1 and m2 pending; agent 1 has only m2
+        executor._pending_messages = {0: [m1, m2], 1: [m2]}
+
+        executor.rollback_messages_to(2)
+
+        # m2 should be gone from both queues; m1 should remain in agent 0's queue
+        assert executor._pending_messages[0] == [m1]
+        assert executor._pending_messages[1] == []
+
+    def test_rollback_returns_removed(self):
+        """Return value should be the list of removed messages."""
+        executor = self._make_executor()
+        m0 = {"role": "user", "content": "hello"}
+        m1 = {"role": "assistant", "content": "hi"}
+        m2 = {"role": "user", "content": "tell me more"}
+        executor._state.messages = [m0, m1, m2]
+
+        removed = executor.rollback_messages_to(1)
+
+        assert removed == [m1, m2]
+        assert executor._state.messages == [m0]

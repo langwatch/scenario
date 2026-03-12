@@ -99,6 +99,13 @@ class ScenarioState(BaseModel):
         """
         self._executor.add_message(message)
 
+    def rollback_messages_to(self, index: int):
+        """Remove all messages from position `index` onward.
+
+        Delegates to the executor to ensure pending queues are cleaned up.
+        """
+        self._executor.rollback_messages_to(index)
+
     def last_message(self) -> ChatCompletionMessageParam:
         """
         Get the most recent message in the conversation.

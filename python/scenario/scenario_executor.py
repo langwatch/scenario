@@ -312,6 +312,31 @@ class ScenarioExecutor:
                 }
             )
 
+    def rollback_messages_to(self, index: int) -> List[ChatCompletionMessageParam]:
+        """Remove all messages from position `index` onward.
+
+        Truncates state.messages and removes matching references from
+        _pending_messages queues so no agent sees stale messages.
+
+        Args:
+            index: Truncate point. Messages at positions >= index are removed.
+
+        Returns:
+            The removed messages.
+        """
+        removed = list(self._state.messages[index:])
+        removed_ids = set(id(m) for m in removed)
+
+        del self._state.messages[index:]
+
+        for idx in self._pending_messages:
+            self._pending_messages[idx] = [
+                m for m in self._pending_messages[idx]
+                if id(m) not in removed_ids
+            ]
+
+        return cast(List[ChatCompletionMessageParam], removed)
+
     def add_messages(
         self,
         messages: List[ChatCompletionMessageParam],

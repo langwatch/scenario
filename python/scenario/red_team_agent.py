@@ -595,6 +595,17 @@ Reply with exactly this JSON and nothing else:
             raise Exception("Attacker model returned no content")
         return content
 
+    def _reset_run_state(self) -> None:
+        """Reset per-run state for safe reuse across scenario.run() calls.
+
+        Called at the start of turn 1. Does NOT reset _attack_plan
+        (expensive to regenerate and target-specific, not run-specific).
+        """
+        self._turn_scores = {}
+        self._backtracks_remaining = self._MAX_BACKTRACKS
+        self._backtrack_history = []
+        self._attacker_history = []
+
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         """Generate the next adversarial attack message.
 
@@ -623,6 +634,8 @@ Reply with exactly this JSON and nothing else:
             A user message dict: ``{"role": "user", "content": "..."}``
         """
         current_turn = input.scenario_state.current_turn
+        if current_turn == 1:
+            self._reset_run_state()
         description = input.scenario_state.description
         strategy_name = type(self._strategy).__name__
 
@@ -662,7 +675,7 @@ Reply with exactly this JSON and nothing else:
                         msg = input.messages[i]
                         role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
                         if role == "user":
-                            del input.messages[i:]
+                            input.scenario_state.rollback_messages_to(i)
                             break
                     self._backtracks_remaining -= 1
                     did_backtrack = True

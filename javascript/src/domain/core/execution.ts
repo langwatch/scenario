@@ -124,4 +124,15 @@ export interface ScenarioExecutionStateLike {
    * @returns True if the tool call exists, false otherwise.
    */
   hasToolCall(toolName: string): boolean;
+
+  /**
+   * Remove all messages from position `index` onward.
+   *
+   * Truncates the message list and cleans up any pending message queues
+   * so no agent sees stale messages.
+   *
+   * @param index - Truncate point. Messages at positions >= index are removed.
+   * @returns The removed messages.
+   */
+  rollbackMessagesTo(index: number): ModelMessage[];
 }

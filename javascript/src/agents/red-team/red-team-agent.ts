@@ -351,8 +351,23 @@ Reply with exactly this JSON and nothing else:
     return result.text;
   }
 
+  /**
+   * Reset per-run state for safe reuse across scenario.run() calls.
+   * Called at the start of turn 1. Does NOT reset attackPlanValue
+   * (expensive to regenerate and target-specific, not run-specific).
+   */
+  private resetRunState(): void {
+    this.turnScores = new Map();
+    this.backtracksRemaining = RedTeamAgentImpl.MAX_BACKTRACKS;
+    this.backtrackHistory = [];
+    this.attackerHistory = [];
+  }
+
   call = async (input: AgentInput): Promise<AgentReturnTypes> => {
     const currentTurn = input.scenarioState.currentTurn;
+    if (currentTurn === 1) {
+      this.resetRunState();
+    }
     const description = input.scenarioConfig.description;
 
     // Generate attack plan on first call (cached for all subsequent turns)
@@ -374,11 +389,11 @@ Reply with exactly this JSON and nothing else:
           attack: lastUser,
           refusal: lastContent.slice(0, 200),
         });
-        // Remove the refused exchange from H_target in-place
+        // Remove the refused exchange from H_target via the executor
         for (let i = input.messages.length - 1; i >= 0; i--) {
           const msg = input.messages[i];
           if (msg && "role" in msg && msg.role === "user") {
-            input.messages.splice(i);
+            input.scenarioState.rollbackMessagesTo(i);
             break;
           }
         }

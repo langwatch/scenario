@@ -25,6 +25,7 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   private _messages: (ModelMessage & { id: string; traceId?: string })[] = [];
   private _currentTurn: number = 0;
   private _threadId: string = "";
+  private _onRollback?: (removedSet: Set<object>) => void;
 
   /** Event stream for message additions */
   private eventSubject = new Subject<StateChangeEvent>();
@@ -139,5 +140,30 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
           (part) => part.type === "tool-result" && part.toolName === toolName
         )
     );
+  }
+
+  /**
+   * Register a callback that fires when messages are rolled back.
+   * The executor uses this to clean up its pending message queues.
+   */
+  setOnRollback(handler: (removedSet: Set<object>) => void): void {
+    this._onRollback = handler;
+  }
+
+  /**
+   * Remove all messages from position `index` onward.
+   *
+   * Truncates the internal message list and notifies the executor
+   * (via the registered rollback handler) to clean pending queues.
+   *
+   * @param index - Truncate point. Messages at positions >= index are removed.
+   * @returns The removed messages.
+   */
+  rollbackMessagesTo(index: number): ModelMessage[] {
+    const removed = this._messages.splice(index);
+    if (this._onRollback && removed.length > 0) {
+      this._onRollback(new Set<object>(removed));
+    }
+    return removed;
   }
 }
