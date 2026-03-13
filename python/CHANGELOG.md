@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.21](https://github.com/langwatch/scenario/compare/python/v0.7.20...python/v0.7.21) (2026-03-13)
+
+
+### Features
+
+* dual conversation histories for RedTeamAgent ([#282](https://github.com/langwatch/scenario/issues/282)) ([fa45876](https://github.com/langwatch/scenario/commit/fa458760e73ac03061a7210b43f2bc0e1602be70))
+
+
+### Bug Fixes
+
+* resolve CI flaky tests ([#277](https://github.com/langwatch/scenario/issues/277)) ([de1a00b](https://github.com/langwatch/scenario/commit/de1a00bb6db5c87c98664f7748c95c949fe11997))
+
 ## [0.7.20](https://github.com/langwatch/scenario/compare/python/v0.7.19...python/v0.7.20) (2026-03-10)
 
 
