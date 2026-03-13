@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.8](https://github.com/langwatch/scenario/compare/javascript/v0.4.7...javascript/v0.4.8) (2026-03-13)
+
+
+### Features
+
+* dual conversation histories for RedTeamAgent ([#282](https://github.com/langwatch/scenario/issues/282)) ([fa45876](https://github.com/langwatch/scenario/commit/fa458760e73ac03061a7210b43f2bc0e1602be70))
+* support optional runId in RunOptions ([#284](https://github.com/langwatch/scenario/issues/284)) ([d5fd769](https://github.com/langwatch/scenario/commit/d5fd769a98e3bbc6fe03448af361c4fd35387baa))
+
 ## [0.4.7](https://github.com/langwatch/scenario/compare/javascript/v0.4.6...javascript/v0.4.7) (2026-03-10)
 
 
