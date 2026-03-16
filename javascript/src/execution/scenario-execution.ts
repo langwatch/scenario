@@ -171,6 +171,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** Accumulated results from inline judge checkpoints */
   private checkpointResults: { metCriteria: string[]; unmetCriteria: string[] }[] = [];
 
+  /** Whether the judge has given its final (non-checkpoint) verdict */
+  private finalJudgeInvoked = false;
+
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
 
@@ -374,17 +377,31 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.emitMessageSnapshot({ scenarioRunId });
       });
 
+    let checkFailure: Error | null = null;
+
     try {
       // Execute script steps - pass the execution context (this), not just state
       for (let i = 0; i < this.config.script.length; i++) {
         const scriptStep = this.config.script[i];
 
-        await this.executeScriptStep(scriptStep, i);
+        try {
+          await this.executeScriptStep(scriptStep, i);
+        } catch (error) {
+          if (error instanceof Error && error.name === "AssertionError") {
+            checkFailure = error;
+            break;
+          }
+          throw error;
+        }
 
         if (this.result) {
-          // Merge any accumulated checkpoint criteria into the final result
           const cp = this.compiledCheckpoints;
           this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
+
+          // If failed before judge ran, give the judge a chance
+          if (!this.result.success) {
+            await this.runJudgeIfNeeded(this.result);
+          }
 
           this.emitRunFinished({
             scenarioRunId,
@@ -398,8 +415,27 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         }
       }
 
+      if (checkFailure) {
+        const cp = this.compiledCheckpoints;
+        let result = this.setResult({
+          success: false,
+          reasoning: `Scenario failed with error: ${checkFailure.message}`,
+          metCriteria: cp.metCriteria,
+          unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
+        });
+
+        await this.runJudgeIfNeeded(result);
+
+        this.emitRunFinished({
+          scenarioRunId,
+          status: ScenarioRunStatus.ERROR,
+          result,
+        });
+
+        throw checkFailure;
+      }
+
       if (this.checkpointResults.length > 0) {
-        // All inline criteria checkpoints passed
         const cp = this.compiledCheckpoints;
         const result = this.setResult({
           success: cp.unmetCriteria.length === 0,
@@ -431,6 +467,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       return result;
     } catch (error) {
+      if (checkFailure) {
+        // Already handled above — just propagate
+        throw error;
+      }
+
+      // Any error (API, network, etc.) — try the judge before giving up
       const errorInfo = extractErrorInfo(error);
 
       const result = this.setResult({
@@ -440,6 +482,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         unmetCriteria: [],
         error: JSON.stringify(errorInfo),
       });
+
+      try {
+        await this.runJudgeIfNeeded(result);
+      } catch {
+        // Judge also failed — use error result as-is
+      }
 
       this.emitRunFinished({
         scenarioRunId,
@@ -1114,13 +1162,38 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       }
     }
 
-    // Merge any prior checkpoint criteria into the final result
+    // Final judge evaluation — merge prior checkpoint criteria
     if (this.result) {
+      this.finalJudgeInvoked = true;
       const cp = this.compiledCheckpoints;
       this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
     }
 
     return this.result ?? null;
+  }
+
+  /**
+   * Run the judge if it hasn't given a final verdict yet.
+   * Called before returning any failed result so the platform always
+   * shows structured criteria instead of 0/0.
+   */
+  private async runJudgeIfNeeded(result: ScenarioResult): Promise<ScenarioResult> {
+    if (this.finalJudgeInvoked) return result;
+
+    const hasJudge = this.agents.some((a) => a.role === AgentRole.JUDGE);
+    if (!hasJudge) return result;
+
+    try {
+      const judgeResult = await this.judge();
+      if (judgeResult) {
+        result.metCriteria = [...judgeResult.metCriteria, ...result.metCriteria];
+        result.unmetCriteria = [...judgeResult.unmetCriteria, ...result.unmetCriteria];
+      }
+    } catch {
+      // Judge couldn't run — return result as-is
+    }
+
+    return result;
   }
 
   /**
@@ -1160,6 +1233,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.pendingMessages.clear();
     this._result = undefined;
     this.checkpointResults = [];
+    this.finalJudgeInvoked = false;
 
     this.logger.debug(`[${this.config.id}] Reset complete`, {
       threadId: this.state.threadId,

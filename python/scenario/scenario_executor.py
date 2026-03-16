@@ -232,6 +232,7 @@ class ScenarioExecutor:
         self._total_start_time = time.time()
         self._agent_times = {}
         self._checkpoint_results: List[dict] = []
+        self._final_judge_invoked = False
 
         self._new_turn()
         self._state.current_turn = 0
@@ -528,6 +529,7 @@ class ScenarioExecutor:
             ScenarioResult containing the test outcome
         """
         scenario_run_id = generate_scenario_run_id()
+        _check_failure: Optional[BaseException] = None
 
         try:
             self._emit_run_started_event(scenario_run_id)
@@ -538,17 +540,25 @@ class ScenarioExecutor:
             self.reset()
 
             for i, script_step in enumerate(self.script):
-                callable = script_step(self._state)
-                if isinstance(callable, Awaitable):
-                    result = await callable
-                else:
-                    result = callable
+                try:
+                    callable = script_step(self._state)
+                    if isinstance(callable, Awaitable):
+                        result = await callable
+                    else:
+                        result = callable
+                except AssertionError as e:
+                    _check_failure = e
+                    break
+
                 self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
-                    # Merge any accumulated checkpoint criteria into the final result
                     compiled_passed, _ = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed + result.passed_criteria
+
+                    # If failed before judge ran, give the judge a chance
+                    if not result.success:
+                        result = await self._run_judge_if_needed(result)
 
                     status = (
                         ScenarioRunFinishedEventStatus.SUCCESS
@@ -558,8 +568,27 @@ class ScenarioExecutor:
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
-            if self._checkpoint_results:
-                # All inline criteria checkpoints passed
+            if _check_failure is not None:
+                compiled_passed, compiled_failed = self._compiled_checkpoints
+                error_result = ScenarioResult(
+                    success=False,
+                    messages=self._state.messages,
+                    reasoning=f"Scenario failed with error: {str(_check_failure)}",
+                    passed_criteria=compiled_passed,
+                    failed_criteria=compiled_failed + [str(_check_failure)],
+                    total_time=time.time() - self._total_start_time,
+                    agent_time=0,
+                )
+                error_result = await self._run_judge_if_needed(error_result)
+
+                self._emit_run_finished_event(
+                    scenario_run_id,
+                    error_result,
+                    ScenarioRunFinishedEventStatus.ERROR,
+                )
+                # Fall through to re-raise after the try/except block
+
+            elif self._checkpoint_results:
                 compiled_passed, compiled_failed = self._compiled_checkpoints
                 agent_roles_agents_idx = [
                     idx
@@ -582,6 +611,14 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
+
+                status = (
+                    ScenarioRunFinishedEventStatus.SUCCESS
+                    if result.success
+                    else ScenarioRunFinishedEventStatus.FAILED
+                )
+                self._emit_run_finished_event(scenario_run_id, result, status)
+                return result
             else:
                 result = self._reached_max_turns(
                     """Reached end of script without conclusion, add one of the following to the end of the script:
@@ -592,16 +629,20 @@ class ScenarioExecutor:
                     """
                 )
 
-            status = (
-                ScenarioRunFinishedEventStatus.SUCCESS
-                if result.success
-                else ScenarioRunFinishedEventStatus.FAILED
-            )
-            self._emit_run_finished_event(scenario_run_id, result, status)
-            return result
+                status = (
+                    ScenarioRunFinishedEventStatus.SUCCESS
+                    if result.success
+                    else ScenarioRunFinishedEventStatus.FAILED
+                )
+                self._emit_run_finished_event(scenario_run_id, result, status)
+                return result
 
         except Exception as e:
-            # Publish failure event before propagating the error
+            if _check_failure is not None:
+                # Already handled above — just propagate
+                raise
+
+            # Any error (API, network, etc.) — try the judge before giving up
             error_result = ScenarioResult(
                 success=False,
                 messages=self._state.messages,
@@ -609,10 +650,18 @@ class ScenarioExecutor:
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
+            try:
+                error_result = await self._run_judge_if_needed(error_result)
+            except Exception:
+                pass  # Judge also failed — use error result as-is
             self._emit_run_finished_event(
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
             raise  # Re-raise the exception after cleanup
+
+        # Re-raise the check failure outside the try/except
+        if _check_failure is not None:
+            raise _check_failure
 
     async def _call_agent(
         self, idx: int, role: AgentRole, judgment_request: Optional[JudgmentRequest] = None
@@ -896,10 +945,41 @@ class ScenarioExecutor:
                     result.failed_criteria = compiled_failed
                     return result
             else:
-                # Merge any prior checkpoint criteria into the final result
+                # Final judge evaluation — merge prior checkpoint criteria
+                self._final_judge_invoked = True
                 compiled_passed, _ = self._compiled_checkpoints
                 result.passed_criteria = compiled_passed + result.passed_criteria
                 return result
+
+    async def _run_judge_if_needed(self, result: ScenarioResult) -> ScenarioResult:
+        """Run the judge if it hasn't given a final verdict yet.
+
+        Called before returning any failed result so the platform always
+        shows structured criteria instead of 0/0.  If the judge already
+        ran, or no judge agent exists, or the judge itself errors, the
+        result is returned unchanged.
+        """
+        if self._final_judge_invoked:
+            return result
+
+        has_judge = any(a.role == AgentRole.JUDGE for a in self.agents)
+        if not has_judge:
+            return result
+
+        try:
+            judge_result = await self.judge()
+            if isinstance(judge_result, ScenarioResult):
+                # Merge judge criteria into the failed result
+                result.passed_criteria = (
+                    judge_result.passed_criteria + result.passed_criteria
+                )
+                result.failed_criteria = (
+                    judge_result.failed_criteria + result.failed_criteria
+                )
+        except Exception:
+            pass  # Judge couldn't run — return result as-is
+
+        return result
 
     # Event handling methods
 
