@@ -182,7 +182,9 @@ async def test_scenario_allow_scripted_scenario_with_lower_level_openai_messages
 
 
 @pytest.mark.asyncio
-async def test_scenario_scripted_fails_if_script_ends_without_conclusion():
+async def test_scenario_scripted_falls_back_to_judge_if_script_ends_without_conclusion():
+    """When a script ends without conclusion but a JudgeAgent is registered,
+    the executor auto-runs the judge instead of failing."""
     scenario.configure(default_model="none")
 
     result = await scenario.run(
@@ -192,6 +194,28 @@ async def test_scenario_scripted_fails_if_script_ends_without_conclusion():
             MockAgent(),
             MockUserSimulatorAgent(),
             MockJudgeAgent(criteria=["test criteria"]),
+        ],
+        script=[
+            scenario.user("Hi, I'm a hardcoded user message"),
+        ],
+    )
+
+    # Judge auto-runs and its verdict determines success
+    assert result.success
+    assert result.passed_criteria == ["test criteria"]
+
+
+@pytest.mark.asyncio
+async def test_scenario_scripted_fails_if_script_ends_without_conclusion_and_no_judge():
+    """Without a JudgeAgent, script exhaustion is an error."""
+    scenario.configure(default_model="none")
+
+    result = await scenario.run(
+        name="test name",
+        description="test description",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(),
         ],
         script=[
             scenario.user("Hi, I'm a hardcoded user message"),
