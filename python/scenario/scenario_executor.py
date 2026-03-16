@@ -962,7 +962,9 @@ class ScenarioExecutor:
                     # Checkpoint passed: continue script
                     return None
                 else:
-                    # Checkpoint failed: compile all results into the failing result
+                    # Checkpoint failed: compile all results into the failing result.
+                    # Mark judge as invoked so _run_judge_if_needed doesn't re-run it.
+                    self._final_judge_invoked = True
                     compiled_passed, compiled_failed = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed
                     result.failed_criteria = compiled_failed
@@ -991,6 +993,9 @@ class ScenarioExecutor:
 
         try:
             judge_result = await self.judge()
+            # self.judge() sets _final_judge_invoked via _script_call_agent,
+            # but set it explicitly too for defensive safety.
+            self._final_judge_invoked = True
             if isinstance(judge_result, ScenarioResult):
                 # Merge judge criteria into the failed result
                 result.passed_criteria = (

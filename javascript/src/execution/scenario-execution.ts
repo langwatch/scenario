@@ -398,7 +398,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           const cp = this.compiledCheckpoints;
           this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
 
-          // If failed before judge ran, give the judge a chance
+          // If failed before judge ran, give the judge a chance.
+          // runJudgeIfNeeded mutates result in-place (criteria arrays).
           if (!this.result.success) {
             await this.runJudgeIfNeeded(this.result);
           }
@@ -1176,7 +1177,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this._result = undefined;
         return null;
       } else {
-        // Checkpoint failed: compile all results into the failing result
+        // Checkpoint failed: compile all results into the failing result.
+        // Mark judge as invoked so runJudgeIfNeeded doesn't re-run it.
+        this.finalJudgeInvoked = true;
         const cp = this.compiledCheckpoints;
         this.result.metCriteria = cp.metCriteria;
         this.result.unmetCriteria = cp.unmetCriteria;
@@ -1207,6 +1210,9 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     try {
       const judgeResult = await this.judge();
+      // this.judge() sets finalJudgeInvoked via scriptCallAgent,
+      // but set it explicitly too for defensive safety.
+      this.finalJudgeInvoked = true;
       if (judgeResult) {
         result.metCriteria = [...judgeResult.metCriteria, ...result.metCriteria];
         result.unmetCriteria = [...judgeResult.unmetCriteria, ...result.unmetCriteria];
