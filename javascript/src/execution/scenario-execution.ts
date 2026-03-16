@@ -398,12 +398,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           const cp = this.compiledCheckpoints;
           this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
 
-          // If failed before judge ran, give the judge a chance.
-          // runJudgeIfNeeded mutates result in-place (criteria arrays).
-          if (!this.result.success) {
-            await this.runJudgeIfNeeded(this.result);
-          }
-
           this.emitRunFinished({
             scenarioRunId,
             status: this.result.success
@@ -424,8 +418,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           metCriteria: cp.metCriteria,
           unmetCriteria: [...cp.unmetCriteria, checkFailure.message],
         });
-
-        await this.runJudgeIfNeeded(result);
 
         this.emitRunFinished({
           scenarioRunId,
@@ -495,7 +487,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         throw error;
       }
 
-      // Any error (API, network, etc.) — try the judge before giving up
       const errorInfo = extractErrorInfo(error);
 
       const result = this.setResult({
@@ -505,12 +496,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         unmetCriteria: [],
         error: JSON.stringify(errorInfo),
       });
-
-      try {
-        await this.runJudgeIfNeeded(result);
-      } catch {
-        // Judge also failed — use error result as-is
-      }
 
       this.emitRunFinished({
         scenarioRunId,
@@ -1197,32 +1182,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     return this.result ?? null;
   }
 
-  /**
-   * Run the judge if it hasn't given a final verdict yet.
-   * Called before returning any failed result so the platform always
-   * shows structured criteria instead of 0/0.
-   */
-  private async runJudgeIfNeeded(result: ScenarioResult): Promise<ScenarioResult> {
-    if (this.finalJudgeInvoked) return result;
-
-    const hasJudge = this.agents.some((a) => a.role === AgentRole.JUDGE);
-    if (!hasJudge) return result;
-
-    try {
-      const judgeResult = await this.judge();
-      // this.judge() sets finalJudgeInvoked via scriptCallAgent,
-      // but set it explicitly too for defensive safety.
-      this.finalJudgeInvoked = true;
-      if (judgeResult) {
-        result.metCriteria = [...judgeResult.metCriteria, ...result.metCriteria];
-        result.unmetCriteria = [...judgeResult.unmetCriteria, ...result.unmetCriteria];
-      }
-    } catch {
-      // Judge couldn't run — return result as-is
-    }
-
-    return result;
-  }
 
   /**
    * Resets the scenario execution to its initial state.

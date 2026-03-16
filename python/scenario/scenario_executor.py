@@ -556,10 +556,6 @@ class ScenarioExecutor:
                     compiled_passed, _ = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed + result.passed_criteria
 
-                    # If failed before judge ran, give the judge a chance
-                    if not result.success:
-                        result = await self._run_judge_if_needed(result)
-
                     status = (
                         ScenarioRunFinishedEventStatus.SUCCESS
                         if result.success
@@ -579,8 +575,6 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=0,
                 )
-                error_result = await self._run_judge_if_needed(error_result)
-
                 self._emit_run_finished_event(
                     scenario_run_id,
                     error_result,
@@ -665,7 +659,7 @@ class ScenarioExecutor:
                 # Already handled above — just propagate
                 raise
 
-            # Any error (API, network, etc.) — try the judge before giving up
+            # Publish failure event before propagating the error
             error_result = ScenarioResult(
                 success=False,
                 messages=self._state.messages,
@@ -673,10 +667,6 @@ class ScenarioExecutor:
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
-            try:
-                error_result = await self._run_judge_if_needed(error_result)
-            except Exception:
-                pass  # Judge also failed — use error result as-is
             self._emit_run_finished_event(
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
@@ -975,39 +965,6 @@ class ScenarioExecutor:
                 compiled_passed, _ = self._compiled_checkpoints
                 result.passed_criteria = compiled_passed + result.passed_criteria
                 return result
-
-    async def _run_judge_if_needed(self, result: ScenarioResult) -> ScenarioResult:
-        """Run the judge if it hasn't given a final verdict yet.
-
-        Called before returning any failed result so the platform always
-        shows structured criteria instead of 0/0.  If the judge already
-        ran, or no judge agent exists, or the judge itself errors, the
-        result is returned unchanged.
-        """
-        if self._final_judge_invoked:
-            return result
-
-        has_judge = any(a.role == AgentRole.JUDGE for a in self.agents)
-        if not has_judge:
-            return result
-
-        try:
-            judge_result = await self.judge()
-            # self.judge() sets _final_judge_invoked via _script_call_agent,
-            # but set it explicitly too for defensive safety.
-            self._final_judge_invoked = True
-            if isinstance(judge_result, ScenarioResult):
-                # Merge judge criteria into the failed result
-                result.passed_criteria = (
-                    judge_result.passed_criteria + result.passed_criteria
-                )
-                result.failed_criteria = (
-                    judge_result.failed_criteria + result.failed_criteria
-                )
-        except Exception:
-            pass  # Judge couldn't run — return result as-is
-
-        return result
 
     # Event handling methods
 
