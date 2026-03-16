@@ -620,14 +620,37 @@ class ScenarioExecutor:
                 self._emit_run_finished_event(scenario_run_id, result, status)
                 return result
             else:
-                result = self._reached_max_turns(
-                    """Reached end of script without conclusion, add one of the following to the end of the script:
+                # Script ended without an explicit conclusion. If a
+                # JudgeAgent is registered, run it — exhausting a red
+                # team script without a breach is a defense success,
+                # not a harness error.
+                has_judge = any(
+                    a.role == AgentRole.JUDGE for a in self.agents
+                )
+                if has_judge and not self._final_judge_invoked:
+                    try:
+                        judge_result = await self.judge()
+                        if isinstance(judge_result, ScenarioResult):
+                            result = judge_result
+                        else:
+                            result = self._reached_max_turns(
+                                "Reached end of script without conclusion and "
+                                "judge returned no verdict"
+                            )
+                    except Exception:
+                        result = self._reached_max_turns(
+                            "Reached end of script without conclusion and "
+                            "judge failed to evaluate"
+                        )
+                else:
+                    result = self._reached_max_turns(
+                        """Reached end of script without conclusion, add one of the following to the end of the script:
 
 - `scenario.proceed()` to let the simulation continue to play out
 - `scenario.judge()` to force criteria judgement
 - `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
-                    """
-                )
+                        """
+                    )
 
                 status = (
                     ScenarioRunFinishedEventStatus.SUCCESS

@@ -453,17 +453,39 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         return result;
       }
 
-      // If no conclusion reached, set max turns error
-      const result = this.reachedMaxTurns(
-        [
-          "Reached end of script without conclusion, add one of the following to the end of the script:",
-          "- `Scenario.proceed()` to let the simulation continue to play out",
-          "- `Scenario.judge()` to force criteria judgement",
-          "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
-        ].join("\n")
-      );
+      // Script ended without explicit conclusion. If a JudgeAgent is
+      // registered, run it — exhausting a red team script without a
+      // breach is a defense success, not a harness error.
+      const hasJudge = this.agents.some((a) => a.role === AgentRole.JUDGE);
+      let result: ScenarioResult;
 
-      this.emitRunFinished({ scenarioRunId, status: ScenarioRunStatus.FAILED, result });
+      if (hasJudge && !this.finalJudgeInvoked) {
+        try {
+          const judgeResult = await this.judge();
+          result = judgeResult ?? this.reachedMaxTurns(
+            "Reached end of script without conclusion and judge returned no verdict"
+          );
+        } catch {
+          result = this.reachedMaxTurns(
+            "Reached end of script without conclusion and judge failed to evaluate"
+          );
+        }
+      } else {
+        result = this.reachedMaxTurns(
+          [
+            "Reached end of script without conclusion, add one of the following to the end of the script:",
+            "- `Scenario.proceed()` to let the simulation continue to play out",
+            "- `Scenario.judge()` to force criteria judgement",
+            "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
+          ].join("\n")
+        );
+      }
+
+      this.emitRunFinished({
+        scenarioRunId,
+        status: result.success ? ScenarioRunStatus.SUCCESS : ScenarioRunStatus.FAILED,
+        result,
+      });
 
       return result;
     } catch (error) {
