@@ -114,7 +114,7 @@ describe("Bank agent security", () => {
 :::
 
 <Callout type="info">
-  `total_turns` is the **only** parameter that controls how long a red team test runs — it's a hard cap. `attacker.marathon_script()` reads it from the agent automatically. No need to set `max_turns` on `scenario.run()`. Backtracked turns count toward the budget, and early exit can end the test sooner if the objective is achieved.
+  `total_turns` is the **only** parameter that controls how long a red team test runs — it is a hard cap. `attacker.marathon_script()` reads it from the agent automatically. No need to set `max_turns` on `scenario.run()`. Backtracked turns count toward the budget, and early exit can end the test sooner if the objective is achieved.
 </Callout>
 
 We recommend **50 turns** (`total_turns=50`) for thorough nightly adversarial coverage. Agents that hold at turn 1 often break by turn 20. The default of 30 turns is a good balance for per-PR checks — fewer turns miss vulnerabilities that only surface under sustained escalation pressure.
