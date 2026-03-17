@@ -364,6 +364,56 @@ describe("JudgeAgent", () => {
     });
   });
 
+  describe("isLastMessage boundary detection", () => {
+    const cases = [
+      { currentTurn: 4, maxTurns: 5, expectLast: true, label: "last turn (0-indexed)" },
+      { currentTurn: 3, maxTurns: 5, expectLast: false, label: "not yet last turn" },
+      { currentTurn: 5, maxTurns: 5, expectLast: true, label: "past max (>=)" },
+      { currentTurn: 9, maxTurns: undefined, expectLast: true, label: "max=undefined defaults to 10, turn 9 is last" },
+      { currentTurn: 8, maxTurns: undefined, expectLast: false, label: "max=undefined defaults to 10, turn 8 is not last" },
+    ];
+
+    for (const { currentTurn, maxTurns, expectLast, label } of cases) {
+      it(`${label}: isLastMessage=${expectLast}`, async () => {
+        const smallTrace = createSmallTrace();
+        const collector = createMockSpanCollector(smallTrace);
+        for (const span of smallTrace) {
+          (span.attributes as Record<string, unknown>)["langwatch.thread.id"] = "test-thread";
+        }
+
+        const config: JudgeAgentConfig = {
+          criteria: ["Test criterion"],
+          spanCollector: collector,
+        };
+
+        const agent = judgeAgent(config);
+
+        let capturedParams: InvokeLLMParams | undefined;
+        agent.invokeLLM = async (params) => {
+          capturedParams = params;
+          return mockLLMResult(
+            expectLast ? "finish_test" : "continue_test",
+            expectLast
+              ? { criteria: { test_criterion: "true" }, reasoning: "ok", verdict: "success" }
+              : {}
+          );
+        };
+
+        await agent.call(createBaseInput({
+          scenarioState: { currentTurn } as any,
+          scenarioConfig: { name: "test", description: "test", maxTurns } as any,
+        }));
+
+        expect(capturedParams).toBeDefined();
+        if (expectLast) {
+          expect(capturedParams!.toolChoice).toEqual({ type: "tool", toolName: "finish_test" });
+        } else {
+          expect(capturedParams!.toolChoice).toBe("required");
+        }
+      });
+    }
+  });
+
   describe("when the judge continues in progressive mode", () => {
     it("returns null to allow the scenario to proceed", async () => {
       const largeTrace = createLargeTrace();

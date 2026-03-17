@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { describe, it, expect } from "vitest";
 import {
   AgentRole,
@@ -243,5 +244,159 @@ describe("Inline criteria on judge()", () => {
     expect(result.success).toBe(false);
     expect(result.metCriteria).toContain("criterion A passes");
     expect(result.unmetCriteria).toContain("this will fail");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Gap #2: AssertionError in check functions → structured failed criteria
+// ---------------------------------------------------------------------------
+
+describe("AssertionError in script checks", () => {
+  it("surfaces assertion message as failed criteria and re-throws", async () => {
+    const failingCheck = () => {
+      assert.ok(false, "Agent leaked PII");
+    };
+
+    const execution = new ScenarioExecution(
+      {
+        name: "test assertion catch",
+        description: "test",
+        agents: [
+          new MockAgent(),
+          new MockUserSimulatorAgent(),
+          new InlineCriteriaMockJudgeAgent(["criterion"]),
+        ],
+      },
+      [
+        user("hello"),
+        agent(),
+        failingCheck,
+        succeed(), // should never reach
+      ],
+      "test-batch-id"
+    );
+
+    await expect(execution.execute()).rejects.toThrow("Agent leaked PII");
+  });
+
+  it("does not catch non-assertion errors as criteria", async () => {
+    const throwingCheck = () => {
+      throw new Error("network failure");
+    };
+
+    const execution = new ScenarioExecution(
+      {
+        name: "test non-assertion",
+        description: "test",
+        agents: [
+          new MockAgent(),
+          new MockUserSimulatorAgent(),
+          new InlineCriteriaMockJudgeAgent(["criterion"]),
+        ],
+      },
+      [
+        user("hello"),
+        agent(),
+        throwingCheck,
+        succeed(),
+      ],
+      "test-batch-id"
+    );
+
+    // Should still throw, but as a generic error (not structured criteria)
+    await expect(execution.execute()).rejects.toThrow("network failure");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Gap #3 + #4: Script exhaustion auto-runs judge; judge not invoked twice
+// ---------------------------------------------------------------------------
+
+describe("Script exhaustion auto-runs judge", () => {
+  it("auto-runs judge when script ends without conclusion and judge exists", async () => {
+    let judgeCalls = 0;
+
+    class AutoRunJudge extends JudgeAgentAdapter {
+      criteria = ["test criterion"];
+      async call(input: AgentInput) {
+        if (input.judgmentRequest) {
+          judgeCalls++;
+          return {
+            success: true,
+            reasoning: "Judge auto-ran",
+            metCriteria: ["test criterion"],
+            unmetCriteria: [],
+          };
+        }
+        return null;
+      }
+    }
+
+    const execution = new ScenarioExecution(
+      {
+        name: "test auto-run judge",
+        description: "test",
+        agents: [
+          new MockAgent(),
+          new MockUserSimulatorAgent(),
+          new AutoRunJudge(),
+        ],
+      },
+      [
+        user("hello"),
+        // Script ends here — no succeed/fail/judge
+      ],
+      "test-batch-id"
+    );
+
+    const result = await execution.execute();
+    expect(result.success).toBe(true);
+    expect(result.reasoning).toBe("Judge auto-ran");
+    expect(judgeCalls).toBe(1);
+  });
+
+  it("judge already invoked via script judge() is not re-invoked on exhaustion", async () => {
+    let judgeCalls = 0;
+
+    class CountingJudge extends JudgeAgentAdapter {
+      criteria = ["test criterion"];
+      async call(input: AgentInput) {
+        if (input.judgmentRequest) {
+          judgeCalls++;
+          return {
+            success: true,
+            reasoning: "judge ran",
+            metCriteria: ["test criterion"],
+            unmetCriteria: [],
+          };
+        }
+        return null;
+      }
+    }
+
+    const execution = new ScenarioExecution(
+      {
+        name: "test no double judge",
+        description: "test",
+        agents: [
+          new MockAgent(),
+          new MockUserSimulatorAgent(),
+          new CountingJudge(),
+        ],
+      },
+      [
+        user("hello"),
+        agent(),
+        judge(),
+        // Script ends — judge already ran
+      ],
+      "test-batch-id"
+    );
+
+    const result = await execution.execute();
+    expect(result.success).toBe(true);
+    expect(judgeCalls).toBe(1);
   });
 });

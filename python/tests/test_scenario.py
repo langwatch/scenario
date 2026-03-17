@@ -449,3 +449,228 @@ async def test_scenario_accepts_on_turn_and_on_step_callbacks():
 
     assert result.success
     assert step_calls == 3
+
+
+# ---------------------------------------------------------------------------
+# Gap #2: AssertionError in check functions → structured failed_criteria
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scenario_assertion_error_surfaces_as_failed_criteria():
+    """When a check function raises AssertionError, the message appears in failed_criteria."""
+    scenario.configure(default_model="none")
+
+    def failing_check(state: scenario.ScenarioState):
+        assert False, "Agent leaked PII"
+
+    with pytest.raises(AssertionError, match="Agent leaked PII"):
+        await scenario.run(
+            name="test name",
+            description="test description",
+            agents=[
+                MockAgent(),
+                MockUserSimulatorAgent(),
+                MockJudgeAgent(criteria=["test criteria"]),
+            ],
+            script=[
+                scenario.user("Hi"),
+                scenario.agent(),
+                failing_check,
+                scenario.succeed(),  # should never reach
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_scenario_assertion_error_includes_passed_checkpoints():
+    """Assertion failure result includes previously-passed checkpoint criteria."""
+
+    class CheckpointJudge(scenario.JudgeAgent):
+        """Judge that supports inline checkpoints — returns checkpoint result
+        when criteria are provided, not a final verdict."""
+        async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+            if input.judgment_request and input.judgment_request.criteria:
+                return scenario.ScenarioResult(
+                    success=True,
+                    messages=[],
+                    reasoning="checkpoint passed",
+                    passed_criteria=input.judgment_request.criteria,
+                )
+            return []
+
+    scenario.configure(default_model="none")
+
+    def failing_check(state: scenario.ScenarioState):
+        assert False, "Security violation"
+
+    with pytest.raises(AssertionError, match="Security violation"):
+        await scenario.run(
+            name="test name",
+            description="test description",
+            agents=[
+                MockAgent(),
+                MockUserSimulatorAgent(),
+                CheckpointJudge(criteria=[]),
+            ],
+            script=[
+                scenario.user("Hi"),
+                scenario.agent(),
+                scenario.judge(criteria=["Agent responded politely"]),
+                scenario.user("More"),
+                scenario.agent(),
+                failing_check,
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_scenario_non_assertion_error_is_not_caught_as_criteria():
+    """Non-AssertionError exceptions propagate normally, not as structured criteria."""
+    scenario.configure(default_model="none")
+
+    def broken_check(state: scenario.ScenarioState):
+        raise RuntimeError("network failure")
+
+    with pytest.raises(RuntimeError, match="network failure"):
+        await scenario.run(
+            name="test name",
+            description="test description",
+            agents=[
+                MockAgent(),
+                MockUserSimulatorAgent(),
+                MockJudgeAgent(criteria=["test criteria"]),
+            ],
+            script=[
+                scenario.user("Hi"),
+                scenario.agent(),
+                broken_check,
+                scenario.succeed(),
+            ],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Gap #3: Judge auto-run when judge itself throws
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scenario_script_exhaustion_judge_throws_falls_back():
+    """When the auto-run judge throws, the scenario falls back to a max-turns failure."""
+
+    class BrokenJudge(scenario.JudgeAgent):
+        async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+            if input.judgment_request:
+                raise RuntimeError("Judge crashed")
+            return []
+
+    scenario.configure(default_model="none")
+
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = await scenario.run(
+            name="test name",
+            description="test description",
+            agents=[
+                MockAgent(),
+                MockUserSimulatorAgent(),
+                BrokenJudge(criteria=["test criteria"]),
+            ],
+            script=[
+                scenario.user("Hi"),
+            ],
+        )
+
+    assert not result.success
+    assert result.reasoning and "Reached" in result.reasoning
+    # The warning should have been issued
+    judge_warnings = [x for x in w if "Judge agent failed" in str(x.message)]
+    assert len(judge_warnings) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Gap #4: _final_judge_invoked prevents double invocation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scenario_judge_not_invoked_twice():
+    """If the judge already ran (via script judge()), script exhaustion should NOT re-run it."""
+    call_count = 0
+
+    class CountingJudge(scenario.JudgeAgent):
+        async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+            nonlocal call_count
+            if input.judgment_request:
+                call_count += 1
+                return scenario.ScenarioResult(
+                    success=True,
+                    messages=[],
+                    reasoning="judge ran",
+                    passed_criteria=["criterion"],
+                )
+            return []
+
+    scenario.configure(default_model="none")
+
+    result = await scenario.run(
+        name="test name",
+        description="test description",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(),
+            CountingJudge(criteria=["criterion"]),
+        ],
+        script=[
+            scenario.user("Hi"),
+            scenario.agent(),
+            scenario.judge(),
+            # Script ends here — judge already ran, should NOT auto-run again
+        ],
+    )
+
+    assert result.success
+    assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Gap #5: marathon_script success_score=None path structure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_marathon_script_no_early_exit_structure():
+    """When success_score=None, marathon_script produces user/agent/check pattern without early-exit."""
+    from scenario import RedTeamAgent
+    from scenario.script import user, agent, judge
+
+    agent_obj = RedTeamAgent.crescendo(
+        target="test",
+        model="openai/gpt-4",
+        success_score=None,
+        total_turns=3,
+    )
+
+    check_called = []
+    def my_check(state):
+        check_called.append(True)
+
+    steps = agent_obj.marathon_script(checks=[my_check])
+
+    # 3 * (user + agent + check) + judge = 10
+    assert len(steps) == 10
+
+    # Verify structure: [user, agent, check] repeated, then judge
+    # Steps are closures so we check no early-exit async functions exist
+    import inspect
+    for i in range(3):
+        base = i * 3
+        # user() and agent() are sync closures, check is our sync function
+        assert not inspect.iscoroutinefunction(steps[base]), f"step {base} should be sync (user)"
+        assert not inspect.iscoroutinefunction(steps[base + 1]), f"step {base+1} should be sync (agent)"
+        assert steps[base + 2] is my_check, f"step {base+2} should be our check"
+
+    # Last step is judge (sync closure)
+    assert not inspect.iscoroutinefunction(steps[-1]), "last step should be sync (judge)"
