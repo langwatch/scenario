@@ -115,8 +115,7 @@ class RedTeamAgent(AgentAdapter):
             name="red team test",
             description="Bank support agent with internal tools.",
             agents=[my_agent, red_team, scenario.JudgeAgent(criteria=[...])],
-            script=scenario.RedTeamAgent.marathon_script(
-                turns=50,
+            script=red_team.marathon_script(
                 checks=[check_no_system_prompt_leaked],
             ),
         )
@@ -285,16 +284,17 @@ class RedTeamAgent(AgentAdapter):
 
     def marathon_script(
         self,
-        turns: int,
         checks: Optional[List[Callable]] = None,
         final_checks: Optional[List[Callable]] = None,
     ) -> List[ScriptStep]:
         """Generate a marathon test script with automatic early-exit checks.
 
-        Like :func:`scenario.script.marathon_script`, but inserts an early-exit
-        check after each ``agent()`` step. When ``success_score`` consecutive
-        turns score >= the threshold, the check runs ``final_checks`` inline
-        and calls ``executor.succeed()`` to end the scenario early.
+        Like :func:`scenario.script.marathon_script`, but uses
+        ``self.total_turns`` to determine script length and inserts an
+        early-exit check after each ``agent()`` step.  When
+        ``success_score`` consecutive turns score >= the threshold, the
+        check runs ``final_checks`` inline and calls
+        ``executor.succeed()`` to end the scenario early.
 
         Set ``success_score=None`` to disable early exit (falls back to the
         plain marathon script).
@@ -305,17 +305,18 @@ class RedTeamAgent(AgentAdapter):
             iterations (up to ``_MAX_BACKTRACKS``) so that backtracked turns
             don't reduce the effective number of attacks.  If no backtracks
             or early exits occur, the scenario may run for more than
-            ``turns`` iterations.  The early-exit check is the expected
+            ``total_turns`` iterations.  The early-exit check is the expected
             termination mechanism.
 
         Args:
-            turns: Number of user/agent turn pairs.
             checks: Assertion functions to run after every agent response.
             final_checks: Assertion functions to run once at the end, before judge.
 
         Returns:
             A list of ``ScriptStep`` items ready for ``scenario.run(script=...)``.
         """
+        turns = self.total_turns
+
         if self.success_score is None:
             return _marathon_script(
                 turns=turns, checks=checks, final_checks=final_checks,

@@ -428,7 +428,6 @@ class TestMarathonScript:
         """50 turns with 1 check = 50*(user+agent+check) + judge = 151."""
         agent = self._make_agent()
         script = agent.marathon_script(
-            turns=50,
             checks=[lambda state: None],
         )
         # 50 * 3 (user, agent, check) + 1 (judge) = 151
@@ -437,22 +436,21 @@ class TestMarathonScript:
     def test_no_checks(self):
         """50 turns with no checks = 50*(user+agent) + judge = 101."""
         agent = self._make_agent()
-        script = agent.marathon_script(turns=50)
+        script = agent.marathon_script()
         assert len(script) == 101
 
     def test_multiple_checks(self):
         """50 turns with 3 checks = 50*(user+agent+3checks) + judge = 251."""
         agent = self._make_agent()
         checks = [lambda s: None, lambda s: None, lambda s: None]
-        script = agent.marathon_script(turns=50, checks=checks)
+        script = agent.marathon_script(checks=checks)
         assert len(script) == 251
 
     def test_final_checks_appended(self):
         """Final checks appear after turns but before judge."""
-        agent = self._make_agent()
+        agent = self._make_agent(total_turns=2)
         final_check = lambda state: None  # noqa: E731
         script = agent.marathon_script(
-            turns=2,
             checks=[],
             final_checks=[final_check],
         )
@@ -462,8 +460,8 @@ class TestMarathonScript:
         assert script[-2] is final_check
 
     def test_single_turn(self):
-        agent = self._make_agent()
-        script = agent.marathon_script(turns=1)
+        agent = self._make_agent(total_turns=1)
+        script = agent.marathon_script()
         # 1*(user+agent) + judge = 3
         assert len(script) == 3
 
@@ -796,7 +794,6 @@ class TestRedTeamFullFlowMocked:
             ],
             max_turns=10,
             script=red_team.marathon_script(
-                turns=5,
                 checks=[check_no_leak],
             ),
         )
@@ -847,7 +844,7 @@ class TestRedTeamFullFlowMocked:
                 MockJudgeForRedTeam(),
             ],
             max_turns=15,
-            script=red_team.marathon_script(turns=10),
+            script=red_team.marathon_script(),
         )
 
         assert result.success
@@ -910,7 +907,7 @@ class TestRedTeamFullFlowMocked:
                 MockJudgeForRedTeam(),
             ],
             max_turns=10,
-            script=red_team.marathon_script(turns=5),
+            script=red_team.marathon_script(),
         )
 
         assert result.success
@@ -1030,7 +1027,7 @@ class TestRedTeamFullFlowMocked:
                 MockJudgeForRedTeam(),
             ],
             max_turns=40,  # 2x for user+assistant turns
-            script=red_team.marathon_script(turns=20),
+            script=red_team.marathon_script(),
         )
 
         assert result.success
@@ -1164,7 +1161,6 @@ async def test_red_team_live_3_turns():
         ],
         max_turns=5,
         script=red_team.marathon_script(
-            turns=3,
             checks=[check_no_system_leak],
         ),
     )
@@ -1221,7 +1217,6 @@ async def test_red_team_live_10_turns_full_phases():
         ],
         max_turns=15,
         script=red_team.marathon_script(
-            turns=10,
             checks=[check_stayed_in_role],
         ),
     )
@@ -1368,7 +1363,7 @@ class TestTotalTurnsMismatch:
         red_team = RedTeamAgent.crescendo(
             target="test",
             model="openai/gpt-4",
-            total_turns=50,
+            total_turns=5,
             score_responses=False,
             success_score=None,  # disable early exit + padding
         )
@@ -1391,13 +1386,13 @@ class TestTotalTurnsMismatch:
             name="mismatch test",
             description="test",
             agents=[StubDefensiveAgent(), red_team, MockJudgeForRedTeam()],
-            script=red_team.marathon_script(turns=5),
+            script=red_team.marathon_script(),
         )
 
         assert result.success
-        # With total_turns=50 but only 5 actual turns, turns 1-5 = 2-10% → all warmup
+        # With total_turns=5, turns 1-5 = 20-100% → phases progress normally
         for prompt in prompts.values():
-            assert "WARMUP" in prompt
+            assert "WARMUP" in prompt or "PROBING" in prompt or "ESCALATION" in prompt or "DIRECT" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -1415,9 +1410,9 @@ class TestMarathonScriptStandalone:
         check = lambda state: None  # noqa: E731
         standalone = marathon_script(turns=5, checks=[check])
         agent = RedTeamAgent.crescendo(
-            target="test", model="openai/gpt-4", success_score=None,
+            target="test", model="openai/gpt-4", success_score=None, total_turns=5,
         )
-        instance_method = agent.marathon_script(turns=5, checks=[check])
+        instance_method = agent.marathon_script(checks=[check])
         assert len(standalone) == len(instance_method)
 
     def test_standalone_basic_length(self):
@@ -1753,8 +1748,8 @@ class TestBacktracking:
 
     def test_marathon_script_pads_iterations(self):
         """marathon_script should generate turns + _MAX_BACKTRACKS iterations."""
-        agent = self._make_agent(success_score=9)
-        steps = agent.marathon_script(turns=5)
+        agent = self._make_agent(success_score=9, total_turns=5)
+        steps = agent.marathon_script()
 
         # (5 + 10) * (user + agent + early_exit_check) + judge = 15 * 3 + 1 = 46
         assert len(steps) == 46
@@ -1855,38 +1850,38 @@ class TestMarathonScriptEarlyExit:
     def test_inserts_early_exit_checks_when_success_score_set(self):
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=9,
+            success_score=9, total_turns=3,
         )
-        steps = agent.marathon_script(turns=3)
+        steps = agent.marathon_script()
         # (3 + 10) * (user + agent + early_exit_check) + judge = 13*3 + 1 = 40
         assert len(steps) == 40
 
     def test_inserts_early_exit_checks_with_checks(self):
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=9,
+            success_score=9, total_turns=2,
         )
         dummy_check = lambda state: None
-        steps = agent.marathon_script(turns=2, checks=[dummy_check])
+        steps = agent.marathon_script(checks=[dummy_check])
         # (2 + 10) * (user + agent + early_exit_check + check) + judge = 12*4 + 1 = 49
         assert len(steps) == 49
 
     def test_inserts_early_exit_checks_with_final_checks(self):
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=9,
+            success_score=9, total_turns=2,
         )
         dummy_final = lambda state: None
-        steps = agent.marathon_script(turns=2, final_checks=[dummy_final])
+        steps = agent.marathon_script(final_checks=[dummy_final])
         # (2 + 10) * (user + agent + early_exit_check) + final_check + judge = 12*3 + 1 + 1 = 38
         assert len(steps) == 38
 
     def test_omits_early_exit_checks_when_success_score_none(self):
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=None,
+            success_score=None, total_turns=3,
         )
-        steps = agent.marathon_script(turns=3)
+        steps = agent.marathon_script()
         # Falls back to plain marathon_script: 3 * (user + agent) + judge = 7
         assert len(steps) == 7
 
@@ -1895,7 +1890,7 @@ class TestMarathonScriptEarlyExit:
         """When check_early_exit() is True, the check step should call succeed()."""
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=9, success_confirm_turns=2,
+            success_score=9, success_confirm_turns=2, total_turns=3,
         )
         agent._turn_scores = {1: (9, ""), 2: (10, "")}
 
@@ -1906,7 +1901,7 @@ class TestMarathonScriptEarlyExit:
         mock_state.current_turn = 2
         mock_state._executor = mock_executor
 
-        steps = agent.marathon_script(turns=3)
+        steps = agent.marathon_script()
         # The 3rd step (index 2) should be the early-exit check
         early_exit_step = steps[2]
         step_result = early_exit_step(mock_state)
@@ -1924,7 +1919,7 @@ class TestMarathonScriptEarlyExit:
         """When early exit triggers, final_checks should run before succeed()."""
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=9, success_confirm_turns=1,
+            success_score=9, success_confirm_turns=1, total_turns=3,
         )
         agent._turn_scores = {1: (10, "")}
 
@@ -1944,7 +1939,6 @@ class TestMarathonScriptEarlyExit:
         mock_state._executor = mock_executor
 
         steps = agent.marathon_script(
-            turns=3,
             final_checks=[final_check_1, final_check_2],
         )
         early_exit_step = steps[2]
@@ -1960,13 +1954,13 @@ class TestMarathonScriptEarlyExit:
         """When check_early_exit() is False, the check step should be a no-op."""
         agent = RedTeamAgent.crescendo(
             target="test", model="openai/gpt-4",
-            success_score=9, success_confirm_turns=2,
+            success_score=9, success_confirm_turns=2, total_turns=3,
         )
         # No scores cached — check_early_exit() returns False
         mock_state = MagicMock()
         mock_state._executor = AsyncMock()
 
-        steps = agent.marathon_script(turns=3)
+        steps = agent.marathon_script()
         early_exit_step = steps[2]
         step_result = early_exit_step(mock_state)
         if inspect.isawaitable(step_result):
