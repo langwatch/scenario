@@ -314,7 +314,7 @@ class RedTeamAgent(AgentAdapter):
         steps: List[ScriptStep] = []
 
         if self.success_score is None:
-            # No early exit — plain loop without backtrack padding
+            # No early exit — plain user/agent loop
             for _ in range(turns):
                 steps.append(user())
                 steps.append(agent())

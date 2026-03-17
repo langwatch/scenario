@@ -1719,7 +1719,7 @@ class TestBacktracking:
         assert "I cannot help" in backtrack_msgs[0]["content"]
 
     def test_marathon_script_no_padding(self):
-        """marathon_script uses exactly total_turns iterations (no backtrack padding)."""
+        """marathon_script uses exactly total_turns iterations."""
         agent = self._make_agent(success_score=9, total_turns=5)
         steps = agent.marathon_script()
 
