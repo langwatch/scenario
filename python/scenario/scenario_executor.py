@@ -508,8 +508,14 @@ class ScenarioExecutor:
                 judge_result = await self.judge()
                 if isinstance(judge_result, ScenarioResult):
                     return judge_result
-            except Exception:
-                pass
+            except Exception as exc:
+                # Judge failed — fall through to the fallback message.
+                # Don't propagate: a broken judge shouldn't mask the
+                # actual script-exhaustion outcome.
+                warnings.warn(
+                    f"Judge agent failed during auto-run: {exc}",
+                    stacklevel=2,
+                )
         return self._reached_max_turns(fallback_message)
 
     def _reached_max_turns(self, error_message: Optional[str] = None) -> ScenarioResult:
@@ -636,11 +642,11 @@ class ScenarioExecutor:
                 # team script without a breach is a defense success,
                 # not a harness error.
                 result = await self._run_judge_or_fail(
-                    """Reached end of script without conclusion, add one of the following to the end of the script:
+                    """Reached end of script without conclusion, add one of the following:
 
-- `scenario.proceed()` to let the simulation continue to play out
-- `scenario.judge()` to force criteria judgement
-- `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
+- Add a `scenario.JudgeAgent()` to the agents list so the judge can auto-run at script end
+- Add `scenario.judge()` to the script to force criteria judgement
+- Add `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
                     """
                 )
 

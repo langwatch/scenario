@@ -467,10 +467,10 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       } else {
         result = this.reachedMaxTurns(
           [
-            "Reached end of script without conclusion, add one of the following to the end of the script:",
-            "- `Scenario.proceed()` to let the simulation continue to play out",
-            "- `Scenario.judge()` to force criteria judgement",
-            "- `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
+            "Reached end of script without conclusion, add one of the following:",
+            "- Add a `Scenario.judgeAgent()` to the agents list so the judge can auto-run at script end",
+            "- Add `Scenario.judge()` to the script to force criteria judgement",
+            "- Add `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
           ].join("\n")
         );
       }
