@@ -498,9 +498,9 @@ class ScenarioExecutor:
     async def _run_judge_or_fail(self, fallback_message: Optional[str] = None) -> ScenarioResult:
         """Auto-run the judge if one exists, otherwise return a failure result.
 
-        Used when the script exhausts or max_turns is hit — the judge should
-        decide the verdict (e.g. red team defense held) rather than the executor
-        hard-failing.
+        Used when a script exhausts without an explicit conclusion — the
+        judge should decide the verdict (e.g. red team defense held)
+        rather than the executor hard-failing.
         """
         has_judge = any(a.role == AgentRole.JUDGE for a in self.agents)
         if has_judge and not self._final_judge_invoked:

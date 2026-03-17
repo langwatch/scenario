@@ -240,7 +240,7 @@ const attacker = scenario.redTeamCrescendo({
 
 Generates a multi-turn script using `total_turns` from the agent: `[user(), agent(), ...checks] × totalTurns → [...finalChecks, judge()]`.
 
-The instance method pads extra iterations for backtracking and wires up early exit.
+`total_turns` is a hard cap — backtracked turns count toward the budget. Early exit can end the test sooner if the objective is achieved.
 
 :::code-group
 

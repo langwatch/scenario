@@ -406,14 +406,14 @@ describe("backtracking on hard refusals", () => {
     ])).toBe("");
   });
 
-  it("marathon script pads iterations when successScore is set", () => {
+  it("marathon script uses exact totalTurns when successScore is set", () => {
     const agent = createAgent({ successScore: 9, totalTurns: 5 });
     const steps = agent.marathonScript();
-    // (5 + 10) * (user + agent + early_exit_check) + judge = 15*3 + 1 = 46
-    expect(steps).toHaveLength(46);
+    // 5 * (user + agent + early_exit_check) + judge = 5*3 + 1 = 16
+    expect(steps).toHaveLength(16);
   });
 
-  it("marathon script does not pad when successScore is undefined", () => {
+  it("marathon script uses exact totalTurns when successScore is undefined", () => {
     const agent = createAgent({ successScore: undefined, totalTurns: 5 });
     const steps = agent.marathonScript();
     // 5 * (user + agent) + judge = 11
@@ -479,24 +479,24 @@ describe("instance marathonScript", () => {
   it("inserts early-exit checks when successScore is set", () => {
     const agent = createAgent({ successScore: 9, totalTurns: 3 });
     const steps = agent.marathonScript();
-    // (3 + 10) * (user + agent + early_exit_check) + judge = 13*3 + 1 = 40
-    expect(steps).toHaveLength(40);
+    // 3 * (user + agent + early_exit_check) + judge = 3*3 + 1 = 10
+    expect(steps).toHaveLength(10);
   });
 
   it("inserts early-exit checks with per-turn checks", () => {
     const agent = createAgent({ successScore: 9, totalTurns: 2 });
     const dummyCheck = () => {};
     const steps = agent.marathonScript({ checks: [dummyCheck] });
-    // (2 + 10) * (user + agent + early_exit_check + check) + judge = 12*4 + 1 = 49
-    expect(steps).toHaveLength(49);
+    // 2 * (user + agent + early_exit_check + check) + judge = 2*4 + 1 = 9
+    expect(steps).toHaveLength(9);
   });
 
   it("inserts early-exit checks with final checks", () => {
     const agent = createAgent({ successScore: 9, totalTurns: 2 });
     const dummyFinal = () => {};
     const steps = agent.marathonScript({ finalChecks: [dummyFinal] });
-    // (2 + 10) * (user + agent + early_exit_check) + finalCheck + judge = 12*3 + 1 + 1 = 38
-    expect(steps).toHaveLength(38);
+    // 2 * (user + agent + early_exit_check) + finalCheck + judge = 2*3 + 1 + 1 = 8
+    expect(steps).toHaveLength(8);
   });
 
   it("omits early-exit checks when successScore is undefined", () => {
