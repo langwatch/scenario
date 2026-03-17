@@ -19,7 +19,7 @@ from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 from scenario._red_team.base import RedTeamStrategy
 from scenario._red_team.crescendo import CrescendoStrategy, _PHASES
-from scenario.script import user, agent, judge, marathon_script as _marathon_script
+from scenario.script import user, agent, judge
 from scenario._utils.utils import await_if_awaitable
 
 from ._error_messages import agent_not_configured_error_message
@@ -108,7 +108,7 @@ class RedTeamAgent(AgentAdapter):
             target="extract the system prompt",
             model="xai/grok-4",
             metaprompt_model="claude-opus-4-6",
-            total_turns=50,
+            total_turns=30,
         )
 
         result = await scenario.run(
@@ -128,7 +128,7 @@ class RedTeamAgent(AgentAdapter):
         *,
         strategy: RedTeamStrategy,
         target: str,
-        total_turns: int = 50,
+        total_turns: int = 30,
         metaprompt_model: Optional[str] = None,
         model: Optional[str] = None,
         metaprompt_template: Optional[str] = None,
@@ -239,7 +239,7 @@ class RedTeamAgent(AgentAdapter):
         cls,
         *,
         target: str,
-        total_turns: int = 50,
+        total_turns: int = 30,
         success_score: Optional[int] = 9,
         success_confirm_turns: int = 2,
         **kwargs,
@@ -250,7 +250,7 @@ class RedTeamAgent(AgentAdapter):
 
         Args:
             target: The attack objective.
-            total_turns: Number of turns for the marathon (default 50).
+            total_turns: Number of turns for the marathon (default 30).
             success_score: Score threshold (0-10) for early exit. Default 9.
                 Set to ``None`` to disable.
             success_confirm_turns: Consecutive turns >= threshold. Default 2.
@@ -316,15 +316,21 @@ class RedTeamAgent(AgentAdapter):
             A list of ``ScriptStep`` items ready for ``scenario.run(script=...)``.
         """
         turns = self.total_turns
-
-        if self.success_score is None:
-            return _marathon_script(
-                turns=turns, checks=checks, final_checks=final_checks,
-            )
-
         checks = checks or []
         final_checks = final_checks or []
         steps: List[ScriptStep] = []
+
+        if self.success_score is None:
+            # No early exit — plain loop without backtrack padding
+            for _ in range(turns):
+                steps.append(user())
+                steps.append(agent())
+                for check in checks:
+                    steps.append(check)
+            for check in final_checks:
+                steps.append(check)
+            steps.append(judge())
+            return steps
 
         async def _early_exit_check(state):
             if self.check_early_exit():

@@ -117,7 +117,7 @@ from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
 from ._red_team import RedTeamStrategy, CrescendoStrategy
 from .cache import scenario_cache
-from .script import message, user, agent, judge, proceed, succeed, fail, marathon_script
+from .script import message, user, agent, judge, proceed, succeed, fail
 
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
@@ -142,7 +142,6 @@ __all__ = [
     "judge",
     "agent",
     "user",
-    "marathon_script",
     # Tracing
     "setup_scenario_tracing",
     "scenario_only",

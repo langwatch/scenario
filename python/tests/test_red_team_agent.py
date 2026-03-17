@@ -6,7 +6,7 @@ import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from scenario import RedTeamAgent, JudgeAgent, ScenarioState, marathon_script
+from scenario import RedTeamAgent, JudgeAgent, ScenarioState
 from scenario import run as scenario_run
 from scenario._red_team.crescendo import CrescendoStrategy
 from scenario._red_team.base import RedTeamStrategy
@@ -197,7 +197,7 @@ class TestRedTeamAgentConstruction:
             target="test",
             model="openai/gpt-4",
         )
-        assert agent.total_turns == 50
+        assert agent.total_turns == 30
 
     def test_total_turns_custom(self):
         agent = RedTeamAgent.crescendo(
@@ -425,26 +425,26 @@ class TestMarathonScript:
         return RedTeamAgent.crescendo(**defaults)  # type: ignore[arg-type]
 
     def test_basic_length(self):
-        """50 turns with 1 check = 50*(user+agent+check) + judge = 151."""
+        """30 turns with 1 check = 30*(user+agent+check) + judge = 91."""
         agent = self._make_agent()
         script = agent.marathon_script(
             checks=[lambda state: None],
         )
-        # 50 * 3 (user, agent, check) + 1 (judge) = 151
-        assert len(script) == 151
+        # 30 * 3 (user, agent, check) + 1 (judge) = 91
+        assert len(script) == 91
 
     def test_no_checks(self):
-        """50 turns with no checks = 50*(user+agent) + judge = 101."""
+        """30 turns with no checks = 30*(user+agent) + judge = 61."""
         agent = self._make_agent()
         script = agent.marathon_script()
-        assert len(script) == 101
+        assert len(script) == 61
 
     def test_multiple_checks(self):
-        """50 turns with 3 checks = 50*(user+agent+3checks) + judge = 251."""
+        """30 turns with 3 checks = 30*(user+agent+3checks) + judge = 151."""
         agent = self._make_agent()
         checks = [lambda s: None, lambda s: None, lambda s: None]
         script = agent.marathon_script(checks=checks)
-        assert len(script) == 251
+        assert len(script) == 151
 
     def test_final_checks_appended(self):
         """Final checks appear after turns but before judge."""
@@ -519,7 +519,7 @@ class TestMetapromptGeneration:
 
             call_args = mock_acompletion.call_args
             system_msg = call_args.kwargs["messages"][0]["content"]
-            assert "Attack extract secrets in context bank agent over 50 turns" == system_msg
+            assert "Attack extract secrets in context bank agent over 30 turns" == system_msg
 
 
 # ---------------------------------------------------------------------------
@@ -1357,7 +1357,7 @@ class TestTotalTurnsMismatch:
 
     @pytest.mark.asyncio
     async def test_phase_calculation_uses_agent_total_not_executor_max(self):
-        """With total_turns=50 but only 5 actual turns, all should be warmup."""
+        """Phase calculation uses agent's total_turns, not executor max_turns."""
 
 
         red_team = RedTeamAgent.crescendo(
@@ -1393,34 +1393,6 @@ class TestTotalTurnsMismatch:
         # With total_turns=5, turns 1-5 = 20-100% → phases progress normally
         for prompt in prompts.values():
             assert "WARMUP" in prompt or "PROBING" in prompt or "ESCALATION" in prompt or "DIRECT" in prompt
-
-
-# ---------------------------------------------------------------------------
-# marathon_script standalone function tests
-# ---------------------------------------------------------------------------
-
-
-class TestMarathonScriptStandalone:
-    """Test the marathon_script function exported from scenario.script."""
-
-    def test_standalone_matches_instance_method_without_early_exit(self):
-        """scenario.marathon_script should produce same length as instance method with success_score=None."""
-
-
-        check = lambda state: None  # noqa: E731
-        standalone = marathon_script(turns=5, checks=[check])
-        agent = RedTeamAgent.crescendo(
-            target="test", model="openai/gpt-4", success_score=None, total_turns=5,
-        )
-        instance_method = agent.marathon_script(checks=[check])
-        assert len(standalone) == len(instance_method)
-
-    def test_standalone_basic_length(self):
-        from scenario.script import marathon_script
-
-        script = marathon_script(turns=10)
-        # 10*(user+agent) + judge = 21
-        assert len(script) == 21
 
 
 # ---------------------------------------------------------------------------

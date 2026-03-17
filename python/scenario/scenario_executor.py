@@ -564,6 +564,20 @@ class ScenarioExecutor:
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
+                # Enforce max_turns during script execution — the script
+                # may have more steps than max_turns allows (e.g. backtrack
+                # padding).  Stop early so max_turns is always respected.
+                max_turns = self.config.max_turns or 10
+                if self._state.current_turn >= max_turns:
+                    result = self._reached_max_turns(
+                        f"Reached maximum turns ({max_turns}) during script execution. "
+                        f"The script has more steps than max_turns allows. "
+                        f"Increase max_turns or reduce the script length."
+                    )
+                    status = ScenarioRunFinishedEventStatus.FAILED
+                    self._emit_run_finished_event(scenario_run_id, result, status)
+                    return result
+
             if _check_failure is not None:
                 compiled_passed, compiled_failed = self._compiled_checkpoints
                 error_result = ScenarioResult(

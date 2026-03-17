@@ -371,36 +371,3 @@ def fail(reasoning: Optional[str] = None) -> ScriptStep:
     return lambda state: state._executor.fail(reasoning)
 
 
-def marathon_script(
-    turns: int,
-    checks: Optional[List[Callable]] = None,
-    final_checks: Optional[List[Callable]] = None,
-) -> List[ScriptStep]:
-    """Generate a marathon test script.
-
-    Produces ``[user(), agent(), *checks] * turns + [*final_checks, judge()]``.
-    Useful for long-running adversarial or endurance tests.
-
-    Args:
-        turns: Number of user/agent turn pairs.
-        checks: Assertion functions to run after every agent response.
-        final_checks: Assertion functions to run once at the end, before judge.
-
-    Returns:
-        A list of ``ScriptStep`` items ready for ``scenario.run(script=...)``.
-    """
-    checks = checks or []
-    final_checks = final_checks or []
-
-    script: List[ScriptStep] = []
-    for _ in range(turns):
-        script.append(user())
-        script.append(agent())
-        for check in checks:
-            script.append(check)
-
-    for check in final_checks:
-        script.append(check)
-
-    script.append(judge())
-    return script
