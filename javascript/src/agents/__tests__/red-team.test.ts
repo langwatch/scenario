@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
-import { marathonScript } from "../../script";
 import { redTeamCrescendo, redTeamAgent } from "../red-team/red-team-agent";
 import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
 import { AgentRole } from "../../domain";
@@ -252,39 +251,6 @@ describe("refusal detection", () => {
   });
 });
 
-describe("marathonScript", () => {
-  it("generates correct number of steps with no checks", () => {
-    const steps = marathonScript({ turns: 3 });
-    // 3 * (user + agent) + judge = 3*2 + 1 = 7
-    expect(steps).toHaveLength(7);
-  });
-
-  it("generates correct number of steps with checks", () => {
-    const dummyCheck = () => {};
-    const steps = marathonScript({ turns: 3, checks: [dummyCheck] });
-    // 3 * (user + agent + check) + judge = 3*3 + 1 = 10
-    expect(steps).toHaveLength(10);
-  });
-
-  it("generates correct number of steps with final checks", () => {
-    const dummyCheck = () => {};
-    const dummyFinal = () => {};
-    const steps = marathonScript({
-      turns: 2,
-      checks: [dummyCheck],
-      finalChecks: [dummyFinal],
-    });
-    // 2 * (user + agent + check) + finalCheck + judge = 2*3 + 1 + 1 = 8
-    expect(steps).toHaveLength(8);
-  });
-
-  it("generates correct steps with 0 turns", () => {
-    const steps = marathonScript({ turns: 0 });
-    // 0 turns + judge = 1
-    expect(steps).toHaveLength(1);
-  });
-});
-
 describe("checkEarlyExit", () => {
   const createAgent = (overrides?: Partial<Parameters<typeof redTeamCrescendo>[0]>) =>
     redTeamCrescendo({
@@ -441,15 +407,15 @@ describe("backtracking on hard refusals", () => {
   });
 
   it("marathon script pads iterations when successScore is set", () => {
-    const agent = createAgent({ successScore: 9 });
-    const steps = agent.marathonScript({ turns: 5 });
+    const agent = createAgent({ successScore: 9, totalTurns: 5 });
+    const steps = agent.marathonScript();
     // (5 + 10) * (user + agent + early_exit_check) + judge = 15*3 + 1 = 46
     expect(steps).toHaveLength(46);
   });
 
   it("marathon script does not pad when successScore is undefined", () => {
-    const agent = createAgent({ successScore: undefined });
-    const steps = agent.marathonScript({ turns: 5 });
+    const agent = createAgent({ successScore: undefined, totalTurns: 5 });
+    const steps = agent.marathonScript();
     // 5 * (user + agent) + judge = 11
     expect(steps).toHaveLength(11);
   });
@@ -511,41 +477,41 @@ describe("instance marathonScript", () => {
     });
 
   it("inserts early-exit checks when successScore is set", () => {
-    const agent = createAgent({ successScore: 9 });
-    const steps = agent.marathonScript({ turns: 3 });
+    const agent = createAgent({ successScore: 9, totalTurns: 3 });
+    const steps = agent.marathonScript();
     // (3 + 10) * (user + agent + early_exit_check) + judge = 13*3 + 1 = 40
     expect(steps).toHaveLength(40);
   });
 
   it("inserts early-exit checks with per-turn checks", () => {
-    const agent = createAgent({ successScore: 9 });
+    const agent = createAgent({ successScore: 9, totalTurns: 2 });
     const dummyCheck = () => {};
-    const steps = agent.marathonScript({ turns: 2, checks: [dummyCheck] });
+    const steps = agent.marathonScript({ checks: [dummyCheck] });
     // (2 + 10) * (user + agent + early_exit_check + check) + judge = 12*4 + 1 = 49
     expect(steps).toHaveLength(49);
   });
 
   it("inserts early-exit checks with final checks", () => {
-    const agent = createAgent({ successScore: 9 });
+    const agent = createAgent({ successScore: 9, totalTurns: 2 });
     const dummyFinal = () => {};
-    const steps = agent.marathonScript({ turns: 2, finalChecks: [dummyFinal] });
+    const steps = agent.marathonScript({ finalChecks: [dummyFinal] });
     // (2 + 10) * (user + agent + early_exit_check) + finalCheck + judge = 12*3 + 1 + 1 = 38
     expect(steps).toHaveLength(38);
   });
 
   it("omits early-exit checks when successScore is undefined", () => {
-    const agent = createAgent({ successScore: undefined });
-    const steps = agent.marathonScript({ turns: 3 });
+    const agent = createAgent({ successScore: undefined, totalTurns: 3 });
+    const steps = agent.marathonScript();
     // Falls back: 3 * (user + agent) + judge = 7
     expect(steps).toHaveLength(7);
   });
 
   it("calls executor.succeed() when early exit triggers", async () => {
-    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2, totalTurns: 3 });
     (agent as any).turnScores.set(1, { score: 9, hint: "" });
     (agent as any).turnScores.set(2, { score: 10, hint: "" });
 
-    const steps = agent.marathonScript({ turns: 3 });
+    const steps = agent.marathonScript();
     // The 3rd step (index 2) is the early-exit check
     const earlyExitStep = steps[2]!;
 
@@ -561,14 +527,14 @@ describe("instance marathonScript", () => {
   });
 
   it("runs finalChecks before succeed() on early exit", async () => {
-    const agent = createAgent({ successScore: 9, successConfirmTurns: 1 });
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 1, totalTurns: 3 });
     (agent as any).turnScores.set(1, { score: 10, hint: "" });
 
     const callOrder: string[] = [];
     const fc1 = async () => { callOrder.push("fc1"); };
     const fc2 = () => { callOrder.push("fc2"); };
 
-    const steps = agent.marathonScript({ turns: 3, finalChecks: [fc1, fc2] });
+    const steps = agent.marathonScript({ finalChecks: [fc1, fc2] });
     const earlyExitStep = steps[2]!;
 
     const mockState = { currentTurn: 1 } as any;
@@ -580,10 +546,10 @@ describe("instance marathonScript", () => {
   });
 
   it("is a no-op when checkEarlyExit returns false", async () => {
-    const agent = createAgent({ successScore: 9, successConfirmTurns: 2 });
+    const agent = createAgent({ successScore: 9, successConfirmTurns: 2, totalTurns: 3 });
     // No scores cached
 
-    const steps = agent.marathonScript({ turns: 3 });
+    const steps = agent.marathonScript();
     const earlyExitStep = steps[2]!;
 
     const mockExecutor = { succeed: vi.fn() };

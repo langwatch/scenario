@@ -289,8 +289,8 @@ class RedTeamAgent(AgentAdapter):
     ) -> List[ScriptStep]:
         """Generate a marathon test script with automatic early-exit checks.
 
-        Like :func:`scenario.script.marathon_script`, but uses
-        ``self.total_turns`` to determine script length and inserts an
+        Builds a script of ``total_turns`` user/agent pairs (plus
+        backtrack padding when early exit is enabled) and inserts an
         early-exit check after each ``agent()`` step.  When
         ``success_score`` consecutive turns score >= the threshold, the
         check runs ``final_checks`` inline and calls

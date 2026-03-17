@@ -230,6 +230,60 @@ async def test_scenario_scripted_fails_if_script_ends_without_conclusion_and_no_
 
 
 @pytest.mark.asyncio
+async def test_scenario_max_turns_enforced_during_script_with_judge():
+    """max_turns should stop script execution and auto-run the judge."""
+    scenario.configure(default_model="none")
+
+    result = await scenario.run(
+        name="test name",
+        description="test description",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(),
+            MockJudgeAgent(criteria=["test criteria"]),
+        ],
+        max_turns=2,
+        script=[
+            # This script has 10 turn pairs but max_turns=2
+            *[step for _ in range(10) for step in [
+                scenario.user("message"),
+                scenario.agent(),
+            ]],
+            scenario.succeed(),
+        ],
+    )
+
+    # Judge auto-runs when max_turns is hit — doesn't hard-fail
+    assert result.success
+
+
+@pytest.mark.asyncio
+async def test_scenario_max_turns_enforced_during_script_without_judge():
+    """max_turns should stop script execution and fail without a judge."""
+    scenario.configure(default_model="none")
+
+    result = await scenario.run(
+        name="test name",
+        description="test description",
+        agents=[
+            MockAgent(),
+            MockUserSimulatorAgent(),
+        ],
+        max_turns=2,
+        script=[
+            *[step for _ in range(10) for step in [
+                scenario.user("message"),
+                scenario.agent(),
+            ]],
+            scenario.succeed(),
+        ],
+    )
+
+    assert not result.success
+    assert result.reasoning and "maximum turns" in result.reasoning.lower()
+
+
+@pytest.mark.asyncio
 async def test_scenario_scripted_force_success():
     scenario.configure(default_model="none")
 

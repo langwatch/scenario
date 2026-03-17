@@ -495,6 +495,23 @@ class ScenarioExecutor:
                 return idx, agent
         return -1, None
 
+    async def _run_judge_or_fail(self, fallback_message: Optional[str] = None) -> ScenarioResult:
+        """Auto-run the judge if one exists, otherwise return a failure result.
+
+        Used when the script exhausts or max_turns is hit — the judge should
+        decide the verdict (e.g. red team defense held) rather than the executor
+        hard-failing.
+        """
+        has_judge = any(a.role == AgentRole.JUDGE for a in self.agents)
+        if has_judge and not self._final_judge_invoked:
+            try:
+                judge_result = await self.judge()
+                if isinstance(judge_result, ScenarioResult):
+                    return judge_result
+            except Exception:
+                pass
+        return self._reached_max_turns(fallback_message)
+
     def _reached_max_turns(self, error_message: Optional[str] = None) -> ScenarioResult:
         # If we reached max turns without conclusion, fail the test
         agent_roles_agents_idx = [
@@ -538,6 +555,7 @@ class ScenarioExecutor:
                 print("")  # new line
 
             self.reset()
+            _last_checked_turn = -1
 
             for i, script_step in enumerate(self.script):
                 try:
@@ -564,17 +582,19 @@ class ScenarioExecutor:
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
-                # Enforce max_turns during script execution — the script
-                # may have more steps than max_turns allows (e.g. backtrack
-                # padding).  Stop early so max_turns is always respected.
+                # Enforce max_turns during script execution — only check
+                # when the turn counter advances to avoid redundant checks
+                # on every script step within the same turn.
                 max_turns = self.config.max_turns or 10
-                if self._state.current_turn >= max_turns:
-                    result = self._reached_max_turns(
-                        f"Reached maximum turns ({max_turns}) during script execution. "
-                        f"The script has more steps than max_turns allows. "
-                        f"Increase max_turns or reduce the script length."
+                if (self._state.current_turn != _last_checked_turn
+                        and self._state.current_turn >= max_turns):
+                    _last_checked_turn = self._state.current_turn
+                    result = await self._run_judge_or_fail()
+                    status = (
+                        ScenarioRunFinishedEventStatus.SUCCESS
+                        if result.success
+                        else ScenarioRunFinishedEventStatus.FAILED
                     )
-                    status = ScenarioRunFinishedEventStatus.FAILED
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -632,33 +652,14 @@ class ScenarioExecutor:
                 # JudgeAgent is registered, run it — exhausting a red
                 # team script without a breach is a defense success,
                 # not a harness error.
-                has_judge = any(
-                    a.role == AgentRole.JUDGE for a in self.agents
-                )
-                if has_judge and not self._final_judge_invoked:
-                    try:
-                        judge_result = await self.judge()
-                        if isinstance(judge_result, ScenarioResult):
-                            result = judge_result
-                        else:
-                            result = self._reached_max_turns(
-                                "Reached end of script without conclusion and "
-                                "judge returned no verdict"
-                            )
-                    except Exception:
-                        result = self._reached_max_turns(
-                            "Reached end of script without conclusion and "
-                            "judge failed to evaluate"
-                        )
-                else:
-                    result = self._reached_max_turns(
-                        """Reached end of script without conclusion, add one of the following to the end of the script:
+                result = await self._run_judge_or_fail(
+                    """Reached end of script without conclusion, add one of the following to the end of the script:
 
 - `scenario.proceed()` to let the simulation continue to play out
 - `scenario.judge()` to force criteria judgement
 - `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
-                        """
-                    )
+                    """
+                )
 
                 status = (
                     ScenarioRunFinishedEventStatus.SUCCESS
