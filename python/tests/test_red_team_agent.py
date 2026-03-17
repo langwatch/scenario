@@ -1390,9 +1390,17 @@ class TestTotalTurnsMismatch:
         )
 
         assert result.success
-        # With total_turns=5, turns 1-5 = 20-100% → phases progress normally
-        for prompt in prompts.values():
-            assert "WARMUP" in prompt or "PROBING" in prompt or "ESCALATION" in prompt or "DIRECT" in prompt
+        # With total_turns=5, turn/5 gives progress 0.2→1.0.
+        # Phase boundaries: warmup [0,0.2), probing [0.2,0.45),
+        # escalation [0.45,0.75), direct [0.75,inf).
+        # So: turns 1-2 → PROBING, turn 3 → ESCALATION, turns 4-5 → DIRECT.
+        expected_phases = {1: "PROBING", 2: "PROBING", 3: "ESCALATION", 4: "DIRECT", 5: "DIRECT"}
+        for turn, expected in expected_phases.items():
+            if turn in prompts:
+                assert expected in prompts[turn], (
+                    f"Turn {turn}: expected {expected}, got prompt snippet: "
+                    f"{prompts[turn][:200]}"
+                )
 
 
 # ---------------------------------------------------------------------------

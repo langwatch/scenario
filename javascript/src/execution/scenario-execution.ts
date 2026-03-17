@@ -459,7 +459,8 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           result = judgeResult ?? this.reachedMaxTurns(
             "Reached end of script without conclusion and judge returned no verdict"
           );
-        } catch {
+        } catch (err) {
+          console.warn("Judge agent failed during auto-run:", err);
           result = this.reachedMaxTurns(
             "Reached end of script without conclusion and judge failed to evaluate"
           );
@@ -1182,7 +1183,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     return this.result ?? null;
   }
-
 
   /**
    * Resets the scenario execution to its initial state.
