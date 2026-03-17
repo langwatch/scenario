@@ -603,7 +603,7 @@ class ScenarioExecutor:
                     error_result,
                     ScenarioRunFinishedEventStatus.ERROR,
                 )
-                # Fall through to re-raise after the try/except block
+                raise _check_failure
 
             elif self._checkpoint_results:
                 compiled_passed, compiled_failed = self._compiled_checkpoints
@@ -675,10 +675,6 @@ class ScenarioExecutor:
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
             raise  # Re-raise the exception after cleanup
-
-        # Re-raise the check failure outside the try/except
-        if _check_failure is not None:
-            raise _check_failure
 
     async def _call_agent(
         self, idx: int, role: AgentRole, judgment_request: Optional[JudgmentRequest] = None
