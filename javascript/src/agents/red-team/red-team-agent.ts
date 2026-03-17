@@ -289,11 +289,14 @@ Reply with exactly this JSON and nothing else:
   /**
    * Generate a marathon test script with automatic early-exit checks.
    *
-   * Uses `totalTurns` from the agent config to determine the number of
-   * user-agent turn pairs. Inserts an early-exit check after each `agent()`
-   * step when `successScore` is set. When `successConfirmTurns` consecutive
-   * turns score >= the threshold, the check runs `finalChecks` inline and
-   * calls `executor.succeed()` to end the scenario early.
+   * Builds exactly `totalTurns` user/agent pairs and inserts an early-exit
+   * check after each `agent()` step when `successScore` is set. When
+   * `successConfirmTurns` consecutive turns score >= the threshold, the
+   * check runs `finalChecks` inline and calls `executor.succeed()`.
+   *
+   * `totalTurns` is a hard cap — backtracked turns count toward the budget.
+   * If backtracks eat into the budget, fewer effective attacks land, but the
+   * test never exceeds `totalTurns`.
    *
    * Set `successScore` to `undefined` to disable early exit.
    */
@@ -305,15 +308,9 @@ Reply with exactly this JSON and nothing else:
     const turns = this.totalTurns;
     const steps: ScriptStep[] = [];
 
-    // Pad for potential backtracks so effective turns ≈ requested turns.
-    // Each backtrack wastes one iteration (the attack is regenerated from
-    // a pruned context), so we add MAX_BACKTRACKS extra iterations.
-    // Early exit prevents running excess iterations if the attack succeeds.
-    const totalIterations = this._successScore !== undefined
-      ? turns + RedTeamAgentImpl.MAX_BACKTRACKS
-      : turns;
-
-    for (let i = 0; i < totalIterations; i++) {
+    // totalTurns is the hard cap — backtracked turns count toward
+    // the budget, so the test never exceeds totalTurns iterations.
+    for (let i = 0; i < turns; i++) {
       steps.push(user());
       steps.push(agent());
       if (this._successScore !== undefined) {

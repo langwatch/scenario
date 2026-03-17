@@ -555,7 +555,6 @@ class ScenarioExecutor:
                 print("")  # new line
 
             self.reset()
-            _last_checked_turn = -1
 
             for i, script_step in enumerate(self.script):
                 try:
@@ -574,22 +573,6 @@ class ScenarioExecutor:
                     compiled_passed, _ = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed + result.passed_criteria
 
-                    status = (
-                        ScenarioRunFinishedEventStatus.SUCCESS
-                        if result.success
-                        else ScenarioRunFinishedEventStatus.FAILED
-                    )
-                    self._emit_run_finished_event(scenario_run_id, result, status)
-                    return result
-
-                # Enforce max_turns during script execution — only check
-                # when the turn counter advances to avoid redundant checks
-                # on every script step within the same turn.
-                max_turns = self.config.max_turns or 10
-                if (self._state.current_turn != _last_checked_turn
-                        and self._state.current_turn >= max_turns):
-                    _last_checked_turn = self._state.current_turn
-                    result = await self._run_judge_or_fail()
                     status = (
                         ScenarioRunFinishedEventStatus.SUCCESS
                         if result.success

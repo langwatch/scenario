@@ -378,7 +378,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       });
 
     let checkFailure: Error | null = null;
-    let lastCheckedTurn = -1;
 
     try {
       // Execute script steps - pass the execution context (this), not just state
@@ -410,54 +409,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           return this.result;
         }
 
-        // Enforce maxTurns during script execution — only check
-        // when the turn counter advances to avoid redundant checks
-        // on every script step within the same turn.
-        const maxTurns = this.config.maxTurns || 10;
-        if (this.state.currentTurn !== lastCheckedTurn
-            && this.state.currentTurn >= maxTurns) {
-          lastCheckedTurn = this.state.currentTurn;
-          // If a JudgeAgent exists, let it decide the verdict
-          // (e.g. red team hitting maxTurns = defense held).
-          const hasJudgeAgent = this.agents.some(
-            (a) => a.role === AgentRole.JUDGE
-          );
-          let maxTurnsResult: ScenarioResult;
-          if (hasJudgeAgent && !this.finalJudgeInvoked) {
-            try {
-              const judgeResult = await this.judge();
-              maxTurnsResult =
-                judgeResult ??
-                this.reachedMaxTurns(
-                  `Reached maximum turns (${maxTurns}) during script execution. ` +
-                    `The script has more steps than maxTurns allows. ` +
-                    `Increase maxTurns or reduce the script length.`
-                );
-            } catch {
-              maxTurnsResult = this.reachedMaxTurns(
-                `Reached maximum turns (${maxTurns}) during script execution. ` +
-                  `The script has more steps than maxTurns allows. ` +
-                  `Increase maxTurns or reduce the script length.`
-              );
-            }
-          } else {
-            maxTurnsResult = this.reachedMaxTurns(
-              `Reached maximum turns (${maxTurns}) during script execution. ` +
-                `The script has more steps than maxTurns allows. ` +
-                `Increase maxTurns or reduce the script length.`
-            );
-          }
-
-          this.emitRunFinished({
-            scenarioRunId,
-            status: maxTurnsResult.success
-              ? ScenarioRunStatus.SUCCESS
-              : ScenarioRunStatus.FAILED,
-            result: maxTurnsResult,
-          });
-
-          return maxTurnsResult;
-        }
       }
 
       if (checkFailure) {

@@ -289,24 +289,17 @@ class RedTeamAgent(AgentAdapter):
     ) -> List[ScriptStep]:
         """Generate a marathon test script with automatic early-exit checks.
 
-        Builds a script of ``total_turns`` user/agent pairs (plus
-        backtrack padding when early exit is enabled) and inserts an
+        Builds exactly ``total_turns`` user/agent pairs and inserts an
         early-exit check after each ``agent()`` step.  When
         ``success_score`` consecutive turns score >= the threshold, the
         check runs ``final_checks`` inline and calls
         ``executor.succeed()`` to end the scenario early.
 
-        Set ``success_score=None`` to disable early exit (falls back to the
-        plain marathon script).
+        ``total_turns`` is a hard cap — backtracked turns count toward
+        the budget.  If backtracks eat into the budget, fewer effective
+        attacks land, but the test never exceeds ``total_turns``.
 
-        .. note::
-
-            When early exit is enabled, the script is padded with extra
-            iterations (up to ``_MAX_BACKTRACKS``) so that backtracked turns
-            don't reduce the effective number of attacks.  If no backtracks
-            or early exits occur, the scenario may run for more than
-            ``total_turns`` iterations.  The early-exit check is the expected
-            termination mechanism.
+        Set ``success_score=None`` to disable early exit.
 
         Args:
             checks: Assertion functions to run after every agent response.
@@ -343,13 +336,10 @@ class RedTeamAgent(AgentAdapter):
                 )
             return None
 
-        # Pad for potential backtracks so effective turns ≈ requested turns.
-        # Each backtrack wastes one iteration (the attack is regenerated from
-        # a pruned context), so we add _MAX_BACKTRACKS extra iterations.
-        # Early exit prevents running excess iterations if the attack succeeds.
-        total_iterations = turns + self._MAX_BACKTRACKS
-
-        for _ in range(total_iterations):
+        # total_turns is the hard cap — backtracked turns count toward
+        # the budget.  If backtracks eat into the budget, fewer effective
+        # attacks land, but the user gets exactly total_turns iterations.
+        for _ in range(turns):
             steps.append(user())
             steps.append(agent())
             steps.append(_early_exit_check)

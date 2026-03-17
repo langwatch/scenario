@@ -1718,13 +1718,13 @@ class TestBacktracking:
         assert "new attack" in backtrack_msgs[0]["content"]
         assert "I cannot help" in backtrack_msgs[0]["content"]
 
-    def test_marathon_script_pads_iterations(self):
-        """marathon_script should generate turns + _MAX_BACKTRACKS iterations."""
+    def test_marathon_script_no_padding(self):
+        """marathon_script uses exactly total_turns iterations (no backtrack padding)."""
         agent = self._make_agent(success_score=9, total_turns=5)
         steps = agent.marathon_script()
 
-        # (5 + 10) * (user + agent + early_exit_check) + judge = 15 * 3 + 1 = 46
-        assert len(steps) == 46
+        # 5 * (user + agent + early_exit_check) + judge = 5 * 3 + 1 = 16
+        assert len(steps) == 16
 
     @pytest.mark.asyncio
     async def test_backtrack_handles_multi_message_exchange(self):
@@ -1825,8 +1825,8 @@ class TestMarathonScriptEarlyExit:
             success_score=9, total_turns=3,
         )
         steps = agent.marathon_script()
-        # (3 + 10) * (user + agent + early_exit_check) + judge = 13*3 + 1 = 40
-        assert len(steps) == 40
+        # 3 * (user + agent + early_exit_check) + judge = 3*3 + 1 = 10
+        assert len(steps) == 10
 
     def test_inserts_early_exit_checks_with_checks(self):
         agent = RedTeamAgent.crescendo(
@@ -1835,8 +1835,8 @@ class TestMarathonScriptEarlyExit:
         )
         dummy_check = lambda state: None
         steps = agent.marathon_script(checks=[dummy_check])
-        # (2 + 10) * (user + agent + early_exit_check + check) + judge = 12*4 + 1 = 49
-        assert len(steps) == 49
+        # 2 * (user + agent + early_exit_check + check) + judge = 2*4 + 1 = 9
+        assert len(steps) == 9
 
     def test_inserts_early_exit_checks_with_final_checks(self):
         agent = RedTeamAgent.crescendo(
@@ -1845,8 +1845,8 @@ class TestMarathonScriptEarlyExit:
         )
         dummy_final = lambda state: None
         steps = agent.marathon_script(final_checks=[dummy_final])
-        # (2 + 10) * (user + agent + early_exit_check) + final_check + judge = 12*3 + 1 + 1 = 38
-        assert len(steps) == 38
+        # 2 * (user + agent + early_exit_check) + final_check + judge = 2*3 + 1 + 1 = 8
+        assert len(steps) == 8
 
     def test_omits_early_exit_checks_when_success_score_none(self):
         agent = RedTeamAgent.crescendo(

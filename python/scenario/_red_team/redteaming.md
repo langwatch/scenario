@@ -97,8 +97,8 @@ as an instance method that reads `self.total_turns` to determine script length.
 from the instance avoids requiring users to specify the turn count in two places.
 
 `checks` run after every agent response. `final_checks` run once at the end.
-`scenario.judge()` is auto-appended. When early exit is enabled, backtrack
-padding iterations are added automatically.
+`scenario.judge()` is auto-appended. `total_turns` is a hard cap —
+backtracked turns count toward the budget.
 
 ---
 
