@@ -142,7 +142,13 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
     this.maxTokens = config.maxTokens;
     this._successScore = "successScore" in config ? config.successScore : 9;
     this._successConfirmTurns = config.successConfirmTurns ?? 2;
-    this.injectionProbability = config.injectionProbability ?? 0.0;
+    const prob = config.injectionProbability ?? 0.0;
+    if (prob < 0 || prob > 1) {
+      throw new RangeError(
+        `injectionProbability must be between 0.0 and 1.0, got ${prob}`
+      );
+    }
+    this.injectionProbability = prob;
     this.techniques = config.techniques ?? DEFAULT_TECHNIQUES;
   }
 
@@ -507,9 +513,19 @@ Reply with exactly this JSON and nothing else:
     }
 
     // Call attacker LLM directly (no inner agent wrapper)
-    let attackText = await this.callAttackerLLM();
+    const attackText = await this.callAttackerLLM();
 
-    // Single-turn injection: randomly augment with encoding technique
+    // Append attacker's ORIGINAL response to H_attacker BEFORE any
+    // encoding transform.  The attacker must see its own natural-language
+    // output in subsequent turns — encoded text would corrupt its
+    // reasoning context.  (DeepTeam and Promptfoo both keep the attacker
+    // history encoding-free.)
+    this.attackerHistory.push({ role: "assistant", content: attackText });
+
+    // Single-turn injection: randomly augment with encoding technique.
+    // Only the TARGET sees the encoded version (via H_target / return
+    // value).  H_attacker keeps the original above.
+    let targetText = attackText;
     if (
       this.injectionProbability > 0 &&
       this.techniques.length > 0 &&
@@ -517,14 +533,12 @@ Reply with exactly this JSON and nothing else:
     ) {
       const technique =
         this.techniques[Math.floor(Math.random() * this.techniques.length)]!;
-      attackText = technique.transform(attackText);
+      targetText = technique.transform(attackText);
     }
 
-    // Append attacker's response to H_attacker
-    this.attackerHistory.push({ role: "assistant", content: attackText });
-
-    // Return as user message — executor adds this to H_target
-    return { role: "user", content: attackText };
+    // Return as user message — executor adds this to H_target.
+    // targetText is the (possibly encoded) version for the target.
+    return { role: "user", content: targetText };
   };
 }
 

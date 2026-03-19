@@ -195,6 +195,18 @@ class TestInjectionProbability:
         )
         assert len(agent._techniques) == 5
 
+    def _make_input(self, messages=None):
+        """Build a minimal AgentInput-like object for testing call()."""
+        messages = messages or []
+        return type("Input", (), {
+            "messages": messages,
+            "scenario_state": type("State", (), {
+                "current_turn": 1,
+                "description": "test",
+                "rollback_messages_to": lambda self, i: None,
+            })(),
+        })()
+
     @pytest.mark.asyncio
     async def test_injection_fires_when_random_below_threshold(self):
         """When random() returns below probability, technique is applied."""
@@ -206,26 +218,41 @@ class TestInjectionProbability:
             techniques=[Base64Technique()],
             score_responses=False,
         )
-        # Mock internals to avoid real LLM calls
         agent._call_attacker_llm = AsyncMock(return_value="raw attack message")
 
         with patch("scenario.red_team_agent.random.random", return_value=0.1):
             with patch("scenario.red_team_agent.random.choice", return_value=Base64Technique()):
-                from scenario.types import AgentRole
-
-                input_data = type("Input", (), {
-                    "messages": [],
-                    "scenario_state": type("State", (), {
-                        "current_turn": 1,
-                        "description": "test",
-                        "rollback_messages_to": lambda self, i: None,
-                    })(),
-                })()
-
-                result = await agent.call(input_data)
-                # Should be base64 encoded, not the raw text
+                result = await agent.call(self._make_input())
+                # Target should see base64 encoded, not the raw text
                 assert "Base64 encoded" in result["content"]
                 assert "raw attack message" not in result["content"]
+
+    @pytest.mark.asyncio
+    async def test_injection_keeps_original_in_attacker_history(self):
+        """H_attacker must store the ORIGINAL text, not the encoded version.
+
+        Both DeepTeam and Promptfoo keep the attacker's strategic history
+        encoding-free — the attacker LLM should reason in natural language.
+        """
+        agent = RedTeamAgent.crescendo(
+            target="test",
+            model="test-model",
+            attack_plan="pre-baked",
+            injection_probability=1.0,  # always inject
+            techniques=[Base64Technique()],
+            score_responses=False,
+        )
+        agent._call_attacker_llm = AsyncMock(return_value="raw attack message")
+
+        result = await agent.call(self._make_input())
+
+        # Target (return value) should be encoded
+        assert "Base64 encoded" in result["content"]
+
+        # H_attacker should have the ORIGINAL, not encoded
+        last_attacker_msg = agent._attacker_history[-1]
+        assert last_attacker_msg["content"] == "raw attack message"
+        assert "Base64" not in last_attacker_msg["content"]
 
     @pytest.mark.asyncio
     async def test_injection_skipped_when_random_above_threshold(self):
@@ -241,16 +268,7 @@ class TestInjectionProbability:
         agent._call_attacker_llm = AsyncMock(return_value="raw attack message")
 
         with patch("scenario.red_team_agent.random.random", return_value=0.9):
-            input_data = type("Input", (), {
-                "messages": [],
-                "scenario_state": type("State", (), {
-                    "current_turn": 1,
-                    "description": "test",
-                    "rollback_messages_to": lambda self, i: None,
-                })(),
-            })()
-
-            result = await agent.call(input_data)
+            result = await agent.call(self._make_input())
             assert result["content"] == "raw attack message"
 
     @pytest.mark.asyncio
@@ -265,14 +283,23 @@ class TestInjectionProbability:
         )
         agent._call_attacker_llm = AsyncMock(return_value="raw attack message")
 
-        input_data = type("Input", (), {
-            "messages": [],
-            "scenario_state": type("State", (), {
-                "current_turn": 1,
-                "description": "test",
-                "rollback_messages_to": lambda self, i: None,
-            })(),
-        })()
-
-        result = await agent.call(input_data)
+        result = await agent.call(self._make_input())
         assert result["content"] == "raw attack message"
+
+    def test_rejects_probability_above_one(self):
+        with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+            RedTeamAgent.crescendo(
+                target="test",
+                model="test-model",
+                attack_plan="pre-baked",
+                injection_probability=1.5,
+            )
+
+    def test_rejects_negative_probability(self):
+        with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+            RedTeamAgent.crescendo(
+                target="test",
+                model="test-model",
+                attack_plan="pre-baked",
+                injection_probability=-0.1,
+            )

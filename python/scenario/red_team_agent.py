@@ -240,6 +240,10 @@ class RedTeamAgent(AgentAdapter):
         self._extra_params = extra_params
 
         # Single-turn injection config
+        if not 0.0 <= injection_probability <= 1.0:
+            raise ValueError(
+                f"injection_probability must be between 0.0 and 1.0, got {injection_probability}"
+            )
         self._injection_probability = injection_probability
         self._techniques = techniques if techniques is not None else DEFAULT_TECHNIQUES
 
@@ -798,19 +802,26 @@ Reply with exactly this JSON and nothing else:
             # Call attacker LLM directly (no inner agent wrapper)
             attack_text = await self._call_attacker_llm()
 
-            # Single-turn injection: randomly augment with encoding technique
+            # Append attacker's ORIGINAL response to H_attacker BEFORE
+            # any encoding transform.  The attacker must see its own
+            # natural-language output in subsequent turns — encoded text
+            # would corrupt its reasoning context.  (DeepTeam and Promptfoo
+            # both keep the attacker history encoding-free.)
+            self._attacker_history.append({"role": "assistant", "content": attack_text})
+
+            # Single-turn injection: randomly augment with encoding technique.
+            # Only the TARGET sees the encoded version (via H_target / return
+            # value).  H_attacker keeps the original above.
             technique_used = None
+            target_text = attack_text
             if (
                 self._injection_probability > 0
                 and self._techniques
                 and random.random() < self._injection_probability
             ):
                 technique = random.choice(self._techniques)
-                attack_text = technique.transform(attack_text)
+                target_text = technique.transform(attack_text)
                 technique_used = technique.name
-
-            # Append attacker's response to H_attacker
-            self._attacker_history.append({"role": "assistant", "content": attack_text})
 
             # Structured debug log — written at DEBUG level so users can
             # enable it with SCENARIO_LOG_LEVEL=DEBUG or by configuring the
@@ -833,5 +844,6 @@ Reply with exactly this JSON and nothing else:
                     }),
                 )
 
-            # Return as user message — executor adds this to H_target
-            return {"role": "user", "content": attack_text}
+            # Return as user message — executor adds this to H_target.
+            # target_text is the (possibly encoded) version for the target.
+            return {"role": "user", "content": target_text}
