@@ -14,6 +14,11 @@
       "require": "./javascript/dist/index.js",
       "import": "./javascript/dist/index.mjs"
     },
+    "./config": {
+      "types": "./javascript/dist/config/index.d.ts",
+      "require": "./javascript/dist/config/index.js",
+      "import": "./javascript/dist/config/index.mjs"
+    },
     "./integrations/vitest/reporter": {
       "types": "./javascript/dist/integrations/vitest/reporter.d.ts",
       "require": "./javascript/dist/integrations/vitest/reporter.js",
