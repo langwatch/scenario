@@ -192,7 +192,7 @@ describe("scenario.run_id attribute", () => {
   });
 
   describe("when a scenario executes", () => {
-    it("sets scenario.run_id on all agent call spans", async () => {
+    it("sets scenario.run_id on the root Scenario Turn span", async () => {
       const execution = new ScenarioExecution(
         {
           name: "run_id test",
@@ -213,10 +213,11 @@ describe("scenario.run_id attribute", () => {
 
       await execution.execute();
 
-      const spans = agentCallSpans(exporter);
-      expect(spans.length).toBeGreaterThanOrEqual(3);
+      const allSpans = exporter.getFinishedSpans();
+      const rootSpans = allSpans.filter((s) => s.name === "Scenario Turn");
+      expect(rootSpans.length).toBeGreaterThan(0);
 
-      for (const span of spans) {
+      for (const span of rootSpans) {
         const runId = span.attributes["scenario.run_id"];
         expect(runId).toBeDefined();
         expect(typeof runId).toBe("string");
@@ -224,11 +225,11 @@ describe("scenario.run_id attribute", () => {
       }
     });
 
-    it("uses the same run_id for all agent spans within one execution", async () => {
+    it("does not set scenario.run_id on agent call spans", async () => {
       const execution = new ScenarioExecution(
         {
-          name: "run_id consistency test",
-          description: "test run_id consistency",
+          name: "run_id placement test",
+          description: "test run_id only on root",
           agents: [
             new MockAgent(),
             new MockUserSimulatorAgent(),
@@ -236,7 +237,7 @@ describe("scenario.run_id attribute", () => {
           ],
         },
         [
-          user(),
+          user("hello"),
           agent(),
           judge({ criteria: ["test criterion passes"] }),
         ],
@@ -246,10 +247,9 @@ describe("scenario.run_id attribute", () => {
       await execution.execute();
 
       const spans = agentCallSpans(exporter);
-      const runIds = new Set(
-        spans.map((s) => s.attributes["scenario.run_id"])
-      );
-      expect(runIds.size).toBe(1);
+      for (const span of spans) {
+        expect(span.attributes["scenario.run_id"]).toBeUndefined();
+      }
     });
   });
 });
