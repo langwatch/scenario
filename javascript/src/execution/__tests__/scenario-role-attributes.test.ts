@@ -174,3 +174,83 @@ describe("langwatch.scenario.role attribute", () => {
   });
 });
 
+describe("langwatch.scenario.run_id attribute", () => {
+  let exporter: InMemorySpanExporter;
+  let provider: NodeTracerProvider;
+
+  beforeEach(() => {
+    exporter = new InMemorySpanExporter();
+    provider = new NodeTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+    trace.setGlobalTracerProvider(provider);
+  });
+
+  afterEach(async () => {
+    await provider.shutdown();
+    trace.disable();
+  });
+
+  describe("when a scenario executes", () => {
+    it("sets langwatch.scenario.run_id on all agent call spans", async () => {
+      const execution = new ScenarioExecution(
+        {
+          name: "run_id test",
+          description: "test run_id attribute",
+          agents: [
+            new MockAgent(),
+            new MockUserSimulatorAgent(),
+            new MockJudgeAgent(),
+          ],
+        },
+        [
+          user(),
+          agent(),
+          judge({ criteria: ["test criterion passes"] }),
+        ],
+        "test-batch-id"
+      );
+
+      await execution.execute();
+
+      const spans = agentCallSpans(exporter);
+      expect(spans.length).toBeGreaterThanOrEqual(3);
+
+      for (const span of spans) {
+        const runId = span.attributes["langwatch.scenario.run_id"];
+        expect(runId).toBeDefined();
+        expect(typeof runId).toBe("string");
+        expect((runId as string).length).toBeGreaterThan(0);
+      }
+    });
+
+    it("uses the same run_id for all agent spans within one execution", async () => {
+      const execution = new ScenarioExecution(
+        {
+          name: "run_id consistency test",
+          description: "test run_id consistency",
+          agents: [
+            new MockAgent(),
+            new MockUserSimulatorAgent(),
+            new MockJudgeAgent(),
+          ],
+        },
+        [
+          user(),
+          agent(),
+          judge({ criteria: ["test criterion passes"] }),
+        ],
+        "test-batch-id"
+      );
+
+      await execution.execute();
+
+      const spans = agentCallSpans(exporter);
+      const runIds = new Set(
+        spans.map((s) => s.attributes["langwatch.scenario.run_id"])
+      );
+      expect(runIds.size).toBe(1);
+    });
+  });
+});
+
