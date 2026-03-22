@@ -46,6 +46,9 @@ async def test_weather_agent():
         set_id="python-examples",
     )
 
+    import time
+    time.sleep(10)
+
     # Assert the simulation was successful
     assert result.success
 
