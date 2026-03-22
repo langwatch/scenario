@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.22](https://github.com/langwatch/scenario/compare/python/v0.7.21...python/v0.7.22) (2026-03-22)
+
+
+### Features
+
+* add scenario role and run_id attributes to agent spans ([#294](https://github.com/langwatch/scenario/issues/294)) ([d7e31cc](https://github.com/langwatch/scenario/commit/d7e31cc2db91be9594bec0c4c111ed9e7ddf5fe0))
+
 ## [0.7.21](https://github.com/langwatch/scenario/compare/python/v0.7.20...python/v0.7.21) (2026-03-13)
 
 
