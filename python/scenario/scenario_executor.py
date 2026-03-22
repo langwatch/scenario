@@ -182,7 +182,6 @@ class ScenarioExecutor:
 
         self.batch_run_id = get_batch_run_id()
         self.scenario_set_id = set_id or "default"
-        self._scenario_run_id = generate_scenario_run_id()
 
         # Create executor's own event stream
         self._events = Subject()
@@ -529,7 +528,6 @@ class ScenarioExecutor:
             ScenarioResult containing the test outcome
         """
         scenario_run_id = generate_scenario_run_id()
-        self._scenario_run_id = scenario_run_id
 
         try:
             self._emit_run_started_event(scenario_run_id)
@@ -648,7 +646,6 @@ class ScenarioExecutor:
                     {
                         AttributeKey.LangWatchThreadId: self._state.thread_id,
                         "langwatch.scenario.role": role.value if isinstance(role, AgentRole) else str(role),
-                        "langwatch.scenario.run_id": self._scenario_run_id,
                     }
                 )
                 with show_spinner(
