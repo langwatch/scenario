@@ -1,4 +1,4 @@
-"""Tests for langwatch.scenario.role and langwatch.scenario.run_id span attributes."""
+"""Tests for scenario.role and scenario.run_id span attributes."""
 
 import pytest
 from typing import List, Sequence
@@ -86,13 +86,13 @@ def _agent_spans(exporter: _InMemorySpanExporter) -> List[ReadableSpan]:
 
 
 class TestScenarioRoleAttribute:
-    """Tests for langwatch.scenario.role on agent call spans."""
+    """Tests for scenario.role on agent call spans."""
 
     @pytest.mark.asyncio
     async def test_sets_role_on_user_agent_span(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """User agent span has langwatch.scenario.role = 'User'."""
+        """User agent span has scenario.role = 'User'."""
         executor = ScenarioExecutor(
             name="role test",
             description="test role attribute",
@@ -111,13 +111,13 @@ class TestScenarioRoleAttribute:
 
         for span in user_spans:
             attrs = dict(span.attributes or {})
-            assert attrs.get("langwatch.scenario.role") == "User"
+            assert attrs.get("scenario.role") == "User"
 
     @pytest.mark.asyncio
     async def test_sets_role_on_agent_under_test_span(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """Agent-under-test span has langwatch.scenario.role = 'Agent'."""
+        """Agent-under-test span has scenario.role = 'Agent'."""
         executor = ScenarioExecutor(
             name="role test",
             description="test role attribute",
@@ -136,13 +136,13 @@ class TestScenarioRoleAttribute:
 
         for span in agent_spans:
             attrs = dict(span.attributes or {})
-            assert attrs.get("langwatch.scenario.role") == "Agent"
+            assert attrs.get("scenario.role") == "Agent"
 
     @pytest.mark.asyncio
     async def test_sets_role_on_judge_agent_span(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """Judge agent span has langwatch.scenario.role = 'Judge'."""
+        """Judge agent span has scenario.role = 'Judge'."""
         executor = ScenarioExecutor(
             name="role test",
             description="test role attribute",
@@ -161,17 +161,17 @@ class TestScenarioRoleAttribute:
 
         for span in judge_spans:
             attrs = dict(span.attributes or {})
-            assert attrs.get("langwatch.scenario.role") == "Judge"
+            assert attrs.get("scenario.role") == "Judge"
 
 
 class TestScenarioRunIdAttribute:
-    """Tests for langwatch.scenario.run_id on agent call spans."""
+    """Tests for scenario.run_id on root (Scenario Turn) spans."""
 
     @pytest.mark.asyncio
-    async def test_sets_run_id_on_agent_spans(
+    async def test_sets_run_id_on_root_span(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """All agent call spans have langwatch.scenario.run_id set."""
+        """Root 'Scenario Turn' span has scenario.run_id set."""
         executor = ScenarioExecutor(
             name="run_id test",
             description="test run_id attribute",
@@ -184,24 +184,25 @@ class TestScenarioRunIdAttribute:
 
         await executor.run()
 
-        spans = _agent_spans(in_memory_exporter)
-        assert len(spans) >= 3, "Expected at least 3 agent call spans"
+        all_spans = in_memory_exporter.get_finished_spans()
+        root_spans = [s for s in all_spans if s.name == "Scenario Turn"]
+        assert len(root_spans) > 0, "Expected at least one Scenario Turn root span"
 
-        for span in spans:
+        for span in root_spans:
             attrs = dict(span.attributes or {})
-            run_id = attrs.get("langwatch.scenario.run_id")
-            assert run_id is not None, f"Span {span.name} missing langwatch.scenario.run_id"
+            run_id = attrs.get("scenario.run_id")
+            assert run_id is not None, f"Root span missing scenario.run_id"
             assert isinstance(run_id, str)
             assert run_id.startswith("scenariorun_")
 
     @pytest.mark.asyncio
-    async def test_run_id_is_consistent_across_agent_spans(
+    async def test_agent_spans_do_not_have_run_id(
         self, in_memory_exporter: _InMemorySpanExporter
     ):
-        """All agent call spans within a single run share the same run_id."""
+        """Agent call spans should NOT have scenario.run_id (only root span has it)."""
         executor = ScenarioExecutor(
-            name="run_id consistency test",
-            description="test run_id consistency",
+            name="run_id placement test",
+            description="test run_id only on root",
             agents=[
                 MockAgent(),
                 MockUserSimulatorAgent(model="none"),
@@ -212,10 +213,8 @@ class TestScenarioRunIdAttribute:
         await executor.run()
 
         spans = _agent_spans(in_memory_exporter)
-        run_ids = {
-            dict(span.attributes or {}).get("langwatch.scenario.run_id")
-            for span in spans
-        }
-        assert len(run_ids) == 1, f"Expected all spans to share one run_id, got {run_ids}"
+        for span in spans:
+            attrs = dict(span.attributes or {})
+            assert "scenario.run_id" not in attrs, f"Span {span.name} should not have scenario.run_id"
 
 

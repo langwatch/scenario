@@ -47,7 +47,7 @@ function agentCallSpans(exporter: InMemorySpanExporter) {
   return exporter.getFinishedSpans().filter((s) => s.name.endsWith(".call"));
 }
 
-describe("langwatch.scenario.role attribute", () => {
+describe("scenario.role attribute", () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
 
@@ -65,7 +65,7 @@ describe("langwatch.scenario.role attribute", () => {
   });
 
   describe("when a scenario executes a user agent", () => {
-    it("sets langwatch.scenario.role to 'User' on the user agent span", async () => {
+    it("sets scenario.role to 'User' on the user agent span", async () => {
       const execution = new ScenarioExecution(
         {
           name: "role test",
@@ -94,7 +94,7 @@ describe("langwatch.scenario.role attribute", () => {
 
       for (const span of userSpans) {
         expect(span.attributes).toHaveProperty(
-          "langwatch.scenario.role",
+          "scenario.role",
           "User"
         );
       }
@@ -102,7 +102,7 @@ describe("langwatch.scenario.role attribute", () => {
   });
 
   describe("when a scenario executes the agent under test", () => {
-    it("sets langwatch.scenario.role to 'Agent' on the agent span", async () => {
+    it("sets scenario.role to 'Agent' on the agent span", async () => {
       const execution = new ScenarioExecution(
         {
           name: "role test",
@@ -129,7 +129,7 @@ describe("langwatch.scenario.role attribute", () => {
 
       for (const span of agentSpans) {
         expect(span.attributes).toHaveProperty(
-          "langwatch.scenario.role",
+          "scenario.role",
           "Agent"
         );
       }
@@ -137,7 +137,7 @@ describe("langwatch.scenario.role attribute", () => {
   });
 
   describe("when a scenario executes the judge agent", () => {
-    it("sets langwatch.scenario.role to 'Judge' on the judge span", async () => {
+    it("sets scenario.role to 'Judge' on the judge span", async () => {
       const execution = new ScenarioExecution(
         {
           name: "role test",
@@ -166,7 +166,7 @@ describe("langwatch.scenario.role attribute", () => {
 
       for (const span of judgeSpans) {
         expect(span.attributes).toHaveProperty(
-          "langwatch.scenario.role",
+          "scenario.role",
           "Judge"
         );
       }
@@ -174,7 +174,7 @@ describe("langwatch.scenario.role attribute", () => {
   });
 });
 
-describe("langwatch.scenario.run_id attribute", () => {
+describe("scenario.run_id attribute", () => {
   let exporter: InMemorySpanExporter;
   let provider: NodeTracerProvider;
 
@@ -192,7 +192,7 @@ describe("langwatch.scenario.run_id attribute", () => {
   });
 
   describe("when a scenario executes", () => {
-    it("sets langwatch.scenario.run_id on all agent call spans", async () => {
+    it("sets scenario.run_id on all agent call spans", async () => {
       const execution = new ScenarioExecution(
         {
           name: "run_id test",
@@ -217,7 +217,7 @@ describe("langwatch.scenario.run_id attribute", () => {
       expect(spans.length).toBeGreaterThanOrEqual(3);
 
       for (const span of spans) {
-        const runId = span.attributes["langwatch.scenario.run_id"];
+        const runId = span.attributes["scenario.run_id"];
         expect(runId).toBeDefined();
         expect(typeof runId).toBe("string");
         expect((runId as string).length).toBeGreaterThan(0);
@@ -247,7 +247,7 @@ describe("langwatch.scenario.run_id attribute", () => {
 
       const spans = agentCallSpans(exporter);
       const runIds = new Set(
-        spans.map((s) => s.attributes["langwatch.scenario.run_id"])
+        spans.map((s) => s.attributes["scenario.run_id"])
       );
       expect(runIds.size).toBe(1);
     });

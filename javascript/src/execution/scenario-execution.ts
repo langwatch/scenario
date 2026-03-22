@@ -619,8 +619,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           {
             attributes: {
               [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
-              "langwatch.scenario.role": role,
-              "langwatch.scenario.run_id": this.scenarioRunId ?? "",
+              "scenario.role": role,
             },
           },
           agentContext,
@@ -1239,6 +1238,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
       attributes: {
         "langwatch.origin": "simulation",
+        "scenario.run_id": this.scenarioRunId ?? "",
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,
         [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,

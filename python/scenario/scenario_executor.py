@@ -418,7 +418,10 @@ class ScenarioExecutor:
         ).__enter__()
 
         if self._trace.root_span is not None:
-            self._trace.root_span.set_attributes({"langwatch.origin": "simulation"})
+            self._trace.root_span.set_attributes({
+                "langwatch.origin": "simulation",
+                "scenario.run_id": self._scenario_run_id,
+            })
 
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
@@ -647,8 +650,7 @@ class ScenarioExecutor:
                 span.set_attributes(
                     {
                         AttributeKey.LangWatchThreadId: self._state.thread_id,
-                        "langwatch.scenario.role": role.value if isinstance(role, AgentRole) else str(role),
-                        "langwatch.scenario.run_id": self._scenario_run_id,
+                        "scenario.role": role.value if isinstance(role, AgentRole) else str(role),
                     }
                 )
                 with show_spinner(
