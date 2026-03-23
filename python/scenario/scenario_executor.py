@@ -182,6 +182,7 @@ class ScenarioExecutor:
 
         self.batch_run_id = get_batch_run_id()
         self.scenario_set_id = set_id or "default"
+        self._scenario_run_id = generate_scenario_run_id()
 
         # Create executor's own event stream
         self._events = Subject()
@@ -368,8 +369,11 @@ class ScenarioExecutor:
                         "scenario.rollback_removed_count": len(removed),
                     }
                 )
-            except Exception:
-                pass  # tracing is best-effort
+            except Exception as exc:
+                warnings.warn(
+                    f"Failed to update trace metadata during rollback: {exc}",
+                    stacklevel=2,
+                )
 
         return cast(List[ChatCompletionMessageParam], removed)
 
@@ -418,7 +422,10 @@ class ScenarioExecutor:
         ).__enter__()
 
         if self._trace.root_span is not None:
-            self._trace.root_span.set_attributes({"langwatch.origin": "simulation"})
+            self._trace.root_span.set_attributes({
+                "langwatch.origin": "simulation",
+                "scenario.run_id": self._scenario_run_id,
+            })
 
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
@@ -552,6 +559,7 @@ class ScenarioExecutor:
             ScenarioResult containing the test outcome
         """
         scenario_run_id = generate_scenario_run_id()
+        self._scenario_run_id = scenario_run_id
         _check_failure: Optional[BaseException] = None
 
         try:
@@ -705,7 +713,10 @@ class ScenarioExecutor:
                 type="agent", name=f"{agent.__class__.__name__}.call"
             ) as span:
                 span.set_attributes(
-                    {AttributeKey.LangWatchThreadId: self._state.thread_id}
+                    {
+                        AttributeKey.LangWatchThreadId: self._state.thread_id,
+                        "scenario.role": role.value if isinstance(role, AgentRole) else str(role),
+                    }
                 )
                 with show_spinner(
                     text=(

@@ -3,7 +3,8 @@
   "version": "0.4.0",
   "private": true,
   "scripts": {
-    "prepare": "cd javascript && npm install --legacy-peer-deps && npm run build"
+    "prepare": "cd javascript && npm install --legacy-peer-deps && npm run build",
+    "postinstall": "cp .githooks/post-checkout .git/hooks/post-checkout 2>/dev/null || true"
   },
   "main": "javascript/dist/index.js",
   "module": "javascript/dist/index.mjs",

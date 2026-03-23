@@ -1,4 +1,11 @@
-.PHONY: help
+.PHONY: help setup
+
+# Install git hooks for worktree .env copying
+setup:
+	@cp .githooks/post-checkout .git/hooks/post-checkout 2>/dev/null && \
+		chmod +x .git/hooks/post-checkout && \
+		echo "Installed post-checkout hook." || \
+		echo "No .git/hooks directory (worktree?), skipping."
 
 # Default target - show help
 help:

@@ -1112,7 +1112,7 @@ wheels = [
 
 [[package]]
 name = "langwatch-scenario"
-version = "0.7.18"
+version = "0.7.21"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.9](https://github.com/langwatch/scenario/compare/javascript/v0.4.8...javascript/v0.4.9) (2026-03-22)
+
+
+### Features
+
+* add scenario role and run_id attributes to agent spans ([#294](https://github.com/langwatch/scenario/issues/294)) ([d7e31cc](https://github.com/langwatch/scenario/commit/d7e31cc2db91be9594bec0c4c111ed9e7ddf5fe0))
+
 ## [0.4.8](https://github.com/langwatch/scenario/compare/javascript/v0.4.7...javascript/v0.4.8) (2026-03-13)
 
 

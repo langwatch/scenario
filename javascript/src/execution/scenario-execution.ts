@@ -356,15 +356,16 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     });
 
     this.reset();
+
+    const scenarioRunId = this.preAssignedRunId || generateScenarioRunId();
+    this.scenarioRunId = scenarioRunId;
+
     // Create the initial turn span via newTurn() and then reset the counter
     // back to 0. This matches the original reset() behavior — newTurn() creates
     // the span and sets currentTurn=1, then we override to 0 so the first
     // newTurn() in the execution loop correctly advances to 1.
     this.newTurn();
     this.state.currentTurn = 0;
-
-    const scenarioRunId = this.preAssignedRunId || generateScenarioRunId();
-    this.scenarioRunId = scenarioRunId;
     this.logger.debug(`[${this.config.id}] ${this.preAssignedRunId ? "Using pre-assigned" : "Generated"} run ID: ${scenarioRunId}`);
     this.emitRunStarted({ scenarioRunId });
 
@@ -677,6 +678,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
           {
             attributes: {
               [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+              "scenario.role": role,
             },
           },
           agentContext,
@@ -1299,6 +1301,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
       attributes: {
         "langwatch.origin": "simulation",
+        "scenario.run_id": this.scenarioRunId ?? "",
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,
         [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
