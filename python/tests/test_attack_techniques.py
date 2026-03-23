@@ -1,6 +1,5 @@
 """Tests for single-turn attack techniques and injection probability."""
 
-import asyncio
 import base64
 import codecs
 from typing import cast
