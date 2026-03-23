@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 import random
-from typing import Callable, List, Literal, Optional, cast
+from typing import Callable, List, Literal, Optional, Sequence, cast
 
 import litellm
 from opentelemetry import trace
@@ -140,7 +140,7 @@ class RedTeamAgent(AgentAdapter):
         success_score: Optional[int] = 9,
         success_confirm_turns: int = 2,
         injection_probability: float = 0.0,
-        techniques: Optional[List[AttackTechnique]] = None,
+        techniques: Optional[Sequence[AttackTechnique]] = None,
         api_base: Optional[str] = None,
         api_key: Optional[str] = None,
         temperature: float = 0.7,
@@ -261,7 +261,7 @@ class RedTeamAgent(AgentAdapter):
         success_score: Optional[int] = 9,
         success_confirm_turns: int = 2,
         injection_probability: float = 0.0,
-        techniques: Optional[List[AttackTechnique]] = None,
+        techniques: Optional[Sequence[AttackTechnique]] = None,
         **kwargs,
     ) -> "RedTeamAgent":
         """Create a RedTeamAgent with the Crescendo (marathon) strategy.

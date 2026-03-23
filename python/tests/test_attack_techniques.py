@@ -3,7 +3,8 @@
 import asyncio
 import base64
 import codecs
-from unittest.mock import AsyncMock, patch
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,6 +18,7 @@ from scenario._red_team.techniques import (
     DEFAULT_TECHNIQUES,
 )
 from scenario import RedTeamAgent, AttackTechnique as PublicAttackTechnique
+from scenario.types import AgentInput
 
 
 # ---------------------------------------------------------------------------
@@ -195,17 +197,16 @@ class TestInjectionProbability:
         )
         assert len(agent._techniques) == 5
 
-    def _make_input(self, messages=None):
+    def _make_input(self, messages: list | None = None) -> AgentInput:
         """Build a minimal AgentInput-like object for testing call()."""
         messages = messages or []
-        return type("Input", (), {
-            "messages": messages,
-            "scenario_state": type("State", (), {
-                "current_turn": 1,
-                "description": "test",
-                "rollback_messages_to": lambda self, i: None,
-            })(),
-        })()
+        mock_state = MagicMock()
+        mock_state.current_turn = 1
+        mock_state.description = "test"
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.messages = messages
+        mock_input.scenario_state = mock_state
+        return mock_input
 
     @pytest.mark.asyncio
     async def test_injection_fires_when_random_below_threshold(self):
@@ -224,8 +225,10 @@ class TestInjectionProbability:
             with patch("scenario.red_team_agent.random.choice", return_value=Base64Technique()):
                 result = await agent.call(self._make_input())
                 # Target should see base64 encoded, not the raw text
-                assert "Base64 encoded" in result["content"]
-                assert "raw attack message" not in result["content"]
+                assert isinstance(result, dict)
+                content = cast(str, result.get("content"))
+                assert "Base64 encoded" in content
+                assert "raw attack message" not in content
 
     @pytest.mark.asyncio
     async def test_injection_keeps_original_in_attacker_history(self):
@@ -247,12 +250,14 @@ class TestInjectionProbability:
         result = await agent.call(self._make_input())
 
         # Target (return value) should be encoded
-        assert "Base64 encoded" in result["content"]
+        assert isinstance(result, dict)
+        content = cast(str, result.get("content"))
+        assert "Base64 encoded" in content
 
         # H_attacker should have the ORIGINAL, not encoded
         last_attacker_msg = agent._attacker_history[-1]
-        assert last_attacker_msg["content"] == "raw attack message"
-        assert "Base64" not in last_attacker_msg["content"]
+        assert last_attacker_msg.get("content") == "raw attack message"
+        assert "Base64" not in cast(str, last_attacker_msg.get("content"))
 
     @pytest.mark.asyncio
     async def test_injection_skipped_when_random_above_threshold(self):
@@ -269,7 +274,8 @@ class TestInjectionProbability:
 
         with patch("scenario.red_team_agent.random.random", return_value=0.9):
             result = await agent.call(self._make_input())
-            assert result["content"] == "raw attack message"
+            assert isinstance(result, dict)
+            assert result.get("content") == "raw attack message"
 
     @pytest.mark.asyncio
     async def test_injection_skipped_when_probability_zero(self):
@@ -284,7 +290,8 @@ class TestInjectionProbability:
         agent._call_attacker_llm = AsyncMock(return_value="raw attack message")
 
         result = await agent.call(self._make_input())
-        assert result["content"] == "raw attack message"
+        assert isinstance(result, dict)
+        assert result.get("content") == "raw attack message"
 
     def test_rejects_probability_above_one(self):
         with pytest.raises(ValueError, match="between 0.0 and 1.0"):
