@@ -2,8 +2,34 @@ import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { redTeamCrescendo, redTeamAgent } from "../red-team/red-team-agent";
+import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
 import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
 import { AgentRole } from "../../domain";
+
+// Shared helper — minimal AgentInput-like object for unit tests
+const makeInput = (messages: any[], currentTurn = 1) => ({
+  threadId: "test-thread",
+  messages,
+  newMessages: [],
+  requestedRole: AgentRole.USER,
+  judgmentRequest: undefined,
+  scenarioState: {
+    currentTurn,
+    description: "test agent",
+    config: { description: "test agent" },
+    messages,
+    threadId: "t",
+    addMessage: () => {},
+    rollbackMessagesTo: (idx: number) => messages.splice(idx),
+    lastMessage: () => messages[messages.length - 1],
+    lastUserMessage: () => messages.findLast((m: any) => m.role === "user"),
+    lastAgentMessage: () =>
+      messages.findLast((m: any) => m.role === "assistant"),
+    lastToolCall: () => undefined,
+    hasToolCall: () => false,
+  } as any,
+  scenarioConfig: { description: "test agent" } as any,
+});
 
 describe("CrescendoStrategy", () => {
   const strategy = new CrescendoStrategy();
@@ -593,29 +619,6 @@ describe("RedTeamAgent reuse across runs", () => {
       ...overrides,
     });
 
-  const makeInput = (messages: any[], currentTurn = 1) => ({
-    threadId: "test-thread",
-    messages,
-    newMessages: [],
-    requestedRole: AgentRole.USER,
-    judgmentRequest: undefined,
-    scenarioState: {
-      currentTurn,
-      description: "test agent",
-      config: { description: "test agent" },
-      messages,
-      threadId: "t",
-      addMessage: () => {},
-      rollbackMessagesTo: (idx: number) => messages.splice(idx),
-      lastMessage: () => messages[messages.length - 1],
-      lastUserMessage: () => messages.findLast((m: any) => m.role === "user"),
-      lastAgentMessage: () => messages.findLast((m: any) => m.role === "assistant"),
-      lastToolCall: () => undefined,
-      hasToolCall: () => false,
-    } as any,
-    scenarioConfig: { description: "test agent" } as any,
-  });
-
   it("resets turnScores on turn 1", async () => {
     const agent = createAgent();
     const internal = agent as any;
@@ -770,5 +773,129 @@ describe("rollbackMessagesTo", () => {
     const removed = state.rollbackMessagesTo(0);
 
     expect(removed).toHaveLength(0);
+  });
+});
+
+describe("injection probability config", () => {
+  it("defaults to 0.0", () => {
+    const agent = redTeamCrescendo({ target: "test", attackPlan: "plan" });
+    expect((agent as any).injectionProbability).toBe(0.0);
+  });
+
+  it("accepts custom probability", () => {
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      injectionProbability: 0.3,
+    });
+    expect((agent as any).injectionProbability).toBe(0.3);
+  });
+
+  it("defaults to DEFAULT_TECHNIQUES", () => {
+    const agent = redTeamCrescendo({ target: "test", attackPlan: "plan" });
+    expect((agent as any).techniques).toBe(DEFAULT_TECHNIQUES);
+    expect((agent as any).techniques).toHaveLength(5);
+  });
+
+  it("accepts custom techniques", () => {
+    const custom = [new Base64Technique()];
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      techniques: custom,
+    });
+    expect((agent as any).techniques).toBe(custom);
+    expect((agent as any).techniques).toHaveLength(1);
+  });
+
+  it("injection fires when Math.random below threshold", async () => {
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      injectionProbability: 0.5,
+      techniques: [new Base64Technique()],
+      scoreResponses: false,
+    });
+
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("raw attack");
+
+    const mathRandomSpy = vi.spyOn(Math, "random").mockReturnValue(0.1);
+    try {
+      const result = await agent.call(makeInput([], 1));
+      expect(result).toHaveProperty("content");
+      const content = (result as any).content;
+      expect(content).toContain("Base64 encoded");
+      expect(content).not.toBe("raw attack");
+    } finally {
+      mathRandomSpy.mockRestore();
+    }
+  });
+
+  it("injection keeps original in attacker history", async () => {
+    // H_attacker must store the ORIGINAL text, not the encoded version.
+    // Both DeepTeam and Promptfoo keep the attacker's strategic history
+    // encoding-free — the attacker LLM should reason in natural language.
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      injectionProbability: 1.0, // always inject
+      techniques: [new Base64Technique()],
+      scoreResponses: false,
+    });
+
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("raw attack");
+
+    const result = await agent.call(makeInput([], 1));
+
+    // Target (return value) should be encoded
+    expect((result as any).content).toContain("Base64 encoded");
+
+    // H_attacker should have the ORIGINAL, not encoded
+    const lastAttackerMsg = internal.attackerHistory[internal.attackerHistory.length - 1];
+    expect(lastAttackerMsg.content).toBe("raw attack");
+    expect(lastAttackerMsg.content).not.toContain("Base64");
+  });
+
+  it("injection skipped when Math.random above threshold", async () => {
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      injectionProbability: 0.5,
+      techniques: [new Base64Technique()],
+      scoreResponses: false,
+    });
+
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("raw attack");
+
+    const mathRandomSpy = vi.spyOn(Math, "random").mockReturnValue(0.9);
+    try {
+      const result = await agent.call(makeInput([], 1));
+      expect((result as any).content).toBe("raw attack");
+    } finally {
+      mathRandomSpy.mockRestore();
+    }
+  });
+
+  it("rejects injectionProbability above 1.0", () => {
+    expect(() =>
+      redTeamCrescendo({
+        target: "test",
+        attackPlan: "plan",
+        injectionProbability: 1.5,
+      })
+    ).toThrow(RangeError);
+  });
+
+  it("rejects negative injectionProbability", () => {
+    expect(() =>
+      redTeamCrescendo({
+        target: "test",
+        attackPlan: "plan",
+        injectionProbability: -0.1,
+      })
+    ).toThrow(RangeError);
   });
 });
