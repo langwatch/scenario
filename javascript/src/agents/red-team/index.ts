@@ -1,4 +1,5 @@
 export type { RedTeamStrategy, BacktrackEntry } from "./red-team-strategy";
 export { CrescendoStrategy } from "./crescendo-strategy";
-export { redTeamAgent, redTeamCrescendo } from "./red-team-agent";
-export type { RedTeamAgentConfig, CrescendoConfig } from "./red-team-agent";
+export { GoatStrategy } from "./goat-strategy";
+export { redTeamAgent, redTeamCrescendo, redTeamGoat } from "./red-team-agent";
+export type { RedTeamAgentConfig, CrescendoConfig, GoatConfig } from "./red-team-agent";

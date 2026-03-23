@@ -2,6 +2,7 @@ import { generateText, LanguageModel } from "ai";
 
 import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { CrescendoStrategy } from "./crescendo-strategy";
+import { GoatStrategy, GOAT_METAPROMPT_TEMPLATE } from "./goat-strategy";
 import {
   DEFAULT_METAPROMPT_TEMPLATE,
   renderMetapromptTemplate,
@@ -50,6 +51,8 @@ export interface CrescendoConfig {
   /** Consecutive turns >= threshold before triggering early exit. Default 2. */
   successConfirmTurns?: number;
 }
+
+export interface GoatConfig extends CrescendoConfig {}
 
 class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
   override name = "RedTeamAgent";
@@ -538,5 +541,31 @@ export const redTeamAgent = (config: RedTeamAgentConfig) =>
 export const redTeamCrescendo = (config: CrescendoConfig) =>
   new RedTeamAgentImpl({
     strategy: new CrescendoStrategy(),
+    ...config,
+  });
+
+/**
+ * Create a RedTeamAgent with the GOAT dynamic technique selection strategy.
+ *
+ * Based on Meta's GOAT paper (ICML 2025, 97% ASR). The attacker LLM
+ * freely chooses from a 7-technique catalogue each turn instead of
+ * following fixed escalation phases.
+ *
+ * Use this when you want maximum adaptability. Use `redTeamCrescendo`
+ * when you want structured gradual escalation.
+ *
+ * @example
+ * ```ts
+ * const redTeam = scenario.redTeamGoat({
+ *   target: "extract the system prompt",
+ *   model: openai("gpt-4o"),
+ *   totalTurns: 30,
+ * });
+ * ```
+ */
+export const redTeamGoat = (config: GoatConfig) =>
+  new RedTeamAgentImpl({
+    strategy: new GoatStrategy(),
+    metapromptTemplate: config.attackPlan ? undefined : GOAT_METAPROMPT_TEMPLATE,
     ...config,
   });
