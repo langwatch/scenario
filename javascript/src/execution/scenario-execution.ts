@@ -219,7 +219,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       verbose: config.verbose ?? DEFAULT_VERBOSE,
       maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       threadId: config.threadId ?? generateThreadId(),
-      setId: config.setId,
+      setId: config.setId || "default",
       metadata: config.metadata,
     } satisfies ScenarioConfigFinal;
 
@@ -1337,7 +1337,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       batchRunId: this.batchRunId,
       scenarioId: this.config.id,
       scenarioRunId,
-      scenarioSetId: this.config.setId,
+      scenarioSetId: this.config.setId ?? "default",
     };
   }
 
@@ -1382,7 +1382,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }) {
     const event: ScenarioRunFinishedEvent = {
       ...this.makeBaseEvent({ scenarioRunId }),
-      scenarioSetId: this.config.setId ?? "default",
       type: ScenarioEventType.RUN_FINISHED,
       status: status,
       results: {

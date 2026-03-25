@@ -179,6 +179,40 @@ describe("run", () => {
     });
   });
 
+  describe("scenarioSetId", () => {
+    it("defaults to 'default' when setId is not provided", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+
+      await run(createScenarioConfig());
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.scenarioSetId).toBe("default");
+    });
+
+    it("defaults to 'default' when setId is empty string", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+      const config = createScenarioConfig();
+      config.setId = "";
+
+      await run(config);
+
+      const runStartedEvent = capturedEvents.find((e) => e.type === "SCENARIO_RUN_STARTED");
+      expect(runStartedEvent?.scenarioSetId).toBe("default");
+    });
+
+    it("uses provided setId on all events", async () => {
+      const { capturedEvents } = await mockEventBusWithEventCapture();
+      const config = createScenarioConfig();
+      config.setId = "my-set";
+
+      await run(config);
+
+      for (const event of capturedEvents) {
+        expect(event.scenarioSetId).toBe("my-set");
+      }
+    });
+  });
+
   describe("langwatch config", () => {
     it("uses provided langwatch config for EventBus", async () => {
       const { EventBus } = await import("../../events/event-bus");
