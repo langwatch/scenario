@@ -327,7 +327,7 @@ class RedTeamAgent(AgentAdapter):
 
     def marathon_script(
         self,
-        turns: int,
+        turns: Optional[int] = None,
         checks: Optional[List[Callable]] = None,
         final_checks: Optional[List[Callable]] = None,
     ) -> List[ScriptStep]:
@@ -351,13 +351,14 @@ class RedTeamAgent(AgentAdapter):
             termination mechanism.
 
         Args:
-            turns: Number of user/agent turn pairs.
+            turns: Number of user/agent turn pairs. Defaults to ``total_turns``.
             checks: Assertion functions to run after every agent response.
             final_checks: Assertion functions to run once at the end, before judge.
 
         Returns:
             A list of ``ScriptStep`` items ready for ``scenario.run(script=...)``.
         """
+        turns = turns if turns is not None else self.total_turns
         if self.success_score is None:
             return _marathon_script(
                 turns=turns, checks=checks, final_checks=final_checks,
@@ -424,17 +425,21 @@ class RedTeamAgent(AgentAdapter):
                 },
             ):
                 t = self.total_turns
-                # Compute phase boundaries from the strategy's phase definitions
-                # so the metaprompt stays in sync with actual phase transitions.
-                phase_ends = [max(1, int(p[1] * t)) for p in _PHASES[:3]]
-                prompt = self._metaprompt_template.format(
-                    target=self.target,
-                    description=description,
-                    total_turns=t,
-                    phase1_end=phase_ends[0],
-                    phase2_end=phase_ends[1],
-                    phase3_end=phase_ends[2],
-                )
+                # Build template variables — phase boundaries are only
+                # relevant for the Crescendo metaprompt template.
+                template_vars: dict = {
+                    "target": self.target,
+                    "description": description,
+                    "total_turns": t,
+                }
+                if isinstance(self._strategy, CrescendoStrategy):
+                    phase_ends = [max(1, int(p[1] * t)) for p in _PHASES[:3]]
+                    template_vars.update(
+                        phase1_end=phase_ends[0],
+                        phase2_end=phase_ends[1],
+                        phase3_end=phase_ends[2],
+                    )
+                prompt = self._metaprompt_template.format(**template_vars)
 
                 response = cast(
                     ModelResponse,
