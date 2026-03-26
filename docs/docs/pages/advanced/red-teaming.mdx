@@ -672,12 +672,11 @@ import scenario, {
 
 ## Roadmap
 
-- **Dual conversation histories** ([#2141](https://github.com/langwatch/langwatch/issues/2141)) — separate attacker log from target context
-- **Structured attacker output** ([#2142](https://github.com/langwatch/langwatch/issues/2142)) — JSON with rationale and response summaries
-- **Dynamic technique selection** ([#2143](https://github.com/langwatch/langwatch/issues/2143)) — replace fixed phases with per-turn technique choice
-- **Scan-wide memory** ([#2145](https://github.com/langwatch/langwatch/issues/2145)) — share tactics across test cases
-- **On-topic attacker scoring** ([#2045](https://github.com/langwatch/langwatch/issues/2045))
-- **Single-turn attack injection** ([#2046](https://github.com/langwatch/langwatch/issues/2046))
+- **Dynamic technique selection (GOAT)** — instead of fixed escalation phases, the attacker freely picks from a technique catalogue each turn based on what's working. More adaptive, higher attack success rate.
+- **Structured attacker output** — JSON with rationale and response summaries for better observability
+- **Scan-wide memory** — share successful tactics across test cases within a red-team run
+- **On-topic attacker scoring** — ensure the attacker stays relevant to the target objective
+- **Single-turn attack injection** — inject adversarial payloads into individual turns without a full marathon
 
 ---
 
