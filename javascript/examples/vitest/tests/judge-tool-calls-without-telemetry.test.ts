@@ -38,10 +38,11 @@ const weatherAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4o"),
+      model: openai("gpt-5-mini"),
       messages: input.messages,
       tools: { get_weather: getWeatherTool },
       toolChoice: "auto",
+      experimental_telemetry: { isEnabled: true },
     });
 
     if (response.toolCalls && response.toolCalls.length > 0) {

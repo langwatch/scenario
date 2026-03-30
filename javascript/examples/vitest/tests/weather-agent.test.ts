@@ -23,7 +23,7 @@ const weatherAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1-mini"),
+      model: openai("gpt-5-mini"),
       messages: [
         {
           role: "system",
@@ -36,6 +36,7 @@ const weatherAgent: AgentAdapter = {
       ],
       tools: { get_current_weather: getCurrentWeather },
       toolChoice: "auto",
+      experimental_telemetry: { isEnabled: true },
     });
 
     if (response.toolCalls && response.toolCalls.length > 0) {
@@ -91,7 +92,7 @@ describe("Weather Agent", () => {
       `,
       agents: [
         weatherAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
         scenario.user(),

@@ -25,7 +25,7 @@ const toolCallingAgent: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4o"),
+      model: openai("gpt-5-mini"),
       messages: [
         {
           role: "system",
@@ -35,6 +35,7 @@ const toolCallingAgent: AgentAdapter = {
       ],
       tools: { lookup_product: lookupTool },
       toolChoice: "auto",
+      experimental_telemetry: { isEnabled: true },
     });
 
     if (response.toolCalls && response.toolCalls.length > 0) {
@@ -74,13 +75,13 @@ const toolCallingAgent: AgentAdapter = {
 };
 
 describe("Tool call role reversal safety", () => {
-  it("user simulator (OpenAI gpt-4o) works after agent makes tool calls", async () => {
+  it("user simulator (OpenAI gpt-5-mini) works after agent makes tool calls", async () => {
     const result = await scenario.run({
-      name: "tool call then user sim (gpt-4o)",
+      name: "tool call then user sim (gpt-5-mini)",
       description: "User asks about a product, agent uses tool, then user simulator responds",
       agents: [
         toolCallingAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4o") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
         scenario.judgeAgent({
           criteria: ["Agent used the lookup tool and provided product info"],
         }),

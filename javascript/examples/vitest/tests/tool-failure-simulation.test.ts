@@ -41,10 +41,11 @@ const resilientAgent: AgentAdapter = {
   call: async (input) => {
     // First LLM call - agent decides if/how to use tools
     const response = await generateText({
-      model: openai("gpt-4o"),
+      model: openai("gpt-5-mini"),
       messages: input.messages,
       tools: { call_external_service: callExternalServiceTool },
       toolChoice: "auto",
+      experimental_telemetry: { isEnabled: true },
     });
 
     // Check if the LLM decided to call any tools

@@ -40,7 +40,7 @@ class AudioAgent extends AgentAdapter {
 
   private async respond(messages: ChatCompletionMessageParam[]) {
     return await this.openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
+      model: "gpt-5-mini-audio-preview",
       modalities: ["text", "audio"],
       audio: { voice: "alloy", format: "wav" },
       // We need to strip the id, or the openai client will throw an error

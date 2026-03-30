@@ -34,7 +34,7 @@ describe("Multimodal Images Tests", () => {
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
-        model: openai("gpt-4o"),
+        model: openai("gpt-5-mini"),
         messages: [
           {
             role: "system",
@@ -46,6 +46,7 @@ describe("Multimodal Images Tests", () => {
           },
           ...input.messages,
         ],
+        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },

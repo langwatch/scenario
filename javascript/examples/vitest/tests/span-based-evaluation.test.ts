@@ -67,7 +67,7 @@ const observableAgent: AgentAdapter = {
 
       // LLM call with tool usage
       const response = await generateText({
-        model: openai("gpt-4.1-mini"),
+        model: openai("gpt-5-mini"),
         messages: [
           {
             role: "system",
