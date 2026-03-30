@@ -86,6 +86,7 @@ const callTravelAgent = async (
             You are a helpful travel agent that helps the user with weather information and accomodation options, use the tools provided to you.
             Do not guess the city if they don't provide it.
             You can make multiple tool calls if they ask multiple cities.
+            You may ask at most one clarifying question. After that, make reasonable assumptions and proceed with tool calls and recommendations.
 
             Today is Friday, 25th July 2025.
           `,
