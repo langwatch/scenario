@@ -44,7 +44,6 @@ class CustomLLMJudge extends AgentAdapter {
 
     const { object: result } = await generateObject({
       model: openai("gpt-5-mini"),
-      temperature: 0,
       schema: z.object({
         pass: z.boolean(),
         reasoning: z.string(),

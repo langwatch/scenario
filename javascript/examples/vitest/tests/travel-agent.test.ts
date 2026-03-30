@@ -95,7 +95,6 @@ const callTravelAgent = async (
     ],
     tools,
     toolChoice: "auto",
-    temperature: 0.0,
     experimental_telemetry: { isEnabled: true },
   });
 
@@ -170,9 +169,9 @@ describe("Travel Agent", () => {
       script: [
         scenario.user(),
         scenario.agent(),
-        (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.user(),
         scenario.agent(),
+        (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.user(),
         scenario.agent(),
         (state) => expect(state.hasToolCall("get_accomodation")).toBe(true),

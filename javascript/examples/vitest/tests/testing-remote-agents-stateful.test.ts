@@ -50,7 +50,6 @@ beforeAll(async () => {
               },
               ...history,
             ],
-            temperature: 0.7,
             experimental_telemetry: { isEnabled: true },
           });
 

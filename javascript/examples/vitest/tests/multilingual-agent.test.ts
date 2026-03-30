@@ -106,7 +106,6 @@ describe("Multilingual Agent", () => {
       agents: [
         agent,
         scenario.userSimulatorAgent({
-          temperature: 0.9,
         }),
         scenario.judgeAgent(),
       ],
