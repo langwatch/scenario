@@ -273,7 +273,7 @@ class JudgeAgent extends JudgeAgentAdapter {
     const completion = await this.invokeLLMWithDiscovery({
       model: mergedConfig.model,
       messages,
-      temperature: mergedConfig.temperature ?? 0.0,
+      temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
       toolChoice,
