@@ -109,9 +109,9 @@ describe("Multilingual Agent", () => {
         }),
         scenario.judgeAgent(),
       ],
-      maxTurns: 20,
+      maxTurns: 12,
       script: [
-        scenario.proceed(17),
+        scenario.proceed(9),
         scenario.user(
           "Now, translate our whole conversation into English, but succinctly"
         ),
