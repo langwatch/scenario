@@ -341,6 +341,35 @@ class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
+    // If the discovery loop exhausted without reaching a terminal tool,
+    // force a verdict instead of letting parseToolCalls hard-fail.
+    if (isLargeTrace && completion.toolCalls?.length) {
+      const hasTerminal = completion.toolCalls.some(
+        (tc) =>
+          tc.toolName === "finish_test" || tc.toolName === "continue_test"
+      );
+      if (!hasTerminal) {
+        this.logger.warn(
+          `Discovery exhausted max steps (${this.maxDiscoverySteps}), forcing verdict`
+        );
+        const forcedCompletion = await this.invokeLLM({
+          ...params,
+          stopWhen: undefined,
+          messages: [
+            ...(params.messages ?? []),
+            {
+              role: "user" as const,
+              content:
+                "You have reached the maximum number of trace exploration steps. " +
+                "Based on the information you have gathered so far, give your final verdict now.",
+            },
+          ],
+          toolChoice: { type: "tool" as const, toolName: "finish_test" },
+        });
+        return forcedCompletion;
+      }
+    }
+
     return completion;
   }
 

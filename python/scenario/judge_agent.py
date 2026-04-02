@@ -640,20 +640,33 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "content": tool_result,
                 })
 
-        # Hit max steps - force verdict with available information
+        # Hit max steps - force a verdict with whatever information was gathered
         logger.warning(
-            f"Progressive discovery hit max steps ({self._max_discovery_steps})"
+            f"Progressive discovery hit max steps ({self._max_discovery_steps}), "
+            "forcing verdict"
         )
-        return ScenarioResult(
-            success=False,
-            messages=cast(Any, messages),
-            reasoning=(
-                f"Judge exhausted maximum discovery steps ({self._max_discovery_steps}) "
-                "without reaching a verdict."
+        messages.append({
+            "role": "user",
+            "content": (
+                "You have reached the maximum number of trace exploration steps. "
+                "Based on the information you have gathered so far, give your final verdict now."
             ),
-            passed_criteria=[],
-            failed_criteria=effective_criteria,
+        })
+        forced_response = cast(
+            ModelResponse,
+            litellm.completion(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                tool_choice={"type": "function", "function": {"name": "finish_test"}},
+                **self._extra_params,
+            ),
         )
+        return self._parse_response(forced_response, effective_criteria, messages)
 
     def _execute_discovery_tool(self, tool_call: Any, spans: Sequence[Any]) -> str:
         """
