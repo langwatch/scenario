@@ -15,15 +15,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from dotenv import load_dotenv
-from opentelemetry.trace import StatusCode
-
 from scenario import JudgeAgent
-from scenario._judge.estimate_tokens import estimate_tokens
 from scenario._judge.judge_span_digest_formatter import JudgeSpanDigestFormatter
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
-from scenario.types import AgentInput, JudgmentRequest, ScenarioResult
+from scenario.types import AgentInput, ScenarioResult
 
 from tests.helpers.create_span import create_mock_span
 
