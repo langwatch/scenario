@@ -352,11 +352,19 @@ class JudgeAgent extends JudgeAgentAdapter {
         this.logger.warn(
           `Discovery exhausted max steps (${this.maxDiscoverySteps}), forcing verdict`
         );
+        // Destructure to drop stopWhen, prompt, messages, and toolChoice
+        // so we can override them cleanly without type conflicts.
+        const {
+          stopWhen: _sw,
+          prompt: _p,
+          messages: prevMessages,
+          toolChoice: _tc,
+          ...rest
+        } = params;
         const forcedCompletion = await this.invokeLLM({
-          ...params,
-          stopWhen: undefined,
+          ...rest,
           messages: [
-            ...(params.messages ?? []),
+            ...(prevMessages ?? []),
             {
               role: "user" as const,
               content:
