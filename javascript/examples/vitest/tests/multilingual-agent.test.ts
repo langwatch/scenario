@@ -85,7 +85,7 @@ describe("Multilingual Agent", () => {
     }
   });
 
-  it("handles adversarial users and conversational chaos", async () => {
+  it("handles adversarial users and conversational chaos", { timeout: 360_000 }, async () => {
     const result = await scenario.run({
       name: "Adversarial multilingual testing", // Updated name for clarity and scope
       description: `
