@@ -690,6 +690,7 @@ class TestDiscoveryExhaustionForcesVerdict:
         # Should return the LLM's actual verdict, not a hard failure
         assert isinstance(result, ScenarioResult)
         assert result.success is True
+        assert result.reasoning is not None
         assert "workflow" in result.reasoning.lower()
 
     @pytest.mark.asyncio
@@ -831,14 +832,14 @@ class TestDiscoveryToolUsagePatterns:
         with patch("scenario.judge_agent.litellm.completion", side_effect=mock_completion):
             result = await judge.call(_create_input())
 
+        assert isinstance(result, ScenarioResult)
+
         # Print discovery trace for manual inspection
         print("\n--- Discovery trace ---")
         for entry in discovery_log:
             print(f"  Step {entry['step']}: {entry['tool']}  (tool_choice={entry['tool_choice']})")
         print(f"  Result: success={result.success}")
         print(f"  Steps used: {call_count} / 6 max")
-
-        assert isinstance(result, ScenarioResult)
         assert result.success is True
         # Judge finished in 6 steps — didn't need exhaustion
         assert call_count == 6
@@ -929,9 +930,9 @@ async def test_real_llm_discovery_on_nance_trace():
             "tool_choice": kwargs.get("tool_choice"),
         }
         call_log.append(entry)
-        response = original_completion(**kwargs)
+        response = original_completion(**kwargs)  # type: ignore[reportReturnType]
         # Log what tool the judge chose
-        msg = response.choices[0].message
+        msg = response.choices[0].message  # type: ignore[reportAttributeAccessIssue]
         if msg.tool_calls:
             tools_used = [tc.function.name for tc in msg.tool_calls]
             entry["tools_called"] = tools_used
@@ -950,6 +951,8 @@ async def test_real_llm_discovery_on_nance_trace():
             max_turns=8,
         ))
 
+    assert isinstance(result, ScenarioResult), f"Expected ScenarioResult, got {type(result)}"
+
     print("\n=== Real LLM Discovery Trace ===")
     for entry in call_log:
         args_str = f"  args={entry.get('args')}" if "args" in entry else ""
@@ -962,6 +965,5 @@ async def test_real_llm_discovery_on_nance_trace():
     print(f"\nTotal LLM calls: {len(call_log)}")
     print(f"Result: success={result.success}")
     print(f"Reasoning: {result.reasoning}")
-    if hasattr(result, "passed_criteria"):
-        print(f"Passed: {result.passed_criteria}")
-        print(f"Failed: {result.failed_criteria}")
+    print(f"Passed: {result.passed_criteria}")
+    print(f"Failed: {result.failed_criteria}")
