@@ -341,44 +341,56 @@ class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
-    // If the discovery loop exhausted without reaching a terminal tool,
-    // force a verdict instead of letting parseToolCalls hard-fail.
-    if (isLargeTrace && completion.toolCalls?.length) {
-      const hasTerminal = completion.toolCalls.some(
-        (tc) =>
-          tc.toolName === "finish_test" || tc.toolName === "continue_test"
-      );
-      if (!hasTerminal) {
-        this.logger.warn(
-          `Discovery exhausted max steps (${this.maxDiscoverySteps}), forcing verdict`
-        );
-        // Destructure to drop stopWhen, prompt, messages, and toolChoice
-        // so we can override them cleanly without type conflicts.
-        const {
-          stopWhen: _sw,
-          prompt: _p,
-          messages: prevMessages,
-          toolChoice: _tc,
-          ...rest
-        } = params;
-        const forcedCompletion = await this.invokeLLM({
-          ...rest,
-          messages: [
-            ...(prevMessages ?? []),
-            {
-              role: "user" as const,
-              content:
-                "You have reached the maximum number of trace exploration steps. " +
-                "Based on the information you have gathered so far, give your final verdict now.",
-            },
-          ],
-          toolChoice: { type: "tool" as const, toolName: "finish_test" },
-        });
-        return forcedCompletion;
-      }
+    if (isLargeTrace && this.discoveryExhausted(completion)) {
+      return this.forceVerdict(params);
     }
 
     return completion;
+  }
+
+  /**
+   * Checks whether the discovery loop ran out of steps without the judge
+   * calling finish_test or continue_test.
+   */
+  private discoveryExhausted(completion: InvokeLLMResult): boolean {
+    if (!completion.toolCalls?.length) return false;
+    return !completion.toolCalls.some(
+      (tc) =>
+        tc.toolName === "finish_test" || tc.toolName === "continue_test"
+    );
+  }
+
+  /**
+   * Makes one final LLM call with tool_choice forced to finish_test,
+   * so the judge renders a verdict with whatever context it accumulated
+   * during discovery instead of hard-failing.
+   */
+  private async forceVerdict(
+    params: InvokeLLMParams
+  ): Promise<InvokeLLMResult> {
+    this.logger.warn(
+      `Discovery exhausted max steps (${this.maxDiscoverySteps}), forcing verdict`
+    );
+    const {
+      stopWhen: _sw,
+      prompt: _p,
+      messages: prevMessages,
+      toolChoice: _tc,
+      ...rest
+    } = params;
+    return this.invokeLLM({
+      ...rest,
+      messages: [
+        ...(prevMessages ?? []),
+        {
+          role: "user" as const,
+          content:
+            "You have reached the maximum number of trace exploration steps. " +
+            "Based on the information you have gathered so far, give your final verdict now.",
+        },
+      ],
+      toolChoice: { type: "tool" as const, toolName: "finish_test" },
+    });
   }
 
   private parseToolCalls(

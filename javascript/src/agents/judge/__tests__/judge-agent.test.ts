@@ -1,5 +1,5 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { judgeAgent, JudgeAgentConfig } from "../judge-agent";
 import { JudgeSpanCollector } from "../judge-span-collector";
 import { AgentInput, AgentRole } from "../../../domain";
@@ -391,15 +391,19 @@ describe("JudgeAgent", () => {
   });
 
   describe("when discovery exhausts max steps without terminal tool", () => {
-    it("forces a verdict instead of hard-failing", async () => {
-      const largeTrace = createLargeTrace();
-      const collector = createMockSpanCollector(largeTrace);
+    let largeTrace: ReadableSpan[];
+    let collector: JudgeSpanCollector;
 
+    beforeEach(() => {
+      largeTrace = createLargeTrace();
+      collector = createMockSpanCollector(largeTrace);
       for (const span of largeTrace) {
         (span.attributes as Record<string, unknown>)["langwatch.thread.id"] =
           "test-thread";
       }
+    });
 
+    it("forces a verdict instead of hard-failing", async () => {
       const config: JudgeAgentConfig = {
         criteria: ["Agent works correctly"],
         spanCollector: collector,
@@ -465,14 +469,6 @@ describe("JudgeAgent", () => {
     });
 
     it("forced verdict can return failure", async () => {
-      const largeTrace = createLargeTrace();
-      const collector = createMockSpanCollector(largeTrace);
-
-      for (const span of largeTrace) {
-        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] =
-          "test-thread";
-      }
-
       const config: JudgeAgentConfig = {
         criteria: ["Agent uses tools", "Agent responds politely"],
         spanCollector: collector,

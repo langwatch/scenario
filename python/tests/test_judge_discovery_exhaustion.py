@@ -1,8 +1,8 @@
 """Tests for judge discovery exhaustion: forces verdict instead of hard-failing.
 
-Reproduces the bug reported by Arryon where the judge exhausted 10 discovery
-steps on a large agent trace and returned a hard failure with all criteria
-marked as failed, instead of rendering a verdict with accumulated context.
+Reproduces a bug where the judge exhausted 10 discovery steps on a large
+agent trace and returned a hard failure with all criteria marked as failed,
+instead of rendering a verdict with accumulated context.
 
 The trace mimics Arryon's Nance agent: nested invocations, agent_run spans,
 call_llm spans, tool executions (ask_user_question, create_or_update_task,
