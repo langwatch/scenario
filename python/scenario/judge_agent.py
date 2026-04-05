@@ -641,6 +641,24 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 })
 
         # Hit max steps - force a verdict with whatever information was gathered
+        return self._force_verdict(
+            messages=messages,
+            tools=tools,
+            effective_criteria=effective_criteria,
+        )
+
+    def _force_verdict(
+        self,
+        *,
+        messages: List[dict],
+        tools: List[dict],
+        effective_criteria: List[str],
+    ) -> AgentReturnTypes:
+        """
+        Makes one final LLM call with tool_choice forced to finish_test,
+        so the judge renders a verdict with whatever context it accumulated
+        during discovery instead of hard-failing.
+        """
         logger.warning(
             f"Progressive discovery hit max steps ({self._max_discovery_steps}), "
             "forcing verdict"
