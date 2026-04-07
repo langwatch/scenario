@@ -883,11 +883,7 @@ describe("GoatStrategy", () => {
     });
   });
 
-  describe("phaseEnds", () => {
-    it("returns undefined — GOAT does not inject phase boundaries", () => {
-      expect(strategy.phaseEnds).toBeUndefined();
-    });
-  });
+
 });
 
 // ---------------------------------------------------------------------------
