@@ -18,7 +18,7 @@ from litellm.files.main import ModelResponse
 from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 from scenario._red_team.base import RedTeamStrategy
-from scenario._red_team.crescendo import CrescendoStrategy, _PHASES
+from scenario._red_team.crescendo import CrescendoStrategy
 from scenario._red_team.goat import GoatStrategy, GOAT_METAPROMPT_TEMPLATE
 from scenario.script import user, agent, judge, marathon_script as _marathon_script
 from scenario._utils.utils import await_if_awaitable
@@ -185,7 +185,7 @@ class RedTeamAgent(AgentAdapter):
         self._strategy = strategy
         self.target = target
         self.total_turns = total_turns
-        self._metaprompt_template = metaprompt_template or _DEFAULT_METAPROMPT_TEMPLATE
+        self._metaprompt_template = metaprompt_template if metaprompt_template is not None else _DEFAULT_METAPROMPT_TEMPLATE
         self._attack_plan: Optional[str] = attack_plan
         self._attack_plan_lock = asyncio.Lock()
         self.score_responses = score_responses
@@ -431,14 +431,8 @@ class RedTeamAgent(AgentAdapter):
                     "target": self.target,
                     "description": description,
                     "total_turns": t,
+                    **self._strategy.template_variables(t),
                 }
-                if isinstance(self._strategy, CrescendoStrategy):
-                    phase_ends = [max(1, int(p[1] * t)) for p in _PHASES[:3]]
-                    template_vars.update(
-                        phase1_end=phase_ends[0],
-                        phase2_end=phase_ends[1],
-                        phase3_end=phase_ends[2],
-                    )
                 prompt = self._metaprompt_template.format(**template_vars)
 
                 response = cast(

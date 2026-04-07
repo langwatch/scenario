@@ -56,7 +56,16 @@ const PHASES: Phase[] = [
 ];
 
 export class CrescendoStrategy implements RedTeamStrategy {
-  getPhase(
+  phaseEnds(totalTurns: number): [number, number, number] {
+    const t = totalTurns;
+    return [
+      Math.max(1, Math.floor(0.20 * t)),
+      Math.max(1, Math.floor(0.45 * t)),
+      Math.max(1, Math.floor(0.75 * t)),
+    ];
+  }
+
+  private getPhase(
     currentTurn: number,
     totalTurns: number
   ): { name: string; instructions: string } {

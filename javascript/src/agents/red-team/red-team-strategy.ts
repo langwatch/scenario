@@ -21,4 +21,13 @@ export interface RedTeamStrategy {
   }): string;
 
   getPhaseName(currentTurn: number, totalTurns: number): string;
+
+  /**
+   * Return phase boundary turn numbers to inject into the metaprompt template.
+   *
+   * Override this to inject strategy-specific template variables. Strategies
+   * that don't need extra template vars (e.g. GOAT) can omit this method —
+   * the orchestrator treats `undefined` as "no extra vars".
+   */
+  phaseEnds?(totalTurns: number): [number, number, number] | undefined;
 }

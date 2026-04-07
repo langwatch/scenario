@@ -86,6 +86,15 @@ class CrescendoStrategy(RedTeamStrategy):
     hard refusals, and building on partial compliance.
     """
 
+    def template_variables(self, total_turns: int) -> dict:
+        """Return Crescendo phase boundary turn numbers for the metaprompt template."""
+        phase_ends = [max(1, int(p[1] * total_turns)) for p in _PHASES[:3]]
+        return {
+            "phase1_end": phase_ends[0],
+            "phase2_end": phase_ends[1],
+            "phase3_end": phase_ends[2],
+        }
+
     def _get_phase(self, current_turn: int, total_turns: int) -> Tuple[str, str]:
         """Return (phase_name, phase_instructions) for the given turn."""
         progress = current_turn / max(total_turns, 1)

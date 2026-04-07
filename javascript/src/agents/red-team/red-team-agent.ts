@@ -34,25 +34,13 @@ export interface RedTeamAgentConfig {
   successConfirmTurns?: number;
 }
 
-export interface CrescendoConfig {
-  target: string;
-  totalTurns?: number;
-  model?: LanguageModel;
-  metapromptModel?: LanguageModel;
-  metapromptTemplate?: string;
-  attackPlan?: string;
-  scoreResponses?: boolean;
-  /** Use pattern-based refusal detection to skip LLM scorer on obvious refusals. Default true. */
-  detectRefusals?: boolean;
-  temperature?: number;
-  metapromptTemperature?: number;
-  maxTokens?: number;
-  /** Score threshold (0-10) for early exit. Default 9. Set to undefined to disable. */
-  successScore?: number;
-  /** Consecutive turns >= threshold before triggering early exit. Default 2. */
-  successConfirmTurns?: number;
-}
+/** Configuration for the Crescendo and GOAT factory functions. Identical to
+ *  {@link RedTeamAgentConfig} minus the `strategy` field, which is fixed by
+ *  each factory. Add fields here and they automatically appear in both. */
+export type CrescendoConfig = Omit<RedTeamAgentConfig, "strategy">;
 
+/** Reserved for future GOAT-specific configuration options.
+ *  Currently identical to {@link CrescendoConfig}. */
 export interface GoatConfig extends CrescendoConfig {}
 
 class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
@@ -159,13 +147,7 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
       target: this.target,
       description,
       totalTurns: t,
-      ...(this.strategy instanceof CrescendoStrategy && {
-        phaseEnds: [
-          Math.max(1, Math.floor(0.2 * t)),
-          Math.max(1, Math.floor(0.45 * t)),
-          Math.max(1, Math.floor(0.75 * t)),
-        ],
-      }),
+      phaseEnds: this.strategy.phaseEnds?.(t),
     });
 
     const result = await generateText({

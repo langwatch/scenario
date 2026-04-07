@@ -168,6 +168,7 @@ class GoatStrategy(RedTeamStrategy):
         for start, end, name, hint in _STAGES:
             if start <= progress < end:
                 return name, hint
+        # Should not be reached — last stage end is float("inf")
         return _STAGES[-1][2], _STAGES[-1][3]
 
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
