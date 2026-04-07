@@ -1342,7 +1342,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     while (this.pendingRolesOnTurn.length > 0) {
       const nextRole = this.pendingRolesOnTurn[0];
       if (nextRole === role) break;
-      this.pendingRolesOnTurn.pop();
+      this.pendingRolesOnTurn.shift();
     }
   }
 
