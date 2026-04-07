@@ -128,6 +128,7 @@ describe("renderMetapromptTemplate", () => {
       target: "hack it",
       description: "test agent",
       totalTurns: 100,
+      phaseEnds: [20, 45, 75],
     });
     expect(result).toBe(
       "Target: hack it, Desc: test agent, Turns: 100, P1: 20, P2: 45, P3: 75"
@@ -150,6 +151,11 @@ describe("renderMetapromptTemplate", () => {
       target: "",
       description: "",
       totalTurns: 10,
+      phaseEnds: [
+        Math.max(1, Math.floor(0.2 * 10)),
+        Math.max(1, Math.floor(0.45 * 10)),
+        Math.max(1, Math.floor(0.75 * 10)),
+      ],
     });
     expect(result).toBe("2-4-7");
   });
