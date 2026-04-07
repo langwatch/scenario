@@ -39,6 +39,7 @@ export interface CrescendoConfig {
   totalTurns?: number;
   model?: LanguageModel;
   metapromptModel?: LanguageModel;
+  metapromptTemplate?: string;
   attackPlan?: string;
   scoreResponses?: boolean;
   /** Use pattern-based refusal detection to skip LLM scorer on obvious refusals. Default true. */
@@ -153,10 +154,18 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
       );
     }
 
+    const t = this.totalTurns;
     const prompt = renderMetapromptTemplate(this.metapromptTemplate, {
       target: this.target,
       description,
-      totalTurns: this.totalTurns,
+      totalTurns: t,
+      ...(this.strategy instanceof CrescendoStrategy && {
+        phaseEnds: [
+          Math.max(1, Math.floor(0.2 * t)),
+          Math.max(1, Math.floor(0.45 * t)),
+          Math.max(1, Math.floor(0.75 * t)),
+        ],
+      }),
     });
 
     const result = await generateText({
@@ -300,11 +309,11 @@ Reply with exactly this JSON and nothing else:
    * Set `successScore` to `undefined` to disable early exit.
    */
   marathonScript(options: {
-    turns: number;
+    turns?: number;
     checks?: ScriptStep[];
     finalChecks?: ScriptStep[];
-  }): ScriptStep[] {
-    const { turns, checks = [], finalChecks = [] } = options;
+  } = {}): ScriptStep[] {
+    const { turns = this.totalTurns, checks = [], finalChecks = [] } = options;
     const steps: ScriptStep[] = [];
 
     // Pad for potential backtracks so effective turns ≈ requested turns.
@@ -566,6 +575,7 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
 export const redTeamGoat = (config: GoatConfig) =>
   new RedTeamAgentImpl({
     strategy: new GoatStrategy(),
-    metapromptTemplate: config.attackPlan ? undefined : GOAT_METAPROMPT_TEMPLATE,
+    metapromptTemplate: GOAT_METAPROMPT_TEMPLATE,
+    totalTurns: 30,
     ...config,
   });
