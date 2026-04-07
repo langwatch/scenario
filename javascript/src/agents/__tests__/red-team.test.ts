@@ -147,6 +147,19 @@ describe("renderMetapromptTemplate", () => {
     });
     expect(result).toBe("2-4-7");
   });
+
+  it("leaves phase placeholders as literals when phaseEnds is omitted", () => {
+    // GOAT path: template has no phase placeholders, so this is a no-op.
+    // If a user accidentally passes a Crescendo template without phaseEnds,
+    // the placeholders are left as-is rather than silently corrupting.
+    const template = "turns: {totalTurns}, p1: {phase1End}";
+    const result = renderMetapromptTemplate(template, {
+      target: "t",
+      description: "d",
+      totalTurns: 10,
+    });
+    expect(result).toBe("turns: 10, p1: {phase1End}");
+  });
 });
 
 describe("refusal detection", () => {

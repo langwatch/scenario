@@ -154,7 +154,7 @@ _STAGES: list[Tuple[float, float, str, str]] = [
 class GoatStrategy(RedTeamStrategy):
     """GOAT dynamic technique selection strategy.
 
-    Based on Meta's GOAT paper (97% ASR in 5 turns).  The attacker LLM
+    Based on Meta's GOAT paper (ICML 2025, 97% ASR on benchmark datasets).  The attacker LLM
     freely chooses from a 7-technique catalogue each turn.  Three soft
     progress stages (early / mid / late) provide guidance without locking
     the attacker into predetermined behaviors.

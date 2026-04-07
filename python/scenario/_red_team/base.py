@@ -58,6 +58,8 @@ class RedTeamStrategy(ABC):
             total_turns: Total turns in the conversation.
 
         Returns:
-            Phase name string (e.g. "warmup", "probing", "escalation", "direct").
+            Strategy-defined phase/stage name string used for logging and
+            observability (e.g. ``"warmup"`` / ``"direct"`` for Crescendo,
+            ``"early"`` / ``"late"`` for GOAT).
         """
         raise NotImplementedError

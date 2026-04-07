@@ -39,8 +39,15 @@ export interface RedTeamAgentConfig {
  *  each factory. Add fields here and they automatically appear in both. */
 export type CrescendoConfig = Omit<RedTeamAgentConfig, "strategy">;
 
-/** Reserved for future GOAT-specific configuration options.
- *  Currently identical to {@link CrescendoConfig}. */
+/** Configuration for {@link redTeamGoat}.
+ *
+ *  Inherits all options from {@link CrescendoConfig} (model, totalTurns,
+ *  metapromptTemplate, scoreResponses, successScore, etc.).
+ *  The `redTeamGoat` factory sets `totalTurns` to **30** by default (override
+ *  via `totalTurns`) and uses {@link GOAT_METAPROMPT_TEMPLATE} by default
+ *  (override via `metapromptTemplate`).
+ *
+ *  Reserved for future GOAT-specific fields. */
 export interface GoatConfig extends CrescendoConfig {}
 
 class RedTeamAgentImpl extends UserSimulatorAgentAdapter {

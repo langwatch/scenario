@@ -2635,3 +2635,13 @@ class TestGoatFactoryMethod:
         assert "extract PII" in rendered
         assert "A bank support agent" in rendered
         assert "30" in rendered
+
+    def test_goat_factory_custom_metaprompt_template(self):
+        """goat() should allow overriding the metaprompt template via kwargs."""
+        custom = "custom template {target} {description} {total_turns}"
+        agent = RedTeamAgent.goat(
+            target="test",
+            model="openai/gpt-4.1-mini",
+            metaprompt_template=custom,
+        )
+        assert agent._metaprompt_template == custom

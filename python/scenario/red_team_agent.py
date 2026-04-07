@@ -433,7 +433,17 @@ class RedTeamAgent(AgentAdapter):
                     "total_turns": t,
                     **self._strategy.template_variables(t),
                 }
-                prompt = self._metaprompt_template.format(**template_vars)
+                try:
+                    prompt = self._metaprompt_template.format(**template_vars)
+                except KeyError as e:
+                    raise ValueError(
+                        f"Metaprompt template contains placeholder {e} which is not "
+                        f"provided by this strategy. Available variables: "
+                        f"{list(template_vars.keys())}. "
+                        f"If you passed a Crescendo template to a GOAT agent (or vice "
+                        f"versa), use the matching template or omit metaprompt_template "
+                        f"to use the strategy default."
+                    ) from e
 
                 response = cast(
                     ModelResponse,
