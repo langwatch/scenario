@@ -94,6 +94,8 @@ async def test_user_is_hungry():
             scenario.agent(),
             scenario.user(),
             scenario.agent(),
+            scenario.user(),
+            scenario.agent(),
             scenario.judge(),
         ],
         set_id="python-examples",
