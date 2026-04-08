@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.23](https://github.com/langwatch/scenario/compare/python/v0.7.22...python/v0.7.23) (2026-04-08)
+
+
+### Bug Fixes
+
+* force verdict on judge discovery exhaustion instead of hard-failing ([#315](https://github.com/langwatch/scenario/issues/315)) ([197f567](https://github.com/langwatch/scenario/commit/197f5673cfa4147c10b368ae095842b043026d8c))
+* judge off-by-one, auto-run on script exhaustion, assertion criteria, marathon_script cleanup ([#289](https://github.com/langwatch/scenario/issues/289)) ([91f76d1](https://github.com/langwatch/scenario/commit/91f76d128a5d8c0cbe5c6b00337f279b4890ea57))
+
 ## [0.7.22](https://github.com/langwatch/scenario/compare/python/v0.7.21...python/v0.7.22) (2026-03-22)
 
 
