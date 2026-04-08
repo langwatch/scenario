@@ -14,7 +14,7 @@ import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
-import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
+import { AgentInput, JudgeAgentAdapter, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import { createLLMInvoker } from "../llm-invoker.factory";
@@ -230,8 +230,8 @@ class JudgeAgent extends JudgeAgentAdapter {
       { role: "user", content: contentForJudge },
     ];
 
-    const isLastMessage =
-      input.scenarioState.currentTurn >= input.scenarioConfig.maxTurns - 1;
+    const maxTurns = input.scenarioConfig.maxTurns ?? DEFAULT_MAX_TURNS;
+    const isLastMessage = input.scenarioState.currentTurn >= maxTurns - 1;
 
     const projectConfig = await getProjectConfig();
     const mergedConfig = modelSchema.parse({

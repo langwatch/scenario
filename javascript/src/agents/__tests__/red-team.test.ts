@@ -4,7 +4,8 @@ import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { redTeamCrescendo, redTeamAgent } from "../red-team/red-team-agent";
 import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
 import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
-import { AgentRole } from "../../domain";
+import { AgentRole, AgentAdapter, JudgeAgentAdapter } from "../../domain";
+import type { AgentInput, AgentReturnTypes } from "../../domain";
 
 // Shared helper — minimal AgentInput-like object for unit tests
 const makeInput = (messages: any[], currentTurn = 1) => ({
@@ -903,7 +904,6 @@ describe("injection probability config", () => {
 describe("marathon judges at end after all turns with backtrack", () => {
   it("judge is called exactly once after all turns complete with full history", async () => {
     const { ScenarioExecution } = await import("../../execution/scenario-execution");
-    const { AgentAdapter, JudgeAgentAdapter } = await import("../../domain");
 
     const judgeCalls: { turn: number; messageCount: number }[] = [];
 
