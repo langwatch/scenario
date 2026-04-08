@@ -230,9 +230,8 @@ class JudgeAgent extends JudgeAgentAdapter {
       { role: "user", content: contentForJudge },
     ];
 
-    const effectiveMaxTurns = input.scenarioConfig.maxTurns || 10;
     const isLastMessage =
-      input.scenarioState.currentTurn >= effectiveMaxTurns - 1;
+      input.scenarioState.currentTurn >= input.scenarioConfig.maxTurns - 1;
 
     const projectConfig = await getProjectConfig();
     const mergedConfig = modelSchema.parse({

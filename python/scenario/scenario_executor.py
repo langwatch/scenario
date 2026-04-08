@@ -233,7 +233,6 @@ class ScenarioExecutor:
         self._total_start_time = time.time()
         self._agent_times = {}
         self._checkpoint_results: List[dict] = []
-        self._final_judge_invoked = False
 
         self._new_turn()
         self._state.current_turn = 0
@@ -502,29 +501,6 @@ class ScenarioExecutor:
                 return idx, agent
         return -1, None
 
-    async def _run_judge_or_fail(self, fallback_message: Optional[str] = None) -> ScenarioResult:
-        """Auto-run the judge if one exists, otherwise return a failure result.
-
-        Used when a script exhausts without an explicit conclusion — the
-        judge should decide the verdict (e.g. red team defense held)
-        rather than the executor hard-failing.
-        """
-        has_judge = any(a.role == AgentRole.JUDGE for a in self.agents)
-        if has_judge and not self._final_judge_invoked:
-            try:
-                judge_result = await self.judge()
-                if isinstance(judge_result, ScenarioResult):
-                    return judge_result
-            except Exception as exc:
-                # Judge failed — fall through to the fallback message.
-                # Don't propagate: a broken judge shouldn't mask the
-                # actual script-exhaustion outcome.
-                warnings.warn(
-                    f"Judge agent failed during auto-run: {exc}",
-                    stacklevel=2,
-                )
-        return self._reached_max_turns(fallback_message)
-
     def _reached_max_turns(self, error_message: Optional[str] = None) -> ScenarioResult:
         # If we reached max turns without conclusion, fail the test
         agent_roles_agents_idx = [
@@ -645,16 +621,12 @@ class ScenarioExecutor:
                 self._emit_run_finished_event(scenario_run_id, result, status)
                 return result
             else:
-                # Script ended without an explicit conclusion. If a
-                # JudgeAgent is registered, run it — exhausting a red
-                # team script without a breach is a defense success,
-                # not a harness error.
-                result = await self._run_judge_or_fail(
+                result = self._reached_max_turns(
                     """Reached end of script without conclusion, add one of the following:
 
-- Add a `scenario.JudgeAgent()` to the agents list so the judge can auto-run at script end
 - Add `scenario.judge()` to the script to force criteria judgement
 - Add `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
+- If your script already has a judge but is hitting max_turns, increase `max_turns` in your config
                     """
                 )
 
@@ -964,15 +936,12 @@ class ScenarioExecutor:
                     return None
                 else:
                     # Checkpoint failed: compile all results into the failing result.
-                    # Mark judge as invoked so _run_judge_if_needed doesn't re-run it.
-                    self._final_judge_invoked = True
                     compiled_passed, compiled_failed = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed
                     result.failed_criteria = compiled_failed
                     return result
             else:
                 # Final judge evaluation — merge prior checkpoint criteria
-                self._final_judge_invoked = True
                 compiled_passed, _ = self._compiled_checkpoints
                 result.passed_criteria = compiled_passed + result.passed_criteria
                 return result

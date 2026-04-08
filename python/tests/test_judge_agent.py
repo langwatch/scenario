@@ -159,8 +159,8 @@ async def test_judge_agent_with_string_default_model_config():
         (4, 5, True),   # last turn (0-indexed: turns 0-4, max_turns=5)
         (3, 5, False),  # not yet last turn
         (5, 5, True),   # past max (>=) should still be treated as last
-        (9, None, True), # max_turns=None defaults to 10, turn 9 is last
-        (8, None, False), # max_turns=None defaults to 10, turn 8 is not last
+        (9, 10, True),  # turn 9 is last when max_turns=10
+        (8, 10, False), # turn 8 is not last when max_turns=10
     ],
 )
 async def test_judge_is_last_message_on_final_turn(

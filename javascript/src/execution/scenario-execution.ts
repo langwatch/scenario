@@ -171,9 +171,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   /** Accumulated results from inline judge checkpoints */
   private checkpointResults: { metCriteria: string[]; unmetCriteria: string[] }[] = [];
 
-  /** Whether the judge has given its final (non-checkpoint) verdict */
-  private finalJudgeInvoked = false;
-
   /** Event stream for monitoring scenario progress */
   private eventSubject = new Subject<ScenarioEvent>();
 
@@ -448,34 +445,14 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         return result;
       }
 
-      // Script ended without explicit conclusion. If a JudgeAgent is
-      // registered, run it — exhausting a red team script without a
-      // breach is a defense success, not a harness error.
-      const hasJudge = this.agents.some((a) => a.role === AgentRole.JUDGE);
-      let result: ScenarioResult;
-
-      if (hasJudge && !this.finalJudgeInvoked) {
-        try {
-          const judgeResult = await this.judge();
-          result = judgeResult ?? this.reachedMaxTurns(
-            "Reached end of script without conclusion and judge returned no verdict"
-          );
-        } catch (err) {
-          console.warn("Judge agent failed during auto-run:", err);
-          result = this.reachedMaxTurns(
-            "Reached end of script without conclusion and judge failed to evaluate"
-          );
-        }
-      } else {
-        result = this.reachedMaxTurns(
-          [
-            "Reached end of script without conclusion, add one of the following:",
-            "- Add a `Scenario.judgeAgent()` to the agents list so the judge can auto-run at script end",
-            "- Add `Scenario.judge()` to the script to force criteria judgement",
-            "- Add `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
-          ].join("\n")
-        );
-      }
+      const result = this.reachedMaxTurns(
+        [
+          "Reached end of script without conclusion, add one of the following:",
+          "- Add `Scenario.judge()` to the script to force criteria judgement",
+          "- Add `Scenario.succeed()` or `Scenario.fail()` to end the test with an explicit result",
+          "- If your script already has a judge but is hitting maxTurns, increase `maxTurns` in your config",
+        ].join("\n")
+      );
 
       this.emitRunFinished({
         scenarioRunId,
@@ -1167,8 +1144,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         return null;
       } else {
         // Checkpoint failed: compile all results into the failing result.
-        // Mark judge as invoked so runJudgeIfNeeded doesn't re-run it.
-        this.finalJudgeInvoked = true;
         const cp = this.compiledCheckpoints;
         this.result.metCriteria = cp.metCriteria;
         this.result.unmetCriteria = cp.unmetCriteria;
@@ -1178,7 +1153,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
     // Final judge evaluation — merge prior checkpoint criteria
     if (this.result) {
-      this.finalJudgeInvoked = true;
       const cp = this.compiledCheckpoints;
       this.result.metCriteria = [...cp.metCriteria, ...this.result.metCriteria];
     }
@@ -1223,7 +1197,6 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     this.pendingMessages.clear();
     this._result = undefined;
     this.checkpointResults = [];
-    this.finalJudgeInvoked = false;
 
     this.logger.debug(`[${this.config.id}] Reset complete`, {
       threadId: this.state.threadId,

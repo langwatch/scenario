@@ -369,8 +369,8 @@ describe("JudgeAgent", () => {
       { currentTurn: 4, maxTurns: 5, expectLast: true, label: "last turn (0-indexed)" },
       { currentTurn: 3, maxTurns: 5, expectLast: false, label: "not yet last turn" },
       { currentTurn: 5, maxTurns: 5, expectLast: true, label: "past max (>=)" },
-      { currentTurn: 9, maxTurns: undefined, expectLast: true, label: "max=undefined defaults to 10, turn 9 is last" },
-      { currentTurn: 8, maxTurns: undefined, expectLast: false, label: "max=undefined defaults to 10, turn 8 is not last" },
+      { currentTurn: 9, maxTurns: 10, expectLast: true, label: "max=10, turn 9 is last" },
+      { currentTurn: 8, maxTurns: 10, expectLast: false, label: "max=10, turn 8 is not last" },
     ];
 
     for (const { currentTurn, maxTurns, expectLast, label } of cases) {

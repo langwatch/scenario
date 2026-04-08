@@ -324,9 +324,9 @@ If you do have enough information, use the finish_test tool to determine if all 
             {"role": "user", "content": content_for_judge},
         ]
 
-        effective_max_turns = input.scenario_state.config.max_turns or 10
         is_last_message = (
-            input.scenario_state.current_turn >= effective_max_turns - 1
+            input.scenario_state.current_turn
+            >= input.scenario_state.config.max_turns - 1
         )
 
         if is_last_message:

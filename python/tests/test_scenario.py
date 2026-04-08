@@ -182,32 +182,8 @@ async def test_scenario_allow_scripted_scenario_with_lower_level_openai_messages
 
 
 @pytest.mark.asyncio
-async def test_scenario_scripted_falls_back_to_judge_if_script_ends_without_conclusion():
-    """When a script ends without conclusion but a JudgeAgent is registered,
-    the executor auto-runs the judge instead of failing."""
-    scenario.configure(default_model="none")
-
-    result = await scenario.run(
-        name="test name",
-        description="test description",
-        agents=[
-            MockAgent(),
-            MockUserSimulatorAgent(),
-            MockJudgeAgent(criteria=["test criteria"]),
-        ],
-        script=[
-            scenario.user("Hi, I'm a hardcoded user message"),
-        ],
-    )
-
-    # Judge auto-runs and its verdict determines success
-    assert result.success
-    assert result.passed_criteria == ["test criteria"]
-
-
-@pytest.mark.asyncio
-async def test_scenario_scripted_fails_if_script_ends_without_conclusion_and_no_judge():
-    """Without a JudgeAgent, script exhaustion is an error."""
+async def test_scenario_scripted_fails_if_script_ends_without_conclusion():
+    """Script exhaustion without explicit conclusion is always an error."""
     scenario.configure(default_model="none")
 
     result = await scenario.run(
@@ -550,89 +526,6 @@ async def test_scenario_non_assertion_error_is_not_caught_as_criteria():
         )
 
 
-# ---------------------------------------------------------------------------
-# Gap #3: Judge auto-run when judge itself throws
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_scenario_script_exhaustion_judge_throws_falls_back():
-    """When the auto-run judge throws, the scenario falls back to a max-turns failure."""
-
-    class BrokenJudge(scenario.JudgeAgent):
-        async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-            if input.judgment_request:
-                raise RuntimeError("Judge crashed")
-            return []
-
-    scenario.configure(default_model="none")
-
-    import warnings
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = await scenario.run(
-            name="test name",
-            description="test description",
-            agents=[
-                MockAgent(),
-                MockUserSimulatorAgent(),
-                BrokenJudge(criteria=["test criteria"]),
-            ],
-            script=[
-                scenario.user("Hi"),
-            ],
-        )
-
-    assert not result.success
-    assert result.reasoning and "Reached" in result.reasoning
-    # The warning should have been issued
-    judge_warnings = [x for x in w if "Judge agent failed" in str(x.message)]
-    assert len(judge_warnings) >= 1
-
-
-# ---------------------------------------------------------------------------
-# Gap #4: _final_judge_invoked prevents double invocation
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_scenario_judge_not_invoked_twice():
-    """If the judge already ran (via script judge()), script exhaustion should NOT re-run it."""
-    call_count = 0
-
-    class CountingJudge(scenario.JudgeAgent):
-        async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-            nonlocal call_count
-            if input.judgment_request:
-                call_count += 1
-                return scenario.ScenarioResult(
-                    success=True,
-                    messages=[],
-                    reasoning="judge ran",
-                    passed_criteria=["criterion"],
-                )
-            return []
-
-    scenario.configure(default_model="none")
-
-    result = await scenario.run(
-        name="test name",
-        description="test description",
-        agents=[
-            MockAgent(),
-            MockUserSimulatorAgent(),
-            CountingJudge(criteria=["criterion"]),
-        ],
-        script=[
-            scenario.user("Hi"),
-            scenario.agent(),
-            scenario.judge(),
-            # Script ends here — judge already ran, should NOT auto-run again
-        ],
-    )
-
-    assert result.success
-    assert call_count == 1
 
 
 # ---------------------------------------------------------------------------
