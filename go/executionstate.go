@@ -53,8 +53,8 @@ func (s *ScenarioExecutionState) LastUserMessage() (*Message, error) {
 	return nil, errors.New("no user messages in execution state history")
 }
 
-// LastAssistantMessage returns the last assistant message in the state.
-func (s *ScenarioExecutionState) LastAssistantMessage() (*Message, error) {
+// LastAgentMessage returns the last assistant message in the state.
+func (s *ScenarioExecutionState) LastAgentMessage() (*Message, error) {
 	for i := len(s.messages) - 1; i >= 0; i-- {
 		if s.messages[i].Role == MessageRoleAssistant {
 			return &s.messages[i], nil

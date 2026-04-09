@@ -25,7 +25,7 @@ type ExecutionState interface {
 
 	LastMessage() (*Message, error)
 	LastUserMessage() (*Message, error)
-	LastAssistantMessage() (*Message, error)
+	LastAgentMessage() (*Message, error)
 
 	LastToolCall(toolName string) (*Message, *ToolCall, error)
 	HasToolCall(toolName string) bool

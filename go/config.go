@@ -8,7 +8,9 @@ type ScenarioConfig struct {
 	Script      []ScriptStep
 
 	MaxTurns   int
+	Verbose    bool
 	ThreadID   string
 	SetID      string
 	BatchRunID string
+	Metadata   map[string]any
 }
