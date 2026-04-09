@@ -29,6 +29,21 @@
         { "type": "docs", "section": "Documentation", "hidden": false },
         { "type": "refactor", "section": "Code Refactoring", "hidden": false }
       ]
+    },
+    "go": {
+      "component": "go",
+      "package-name": "go",
+      "release-type": "go",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true,
+      "prerelease": false,
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "chore", "section": "Miscellaneous", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": false }
+      ]
     }
   },
   "bootstrap-sha": "bce696d",
