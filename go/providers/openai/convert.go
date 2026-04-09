@@ -48,7 +48,7 @@ func toOpenAIMessage(msg scenario.Message) openai.ChatCompletionMessageParamUnio
 		return m
 
 	case scenario.MessageRoleTool:
-		return openai.ToolMessage(msg.ToolCallID, msg.Content)
+		return openai.ToolMessage(msg.Content, msg.ToolCallID)
 
 	default:
 		// Fallback: treat as user message

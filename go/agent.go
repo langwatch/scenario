@@ -8,9 +8,9 @@ type AgentRole string
 type AgentReturnKind int
 
 const (
-	AgentRoleAgent AgentRole = "agent"
-	AgentRoleUser  AgentRole = "user"
-	AgentRoleJudge AgentRole = "judge"
+	AgentRoleAgent AgentRole = "Agent"
+	AgentRoleUser  AgentRole = "User"
+	AgentRoleJudge AgentRole = "Judge"
 
 	AgentReturnString AgentReturnKind = iota
 	AgentReturnScenarioResult

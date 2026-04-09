@@ -157,6 +157,27 @@ func Run(ctx context.Context, cfg ScenarioConfig, opts ...RunOption) (*ScenarioR
 	}
 	result := execution.Run(ctx)
 
+	// Verbose output on failure
+	if cfg.Verbose && !result.Success {
+		fmt.Printf("Scenario failed: %s\n", cfg.Name)
+		if result.Reasoning != nil {
+			fmt.Printf("Reasoning: %s\n", *result.Reasoning)
+		}
+		fmt.Println("--------------------------------")
+		if len(result.MetCriteria) > 0 {
+			fmt.Printf("Met criteria:\n")
+			for _, c := range result.MetCriteria {
+				fmt.Printf("  - %s\n", c)
+			}
+		}
+		if len(result.UnmetCriteria) > 0 {
+			fmt.Printf("Unmet criteria:\n")
+			for _, c := range result.UnmetCriteria {
+				fmt.Printf("  - %s\n", c)
+			}
+		}
+	}
+
 	// Drain event bus and wait for reporter
 	eventBus.Drain()
 	<-reporterDone

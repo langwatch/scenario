@@ -1,0 +1,52 @@
+name: go-publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: |
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'go/')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: go/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+        working-directory: go
+
+      - name: Vet
+        run: go vet ./...
+        working-directory: go
+
+      - name: Run tests
+        run: go test ./... -v -timeout 60s
+        working-directory: go
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG_NAME#go/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Go modules are published automatically via the Go module proxy
+      # when a valid semver tag exists. Request the module proxy to fetch
+      # the new version so it's immediately available.
+      - name: Request Go module proxy to index new version
+        run: |
+          GOPROXY=https://proxy.golang.org GO111MODULE=on \
+            go list -m "github.com/langwatch/scenario/go@v${{ steps.version.outputs.version }}" || true

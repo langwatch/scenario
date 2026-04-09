@@ -121,6 +121,13 @@ func (r *EventReporter) buildPayload(event ScenarioEvent) *eventPayload {
 
 	switch e := event.(type) {
 	case RunStartedEvent:
+		metadata := map[string]any{
+			"name":        e.ScenarioName,
+			"description": e.Description,
+		}
+		for k, v := range e.Metadata {
+			metadata[k] = v
+		}
 		return &eventPayload{
 			Type:          string(EventRunStarted),
 			Timestamp:     ts,
@@ -128,10 +135,7 @@ func (r *EventReporter) buildPayload(event ScenarioEvent) *eventPayload {
 			ScenarioID:    e.ScenarioID,
 			ScenarioRunID: e.ScenarioRunID,
 			ScenarioSetID: e.ScenarioSetID,
-			Metadata: map[string]string{
-				"name":        e.ScenarioName,
-				"description": e.Description,
-			},
+			Metadata:      metadata,
 		}
 
 	case MessageSnapshotEvent:

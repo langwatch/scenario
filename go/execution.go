@@ -717,6 +717,7 @@ func (e *ScenarioExecution) emitRunStarted() {
 		ScenarioID:    e.cfg.ID,
 		ScenarioName:  e.cfg.Name,
 		Description:   e.cfg.Description,
+		Metadata:      e.cfg.Metadata,
 	})
 }
 

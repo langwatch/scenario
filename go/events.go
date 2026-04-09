@@ -41,6 +41,7 @@ type RunStartedEvent struct {
 	ScenarioID     string
 	ScenarioName   string
 	Description    string
+	Metadata       map[string]any
 }
 
 func (e RunStartedEvent) Type() ScenarioEventType { return EventRunStarted }
