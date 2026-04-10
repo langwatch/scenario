@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.10](https://github.com/langwatch/scenario/compare/javascript/v0.4.9...javascript/v0.4.10) (2026-04-10)
+
+
+### Bug Fixes
+
+* default scenarioSetId to 'default' for all events ([#305](https://github.com/langwatch/scenario/issues/305)) ([7bbc8c6](https://github.com/langwatch/scenario/commit/7bbc8c63137f920f880d4bd099516e745aa7e386))
+* default scenarioSetId to "default" when not provided ([7bbc8c6](https://github.com/langwatch/scenario/commit/7bbc8c63137f920f880d4bd099516e745aa7e386)), closes [#304](https://github.com/langwatch/scenario/issues/304)
+* force verdict on judge discovery exhaustion instead of hard-failing ([#315](https://github.com/langwatch/scenario/issues/315)) ([197f567](https://github.com/langwatch/scenario/commit/197f5673cfa4147c10b368ae095842b043026d8c))
+* judge off-by-one, auto-run on script exhaustion, assertion criteria, marathon_script cleanup ([#289](https://github.com/langwatch/scenario/issues/289)) ([91f76d1](https://github.com/langwatch/scenario/commit/91f76d128a5d8c0cbe5c6b00337f279b4890ea57))
+* revert audio model and reduce multilingual test turns ([#314](https://github.com/langwatch/scenario/issues/314)) ([177cdb6](https://github.com/langwatch/scenario/commit/177cdb65c32a36263be98f3c38ff7d573cf4e3f6))
+* revert audio model to gpt-4o-audio-preview and reduce multilingual test turns ([177cdb6](https://github.com/langwatch/scenario/commit/177cdb65c32a36263be98f3c38ff7d573cf4e3f6))
+
+
+### Miscellaneous
+
+* use gpt-5-mini everywhere, enable telemetry, fix reasoning model compat ([#311](https://github.com/langwatch/scenario/issues/311)) ([2384fb2](https://github.com/langwatch/scenario/commit/2384fb263d35b7220b5ee4cbe8291295a0500ab8))
+
 ## [0.4.9](https://github.com/langwatch/scenario/compare/javascript/v0.4.8...javascript/v0.4.9) (2026-03-22)
 
 
