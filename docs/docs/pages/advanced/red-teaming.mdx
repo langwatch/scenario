@@ -231,6 +231,8 @@ const attacker = scenario.redTeamCrescendo({
 | Custom plan | `attack_plan` | `attackPlan` | auto-generated | Skip the planner LLM call. |
 | Custom template | `metaprompt_template` | `metapromptTemplate`* | built-in | Override planning prompt. *TS: only via `redTeamAgent()`. |
 | Max tokens | `max_tokens` | `maxTokens` | model default | Cap tokens per attack message. |
+| Injection probability | `injection_probability` | `injectionProbability` | `0.0` | Probability (0.0–1.0) of wrapping each attack message with a random single-turn technique (e.g. Base64, ROT13). `0.0` disables injection. |
+| Technique catalogue | `techniques` | `techniques` | all built-ins | List of `AttackTechnique` instances to sample from when injection triggers. Defaults to `DEFAULT_TECHNIQUES`. |
 | API base | `api_base` | — | global | Custom API endpoint (Python only). |
 | API key | `api_key` | — | env | API key override (Python only). |
 
