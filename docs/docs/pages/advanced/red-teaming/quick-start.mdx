@@ -150,17 +150,7 @@ describe("Agent security", () => {
 
 ## 4. Run it
 
-:::code-group
-
-```bash [python]
-pytest tests/red_team/ -v
-```
-
-```bash [typescript]
-npm test -- tests/red-team
-```
-
-:::
+Run your usual test command, or just ask your coding assistant to run it for you. Red team runs are long — 50 turns can take several minutes — so make sure your runner's per-test timeout is generous.
 
 Each turn prints the attacker's message, your agent's response, and a per-turn score. A failing test includes the full transcript and the judge's reasoning — you see exactly which turn broke the agent and how.
 
