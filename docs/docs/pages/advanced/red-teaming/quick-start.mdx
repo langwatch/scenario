@@ -47,7 +47,7 @@ Works with Claude Code, Cursor, Claude Desktop, Codex, and any MCP-compatible cl
 }
 ```
 
-Restart the client. Full reference: [LangWatch MCP Server](https://langwatch.ai/docs/integration/mcp).
+Grab your API key from [app.langwatch.ai](https://app.langwatch.ai) → **Settings → API Keys**, then restart your client. Full reference: [LangWatch MCP Server](https://langwatch.ai/docs/integration/mcp).
 
 ## 3. Ask your assistant to generate the test
 
@@ -150,21 +150,11 @@ describe("Agent security", () => {
 
 ## 4. Run it
 
-:::code-group
-
-```bash [python]
-pytest tests/red_team/ -v
-```
-
-```bash [typescript]
-npm test -- tests/red-team
-```
-
-:::
+Run your usual test command, or just ask your coding assistant to run it and monitor it for you. Red team runs are long — 50 turns can take several minutes and will consume real LLM tokens on both the attacker and target models — so make sure your runner's per-test timeout is generous.
 
 Each turn prints the attacker's message, your agent's response, and a per-turn score. A failing test includes the full transcript and the judge's reasoning — you see exactly which turn broke the agent and how.
 
-## 5. View the run in LangWatch (optional)
+## 5. View the run in LangWatch
 
 If you've instrumented your agent with LangWatch, every red team run appears in the Simulations dashboard: full attack transcripts, per-turn scores, and side-by-side comparison across runs to track whether a prompt change made your agent more or less resilient.
 
