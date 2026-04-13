@@ -13,6 +13,14 @@ import { Callout } from "vocs/components";
   Use red teaming only on agents you own or have explicit permission to test.
 </Callout>
 
+## Why red teaming?
+
+Most off-the-shelf red teaming tools fire thousands of single-turn adversarial prompts at your agent and score each response in isolation. Real attackers don't work that way — they build rapport over many turns, reframe rejected requests, and escalate gradually until the agent drifts out of its guardrails.
+
+`RedTeamAgent` models that behavior: multi-turn escalation (Crescendo), per-turn scoring, refusal detection, and backtracking when a turn gets rejected. You get the same `pytest` / `vitest` ergonomics as the rest of Scenario, so security tests live next to your functional tests and run in the same CI pipeline.
+
+If you just want to try it against your agent without writing code, jump to the [Quick Start](/advanced/red-teaming/quick-start).
+
 ## Quick start
 
 :::code-group
@@ -655,16 +663,6 @@ import scenario, {
   type BacktrackEntry,
 } from "@langwatch/scenario";
 ```
-
----
-
-## Roadmap
-
-- **Dynamic technique selection (GOAT)** — instead of fixed escalation phases, the attacker freely picks from a technique catalogue each turn based on what's working. More adaptive, higher attack success rate.
-- **Structured attacker output** — JSON with rationale and response summaries for better observability
-- **Scan-wide memory** — share successful tactics across test cases within a red-team run
-- **On-topic attacker scoring** — ensure the attacker stays relevant to the target objective
-- **Single-turn attack injection** — inject adversarial payloads into individual turns without a full marathon
 
 ---
 
