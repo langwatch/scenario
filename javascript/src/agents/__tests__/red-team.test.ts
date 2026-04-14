@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { GoatStrategy } from "../red-team/goat-strategy";
+import type { RedTeamStrategy } from "../red-team/red-team-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { redTeamCrescendo, redTeamGoat, redTeamAgent, parseAttackerOutput } from "../red-team/red-team-agent";
 import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
@@ -979,9 +980,12 @@ describe("JSON output contract is GOAT-only", () => {
   });
 
   it("emitsStructuredOutput flag is true for GOAT, falsy for Crescendo", () => {
-    expect(new GoatStrategy().emitsStructuredOutput).toBe(true);
-    // Crescendo doesn't set the field (default falsy per the interface).
-    expect(new CrescendoStrategy().emitsStructuredOutput).toBeUndefined();
+    // Access via the strategy interface — Crescendo doesn't set the field,
+    // so it's optional/undefined; only typed on the interface.
+    const goat: RedTeamStrategy = new GoatStrategy();
+    const crescendo: RedTeamStrategy = new CrescendoStrategy();
+    expect(goat.emitsStructuredOutput).toBe(true);
+    expect(crescendo.emitsStructuredOutput).toBeUndefined();
   });
 });
 
