@@ -2719,6 +2719,11 @@ class TestStructuredAttackerOutput:
 
 
 class TestJsonContractInPrompts:
+    """The structured output contract is GOAT-only. Crescendo keeps its
+    free-form attacker output for paper-to-paper consistency and to avoid
+    scope creep on the GOAT-focused PR stack.
+    """
+
     def test_goat_prompt_contains_output_format_contract(self):
         prompt = GoatStrategy().build_system_prompt(
             target="x", current_turn=1, total_turns=10,
@@ -2729,15 +2734,17 @@ class TestJsonContractInPrompts:
         assert "strategy" in prompt
         assert "reply" in prompt
 
-    def test_crescendo_prompt_contains_output_format_contract(self):
+    def test_crescendo_prompt_does_not_contain_output_format_contract(self):
         prompt = CrescendoStrategy().build_system_prompt(
             target="x", current_turn=1, total_turns=10,
             scenario_description="d", metaprompt_plan="p",
         )
-        assert "OUTPUT FORMAT" in prompt
-        assert "observation" in prompt
-        assert "strategy" in prompt
-        assert "reply" in prompt
+        assert "OUTPUT FORMAT" not in prompt
+
+    def test_strategy_flags(self):
+        """Parser is gated on emits_structured_output."""
+        assert GoatStrategy().emits_structured_output is True
+        assert CrescendoStrategy().emits_structured_output is False
 
 
 # ---------------------------------------------------------------------------

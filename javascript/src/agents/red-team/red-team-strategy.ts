@@ -67,4 +67,17 @@ export interface RedTeamStrategy {
    * Defaults to `true` when omitted (backward-compatible).
    */
   needsMetapromptPlan?: boolean;
+
+  /**
+   * Whether this strategy's system prompt instructs the attacker to emit
+   * structured JSON output (`observation` / `strategy` / `reply`).
+   *
+   * GOAT does this per Meta's paper (ICML 2025); Crescendo does not. When
+   * `true`, the orchestrator runs the JSON parser on the attacker's response
+   * and emits reasoning-field telemetry. When `false`, the raw attacker
+   * response is used as-is with no parsing.
+   *
+   * Defaults to `false` when omitted (backward-compatible).
+   */
+  emitsStructuredOutput?: boolean;
 }

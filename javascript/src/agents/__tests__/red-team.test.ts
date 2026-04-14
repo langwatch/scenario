@@ -952,7 +952,7 @@ describe("parseAttackerOutput", () => {
 // JSON output contract is embedded in both strategy prompts
 // ---------------------------------------------------------------------------
 
-describe("JSON output contract is embedded in strategy prompts", () => {
+describe("JSON output contract is GOAT-only", () => {
   it("GoatStrategy system prompt contains the OUTPUT FORMAT section", () => {
     const prompt = new GoatStrategy().buildSystemPrompt({
       target: "x",
@@ -967,7 +967,7 @@ describe("JSON output contract is embedded in strategy prompts", () => {
     expect(prompt).toContain("reply");
   });
 
-  it("CrescendoStrategy system prompt contains the OUTPUT FORMAT section", () => {
+  it("CrescendoStrategy system prompt does NOT contain the OUTPUT FORMAT section", () => {
     const prompt = new CrescendoStrategy().buildSystemPrompt({
       target: "x",
       currentTurn: 1,
@@ -975,10 +975,13 @@ describe("JSON output contract is embedded in strategy prompts", () => {
       scenarioDescription: "d",
       metapromptPlan: "p",
     });
-    expect(prompt).toContain("OUTPUT FORMAT");
-    expect(prompt).toContain("observation");
-    expect(prompt).toContain("strategy");
-    expect(prompt).toContain("reply");
+    expect(prompt).not.toContain("OUTPUT FORMAT");
+  });
+
+  it("emitsStructuredOutput flag is true for GOAT, falsy for Crescendo", () => {
+    expect(new GoatStrategy().emitsStructuredOutput).toBe(true);
+    // Crescendo doesn't set the field (default falsy per the interface).
+    expect(new CrescendoStrategy().emitsStructuredOutput).toBeUndefined();
   });
 });
 

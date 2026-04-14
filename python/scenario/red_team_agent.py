@@ -930,29 +930,35 @@ Reply with exactly this JSON and nothing else:
                 self._attacker_history[0] = {"role": "system", "content": system_prompt}
 
             # Call attacker LLM directly (no inner agent wrapper).
-            # The attacker is instructed to emit JSON with observation /
-            # strategy / reply (see JSON_OUTPUT_CONTRACT in _red_team/base.py).
             raw_attack = await self._call_attacker_llm()
-            reply, observation, strategy = self._parse_attacker_output(raw_attack)
-            parse_failed = not observation and not strategy and reply == raw_attack
 
-            # Keep the raw JSON output in H_attacker so the attacker sees
-            # its own format on subsequent turns (consistent with the system
-            # prompt's directive to emit JSON). The target never sees this —
-            # only `reply` goes out.
+            # If the strategy instructs the attacker to emit structured JSON
+            # (GOAT — see JSON_OUTPUT_CONTRACT in _red_team/base.py), parse
+            # it out and emit reasoning telemetry. Otherwise use the raw
+            # output as the reply with no parsing.
+            if self._strategy.emits_structured_output:
+                reply, observation, strategy = self._parse_attacker_output(raw_attack)
+                parse_failed = not observation and not strategy and reply == raw_attack
+                span.set_attribute("red_team.reasoning.observation", observation[:500])
+                span.set_attribute("red_team.reasoning.strategy", strategy[:500])
+                span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
+                if parse_failed:
+                    logger.warning(
+                        "RedTeamAgent turn %d: attacker output was not valid JSON; "
+                        "using full response as reply. Raw (first 200 chars): %r",
+                        current_turn, raw_attack[:200],
+                    )
+            else:
+                reply = raw_attack
+                observation = ""
+                strategy = ""
+                parse_failed = False
+
+            # Keep the raw output in H_attacker so the attacker sees its
+            # own format on subsequent turns (consistent with whatever the
+            # system prompt asked for — JSON for GOAT, free text for
+            # Crescendo). The target never sees this — only `reply` goes out.
             self._attacker_history.append({"role": "assistant", "content": raw_attack})
-
-            # Emit telemetry so dashboards can answer "which technique works
-            # against which target?" — the paper's core selling point.
-            span.set_attribute("red_team.reasoning.observation", observation[:500])
-            span.set_attribute("red_team.reasoning.strategy", strategy[:500])
-            span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
-            if parse_failed:
-                logger.warning(
-                    "RedTeamAgent turn %d: attacker output was not valid JSON; "
-                    "using full response as reply. Raw (first 200 chars): %r",
-                    current_turn, raw_attack[:200],
-                )
 
             # Single-turn injection: randomly augment with encoding technique.
             # Only the TARGET sees the encoded version (via H_target / return

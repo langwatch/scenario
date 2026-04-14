@@ -512,25 +512,37 @@ Reply with exactly this JSON and nothing else:
     }
 
     // Call attacker LLM directly (no inner agent wrapper).
-    // The attacker is instructed to emit JSON with observation / strategy /
-    // reply (see JSON_OUTPUT_CONTRACT in red-team-strategy.ts).
     const rawAttack = await this.callAttackerLLM();
-    const { reply, observation, strategy, parseFailed } =
-      parseAttackerOutput(rawAttack);
 
-    // Keep the raw JSON output in H_attacker so the attacker sees its own
-    // format on subsequent turns (consistent with the system prompt's
-    // directive to emit JSON). The target never sees this — only `reply`
-    // goes out.
-    this.attackerHistory.push({ role: "assistant", content: rawAttack });
-
-    if (parseFailed) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[RedTeamAgent] turn ${currentTurn}: attacker output was not valid JSON; ` +
-          `using full response as reply. Raw (first 200 chars): ${rawAttack.slice(0, 200)}`
-      );
+    // If the strategy instructs the attacker to emit structured JSON
+    // (GOAT — see JSON_OUTPUT_CONTRACT in red-team-strategy.ts), parse
+    // it out. Otherwise (Crescendo) use the raw output as the reply
+    // with no parsing.
+    let reply: string;
+    let observation = "";
+    let strategy = "";
+    let parseFailed = false;
+    if (this.strategy.emitsStructuredOutput === true) {
+      const parsed = parseAttackerOutput(rawAttack);
+      reply = parsed.reply;
+      observation = parsed.observation;
+      strategy = parsed.strategy;
+      parseFailed = parsed.parseFailed;
+      if (parseFailed) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[RedTeamAgent] turn ${currentTurn}: attacker output was not valid JSON; ` +
+            `using full response as reply. Raw (first 200 chars): ${rawAttack.slice(0, 200)}`
+        );
+      }
+    } else {
+      reply = rawAttack;
     }
+
+    // Keep the raw output in H_attacker so the attacker sees its own
+    // format on subsequent turns (JSON for GOAT, free text for Crescendo).
+    // The target never sees this — only `reply` goes out.
+    this.attackerHistory.push({ role: "assistant", content: rawAttack });
 
     // Single-turn injection: randomly augment with encoding technique.
     // Only the TARGET sees the encoded version (via H_target / return

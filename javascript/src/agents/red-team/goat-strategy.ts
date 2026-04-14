@@ -43,6 +43,9 @@ export class GoatStrategy implements RedTeamStrategy {
   // Paper fidelity: GOAT does not pre-generate an attack plan.
   readonly needsMetapromptPlan = false;
 
+  // Paper fidelity: GOAT attacker emits observation/strategy/reply JSON.
+  readonly emitsStructuredOutput = true;
+
   getPhaseName(currentTurn: number, totalTurns: number): string {
     const progress = currentTurn / Math.max(totalTurns, 1);
     if (progress < 0.30) return "early";

@@ -83,6 +83,11 @@ class GoatStrategy(RedTeamStrategy):
         # carry all the signal the attacker needs.
         return False
 
+    @property
+    def emits_structured_output(self) -> bool:
+        # GOAT attacker emits observation/strategy/reply JSON per the paper.
+        return True
+
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
         """Return a coarse progress label for observability.
 

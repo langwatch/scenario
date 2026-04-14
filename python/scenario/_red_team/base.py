@@ -85,6 +85,20 @@ class RedTeamStrategy(ABC):
         """
         return True
 
+    @property
+    def emits_structured_output(self) -> bool:
+        """Whether this strategy's system prompt instructs the attacker to
+        emit structured JSON output (``observation`` / ``strategy`` / ``reply``).
+
+        GOAT does this per Meta's paper (ICML 2025); Crescendo does not.
+        When ``True``, the orchestrator runs the JSON parser on the attacker's
+        response and emits reasoning-field telemetry. When ``False``, the raw
+        attacker response is used as-is with no parsing.
+
+        Default ``False`` for backward compatibility.
+        """
+        return False
+
     @abstractmethod
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
         """Return the name of the current phase for a given turn.
