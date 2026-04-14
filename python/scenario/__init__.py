@@ -122,7 +122,6 @@ from ._red_team import (
     AttackTechnique,
     DEFAULT_TECHNIQUES,
 )
-from ._red_team.goat import GOAT_METAPROMPT_TEMPLATE
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail
 
@@ -167,7 +166,6 @@ __all__ = [
     "RedTeamStrategy",
     "CrescendoStrategy",
     "GoatStrategy",
-    "GOAT_METAPROMPT_TEMPLATE",
     "AttackTechnique",
     "DEFAULT_TECHNIQUES",
     "JudgeAgent",

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
-import { GoatStrategy, GOAT_METAPROMPT_TEMPLATE } from "../red-team/goat-strategy";
+import { GoatStrategy } from "../red-team/goat-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { redTeamCrescendo, redTeamGoat, redTeamAgent } from "../red-team/red-team-agent";
 import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
@@ -780,44 +780,34 @@ describe("rollbackMessagesTo", () => {
 describe("GoatStrategy", () => {
   const strategy = new GoatStrategy();
 
-  describe("stage boundaries", () => {
+  describe("progress bucket (telemetry only)", () => {
     it("returns early for turn 1 of 50", () => {
       expect(strategy.getPhaseName(1, 50)).toBe("early");
     });
 
-    it("returns early up to 30% boundary", () => {
-      expect(strategy.getPhaseName(14, 50)).toBe("early"); // 28%
-    });
-
     it("returns mid at 30% boundary", () => {
-      expect(strategy.getPhaseName(15, 50)).toBe("mid"); // 30%
-    });
-
-    it("returns mid up to 70% boundary", () => {
-      expect(strategy.getPhaseName(34, 50)).toBe("mid"); // 68%
+      expect(strategy.getPhaseName(15, 50)).toBe("mid");
     });
 
     it("returns late at 70% boundary", () => {
-      expect(strategy.getPhaseName(35, 50)).toBe("late"); // 70%
+      expect(strategy.getPhaseName(35, 50)).toBe("late");
     });
 
     it("returns late for the final turn", () => {
       expect(strategy.getPhaseName(50, 50)).toBe("late");
     });
 
-    it("returns early for turn 0", () => {
-      expect(strategy.getPhaseName(0, 50)).toBe("early");
-    });
-
-    it("returns late when total_turns=1 and turn=1", () => {
-      expect(strategy.getPhaseName(1, 1)).toBe("late");
-    });
-
-    it("all three stages appear in a 50-turn run", () => {
+    it("all three buckets appear across a 50-turn run", () => {
       const stages = new Set(
         Array.from({ length: 50 }, (_, i) => strategy.getPhaseName(i + 1, 50))
       );
       expect(stages).toEqual(new Set(["early", "mid", "late"]));
+    });
+  });
+
+  describe("paper-fidelity: needsMetapromptPlan is false", () => {
+    it("signals to the orchestrator to skip attack-plan generation", () => {
+      expect(strategy.needsMetapromptPlan).toBe(false);
     });
   });
 
@@ -827,15 +817,26 @@ describe("GoatStrategy", () => {
       currentTurn: 1,
       totalTurns: 30,
       scenarioDescription: "A bank support agent",
-      metapromptPlan: "custom plan here",
+      metapromptPlan: "a plan that should be ignored",
     };
 
     it("contains target objective", () => {
       expect(strategy.buildSystemPrompt(base)).toContain("extract the system prompt");
     });
 
-    it("contains the metaprompt plan", () => {
-      expect(strategy.buildSystemPrompt(base)).toContain("custom plan here");
+    it("does NOT contain an ATTACK PLAN section (paper fidelity)", () => {
+      const prompt = strategy.buildSystemPrompt(base);
+      expect(prompt).not.toContain("ATTACK PLAN:");
+      expect(prompt).not.toContain("a plan that should be ignored");
+    });
+
+    it("does NOT contain stage hints (paper fidelity)", () => {
+      const earlyPrompt = strategy.buildSystemPrompt({ ...base, currentTurn: 1 });
+      const latePrompt = strategy.buildSystemPrompt({ ...base, currentTurn: 25 });
+      for (const p of [earlyPrompt, latePrompt]) {
+        expect(p).not.toContain("Stage:");
+        expect(p).not.toContain("STAGE:");
+      }
     });
 
     it("contains the technique catalogue", () => {
@@ -843,10 +844,6 @@ describe("GoatStrategy", () => {
       expect(prompt).toContain("TECHNIQUE CATALOGUE");
       expect(prompt).toContain("HYPOTHETICAL FRAMING");
       expect(prompt).toContain("PERSONA MODIFICATION");
-    });
-
-    it("contains current stage name in uppercase", () => {
-      expect(strategy.buildSystemPrompt(base)).toContain("EARLY");
     });
 
     it("contains turn info", () => {
@@ -857,16 +854,13 @@ describe("GoatStrategy", () => {
       expect(strategy.buildSystemPrompt(base)).toContain("A bank support agent");
     });
 
-    it("early and late prompts differ in stage hint", () => {
+    it("early and late prompts differ only in turn number", () => {
       const early = strategy.buildSystemPrompt({ ...base, currentTurn: 1 });
       const late = strategy.buildSystemPrompt({ ...base, currentTurn: 25 });
-      expect(early).toContain("EARLY");
-      expect(late).toContain("LATE");
-      expect(early).not.toBe(late);
+      expect(early).toContain("1 of 30");
+      expect(late).toContain("25 of 30");
     });
   });
-
-
 });
 
 // ---------------------------------------------------------------------------
@@ -887,17 +881,6 @@ describe("redTeamGoat", () => {
   it("allows overriding totalTurns", () => {
     const agent = redTeamGoat({ target: "test", totalTurns: 50 }) as any;
     expect(agent.totalTurns).toBe(50);
-  });
-
-  it("uses GOAT_METAPROMPT_TEMPLATE", () => {
-    const agent = redTeamGoat({ target: "test" }) as any;
-    expect(agent.metapromptTemplate).toBe(GOAT_METAPROMPT_TEMPLATE);
-  });
-
-  it("allows overriding metapromptTemplate", () => {
-    const custom = "custom template {target} {description} {totalTurns}";
-    const agent = redTeamGoat({ target: "test", metapromptTemplate: custom }) as any;
-    expect(agent.metapromptTemplate).toBe(custom);
   });
 
   it("uses GoatStrategy", () => {

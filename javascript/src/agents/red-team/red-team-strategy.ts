@@ -30,4 +30,17 @@ export interface RedTeamStrategy {
    * the orchestrator treats `undefined` as "no extra vars".
    */
   phaseEnds?(totalTurns: number): [number, number, number] | undefined;
+
+  /**
+   * Whether this strategy needs a pre-generated attack plan via the
+   * metaprompt LLM call.
+   *
+   * Crescendo-style staged strategies depend on one; GOAT (paper fidelity)
+   * does not — the attacker reasons turn-by-turn from catalogue + history.
+   * When `false`, the orchestrator skips `_generateAttackPlan` and passes
+   * an empty string as `metapromptPlan` to `buildSystemPrompt`.
+   *
+   * Defaults to `true` when omitted (backward-compatible).
+   */
+  needsMetapromptPlan?: boolean;
 }

@@ -20,7 +20,7 @@ from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 from scenario._red_team.base import RedTeamStrategy
 from scenario._red_team.crescendo import CrescendoStrategy
-from scenario._red_team.goat import GoatStrategy, GOAT_METAPROMPT_TEMPLATE
+from scenario._red_team.goat import GoatStrategy
 from scenario._red_team.techniques import AttackTechnique, DEFAULT_TECHNIQUES
 from scenario.script import user, agent, judge
 from scenario._utils.utils import await_if_awaitable
@@ -323,16 +323,15 @@ class RedTeamAgent(AgentAdapter):
         exploit weaknesses immediately without waiting for phase transitions.
         Use ``.crescendo()`` when you want structured gradual escalation.
 
-        .. note::
-            Create a fresh agent per ``scenario.run()`` call. The attack plan
-            is generated from the first run's ``description`` and cached on
-            the instance — reusing the agent across scenarios with different
-            descriptions silently uses the original (now-stale) plan.
+        Paper fidelity: no pre-generated attack plan (the metaprompt LLM call
+        is skipped for GOAT), no stage hints in the system prompt. Adaptation
+        is driven entirely by the score/hint feedback in the attacker's
+        private conversation history.
 
         .. warning::
             ``injection_probability`` is supported for parity with ``crescendo()``
-            but is not recommended for GOAT runs. The GOAT metaprompt already
-            instructs the attacker LLM to use encoding techniques when
+            but is not recommended for GOAT runs. The attacker LLM already
+            knows to use encoding techniques from its catalogue when
             appropriate; layering post-hoc encoding on top causes the attacker's
             private history to diverge from what the target actually saw.
             Leave at the default 0.0 unless you understand the trade-off.
@@ -353,12 +352,10 @@ class RedTeamAgent(AgentAdapter):
         Returns:
             A configured ``RedTeamAgent`` instance.
         """
-        # Use the GOAT template unless the caller explicitly provided a non-None one.
-        # `setdefault` would leave an explicit `metaprompt_template=None` in place,
-        # which then falls back to the Crescendo default in `__init__` and dies with
-        # a KeyError on first turn (Crescendo template has {phase1_end} placeholders).
-        if kwargs.get("metaprompt_template") is None:
-            kwargs["metaprompt_template"] = GOAT_METAPROMPT_TEMPLATE
+        # GOAT never generates an attack plan (see GoatStrategy.needs_metaprompt_plan),
+        # so `metaprompt_template` is irrelevant for this strategy. The constructor
+        # stores whatever the user passed (or the module-level Crescendo default)
+        # but it's never rendered.
         return cls(
             strategy=GoatStrategy(),
             target=target,
@@ -755,8 +752,14 @@ Reply with exactly this JSON and nothing else:
                 "red_team.target": self.target,
             },
         ) as span:
-            # Generate attack plan on first call (cached for all subsequent turns)
-            attack_plan = await self._generate_attack_plan(description)
+            # Generate attack plan on first call (cached for all subsequent turns).
+            # Strategies that don't need one (e.g. GOAT — paper fidelity) skip this
+            # entirely, saving one LLM call on turn 1 and eliminating the
+            # description-keyed stale-plan bug.
+            if self._strategy.needs_metaprompt_plan:
+                attack_plan = await self._generate_attack_plan(description)
+            else:
+                attack_plan = ""
 
             # ----------------------------------------------------------
             # Backtrack on hard refusal: prune H_target IN-PLACE so the

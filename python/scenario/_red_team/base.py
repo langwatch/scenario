@@ -47,6 +47,22 @@ class RedTeamStrategy(ABC):
         """
         return {}
 
+    @property
+    def needs_metaprompt_plan(self) -> bool:
+        """Whether this strategy needs a pre-generated attack plan.
+
+        Crescendo and similar staged strategies depend on a plan tailored to
+        the target via the metaprompt LLM call.  Strategies that reason
+        per-turn from their catalogue (GOAT) don't — the plan is redundant
+        context and costs an extra LLM call on the first turn.
+
+        When ``False``, the orchestrator skips ``_generate_attack_plan`` and
+        passes an empty string as ``metaprompt_plan`` to ``build_system_prompt``.
+
+        Default ``True`` for backward compatibility.
+        """
+        return True
+
     @abstractmethod
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
         """Return the name of the current phase for a given turn.

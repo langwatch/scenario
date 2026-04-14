@@ -2,7 +2,7 @@ import { generateText, LanguageModel } from "ai";
 
 import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { CrescendoStrategy } from "./crescendo-strategy";
-import { GoatStrategy, GOAT_METAPROMPT_TEMPLATE } from "./goat-strategy";
+import { GoatStrategy } from "./goat-strategy";
 import {
   DEFAULT_METAPROMPT_TEMPLATE,
   renderMetapromptTemplate,
@@ -46,11 +46,10 @@ export type CrescendoConfig = Omit<RedTeamAgentConfig, "strategy">;
 
 /** Configuration for {@link redTeamGoat}.
  *
- *  Inherits all options from {@link CrescendoConfig} (model, totalTurns,
- *  metapromptTemplate, scoreResponses, successScore, etc.).
- *  The `redTeamGoat` factory sets `totalTurns` to **30** by default (override
- *  via `totalTurns`) and uses {@link GOAT_METAPROMPT_TEMPLATE} by default
- *  (override via `metapromptTemplate`).
+ *  Inherits all options from {@link CrescendoConfig}.
+ *  The `redTeamGoat` factory sets `totalTurns` to **30** by default.
+ *  `metapromptTemplate` is accepted but ignored — GOAT does not pre-generate
+ *  an attack plan (paper fidelity; see {@link GoatStrategy.needsMetapromptPlan}).
  *
  *  Reserved for future GOAT-specific fields. */
 export interface GoatConfig extends CrescendoConfig {}
@@ -391,8 +390,11 @@ Reply with exactly this JSON and nothing else:
     }
     const description = input.scenarioConfig.description;
 
-    // Generate attack plan on first call (cached for all subsequent turns)
-    const attackPlan = await this.getAttackPlan(description);
+    // Generate attack plan on first call (cached for all subsequent turns).
+    // Strategies that don't need one (e.g. GOAT — paper fidelity) skip this
+    // entirely, saving one LLM call on turn 1.
+    const needsPlan = this.strategy.needsMetapromptPlan ?? true;
+    const attackPlan = needsPlan ? await this.getAttackPlan(description) : "";
 
     // ----------------------------------------------------------
     // Backtrack on hard refusal: prune H_target in-place so the
@@ -591,18 +593,18 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * Use this when you want maximum adaptability. Use `redTeamCrescendo`
  * when you want structured gradual escalation.
  *
- * @remarks
- * Create a fresh agent per `scenario.run()` call. The attack plan is
- * generated from the first run's `description` and cached on the instance —
- * reusing the agent across scenarios with different descriptions silently
- * uses the original (now-stale) plan.
+ * Paper fidelity: no pre-generated attack plan (the metaprompt LLM call is
+ * skipped for GOAT), no stage hints in the system prompt. Adaptation is
+ * driven entirely by the score/hint feedback in the attacker's private
+ * conversation history.
  *
+ * @remarks
  * `injectionProbability` is supported for parity with `redTeamCrescendo`
- * but is not recommended for GOAT runs. The GOAT metaprompt already
- * instructs the attacker LLM to use encoding techniques when appropriate;
- * layering post-hoc encoding on top causes the attacker's private history
- * to diverge from what the target actually saw. Leave at the default 0.0
- * unless you understand the trade-off.
+ * but is not recommended for GOAT runs. The attacker LLM already knows to
+ * use encoding techniques from its catalogue when appropriate; layering
+ * post-hoc encoding on top causes the attacker's private history to diverge
+ * from what the target actually saw. Leave at the default 0.0 unless you
+ * understand the trade-off.
  *
  * @example
  * ```ts
@@ -614,16 +616,12 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * ```
  */
 export const redTeamGoat = (config: GoatConfig) => {
-  // Spread config first, then force the GOAT-specific defaults *after*.
-  // If we put GOAT_METAPROMPT_TEMPLATE before `...config`, an explicit
-  // `metapromptTemplate: undefined` from the caller would clobber it,
-  // and the constructor would fall back to the Crescendo default
-  // (DEFAULT_METAPROMPT_TEMPLATE), which has {phase1End} placeholders
-  // and dies at first attack-plan render.
+  // GOAT never renders a metaprompt template (`needsMetapromptPlan === false`).
+  // Whatever `metapromptTemplate` the caller passes (or the constructor's
+  // default) is stored but never used. No template setup needed here.
   return new RedTeamAgentImpl({
     totalTurns: 30,
     ...config,
     strategy: new GoatStrategy(),
-    metapromptTemplate: config.metapromptTemplate ?? GOAT_METAPROMPT_TEMPLATE,
   });
 };
