@@ -32,21 +32,6 @@ class RedTeamStrategy(ABC):
         """
         raise NotImplementedError
 
-    def template_variables(self, total_turns: int) -> dict:
-        """Return extra variables to inject into the metaprompt template.
-
-        Override this to inject strategy-specific placeholders (e.g. phase
-        boundary turn numbers for Crescendo). The default returns an empty
-        dict so strategies that don't need extra vars require no change.
-
-        Args:
-            total_turns: Total turns in the conversation.
-
-        Returns:
-            Dict of variable name → value to merge into the template format call.
-        """
-        return {}
-
     @abstractmethod
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
         """Return the name of the current phase for a given turn.
@@ -58,8 +43,6 @@ class RedTeamStrategy(ABC):
             total_turns: Total turns in the conversation.
 
         Returns:
-            Strategy-defined phase/stage name string used for logging and
-            observability (e.g. ``"warmup"`` / ``"direct"`` for Crescendo,
-            ``"early"`` / ``"late"`` for GOAT).
+            Phase name string (e.g. "warmup", "probing", "escalation", "direct").
         """
         raise NotImplementedError

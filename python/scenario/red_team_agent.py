@@ -19,8 +19,7 @@ from litellm.files.main import ModelResponse
 from scenario.agent_adapter import AgentAdapter
 from scenario.config import ModelConfig, ScenarioConfig
 from scenario._red_team.base import RedTeamStrategy
-from scenario._red_team.crescendo import CrescendoStrategy
-from scenario._red_team.goat import GoatStrategy, GOAT_METAPROMPT_TEMPLATE
+from scenario._red_team.crescendo import CrescendoStrategy, _PHASES
 from scenario._red_team.techniques import AttackTechnique, DEFAULT_TECHNIQUES
 from scenario.script import user, agent, judge
 from scenario._utils.utils import await_if_awaitable
@@ -194,7 +193,7 @@ class RedTeamAgent(AgentAdapter):
         self._strategy = strategy
         self.target = target
         self.total_turns = total_turns
-        self._metaprompt_template = metaprompt_template if metaprompt_template is not None else _DEFAULT_METAPROMPT_TEMPLATE
+        self._metaprompt_template = metaprompt_template or _DEFAULT_METAPROMPT_TEMPLATE
         self._attack_plan: Optional[str] = attack_plan
         self._attack_plan_lock = asyncio.Lock()
         self.score_responses = score_responses
@@ -269,12 +268,6 @@ class RedTeamAgent(AgentAdapter):
 
         Convenience factory that pre-selects ``CrescendoStrategy``.
 
-        .. note::
-            Create a fresh agent per ``scenario.run()`` call. The attack plan
-            is generated from the first run's ``description`` and cached on
-            the instance — reusing the agent across scenarios with different
-            descriptions silently uses the original (now-stale) plan.
-
         Args:
             target: The attack objective.
             total_turns: Number of turns for the marathon (default 30).
@@ -292,75 +285,6 @@ class RedTeamAgent(AgentAdapter):
         """
         return cls(
             strategy=CrescendoStrategy(),
-            target=target,
-            total_turns=total_turns,
-            success_score=success_score,
-            success_confirm_turns=success_confirm_turns,
-            injection_probability=injection_probability,
-            techniques=techniques,
-            **kwargs,
-        )
-
-    @classmethod
-    def goat(
-        cls,
-        *,
-        target: str,
-        total_turns: int = 30,
-        success_score: Optional[int] = 9,
-        success_confirm_turns: int = 2,
-        injection_probability: float = 0.0,
-        techniques: Optional[Sequence[AttackTechnique]] = None,
-        **kwargs,
-    ) -> "RedTeamAgent":
-        """Create a RedTeamAgent with the GOAT dynamic technique selection strategy.
-
-        Based on Meta's GOAT paper (ICML 2025, 97% ASR).  The attacker LLM
-        freely chooses from a 7-technique catalogue each turn instead of
-        following fixed escalation phases.
-
-        Use this when you want maximum adaptability — the attacker can
-        exploit weaknesses immediately without waiting for phase transitions.
-        Use ``.crescendo()`` when you want structured gradual escalation.
-
-        .. note::
-            Create a fresh agent per ``scenario.run()`` call. The attack plan
-            is generated from the first run's ``description`` and cached on
-            the instance — reusing the agent across scenarios with different
-            descriptions silently uses the original (now-stale) plan.
-
-        .. warning::
-            ``injection_probability`` is supported for parity with ``crescendo()``
-            but is not recommended for GOAT runs. The GOAT metaprompt already
-            instructs the attacker LLM to use encoding techniques when
-            appropriate; layering post-hoc encoding on top causes the attacker's
-            private history to diverge from what the target actually saw.
-            Leave at the default 0.0 unless you understand the trade-off.
-
-        Args:
-            target: The attack objective.
-            total_turns: Number of turns (default 30).
-            success_score: Score threshold (0-10) for early exit. Default 9.
-                Set to ``None`` to disable.
-            success_confirm_turns: Consecutive turns >= threshold. Default 2.
-            injection_probability: Probability (0.0-1.0) of applying a random
-                encoding technique to each attack message. Default 0.0 (off).
-                See warning above before enabling for GOAT.
-            techniques: List of ``AttackTechnique`` instances to sample from.
-                Defaults to all built-in techniques.
-            **kwargs: All other arguments forwarded to ``RedTeamAgent.__init__``.
-
-        Returns:
-            A configured ``RedTeamAgent`` instance.
-        """
-        # Use the GOAT template unless the caller explicitly provided a non-None one.
-        # `setdefault` would leave an explicit `metaprompt_template=None` in place,
-        # which then falls back to the Crescendo default in `__init__` and dies with
-        # a KeyError on first turn (Crescendo template has {phase1_end} placeholders).
-        if kwargs.get("metaprompt_template") is None:
-            kwargs["metaprompt_template"] = GOAT_METAPROMPT_TEMPLATE
-        return cls(
-            strategy=GoatStrategy(),
             target=target,
             total_turns=total_turns,
             success_score=success_score,
@@ -481,25 +405,17 @@ class RedTeamAgent(AgentAdapter):
                 },
             ):
                 t = self.total_turns
-                # Build template variables — phase boundaries are only
-                # relevant for the Crescendo metaprompt template.
-                template_vars: dict = {
-                    "target": self.target,
-                    "description": description,
-                    "total_turns": t,
-                    **self._strategy.template_variables(t),
-                }
-                try:
-                    prompt = self._metaprompt_template.format(**template_vars)
-                except KeyError as e:
-                    raise ValueError(
-                        f"Metaprompt template contains placeholder {e} which is not "
-                        f"provided by this strategy. Available variables: "
-                        f"{list(template_vars.keys())}. "
-                        f"If you passed a Crescendo template to a GOAT agent (or vice "
-                        f"versa), use the matching template or omit metaprompt_template "
-                        f"to use the strategy default."
-                    ) from e
+                # Compute phase boundaries from the strategy's phase definitions
+                # so the metaprompt stays in sync with actual phase transitions.
+                phase_ends = [max(1, int(p[1] * t)) for p in _PHASES[:3]]
+                prompt = self._metaprompt_template.format(
+                    target=self.target,
+                    description=description,
+                    total_turns=t,
+                    phase1_end=phase_ends[0],
+                    phase2_end=phase_ends[1],
+                    phase3_end=phase_ends[2],
+                )
 
                 response = cast(
                     ModelResponse,

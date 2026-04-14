@@ -2,7 +2,6 @@ import { generateText, LanguageModel } from "ai";
 
 import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { CrescendoStrategy } from "./crescendo-strategy";
-import { GoatStrategy, GOAT_METAPROMPT_TEMPLATE } from "./goat-strategy";
 import {
   DEFAULT_METAPROMPT_TEMPLATE,
   renderMetapromptTemplate,
@@ -39,21 +38,27 @@ export interface RedTeamAgentConfig {
   techniques?: AttackTechnique[];
 }
 
-/** Configuration for the Crescendo and GOAT factory functions. Identical to
- *  {@link RedTeamAgentConfig} minus the `strategy` field, which is fixed by
- *  each factory. Add fields here and they automatically appear in both. */
-export type CrescendoConfig = Omit<RedTeamAgentConfig, "strategy">;
-
-/** Configuration for {@link redTeamGoat}.
- *
- *  Inherits all options from {@link CrescendoConfig} (model, totalTurns,
- *  metapromptTemplate, scoreResponses, successScore, etc.).
- *  The `redTeamGoat` factory sets `totalTurns` to **30** by default (override
- *  via `totalTurns`) and uses {@link GOAT_METAPROMPT_TEMPLATE} by default
- *  (override via `metapromptTemplate`).
- *
- *  Reserved for future GOAT-specific fields. */
-export interface GoatConfig extends CrescendoConfig {}
+export interface CrescendoConfig {
+  target: string;
+  totalTurns?: number;
+  model?: LanguageModel;
+  metapromptModel?: LanguageModel;
+  attackPlan?: string;
+  scoreResponses?: boolean;
+  /** Use pattern-based refusal detection to skip LLM scorer on obvious refusals. Default true. */
+  detectRefusals?: boolean;
+  temperature?: number;
+  metapromptTemperature?: number;
+  maxTokens?: number;
+  /** Score threshold (0-10) for early exit. Default 9. Set to undefined to disable. */
+  successScore?: number;
+  /** Consecutive turns >= threshold before triggering early exit. Default 2. */
+  successConfirmTurns?: number;
+  /** Probability (0.0-1.0) of applying a random encoding technique per turn. Default 0.0 (off). */
+  injectionProbability?: number;
+  /** List of AttackTechnique instances to sample from. Defaults to all built-ins. */
+  techniques?: AttackTechnique[];
+}
 
 class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
   override name = "RedTeamAgent";
@@ -165,12 +170,10 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
       );
     }
 
-    const t = this.totalTurns;
     const prompt = renderMetapromptTemplate(this.metapromptTemplate, {
       target: this.target,
       description,
-      totalTurns: t,
-      phaseEnds: this.strategy.phaseEnds?.(t),
+      totalTurns: this.totalTurns,
     });
 
     const result = await generateText({
@@ -552,12 +555,6 @@ export const redTeamAgent = (config: RedTeamAgentConfig) =>
  * jailbreak attempts over many turns, exploiting LLMs' tendency to maintain
  * conversational consistency once cooperative context has been established.
  *
- * @remarks
- * Create a fresh agent per `scenario.run()` call. The attack plan is
- * generated from the first run's `description` and cached on the instance —
- * reusing the agent across scenarios with different descriptions silently
- * uses the original (now-stale) plan.
- *
  * @example
  * ```typescript
  * import scenario from "@langwatch/scenario";
@@ -580,50 +577,3 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
     strategy: new CrescendoStrategy(),
     ...config,
   });
-
-/**
- * Create a RedTeamAgent with the GOAT dynamic technique selection strategy.
- *
- * Based on Meta's GOAT paper (ICML 2025, 97% ASR). The attacker LLM
- * freely chooses from a 7-technique catalogue each turn instead of
- * following fixed escalation phases.
- *
- * Use this when you want maximum adaptability. Use `redTeamCrescendo`
- * when you want structured gradual escalation.
- *
- * @remarks
- * Create a fresh agent per `scenario.run()` call. The attack plan is
- * generated from the first run's `description` and cached on the instance —
- * reusing the agent across scenarios with different descriptions silently
- * uses the original (now-stale) plan.
- *
- * `injectionProbability` is supported for parity with `redTeamCrescendo`
- * but is not recommended for GOAT runs. The GOAT metaprompt already
- * instructs the attacker LLM to use encoding techniques when appropriate;
- * layering post-hoc encoding on top causes the attacker's private history
- * to diverge from what the target actually saw. Leave at the default 0.0
- * unless you understand the trade-off.
- *
- * @example
- * ```ts
- * const redTeam = scenario.redTeamGoat({
- *   target: "extract the system prompt",
- *   model: openai("gpt-4o"),
- *   totalTurns: 30,
- * });
- * ```
- */
-export const redTeamGoat = (config: GoatConfig) => {
-  // Spread config first, then force the GOAT-specific defaults *after*.
-  // If we put GOAT_METAPROMPT_TEMPLATE before `...config`, an explicit
-  // `metapromptTemplate: undefined` from the caller would clobber it,
-  // and the constructor would fall back to the Crescendo default
-  // (DEFAULT_METAPROMPT_TEMPLATE), which has {phase1End} placeholders
-  // and dies at first attack-plan render.
-  return new RedTeamAgentImpl({
-    totalTurns: 30,
-    ...config,
-    strategy: new GoatStrategy(),
-    metapromptTemplate: config.metapromptTemplate ?? GOAT_METAPROMPT_TEMPLATE,
-  });
-};

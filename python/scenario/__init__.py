@@ -115,14 +115,7 @@ from .agent_adapter import AgentAdapter
 from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
-from ._red_team import (
-    RedTeamStrategy,
-    CrescendoStrategy,
-    GoatStrategy,
-    AttackTechnique,
-    DEFAULT_TECHNIQUES,
-)
-from ._red_team.goat import GOAT_METAPROMPT_TEMPLATE
+from ._red_team import RedTeamStrategy, CrescendoStrategy, AttackTechnique, DEFAULT_TECHNIQUES
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail
 
@@ -166,8 +159,6 @@ __all__ = [
     "RedTeamAgent",
     "RedTeamStrategy",
     "CrescendoStrategy",
-    "GoatStrategy",
-    "GOAT_METAPROMPT_TEMPLATE",
     "AttackTechnique",
     "DEFAULT_TECHNIQUES",
     "JudgeAgent",

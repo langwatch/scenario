@@ -50,27 +50,14 @@ Generic advice is useless — make every example message realistic and targeted.
 
 export function renderMetapromptTemplate(
   template: string,
-  params: {
-    target: string;
-    description: string;
-    totalTurns: number;
-    /** Phase boundary turn numbers — only provided for Crescendo-style templates. */
-    phaseEnds?: [number, number, number];
-  }
+  params: { target: string; description: string; totalTurns: number }
 ): string {
   const t = params.totalTurns;
-  let result = template
+  return template
     .replace(/\{target\}/g, params.target)
     .replace(/\{description\}/g, params.description)
-    .replace(/\{totalTurns\}/g, String(t));
-
-  if (params.phaseEnds) {
-    const [p1, p2, p3] = params.phaseEnds;
-    result = result
-      .replace(/\{phase1End\}/g, String(p1))
-      .replace(/\{phase2End\}/g, String(p2))
-      .replace(/\{phase3End\}/g, String(p3));
-  }
-
-  return result;
+    .replace(/\{totalTurns\}/g, String(t))
+    .replace(/\{phase1End\}/g, String(Math.max(1, Math.floor(0.2 * t))))
+    .replace(/\{phase2End\}/g, String(Math.max(1, Math.floor(0.45 * t))))
+    .replace(/\{phase3End\}/g, String(Math.max(1, Math.floor(0.75 * t))));
 }
