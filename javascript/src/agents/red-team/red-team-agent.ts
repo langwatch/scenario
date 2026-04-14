@@ -552,6 +552,12 @@ export const redTeamAgent = (config: RedTeamAgentConfig) =>
  * jailbreak attempts over many turns, exploiting LLMs' tendency to maintain
  * conversational consistency once cooperative context has been established.
  *
+ * @remarks
+ * Create a fresh agent per `scenario.run()` call. The attack plan is
+ * generated from the first run's `description` and cached on the instance —
+ * reusing the agent across scenarios with different descriptions silently
+ * uses the original (now-stale) plan.
+ *
  * @example
  * ```typescript
  * import scenario from "@langwatch/scenario";
@@ -585,6 +591,19 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * Use this when you want maximum adaptability. Use `redTeamCrescendo`
  * when you want structured gradual escalation.
  *
+ * @remarks
+ * Create a fresh agent per `scenario.run()` call. The attack plan is
+ * generated from the first run's `description` and cached on the instance —
+ * reusing the agent across scenarios with different descriptions silently
+ * uses the original (now-stale) plan.
+ *
+ * `injectionProbability` is supported for parity with `redTeamCrescendo`
+ * but is not recommended for GOAT runs. The GOAT metaprompt already
+ * instructs the attacker LLM to use encoding techniques when appropriate;
+ * layering post-hoc encoding on top causes the attacker's private history
+ * to diverge from what the target actually saw. Leave at the default 0.0
+ * unless you understand the trade-off.
+ *
  * @example
  * ```ts
  * const redTeam = scenario.redTeamGoat({
@@ -594,10 +613,17 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * });
  * ```
  */
-export const redTeamGoat = (config: GoatConfig) =>
-  new RedTeamAgentImpl({
-    strategy: new GoatStrategy(),
-    metapromptTemplate: GOAT_METAPROMPT_TEMPLATE,
+export const redTeamGoat = (config: GoatConfig) => {
+  // Spread config first, then force the GOAT-specific defaults *after*.
+  // If we put GOAT_METAPROMPT_TEMPLATE before `...config`, an explicit
+  // `metapromptTemplate: undefined` from the caller would clobber it,
+  // and the constructor would fall back to the Crescendo default
+  // (DEFAULT_METAPROMPT_TEMPLATE), which has {phase1End} placeholders
+  // and dies at first attack-plan render.
+  return new RedTeamAgentImpl({
     totalTurns: 30,
     ...config,
+    strategy: new GoatStrategy(),
+    metapromptTemplate: config.metapromptTemplate ?? GOAT_METAPROMPT_TEMPLATE,
   });
+};

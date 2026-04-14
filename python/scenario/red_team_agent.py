@@ -269,6 +269,12 @@ class RedTeamAgent(AgentAdapter):
 
         Convenience factory that pre-selects ``CrescendoStrategy``.
 
+        .. note::
+            Create a fresh agent per ``scenario.run()`` call. The attack plan
+            is generated from the first run's ``description`` and cached on
+            the instance — reusing the agent across scenarios with different
+            descriptions silently uses the original (now-stale) plan.
+
         Args:
             target: The attack objective.
             total_turns: Number of turns for the marathon (default 30).
@@ -317,6 +323,20 @@ class RedTeamAgent(AgentAdapter):
         exploit weaknesses immediately without waiting for phase transitions.
         Use ``.crescendo()`` when you want structured gradual escalation.
 
+        .. note::
+            Create a fresh agent per ``scenario.run()`` call. The attack plan
+            is generated from the first run's ``description`` and cached on
+            the instance — reusing the agent across scenarios with different
+            descriptions silently uses the original (now-stale) plan.
+
+        .. warning::
+            ``injection_probability`` is supported for parity with ``crescendo()``
+            but is not recommended for GOAT runs. The GOAT metaprompt already
+            instructs the attacker LLM to use encoding techniques when
+            appropriate; layering post-hoc encoding on top causes the attacker's
+            private history to diverge from what the target actually saw.
+            Leave at the default 0.0 unless you understand the trade-off.
+
         Args:
             target: The attack objective.
             total_turns: Number of turns (default 30).
@@ -325,6 +345,7 @@ class RedTeamAgent(AgentAdapter):
             success_confirm_turns: Consecutive turns >= threshold. Default 2.
             injection_probability: Probability (0.0-1.0) of applying a random
                 encoding technique to each attack message. Default 0.0 (off).
+                See warning above before enabling for GOAT.
             techniques: List of ``AttackTechnique`` instances to sample from.
                 Defaults to all built-in techniques.
             **kwargs: All other arguments forwarded to ``RedTeamAgent.__init__``.
@@ -332,7 +353,12 @@ class RedTeamAgent(AgentAdapter):
         Returns:
             A configured ``RedTeamAgent`` instance.
         """
-        kwargs.setdefault("metaprompt_template", GOAT_METAPROMPT_TEMPLATE)
+        # Use the GOAT template unless the caller explicitly provided a non-None one.
+        # `setdefault` would leave an explicit `metaprompt_template=None` in place,
+        # which then falls back to the Crescendo default in `__init__` and dies with
+        # a KeyError on first turn (Crescendo template has {phase1_end} placeholders).
+        if kwargs.get("metaprompt_template") is None:
+            kwargs["metaprompt_template"] = GOAT_METAPROMPT_TEMPLATE
         return cls(
             strategy=GoatStrategy(),
             target=target,
