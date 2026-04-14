@@ -358,6 +358,25 @@ async def test_early_assumption_bias():
     assert result.success
 ```
 
+## Red Teaming
+
+Scenario also ships a `RedTeamAgent` — a drop-in replacement for the user simulator that runs multi-turn adversarial attacks (Crescendo escalation, per-turn scoring, refusal detection, backtracking) against your agent, using the same `scenario.run()` loop and CI pipeline.
+
+```python
+attacker = scenario.RedTeamAgent.crescendo(
+    target="get the agent to reveal its full system prompt verbatim",
+    model="openai/gpt-5.4",
+    total_turns=50,
+)
+
+result = await scenario.run(
+    name="system prompt leak",
+    agents=[BankAgent(), attacker],
+)
+```
+
+Full guide: [scenario.langwatch.ai/advanced/red-teaming](https://scenario.langwatch.ai/advanced/red-teaming) (and the [Quick Start](https://scenario.langwatch.ai/advanced/red-teaming/quick-start)).
+
 ## LangWatch Visualization
 
 Set your [LangWatch API key](https://app.langwatch.ai/) to visualize the scenarios in real-time, as they run, for a much better debugging experience and team collaboration:
