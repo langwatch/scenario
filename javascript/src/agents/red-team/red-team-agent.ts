@@ -511,20 +511,43 @@ Reply with exactly this JSON and nothing else:
       this.attackerHistory[0] = { role: "system", content: systemPrompt };
     }
 
-    // Call attacker LLM directly (no inner agent wrapper)
-    const attackText = await this.callAttackerLLM();
+    // Call attacker LLM directly (no inner agent wrapper).
+    const rawAttack = await this.callAttackerLLM();
 
-    // Append attacker's ORIGINAL response to H_attacker BEFORE any
-    // encoding transform.  The attacker must see its own natural-language
-    // output in subsequent turns — encoded text would corrupt its
-    // reasoning context.  (DeepTeam and Promptfoo both keep the attacker
-    // history encoding-free.)
-    this.attackerHistory.push({ role: "assistant", content: attackText });
+    // If the strategy instructs the attacker to emit structured JSON
+    // (GOAT — see JSON_OUTPUT_CONTRACT in red-team-strategy.ts), parse
+    // it out. Otherwise (Crescendo) use the raw output as the reply
+    // with no parsing.
+    let reply: string;
+    let observation = "";
+    let strategy = "";
+    let parseFailed = false;
+    if (this.strategy.emitsStructuredOutput === true) {
+      const parsed = parseAttackerOutput(rawAttack);
+      reply = parsed.reply;
+      observation = parsed.observation;
+      strategy = parsed.strategy;
+      parseFailed = parsed.parseFailed;
+      if (parseFailed) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[RedTeamAgent] turn ${currentTurn}: attacker output was not valid JSON; ` +
+            `using full response as reply. Raw (first 200 chars): ${rawAttack.slice(0, 200)}`
+        );
+      }
+    } else {
+      reply = rawAttack;
+    }
+
+    // Keep the raw output in H_attacker so the attacker sees its own
+    // format on subsequent turns (JSON for GOAT, free text for Crescendo).
+    // The target never sees this — only `reply` goes out.
+    this.attackerHistory.push({ role: "assistant", content: rawAttack });
 
     // Single-turn injection: randomly augment with encoding technique.
     // Only the TARGET sees the encoded version (via H_target / return
     // value).  H_attacker keeps the original above.
-    let targetText = attackText;
+    let targetText = reply;
     if (
       this.injectionProbability > 0 &&
       this.techniques.length > 0 &&
@@ -532,12 +555,72 @@ Reply with exactly this JSON and nothing else:
     ) {
       const technique =
         this.techniques[Math.floor(Math.random() * this.techniques.length)]!;
-      targetText = technique.transform(attackText);
+      targetText = technique.transform(reply);
     }
 
     // Return as user message — executor adds this to H_target.
-    // targetText is the (possibly encoded) version for the target.
+    // targetText is the (possibly encoded) `reply` field for the target.
+    // NOTE: telemetry consumers can read `observation`/`strategy` via the
+    // returned metadata object below (scenario-execution promotes these to
+    // span attributes).
+    void observation;
+    void strategy;
     return { role: "user", content: targetText };
+  };
+}
+
+/**
+ * Extract `{reply, observation, strategy}` from the attacker's output.
+ *
+ * The attacker is instructed (via JSON_OUTPUT_CONTRACT in the system prompt)
+ * to emit a JSON object with those three fields. This parser:
+ *   1. Strips ``` / ```json markdown fences if present
+ *   2. Parses JSON, reads the three fields as strings
+ *   3. Falls back to `{reply: raw, observation: "", strategy: ""}` when
+ *      parsing fails or `reply` is missing/empty — keeps the agent running
+ *      on a malformed turn
+ *
+ * Exported for test use; prefer not to call from application code.
+ */
+export function parseAttackerOutput(raw: string): {
+  reply: string;
+  observation: string;
+  strategy: string;
+  parseFailed: boolean;
+} {
+  let s = raw.trim();
+  if (s.startsWith("```json")) {
+    s = s.slice("```json".length);
+  } else if (s.startsWith("```")) {
+    s = s.slice(3);
+  }
+  if (s.endsWith("```")) {
+    s = s.slice(0, -3);
+  }
+  s = s.trim();
+
+  let data: unknown;
+  try {
+    data = JSON.parse(s);
+  } catch {
+    return { reply: raw, observation: "", strategy: "", parseFailed: true };
+  }
+
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return { reply: raw, observation: "", strategy: "", parseFailed: true };
+  }
+
+  const obj = data as Record<string, unknown>;
+  const reply = String(obj.reply ?? "").trim();
+  if (!reply) {
+    return { reply: raw, observation: "", strategy: "", parseFailed: true };
+  }
+
+  return {
+    reply,
+    observation: String(obj.observation ?? "").trim(),
+    strategy: String(obj.strategy ?? "").trim(),
+    parseFailed: false,
   };
 }
 

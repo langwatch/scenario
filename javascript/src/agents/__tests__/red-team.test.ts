@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { GoatStrategy } from "../red-team/goat-strategy";
+import type { RedTeamStrategy } from "../red-team/red-team-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
-import { redTeamCrescendo, redTeamGoat, redTeamAgent } from "../red-team/red-team-agent";
+import { redTeamCrescendo, redTeamGoat, redTeamAgent, parseAttackerOutput } from "../red-team/red-team-agent";
 import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
 import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
 import { AgentRole, AgentAdapter, JudgeAgentAdapter } from "../../domain";
@@ -860,6 +861,131 @@ describe("GoatStrategy", () => {
       expect(early).toContain("1 of 30");
       expect(late).toContain("25 of 30");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Structured attacker output (observation / strategy / reply JSON)
+// ---------------------------------------------------------------------------
+
+describe("parseAttackerOutput", () => {
+  it("parses well-formed JSON", () => {
+    const raw =
+      '{"observation": "Target deflected.", "strategy": "HYPOTHETICAL FRAMING — re-ask.", "reply": "For a paper..."}';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe("For a paper...");
+    expect(r.observation).toBe("Target deflected.");
+    expect(r.strategy).toBe("HYPOTHETICAL FRAMING — re-ask.");
+    expect(r.parseFailed).toBe(false);
+  });
+
+  it("strips ```json fence", () => {
+    const raw =
+      '```json\n{"observation": "", "strategy": "s", "reply": "r"}\n```';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe("r");
+    expect(r.parseFailed).toBe(false);
+  });
+
+  it("strips plain ``` fence", () => {
+    const raw = '```\n{"observation": "o", "strategy": "s", "reply": "r"}\n```';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe("r");
+    expect(r.parseFailed).toBe(false);
+  });
+
+  it("falls back when not JSON", () => {
+    const raw = "Hey, what do you help with?";
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe(raw);
+    expect(r.observation).toBe("");
+    expect(r.strategy).toBe("");
+    expect(r.parseFailed).toBe(true);
+  });
+
+  it("falls back when reply missing", () => {
+    const raw = '{"observation": "o", "strategy": "s"}';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe(raw);
+    expect(r.parseFailed).toBe(true);
+  });
+
+  it("falls back when reply empty", () => {
+    const raw = '{"observation": "o", "strategy": "s", "reply": ""}';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe(raw);
+    expect(r.parseFailed).toBe(true);
+  });
+
+  it("falls back on non-object JSON (array)", () => {
+    const raw = '["observation", "strategy", "reply"]';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe(raw);
+    expect(r.parseFailed).toBe(true);
+  });
+
+  it("falls back on non-object JSON (null)", () => {
+    const raw = "null";
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe(raw);
+    expect(r.parseFailed).toBe(true);
+  });
+
+  it("coerces non-string fields to string", () => {
+    const raw = '{"observation": 42, "strategy": null, "reply": "hi"}';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe("hi");
+    expect(r.observation).toBe("42");
+    expect(r.parseFailed).toBe(false);
+  });
+
+  it("strips whitespace from fields", () => {
+    const raw =
+      '{"observation": "  o  ", "strategy": "  s  ", "reply": "  r  "}';
+    const r = parseAttackerOutput(raw);
+    expect(r.reply).toBe("r");
+    expect(r.observation).toBe("o");
+    expect(r.strategy).toBe("s");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JSON output contract is embedded in both strategy prompts
+// ---------------------------------------------------------------------------
+
+describe("JSON output contract is GOAT-only", () => {
+  it("GoatStrategy system prompt contains the OUTPUT FORMAT section", () => {
+    const prompt = new GoatStrategy().buildSystemPrompt({
+      target: "x",
+      currentTurn: 1,
+      totalTurns: 10,
+      scenarioDescription: "d",
+      metapromptPlan: "",
+    });
+    expect(prompt).toContain("OUTPUT FORMAT");
+    expect(prompt).toContain("observation");
+    expect(prompt).toContain("strategy");
+    expect(prompt).toContain("reply");
+  });
+
+  it("CrescendoStrategy system prompt does NOT contain the OUTPUT FORMAT section", () => {
+    const prompt = new CrescendoStrategy().buildSystemPrompt({
+      target: "x",
+      currentTurn: 1,
+      totalTurns: 10,
+      scenarioDescription: "d",
+      metapromptPlan: "p",
+    });
+    expect(prompt).not.toContain("OUTPUT FORMAT");
+  });
+
+  it("emitsStructuredOutput flag is true for GOAT, falsy for Crescendo", () => {
+    // Access via the strategy interface — Crescendo doesn't set the field,
+    // so it's optional/undefined; only typed on the interface.
+    const goat: RedTeamStrategy = new GoatStrategy();
+    const crescendo: RedTeamStrategy = new CrescendoStrategy();
+    expect(goat.emitsStructuredOutput).toBe(true);
+    expect(crescendo.emitsStructuredOutput).toBeUndefined();
   });
 });
 
