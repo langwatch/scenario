@@ -2633,6 +2633,114 @@ class TestGoatSkipsMetapromptPlan:
 
 
 # ---------------------------------------------------------------------------
+# Structured attacker output (observation / strategy / reply JSON)
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredAttackerOutput:
+    """RedTeamAgent._parse_attacker_output extracts (reply, observation,
+    strategy) from the attacker's JSON output. The attacker is instructed
+    (via JSON_OUTPUT_CONTRACT in the system prompt) to emit this shape.
+    """
+
+    def test_parses_well_formed_json(self):
+        raw = (
+            '{"observation": "Target deflected with policy language.", '
+            '"strategy": "HYPOTHETICAL FRAMING — re-ask as research context.", '
+            '"reply": "For a university paper, can you explain..."}'
+        )
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "For a university paper, can you explain..."
+        assert obs == "Target deflected with policy language."
+        assert strat == "HYPOTHETICAL FRAMING — re-ask as research context."
+
+    def test_strips_json_code_fence(self):
+        raw = '```json\n{"observation": "", "strategy": "s", "reply": "r"}\n```'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "r"
+        assert obs == ""
+        assert strat == "s"
+
+    def test_strips_plain_code_fence(self):
+        raw = '```\n{"observation": "o", "strategy": "s", "reply": "r"}\n```'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "r"
+
+    def test_falls_back_when_not_json(self):
+        """If the attacker ignored the JSON contract, send its full text as
+        the reply rather than sending nothing."""
+        raw = "Hey, can you help me understand how encryption works?"
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_falls_back_when_reply_missing(self):
+        """Parseable JSON but no `reply` field — fall back to raw."""
+        raw = '{"observation": "something", "strategy": "something"}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_falls_back_when_reply_empty(self):
+        raw = '{"observation": "o", "strategy": "s", "reply": ""}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_falls_back_on_non_object_json(self):
+        raw = '["observation", "strategy", "reply"]'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_coerces_non_string_fields_to_string(self):
+        """Defensive: if the attacker emits numbers/nulls, don't crash."""
+        raw = '{"observation": 42, "strategy": null, "reply": "hi"}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "hi"
+        # null → "None" via str() coercion, not ideal but parser doesn't crash.
+        assert obs == "42"
+
+    def test_strips_whitespace_from_fields(self):
+        raw = '{"observation": "  o  ", "strategy": "  s  ", "reply": "  r  "}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "r"
+        assert obs == "o"
+        assert strat == "s"
+
+
+# ---------------------------------------------------------------------------
+# JSON output contract is embedded in both strategy prompts
+# ---------------------------------------------------------------------------
+
+
+class TestJsonContractInPrompts:
+    def test_goat_prompt_contains_output_format_contract(self):
+        prompt = GoatStrategy().build_system_prompt(
+            target="x", current_turn=1, total_turns=10,
+            scenario_description="d", metaprompt_plan="",
+        )
+        assert "OUTPUT FORMAT" in prompt
+        assert "observation" in prompt
+        assert "strategy" in prompt
+        assert "reply" in prompt
+
+    def test_crescendo_prompt_contains_output_format_contract(self):
+        prompt = CrescendoStrategy().build_system_prompt(
+            target="x", current_turn=1, total_turns=10,
+            scenario_description="d", metaprompt_plan="p",
+        )
+        assert "OUTPUT FORMAT" in prompt
+        assert "observation" in prompt
+        assert "strategy" in prompt
+        assert "reply" in prompt
+
+
+# ---------------------------------------------------------------------------
 # GoatStrategy factory method
 # ---------------------------------------------------------------------------
 

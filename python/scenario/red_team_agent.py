@@ -699,6 +699,49 @@ Reply with exactly this JSON and nothing else:
             raise RuntimeError("Attacker model returned no content")
         return content
 
+    @staticmethod
+    def _parse_attacker_output(raw: str) -> tuple[str, str, str]:
+        """Extract (reply, observation, strategy) from the attacker's output.
+
+        The attacker is instructed to emit a JSON object with those three
+        fields (see ``JSON_OUTPUT_CONTRACT``).  This parser:
+          1. Strips ``` / ```json markdown fences if present
+          2. Parses JSON, reads the three fields as strings
+          3. Falls back to ``(raw, "", "")`` when parsing fails or ``reply``
+             is missing/empty — keeps the agent running on a malformed turn
+
+        Returns:
+            ``(reply, observation, strategy)``. ``reply`` is always non-empty
+            (falls back to ``raw`` when parsing fails).
+        """
+        s = raw.strip()
+        # Strip markdown fences if the model wrapped the JSON anyway.
+        if s.startswith("```json"):
+            s = s[len("```json"):]
+        elif s.startswith("```"):
+            s = s[3:]
+        if s.endswith("```"):
+            s = s[:-3]
+        s = s.strip()
+
+        try:
+            data = json.loads(s)
+        except (json.JSONDecodeError, ValueError):
+            return raw, "", ""
+
+        if not isinstance(data, dict):
+            return raw, "", ""
+
+        reply = str(data.get("reply", "")).strip()
+        if not reply:
+            # Parseable JSON but no usable reply — treat the whole raw string
+            # as the reply rather than sending nothing.
+            return raw, "", ""
+
+        observation = str(data.get("observation", "")).strip()
+        strategy = str(data.get("strategy", "")).strip()
+        return reply, observation, strategy
+
     def _reset_run_state(self) -> None:
         """Reset per-run state for safe reuse across scenario.run() calls.
 
@@ -886,28 +929,43 @@ Reply with exactly this JSON and nothing else:
                 # Slot 0 is a previous system prompt — update it
                 self._attacker_history[0] = {"role": "system", "content": system_prompt}
 
-            # Call attacker LLM directly (no inner agent wrapper)
-            attack_text = await self._call_attacker_llm()
+            # Call attacker LLM directly (no inner agent wrapper).
+            # The attacker is instructed to emit JSON with observation /
+            # strategy / reply (see JSON_OUTPUT_CONTRACT in _red_team/base.py).
+            raw_attack = await self._call_attacker_llm()
+            reply, observation, strategy = self._parse_attacker_output(raw_attack)
+            parse_failed = not observation and not strategy and reply == raw_attack
 
-            # Append attacker's ORIGINAL response to H_attacker BEFORE
-            # any encoding transform.  The attacker must see its own
-            # natural-language output in subsequent turns — encoded text
-            # would corrupt its reasoning context.  (DeepTeam and Promptfoo
-            # both keep the attacker history encoding-free.)
-            self._attacker_history.append({"role": "assistant", "content": attack_text})
+            # Keep the raw JSON output in H_attacker so the attacker sees
+            # its own format on subsequent turns (consistent with the system
+            # prompt's directive to emit JSON). The target never sees this —
+            # only `reply` goes out.
+            self._attacker_history.append({"role": "assistant", "content": raw_attack})
+
+            # Emit telemetry so dashboards can answer "which technique works
+            # against which target?" — the paper's core selling point.
+            span.set_attribute("red_team.reasoning.observation", observation[:500])
+            span.set_attribute("red_team.reasoning.strategy", strategy[:500])
+            span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
+            if parse_failed:
+                logger.warning(
+                    "RedTeamAgent turn %d: attacker output was not valid JSON; "
+                    "using full response as reply. Raw (first 200 chars): %r",
+                    current_turn, raw_attack[:200],
+                )
 
             # Single-turn injection: randomly augment with encoding technique.
             # Only the TARGET sees the encoded version (via H_target / return
             # value).  H_attacker keeps the original above.
             technique_used = None
-            target_text = attack_text
+            target_text = reply
             if (
                 self._injection_probability > 0
                 and self._techniques
                 and random.random() < self._injection_probability
             ):
                 technique = random.choice(self._techniques)
-                target_text = technique.transform(attack_text)
+                target_text = technique.transform(reply)
                 technique_used = technique.name
 
             # Structured debug log — written at DEBUG level so users can
@@ -924,7 +982,10 @@ Reply with exactly this JSON and nothing else:
                         "backtracks_remaining": self._backtracks_remaining,
                         "score": last_response_score,
                         "hint": adaptation_hint,
-                        "attack": attack_text[:200],
+                        "observation": observation[:200],
+                        "strategy": strategy[:200],
+                        "reply": reply[:200],
+                        "parse_failed": parse_failed,
                         "technique_used": technique_used,
                         "h_attacker_len": len(self._attacker_history),
                         "h_target_len": len(input.messages),
@@ -932,5 +993,5 @@ Reply with exactly this JSON and nothing else:
                 )
 
             # Return as user message — executor adds this to H_target.
-            # target_text is the (possibly encoded) version for the target.
+            # target_text is the (possibly encoded) `reply` field for the target.
             return {"role": "user", "content": target_text}
