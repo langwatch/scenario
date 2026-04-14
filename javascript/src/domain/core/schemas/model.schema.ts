@@ -1,7 +1,5 @@
 import { LanguageModel } from "ai";
 import { z } from "zod/v4";
-import { DEFAULT_TEMPERATURE } from "../constants";
-
 /**
  * Schema for a language model.
  */
@@ -17,8 +15,7 @@ export const modelSchema = z.object({
     .min(0.0)
     .max(1.0)
     .optional()
-    .describe("The temperature for the language model.")
-    .default(DEFAULT_TEMPERATURE),
+    .describe("The temperature for the language model."),
   maxTokens: z
     .number()
     .optional()

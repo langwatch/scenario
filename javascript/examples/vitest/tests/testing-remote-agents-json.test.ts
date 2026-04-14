@@ -30,7 +30,7 @@ beforeAll(async () => {
 
           // Use real LLM to generate response
           const result = await generateText({
-            model: openai("gpt-4o-mini"),
+            model: openai("gpt-5-mini"),
             messages: [
               {
                 role: "system",
@@ -45,7 +45,7 @@ beforeAll(async () => {
                 content: message,
               },
             ],
-            temperature: 0.7,
+            experimental_telemetry: { isEnabled: true },
           });
 
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -115,9 +115,9 @@ describe("Testing Remote Agents - JSON Response", () => {
       name: "Weather inquiry via HTTP",
       description: "User asks about weather through HTTP API",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
         jsonAgentAdapter,
-        scenario.judgeAgent({ model: openai("gpt-4o-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
         scenario.user("What's the weather like today in Paris? Be specific."),

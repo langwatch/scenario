@@ -270,8 +270,8 @@ class TestProgressiveDiscoveryLoop:
             assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_stops_at_max_discovery_steps(self) -> None:
-        """Loop stops after max_discovery_steps even without terminal tool call."""
+    async def test_forces_verdict_at_max_discovery_steps(self) -> None:
+        """Loop forces a verdict after max_discovery_steps instead of hard-failing."""
         large_trace = create_large_trace()
         collector = create_mock_collector(large_trace)
         judge = JudgeAgent(
@@ -280,12 +280,16 @@ class TestProgressiveDiscoveryLoop:
             max_discovery_steps=3,
         )
 
-        # Always return an expand call (never finishes)
-        def mock_completion(**kwargs):
+        # First 3 calls: always return expand (never finishes voluntarily)
+        expand_call_count = 0
+
+        def make_expand_response():
+            nonlocal expand_call_count
+            expand_call_count += 1
             expand_response = MagicMock()
             expand_response.choices = [MagicMock()]
             expand_tool_call = MagicMock()
-            expand_tool_call.id = "call_x"
+            expand_tool_call.id = f"call_{expand_call_count}"
             expand_tool_call.function.name = "expand_trace"
             expand_tool_call.function.arguments = json.dumps({"span_ids": ["10000000"]})
             expand_response.choices[0].message.tool_calls = [expand_tool_call]
@@ -293,13 +297,23 @@ class TestProgressiveDiscoveryLoop:
             expand_response.choices[0].message.role = "assistant"
             return expand_response
 
+        # Final forced call: returns a verdict
+        forced_verdict = mock_litellm_response("finish_test", {
+            "criteria": {"agent_works": "true"},
+            "reasoning": "Based on what I gathered, agent works",
+            "verdict": "success",
+        })
+
         call_count = 0
-        original_mock = mock_completion
+        tool_choices = []
 
         def counting_mock(**kwargs):
             nonlocal call_count
             call_count += 1
-            return original_mock(**kwargs)
+            tool_choices.append(kwargs.get("tool_choice"))
+            if call_count <= 3:
+                return make_expand_response()
+            return forced_verdict
 
         with patch(
             "scenario.judge_agent.litellm.completion",
@@ -307,13 +321,14 @@ class TestProgressiveDiscoveryLoop:
         ):
             result = await judge.call(create_base_input())
 
-            # Should stop after max_discovery_steps
-            assert call_count <= 3
-            # Should return a result indicating max steps hit
+            # 3 discovery steps + 1 forced verdict call
+            assert call_count == 4
+            # The forced call should use finish_test tool_choice
+            assert tool_choices[-1] == {"type": "function", "function": {"name": "finish_test"}}
+            # Should return the LLM's verdict, not a hard failure
             assert isinstance(result, ScenarioResult)
-            assert result.success is False
-            assert result.reasoning is not None
-            assert "maximum discovery steps" in result.reasoning
+            assert result.success is True
+            assert result.reasoning == "Based on what I gathered, agent works"
 
 
 class TestProgressiveDiscoveryVerdicts:

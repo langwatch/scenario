@@ -71,7 +71,7 @@ describe("Custom Judge with Traces", () => {
         "User asks for weather and expects the agent to use a weather tool",
       agents: [
         simpleAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
         new ToolVerifyingJudge("weather_lookup"),
       ],
       script: [

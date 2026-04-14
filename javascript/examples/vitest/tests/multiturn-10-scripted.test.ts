@@ -8,7 +8,7 @@ const assistant: AgentAdapter = {
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1-nano"),
+      model: openai("gpt-5-mini"),
       messages: [
         {
           role: "system",
@@ -17,6 +17,7 @@ const assistant: AgentAdapter = {
         },
         ...input.messages,
       ],
+      experimental_telemetry: { isEnabled: true },
     });
     return response.text;
   },

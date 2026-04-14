@@ -85,18 +85,20 @@ Its `system_prompt` is always overwritten before each call. There is no meaningf
 
 ---
 
-## Decision 6: marathon_script() Helper
+## Decision 6: marathon_script() Instance Method
 
-**Date:** 2026-02-23
-**Decision:** Provide `RedTeamAgent.marathon_script(turns, checks, final_checks)`
-as a static method that generates the repetitive script list.
+**Date:** 2026-02-23 (updated 2026-03-17)
+**Decision:** Provide `RedTeamAgent.marathon_script(checks, final_checks)`
+as an instance method that reads `self.total_turns` to determine script length.
 
 **Rationale:** The existing test pattern requires manually writing
 `[scenario.user(), scenario.agent(), check_X] * N` which is 500+ lines for a
-50-turn test. The helper generates this programmatically.
+30-turn test. The helper generates this programmatically. Using `total_turns`
+from the instance avoids requiring users to specify the turn count in two places.
 
 `checks` run after every agent response. `final_checks` run once at the end.
-`scenario.judge()` is auto-appended.
+`scenario.judge()` is auto-appended. `total_turns` is a hard cap —
+backtracked turns count toward the budget.
 
 ---
 

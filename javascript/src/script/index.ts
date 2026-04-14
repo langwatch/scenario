@@ -123,29 +123,3 @@ export const fail = (reasoning?: string): ScriptStep => {
     await executor.fail(reasoning);
   };
 };
-
-/**
- * Generate a marathon script that runs user-agent turns in a loop,
- * with optional per-turn checks and a final judge evaluation.
- *
- * @param options.turns Number of user-agent turn pairs.
- * @param options.checks Optional steps to run after each turn.
- * @param options.finalChecks Optional steps to run after all turns, before the judge.
- * @returns An array of ScriptStep functions.
- */
-export const marathonScript = (options: {
-  turns: number;
-  checks?: ScriptStep[];
-  finalChecks?: ScriptStep[];
-}): ScriptStep[] => {
-  const { turns, checks = [], finalChecks = [] } = options;
-  const steps: ScriptStep[] = [];
-  for (let i = 0; i < turns; i++) {
-    steps.push(user());
-    steps.push(agent());
-    steps.push(...checks);
-  }
-  steps.push(...finalChecks);
-  steps.push(judge());
-  return steps;
-};

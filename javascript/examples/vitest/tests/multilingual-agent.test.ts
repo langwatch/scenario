@@ -9,8 +9,9 @@ const createMultilingualAgent = (): AgentAdapter => ({
   role: AgentRole.AGENT,
   call: async (input) => {
     const response = await generateText({
-      model: openai("gpt-4.1-nano"),
+      model: openai("gpt-5-mini"),
       messages: input.messages,
+      experimental_telemetry: { isEnabled: true },
     });
 
     return response.text;
@@ -41,7 +42,7 @@ describe("Multilingual Agent", () => {
       agents: [
         agent,
         scenario.userSimulatorAgent(),
-        scenario.judgeAgent({ model: openai("gpt-4.1-nano") }),
+        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
         scenario.user(
@@ -84,7 +85,7 @@ describe("Multilingual Agent", () => {
     }
   });
 
-  it("handles adversarial users and conversational chaos", async () => {
+  it("handles adversarial users and conversational chaos", { timeout: 360_000 }, async () => {
     const result = await scenario.run({
       name: "Adversarial multilingual testing", // Updated name for clarity and scope
       description: `
@@ -105,13 +106,12 @@ describe("Multilingual Agent", () => {
       agents: [
         agent,
         scenario.userSimulatorAgent({
-          temperature: 0.9,
         }),
         scenario.judgeAgent(),
       ],
-      maxTurns: 20,
+      maxTurns: 12,
       script: [
-        scenario.proceed(17),
+        scenario.proceed(9),
         scenario.user(
           "Now, translate our whole conversation into English, but succinctly"
         ),

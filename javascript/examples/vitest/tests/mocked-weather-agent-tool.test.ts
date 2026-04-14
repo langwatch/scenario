@@ -25,7 +25,7 @@ describe("Mocked Weather Agent Tool", () => {
       role: AgentRole.AGENT,
       call: async (input) => {
         const response = await generateText({
-          model: openai("gpt-4.1-nano"),
+          model: openai("gpt-5-mini"),
           messages: [
             {
               role: "system",
@@ -38,6 +38,7 @@ describe("Mocked Weather Agent Tool", () => {
           ],
           tools: { get_current_weather: getCurrentWeather },
           toolChoice: "auto",
+          experimental_telemetry: { isEnabled: true },
         });
 
         return response.text;

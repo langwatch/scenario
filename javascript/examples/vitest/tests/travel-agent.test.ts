@@ -78,7 +78,7 @@ const callTravelAgent = async (
   };
 
   const response = await generateText({
-    model: openai("gpt-4.1-mini"),
+    model: openai("gpt-5-mini"),
     messages: [
       {
         role: "system",
@@ -86,6 +86,7 @@ const callTravelAgent = async (
             You are a helpful travel agent that helps the user with weather information and accomodation options, use the tools provided to you.
             Do not guess the city if they don't provide it.
             You can make multiple tool calls if they ask multiple cities.
+            You may ask at most one clarifying question. After that, make reasonable assumptions and proceed with tool calls and recommendations.
 
             Today is Friday, 25th July 2025.
           `,
@@ -95,7 +96,7 @@ const callTravelAgent = async (
     ],
     tools,
     toolChoice: "auto",
-    temperature: 0.0,
+    experimental_telemetry: { isEnabled: true },
   });
 
   if (response.toolCalls && response.toolCalls.length > 0) {
@@ -163,15 +164,15 @@ describe("Travel Agent", () => {
       `,
       agents: [
         travelAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4.1-mini") }),
-        scenario.judgeAgent({ model: openai("gpt-4.1-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
         scenario.user(),
         scenario.agent(),
-        (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.user(),
         scenario.agent(),
+        (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         scenario.user(),
         scenario.agent(),
         (state) => expect(state.hasToolCall("get_accomodation")).toBe(true),

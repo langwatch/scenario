@@ -14,7 +14,7 @@ import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
 import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
-import { AgentInput, JudgeAgentAdapter, AgentRole } from "../../domain";
+import { AgentInput, JudgeAgentAdapter, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import { createLLMInvoker } from "../llm-invoker.factory";
@@ -230,8 +230,8 @@ class JudgeAgent extends JudgeAgentAdapter {
       { role: "user", content: contentForJudge },
     ];
 
-    const isLastMessage =
-      input.scenarioState.currentTurn === input.scenarioConfig.maxTurns;
+    const maxTurns = input.scenarioConfig.maxTurns ?? DEFAULT_MAX_TURNS;
+    const isLastMessage = input.scenarioState.currentTurn >= maxTurns - 1;
 
     const projectConfig = await getProjectConfig();
     const mergedConfig = modelSchema.parse({
@@ -273,7 +273,7 @@ class JudgeAgent extends JudgeAgentAdapter {
     const completion = await this.invokeLLMWithDiscovery({
       model: mergedConfig.model,
       messages,
-      temperature: mergedConfig.temperature ?? 0.0,
+      temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
       toolChoice,
@@ -341,7 +341,56 @@ class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
+    if (isLargeTrace && this.discoveryExhausted(completion)) {
+      return this.forceVerdict(params);
+    }
+
     return completion;
+  }
+
+  /**
+   * Checks whether the discovery loop ran out of steps without the judge
+   * calling finish_test or continue_test.
+   */
+  private discoveryExhausted(completion: InvokeLLMResult): boolean {
+    if (!completion.toolCalls?.length) return false;
+    return !completion.toolCalls.some(
+      (tc) =>
+        tc.toolName === "finish_test" || tc.toolName === "continue_test"
+    );
+  }
+
+  /**
+   * Makes one final LLM call with tool_choice forced to finish_test,
+   * so the judge renders a verdict with whatever context it accumulated
+   * during discovery instead of hard-failing.
+   */
+  private async forceVerdict(
+    params: InvokeLLMParams
+  ): Promise<InvokeLLMResult> {
+    this.logger.warn(
+      `Discovery exhausted max steps (${this.maxDiscoverySteps}), forcing verdict`
+    );
+    const {
+      stopWhen: _sw,
+      prompt: _p,
+      messages: prevMessages,
+      toolChoice: _tc,
+      ...rest
+    } = params;
+    return this.invokeLLM({
+      ...rest,
+      messages: [
+        ...(prevMessages ?? []),
+        {
+          role: "user" as const,
+          content:
+            "You have reached the maximum number of trace exploration steps. " +
+            "Based on the information you have gathered so far, give your final verdict now.",
+        },
+      ],
+      toolChoice: { type: "tool" as const, toolName: "finish_test" },
+    });
   }
 
   private parseToolCalls(

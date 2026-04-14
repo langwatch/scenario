@@ -41,7 +41,7 @@ beforeAll(async () => {
           });
 
           const result = streamText({
-            model: openai("gpt-4o-mini"),
+            model: openai("gpt-5-mini"),
             messages: [
               {
                 role: "system",
@@ -53,7 +53,7 @@ beforeAll(async () => {
                 content,
               },
             ],
-            temperature: 0.7,
+            experimental_telemetry: { isEnabled: true },
           });
 
           // Stream chunks to client
@@ -128,9 +128,9 @@ describe("Testing Remote Agents - Streaming Response", () => {
       name: "Streaming weather response",
       description: "User asks about weather and receives streamed response",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
         streamingAdapter,
-        scenario.judgeAgent({ model: openai("gpt-4o-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
         scenario.user("What's the weather forecast in Amsterdam?"),

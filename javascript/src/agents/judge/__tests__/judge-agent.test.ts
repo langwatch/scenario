@@ -1,5 +1,5 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { judgeAgent, JudgeAgentConfig } from "../judge-agent";
 import { JudgeSpanCollector } from "../judge-span-collector";
 import { AgentInput, AgentRole } from "../../../domain";
@@ -364,6 +364,56 @@ describe("JudgeAgent", () => {
     });
   });
 
+  describe("isLastMessage boundary detection", () => {
+    const cases = [
+      { currentTurn: 4, maxTurns: 5, expectLast: true, label: "last turn (0-indexed)" },
+      { currentTurn: 3, maxTurns: 5, expectLast: false, label: "not yet last turn" },
+      { currentTurn: 5, maxTurns: 5, expectLast: true, label: "past max (>=)" },
+      { currentTurn: 9, maxTurns: 10, expectLast: true, label: "max=10, turn 9 is last" },
+      { currentTurn: 8, maxTurns: 10, expectLast: false, label: "max=10, turn 8 is not last" },
+    ];
+
+    for (const { currentTurn, maxTurns, expectLast, label } of cases) {
+      it(`${label}: isLastMessage=${expectLast}`, async () => {
+        const smallTrace = createSmallTrace();
+        const collector = createMockSpanCollector(smallTrace);
+        for (const span of smallTrace) {
+          (span.attributes as Record<string, unknown>)["langwatch.thread.id"] = "test-thread";
+        }
+
+        const config: JudgeAgentConfig = {
+          criteria: ["Test criterion"],
+          spanCollector: collector,
+        };
+
+        const agent = judgeAgent(config);
+
+        let capturedParams: InvokeLLMParams | undefined;
+        agent.invokeLLM = async (params) => {
+          capturedParams = params;
+          return mockLLMResult(
+            expectLast ? "finish_test" : "continue_test",
+            expectLast
+              ? { criteria: { test_criterion: "true" }, reasoning: "ok", verdict: "success" }
+              : {}
+          );
+        };
+
+        await agent.call(createBaseInput({
+          scenarioState: { currentTurn } as any,
+          scenarioConfig: { name: "test", description: "test", maxTurns } as any,
+        }));
+
+        expect(capturedParams).toBeDefined();
+        if (expectLast) {
+          expect(capturedParams!.toolChoice).toEqual({ type: "tool", toolName: "finish_test" });
+        } else {
+          expect(capturedParams!.toolChoice).toBe("required");
+        }
+      });
+    }
+  });
+
   describe("when the judge continues in progressive mode", () => {
     it("returns null to allow the scenario to proceed", async () => {
       const largeTrace = createLargeTrace();
@@ -387,6 +437,132 @@ describe("JudgeAgent", () => {
 
       const result = await agent.call(createBaseInput());
       expect(result).toBeNull();
+    });
+  });
+
+  describe("when discovery exhausts max steps without terminal tool", () => {
+    let largeTrace: ReadableSpan[];
+    let collector: JudgeSpanCollector;
+
+    beforeEach(() => {
+      largeTrace = createLargeTrace();
+      collector = createMockSpanCollector(largeTrace);
+      for (const span of largeTrace) {
+        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] =
+          "test-thread";
+      }
+    });
+
+    it("forces a verdict instead of hard-failing", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 3,
+      };
+
+      const agent = judgeAgent(config);
+
+      let callCount = 0;
+      agent.invokeLLM = async (params) => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: AI SDK multi-step loop returns only discovery tool calls
+          // (simulates exhaustion — no terminal tool found)
+          return {
+            text: "",
+            content: [],
+            toolCalls: [
+              {
+                toolName: "expand_trace",
+                input: { span_ids: ["0000000000000000"] },
+                type: "tool-call" as const,
+                toolCallId: "tc-1",
+              },
+              {
+                toolName: "grep_trace",
+                input: { pattern: "test" },
+                type: "tool-call" as const,
+                toolCallId: "tc-2",
+              },
+            ],
+            toolResults: [],
+          } as unknown as InvokeLLMResult;
+        }
+        // Second call: forced verdict
+        expect(params.toolChoice).toEqual({
+          type: "tool",
+          toolName: "finish_test",
+        });
+        expect(params.stopWhen).toBeUndefined();
+        // Check that force-verdict message was appended
+        const lastMsg = params.messages?.[params.messages.length - 1];
+        expect(lastMsg).toBeDefined();
+        expect(
+          typeof lastMsg!.content === "string"
+            ? lastMsg!.content
+            : ""
+        ).toContain("maximum");
+
+        return mockLLMResult("finish_test", {
+          criteria: { agent_works_correctly: "true" },
+          reasoning: "Based on gathered info, agent works",
+          verdict: "success",
+        });
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(callCount).toBe(2);
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(true);
+      expect(result!.reasoning).toBe("Based on gathered info, agent works");
+    });
+
+    it("forced verdict can return failure", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent uses tools", "Agent responds politely"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      };
+
+      const agent = judgeAgent(config);
+
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        if (callCount === 1) {
+          // Discovery exhausted — only expand_trace calls
+          return {
+            text: "",
+            content: [],
+            toolCalls: [
+              {
+                toolName: "expand_trace",
+                input: { span_ids: ["0000000000000000"] },
+                type: "tool-call" as const,
+                toolCallId: "tc-1",
+              },
+            ],
+            toolResults: [],
+          } as unknown as InvokeLLMResult;
+        }
+        return mockLLMResult("finish_test", {
+          criteria: {
+            agent_uses_tools: "false",
+            agent_responds_politely: "true",
+          },
+          reasoning: "Agent was polite but did not use any tools",
+          verdict: "failure",
+        });
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(callCount).toBe(2);
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.metCriteria).toContain("Agent responds politely");
+      expect(result!.unmetCriteria).toContain("Agent uses tools");
     });
   });
 });

@@ -326,7 +326,16 @@ export default defineConfig({
         },
         {
           text: "Red Teaming",
-          link: "/advanced/red-teaming",
+          items: [
+            {
+              text: "Quick Start",
+              link: "/advanced/red-teaming/quick-start",
+            },
+            {
+              text: "Overview",
+              link: "/advanced/red-teaming",
+            },
+          ],
         },
       ],
     },

@@ -43,8 +43,7 @@ class CustomLLMJudge extends AgentAdapter {
       .join("\n");
 
     const { object: result } = await generateObject({
-      model: openai("gpt-4o-mini"),
-      temperature: 0,
+      model: openai("gpt-5-mini"),
       schema: z.object({
         pass: z.boolean(),
         reasoning: z.string(),
@@ -95,7 +94,7 @@ describe("Custom LLM Judge", () => {
       description: "User greets the agent",
       agents: [
         politeAgent,
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
         new CustomLLMJudge([
           "Agent responds with a greeting",
           "Agent offers to help",

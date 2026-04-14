@@ -324,8 +324,9 @@ If you do have enough information, use the finish_test tool to determine if all 
             {"role": "user", "content": content_for_judge},
         ]
 
+        max_turns = input.scenario_state.config.max_turns or 10
         is_last_message = (
-            input.scenario_state.current_turn == input.scenario_state.config.max_turns
+            input.scenario_state.current_turn >= max_turns - 1
         )
 
         if is_last_message:
@@ -640,20 +641,51 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "content": tool_result,
                 })
 
-        # Hit max steps - force verdict with available information
+        # Hit max steps - force a verdict with whatever information was gathered
+        return self._force_verdict(
+            messages=messages,
+            tools=tools,
+            effective_criteria=effective_criteria,
+        )
+
+    def _force_verdict(
+        self,
+        *,
+        messages: List[dict],
+        tools: List[dict],
+        effective_criteria: List[str],
+    ) -> AgentReturnTypes:
+        """
+        Makes one final LLM call with tool_choice forced to finish_test,
+        so the judge renders a verdict with whatever context it accumulated
+        during discovery instead of hard-failing.
+        """
         logger.warning(
-            f"Progressive discovery hit max steps ({self._max_discovery_steps})"
+            f"Progressive discovery hit max steps ({self._max_discovery_steps}), "
+            "forcing verdict"
         )
-        return ScenarioResult(
-            success=False,
-            messages=cast(Any, messages),
-            reasoning=(
-                f"Judge exhausted maximum discovery steps ({self._max_discovery_steps}) "
-                "without reaching a verdict."
+        messages.append({
+            "role": "user",
+            "content": (
+                "You have reached the maximum number of trace exploration steps. "
+                "Based on the information you have gathered so far, give your final verdict now."
             ),
-            passed_criteria=[],
-            failed_criteria=effective_criteria,
+        })
+        forced_response = cast(
+            ModelResponse,
+            litellm.completion(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                tool_choice={"type": "function", "function": {"name": "finish_test"}},
+                **self._extra_params,
+            ),
         )
+        return self._parse_response(forced_response, effective_criteria, messages)
 
     def _execute_discovery_tool(self, tool_call: Any, spans: Sequence[Any]) -> str:
         """

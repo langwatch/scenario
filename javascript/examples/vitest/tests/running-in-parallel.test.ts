@@ -8,7 +8,7 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
     role: AgentRole.AGENT,
     call: async (input) => {
       const response = await generateText({
-        model: openai("gpt-4.1-mini"),
+        model: openai("gpt-5-mini"),
         messages: [
           {
             role: "system",
@@ -20,6 +20,7 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
           },
           ...input.messages,
         ],
+        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },

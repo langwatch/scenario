@@ -1,4 +1,5 @@
 import pytest
+from typing import Any
 from unittest.mock import patch, MagicMock
 from openai import OpenAI
 from scenario import JudgeAgent
@@ -148,4 +149,86 @@ async def test_judge_agent_with_string_default_model_config():
     finally:
         context_scenario.reset(token)
         # Cleanup
+        ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "current_turn,max_turns,expect_last",
+    [
+        (4, 5, True),   # last turn (0-indexed: turns 0-4, max_turns=5)
+        (3, 5, False),  # not yet last turn
+        (5, 5, True),   # past max (>=) should still be treated as last
+        (9, 10, True),  # turn 9 is last when max_turns=10
+        (8, 10, False), # turn 8 is not last when max_turns=10
+    ],
+)
+async def test_judge_is_last_message_on_final_turn(
+    current_turn: int, max_turns: Any, expect_last: bool
+):
+    """Judge should see is_last_message=True when current_turn >= effective_max_turns - 1."""
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+
+    judge = JudgeAgent(criteria=["Test criterion"])
+
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Test scenario"
+    mock_scenario_state.current_turn = current_turn
+    mock_scenario_state.config.max_turns = max_turns
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[{"role": "user", "content": "Hello"}],
+        new_messages=[],
+        judgment_request=None,
+        scenario_state=mock_scenario_state,
+    )
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.tool_calls = [MagicMock()]
+    mock_response.choices[0].message.tool_calls[0].function.name = (
+        "finish_test" if expect_last else "continue_test"
+    )
+    mock_response.choices[0].message.tool_calls[0].function.arguments = (
+        '{"verdict": "success", "reasoning": "ok", "criteria": {"test_criterion": "true"}}'
+        if expect_last
+        else "{}"
+    )
+
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion", return_value=mock_response
+        ) as mock_completion:
+            await judge.call(agent_input)
+
+            assert mock_completion.called
+            call_kwargs = mock_completion.call_args.kwargs
+            messages = call_kwargs["messages"]
+            tool_choice = call_kwargs["tool_choice"]
+
+            has_finish_prompt = any(
+                "This is the last message" in msg.get("content", "")
+                for msg in messages
+            )
+            assert has_finish_prompt == expect_last, (
+                f"turn={current_turn}, max={max_turns}: "
+                f"expected finish prompt={'present' if expect_last else 'absent'}, "
+                f"got {'present' if has_finish_prompt else 'absent'}"
+            )
+
+            if expect_last:
+                assert tool_choice == {
+                    "type": "function",
+                    "function": {"name": "finish_test"},
+                }
+            else:
+                assert tool_choice == "required"
+    finally:
+        context_scenario.reset(token)
         ScenarioConfig.default_config = None

@@ -58,7 +58,7 @@ describe("Multimodal Audio to Audio Tests", () => {
     } satisfies UserModelMessage;
 
     const audioJudge = wrapJudgeForAudioTranscription(
-      scenario.judgeAgent({ model: openai("gpt-4o") }),
+      scenario.judgeAgent({ model: openai("gpt-5-mini") }),
     );
 
     const result = await scenario.run({

@@ -41,7 +41,7 @@ beforeAll(async () => {
 
           // Generate response with full history
           const result = await generateText({
-            model: openai("gpt-4o-mini"),
+            model: openai("gpt-5-mini"),
             messages: [
               {
                 role: "system",
@@ -50,7 +50,7 @@ beforeAll(async () => {
               },
               ...history,
             ],
-            temperature: 0.7,
+            experimental_telemetry: { isEnabled: true },
           });
 
           // Add assistant response to history
@@ -128,9 +128,9 @@ describe("Testing Remote Agents - Stateful with Thread ID", () => {
       description:
         "User asks about Paris, then asks a follow-up question that requires context from the previous answer",
       agents: [
-        scenario.userSimulatorAgent({ model: openai("gpt-4o-mini") }),
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
         statefulAdapter,
-        scenario.judgeAgent({ model: openai("gpt-4o-mini") }),
+        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
         scenario.user("Tell me about visiting Paris"),

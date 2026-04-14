@@ -93,9 +93,9 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * @param config Optional configuration for the agent.
  * @param config.model The language model to use for generating responses.
  *                     If not provided, a default model will be used.
- * @param config.temperature The temperature for the language model (0.0-1.0).
+ * @param config.temperature Optional temperature for the language model (0.0-1.0).
  *                          Lower values make responses more deterministic.
- *                          Defaults to {@link DEFAULT_TEMPERATURE}.
+ *                          Omitted by default for compatibility with reasoning models.
  * @param config.maxTokens The maximum number of tokens to generate.
  *                        If not provided, uses model defaults.
  * @param config.name The name of the agent.

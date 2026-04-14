@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { describe, it, expect } from "vitest";
 import {
   AgentRole,
@@ -245,3 +246,67 @@ describe("Inline criteria on judge()", () => {
     expect(result.unmetCriteria).toContain("this will fail");
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Gap #2: AssertionError in check functions → structured failed criteria
+// ---------------------------------------------------------------------------
+
+describe("AssertionError in script checks", () => {
+  it("surfaces assertion message as failed criteria and re-throws", async () => {
+    const failingCheck = () => {
+      assert.ok(false, "Agent leaked PII");
+    };
+
+    const execution = new ScenarioExecution(
+      {
+        name: "test assertion catch",
+        description: "test",
+        agents: [
+          new MockAgent(),
+          new MockUserSimulatorAgent(),
+          new InlineCriteriaMockJudgeAgent(["criterion"]),
+        ],
+      },
+      [
+        user("hello"),
+        agent(),
+        failingCheck,
+        succeed(), // should never reach
+      ],
+      "test-batch-id"
+    );
+
+    await expect(execution.execute()).rejects.toThrow("Agent leaked PII");
+  });
+
+  it("does not catch non-assertion errors as criteria", async () => {
+    const throwingCheck = () => {
+      throw new Error("network failure");
+    };
+
+    const execution = new ScenarioExecution(
+      {
+        name: "test non-assertion",
+        description: "test",
+        agents: [
+          new MockAgent(),
+          new MockUserSimulatorAgent(),
+          new InlineCriteriaMockJudgeAgent(["criterion"]),
+        ],
+      },
+      [
+        user("hello"),
+        agent(),
+        throwingCheck,
+        succeed(),
+      ],
+      "test-batch-id"
+    );
+
+    // Should still throw, but as a generic error (not structured criteria)
+    await expect(execution.execute()).rejects.toThrow("network failure");
+  });
+});
+
+

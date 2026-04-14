@@ -368,8 +368,11 @@ class ScenarioExecutor:
                         "scenario.rollback_removed_count": len(removed),
                     }
                 )
-            except Exception:
-                pass  # tracing is best-effort
+            except Exception as exc:
+                warnings.warn(
+                    f"Failed to update trace metadata during rollback: {exc}",
+                    stacklevel=2,
+                )
 
         return cast(List[ChatCompletionMessageParam], removed)
 
@@ -533,6 +536,7 @@ class ScenarioExecutor:
         """
         scenario_run_id = generate_scenario_run_id()
         self._scenario_run_id = scenario_run_id
+        _check_failure: Optional[BaseException] = None
 
         try:
             self._emit_run_started_event(scenario_run_id)
@@ -543,15 +547,19 @@ class ScenarioExecutor:
             self.reset()
 
             for i, script_step in enumerate(self.script):
-                callable = script_step(self._state)
-                if isinstance(callable, Awaitable):
-                    result = await callable
-                else:
-                    result = callable
+                try:
+                    callable = script_step(self._state)
+                    if isinstance(callable, Awaitable):
+                        result = await callable
+                    else:
+                        result = callable
+                except AssertionError as e:
+                    _check_failure = e
+                    break
+
                 self._emit_message_snapshot_event(scenario_run_id)
 
                 if isinstance(result, ScenarioResult):
-                    # Merge any accumulated checkpoint criteria into the final result
                     compiled_passed, _ = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed + result.passed_criteria
 
@@ -563,8 +571,25 @@ class ScenarioExecutor:
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
-            if self._checkpoint_results:
-                # All inline criteria checkpoints passed
+            if _check_failure is not None:
+                compiled_passed, compiled_failed = self._compiled_checkpoints
+                error_result = ScenarioResult(
+                    success=False,
+                    messages=self._state.messages,
+                    reasoning=f"Scenario failed with error: {str(_check_failure)}",
+                    passed_criteria=compiled_passed,
+                    failed_criteria=compiled_failed + [str(_check_failure)],
+                    total_time=time.time() - self._total_start_time,
+                    agent_time=0,
+                )
+                self._emit_run_finished_event(
+                    scenario_run_id,
+                    error_result,
+                    ScenarioRunFinishedEventStatus.ERROR,
+                )
+                raise _check_failure
+
+            elif self._checkpoint_results:
                 compiled_passed, compiled_failed = self._compiled_checkpoints
                 agent_roles_agents_idx = [
                     idx
@@ -587,25 +612,37 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
+
+                status = (
+                    ScenarioRunFinishedEventStatus.SUCCESS
+                    if result.success
+                    else ScenarioRunFinishedEventStatus.FAILED
+                )
+                self._emit_run_finished_event(scenario_run_id, result, status)
+                return result
             else:
                 result = self._reached_max_turns(
-                    """Reached end of script without conclusion, add one of the following to the end of the script:
+                    """Reached end of script without conclusion, add one of the following:
 
-- `scenario.proceed()` to let the simulation continue to play out
-- `scenario.judge()` to force criteria judgement
-- `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
+- Add `scenario.judge()` to the script to force criteria judgement
+- Add `scenario.succeed()` or `scenario.fail()` to end the test with an explicit result
+- If your script already has a judge but is hitting max_turns, increase `max_turns` in your config
                     """
                 )
 
-            status = (
-                ScenarioRunFinishedEventStatus.SUCCESS
-                if result.success
-                else ScenarioRunFinishedEventStatus.FAILED
-            )
-            self._emit_run_finished_event(scenario_run_id, result, status)
-            return result
+                status = (
+                    ScenarioRunFinishedEventStatus.SUCCESS
+                    if result.success
+                    else ScenarioRunFinishedEventStatus.FAILED
+                )
+                self._emit_run_finished_event(scenario_run_id, result, status)
+                return result
 
         except Exception as e:
+            if _check_failure is not None:
+                # Already handled above — just propagate
+                raise
+
             # Publish failure event before propagating the error
             error_result = ScenarioResult(
                 success=False,
@@ -898,13 +935,13 @@ class ScenarioExecutor:
                     # Checkpoint passed: continue script
                     return None
                 else:
-                    # Checkpoint failed: compile all results into the failing result
+                    # Checkpoint failed: compile all results into the failing result.
                     compiled_passed, compiled_failed = self._compiled_checkpoints
                     result.passed_criteria = compiled_passed
                     result.failed_criteria = compiled_failed
                     return result
             else:
-                # Merge any prior checkpoint criteria into the final result
+                # Final judge evaluation — merge prior checkpoint criteria
                 compiled_passed, _ = self._compiled_checkpoints
                 result.passed_criteria = compiled_passed + result.passed_criteria
                 return result
