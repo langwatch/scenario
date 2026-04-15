@@ -34,6 +34,7 @@ from .adapters import (
 )
 from .audio_chunk import AudioChunk, silent_chunk
 from .capabilities import AdapterCapabilities, UnsupportedCapabilityError
+from .interruption import CONTEXTUAL_PROMPT, InterruptionConfig
 from .messages import create_audio_message, extract_audio, message_has_audio
 from .recording import AudioSegment, LatencyMetrics, VoiceEvent, VoiceRecording
 from .stt import (
@@ -50,8 +51,10 @@ __all__ = [
     "AdapterCapabilities",
     "AudioChunk",
     "AudioSegment",
+    "CONTEXTUAL_PROMPT",
     "ElevenLabsAgent",
     "GeminiLiveAgent",
+    "InterruptionConfig",
     "LatencyMetrics",
     "LiveKitAgent",
     "OpenAIRealtimeAgent",

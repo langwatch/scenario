@@ -155,7 +155,8 @@ from .voice import (
     register_tts_provider,
     set_stt_provider,
 )
-from .voice.script_steps import audio, dtmf, silence, sleep
+from .voice.script_steps import audio, dtmf, interrupt, silence, sleep
+from .voice.interruption import InterruptionConfig
 
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
@@ -184,8 +185,10 @@ __all__ = [
     # Voice script steps
     "audio",
     "dtmf",
+    "interrupt",
     "silence",
     "sleep",
+    "InterruptionConfig",
     # Voice types
     "AdapterCapabilities",
     "AudioChunk",

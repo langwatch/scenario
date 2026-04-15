@@ -112,6 +112,8 @@ def user(
 
 def agent(
     content: Optional[Union[str, ChatCompletionMessageParam]] = None,
+    *,
+    wait: bool = True,
 ) -> ScriptStep:
     """
     Generate or specify an agent response in the conversation.
@@ -158,7 +160,7 @@ def agent(
         )
         ```
     """
-    return lambda state: state._executor.agent(content)
+    return lambda state: state._executor.agent(content, wait=wait)
 
 
 def judge(
