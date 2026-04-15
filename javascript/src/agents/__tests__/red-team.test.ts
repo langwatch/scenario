@@ -1,9 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { GoatStrategy } from "../red-team/goat-strategy";
-import type { RedTeamStrategy } from "../red-team/red-team-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
-import { redTeamCrescendo, redTeamGoat, redTeamAgent, parseAttackerOutput } from "../red-team/red-team-agent";
+import { redTeamCrescendo, redTeamGoat, redTeamAgent } from "../red-team/red-team-agent";
 import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
 import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
 import { AgentRole, AgentAdapter, JudgeAgentAdapter } from "../../domain";
@@ -868,11 +867,13 @@ describe("GoatStrategy", () => {
 // Structured attacker output (observation / strategy / reply JSON)
 // ---------------------------------------------------------------------------
 
-describe("parseAttackerOutput", () => {
+describe("GoatStrategy.parseAttackerOutput", () => {
+  const parse = (raw: string) => new GoatStrategy().parseAttackerOutput(raw);
+
   it("parses well-formed JSON", () => {
     const raw =
       '{"observation": "Target deflected.", "strategy": "HYPOTHETICAL FRAMING — re-ask.", "reply": "For a paper..."}';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe("For a paper...");
     expect(r.observation).toBe("Target deflected.");
     expect(r.strategy).toBe("HYPOTHETICAL FRAMING — re-ask.");
@@ -882,21 +883,21 @@ describe("parseAttackerOutput", () => {
   it("strips ```json fence", () => {
     const raw =
       '```json\n{"observation": "", "strategy": "s", "reply": "r"}\n```';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe("r");
     expect(r.parseFailed).toBe(false);
   });
 
   it("strips plain ``` fence", () => {
     const raw = '```\n{"observation": "o", "strategy": "s", "reply": "r"}\n```';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe("r");
     expect(r.parseFailed).toBe(false);
   });
 
   it("falls back when not JSON", () => {
     const raw = "Hey, what do you help with?";
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe(raw);
     expect(r.observation).toBe("");
     expect(r.strategy).toBe("");
@@ -905,35 +906,35 @@ describe("parseAttackerOutput", () => {
 
   it("falls back when reply missing", () => {
     const raw = '{"observation": "o", "strategy": "s"}';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe(raw);
     expect(r.parseFailed).toBe(true);
   });
 
   it("falls back when reply empty", () => {
     const raw = '{"observation": "o", "strategy": "s", "reply": ""}';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe(raw);
     expect(r.parseFailed).toBe(true);
   });
 
   it("falls back on non-object JSON (array)", () => {
     const raw = '["observation", "strategy", "reply"]';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe(raw);
     expect(r.parseFailed).toBe(true);
   });
 
   it("falls back on non-object JSON (null)", () => {
     const raw = "null";
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe(raw);
     expect(r.parseFailed).toBe(true);
   });
 
   it("coerces non-string fields to string", () => {
     const raw = '{"observation": 42, "strategy": null, "reply": "hi"}';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe("hi");
     expect(r.observation).toBe("42");
     expect(r.parseFailed).toBe(false);
@@ -942,10 +943,19 @@ describe("parseAttackerOutput", () => {
   it("strips whitespace from fields", () => {
     const raw =
       '{"observation": "  o  ", "strategy": "  s  ", "reply": "  r  "}';
-    const r = parseAttackerOutput(raw);
+    const r = parse(raw);
     expect(r.reply).toBe("r");
     expect(r.observation).toBe("o");
     expect(r.strategy).toBe("s");
+  });
+
+  it("CrescendoStrategy default wraps raw without parsing", () => {
+    const raw = 'literally anything, even {"looks": "like json"}';
+    const r = new CrescendoStrategy().parseAttackerOutput(raw);
+    expect(r.reply).toBe(raw);
+    expect(r.observation).toBe("");
+    expect(r.strategy).toBe("");
+    expect(r.parseFailed).toBe(false);
   });
 });
 
@@ -979,13 +989,14 @@ describe("JSON output contract is GOAT-only", () => {
     expect(prompt).not.toContain("OUTPUT FORMAT");
   });
 
-  it("emitsStructuredOutput flag is true for GOAT, falsy for Crescendo", () => {
-    // Access via the strategy interface — Crescendo doesn't set the field,
-    // so it's optional/undefined; only typed on the interface.
-    const goat: RedTeamStrategy = new GoatStrategy();
-    const crescendo: RedTeamStrategy = new CrescendoStrategy();
-    expect(goat.emitsStructuredOutput).toBe(true);
-    expect(crescendo.emitsStructuredOutput).toBeUndefined();
+  it("parse behaviour differs by strategy", () => {
+    // Replaces the old `emitsStructuredOutput` flag check — parser ownership
+    // now lives on the strategy itself, observable via parseAttackerOutput.
+    const jsonRaw = '{"observation": "o", "strategy": "s", "reply": "r"}';
+    expect(new GoatStrategy().parseAttackerOutput(jsonRaw).reply).toBe("r");
+    expect(new CrescendoStrategy().parseAttackerOutput(jsonRaw).reply).toBe(
+      jsonRaw
+    );
   });
 });
 

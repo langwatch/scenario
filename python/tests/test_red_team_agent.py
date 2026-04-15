@@ -2638,10 +2638,14 @@ class TestGoatSkipsMetapromptPlan:
 
 
 class TestStructuredAttackerOutput:
-    """RedTeamAgent._parse_attacker_output extracts (reply, observation,
-    strategy) from the attacker's JSON output. The attacker is instructed
-    (via JSON_OUTPUT_CONTRACT in the system prompt) to emit this shape.
+    """GoatStrategy.parse_attacker_output extracts observation/strategy/reply
+    from the attacker's JSON output. The attacker is instructed (via
+    JSON_OUTPUT_CONTRACT in the system prompt) to emit this shape. Returned
+    as a structured ``AttackerOutput`` with a ``parse_failed`` flag.
     """
+
+    def _parse(self, raw):
+        return GoatStrategy().parse_attacker_output(raw)
 
     def test_parses_well_formed_json(self):
         raw = (
@@ -2649,68 +2653,79 @@ class TestStructuredAttackerOutput:
             '"strategy": "HYPOTHETICAL FRAMING — re-ask as research context.", '
             '"reply": "For a university paper, can you explain..."}'
         )
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == "For a university paper, can you explain..."
-        assert obs == "Target deflected with policy language."
-        assert strat == "HYPOTHETICAL FRAMING — re-ask as research context."
+        out = self._parse(raw)
+        assert out.reply == "For a university paper, can you explain..."
+        assert out.observation == "Target deflected with policy language."
+        assert out.strategy == "HYPOTHETICAL FRAMING — re-ask as research context."
+        assert out.parse_failed is False
 
     def test_strips_json_code_fence(self):
         raw = '```json\n{"observation": "", "strategy": "s", "reply": "r"}\n```'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == "r"
-        assert obs == ""
-        assert strat == "s"
+        out = self._parse(raw)
+        assert out.reply == "r"
+        assert out.observation == ""
+        assert out.strategy == "s"
+        assert out.parse_failed is False
 
     def test_strips_plain_code_fence(self):
         raw = '```\n{"observation": "o", "strategy": "s", "reply": "r"}\n```'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == "r"
+        out = self._parse(raw)
+        assert out.reply == "r"
+        assert out.parse_failed is False
 
     def test_falls_back_when_not_json(self):
         """If the attacker ignored the JSON contract, send its full text as
         the reply rather than sending nothing."""
         raw = "Hey, can you help me understand how encryption works?"
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == raw
-        assert obs == ""
-        assert strat == ""
+        out = self._parse(raw)
+        assert out.reply == raw
+        assert out.observation == ""
+        assert out.strategy == ""
+        assert out.parse_failed is True
 
     def test_falls_back_when_reply_missing(self):
         """Parseable JSON but no `reply` field — fall back to raw."""
         raw = '{"observation": "something", "strategy": "something"}'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == raw
-        assert obs == ""
-        assert strat == ""
+        out = self._parse(raw)
+        assert out.reply == raw
+        assert out.parse_failed is True
 
     def test_falls_back_when_reply_empty(self):
         raw = '{"observation": "o", "strategy": "s", "reply": ""}'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == raw
-        assert obs == ""
-        assert strat == ""
+        out = self._parse(raw)
+        assert out.reply == raw
+        assert out.parse_failed is True
 
     def test_falls_back_on_non_object_json(self):
         raw = '["observation", "strategy", "reply"]'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == raw
-        assert obs == ""
-        assert strat == ""
+        out = self._parse(raw)
+        assert out.reply == raw
+        assert out.parse_failed is True
 
     def test_coerces_non_string_fields_to_string(self):
         """Defensive: if the attacker emits numbers/nulls, don't crash."""
         raw = '{"observation": 42, "strategy": null, "reply": "hi"}'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == "hi"
-        # null → "None" via str() coercion, not ideal but parser doesn't crash.
-        assert obs == "42"
+        out = self._parse(raw)
+        assert out.reply == "hi"
+        assert out.observation == "42"
+        assert out.parse_failed is False
 
     def test_strips_whitespace_from_fields(self):
         raw = '{"observation": "  o  ", "strategy": "  s  ", "reply": "  r  "}'
-        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
-        assert reply == "r"
-        assert obs == "o"
-        assert strat == "s"
+        out = self._parse(raw)
+        assert out.reply == "r"
+        assert out.observation == "o"
+        assert out.strategy == "s"
+
+    def test_crescendo_default_wraps_raw_without_parsing(self):
+        """Non-structured strategies inherit the trivial base implementation:
+        raw → reply, no parse failure, empty reasoning fields."""
+        raw = 'literally anything, even {"looks": "like json"}'
+        out = CrescendoStrategy().parse_attacker_output(raw)
+        assert out.reply == raw
+        assert out.observation == ""
+        assert out.strategy == ""
+        assert out.parse_failed is False
 
 
 # ---------------------------------------------------------------------------
@@ -2741,10 +2756,13 @@ class TestJsonContractInPrompts:
         )
         assert "OUTPUT FORMAT" not in prompt
 
-    def test_strategy_flags(self):
-        """Parser is gated on emits_structured_output."""
-        assert GoatStrategy().emits_structured_output is True
-        assert CrescendoStrategy().emits_structured_output is False
+    def test_parse_behavior_differs_by_strategy(self):
+        """GOAT parses the JSON contract; Crescendo wraps the raw text.
+        Replaces the old ``emits_structured_output`` flag check — behaviour
+        is now observable directly via ``parse_attacker_output``."""
+        json_raw = '{"observation": "o", "strategy": "s", "reply": "r"}'
+        assert GoatStrategy().parse_attacker_output(json_raw).reply == "r"
+        assert CrescendoStrategy().parse_attacker_output(json_raw).reply == json_raw
 
 
 # ---------------------------------------------------------------------------

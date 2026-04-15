@@ -10,7 +10,11 @@
  *     this label is NOT surfaced to the attacker.
  */
 
-import { JSON_OUTPUT_CONTRACT, RedTeamStrategy } from "./red-team-strategy";
+import {
+  AttackerOutput,
+  JSON_OUTPUT_CONTRACT,
+  RedTeamStrategy,
+} from "./red-team-strategy";
 import {
   DEFAULT_GOAT_TECHNIQUES,
   Technique,
@@ -21,9 +25,6 @@ import {
 export class GoatStrategy implements RedTeamStrategy {
   // Paper fidelity: GOAT does not pre-generate an attack plan.
   readonly needsMetapromptPlan = false;
-
-  // Paper fidelity: GOAT attacker emits observation/strategy/reply JSON.
-  readonly emitsStructuredOutput = true;
 
   /**
    * The technique catalogue in use (read-only). Defaults to
@@ -46,6 +47,54 @@ export class GoatStrategy implements RedTeamStrategy {
 
   chosenTechniqueIds(strategyText: string): string[] {
     return extractChosenIds(strategyText, this.techniques);
+  }
+
+  /**
+   * Extract `{reply, observation, strategy}` from the attacker's JSON output
+   * per {@link JSON_OUTPUT_CONTRACT}.
+   *
+   * Pipeline:
+   *   1. Strip ``` / ```json markdown fences if present
+   *   2. Parse JSON; read the three fields as strings
+   *   3. Fall back to `{reply: raw, parseFailed: true}` when parsing fails
+   *      or `reply` is missing/empty — keeps the agent running on a
+   *      malformed turn.
+   */
+  parseAttackerOutput(raw: string): AttackerOutput {
+    let s = raw.trim();
+    if (s.startsWith("```json")) {
+      s = s.slice("```json".length);
+    } else if (s.startsWith("```")) {
+      s = s.slice(3);
+    }
+    if (s.endsWith("```")) {
+      s = s.slice(0, -3);
+    }
+    s = s.trim();
+
+    let data: unknown;
+    try {
+      data = JSON.parse(s);
+    } catch {
+      return { reply: raw, observation: "", strategy: "", parseFailed: true };
+    }
+
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      return { reply: raw, observation: "", strategy: "", parseFailed: true };
+    }
+
+    const obj = data as Record<string, unknown>;
+    const reply = String(obj.reply ?? "").trim();
+    if (!reply) {
+      return { reply: raw, observation: "", strategy: "", parseFailed: true };
+    }
+
+    return {
+      reply,
+      observation: String(obj.observation ?? "").trim(),
+      strategy: String(obj.strategy ?? "").trim(),
+      parseFailed: false,
+    };
   }
 
   getPhaseName(currentTurn: number, totalTurns: number): string {
