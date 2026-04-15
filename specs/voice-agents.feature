@@ -6,7 +6,8 @@ Feature: Voice agent testing in Scenario SDK
 
   Background:
     Given the Scenario SDK is configured
-    And voice dependencies are installed as hard deps: imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels, websockets, aiortc, twilio, livekit, livekit-api, elevenlabs, openai
+    And voice dependencies are installed as hard deps: imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels, websockets, aiortc, twilio, livekit, livekit-api, elevenlabs
+    And openai is already a core dep (reused for default STT, not a new voice dep)
     And optional TTS provider deps (google-cloud-texttospeech, cartesia) are lazy-imported only when their provider prefix is used
 
   # ======================================================================
@@ -556,7 +557,8 @@ Feature: Voice agent testing in Scenario SDK
   Scenario: Hard dependencies install with the SDK (no extras flag)
     # Locked decision: Hard deps — voice is first-class
     Given "pip install scenario"
-    Then imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels are installed as hard deps
+    Then imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels, websockets, aiortc, twilio, livekit, livekit-api, elevenlabs are installed as hard deps
+    And google-cloud-texttospeech and cartesia are NOT installed by default (lazy-imported when their provider prefix is used)
     And ffmpeg binary is available via imageio_ffmpeg.get_ffmpeg_exe()
     And bundled noise WAV samples (cafe, street, office, airport for background_noise; babble for multiple_voices) ship inside the package
 
@@ -630,7 +632,6 @@ Feature: Voice agent testing in Scenario SDK
     When the scenario starts and VAD fallback is used
     Then a UserWarning is issued exactly once per process naming the adapter
     And the warning text references accuracy differences vs native VAD
-    And the warning points to the capability matrix docs
 
   @unit
   Scenario: Adapters with native VAD do not trigger the fallback
@@ -640,20 +641,22 @@ Feature: Voice agent testing in Scenario SDK
     And VAD events come from the adapter's native stream
 
   # ======================================================================
-  # Local Playback (ffplay subprocess)
+  # Local Playback (ffmpeg subprocess with audio-output driver)
   # ======================================================================
 
   @unit
-  Scenario: audio_playback=True spawns ffplay as a subprocess
+  Scenario: audio_playback=True spawns ffmpeg as a subprocess with audio-output driver
     Given scenario.run(..., audio_playback=True)
     When audio flows
-    Then an ffplay subprocess is started using the bundled ffmpeg binary path
+    Then an ffmpeg subprocess is started using the bundled binary from imageio-ffmpeg
+    And the subprocess is invoked with a platform-appropriate audio-output driver (e.g., -f alsa, -f coreaudio, -f dshow)
     And no sounddevice/PortAudio dependency is imported
+    And ffplay is NOT used (imageio-ffmpeg does not bundle ffplay)
 
   @unit
   Scenario: Playback degrades gracefully on headless systems
     Given audio_playback=True on a system with no audio output device
-    When ffplay fails to open the device
+    When the ffmpeg subprocess fails to open the device
     Then the scenario continues without raising
     And a debug-level log message is emitted
     And result.audio is still populated

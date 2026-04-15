@@ -79,7 +79,7 @@ Files to modify:
 Files to modify:
 - `python/scenario/scenario_executor.py` — build `VoiceEvent` timeline, `LatencyMetrics`, invoke `on_audio_chunk` / `on_voice_event` hooks
 - `python/scenario/config/scenario.py` — add `audio_playback: bool = False` field to `ScenarioConfig`
-- `python/scenario/voice/playback.py` — live playback via `ffplay` subprocess using the bundled ffmpeg binary (per the **ffplay playback** decision). Graceful no-op on headless systems.
+- `python/scenario/voice/playback.py` — live playback via `ffmpeg` subprocess (using the bundled binary from `imageio-ffmpeg`) with an audio output driver (`-f alsa` / `-f coreaudio` / `-f dshow` per platform). Graceful no-op on headless systems (missing device → debug log, scenario continues). Note: `imageio-ffmpeg` bundles `ffmpeg` but NOT `ffplay`; we use ffmpeg with a platform-specific audio-out driver instead of ffplay.
 - `python/scenario/_events/` — emit voice events so LangWatch Simulations Visualizer can render them (audio player in UI is LangWatch-side, not in this PR)
 
 ## Dependency Additions (`python/pyproject.toml`)
@@ -140,7 +140,7 @@ Mocking approach:
 5. **STT provider** — pluggable `STTProvider` interface, not a hardcoded provider. Default implementation uses OpenAI (`gpt-4o-transcribe`, reuses existing `openai` dep). Users swap via `scenario.configure(stt=...)`. Provider-agnostic by design — we don't control which provider users prefer.
 6. **VAD fallback for adapters without native VAD** — SDK-side fallback via `webrtcvad-wheels` (the maintained fork of py-webrtcvad). Emits a one-shot `UserWarning` when fallback activates: `"Adapter {name} has no native VAD — using SDK-side webrtcvad. Accuracy may differ from native."`. Surfaced in the adapter capability matrix docs.
 7. **Noise sample bundling** — ~1MB of royalty-free WAV samples ships with the core SDK. `background_noise` presets: cafe, street, office, airport (per §4.5 L521). `babble` ships as the sample used by the `multiple_voices` effect (per §4.5 L533) — NOT as a `background_noise` preset. Effects work out of the box. If bloat becomes a complaint, split to a separate `scenario-voice-assets` package in a follow-up.
-8. **Local audio playback** — `ffplay` via subprocess (uses the bundled ffmpeg binary). No `sounddevice`/PortAudio dep. Degrades gracefully on headless systems (no-op + debug log).
+8. **Local audio playback** — `ffmpeg` subprocess with a platform audio-output driver (using the bundled binary from `imageio-ffmpeg`). No `sounddevice`/PortAudio dep. Not `ffplay` — `imageio-ffmpeg` does not bundle ffplay. Degrades gracefully on headless systems (no-op + debug log).
 
 ## Adapter Capability Matrix (planning-level design decision)
 
