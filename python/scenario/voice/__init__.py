@@ -20,6 +20,18 @@ Public surface:
 from __future__ import annotations
 
 from .adapter import VoiceAgentAdapter
+from .adapters import (
+    ElevenLabsAgent,
+    GeminiLiveAgent,
+    LiveKitAgent,
+    OpenAIRealtimeAgent,
+    PipecatAgent,
+    TwilioAgent,
+    VapiAgent,
+    WebRTCAgent,
+    WebSocketAgent,
+    WebSocketProtocol,
+)
 from .audio_chunk import AudioChunk, silent_chunk
 from .capabilities import AdapterCapabilities, UnsupportedCapabilityError
 from .messages import create_audio_message, extract_audio, message_has_audio
@@ -38,14 +50,24 @@ __all__ = [
     "AdapterCapabilities",
     "AudioChunk",
     "AudioSegment",
+    "ElevenLabsAgent",
+    "GeminiLiveAgent",
     "LatencyMetrics",
+    "LiveKitAgent",
+    "OpenAIRealtimeAgent",
     "OpenAISTTProvider",
+    "PipecatAgent",
     "STTProvider",
+    "TwilioAgent",
     "UnsupportedCapabilityError",
+    "VapiAgent",
     "VoiceAgentAdapter",
     "VoiceEvent",
     "VoiceRecording",
+    "WebRTCAgent",
     "WebRTCVadFallback",
+    "WebSocketAgent",
+    "WebSocketProtocol",
     "create_audio_message",
     "extract_audio",
     "get_stt_provider",
