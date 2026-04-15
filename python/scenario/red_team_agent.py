@@ -968,10 +968,12 @@ Reply with exactly this JSON and nothing else:
                 parse_failed = not observation and not strategy and reply == raw_attack
                 if parse_failed:
                     self._parse_failure_count += 1
+                chosen_ids = self._strategy.chosen_technique_ids(strategy)
                 span.set_attribute("red_team.reasoning.observation", observation[:500])
                 span.set_attribute("red_team.reasoning.strategy", strategy[:500])
                 span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
                 span.set_attribute("red_team.parse_failure_count", self._parse_failure_count)
+                span.set_attribute("red_team.chosen_technique_ids", chosen_ids)
                 if parse_failed:
                     logger.warning(
                         "RedTeamAgent turn %d: attacker output was not valid JSON; "

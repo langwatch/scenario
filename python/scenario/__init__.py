@@ -121,6 +121,8 @@ from ._red_team import (
     GoatStrategy,
     AttackTechnique,
     DEFAULT_TECHNIQUES,
+    Technique,
+    DEFAULT_GOAT_TECHNIQUES,
 )
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail
@@ -168,6 +170,8 @@ __all__ = [
     "GoatStrategy",
     "AttackTechnique",
     "DEFAULT_TECHNIQUES",
+    "Technique",
+    "DEFAULT_GOAT_TECHNIQUES",
     "JudgeAgent",
 ]
 __version__ = "0.1.0"

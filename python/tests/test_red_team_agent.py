@@ -2917,3 +2917,84 @@ class TestParseFailureCount:
         await agent.call(self._make_input([], current_turn=1))
         # Reset wiped the stale count; valid JSON didn't increment it
         assert agent._parse_failure_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Techniques as data (#330)
+# ---------------------------------------------------------------------------
+
+
+class TestTechniquesAsData:
+    """GOAT's technique catalogue is first-class data, not a string literal.
+    Enables user-extensible catalogues and typed telemetry
+    (``red_team.chosen_technique_ids``).
+    """
+
+    def test_default_catalogue_has_seven_techniques(self):
+        from scenario import DEFAULT_GOAT_TECHNIQUES
+        assert len(DEFAULT_GOAT_TECHNIQUES) == 7
+        ids = {t.id for t in DEFAULT_GOAT_TECHNIQUES}
+        assert "HYPOTHETICAL_FRAMING" in ids
+        assert "AUTHORITY_SOCIAL_ENGINEERING" in ids
+
+    def test_chosen_ids_matches_id_and_name_forms(self):
+        """The attacker may reference techniques by ID (with underscores)
+        or by name (with spaces). Both should match."""
+        strategy = GoatStrategy()
+        # ID form
+        assert strategy.chosen_technique_ids(
+            "Using HYPOTHETICAL_FRAMING to bypass the direct question"
+        ) == ["HYPOTHETICAL_FRAMING"]
+        # Name form
+        assert strategy.chosen_technique_ids(
+            "PERSONA MODIFICATION — asking target to roleplay"
+        ) == ["PERSONA_MODIFICATION"]
+        # Mixed, multiple, preserved in catalogue order
+        assert strategy.chosen_technique_ids(
+            "combining RESPONSE PRIMING with HYPOTHETICAL_FRAMING"
+        ) == ["HYPOTHETICAL_FRAMING", "RESPONSE_PRIMING"]
+
+    def test_chosen_ids_empty_when_no_match(self):
+        assert GoatStrategy().chosen_technique_ids("just some free text") == []
+        assert GoatStrategy().chosen_technique_ids("") == []
+
+    def test_custom_techniques_override_catalogue(self):
+        """Users supplying their own techniques replace the defaults —
+        the rendered prompt and telemetry IDs both reflect the override."""
+        from scenario import Technique
+        custom = [
+            Technique(
+                id="MY_CUSTOM_TECHNIQUE",
+                name="MY CUSTOM TECHNIQUE",
+                description="A test technique.",
+                example='"Hello world"',
+            ),
+        ]
+        strategy = GoatStrategy(techniques=custom)
+        prompt = strategy.build_system_prompt(
+            target="t", current_turn=1, total_turns=5,
+            scenario_description="d", metaprompt_plan="",
+        )
+        assert "MY CUSTOM TECHNIQUE" in prompt
+        assert "A test technique." in prompt
+        # Default techniques should NOT appear in the catalogue section.
+        # (JSON_OUTPUT_CONTRACT uses "HYPOTHETICAL FRAMING" as a fixed
+        # example, so the canonical check is the description text, which
+        # only comes from the catalogue.)
+        assert "Wrap requests in fictional or theoretical scenarios." not in prompt
+        assert strategy.chosen_technique_ids(
+            "I'll try MY_CUSTOM_TECHNIQUE here"
+        ) == ["MY_CUSTOM_TECHNIQUE"]
+
+    def test_duplicate_ids_raise(self):
+        from scenario import Technique
+        dup = [
+            Technique(id="X", name="X", description="d", example="e"),
+            Technique(id="X", name="X2", description="d2", example="e2"),
+        ]
+        with pytest.raises(ValueError, match="duplicate technique IDs"):
+            GoatStrategy(techniques=dup)
+
+    def test_crescendo_chosen_ids_empty_by_default(self):
+        """Strategies without a catalogue return [] — no telemetry noise."""
+        assert CrescendoStrategy().chosen_technique_ids("any text") == []

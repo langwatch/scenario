@@ -80,4 +80,13 @@ export interface RedTeamStrategy {
    * Defaults to `false` when omitted (backward-compatible).
    */
   emitsStructuredOutput?: boolean;
+
+  /**
+   * Extract typed technique identifiers from the attacker's `strategy`
+   * field for telemetry. Strategies that define a technique catalogue
+   * override this to return the IDs of techniques actually used on a given
+   * turn — powering the `red_team.chosen_technique_ids` span attribute.
+   * Default (omitted) contributes nothing.
+   */
+  chosenTechniqueIds?(strategyText: string): string[];
 }

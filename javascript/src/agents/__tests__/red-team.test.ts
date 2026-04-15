@@ -1254,6 +1254,72 @@ describe("marathon judges at end after all turns with backtrack", () => {
 // maxBacktracks scaling (#331)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Techniques as data (#330)
+// ---------------------------------------------------------------------------
+
+describe("GOAT techniques as data", () => {
+  it("default catalogue has 7 techniques with expected IDs", async () => {
+    const { DEFAULT_GOAT_TECHNIQUES } = await import(
+      "../red-team/goat-techniques"
+    );
+    expect(DEFAULT_GOAT_TECHNIQUES).toHaveLength(7);
+    const ids = DEFAULT_GOAT_TECHNIQUES.map((t) => t.id);
+    expect(ids).toContain("HYPOTHETICAL_FRAMING");
+    expect(ids).toContain("AUTHORITY_SOCIAL_ENGINEERING");
+  });
+
+  it("chosenTechniqueIds matches ID and name forms, preserves catalogue order", () => {
+    const s = new GoatStrategy();
+    expect(
+      s.chosenTechniqueIds("Using HYPOTHETICAL_FRAMING to bypass the question")
+    ).toEqual(["HYPOTHETICAL_FRAMING"]);
+    expect(
+      s.chosenTechniqueIds("PERSONA MODIFICATION — roleplay")
+    ).toEqual(["PERSONA_MODIFICATION"]);
+    expect(
+      s.chosenTechniqueIds("combining RESPONSE PRIMING with HYPOTHETICAL_FRAMING")
+    ).toEqual(["HYPOTHETICAL_FRAMING", "RESPONSE_PRIMING"]);
+    expect(s.chosenTechniqueIds("")).toEqual([]);
+    expect(s.chosenTechniqueIds("just free text")).toEqual([]);
+  });
+
+  it("custom techniques override the catalogue in prompt + telemetry", () => {
+    const custom = [
+      {
+        id: "MY_CUSTOM_TECHNIQUE",
+        name: "MY CUSTOM TECHNIQUE",
+        description: "A test technique.",
+        example: '"Hello world"',
+      },
+    ];
+    const s = new GoatStrategy(custom);
+    const prompt = s.buildSystemPrompt({
+      target: "t",
+      currentTurn: 1,
+      totalTurns: 5,
+      scenarioDescription: "d",
+      metapromptPlan: "",
+    });
+    expect(prompt).toContain("MY CUSTOM TECHNIQUE");
+    expect(prompt).toContain("A test technique.");
+    // Default description should NOT appear — the canonical check, since
+    // JSON_OUTPUT_CONTRACT itself mentions "HYPOTHETICAL FRAMING" as an example.
+    expect(prompt).not.toContain("Wrap requests in fictional or theoretical scenarios.");
+    expect(s.chosenTechniqueIds("I'll try MY_CUSTOM_TECHNIQUE")).toEqual([
+      "MY_CUSTOM_TECHNIQUE",
+    ]);
+  });
+
+  it("rejects duplicate technique IDs", () => {
+    const dup = [
+      { id: "X", name: "X", description: "d", example: "e" },
+      { id: "X", name: "X2", description: "d2", example: "e2" },
+    ];
+    expect(() => new GoatStrategy(dup)).toThrow(/duplicate technique IDs/);
+  });
+});
+
 describe("maxBacktracks scaling", () => {
   it("default scales with totalTurns: max(1, floor(totalTurns / 3))", () => {
     const short = redTeamGoat({ target: "t", totalTurns: 5 });
