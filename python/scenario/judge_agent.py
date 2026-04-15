@@ -243,6 +243,9 @@ class JudgeAgent(AgentAdapter):
         span_collector: Optional[JudgeSpanCollector] = None,
         token_threshold: int = DEFAULT_TOKEN_THRESHOLD,
         max_discovery_steps: int = 10,
+        include_audio: Optional[bool] = None,
+        include_timeline: Optional[bool] = None,
+        include_traces: Optional[bool] = None,
         **extra_params,
     ):
         """
@@ -309,6 +312,11 @@ class JudgeAgent(AgentAdapter):
         self._span_collector = span_collector or judge_span_collector
         self._token_threshold = token_threshold
         self._max_discovery_steps = max_discovery_steps
+        # Voice-aware judge behaviour (§4.3). None = auto-detect based on
+        # conversation content and judge model capabilities.
+        self.include_audio = include_audio
+        self.include_timeline = include_timeline
+        self.include_traces = include_traces
 
         if model:
             self.model = model
@@ -350,6 +358,31 @@ class JudgeAgent(AgentAdapter):
 
         if not hasattr(self, "model"):
             raise Exception(agent_not_configured_error_message("JudgeAgent"))
+
+    # --------------------------------------------- voice auto-detection (§4.3)
+    # Small single-purpose helpers; kept out of call() to preserve SRP.
+    _AUDIO_CAPABLE_MODEL_SUBSTRINGS = ("gpt-4o", "gemini-2.5", "gemini-2.0-flash")
+
+    def _model_supports_audio(self) -> bool:
+        m = (self.model or "").lower()
+        return any(s in m for s in self._AUDIO_CAPABLE_MODEL_SUBSTRINGS)
+
+    def effective_include_audio(self, conversation_has_audio: bool) -> bool:
+        """Resolve include_audio: explicit wins, otherwise auto from model capability."""
+        if self.include_audio is not None:
+            return self.include_audio and conversation_has_audio
+        return conversation_has_audio and self._model_supports_audio()
+
+    def effective_include_timeline(self, conversation_has_audio: bool) -> bool:
+        """Default timeline True for voice, False for text — unless explicitly set."""
+        if self.include_timeline is not None:
+            return self.include_timeline
+        return conversation_has_audio
+
+    def effective_include_traces(self, otel_configured: bool) -> bool:
+        if self.include_traces is not None:
+            return self.include_traces
+        return otel_configured
 
     @scenario_cache()
     async def call(

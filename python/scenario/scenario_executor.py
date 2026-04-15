@@ -571,6 +571,7 @@ class ScenarioExecutor:
                         if result.success
                         else ScenarioRunFinishedEventStatus.FAILED
                     )
+                    result = self._attach_voice_output(result)
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -615,6 +616,7 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
+                result = self._attach_voice_output(result)
 
                 status = (
                     ScenarioRunFinishedEventStatus.SUCCESS
@@ -664,10 +666,32 @@ class ScenarioExecutor:
     async def _voice_connect_all(self) -> None:
         """Invoke ``connect()`` on every VoiceAgentAdapter in the scenario."""
         from .voice.adapter import VoiceAgentAdapter
+        from .voice.recording import LatencyMetrics, VoiceRecording
 
+        self._voice_recording: VoiceRecording = VoiceRecording()
+        self._voice_timeline: list = []
+        self._voice_latency: LatencyMetrics = LatencyMetrics()
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
                 await agent.connect()
+
+    def _attach_voice_output(self, result: ScenarioResult) -> ScenarioResult:
+        """Populate result.audio/timeline/latency if any voice adapter ran."""
+        from .voice.adapter import VoiceAgentAdapter
+
+        has_voice = any(isinstance(a, VoiceAgentAdapter) for a in self.agents)
+        if not has_voice:
+            return result
+        recording = getattr(self, "_voice_recording", None)
+        timeline = getattr(self, "_voice_timeline", None)
+        latency = getattr(self, "_voice_latency", None)
+        if recording is not None and recording.segments:
+            result.audio = recording
+        if timeline:
+            result.timeline = list(timeline)
+        if latency is not None and latency.measurements:
+            result.latency = latency
+        return result
 
     async def _voice_disconnect_all(self) -> None:
         """Invoke ``disconnect()`` on every VoiceAgentAdapter.
