@@ -15,6 +15,11 @@ export * from "./script";
 export { setupScenarioTracing } from "./tracing/setup";
 export { scenarioOnly, withCustomScopes } from "./tracing/filters";
 
+// Red-team report public API (auto-save happens inside runner/run.ts;
+// this export exists so users can manually invoke it if they're running
+// scenarios outside the default runner).
+export { saveRedTeamReport, isRedTeamAgent } from "./red-team-report";
+
 type ScenarioApi = typeof agents &
   typeof domain &
   typeof execution &

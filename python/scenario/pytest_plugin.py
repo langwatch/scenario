@@ -7,6 +7,7 @@ results across test runs. It enables seamless integration with existing
 pytest-based testing workflows.
 """
 
+import os
 import pytest
 from typing import TypedDict
 import functools
@@ -16,6 +17,51 @@ from scenario.config import ScenarioConfig
 from scenario.types import ScenarioResult
 
 from .scenario_executor import ScenarioExecutor
+
+
+def _auto_save_redteam_report(scenario: ScenarioExecutor, result: ScenarioResult) -> None:
+    """Save a red-team report JSON if the scenario included a RedTeamAgent.
+
+    Zero-friction path: any test whose ``agents`` list contains a
+    ``RedTeamAgent`` gets a JSON report written to
+    ``./redteam-reports/<batch>/<slug>.json`` automatically — no user code
+    required. The Streamlit dashboard (``scenario redteam-report``) reads
+    those files.
+
+    Env var controls:
+      - ``SCENARIO_REDTEAM_REPORT=0`` — skip auto-save entirely
+      - ``SCENARIO_REDTEAM_REPORT_DIR=/path`` — override default batch dir
+
+    Errors here are swallowed (warning printed) so a reporting failure
+    never breaks a test run.
+    """
+    if os.environ.get("SCENARIO_REDTEAM_REPORT", "1") == "0":
+        return
+
+    # Lazy imports to avoid circulars at plugin-load time.
+    try:
+        from .red_team_agent import RedTeamAgent
+        from .report import save_redteam_report, set_batch_dir
+    except Exception:
+        return
+
+    agents = getattr(scenario, "agents", None) or []
+    red_team = next((a for a in agents if isinstance(a, RedTeamAgent)), None)
+    if red_team is None:
+        return
+
+    override_dir = os.environ.get("SCENARIO_REDTEAM_REPORT_DIR")
+    if override_dir:
+        set_batch_dir(override_dir)
+
+    try:
+        save_redteam_report(
+            result,
+            red_team=red_team,
+            test_name=getattr(scenario, "name", "redteam"),
+        )
+    except Exception as exc:
+        print(colored(f"[scenario] red-team report save failed: {exc}", "yellow"))
 
 
 class ScenarioReporterResults(TypedDict):
@@ -260,6 +306,10 @@ def pytest_configure(config):
         else:
             # Handle case where reporter might not be initialized (should not happen with current setup)
             print(colored("Warning: Scenario reporter not found during run.", "yellow"))
+
+        # Auto-save red-team report when a RedTeamAgent participated.
+        # Opt out with SCENARIO_REDTEAM_REPORT=0 (see docs).
+        _auto_save_redteam_report(self, result)
 
         return result
 
