@@ -19,7 +19,7 @@ Implement voice agent support in the Scenario Python SDK. Done when all 83 scena
 5. Pluggable `STTProvider`, default OpenAI `gpt-4o-transcribe`.
 6. VAD fallback: `webrtcvad-wheels` with one-shot warning on activation.
 7. ~1MB bundled CC0 noise samples ship with core.
-8. Playback: `ffplay` subprocess, graceful no-op on headless.
+8. Playback: `ffmpeg` subprocess (bundled binary) with platform audio-output driver. Graceful no-op on headless. Not `ffplay` — `imageio-ffmpeg` does not bundle ffplay.
 
 ## Capability matrix (planning-level design decision, not in source)
 
@@ -48,3 +48,24 @@ Every adapter publishes `adapter.capabilities: AdapterCapabilities` with `stream
 - If a decision must be made and isn't covered above, pick the simplest option that passes the AC, document in PR, move on.
 - Commit per phase. Commit messages reference scenarios made passing.
 - All `@unit` scenarios must pass in CI without live creds. `@integration` gated by API key presence check (match existing convention in `python/tests/test_red_team_agent.py:1210-1216`).
+
+## Three-layer convergence check (run at the end of every loop iteration)
+
+Before declaring an iteration done, verify all three layers. A green test alone is not sufficient — hallucinations pass green tests.
+
+**Layer 1 — Feature file (scenarios pass):**
+- Run the tests for scenarios touched this iteration. They pass.
+- No regressions in previously-passing scenarios.
+
+**Layer 2 — AC semantics (behavior is right, not green-by-cheating):**
+- For each scenario just made passing, re-read the Gherkin text. Does the implementation actually satisfy the *intent* of the AC, not just the literal assertions?
+- Examples of cheating the green: mocking out the thing the AC is supposed to test; returning a hardcoded value that happens to match; skipping the assertion that would fail.
+- If you caught yourself doing any of these, the scenario isn't really passing — fix it.
+
+**Layer 3 — Proposal fidelity (no drift from source):**
+- For each scenario touched this iteration, read its `# Source §X.Y, Lxxx-yyy` citation via `docs/proposals/issue-350-voice-agents-INDEX.md` → `Read(docs/proposals/issue-350-voice-agents-source.md, offset=xxx, limit=N)`.
+- Verify the implementation matches what the **original proposal** actually says. The feature file and delivery plan are downstream artifacts — the proposal is the source of truth.
+- Flag any case where the AC drifted from the proposal during planning. The proposal wins. If the feature file is genuinely wrong, document the mismatch in the PR and update the feature file with a note.
+- For scenarios with no source citation (planning-level additions like the capability matrix, STT provider interface, VAD fallback): verify they are consistent with the **locked decisions** in this document. Don't skip the check just because there's no source line.
+
+**Why this matters:** Prior planning of this feature introduced 14+ distortions of the original proposal during summarization. Every implementation iteration must re-verify against the source to prevent the same drift from re-entering at the code level.

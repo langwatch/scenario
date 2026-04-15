@@ -155,7 +155,7 @@ Wire the prompt via the same LLM client the user-simulator uses. Include the per
 
 **Proposal says:** §4.7 L631-643 specifies `audio_playback=True` and `on_audio_chunk` hooks. Does not specify a backend.
 
-**Locked decision:** `ffplay` via subprocess, using the bundled ffmpeg binary from `imageio-ffmpeg`. No `sounddevice`/PortAudio dep. Graceful no-op on headless systems (missing device → debug log, scenario continues).
+**Locked decision:** `ffmpeg` subprocess with a platform audio-output driver (using the bundled binary from `imageio-ffmpeg`). No `sounddevice`/PortAudio dep. Not `ffplay` — `imageio-ffmpeg` bundles `ffmpeg` but NOT `ffplay`. Graceful no-op on headless systems (missing device → debug log, scenario continues).
 
 **Why:** Reuses the ffmpeg binary we already ship. Zero new native deps. Playback is a dev-loop convenience, not a production feature — latency is not load-bearing. Users who want custom playback wire `on_audio_chunk` themselves.
 
