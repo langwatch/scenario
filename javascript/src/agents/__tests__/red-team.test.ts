@@ -1249,3 +1249,30 @@ describe("marathon judges at end after all turns with backtrack", () => {
     expect(judgeCalls[0]!.messageCount).toBeGreaterThanOrEqual(6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// maxBacktracks scaling (#331)
+// ---------------------------------------------------------------------------
+
+describe("maxBacktracks scaling", () => {
+  it("default scales with totalTurns: max(1, floor(totalTurns / 3))", () => {
+    const short = redTeamGoat({ target: "t", totalTurns: 5 });
+    const medium = redTeamGoat({ target: "t", totalTurns: 30 });
+    const long = redTeamGoat({ target: "t", totalTurns: 100 });
+    expect((short as any).maxBacktracks).toBe(1);
+    expect((medium as any).maxBacktracks).toBe(10);
+    expect((long as any).maxBacktracks).toBe(33);
+  });
+
+  it("explicit maxBacktracks overrides the default formula", () => {
+    const agent = redTeamGoat({ target: "t", totalTurns: 30, maxBacktracks: 3 });
+    expect((agent as any).maxBacktracks).toBe(3);
+    expect((agent as any).backtracksRemaining).toBe(3);
+  });
+
+  it("throws on negative maxBacktracks", () => {
+    expect(() =>
+      redTeamGoat({ target: "t", totalTurns: 30, maxBacktracks: -1 })
+    ).toThrow(/maxBacktracks must be >= 0/);
+  });
+});

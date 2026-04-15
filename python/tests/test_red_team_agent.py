@@ -2797,3 +2797,123 @@ class TestGoatFactoryMethod:
         goat = RedTeamAgent.goat(target="test", model="openai/gpt-4.1-mini")
         crescendo = RedTeamAgent.crescendo(target="test", model="openai/gpt-4.1-mini")
         assert type(goat._strategy) is not type(crescendo._strategy)
+
+
+# ---------------------------------------------------------------------------
+# max_backtracks scaling (#331)
+# ---------------------------------------------------------------------------
+
+
+class TestMaxBacktracksScaling:
+    """The backtrack budget scales with total_turns so short runs don't
+    over-provision (wasting nothing) and long runs aren't under-provisioned
+    against hardened targets. Formula: max(1, total_turns // 3).
+    """
+
+    def test_default_scales_with_total_turns(self):
+        short = RedTeamAgent.goat(target="t", model="openai/gpt-4.1-mini", total_turns=5)
+        medium = RedTeamAgent.goat(target="t", model="openai/gpt-4.1-mini", total_turns=30)
+        long_ = RedTeamAgent.goat(target="t", model="openai/gpt-4.1-mini", total_turns=100)
+        assert short._MAX_BACKTRACKS == 1
+        assert medium._MAX_BACKTRACKS == 10
+        assert long_._MAX_BACKTRACKS == 33
+
+    def test_tiny_total_turns_still_gets_one(self):
+        """total_turns=1 or 2 must still allow at least 1 backtrack."""
+        agent = RedTeamAgent.goat(target="t", model="openai/gpt-4.1-mini", total_turns=1)
+        assert agent._MAX_BACKTRACKS == 1
+
+    def test_explicit_override_wins(self):
+        agent = RedTeamAgent.goat(
+            target="t", model="openai/gpt-4.1-mini",
+            total_turns=30, max_backtracks=3,
+        )
+        assert agent._MAX_BACKTRACKS == 3
+        assert agent._backtracks_remaining == 3
+
+    def test_explicit_zero_disables_backtracking(self):
+        agent = RedTeamAgent.goat(
+            target="t", model="openai/gpt-4.1-mini",
+            total_turns=30, max_backtracks=0,
+        )
+        assert agent._MAX_BACKTRACKS == 0
+
+    def test_negative_raises(self):
+        with pytest.raises(ValueError, match="max_backtracks must be >= 0"):
+            RedTeamAgent.goat(
+                target="t", model="openai/gpt-4.1-mini",
+                total_turns=30, max_backtracks=-1,
+            )
+
+
+# ---------------------------------------------------------------------------
+# parse_failure_count telemetry
+# ---------------------------------------------------------------------------
+
+
+class TestParseFailureCount:
+    """Cumulative parse_failure_count increments on every malformed attacker
+    output within a run and resets on the next run. Used by dashboards to
+    track per-model output-format reliability.
+    """
+
+    def _make_goat_agent(self):
+        agent = RedTeamAgent.goat(
+            target="extract prompt",
+            model="openai/gpt-4.1-mini",
+            total_turns=5,
+            score_responses=False,
+        )
+        return agent
+
+    def _make_input(self, messages, current_turn):
+        mock_state = MagicMock()
+        mock_state.current_turn = current_turn
+        mock_state.description = "test"
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = messages
+        return mock_input
+
+    @pytest.mark.asyncio
+    async def test_counter_starts_at_zero(self):
+        agent = self._make_goat_agent()
+        assert agent._parse_failure_count == 0
+
+    @pytest.mark.asyncio
+    async def test_counter_increments_on_malformed_output(self):
+        agent = self._make_goat_agent()
+        # First call: bad JSON
+        agent._call_attacker_llm = AsyncMock(return_value="not json at all")
+        await agent.call(self._make_input([], current_turn=1))
+        assert agent._parse_failure_count == 1
+
+        # Second call: still bad — counter should climb
+        agent._call_attacker_llm = AsyncMock(return_value="also not json")
+        await agent.call(self._make_input(
+            [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}],
+            current_turn=2,
+        ))
+        assert agent._parse_failure_count == 2
+
+    @pytest.mark.asyncio
+    async def test_counter_does_not_increment_on_valid_json(self):
+        agent = self._make_goat_agent()
+        agent._call_attacker_llm = AsyncMock(
+            return_value='{"observation": "o", "strategy": "s", "reply": "r"}'
+        )
+        await agent.call(self._make_input([], current_turn=1))
+        assert agent._parse_failure_count == 0
+
+    @pytest.mark.asyncio
+    async def test_counter_resets_on_new_run(self):
+        """Counter should reset when a new run starts (turn == 1)."""
+        agent = self._make_goat_agent()
+        agent._parse_failure_count = 5  # simulate prior run
+        agent._call_attacker_llm = AsyncMock(
+            return_value='{"observation": "o", "strategy": "s", "reply": "r"}'
+        )
+        await agent.call(self._make_input([], current_turn=1))
+        # Reset wiped the stale count; valid JSON didn't increment it
+        assert agent._parse_failure_count == 0
