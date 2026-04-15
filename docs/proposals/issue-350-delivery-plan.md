@@ -142,7 +142,9 @@ Mocking approach:
 7. **Noise sample bundling** — ~1MB of royalty-free WAV samples ships with the core SDK. `background_noise` presets: cafe, street, office, airport (per §4.5 L521). `babble` ships as the sample used by the `multiple_voices` effect (per §4.5 L533) — NOT as a `background_noise` preset. Effects work out of the box. If bloat becomes a complaint, split to a separate `scenario-voice-assets` package in a follow-up.
 8. **Local audio playback** — `ffplay` via subprocess (uses the bundled ffmpeg binary). No `sounddevice`/PortAudio dep. Degrades gracefully on headless systems (no-op + debug log).
 
-## Adapter Capability Matrix (requirement)
+## Adapter Capability Matrix (planning-level design decision)
+
+**Not in the source proposal.** Added during planning as the machinery needed to implement the `after_words UnsupportedCapabilityError` locked decision — you can't raise on an "unsupported capability" without first defining which capabilities exist. Also surfaces the implied heterogeneity between adapters (Twilio has no streaming transcripts, etc.) in a documented, checkable way instead of letting users discover it through mysterious failures.
 
 Each adapter publishes `adapter.capabilities: AdapterCapabilities` — a documented contract listing:
 - `streaming_transcripts: bool`

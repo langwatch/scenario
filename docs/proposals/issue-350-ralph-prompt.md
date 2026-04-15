@@ -21,9 +21,9 @@ Implement voice agent support in the Scenario Python SDK. Done when all 83 scena
 7. ~1MB bundled CC0 noise samples ship with core.
 8. Playback: `ffplay` subprocess, graceful no-op on headless.
 
-## Capability matrix (required)
+## Capability matrix (planning-level design decision, not in source)
 
-Every adapter publishes `adapter.capabilities: AdapterCapabilities` with `streaming_transcripts`, `native_vad`, `dtmf`, `input_formats`, `output_formats`. Capability-gated steps check and raise cleanly.
+Every adapter publishes `adapter.capabilities: AdapterCapabilities` with `streaming_transcripts`, `native_vad`, `dtmf`, `input_formats`, `output_formats`. Capability-gated steps check and raise cleanly. Added during planning to support the `after_words UnsupportedCapabilityError` locked decision — not a proposal requirement.
 
 ## Scope
 
