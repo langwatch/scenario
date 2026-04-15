@@ -157,6 +157,7 @@ from .voice import (
 )
 from .voice.script_steps import audio, dtmf, interrupt, silence, sleep
 from .voice.interruption import InterruptionConfig
+from .voice import effects  # scenario.effects.background_noise(...) etc.
 
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
@@ -189,6 +190,7 @@ __all__ = [
     "silence",
     "sleep",
     "InterruptionConfig",
+    "effects",
     # Voice types
     "AdapterCapabilities",
     "AudioChunk",
