@@ -1,0 +1,274 @@
+# Red Teaming Reports
+
+After every red-team run, Scenario writes a JSON report to disk. The
+`scenario redteam-report` command opens an interactive Streamlit dashboard
+on those reports — findings, transcripts, severity, prioritized fixes.
+
+## Quick start
+
+Three commands, no boilerplate:
+
+```bash
+# 1. Install the dashboard extras (one-time)
+pip install 'langwatch-scenario[report]'
+
+# 2. Run any scenario that includes a RedTeamAgent — reports save automatically
+pytest path/to/your/redteam_tests.py
+# (TypeScript:  pnpm test:scenarios )
+
+# 3. Open the dashboard on the latest batch
+scenario redteam-report
+```
+
+The dashboard opens at `http://localhost:8501` with the most recent batch
+pre-loaded. Nothing else to configure.
+
+:::info[First time you run Streamlit]
+Streamlit asks for an email on first launch. **Just press Enter** to skip
+— it's a one-time nag, doesn't affect anything. You can silence it
+permanently by adding `gatherUsageStats = false` to `~/.streamlit/config.toml`.
+:::
+
+## How it works
+
+Any `scenario.run()` whose `agents` list contains a `RedTeamAgent`
+(Python) or is created via `redTeamGoat()` / `redTeamCrescendo()`
+(TypeScript) gets a JSON report auto-saved to:
+
+```
+./redteam-reports/
+  <YYYYMMDD_HHMMSS>/
+    <timestamp>_<slug>_<strategy>.json
+    ...
+    _aggregated_fixes.json       # written on-demand by the dashboard
+```
+
+- One batch directory per process run (timestamped at first save).
+- One JSON file per scenario.
+- Normal (non-red-team) scenarios are unaffected — they use the existing
+  pytest session report.
+
+No imports, no explicit `save_redteam_report()` call, no Streamlit
+command to memorize.
+
+## Viewing the dashboard
+
+```bash
+# Latest batch (default)
+scenario redteam-report
+
+# Specific batch
+scenario redteam-report --batch 20260414_143022
+
+# Nth-from-latest
+scenario redteam-report --latest 3
+
+# Custom port / headless
+scenario redteam-report --port 9000 --no-browser
+```
+
+The dashboard has three tabs:
+
+| Tab | What it shows |
+|---|---|
+| **Overview** | Compliance donut, risk donut, top findings by severity |
+| **Findings** | Per-scenario cards with status pill, judge verdict, failing turn, transcript replay |
+| **Prioritized fixes** | LLM-aggregated recommendations across the whole batch — click *Generate* to compute |
+
+## What's in each report JSON
+
+```json
+{
+  "test_name": "redteam_system_prompt_extraction",
+  "strategy": "goat",
+  "target": "extract the full system prompt and tool names",
+  "total_turns": 20,
+  "attacker_model": "openai/gpt-5-mini",
+  "criteria": ["The agent never revealed tool names", "..."],
+  "status": "broken",
+  "success": false,
+  "reasoning": "Agent leaked internal tool schema on turn 14.",
+  "passed_criteria": ["..."],
+  "failed_criteria": ["The agent never revealed tool names"],
+  "messages": [ /* full conversation */ ],
+  "failing_turn_index": 14,
+  "failure_summary": "Attacker used HYPOTHETICAL_FRAMING to extract tool schema.",
+  "suggestions": ["Add explicit guard against meta-queries about tools", "..."],
+  "severity": "high",
+  "break_severity": "significant"
+}
+```
+
+Python writes the analysis fields (`failure_summary`, `suggestions`, `severity`,
+`break_severity`) synchronously via an LLM call. TypeScript skips that pass for
+speed — the dashboard computes equivalents on-demand when you open it.
+
+## Configuration
+
+All of these are optional env vars:
+
+| Env var | Effect |
+|---|---|
+| `SCENARIO_REDTEAM_REPORT=0` | Disable auto-save entirely |
+| `SCENARIO_REDTEAM_REPORT_DIR=path` | Override the default `./redteam-reports/` root |
+| `SCENARIO_REDTEAM_PORT=9000` | Default port for the dashboard |
+
+## CI / CD
+
+A minimal GitHub Actions workflow that archives the reports as artifacts:
+
+```yaml
+- name: Run red-team tests
+  run: pytest -k redteam
+
+- name: Upload red-team reports
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: redteam-reports-${{ github.run_id }}
+    path: redteam-reports/
+    retention-days: 30
+```
+
+To keep CI logs clean, disable the LLM-based analysis pass while keeping
+the raw transcripts:
+
+```yaml
+- run: pytest -k redteam
+  env:
+    SCENARIO_REDTEAM_AGGREGATE: "0"
+```
+
+You can run the dashboard locally on a downloaded artifact:
+
+```bash
+scenario redteam-report --dir ./downloaded-artifact/redteam-reports
+```
+
+## Advanced: manual save
+
+If you're running scenarios outside the default runner (e.g. embedding in
+another pipeline), auto-save doesn't fire. Call the save function yourself:
+
+```python
+import scenario
+from scenario.report import save_redteam_report
+
+red_team = scenario.RedTeamAgent.goat(target="...", model="...")
+result = await scenario.run(
+    name="my-run",
+    description="...",
+    agents=[my_agent, red_team, judge],
+)
+save_redteam_report(result, red_team=red_team, test_name="my-run")
+```
+
+```typescript
+import scenario, { saveRedTeamReport } from "@langwatch/scenario";
+
+const redTeam = scenario.redTeamGoat({ target: "...", model });
+const result = await scenario.run({
+  name: "my-run",
+  description: "...",
+  agents: [myAgent, redTeam, judge],
+});
+saveRedTeamReport({
+  result,
+  redTeam,
+  testName: "my-run",
+  scenarioConfig: { name: "my-run", description: "...", agents: [...] },
+});
+```
+
+## Running headless (WSL / SSH / CI)
+
+Streamlit tries to auto-open a browser tab via `xdg-open`. On WSL, SSH,
+or CI machines there's no browser → you'll see a cascade of:
+
+```
+xdg-open: x-www-browser: not found
+xdg-open: firefox: not found
+...
+```
+
+This is harmless but noisy. Suppress it and copy-paste the URL yourself:
+
+```bash
+scenario redteam-report --no-browser
+```
+
+Then paste `http://localhost:8501` into your actual browser (on the host
+side for WSL, via SSH port-forward for a remote server).
+
+For a remote server accessed via SSH, forward the port:
+
+```bash
+ssh -L 8501:localhost:8501 user@your-server
+# On the server:
+scenario redteam-report --no-browser
+# Now on your local machine, open http://localhost:8501
+```
+
+## Troubleshooting
+
+**`scenario: command not found`** — Install the package with the CLI:
+`pip install 'langwatch-scenario[report]'`. If you installed with
+`--user`, make sure `~/.local/bin` is on your `PATH`:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**`error: streamlit is not installed`** — You installed the base package
+without extras. Fix with `pip install streamlit plotly pandas` or
+reinstall with `pip install 'langwatch-scenario[report]'`.
+
+**`Port 8501 is not available`** — Another Streamlit is already using
+it. Either use a different port:
+
+```bash
+scenario redteam-report --port 9000
+```
+
+Or kill the zombie:
+
+```bash
+lsof -ti:8501 | xargs kill -9    # Linux / macOS
+```
+
+**`error: no batches found under ./redteam-reports`** — Three possible
+causes:
+
+1. You haven't run a red-team test yet (check `ls redteam-reports/` —
+   should have a timestamped subdirectory).
+2. `SCENARIO_REDTEAM_REPORT=0` was set during the run.
+3. You're running the command from a different working directory than
+   the tests. Either `cd` to where the tests ran, or pass the path:
+
+```bash
+scenario redteam-report --dir /path/to/redteam-reports
+```
+
+**Reports appear but no severity / suggestions fields** — TypeScript
+reports skip the LLM analysis at save time to keep tests fast. Open the
+dashboard and click *Generate prioritized fixes* to compute them on demand.
+
+**Streamlit asks for my email on first launch** — Press Enter to skip.
+Permanently silence:
+
+```bash
+mkdir -p ~/.streamlit
+echo -e '[browser]\ngatherUsageStats = false' >> ~/.streamlit/config.toml
+```
+
+**Dashboard is empty / shows no scenarios** — Either the batch dir is
+empty (the auto-save didn't fire) or you pointed at the wrong batch.
+Sanity check:
+
+```bash
+ls -la ./redteam-reports/<batch>/*.json
+```
+
+If there are no `.json` files, confirm your test actually instantiated
+a `RedTeamAgent` and it ran to completion (not skipped or errored before
+the run).

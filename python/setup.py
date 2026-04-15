@@ -6,6 +6,9 @@ if __name__ == "__main__":
         entry_points={
             'pytest11': [
                 'scenario = scenario.pytest_plugin',
-            ]
+            ],
+            'console_scripts': [
+                'scenario = scenario.cli:main',
+            ],
         }
     )

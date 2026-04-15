@@ -53,6 +53,16 @@ dev = [
     "pdoc3",
     "respx",
 ]
+# Install with `pip install 'langwatch-scenario[report]'` to use
+# `scenario redteam-report`.
+report = [
+    "streamlit>=1.30",
+    "plotly>=5.0",
+    "pandas>=2.0",
+]
+
+[project.scripts]
+scenario = "scenario.cli:main"
 
 [project.urls]
 "Homepage" = "https://github.com/langwatch/scenario"

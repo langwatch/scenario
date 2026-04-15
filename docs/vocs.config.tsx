@@ -335,6 +335,10 @@ export default defineConfig({
               text: "Overview",
               link: "/advanced/red-teaming",
             },
+            {
+              text: "Reports Dashboard",
+              link: "/advanced/red-teaming/report",
+            },
           ],
         },
       ],

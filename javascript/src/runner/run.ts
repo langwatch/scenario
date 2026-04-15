@@ -150,6 +150,7 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
 
     subscription = eventBus.subscribeTo(execution.events$);
 
+    const startedAt = Date.now();
     const result = await execution.execute();
     if (cfg.verbose && !result.success) {
       console.log(`Scenario failed: ${cfg.name}`);
@@ -158,6 +159,28 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
       console.log(`Met criteria: ${result.metCriteria.join("\n- ")}`);
       console.log(`Unmet criteria: ${result.unmetCriteria.join("\n- ")}`);
       console.log(result.messages.map(formatMessage).join("\n"));
+    }
+
+    // Auto-save red-team report when a RedTeamAgent participated.
+    // Opt out with SCENARIO_REDTEAM_REPORT=0. See docs for details.
+    try {
+      const { isRedTeamAgent, saveRedTeamReport } = await import(
+        "../red-team-report"
+      );
+      const redTeam = cfg.agents.find((a) => isRedTeamAgent(a));
+      if (redTeam) {
+        saveRedTeamReport({
+          result,
+          redTeam: redTeam as Parameters<typeof saveRedTeamReport>[0]["redTeam"],
+          testName: cfg.name,
+          scenarioConfig: cfg,
+          elapsedSeconds: (Date.now() - startedAt) / 1000,
+        });
+      }
+    } catch (e) {
+      // Don't let reporting failures break the scenario run.
+      // eslint-disable-next-line no-console
+      console.warn(`[scenario] red-team auto-save skipped: ${(e as Error).message}`);
     }
 
     return result;
