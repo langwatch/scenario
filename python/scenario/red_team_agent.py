@@ -142,6 +142,7 @@ class RedTeamAgent(AgentAdapter):
         success_confirm_turns: int = 2,
         injection_probability: float = 0.0,
         techniques: Optional[Sequence[AttackTechnique]] = None,
+        max_backtracks: Optional[int] = None,
         api_base: Optional[str] = None,
         api_key: Optional[str] = None,
         temperature: float = 0.7,
@@ -183,6 +184,11 @@ class RedTeamAgent(AgentAdapter):
             techniques: List of ``AttackTechnique`` instances to sample from.
                 Defaults to ``DEFAULT_TECHNIQUES`` (Base64, ROT13, leetspeak,
                 char-split, code-block).
+            max_backtracks: Maximum number of hard-refusal backtracks allowed
+                per run. When ``None`` (default), scales with ``total_turns``
+                as ``max(1, total_turns // 3)`` — so a 30-turn run gets 10,
+                a 5-turn run gets 1. Each backtrack consumes a turn from the
+                budget. Set explicitly to override.
             api_base: Optional base URL for the attacker model API.
             api_key: Optional API key for the attacker model.
             temperature: Sampling temperature for attack message generation.
@@ -206,7 +212,17 @@ class RedTeamAgent(AgentAdapter):
 
         # Backtracking state — removes refused exchanges so the target
         # "forgets" it ever refused and the attacker retries cleanly.
-        self._MAX_BACKTRACKS = 10
+        # Budget scales with total_turns: a 5-turn run capping at 10 wastes
+        # the cap; a 100-turn run capping at 10 under-provisions against
+        # hardened targets. Formula mirrors issue #331.
+        if max_backtracks is not None and max_backtracks < 0:
+            raise ValueError(
+                f"max_backtracks must be >= 0, got {max_backtracks}"
+            )
+        self._MAX_BACKTRACKS = (
+            max_backtracks if max_backtracks is not None
+            else max(1, total_turns // 3)
+        )
         self._backtracks_remaining = self._MAX_BACKTRACKS
         self._backtrack_history: list[dict] = []  # [{"turn": int, "attack": str, "refusal": str}]
 
@@ -252,6 +268,11 @@ class RedTeamAgent(AgentAdapter):
         # Separate from state.messages (H_target) to prevent strategy
         # leakage, enable proper backtracking, and allow score annotations.
         self._attacker_history: list[dict] = []
+
+        # Cumulative count of structured-output parse failures across the
+        # run. Surfaced as a span attr each turn so dashboards can track
+        # attacker output-format reliability per provider/model.
+        self._parse_failure_count: int = 0
 
     @classmethod
     def crescendo(
@@ -752,6 +773,7 @@ Reply with exactly this JSON and nothing else:
         self._backtracks_remaining = self._MAX_BACKTRACKS
         self._backtrack_history = []
         self._attacker_history = []
+        self._parse_failure_count = 0
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         """Generate the next adversarial attack message.
@@ -786,11 +808,16 @@ Reply with exactly this JSON and nothing else:
         description = input.scenario_state.description
         strategy_name = type(self._strategy).__name__
 
+        progress = (
+            min(current_turn, self.total_turns) / self.total_turns
+            if self.total_turns > 0 else 0.0
+        )
         with tracer.start_as_current_span(
             "red_team.call",
             attributes={
                 "red_team.turn": current_turn,
                 "red_team.total_turns": self.total_turns,
+                "red_team.progress": progress,
                 "red_team.strategy": strategy_name,
                 "red_team.target": self.target,
             },
@@ -939,9 +966,12 @@ Reply with exactly this JSON and nothing else:
             if self._strategy.emits_structured_output:
                 reply, observation, strategy = self._parse_attacker_output(raw_attack)
                 parse_failed = not observation and not strategy and reply == raw_attack
+                if parse_failed:
+                    self._parse_failure_count += 1
                 span.set_attribute("red_team.reasoning.observation", observation[:500])
                 span.set_attribute("red_team.reasoning.strategy", strategy[:500])
                 span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
+                span.set_attribute("red_team.parse_failure_count", self._parse_failure_count)
                 if parse_failed:
                     logger.warning(
                         "RedTeamAgent turn %d: attacker output was not valid JSON; "

@@ -37,6 +37,13 @@ export interface RedTeamAgentConfig {
   injectionProbability?: number;
   /** List of AttackTechnique instances to sample from. Defaults to all built-ins. */
   techniques?: AttackTechnique[];
+  /**
+   * Maximum number of hard-refusal backtracks allowed per run. When
+   * omitted, scales with `totalTurns` as `max(1, floor(totalTurns / 3))` —
+   * so a 30-turn run gets 10, a 5-turn run gets 1. Each backtrack
+   * consumes a turn from the budget. Set explicitly to override.
+   */
+  maxBacktracks?: number;
 }
 
 /** Configuration for the Crescendo and GOAT factory functions. Identical to
@@ -104,8 +111,11 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
 
   // Backtracking state — removes refused exchanges so the target
   // "forgets" it ever refused and the attacker retries cleanly.
-  private static readonly MAX_BACKTRACKS = 10;
-  private backtracksRemaining = RedTeamAgentImpl.MAX_BACKTRACKS;
+  // Budget scales with totalTurns: a 5-turn run capping at 10 wastes
+  // the cap; a 100-turn run capping at 10 under-provisions against
+  // hardened targets. Formula mirrors issue #331.
+  private readonly maxBacktracks: number;
+  private backtracksRemaining: number;
   private backtrackHistory: BacktrackEntry[] = [];
 
   // Attacker's private conversation history (H_attacker).
@@ -144,6 +154,15 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
     }
     this.injectionProbability = prob;
     this.techniques = config.techniques ?? DEFAULT_TECHNIQUES;
+
+    if (config.maxBacktracks !== undefined && config.maxBacktracks < 0) {
+      throw new RangeError(
+        `maxBacktracks must be >= 0, got ${config.maxBacktracks}`
+      );
+    }
+    this.maxBacktracks =
+      config.maxBacktracks ?? Math.max(1, Math.floor(this.totalTurns / 3));
+    this.backtracksRemaining = this.maxBacktracks;
   }
 
   private getAttackPlan(description: string): Promise<string> {
@@ -378,7 +397,7 @@ Reply with exactly this JSON and nothing else:
    */
   private resetRunState(): void {
     this.turnScores = new Map();
-    this.backtracksRemaining = RedTeamAgentImpl.MAX_BACKTRACKS;
+    this.backtracksRemaining = this.maxBacktracks;
     this.backtrackHistory = [];
     this.attackerHistory = [];
   }
