@@ -3154,3 +3154,87 @@ class TestEmptyMetapromptPlanRaises:
         monkeypatch.setattr("litellm.acompletion", fake_acompletion)
         plan = await agent._generate_attack_plan("some description")
         assert "Warm up" in plan
+
+
+# ---------------------------------------------------------------------------
+# Cross-run reuse guard (#329)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossRunReuseGuard:
+    """RedTeamAgent instances are single-use per scenario.run().
+    Reusing one across runs (serial or parallel) would silently interleave
+    attacker history, scores, and backtracks between runs — so the second
+    run raises at turn 1 when it sees a different thread_id.
+    """
+
+    def _make_agent(self):
+        return RedTeamAgent.goat(
+            target="extract prompt",
+            model="openai/gpt-4.1-mini",
+            total_turns=5,
+            score_responses=False,
+        )
+
+    def _make_input(self, thread_id, current_turn=1, messages=None):
+        messages = messages or []
+        mock_state = MagicMock()
+        mock_state.current_turn = current_turn
+        mock_state.description = "test"
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = messages
+        mock_input.thread_id = thread_id
+        return mock_input
+
+    @pytest.mark.asyncio
+    async def test_first_run_records_thread_id(self):
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value='{"observation":"","strategy":"","reply":"r"}')
+        assert agent._run_thread_id is None
+
+        await agent.call(self._make_input("thread-A", current_turn=1))
+
+        assert agent._run_thread_id == "thread-A"
+
+    @pytest.mark.asyncio
+    async def test_same_thread_multi_turn_is_ok(self):
+        """Multiple turns on the same run must NOT raise."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value='{"observation":"","strategy":"","reply":"r"}')
+
+        await agent.call(self._make_input("thread-A", current_turn=1))
+        # Subsequent turn in the same run
+        await agent.call(self._make_input(
+            "thread-A", current_turn=2,
+            messages=[{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}],
+        ))
+        assert agent._run_thread_id == "thread-A"
+
+    @pytest.mark.asyncio
+    async def test_cross_run_reuse_raises_on_turn_1(self):
+        """Second scenario.run() with a different thread_id at turn 1 must raise."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value='{"observation":"","strategy":"","reply":"r"}')
+
+        # First run completes
+        await agent.call(self._make_input("thread-A", current_turn=1))
+
+        # Second run, different thread → guard fires
+        with pytest.raises(RuntimeError, match="single-use per scenario.run"):
+            await agent.call(self._make_input("thread-B", current_turn=1))
+
+    @pytest.mark.asyncio
+    async def test_mid_run_thread_change_raises(self):
+        """Defensive: if turn > 1 and thread_id changes, also raise."""
+        agent = self._make_agent()
+        agent._call_attacker_llm = AsyncMock(return_value='{"observation":"","strategy":"","reply":"r"}')
+
+        await agent.call(self._make_input("thread-A", current_turn=1))
+
+        with pytest.raises(RuntimeError, match="thread_id change mid-run"):
+            await agent.call(self._make_input(
+                "thread-B", current_turn=2,
+                messages=[{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}],
+            ))

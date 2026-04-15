@@ -1353,3 +1353,66 @@ describe("maxBacktracks scaling", () => {
     ).toThrow(/maxBacktracks must be >= 0/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cross-run reuse guard (#329)
+// ---------------------------------------------------------------------------
+
+describe("RedTeamAgent cross-run reuse guard", () => {
+  const inputWithThread = (threadId: string, currentTurn = 1, messages: any[] = []) => ({
+    threadId,
+    messages,
+    newMessages: [],
+    requestedRole: AgentRole.USER,
+    judgmentRequest: undefined,
+    scenarioState: {
+      currentTurn,
+      description: "test agent",
+      config: { description: "test agent" },
+      messages,
+      threadId,
+      addMessage: () => {},
+      rollbackMessagesTo: (idx: number) => messages.splice(idx),
+      lastMessage: () => messages[messages.length - 1],
+      lastUserMessage: () => messages.findLast((m: any) => m.role === "user"),
+      lastAgentMessage: () => messages.findLast((m: any) => m.role === "assistant"),
+      lastToolCall: () => undefined,
+      hasToolCall: () => false,
+    } as any,
+    scenarioConfig: { description: "test agent" } as any,
+  });
+
+  const makeAgent = () =>
+    redTeamGoat({
+      target: "extract prompt",
+      totalTurns: 5,
+      scoreResponses: false,
+      attackPlan: "pre-baked",
+    });
+
+  it("same thread across multiple turns does not throw", async () => {
+    const agent = makeAgent();
+    (agent as any).callAttackerLLM = vi.fn().mockResolvedValue(
+      '{"observation":"","strategy":"","reply":"r"}'
+    );
+    await agent.call(inputWithThread("thread-A", 1));
+    await agent.call(
+      inputWithThread("thread-A", 2, [
+        { role: "user", content: "x" },
+        { role: "assistant", content: "y" },
+      ])
+    );
+    expect((agent as any).runThreadId).toBe("thread-A");
+  });
+
+  it("reuse across different threads throws on turn 1 of the second run", async () => {
+    const agent = makeAgent();
+    (agent as any).callAttackerLLM = vi.fn().mockResolvedValue(
+      '{"observation":"","strategy":"","reply":"r"}'
+    );
+    await agent.call(inputWithThread("thread-A", 1));
+    await expect(agent.call(inputWithThread("thread-B", 1))).rejects.toThrow(
+      /single-use per scenario\.run/
+    );
+  });
+});

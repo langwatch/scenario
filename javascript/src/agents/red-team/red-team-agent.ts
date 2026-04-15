@@ -129,6 +129,12 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
     content: string;
   }> = [];
 
+  // Cross-run reuse guard (#329). Records the first scenario's threadId;
+  // later calls with a different threadId throw, because shared mutable
+  // state (H_attacker, scores, backtracks) would silently interleave
+  // between runs.
+  private runThreadId: string | null = null;
+
   constructor(config: RedTeamAgentConfig) {
     super();
     this.strategy = config.strategy;
@@ -404,8 +410,36 @@ Reply with exactly this JSON and nothing else:
 
   call = async (input: AgentInput): Promise<AgentReturnTypes> => {
     const currentTurn = input.scenarioState.currentTurn;
+    const incomingThreadId = input.threadId;
     if (currentTurn === 1) {
+      if (
+        this.runThreadId !== null &&
+        this.runThreadId !== incomingThreadId
+      ) {
+        throw new Error(
+          `RedTeamAgent instances are single-use per scenario.run(). ` +
+            `This instance was already used with threadId=${JSON.stringify(
+              this.runThreadId
+            )}; current threadId=${JSON.stringify(incomingThreadId)}. ` +
+            `Shared mutable state (attacker history, scores, backtracks) ` +
+            `would silently interleave between runs. Instantiate a fresh ` +
+            `RedTeamAgent per run — factories are cheap. See #329.`
+        );
+      }
+      this.runThreadId = incomingThreadId;
       this.resetRunState();
+    } else if (
+      this.runThreadId !== null &&
+      this.runThreadId !== incomingThreadId
+    ) {
+      throw new Error(
+        `RedTeamAgent saw threadId change mid-run: was ${JSON.stringify(
+          this.runThreadId
+        )}, now ${JSON.stringify(incomingThreadId)}. ` +
+          `This should not happen with the standard orchestrator. If you're ` +
+          `calling the agent manually, make sure each run uses a fresh ` +
+          `RedTeamAgent instance. See #329.`
+      );
     }
     const description = input.scenarioConfig.description;
 
@@ -586,10 +620,11 @@ export const redTeamAgent = (config: RedTeamAgentConfig) =>
  * conversational consistency once cooperative context has been established.
  *
  * @remarks
- * Create a fresh agent per `scenario.run()` call. The attack plan is
- * generated from the first run's `description` and cached on the instance —
- * reusing the agent across scenarios with different descriptions silently
- * uses the original (now-stale) plan.
+ * **Single-use per `scenario.run()`.** Reusing an instance across runs
+ * (serial or parallel) now throws at runtime because shared mutable state
+ * (attacker history, scores, backtracks, cached attack plan) would silently
+ * interleave between runs. Instantiate a fresh agent per run — factory
+ * construction is cheap.
  *
  * @example
  * ```typescript
@@ -628,6 +663,10 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * skipped for GOAT), no stage hints in the system prompt. Adaptation is
  * driven entirely by the score/hint feedback in the attacker's private
  * conversation history.
+ *
+ * **Single-use per `scenario.run()`.** Reusing an instance across runs
+ * (serial or parallel) now throws at runtime because shared mutable state
+ * would silently interleave between runs. Instantiate a fresh agent per run.
  *
  * @remarks
  * `injectionProbability` is supported for parity with `redTeamCrescendo`
