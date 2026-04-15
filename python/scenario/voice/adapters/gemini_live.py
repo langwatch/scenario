@@ -40,10 +40,13 @@ class GeminiLiveAgent(VoiceAgentAdapter):
         self._session = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._session is None:
             raise RuntimeError("GeminiLiveAgent: not connected")
+        raise PendingTransportError("GeminiLiveAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._session is None:
             raise RuntimeError("GeminiLiveAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("GeminiLiveAgent")

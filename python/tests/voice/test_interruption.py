@@ -111,14 +111,15 @@ async def test_interrupt_after_words_raises_when_adapter_lacks_streaming():
 
 @pytest.mark.asyncio
 async def test_interrupt_after_seconds_triggers_agent_wait_false_then_user():
+    # Use a 200ms sleep with generous slack so CI scheduler jitter doesn't flake.
     import time
     adapter = _NoStreamingAdapter()
     state = _FakeState([adapter])
-    step = scenario.interrupt(after=0.05, content="wait that's wrong")
+    step = scenario.interrupt(after=0.2, content="wait that's wrong")
     t0 = time.monotonic()
     await step(state)
     elapsed = time.monotonic() - t0
-    assert elapsed >= 0.04
+    assert elapsed >= 0.15
     # agent(wait=False) then user("wait that's wrong")
     assert state._executor.agent_calls and state._executor.agent_calls[0][1] is False
     assert state._executor.user_calls == ["wait that's wrong"]

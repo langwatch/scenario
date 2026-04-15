@@ -15,9 +15,14 @@ def test_default_capabilities_are_conservative():
     assert caps.output_formats == []
 
 
-def test_capabilities_are_frozen():
+def test_capabilities_are_immutable_after_construction():
+    # AdapterCapabilities is frozen so adapters can't accidentally mutate the
+    # shared class-level ClassVar default. Attempting assignment must raise
+    # FrozenInstanceError specifically (not some unrelated error).
+    from dataclasses import FrozenInstanceError
+
     caps = AdapterCapabilities(native_vad=True)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         caps.native_vad = False  # type: ignore[misc]
 
 

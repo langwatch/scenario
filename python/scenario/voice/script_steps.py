@@ -11,16 +11,24 @@ Phase 3 lands: dtmf, interrupt, and the ``agent(wait=False)`` async primitive.
 from __future__ import annotations
 
 import asyncio
-import base64
+import math
+import re
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
+
+import numpy as np
 
 from ..types import ScriptStep
 from .audio_chunk import AudioChunk, silent_chunk
 from .capabilities import UnsupportedCapabilityError
+from .messages import create_audio_message
 
 if TYPE_CHECKING:
     from ..scenario_state import ScenarioState
+
+
+_URL_LIKE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://")
 
 
 def sleep(seconds: float) -> ScriptStep:
@@ -52,8 +60,7 @@ def silence(duration: float) -> ScriptStep:
             # No voice adapter → behave like sleep.
             await asyncio.sleep(duration)
             return
-        chunk = silent_chunk(duration)
-        await adapter.send_audio(chunk)
+        await adapter.send_audio(silent_chunk(duration))
 
     return _step
 
@@ -64,15 +71,14 @@ def audio(path_or_bytes: Union[str, Path, bytes]) -> ScriptStep:
     user's next turn. Bypasses the user simulator and TTS entirely.
 
     Files are auto-converted to PCM16 @ 24kHz mono via the bundled ffmpeg.
+    Remote URL-like strings (``http://``, ``rtmp://``, etc.) are rejected to
+    prevent ffmpeg from issuing outbound network requests on the user's behalf.
     """
 
     async def _step(state: "ScenarioState") -> None:
-        chunk = _load_audio_to_chunk(path_or_bytes)
+        chunk = await asyncio.to_thread(_load_audio_to_chunk, path_or_bytes)
         adapter = _voice_adapter(state)
         if adapter is None:
-            # Fallback: add as a multimodal user message.
-            from .messages import create_audio_message
-
             state.messages.append(create_audio_message(chunk, role="user"))
             return
         await adapter.send_audio(chunk)
@@ -95,62 +101,31 @@ def interrupt(
     UnsupportedCapabilityError on adapters that don't advertise it, per the
     after_words UnsupportedCapabilityError locked decision).
 
-    ``content`` may be:
-        - str: treated as user text (routed through TTS / user simulator).
-        - bytes or Path: treated as audio (same as ``scenario.audio(...)``).
+    ``content`` routing:
+        - str that does NOT end with an audio extension: treated as user text
+          (routed through TTS / user simulator).
+        - str that ends with .wav/.mp3/.ogg/.flac, bytes, or Path: treated as
+          audio and injected via ``scenario.audio(...)``.
     """
-    if after is None and after_words is None:
-        raise ValueError("interrupt() requires after=seconds or after_words=N")
-    if after is not None and after_words is not None:
-        raise ValueError("interrupt() takes after OR after_words, not both")
+    _validate_interrupt_args(after, after_words)
 
     async def _step(state: "ScenarioState") -> None:
-        import asyncio
-
         executor = state._executor
         # Start the agent turn in the background (wait=False semantics).
         await executor.agent(wait=False)
 
         if after_words is not None:
-            adapter = _voice_adapter(state)
-            name = type(adapter).__name__ if adapter else "<no voice adapter>"
-            if adapter is None or not adapter.capabilities.streaming_transcripts:
-                raise UnsupportedCapabilityError(
-                    name,
-                    "streaming_transcripts",
-                    hint=(
-                        "interrupt(after_words=N) needs incremental transcripts. "
-                        "Use interrupt(after=seconds) instead on this adapter."
-                    ),
-                )
-            await _wait_for_word_count(adapter, after_words)
+            await _wait_for_streaming_words(state, after_words)
         else:
             assert after is not None
             await asyncio.sleep(after)
 
-        # Deliver the interruption.
-        if isinstance(content, (bytes, Path)) or (isinstance(content, str) and _looks_like_audio_path(content)):
-            await audio(content)(state)
+        if _is_audio_content(content):
+            await audio(content)(state)  # type: ignore[arg-type]
         else:
             await executor.user(content if content else None)
 
     return _step
-
-
-async def _wait_for_word_count(adapter, target_words: int) -> None:
-    """Block until the adapter's streaming transcript reaches ``target_words`` words."""
-    import asyncio
-
-    while True:
-        transcript = getattr(adapter, "streaming_transcript", "") or ""
-        if len(transcript.split()) >= target_words:
-            return
-        await asyncio.sleep(0.05)
-
-
-def _looks_like_audio_path(s: str) -> bool:
-    lower = s.lower()
-    return lower.endswith((".wav", ".mp3", ".ogg", ".flac"))
 
 
 def dtmf(tones: str) -> ScriptStep:
@@ -166,13 +141,10 @@ def dtmf(tones: str) -> ScriptStep:
             raise UnsupportedCapabilityError(
                 name, "dtmf", hint="Use a telephony adapter such as TwilioAgent."
             )
-        # Delegate to the adapter if it provides a send_dtmf method; otherwise
-        # fall back to generating DTMF PCM tones and sending them as audio.
         if hasattr(adapter, "send_dtmf"):
             await adapter.send_dtmf(tones)  # type: ignore[attr-defined]
         else:  # pragma: no cover — subclasses should implement send_dtmf
-            chunk = _dtmf_to_pcm(tones)
-            await adapter.send_audio(chunk)
+            await adapter.send_audio(_dtmf_to_pcm(tones))
 
     return _step
 
@@ -180,33 +152,78 @@ def dtmf(tones: str) -> ScriptStep:
 # ----------------------------------------------------------------- helpers
 
 
+def _validate_interrupt_args(after: Optional[float], after_words: Optional[int]) -> None:
+    """Enforce that exactly one of after / after_words is provided."""
+    provided = [x for x in (after, after_words) if x is not None]
+    if len(provided) == 0:
+        raise ValueError("interrupt() requires after=seconds or after_words=N")
+    if len(provided) > 1:
+        raise ValueError("interrupt() takes after OR after_words, not both")
+
+
+def _is_audio_content(content: Union[str, bytes, Path]) -> bool:
+    """True when content should be routed through scenario.audio()."""
+    if isinstance(content, (bytes, bytearray, Path)):
+        return True
+    if isinstance(content, str):
+        return content.lower().endswith((".wav", ".mp3", ".ogg", ".flac"))
+    return False
+
+
+async def _wait_for_streaming_words(state: "ScenarioState", target_words: int) -> None:
+    """Raise on capability miss, else poll adapter.streaming_transcript."""
+    adapter = _voice_adapter(state)
+    name = type(adapter).__name__ if adapter else "<no voice adapter>"
+    if adapter is None or not adapter.capabilities.streaming_transcripts:
+        raise UnsupportedCapabilityError(
+            name,
+            "streaming_transcripts",
+            hint=(
+                "interrupt(after_words=N) needs incremental transcripts. "
+                "Use interrupt(after=seconds) instead on this adapter."
+            ),
+        )
+    while True:
+        transcript = getattr(adapter, "streaming_transcript", "") or ""
+        if len(transcript.split()) >= target_words:
+            return
+        await asyncio.sleep(0.05)
+
+
 def _voice_adapter(state: "ScenarioState"):
-    """Find the first VoiceAgentAdapter in the scenario's agent list, if any."""
+    """Find the first VoiceAgentAdapter on the scenario's executor, if any."""
     from .adapter import VoiceAgentAdapter
 
-    for agent in getattr(state, "agents", []) or []:
+    executor = getattr(state, "_executor", None)
+    if executor is None:
+        return None
+    for agent in getattr(executor, "agents", []) or []:
         if isinstance(agent, VoiceAgentAdapter):
             return agent
-    executor = getattr(state, "_executor", None)
-    if executor is not None:
-        for agent in getattr(executor, "agents", []) or []:
-            if isinstance(agent, VoiceAgentAdapter):
-                return agent
     return None
 
 
 def _load_audio_to_chunk(path_or_bytes: Union[str, Path, bytes]) -> AudioChunk:
-    """Load an audio file or raw bytes and normalise to PCM16 @ 24kHz mono."""
-    import subprocess
+    """Load an audio file or raw bytes and normalise to PCM16 @ 24kHz mono.
 
+    Rejects URL-like strings (``http://``, ``rtmp://``, etc.) so ffmpeg never
+    makes outbound network requests on the caller's behalf.
+    """
     import imageio_ffmpeg
 
     if isinstance(path_or_bytes, (bytes, bytearray)):
-        raw_bytes = bytes(path_or_bytes)
         source_args = ["-i", "pipe:0"]
-        stdin_input: Optional[bytes] = raw_bytes
+        stdin_input: Optional[bytes] = bytes(path_or_bytes)
     else:
-        p = Path(path_or_bytes)
+        path_str = str(path_or_bytes)
+        if isinstance(path_or_bytes, str) and _URL_LIKE.match(path_str):
+            raise ValueError(
+                f"scenario.audio() refuses URL-like input {path_str!r}; "
+                "download the asset locally and pass a Path instead."
+            )
+        p = Path(path_str).resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"scenario.audio(): file not found: {p}")
         source_args = ["-i", str(p)]
         stdin_input = None
 
@@ -229,31 +246,27 @@ def _load_audio_to_chunk(path_or_bytes: Union[str, Path, bytes]) -> AudioChunk:
     return AudioChunk(data=proc.stdout)
 
 
-def _dtmf_to_pcm(tones: str) -> AudioChunk:
+_DTMF_ROW_HZ = {"1": 697, "2": 697, "3": 697, "4": 770, "5": 770, "6": 770,
+                "7": 852, "8": 852, "9": 852, "*": 941, "0": 941, "#": 941}
+_DTMF_COL_HZ = {"1": 1209, "2": 1336, "3": 1477, "4": 1209, "5": 1336, "6": 1477,
+                "7": 1209, "8": 1336, "9": 1477, "*": 1209, "0": 1336, "#": 1477}
+
+
+def _dtmf_to_pcm(tones: str, sr: int = 24000, dur_s: float = 0.1, gap_s: float = 0.05) -> AudioChunk:
     """Fallback DTMF generator (used only when adapter has no send_dtmf)."""
-    import math
-
-    import numpy as np
-
-    # Standard DTMF frequencies (Hz)
-    rows = {"1": 697, "2": 697, "3": 697, "4": 770, "5": 770, "6": 770,
-            "7": 852, "8": 852, "9": 852, "*": 941, "0": 941, "#": 941}
-    cols = {"1": 1209, "2": 1336, "3": 1477, "4": 1209, "5": 1336, "6": 1477,
-            "7": 1209, "8": 1336, "9": 1477, "*": 1209, "0": 1336, "#": 1477}
-    sr = 24000
-    dur_s = 0.1
-    gap_s = 0.05
-    samples = []
     n_tone = int(sr * dur_s)
     n_gap = int(sr * gap_s)
     t = np.arange(n_tone) / sr
+    samples: list[np.ndarray] = []
     for ch in tones:
-        if ch not in rows:
+        if ch not in _DTMF_ROW_HZ:
             continue
-        wave = 0.5 * (np.sin(2 * math.pi * rows[ch] * t) + np.sin(2 * math.pi * cols[ch] * t))
+        wave = 0.5 * (
+            np.sin(2 * math.pi * _DTMF_ROW_HZ[ch] * t)
+            + np.sin(2 * math.pi * _DTMF_COL_HZ[ch] * t)
+        )
         samples.append((wave * 32767).astype(np.int16))
         samples.append(np.zeros(n_gap, dtype=np.int16))
     if not samples:
         return AudioChunk(data=b"")
-    joined = np.concatenate(samples)
-    return AudioChunk(data=joined.tobytes())
+    return AudioChunk(data=np.concatenate(samples).tobytes())

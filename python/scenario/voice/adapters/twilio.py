@@ -38,6 +38,13 @@ class TwilioAgent(VoiceAgentAdapter):
         self.account_sid = account_sid
         self.auth_token = auth_token
         self._stream: Optional[object] = None
+        self._sent_dtmf: list[str] = []
+
+    def __repr__(self) -> str:  # redact credentials
+        return (
+            f"TwilioAgent(phone_number={self.phone_number!r}, "
+            f"from_number={self.from_number!r}, account_sid='***', auth_token='***')"
+        )
 
     async def connect(self) -> None:
         self._stream = object()
@@ -46,16 +53,21 @@ class TwilioAgent(VoiceAgentAdapter):
         self._stream = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._stream is None:
             raise RuntimeError("TwilioAgent: not connected")
+        raise PendingTransportError("TwilioAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._stream is None:
             raise RuntimeError("TwilioAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("TwilioAgent")
 
     async def send_dtmf(self, tones: str) -> None:
         """Send DTMF tones via the Twilio Media Streams control channel."""
         if self._stream is None:
             raise RuntimeError("TwilioAgent: not connected")
-        # Integration-level implementation; tested via live Twilio creds.
+        # Recorded for later verification; real wire implementation ships with
+        # the integration-level Twilio transport.
+        self._sent_dtmf.append(tones)

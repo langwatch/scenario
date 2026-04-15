@@ -9,6 +9,7 @@ constructor parameters that don't fit cleanly on a generic class.
 
 from __future__ import annotations
 
+from ._stub import PendingTransportError
 from .elevenlabs import ElevenLabsAgent
 from .gemini_live import GeminiLiveAgent
 from .livekit import LiveKitAgent
@@ -24,6 +25,7 @@ __all__ = [
     "GeminiLiveAgent",
     "LiveKitAgent",
     "OpenAIRealtimeAgent",
+    "PendingTransportError",
     "PipecatAgent",
     "TwilioAgent",
     "VapiAgent",

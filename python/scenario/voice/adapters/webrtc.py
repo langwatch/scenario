@@ -41,11 +41,16 @@ class WebRTCAgent(VoiceAgentAdapter):
         self._pc = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._pc is None:
             raise RuntimeError(f"{type(self).__name__}: not connected")
-        # Integration-level: push to outbound RTP track.
+        raise PendingTransportError(type(self).__name__)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._pc is None:
             raise RuntimeError(f"{type(self).__name__}: not connected")
-        return await asyncio.wait_for(self._inbound_audio.get(), timeout=timeout)
+        # If a subclass populated _inbound_audio, return from it.
+        if not self._inbound_audio.empty():
+            return await asyncio.wait_for(self._inbound_audio.get(), timeout=timeout)
+        raise PendingTransportError(type(self).__name__)

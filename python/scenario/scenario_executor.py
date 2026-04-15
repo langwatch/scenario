@@ -665,12 +665,16 @@ class ScenarioExecutor:
 
     async def _voice_connect_all(self) -> None:
         """Invoke ``connect()`` on every VoiceAgentAdapter in the scenario."""
+        import time as _time
+
         from .voice.adapter import VoiceAgentAdapter
         from .voice.recording import LatencyMetrics, VoiceRecording
 
         self._voice_recording: VoiceRecording = VoiceRecording()
         self._voice_timeline: list = []
         self._voice_latency: LatencyMetrics = LatencyMetrics()
+        self._voice_recording_started_at: float = _time.monotonic()
+        self._pending_agent_task = None
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
                 await agent.connect()

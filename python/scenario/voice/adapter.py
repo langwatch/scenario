@@ -7,17 +7,24 @@ capability matrix. Concrete subclasses live under
 
 The scenario executor calls ``connect()`` automatically at scenario start and
 ``disconnect()`` at end — users do not manage lifecycle.
+
+The default ``call()`` implementation records the audio it sends and receives
+into the executor's ``VoiceRecording`` so ``result.audio`` is populated without
+each adapter needing its own bookkeeping.
 """
 
 from __future__ import annotations
 
+import time
 from abc import abstractmethod
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 from ..agent_adapter import AgentAdapter
 from ..types import AgentInput, AgentReturnTypes, AgentRole
 from .audio_chunk import AudioChunk
 from .capabilities import AdapterCapabilities
+from .messages import create_audio_message, extract_audio
+from .recording import AudioSegment, VoiceEvent
 
 
 class VoiceAgentAdapter(AgentAdapter):
@@ -64,10 +71,92 @@ class VoiceAgentAdapter(AgentAdapter):
         Subclasses may override this for specialised flows but will usually
         inherit it.
         """
-        from .messages import create_audio_message, extract_audio
-
+        recorder = _AdapterRecorder(input)
         incoming = extract_audio(input.new_messages[-1]) if input.new_messages else None
         if incoming is not None:
+            recorder.record_user(incoming)
             await self.send_audio(incoming)
+        recorder.mark_user_stopped()
         response = await self.recv_audio(timeout=self.response_timeout)
+        recorder.record_agent(response)
         return create_audio_message(response, role="assistant")
+
+
+class _AdapterRecorder:
+    """Bridges a single call() turn's audio and timing into the executor state.
+
+    Kept as a private helper so the default ``VoiceAgentAdapter.call`` stays
+    short and each subclass can opt-out by overriding ``call()``.
+    """
+
+    def __init__(self, input: AgentInput) -> None:
+        state = getattr(input, "scenario_state", None)
+        executor = getattr(state, "_executor", None) if state is not None else None
+        self._executor = executor
+        self._start = time.monotonic()
+        self._user_stopped_at: Optional[float] = None
+
+    def _offset(self) -> float:
+        anchor = getattr(self._executor, "_voice_recording_started_at", None)
+        if anchor is None:
+            return 0.0
+        return time.monotonic() - anchor
+
+    def record_user(self, chunk: AudioChunk) -> None:
+        if self._executor is None or not chunk.data:
+            return
+        start = self._offset()
+        end = start + chunk.duration_seconds
+        _append_segment(self._executor, "user", start, end, chunk)
+        _append_event(self._executor, VoiceEvent(time=start, type="user_start_speaking"))
+        _append_event(self._executor, VoiceEvent(time=end, type="user_stop_speaking"))
+
+    def mark_user_stopped(self) -> None:
+        self._user_stopped_at = self._offset()
+
+    def record_agent(self, chunk: AudioChunk) -> None:
+        if self._executor is None or not chunk.data:
+            return
+        start = self._offset()
+        end = start + chunk.duration_seconds
+        _append_segment(self._executor, "agent", start, end, chunk)
+        latency = None
+        if self._user_stopped_at is not None:
+            latency = max(0.0, start - self._user_stopped_at)
+            _record_latency(self._executor, latency)
+        _append_event(
+            self._executor,
+            VoiceEvent(time=start, type="agent_start_speaking", latency=latency),
+        )
+        _append_event(self._executor, VoiceEvent(time=end, type="agent_stop_speaking"))
+
+
+def _append_segment(executor, speaker: str, start: float, end: float, chunk: AudioChunk) -> None:
+    recording = getattr(executor, "_voice_recording", None)
+    if recording is None:
+        return
+    recording.segments.append(
+        AudioSegment(
+            speaker=speaker,  # type: ignore[arg-type]
+            start_time=start,
+            end_time=end,
+            audio=chunk.data,
+            transcript=chunk.transcript,
+        )
+    )
+
+
+def _append_event(executor, event: VoiceEvent) -> None:
+    timeline = getattr(executor, "_voice_timeline", None)
+    if timeline is None:
+        return
+    timeline.append(event)
+
+
+def _record_latency(executor, latency: float) -> None:
+    metrics = getattr(executor, "_voice_latency", None)
+    if metrics is None:
+        return
+    metrics.measurements.append(latency)
+    if metrics.time_to_first_byte is None:
+        metrics.time_to_first_byte = latency

@@ -64,10 +64,13 @@ class PipecatAgent(VoiceAgentAdapter):
         self._session = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._session is None:
             raise RuntimeError("PipecatAgent: not connected")
+        raise PendingTransportError("PipecatAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._session is None:
             raise RuntimeError("PipecatAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("PipecatAgent")

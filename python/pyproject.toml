@@ -44,7 +44,6 @@ dependencies = [
     # conversion and playback-via-subprocess.
     "imageio-ffmpeg>=0.5.0",
     "numpy>=1.26",
-    "soundfile>=0.12",
     "webrtcvad-wheels>=2.0",
     "websockets>=12",
 ]

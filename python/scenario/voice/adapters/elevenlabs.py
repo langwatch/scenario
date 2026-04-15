@@ -42,10 +42,16 @@ class ElevenLabsAgent(VoiceAgentAdapter):
         self._ws = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgent: not connected")
+        raise PendingTransportError("ElevenLabsAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("ElevenLabsAgent")
+
+    def __repr__(self) -> str:  # redact credentials
+        return f"ElevenLabsAgent(agent_id={self.agent_id!r}, api_key='***')"
