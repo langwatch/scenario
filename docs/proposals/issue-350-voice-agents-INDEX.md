@@ -41,13 +41,13 @@ Navigation map for `issue-350-voice-agents-source.md` (1346 lines, ~12k tokens).
 | 5.4 | ElevenLabs Conversational AI | 760–777 |
 | 5.5 | Vapi | 778–794 |
 | 5.6 | OpenAI Realtime / Gemini Live | 795–828 |
-| 5.7 | Custom HTTP/WebSocket | 829–871 |
+| 5.7 | Custom HTTP/WebSocket | 829–868 |
 
 ## §6 Full Example Tests — subsections
 
 | # | Example | Lines | Notable |
 |---|---|---|---|
-| 6.1 | Basic voice conversation | 874–900 | |
+| 6.1 | Basic voice conversation | 874–899 | |
 | 6.2 | Interruption handling | 901–930 | |
 | 6.3 | Angry customer + background noise | 931–968 | |
 | 6.4 | DTMF phone tree navigation | 969–997 | |

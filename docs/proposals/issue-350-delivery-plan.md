@@ -12,13 +12,15 @@ Ship a Python-first, single-PR implementation of voice-agent testing inside the 
 
 ### Phase 1 — Core Voice Primitives (Source §10 L1307-1315)
 
+> **Note:** Source §10 says "OpenAIRealtimeAgent (already partially exists)." That refers to the JavaScript reference code (`javascript/examples/vitest/tests/helpers/openai-voice-agent.ts`, etc.). No Python implementation exists — `OpenAIRealtimeAgent` is net-new in this PR. Use the JS code as design guidance only, do not port it.
+
 Files to create:
 - `python/scenario/voice/__init__.py` — public exports
 - `python/scenario/voice/adapter.py` — `VoiceAgentAdapter(AgentAdapter)` with `connect/disconnect/send_audio/recv_audio` and the default `AgentAdapter.call` impl from §4.1 L216-230
-- `python/scenario/voice/audio_chunk.py` — `AudioChunk` dataclass (PCM16 @ 24kHz mono, per Resolved Decision #2), plus helpers `extract_audio`, `create_audio_message`
-- `python/scenario/voice/tts.py` — TTS router (litellm-style `"provider/voice"`, §4.2 L271-280), cache keyed on `(text, voice)` only (Resolved Decision #3)
-- `python/scenario/voice/stt.py` — pluggable `STTProvider` interface + default OpenAI implementation (Locked Decision #5). Swappable via `scenario.configure(stt=...)`.
-- `python/scenario/voice/vad.py` — SDK-side VAD fallback using `webrtcvad-wheels` (Locked Decision #6). Activates when adapter capability matrix has `native_vad=False`; emits one-shot warning on activation.
+- `python/scenario/voice/audio_chunk.py` — `AudioChunk` dataclass (PCM16 @ 24kHz mono, per the **AudioChunk normalization** decision), plus helpers `extract_audio`, `create_audio_message`
+- `python/scenario/voice/tts.py` — TTS router (litellm-style `"provider/voice"`, §4.2 L271-280), cache keyed on `(text, voice)` only (per the **TTS cache key** decision)
+- `python/scenario/voice/stt.py` — pluggable `STTProvider` interface + default OpenAI implementation (per the **Pluggable STT** decision). Swappable via `scenario.configure(stt=...)`.
+- `python/scenario/voice/vad.py` — SDK-side VAD fallback using `webrtcvad-wheels` (per the **VAD fallback** decision). Activates when adapter capability matrix has `native_vad=False`; emits one-shot warning on activation.
 - `python/scenario/voice/capabilities.py` — `AdapterCapabilities` dataclass + `UnsupportedCapabilityError`. Every adapter publishes a `capabilities` attribute.
 - `python/scenario/voice/recording.py` — `VoiceRecording`, `AudioSegment`, `VoiceEvent`, `LatencyMetrics` (§4.6)
 - `python/scenario/voice/ffmpeg.py` — thin wrapper around `imageio_ffmpeg.get_ffmpeg_exe()` for format conversion (§4.4 L448, §4.5 L546)
@@ -54,7 +56,7 @@ Files to create:
 
 Files to modify:
 - `python/scenario/script.py` — add `agent(wait=False)` support, `interrupt()`, `dtmf()`
-  - `interrupt(after_words=N)` on adapters without streaming transcripts must raise `UnsupportedCapabilityError` (Resolved Decision #1)
+  - `interrupt(after_words=N)` on adapters without streaming transcripts must raise `UnsupportedCapabilityError` (per the **after_words UnsupportedCapabilityError** decision)
 - `python/scenario/scenario_executor.py` — implement async agent turns and interruption scheduling in `proceed()`
 
 ### Phase 4 — Audio Effects & Simulation (Source §10 L1334-1339)
@@ -65,39 +67,44 @@ Files to create:
 - `python/scenario/voice/effects/quality.py` — `phone_quality`, `low_quality`, `packet_loss`, `breaking_up`, `robotic`, `echo`
 - `python/scenario/voice/effects/prosody.py` — `speaking_fast`, `speaking_slow`, `low_volume`, `high_volume`
 - `python/scenario/voice/effects/custom.py` — `custom(fn)` wrapper
-- `python/scenario/voice/assets/noise/{cafe,street,office,airport,babble}.wav` — bundled samples (<1MB total per §4.5 L546)
+- `python/scenario/voice/assets/noise/{cafe,street,office,airport}.wav` — `background_noise` presets (§4.5 L521)
+- `python/scenario/voice/assets/noise/babble.wav` — sample used by `multiple_voices` effect (§4.5 L533). Not a `background_noise` preset.
 
 Files to modify:
-- `python/scenario/user_simulator_agent.py` — apply effects AFTER TTS cache hit (Resolved Decision #3)
+- `python/scenario/user_simulator_agent.py` — apply effects AFTER TTS cache hit (per the **TTS cache key** decision)
 - `python/scenario/script.py` — per-step `audio_effects` override (§4.2 L291-294)
 
 ### Phase 5 — Observability & Output (Source §10 L1341-1346)
 
 Files to modify:
 - `python/scenario/scenario_executor.py` — build `VoiceEvent` timeline, `LatencyMetrics`, invoke `on_audio_chunk` / `on_voice_event` hooks
-- `python/scenario/config.py` — global `audio_playback: bool` config
-- `python/scenario/voice/playback.py` — live playback via `ffplay` subprocess using the bundled ffmpeg binary (Locked Decision #8). Graceful no-op on headless systems.
+- `python/scenario/config/scenario.py` — add `audio_playback: bool = False` field to `ScenarioConfig`
+- `python/scenario/voice/playback.py` — live playback via `ffplay` subprocess using the bundled ffmpeg binary (per the **ffplay playback** decision). Graceful no-op on headless systems.
 - `python/scenario/_events/` — emit voice events so LangWatch Simulations Visualizer can render them (audio player in UI is LangWatch-side, not in this PR)
 
 ## Dependency Additions (`python/pyproject.toml`)
 
-Hard dependencies (no `extras`, per Resolved Decision #4):
+Hard dependencies (no `extras`, per the **Hard deps** decision):
 - `imageio-ffmpeg>=0.5.0` — bundles ffmpeg binary, exposed via `imageio_ffmpeg.get_ffmpeg_exe()`. Used for format conversion, MP3 export, `speaking_fast/slow`, effect pipeline.
 - `numpy>=1.26` — audio sample math (mixing, amplitude, time-stretch prep, packet-loss zeroing).
 - `soundfile>=0.12` — WAV/FLAC/OGG I/O. Handles `scenario.audio(path)` decode and `result.audio.save()` encode.
-- `webrtcvad-wheels>=2.0` — SDK-side VAD fallback for adapters without native VAD (Locked Decision #6). Note: use the maintained fork, not the original `py-webrtcvad` which lacks Python 3.12/3.13 wheels.
+- `webrtcvad-wheels>=2.0` — SDK-side VAD fallback for adapters without native VAD (per the **VAD fallback** decision). Note: use the maintained fork, not the original `py-webrtcvad` which lacks Python 3.12/3.13 wheels.
 - `websockets>=12` — WebSocket transport (Pipecat-WS, ElevenLabs, Vapi, generic `WebSocketAgent`).
 - `aiortc>=1.7` — WebRTC transport (Pipecat-WebRTC, generic `WebRTCAgent`).
 - `twilio>=9.0` — REST API for outbound calls (Media Streams goes over websockets, not Twilio's Python client).
 - `livekit>=0.17` + `livekit-api>=0.7` — LiveKit room participation.
 - `elevenlabs>=1.0` — ElevenLabs TTS (used by voice user-simulator and `ElevenLabsAgent`).
-- `google-cloud-texttospeech>=2.16` — Google TTS provider (optional, gate by runtime check if the user picks `"google/..."`).
-- `cartesia>=1.0` — Cartesia TTS provider (same gating pattern).
+
+Soft / lazy-import TTS provider deps (raise a clear `ImportError` at first use if missing):
+- `google-cloud-texttospeech>=2.16` — loaded only when user picks `"google/..."` voice.
+- `cartesia>=1.0` — loaded only when user picks `"cartesia/..."` voice.
+
+These are NOT installed by default. The TTS router catches `ImportError` on provider resolution and emits a helpful message: `"Install scenario[google-tts]"` (or equivalent). Avoids bloating core install with every TTS vendor's SDK.
 
 STT default uses `openai>=1.88` (already a hard dep) for `gpt-4o-transcribe`. Users can plug alternative providers via `scenario.configure(stt=...)` without the SDK adding provider-specific deps.
 
 ### Bundled noise assets
-Per Locked Decision #7, ~1MB of royalty-free CC0 WAV samples ship inside the package at `python/scenario/voice/assets/noise/` (cafe, street, office, airport, babble). License file included alongside.
+Per Locked Decision on noise bundling, ~1MB of royalty-free CC0 WAV samples ship inside the package at `python/scenario/voice/assets/noise/`. Four are `background_noise` presets (cafe, street, office, airport); `babble` is the sample for the `multiple_voices` effect — not a `background_noise` preset. License file included alongside.
 
 ## Test Strategy
 
@@ -132,7 +139,7 @@ Mocking approach:
 
 5. **STT provider** — pluggable `STTProvider` interface, not a hardcoded provider. Default implementation uses OpenAI (`gpt-4o-transcribe`, reuses existing `openai` dep). Users swap via `scenario.configure(stt=...)`. Provider-agnostic by design — we don't control which provider users prefer.
 6. **VAD fallback for adapters without native VAD** — SDK-side fallback via `webrtcvad-wheels` (the maintained fork of py-webrtcvad). Emits a one-shot `UserWarning` when fallback activates: `"Adapter {name} has no native VAD — using SDK-side webrtcvad. Accuracy may differ from native."`. Surfaced in the adapter capability matrix docs.
-7. **Noise sample bundling** — ~1MB of royalty-free WAV samples ships with the core SDK (cafe, street, office, airport, babble). Effects work out of the box. If bloat becomes a complaint, split to a separate `scenario-voice-assets` package in a follow-up.
+7. **Noise sample bundling** — ~1MB of royalty-free WAV samples ships with the core SDK. `background_noise` presets: cafe, street, office, airport (per §4.5 L521). `babble` ships as the sample used by the `multiple_voices` effect (per §4.5 L533) — NOT as a `background_noise` preset. Effects work out of the box. If bloat becomes a complaint, split to a separate `scenario-voice-assets` package in a follow-up.
 8. **Local audio playback** — `ffplay` via subprocess (uses the bundled ffmpeg binary). No `sounddevice`/PortAudio dep. Degrades gracefully on headless systems (no-op + debug log).
 
 ## Adapter Capability Matrix (requirement)
