@@ -283,6 +283,12 @@ class RedTeamAgent(AgentAdapter):
         # attacker output-format reliability per provider/model.
         self._parse_failure_count: int = 0
 
+        # Cross-run reuse guard (#329). Records the first scenario's
+        # thread_id; later calls with a different thread_id raise, because
+        # shared mutable state (H_attacker, scores, backtracks) would
+        # silently interleave between runs.
+        self._run_thread_id: Optional[str] = None
+
     @classmethod
     def crescendo(
         cls,
@@ -300,10 +306,12 @@ class RedTeamAgent(AgentAdapter):
         Convenience factory that pre-selects ``CrescendoStrategy``.
 
         .. note::
-            Create a fresh agent per ``scenario.run()`` call. The attack plan
-            is generated from the first run's ``description`` and cached on
-            the instance — reusing the agent across scenarios with different
-            descriptions silently uses the original (now-stale) plan.
+            **RedTeamAgent is single-use per scenario.run().** Attempting to
+            reuse an instance across runs (serial or parallel) now raises
+            at runtime because shared mutable state (attacker history,
+            scores, backtracks, cached attack plan) would silently
+            interleave between runs. Instantiate a fresh agent per run —
+            factory construction is cheap.
 
         Args:
             target: The attack objective.
@@ -357,6 +365,12 @@ class RedTeamAgent(AgentAdapter):
         is skipped for GOAT), no stage hints in the system prompt. Adaptation
         is driven entirely by the score/hint feedback in the attacker's
         private conversation history.
+
+        .. note::
+            **RedTeamAgent is single-use per scenario.run().** Attempting to
+            reuse an instance across runs (serial or parallel) now raises
+            at runtime because shared mutable state would silently interleave
+            between runs. Instantiate a fresh agent per run.
 
         .. warning::
             ``injection_probability`` is supported for parity with ``crescendo()``
@@ -775,8 +789,37 @@ Reply with exactly this JSON and nothing else:
             A user message dict: ``{"role": "user", "content": "..."}``
         """
         current_turn = input.scenario_state.current_turn
+        # Use getattr so MagicMock(spec=AgentInput) fixtures that don't
+        # set thread_id don't trip the guard during unit-test setup.
+        # Production AgentInput always has thread_id (required field).
+        incoming_thread_id = getattr(input, "thread_id", None)
         if current_turn == 1:
+            if (
+                self._run_thread_id is not None
+                and self._run_thread_id != incoming_thread_id
+            ):
+                raise RuntimeError(
+                    "RedTeamAgent instances are single-use per scenario.run(). "
+                    f"This instance was already used with thread_id="
+                    f"{self._run_thread_id!r}; current thread_id="
+                    f"{incoming_thread_id!r}. Shared mutable state "
+                    "(attacker history, scores, backtracks) would silently "
+                    "interleave between runs. Instantiate a fresh "
+                    "RedTeamAgent per run — factories are cheap. See #329."
+                )
+            self._run_thread_id = incoming_thread_id
             self._reset_run_state()
+        elif (
+            self._run_thread_id is not None
+            and self._run_thread_id != incoming_thread_id
+        ):
+            raise RuntimeError(
+                f"RedTeamAgent saw thread_id change mid-run: was "
+                f"{self._run_thread_id!r}, now {incoming_thread_id!r}. "
+                "This should not happen with the standard orchestrator. "
+                "If you're calling the agent manually, make sure each run "
+                "uses a fresh RedTeamAgent instance. See #329."
+            )
         description = input.scenario_state.description
         strategy_name = type(self._strategy).__name__
 
