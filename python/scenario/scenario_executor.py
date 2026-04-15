@@ -824,9 +824,48 @@ class ScenarioExecutor:
         await self._script_call_agent(AgentRole.USER, content)
 
     async def agent(
-        self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
+        self,
+        content: Optional[Union[str, ChatCompletionMessageParam]] = None,
+        *,
+        wait: bool = True,
     ) -> None:
+        """Run the agent turn.
+
+        When ``wait=False`` (§4.4 L369-382), the agent call is dispatched as
+        a background task and control returns immediately. This is the async
+        primitive that enables interruption testing: subsequent script steps
+        run while the agent is still speaking.
+
+        A background turn finishes when the next blocking step (``agent()``,
+        ``judge()``, ``proceed()``, ``succeed()``/``fail()``) awaits
+        ``_drain_pending_agent_turn()``.
+        """
+        if not wait:
+            self._schedule_background_agent_turn(content)
+            return
+        await self._drain_pending_agent_turn()
         await self._script_call_agent(AgentRole.AGENT, content)
+
+    def _schedule_background_agent_turn(
+        self, content: Optional[Union[str, ChatCompletionMessageParam]]
+    ) -> None:
+        pending = getattr(self, "_pending_agent_task", None)
+        if pending is not None and not pending.done():
+            raise RuntimeError(
+                "An async agent turn is already in flight — interleave sleep()/user() steps "
+                "or call agent() (wait=True) to await it."
+            )
+        coro = self._script_call_agent(AgentRole.AGENT, content)
+        self._pending_agent_task = asyncio.create_task(coro)
+
+    async def _drain_pending_agent_turn(self) -> None:
+        pending = getattr(self, "_pending_agent_task", None)
+        if pending is None:
+            return
+        try:
+            await pending
+        finally:
+            self._pending_agent_task = None
 
     async def judge(
         self,

@@ -80,6 +80,79 @@ def audio(path_or_bytes: Union[str, Path, bytes]) -> ScriptStep:
     return _step
 
 
+def interrupt(
+    *,
+    after: Optional[float] = None,
+    after_words: Optional[int] = None,
+    content: Union[str, bytes, Path] = "",
+) -> ScriptStep:
+    """
+    Declarative interruption step (§4.4 L450-492).
+
+    Equivalent to: ``agent(wait=False) + sleep(after) + user(content)``, with
+    the added option of triggering the interruption after the agent has
+    emitted ``after_words`` words (requires streaming transcripts — raises
+    UnsupportedCapabilityError on adapters that don't advertise it, per the
+    after_words UnsupportedCapabilityError locked decision).
+
+    ``content`` may be:
+        - str: treated as user text (routed through TTS / user simulator).
+        - bytes or Path: treated as audio (same as ``scenario.audio(...)``).
+    """
+    if after is None and after_words is None:
+        raise ValueError("interrupt() requires after=seconds or after_words=N")
+    if after is not None and after_words is not None:
+        raise ValueError("interrupt() takes after OR after_words, not both")
+
+    async def _step(state: "ScenarioState") -> None:
+        import asyncio
+
+        executor = state._executor
+        # Start the agent turn in the background (wait=False semantics).
+        await executor.agent(wait=False)
+
+        if after_words is not None:
+            adapter = _voice_adapter(state)
+            name = type(adapter).__name__ if adapter else "<no voice adapter>"
+            if adapter is None or not adapter.capabilities.streaming_transcripts:
+                raise UnsupportedCapabilityError(
+                    name,
+                    "streaming_transcripts",
+                    hint=(
+                        "interrupt(after_words=N) needs incremental transcripts. "
+                        "Use interrupt(after=seconds) instead on this adapter."
+                    ),
+                )
+            await _wait_for_word_count(adapter, after_words)
+        else:
+            assert after is not None
+            await asyncio.sleep(after)
+
+        # Deliver the interruption.
+        if isinstance(content, (bytes, Path)) or (isinstance(content, str) and _looks_like_audio_path(content)):
+            await audio(content)(state)
+        else:
+            await executor.user(content if content else None)
+
+    return _step
+
+
+async def _wait_for_word_count(adapter, target_words: int) -> None:
+    """Block until the adapter's streaming transcript reaches ``target_words`` words."""
+    import asyncio
+
+    while True:
+        transcript = getattr(adapter, "streaming_transcript", "") or ""
+        if len(transcript.split()) >= target_words:
+            return
+        await asyncio.sleep(0.05)
+
+
+def _looks_like_audio_path(s: str) -> bool:
+    lower = s.lower()
+    return lower.endswith((".wav", ".mp3", ".ogg", ".flac"))
+
+
 def dtmf(tones: str) -> ScriptStep:
     """
     Emit DTMF tones (telephony-only). Raises UnsupportedCapabilityError if
