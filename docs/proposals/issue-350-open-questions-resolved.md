@@ -10,7 +10,7 @@ Source references use the canonical lines in `docs/proposals/issue-350-voice-age
 
 **Proposal says:** §4.3 L324 requires "automatic STT of all audio messages (always included)" but does not name a provider. The delivery plan placeholder is `openai>=1.88` (already a transitive dep via LiteLLM).
 
-**Recommendation:** Default to `openai/gpt-4o-transcribe` via the existing LiteLLM path, with `scenario.configure(stt="provider/model")` override. Segment any audio > 20 min into < 25 min chunks to stay under the API limit.
+**Recommendation:** Default to `openai/gpt-4o-transcribe` via the existing LiteLLM path, with `scenario.configure(stt="provider/model")` override. Enforce the 25-minute per-request limit: if a single turn's audio exceeds 25 minutes, chunk it before sending.
 
 **Why:** Reuses an already-pinned dep, avoids a new heavyweight vendor, and matches pricing of Whisper ($0.006/min) with better accuracy on short conversational clips. Tests are short (sub-5-min typical), so the 25-min limit is a non-issue. Caching of `(audio_bytes_hash, model)` keeps cost near zero on replay.
 
@@ -69,7 +69,7 @@ Source references use the canonical lines in `docs/proposals/issue-350-voice-age
 
 ### Q4: Cache location and TTL for TTS audio
 
-**Proposal says:** Resolved Decision #3 (Source L1158) locks the cache key to `(text, voice)`. Storage is unspecified. Existing `python/scenario/cache.py` uses `joblib.Memory` at `~/.scenario/cache` (env: `SCENARIO_CACHE_DIR`).
+**Proposal says:** The **TTS cache key** decision (Source L1158) locks the cache key to `(text, voice)`. Storage is unspecified. Existing `python/scenario/cache.py` uses `joblib.Memory` at `~/.scenario/cache` (env: `SCENARIO_CACHE_DIR`).
 
 **Recommendation:** Reuse the existing joblib `Memory` instance with a dedicated subdirectory `~/.scenario/cache/tts/` keyed on `sha256(text + voice + provider)`. No TTL; add an LRU size cap of 500MB via a small `_evict_if_over(limit)` helper invoked on write. Separate subdir so audio never collides with LLM-response cache entries.
 
@@ -80,7 +80,7 @@ Source references use the canonical lines in `docs/proposals/issue-350-voice-age
 - Concurrent test processes need file-locking on eviction (use `filelock`).
 
 **Alternatives considered:**
-- **No cache** — violates Resolved Decision #3's determinism goal.
+- **No cache** — violates the **TTS cache key** decision's determinism goal.
 - **Time-based TTL** — irrelevant for deterministic inputs.
 
 **Decision gate:** Implementer during Phase 1.
@@ -91,7 +91,7 @@ Source references use the canonical lines in `docs/proposals/issue-350-voice-age
 
 **Proposal says:** §4.5 L546 requires ~5 WAV samples under 1MB total, bundled with the package. Source is silent on licensing.
 
-**Recommendation:** Source all five (cafe, street, office, airport, babble) from Freesound's CC0 tag (`freesound.org/browse/tags/cc0/`). Trim to 10s mono 16kHz WAV (~320KB each, ~1.6MB total; may need to drop to 8s or 8kHz for the <1MB cap). Ship `python/scenario/voice/assets/noise/LICENSES.md` with per-file attribution, original URLs, and CC0 text. No user-facing attribution required by CC0, but ship it anyway.
+**Recommendation:** Source all five from Freesound's CC0 tag (`freesound.org/browse/tags/cc0/`). Four for `background_noise` presets (cafe, street, office, airport per §4.5 L521) and one for the `multiple_voices` effect (babble per §4.5 L533 — NOT a `background_noise` preset). Trim to 10s mono 16kHz WAV (~320KB each, ~1.6MB total; may need to drop to 8s or 8kHz for the <1MB cap). Ship `python/scenario/voice/assets/noise/LICENSES.md` with per-file attribution, original URLs, and CC0 text.
 
 **Why:** CC0 is the only license that allows unambiguous redistribution inside a software package with no downstream obligations. Freesound has a dedicated CC0 browse filter and high-quality field recordings. Pixabay is a viable backup.
 
@@ -151,24 +151,15 @@ Wire the prompt via the same LLM client the user-simulator uses. Include the per
 
 ---
 
-### Q8: Playback backend
+### Q8: Playback backend — RESOLVED
 
-**Proposal says:** §4.7 L631-643 specifies `audio_playback=True` and `on_audio_chunk` hooks. The delivery plan lists `sounddevice>=0.4` as a hard dep but flags this question.
+**Proposal says:** §4.7 L631-643 specifies `audio_playback=True` and `on_audio_chunk` hooks. Does not specify a backend.
 
-**Recommendation:** Keep `sounddevice` (portaudio) as the hard dep and primary backend. Gracefully degrade: if `sounddevice` import or device init fails (e.g., headless CI, no audio hw), log a warning and disable playback without failing the run. Users on pure-headless systems who want playback-to-file can use `on_audio_chunk=lambda c: fp.write(c)`.
+**Locked decision:** `ffplay` via subprocess, using the bundled ffmpeg binary from `imageio-ffmpeg`. No `sounddevice`/PortAudio dep. Graceful no-op on headless systems (missing device → debug log, scenario continues).
 
-**Why:** `sounddevice` is the de-facto Python real-time audio library, stable since 2014, tiny wheel (PortAudio is pre-compiled into the wheel on macOS/Windows; Linux may need `libportaudio2` — document this). `ffplay` via subprocess has worse latency, is async-hostile, and produces no clean stop semantics. For voice-agent *testing* where a human listens interactively to failing scenarios, low-latency matters.
+**Why:** Reuses the ffmpeg binary we already ship. Zero new native deps. Playback is a dev-loop convenience, not a production feature — latency is not load-bearing. Users who want custom playback wire `on_audio_chunk` themselves.
 
-**Flags / risks:**
-- Linux CI runners may need `apt install libportaudio2`; document in CI setup notes.
-- PortAudio can segfault on device enumeration on some Linux distros — wrap init in try/except.
-- This is a **user-preference call** — if the team prioritizes a slimmer native-dep footprint, `ffplay` via `imageio-ffmpeg` is an acceptable fallback-only option.
-
-**Alternatives considered:**
-- **ffplay via imageio-ffmpeg** — no extra dep (ffmpeg already bundled), but ~200ms extra latency and process-management headache.
-- **pyaudio** — older, less actively maintained than sounddevice.
-
-**Decision gate:** User before ralph-loop (small enough decision that default can stand — escalate only if the user objects to portaudio).
+**Decision gate:** Locked by user. Not open for re-deliberation.
 
 ---
 

@@ -6,7 +6,7 @@ Feature: Voice agent testing in Scenario SDK
 
   Background:
     Given the Scenario SDK is configured
-    And voice dependencies (ffmpeg via imageio-ffmpeg, numpy, soundfile) are installed as hard deps
+    And voice dependencies (ffmpeg via imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels) are installed as hard deps
 
   # ======================================================================
   # Core API — §4.1 Voice Agent Adapters (Source L130-243)
@@ -104,7 +104,7 @@ Feature: Voice agent testing in Scenario SDK
 
   @unit
   Scenario: AudioChunk internal format is PCM16 at 24kHz mono
-    # Resolved design decision #2
+    # Locked decision: AudioChunk normalization
     Given any adapter receives or sends audio
     When the framework normalizes the chunk
     Then the internal AudioChunk is PCM16, 24000 Hz, mono
@@ -138,7 +138,7 @@ Feature: Voice agent testing in Scenario SDK
 
   @unit
   Scenario: TTS cache key is (text, voice) only and effects apply after cache hit
-    # Resolved design decision #3; Source §7.2 L1158 deterministic caching claim
+    # Locked decision: TTS cache key; Source §7.2 L1158 deterministic caching claim
     Given the same text and voice are used twice with different audio_effects
     When TTS is invoked
     Then the TTS synthesis is cached on (text, voice) and only called once
@@ -286,14 +286,14 @@ Feature: Voice agent testing in Scenario SDK
 
   @unit
   Scenario: scenario.interrupt(after_words=N) uses streaming transcript when available
-    # Source §4.4, L469-476; Resolved design decision #1
+    # Source §4.4, L469-476; Locked decision: after_words UnsupportedCapabilityError
     Given the adapter exposes a streaming transcript and after_words=5 is used
     When the agent emits the 5th word
     Then the interrupt content is immediately sent
 
   @unit
   Scenario: scenario.interrupt(after_words=N) raises a clear error when adapter lacks streaming transcripts
-    # Resolved design decision #1 (do not ship built-in STT; document capability matrix)
+    # Locked decision: after_words UnsupportedCapabilityError (do not ship built-in STT; document capability matrix)
     Given the adapter does NOT expose a streaming transcript
     When scenario.interrupt(after_words=5) is executed
     Then a clear UnsupportedCapabilityError is raised naming the adapter and the missing capability
@@ -553,14 +553,14 @@ Feature: Voice agent testing in Scenario SDK
 
   @unit
   Scenario: Hard dependencies install with the SDK (no extras flag)
-    # Locked Decision #4 — voice is first-class
+    # Locked decision: Hard deps — voice is first-class
     Given "pip install scenario"
     Then imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels are installed as hard deps
     And ffmpeg binary is available via imageio_ffmpeg.get_ffmpeg_exe()
-    And bundled noise WAV samples (cafe, street, office, airport, babble) ship inside the package
+    And bundled noise WAV samples (cafe, street, office, airport for background_noise; babble for multiple_voices) ship inside the package
 
   # ======================================================================
-  # Pluggable STT — Locked Decision #5 (provider-agnostic by design)
+  # Pluggable STT (provider-agnostic by design)
   # ======================================================================
 
   @unit
@@ -613,7 +613,7 @@ Feature: Voice agent testing in Scenario SDK
     And each row shows streaming_transcripts, native_vad, dtmf, input/output formats
 
   # ======================================================================
-  # VAD Fallback — Locked Decision #6
+  # VAD Fallback
   # ======================================================================
 
   @unit
@@ -639,7 +639,7 @@ Feature: Voice agent testing in Scenario SDK
     And VAD events come from the adapter's native stream
 
   # ======================================================================
-  # Local Playback — Locked Decision #8
+  # Local Playback (ffplay subprocess)
   # ======================================================================
 
   @unit
