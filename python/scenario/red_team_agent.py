@@ -720,49 +720,6 @@ Reply with exactly this JSON and nothing else:
             raise RuntimeError("Attacker model returned no content")
         return content
 
-    @staticmethod
-    def _parse_attacker_output(raw: str) -> tuple[str, str, str]:
-        """Extract (reply, observation, strategy) from the attacker's output.
-
-        The attacker is instructed to emit a JSON object with those three
-        fields (see ``JSON_OUTPUT_CONTRACT``).  This parser:
-          1. Strips ``` / ```json markdown fences if present
-          2. Parses JSON, reads the three fields as strings
-          3. Falls back to ``(raw, "", "")`` when parsing fails or ``reply``
-             is missing/empty — keeps the agent running on a malformed turn
-
-        Returns:
-            ``(reply, observation, strategy)``. ``reply`` is always non-empty
-            (falls back to ``raw`` when parsing fails).
-        """
-        s = raw.strip()
-        # Strip markdown fences if the model wrapped the JSON anyway.
-        if s.startswith("```json"):
-            s = s[len("```json"):]
-        elif s.startswith("```"):
-            s = s[3:]
-        if s.endswith("```"):
-            s = s[:-3]
-        s = s.strip()
-
-        try:
-            data = json.loads(s)
-        except (json.JSONDecodeError, ValueError):
-            return raw, "", ""
-
-        if not isinstance(data, dict):
-            return raw, "", ""
-
-        reply = str(data.get("reply", "")).strip()
-        if not reply:
-            # Parseable JSON but no usable reply — treat the whole raw string
-            # as the reply rather than sending nothing.
-            return raw, "", ""
-
-        observation = str(data.get("observation", "")).strip()
-        strategy = str(data.get("strategy", "")).strip()
-        return reply, observation, strategy
-
     def _reset_run_state(self) -> None:
         """Reset per-run state for safe reuse across scenario.run() calls.
 
@@ -959,32 +916,30 @@ Reply with exactly this JSON and nothing else:
             # Call attacker LLM directly (no inner agent wrapper).
             raw_attack = await self._call_attacker_llm()
 
-            # If the strategy instructs the attacker to emit structured JSON
-            # (GOAT — see JSON_OUTPUT_CONTRACT in _red_team/base.py), parse
-            # it out and emit reasoning telemetry. Otherwise use the raw
-            # output as the reply with no parsing.
-            if self._strategy.emits_structured_output:
-                reply, observation, strategy = self._parse_attacker_output(raw_attack)
-                parse_failed = not observation and not strategy and reply == raw_attack
-                if parse_failed:
-                    self._parse_failure_count += 1
-                chosen_ids = self._strategy.chosen_technique_ids(strategy)
-                span.set_attribute("red_team.reasoning.observation", observation[:500])
-                span.set_attribute("red_team.reasoning.strategy", strategy[:500])
-                span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
-                span.set_attribute("red_team.parse_failure_count", self._parse_failure_count)
-                span.set_attribute("red_team.chosen_technique_ids", chosen_ids)
-                if parse_failed:
-                    logger.warning(
-                        "RedTeamAgent turn %d: attacker output was not valid JSON; "
-                        "using full response as reply. Raw (first 200 chars): %r",
-                        current_turn, raw_attack[:200],
-                    )
-            else:
-                reply = raw_attack
-                observation = ""
-                strategy = ""
-                parse_failed = False
+            # Strategies own their own output parsing — GOAT pulls
+            # observation/strategy/reply from JSON, Crescendo wraps the raw
+            # string as the reply. Telemetry is emitted unconditionally;
+            # fields are empty strings for strategies without structured
+            # output, which is what dashboards filter on anyway.
+            parsed = self._strategy.parse_attacker_output(raw_attack)
+            reply = parsed.reply
+            observation = parsed.observation
+            strategy = parsed.strategy
+            parse_failed = parsed.parse_failed
+            if parse_failed:
+                self._parse_failure_count += 1
+            chosen_ids = self._strategy.chosen_technique_ids(strategy)
+            span.set_attribute("red_team.reasoning.observation", observation[:500])
+            span.set_attribute("red_team.reasoning.strategy", strategy[:500])
+            span.set_attribute("red_team.reasoning.parse_failed", parse_failed)
+            span.set_attribute("red_team.parse_failure_count", self._parse_failure_count)
+            span.set_attribute("red_team.chosen_technique_ids", chosen_ids)
+            if parse_failed:
+                logger.warning(
+                    "RedTeamAgent turn %d: attacker output was not valid JSON; "
+                    "using full response as reply. Raw (first 200 chars): %r",
+                    current_turn, raw_attack[:200],
+                )
 
             # Keep the raw output in H_attacker so the attacker sees its
             # own format on subsequent turns (consistent with whatever the

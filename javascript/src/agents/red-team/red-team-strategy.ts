@@ -28,6 +28,24 @@ export interface BacktrackEntry {
   refusal: string;
 }
 
+/**
+ * Structured result of parsing an attacker LLM's turn.
+ *
+ * - `reply`: The message actually sent to the target. Always non-empty —
+ *   strategies without structured output return `reply === raw`.
+ * - `observation` / `strategy`: Free-text commentary fields populated by
+ *   strategies that instruct the attacker to emit JSON (GOAT). Empty for
+ *   others.
+ * - `parseFailed`: True if the attacker emitted malformed output and the
+ *   parser fell back to raw. Non-structured strategies always report false.
+ */
+export interface AttackerOutput {
+  reply: string;
+  observation: string;
+  strategy: string;
+  parseFailed: boolean;
+}
+
 export interface RedTeamStrategy {
   /**
    * Build a turn-aware system prompt for the attacker.
@@ -69,17 +87,15 @@ export interface RedTeamStrategy {
   needsMetapromptPlan?: boolean;
 
   /**
-   * Whether this strategy's system prompt instructs the attacker to emit
-   * structured JSON output (`observation` / `strategy` / `reply`).
+   * Turn the attacker LLM's raw output into an {@link AttackerOutput}.
    *
-   * GOAT does this per Meta's paper (ICML 2025); Crescendo does not. When
-   * `true`, the orchestrator runs the JSON parser on the attacker's response
-   * and emits reasoning-field telemetry. When `false`, the raw attacker
-   * response is used as-is with no parsing.
-   *
-   * Defaults to `false` when omitted (backward-compatible).
+   * Strategies like Crescendo (no JSON contract) return
+   * `{reply: raw, observation: "", strategy: "", parseFailed: false}`.
+   * Strategies like GOAT that instruct the attacker to emit structured
+   * output override this to parse the JSON and populate `observation` /
+   * `strategy`, setting `parseFailed` if the output was malformed.
    */
-  emitsStructuredOutput?: boolean;
+  parseAttackerOutput(raw: string): AttackerOutput;
 
   /**
    * Extract typed technique identifiers from the attacker's `strategy`

@@ -15,9 +15,10 @@ References:
   - Promptfoo GOAT: https://www.promptfoo.dev/docs/red-team/strategies/goat/
 """
 
+import json
 from typing import Optional, Sequence
 
-from .base import RedTeamStrategy, JSON_OUTPUT_CONTRACT
+from .base import AttackerOutput, RedTeamStrategy, JSON_OUTPUT_CONTRACT
 from .techniques_goat import (
     DEFAULT_GOAT_TECHNIQUES,
     Technique,
@@ -74,17 +75,50 @@ class GoatStrategy(RedTeamStrategy):
     def chosen_technique_ids(self, strategy_text: str) -> list[str]:
         return extract_chosen_ids(strategy_text, self._techniques)
 
+    def parse_attacker_output(self, raw: str) -> AttackerOutput:
+        """Extract ``(reply, observation, strategy)`` from the attacker's
+        JSON output per :data:`JSON_OUTPUT_CONTRACT`.
+
+        Pipeline:
+          1. Strip ``` / ```json markdown fences if present.
+          2. Parse JSON; read the three fields as strings.
+          3. Fall back to ``AttackerOutput(reply=raw, parse_failed=True)``
+             when parsing fails or ``reply`` is missing/empty — keeps the
+             agent running on a malformed turn.
+        """
+        s = raw.strip()
+        if s.startswith("```json"):
+            s = s[len("```json"):]
+        elif s.startswith("```"):
+            s = s[3:]
+        if s.endswith("```"):
+            s = s[:-3]
+        s = s.strip()
+
+        try:
+            data = json.loads(s)
+        except (json.JSONDecodeError, ValueError):
+            return AttackerOutput(reply=raw, parse_failed=True)
+
+        if not isinstance(data, dict):
+            return AttackerOutput(reply=raw, parse_failed=True)
+
+        reply = str(data.get("reply", "")).strip()
+        if not reply:
+            return AttackerOutput(reply=raw, parse_failed=True)
+
+        observation = str(data.get("observation", "")).strip()
+        strategy = str(data.get("strategy", "")).strip()
+        return AttackerOutput(
+            reply=reply, observation=observation, strategy=strategy
+        )
+
     @property
     def needs_metaprompt_plan(self) -> bool:
         # Meta's GOAT paper does not pre-generate an attack plan.
         # The technique catalogue + objective + conversation history
         # carry all the signal the attacker needs.
         return False
-
-    @property
-    def emits_structured_output(self) -> bool:
-        # GOAT attacker emits observation/strategy/reply JSON per the paper.
-        return True
 
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
         """Return a coarse progress label for observability.

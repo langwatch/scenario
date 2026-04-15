@@ -116,6 +116,7 @@ from .judge_agent import JudgeAgent
 from .user_simulator_agent import UserSimulatorAgent
 from .red_team_agent import RedTeamAgent
 from ._red_team import (
+    AttackerOutput,
     RedTeamStrategy,
     CrescendoStrategy,
     GoatStrategy,
@@ -165,6 +166,7 @@ __all__ = [
     "AgentAdapter",
     "UserSimulatorAgent",
     "RedTeamAgent",
+    "AttackerOutput",
     "RedTeamStrategy",
     "CrescendoStrategy",
     "GoatStrategy",
