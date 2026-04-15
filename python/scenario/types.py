@@ -246,6 +246,12 @@ class ScenarioResult(BaseModel):
     total_time: Optional[float] = None
     agent_time: Optional[float] = None
 
+    # Voice-specific output (populated only when a VoiceAgentAdapter
+    # participated in the scenario — see §4.6). All None for text-only runs.
+    audio: Optional[Any] = None  # scenario.voice.VoiceRecording
+    timeline: Optional[List[Any]] = None  # List[scenario.voice.VoiceEvent]
+    latency: Optional[Any] = None  # scenario.voice.LatencyMetrics
+
     def __repr__(self) -> str:
         """
         Provide a concise representation for debugging and logging.

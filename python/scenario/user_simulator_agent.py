@@ -8,7 +8,7 @@ conversation history.
 """
 
 import logging
-from typing import Optional, cast
+from typing import Callable, List, Optional, cast
 
 import litellm
 from litellm import Choices
@@ -100,6 +100,10 @@ class UserSimulatorAgent(AgentAdapter):
         temperature: float = _TEMPERATURE_UNSET,  # type: ignore[assignment]
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
+        voice: Optional[str] = None,
+        persona: Optional[str] = None,
+        audio_effects: Optional[List[Callable[[bytes], bytes]]] = None,
+        interrupt_probability: float = 0.0,
         **extra_params,
     ):
         """
@@ -150,6 +154,15 @@ class UserSimulatorAgent(AgentAdapter):
         self.temperature = temperature if _temp_was_set else 0.0
         self.max_tokens = max_tokens
         self.system_prompt = system_prompt
+        # Voice support (§4.2): when voice is set, generated text is run through
+        # TTS (cache key = (text, voice) per locked decision) and audio_effects
+        # are applied AFTER the cache hit — effects never enter the cache.
+        self.voice = voice
+        self.persona = persona
+        self.audio_effects: List[Callable[[bytes], bytes]] = audio_effects or []
+        if not 0.0 <= interrupt_probability <= 1.0:
+            raise ValueError("interrupt_probability must be in [0, 1]")
+        self.interrupt_probability = interrupt_probability
 
         if model:
             self.model = model
@@ -193,8 +206,32 @@ class UserSimulatorAgent(AgentAdapter):
         if not hasattr(self, "model"):
             raise Exception(agent_not_configured_error_message("UserSimulatorAgent"))
 
-    @scenario_cache()
     async def call(
+        self,
+        input: AgentInput,
+    ) -> AgentReturnTypes:
+        text_message = await self._generate_text(input)
+        if not self.voice:
+            return text_message
+        return await self._voiceify(text_message)
+
+    async def _voiceify(self, text_message: dict) -> AgentReturnTypes:
+        """Convert a text user message into an audio message via TTS + effects."""
+        from .voice import AudioChunk, create_audio_message, synthesize
+
+        content = text_message.get("content", "")
+        if not isinstance(content, str) or not content:
+            return text_message
+        # TTS cache key is (text, voice). Effects applied AFTER cache hit.
+        chunk = await synthesize(content, self.voice)  # type: ignore[arg-type]
+        audio_bytes = chunk.data
+        for effect in self.audio_effects:
+            audio_bytes = effect(audio_bytes)
+        final = AudioChunk(data=audio_bytes, transcript=content)
+        return create_audio_message(final, role="user")
+
+    @scenario_cache()
+    async def _generate_text(
         self,
         input: AgentInput,
     ) -> AgentReturnTypes:
@@ -220,11 +257,16 @@ class UserSimulatorAgent(AgentAdapter):
 
         scenario = input.scenario_state
 
+        persona_block = (
+            f"\n\n<persona>\n{self.persona}\n</persona>\n"
+            if self.persona
+            else ""
+        )
         messages = [
             {
                 "role": "system",
-                "content": self.system_prompt
-                or f"""
+                "content": (self.system_prompt + persona_block) if self.system_prompt
+                else f"""
 <role>
 You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
 Approach this naturally, as a human user would, with very short inputs, few words, all lowercase, imperative, not periods, like when they google or talk to chatgpt.
@@ -241,7 +283,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <rules>
 - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user, send the user message and just STOP.
 </rules>
-""",
+{persona_block}""",
             },
             {"role": "assistant", "content": "Hello, how can I help you today?"},
             *input.messages,
