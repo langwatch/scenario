@@ -6,7 +6,8 @@ Feature: Voice agent testing in Scenario SDK
 
   Background:
     Given the Scenario SDK is configured
-    And voice dependencies (ffmpeg via imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels) are installed as hard deps
+    And voice dependencies are installed as hard deps: imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels, websockets, aiortc, twilio, livekit, livekit-api, elevenlabs, openai
+    And optional TTS provider deps (google-cloud-texttospeech, cartesia) are lazy-imported only when their provider prefix is used
 
   # ======================================================================
   # Core API — §4.1 Voice Agent Adapters (Source L130-243)
