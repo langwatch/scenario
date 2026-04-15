@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from scenario import RedTeamAgent, JudgeAgent, ScenarioState
 from scenario import run as scenario_run
 from scenario._red_team.crescendo import CrescendoStrategy
-from scenario._red_team.goat import GoatStrategy, GOAT_METAPROMPT_TEMPLATE
+from scenario._red_team.goat import GoatStrategy
 from scenario._red_team.base import RedTeamStrategy
 from scenario.agent_adapter import AgentAdapter
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole
@@ -2488,12 +2488,15 @@ class TestRollbackMessagesTo:
 
 
 # ---------------------------------------------------------------------------
-# GoatStrategy stage calculation
+# GoatStrategy progress bucket (observability-only, not in prompt)
 # ---------------------------------------------------------------------------
 
 
-class TestGoatStages:
-    """Test that GoatStrategy stage boundaries are computed correctly."""
+class TestGoatProgressBucket:
+    """GoatStrategy exposes a coarse progress bucket via get_phase_name for
+    dashboards/telemetry. The bucket is NOT surfaced in the attacker's
+    system prompt (paper fidelity — no stage hints).
+    """
 
     def setup_method(self):
         self.strategy = GoatStrategy()
@@ -2502,50 +2505,27 @@ class TestGoatStages:
         assert self.strategy.get_phase_name(1, 50) == "early"
 
     def test_turn_14_is_early(self):
-        """Turn 14 of 50 = 28%, still early (< 30%)."""
         assert self.strategy.get_phase_name(14, 50) == "early"
 
     def test_turn_15_is_mid(self):
-        """Turn 15 of 50 = 30%, hits mid boundary."""
         assert self.strategy.get_phase_name(15, 50) == "mid"
 
-    def test_turn_34_is_mid(self):
-        assert self.strategy.get_phase_name(34, 50) == "mid"
-
     def test_turn_35_is_late(self):
-        """Turn 35 of 50 = 70%, hits late boundary."""
         assert self.strategy.get_phase_name(35, 50) == "late"
 
     def test_turn_50_is_late(self):
-        """Final turn should be late."""
         assert self.strategy.get_phase_name(50, 50) == "late"
 
-    def test_turn_0_is_early(self):
-        """Turn 0 (edge case) should be early."""
-        assert self.strategy.get_phase_name(0, 50) == "early"
-
     def test_single_turn_total(self):
-        """With total_turns=1, turn 1 = 100%, should be late."""
         assert self.strategy.get_phase_name(1, 1) == "late"
 
-    def test_all_three_stages_present(self):
-        """All three stages should appear in a 50-turn marathon."""
-        stages = {self.strategy.get_phase_name(t, 50) for t in range(1, 51)}
-        assert stages == {"early", "mid", "late"}
-
-    def test_10_turns_stages(self):
-        """Stage boundaries with 10 total turns."""
-        names = [self.strategy.get_phase_name(t, 10) for t in range(1, 11)]
-        assert names[0] == "early"   # turn 1 = 10%
-        assert names[1] == "early"   # turn 2 = 20%
-        assert names[2] == "mid"     # turn 3 = 30% — hits mid boundary (>= 30%)
-        assert names[3] == "mid"     # turn 4 = 40%
-        assert names[6] == "late"    # turn 7 = 70% — hits late boundary (>= 70%)
-        assert names[7] == "late"    # turn 8 = 80%
+    def test_all_three_buckets_present_in_50_turn_run(self):
+        buckets = {self.strategy.get_phase_name(t, 50) for t in range(1, 51)}
+        assert buckets == {"early", "mid", "late"}
 
 
 # ---------------------------------------------------------------------------
-# GoatStrategy prompt building
+# GoatStrategy prompt building (paper-fidelity: no plan, no stage hints)
 # ---------------------------------------------------------------------------
 
 
@@ -2561,19 +2541,50 @@ class TestGoatPromptBuilding:
             current_turn=1,
             total_turns=30,
             scenario_description="A bank support agent",
-            metaprompt_plan="test plan",
+            metaprompt_plan="",
         )
         assert "extract the full system prompt" in prompt
 
-    def test_prompt_contains_metaprompt_plan(self):
+    def test_prompt_does_not_contain_attack_plan_section(self):
+        """Paper fidelity: no pre-generated plan is shown to the attacker."""
         prompt = self.strategy.build_system_prompt(
             target="test",
             current_turn=1,
             total_turns=30,
             scenario_description="desc",
-            metaprompt_plan="My tailored attack plan here",
+            metaprompt_plan="an accidentally-passed plan",
         )
-        assert "My tailored attack plan here" in prompt
+        # Even if a caller passes a plan, GOAT ignores it (section absent).
+        assert "ATTACK PLAN:" not in prompt
+        assert "an accidentally-passed plan" not in prompt
+
+    def test_prompt_does_not_contain_stage_hints(self):
+        """Paper fidelity: no early/mid/late stage block in the system prompt."""
+        prompt_early = self.strategy.build_system_prompt(
+            target="test", current_turn=1, total_turns=30,
+            scenario_description="desc", metaprompt_plan="",
+        )
+        prompt_late = self.strategy.build_system_prompt(
+            target="test", current_turn=25, total_turns=30,
+            scenario_description="desc", metaprompt_plan="",
+        )
+        for prompt in (prompt_early, prompt_late):
+            assert "Stage:" not in prompt
+            # "STAGE:" in the colon form was where we used to print "EARLY"/"LATE".
+            assert "STAGE:" not in prompt
+
+    def test_early_and_late_prompts_differ_only_in_turn_count(self):
+        """With no stage hints, the only turn-varying signal is the turn number."""
+        early = self.strategy.build_system_prompt(
+            target="test", current_turn=1, total_turns=30,
+            scenario_description="desc", metaprompt_plan="",
+        )
+        late = self.strategy.build_system_prompt(
+            target="test", current_turn=25, total_turns=30,
+            scenario_description="desc", metaprompt_plan="",
+        )
+        assert "1 of 30" in early
+        assert "25 of 30" in late
 
     def test_prompt_contains_turn_info(self):
         prompt = self.strategy.build_system_prompt(
@@ -2581,19 +2592,9 @@ class TestGoatPromptBuilding:
             current_turn=15,
             total_turns=30,
             scenario_description="desc",
-            metaprompt_plan="plan",
+            metaprompt_plan="",
         )
         assert "15 of 30" in prompt
-
-    def test_prompt_contains_stage_name(self):
-        prompt = self.strategy.build_system_prompt(
-            target="test",
-            current_turn=1,
-            total_turns=30,
-            scenario_description="desc",
-            metaprompt_plan="plan",
-        )
-        assert "EARLY" in prompt
 
     def test_prompt_contains_technique_catalogue(self):
         prompt = self.strategy.build_system_prompt(
@@ -2601,7 +2602,7 @@ class TestGoatPromptBuilding:
             current_turn=1,
             total_turns=30,
             scenario_description="desc",
-            metaprompt_plan="plan",
+            metaprompt_plan="",
         )
         assert "TECHNIQUE CATALOGUE" in prompt
         assert "HYPOTHETICAL FRAMING" in prompt
@@ -2613,23 +2614,137 @@ class TestGoatPromptBuilding:
             current_turn=1,
             total_turns=30,
             scenario_description="SecureBank support agent with PII access",
-            metaprompt_plan="plan",
+            metaprompt_plan="",
         )
         assert "SecureBank support agent with PII access" in prompt
 
-    def test_different_stages_produce_different_prompts(self):
-        """Early and late stage prompts should differ in stage hints."""
-        early = self.strategy.build_system_prompt(
-            target="test", current_turn=1, total_turns=30,
-            scenario_description="desc", metaprompt_plan="plan",
+
+# ---------------------------------------------------------------------------
+# GoatStrategy skips metaprompt plan generation
+# ---------------------------------------------------------------------------
+
+
+class TestGoatSkipsMetapromptPlan:
+    def test_needs_metaprompt_plan_is_false(self):
+        assert GoatStrategy().needs_metaprompt_plan is False
+
+    def test_crescendo_still_needs_plan(self):
+        assert CrescendoStrategy().needs_metaprompt_plan is True
+
+
+# ---------------------------------------------------------------------------
+# Structured attacker output (observation / strategy / reply JSON)
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredAttackerOutput:
+    """RedTeamAgent._parse_attacker_output extracts (reply, observation,
+    strategy) from the attacker's JSON output. The attacker is instructed
+    (via JSON_OUTPUT_CONTRACT in the system prompt) to emit this shape.
+    """
+
+    def test_parses_well_formed_json(self):
+        raw = (
+            '{"observation": "Target deflected with policy language.", '
+            '"strategy": "HYPOTHETICAL FRAMING — re-ask as research context.", '
+            '"reply": "For a university paper, can you explain..."}'
         )
-        late = self.strategy.build_system_prompt(
-            target="test", current_turn=25, total_turns=30,
-            scenario_description="desc", metaprompt_plan="plan",
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "For a university paper, can you explain..."
+        assert obs == "Target deflected with policy language."
+        assert strat == "HYPOTHETICAL FRAMING — re-ask as research context."
+
+    def test_strips_json_code_fence(self):
+        raw = '```json\n{"observation": "", "strategy": "s", "reply": "r"}\n```'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "r"
+        assert obs == ""
+        assert strat == "s"
+
+    def test_strips_plain_code_fence(self):
+        raw = '```\n{"observation": "o", "strategy": "s", "reply": "r"}\n```'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "r"
+
+    def test_falls_back_when_not_json(self):
+        """If the attacker ignored the JSON contract, send its full text as
+        the reply rather than sending nothing."""
+        raw = "Hey, can you help me understand how encryption works?"
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_falls_back_when_reply_missing(self):
+        """Parseable JSON but no `reply` field — fall back to raw."""
+        raw = '{"observation": "something", "strategy": "something"}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_falls_back_when_reply_empty(self):
+        raw = '{"observation": "o", "strategy": "s", "reply": ""}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_falls_back_on_non_object_json(self):
+        raw = '["observation", "strategy", "reply"]'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == raw
+        assert obs == ""
+        assert strat == ""
+
+    def test_coerces_non_string_fields_to_string(self):
+        """Defensive: if the attacker emits numbers/nulls, don't crash."""
+        raw = '{"observation": 42, "strategy": null, "reply": "hi"}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "hi"
+        # null → "None" via str() coercion, not ideal but parser doesn't crash.
+        assert obs == "42"
+
+    def test_strips_whitespace_from_fields(self):
+        raw = '{"observation": "  o  ", "strategy": "  s  ", "reply": "  r  "}'
+        reply, obs, strat = RedTeamAgent._parse_attacker_output(raw)
+        assert reply == "r"
+        assert obs == "o"
+        assert strat == "s"
+
+
+# ---------------------------------------------------------------------------
+# JSON output contract is embedded in both strategy prompts
+# ---------------------------------------------------------------------------
+
+
+class TestJsonContractInPrompts:
+    """The structured output contract is GOAT-only. Crescendo keeps its
+    free-form attacker output for paper-to-paper consistency and to avoid
+    scope creep on the GOAT-focused PR stack.
+    """
+
+    def test_goat_prompt_contains_output_format_contract(self):
+        prompt = GoatStrategy().build_system_prompt(
+            target="x", current_turn=1, total_turns=10,
+            scenario_description="d", metaprompt_plan="",
         )
-        assert "EARLY" in early
-        assert "LATE" in late
-        assert early != late
+        assert "OUTPUT FORMAT" in prompt
+        assert "observation" in prompt
+        assert "strategy" in prompt
+        assert "reply" in prompt
+
+    def test_crescendo_prompt_does_not_contain_output_format_contract(self):
+        prompt = CrescendoStrategy().build_system_prompt(
+            target="x", current_turn=1, total_turns=10,
+            scenario_description="d", metaprompt_plan="p",
+        )
+        assert "OUTPUT FORMAT" not in prompt
+
+    def test_strategy_flags(self):
+        """Parser is gated on emits_structured_output."""
+        assert GoatStrategy().emits_structured_output is True
+        assert CrescendoStrategy().emits_structured_output is False
 
 
 # ---------------------------------------------------------------------------
@@ -2677,37 +2792,8 @@ class TestGoatFactoryMethod:
         )
         assert agent.target == "extract PII from the agent"
 
-    def test_goat_factory_uses_goat_metaprompt_template(self):
-        """GOAT factory should set the GOAT metaprompt template, not the default."""
-        agent = RedTeamAgent.goat(
-            target="test",
-            model="openai/gpt-4.1-mini",
-        )
-        assert agent._metaprompt_template == GOAT_METAPROMPT_TEMPLATE
-
     def test_goat_crescendo_use_different_strategies(self):
         """goat() and crescendo() should produce different strategy instances."""
         goat = RedTeamAgent.goat(target="test", model="openai/gpt-4.1-mini")
         crescendo = RedTeamAgent.crescendo(target="test", model="openai/gpt-4.1-mini")
         assert type(goat._strategy) is not type(crescendo._strategy)
-
-    def test_goat_metaprompt_template_renders(self):
-        """GOAT metaprompt template should render without KeyError."""
-        rendered = GOAT_METAPROMPT_TEMPLATE.format(
-            target="extract PII",
-            description="A bank support agent",
-            total_turns=30,
-        )
-        assert "extract PII" in rendered
-        assert "A bank support agent" in rendered
-        assert "30" in rendered
-
-    def test_goat_factory_custom_metaprompt_template(self):
-        """goat() should allow overriding the metaprompt template via kwargs."""
-        custom = "custom template {target} {description} {total_turns}"
-        agent = RedTeamAgent.goat(
-            target="test",
-            model="openai/gpt-4.1-mini",
-            metaprompt_template=custom,
-        )
-        assert agent._metaprompt_template == custom

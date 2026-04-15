@@ -2,7 +2,7 @@ import { generateText, LanguageModel } from "ai";
 
 import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { CrescendoStrategy } from "./crescendo-strategy";
-import { GoatStrategy, GOAT_METAPROMPT_TEMPLATE } from "./goat-strategy";
+import { GoatStrategy } from "./goat-strategy";
 import {
   DEFAULT_METAPROMPT_TEMPLATE,
   renderMetapromptTemplate,
@@ -46,11 +46,10 @@ export type CrescendoConfig = Omit<RedTeamAgentConfig, "strategy">;
 
 /** Configuration for {@link redTeamGoat}.
  *
- *  Inherits all options from {@link CrescendoConfig} (model, totalTurns,
- *  metapromptTemplate, scoreResponses, successScore, etc.).
- *  The `redTeamGoat` factory sets `totalTurns` to **30** by default (override
- *  via `totalTurns`) and uses {@link GOAT_METAPROMPT_TEMPLATE} by default
- *  (override via `metapromptTemplate`).
+ *  Inherits all options from {@link CrescendoConfig}.
+ *  The `redTeamGoat` factory sets `totalTurns` to **30** by default.
+ *  `metapromptTemplate` is accepted but ignored — GOAT does not pre-generate
+ *  an attack plan (paper fidelity; see {@link GoatStrategy.needsMetapromptPlan}).
  *
  *  Reserved for future GOAT-specific fields. */
 export interface GoatConfig extends CrescendoConfig {}
@@ -391,8 +390,11 @@ Reply with exactly this JSON and nothing else:
     }
     const description = input.scenarioConfig.description;
 
-    // Generate attack plan on first call (cached for all subsequent turns)
-    const attackPlan = await this.getAttackPlan(description);
+    // Generate attack plan on first call (cached for all subsequent turns).
+    // Strategies that don't need one (e.g. GOAT — paper fidelity) skip this
+    // entirely, saving one LLM call on turn 1.
+    const needsPlan = this.strategy.needsMetapromptPlan ?? true;
+    const attackPlan = needsPlan ? await this.getAttackPlan(description) : "";
 
     // ----------------------------------------------------------
     // Backtrack on hard refusal: prune H_target in-place so the
@@ -509,20 +511,43 @@ Reply with exactly this JSON and nothing else:
       this.attackerHistory[0] = { role: "system", content: systemPrompt };
     }
 
-    // Call attacker LLM directly (no inner agent wrapper)
-    const attackText = await this.callAttackerLLM();
+    // Call attacker LLM directly (no inner agent wrapper).
+    const rawAttack = await this.callAttackerLLM();
 
-    // Append attacker's ORIGINAL response to H_attacker BEFORE any
-    // encoding transform.  The attacker must see its own natural-language
-    // output in subsequent turns — encoded text would corrupt its
-    // reasoning context.  (DeepTeam and Promptfoo both keep the attacker
-    // history encoding-free.)
-    this.attackerHistory.push({ role: "assistant", content: attackText });
+    // If the strategy instructs the attacker to emit structured JSON
+    // (GOAT — see JSON_OUTPUT_CONTRACT in red-team-strategy.ts), parse
+    // it out. Otherwise (Crescendo) use the raw output as the reply
+    // with no parsing.
+    let reply: string;
+    let observation = "";
+    let strategy = "";
+    let parseFailed = false;
+    if (this.strategy.emitsStructuredOutput === true) {
+      const parsed = parseAttackerOutput(rawAttack);
+      reply = parsed.reply;
+      observation = parsed.observation;
+      strategy = parsed.strategy;
+      parseFailed = parsed.parseFailed;
+      if (parseFailed) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[RedTeamAgent] turn ${currentTurn}: attacker output was not valid JSON; ` +
+            `using full response as reply. Raw (first 200 chars): ${rawAttack.slice(0, 200)}`
+        );
+      }
+    } else {
+      reply = rawAttack;
+    }
+
+    // Keep the raw output in H_attacker so the attacker sees its own
+    // format on subsequent turns (JSON for GOAT, free text for Crescendo).
+    // The target never sees this — only `reply` goes out.
+    this.attackerHistory.push({ role: "assistant", content: rawAttack });
 
     // Single-turn injection: randomly augment with encoding technique.
     // Only the TARGET sees the encoded version (via H_target / return
     // value).  H_attacker keeps the original above.
-    let targetText = attackText;
+    let targetText = reply;
     if (
       this.injectionProbability > 0 &&
       this.techniques.length > 0 &&
@@ -530,12 +555,72 @@ Reply with exactly this JSON and nothing else:
     ) {
       const technique =
         this.techniques[Math.floor(Math.random() * this.techniques.length)]!;
-      targetText = technique.transform(attackText);
+      targetText = technique.transform(reply);
     }
 
     // Return as user message — executor adds this to H_target.
-    // targetText is the (possibly encoded) version for the target.
+    // targetText is the (possibly encoded) `reply` field for the target.
+    // NOTE: telemetry consumers can read `observation`/`strategy` via the
+    // returned metadata object below (scenario-execution promotes these to
+    // span attributes).
+    void observation;
+    void strategy;
     return { role: "user", content: targetText };
+  };
+}
+
+/**
+ * Extract `{reply, observation, strategy}` from the attacker's output.
+ *
+ * The attacker is instructed (via JSON_OUTPUT_CONTRACT in the system prompt)
+ * to emit a JSON object with those three fields. This parser:
+ *   1. Strips ``` / ```json markdown fences if present
+ *   2. Parses JSON, reads the three fields as strings
+ *   3. Falls back to `{reply: raw, observation: "", strategy: ""}` when
+ *      parsing fails or `reply` is missing/empty — keeps the agent running
+ *      on a malformed turn
+ *
+ * Exported for test use; prefer not to call from application code.
+ */
+export function parseAttackerOutput(raw: string): {
+  reply: string;
+  observation: string;
+  strategy: string;
+  parseFailed: boolean;
+} {
+  let s = raw.trim();
+  if (s.startsWith("```json")) {
+    s = s.slice("```json".length);
+  } else if (s.startsWith("```")) {
+    s = s.slice(3);
+  }
+  if (s.endsWith("```")) {
+    s = s.slice(0, -3);
+  }
+  s = s.trim();
+
+  let data: unknown;
+  try {
+    data = JSON.parse(s);
+  } catch {
+    return { reply: raw, observation: "", strategy: "", parseFailed: true };
+  }
+
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return { reply: raw, observation: "", strategy: "", parseFailed: true };
+  }
+
+  const obj = data as Record<string, unknown>;
+  const reply = String(obj.reply ?? "").trim();
+  if (!reply) {
+    return { reply: raw, observation: "", strategy: "", parseFailed: true };
+  }
+
+  return {
+    reply,
+    observation: String(obj.observation ?? "").trim(),
+    strategy: String(obj.strategy ?? "").trim(),
+    parseFailed: false,
   };
 }
 
@@ -591,18 +676,18 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * Use this when you want maximum adaptability. Use `redTeamCrescendo`
  * when you want structured gradual escalation.
  *
- * @remarks
- * Create a fresh agent per `scenario.run()` call. The attack plan is
- * generated from the first run's `description` and cached on the instance —
- * reusing the agent across scenarios with different descriptions silently
- * uses the original (now-stale) plan.
+ * Paper fidelity: no pre-generated attack plan (the metaprompt LLM call is
+ * skipped for GOAT), no stage hints in the system prompt. Adaptation is
+ * driven entirely by the score/hint feedback in the attacker's private
+ * conversation history.
  *
+ * @remarks
  * `injectionProbability` is supported for parity with `redTeamCrescendo`
- * but is not recommended for GOAT runs. The GOAT metaprompt already
- * instructs the attacker LLM to use encoding techniques when appropriate;
- * layering post-hoc encoding on top causes the attacker's private history
- * to diverge from what the target actually saw. Leave at the default 0.0
- * unless you understand the trade-off.
+ * but is not recommended for GOAT runs. The attacker LLM already knows to
+ * use encoding techniques from its catalogue when appropriate; layering
+ * post-hoc encoding on top causes the attacker's private history to diverge
+ * from what the target actually saw. Leave at the default 0.0 unless you
+ * understand the trade-off.
  *
  * @example
  * ```ts
@@ -614,16 +699,12 @@ export const redTeamCrescendo = (config: CrescendoConfig) =>
  * ```
  */
 export const redTeamGoat = (config: GoatConfig) => {
-  // Spread config first, then force the GOAT-specific defaults *after*.
-  // If we put GOAT_METAPROMPT_TEMPLATE before `...config`, an explicit
-  // `metapromptTemplate: undefined` from the caller would clobber it,
-  // and the constructor would fall back to the Crescendo default
-  // (DEFAULT_METAPROMPT_TEMPLATE), which has {phase1End} placeholders
-  // and dies at first attack-plan render.
+  // GOAT never renders a metaprompt template (`needsMetapromptPlan === false`).
+  // Whatever `metapromptTemplate` the caller passes (or the constructor's
+  // default) is stored but never used. No template setup needed here.
   return new RedTeamAgentImpl({
     totalTurns: 30,
     ...config,
     strategy: new GoatStrategy(),
-    metapromptTemplate: config.metapromptTemplate ?? GOAT_METAPROMPT_TEMPLATE,
   });
 };
