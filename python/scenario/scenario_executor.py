@@ -538,6 +538,9 @@ class ScenarioExecutor:
         self._scenario_run_id = scenario_run_id
         _check_failure: Optional[BaseException] = None
 
+        # Connect all voice adapters before script runs; disconnect in finally.
+        await self._voice_connect_all()
+
         try:
             self._emit_run_started_event(scenario_run_id)
 
@@ -655,6 +658,32 @@ class ScenarioExecutor:
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
             raise  # Re-raise the exception after cleanup
+        finally:
+            await self._voice_disconnect_all()
+
+    async def _voice_connect_all(self) -> None:
+        """Invoke ``connect()`` on every VoiceAgentAdapter in the scenario."""
+        from .voice.adapter import VoiceAgentAdapter
+
+        for agent in self.agents:
+            if isinstance(agent, VoiceAgentAdapter):
+                await agent.connect()
+
+    async def _voice_disconnect_all(self) -> None:
+        """Invoke ``disconnect()`` on every VoiceAgentAdapter.
+
+        Swallows exceptions so cleanup always completes — disconnect failures
+        are logged but do not mask the primary scenario result.
+        """
+        from .voice.adapter import VoiceAgentAdapter
+
+        for agent in self.agents:
+            if not isinstance(agent, VoiceAgentAdapter):
+                continue
+            try:
+                await agent.disconnect()
+            except Exception:  # pragma: no cover — defensive cleanup
+                pass
 
     async def _call_agent(
         self, idx: int, role: AgentRole, judgment_request: Optional[JudgmentRequest] = None

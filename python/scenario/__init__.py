@@ -128,6 +128,25 @@ from ._red_team import (
 from .cache import scenario_cache
 from .script import message, user, agent, judge, proceed, succeed, fail
 
+# Voice support (issue #350) — sits alongside the text-based script steps.
+# Per the proposal (§1): same scenario.run(), same script DSL, same judge;
+# what changes is the medium, not the paradigm.
+from .voice import (
+    AdapterCapabilities,
+    AudioChunk,
+    AudioSegment,
+    LatencyMetrics,
+    OpenAISTTProvider,
+    STTProvider,
+    UnsupportedCapabilityError,
+    VoiceAgentAdapter,
+    VoiceEvent,
+    VoiceRecording,
+    register_tts_provider,
+    set_stt_provider,
+)
+from .voice.script_steps import audio, dtmf, silence, sleep
+
 # Import pytest plugin components
 # from .pytest_plugin import pytest_configure, scenario_reporter
 
@@ -152,6 +171,24 @@ __all__ = [
     "judge",
     "agent",
     "user",
+    # Voice script steps
+    "audio",
+    "dtmf",
+    "silence",
+    "sleep",
+    # Voice types
+    "AdapterCapabilities",
+    "AudioChunk",
+    "AudioSegment",
+    "LatencyMetrics",
+    "OpenAISTTProvider",
+    "STTProvider",
+    "UnsupportedCapabilityError",
+    "VoiceAgentAdapter",
+    "VoiceEvent",
+    "VoiceRecording",
+    "register_tts_provider",
+    "set_stt_provider",
     # Tracing
     "setup_scenario_tracing",
     "scenario_only",

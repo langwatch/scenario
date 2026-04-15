@@ -39,6 +39,14 @@ dependencies = [
     "pydantic-settings>=2.9.1",
     "langwatch>=0.2.19",
     "opentelemetry-sdk>=1.20.0",
+    # Voice agent support (issue #350). Hard deps: voice is first-class.
+    # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
+    # conversion and playback-via-subprocess.
+    "imageio-ffmpeg>=0.5.0",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "webrtcvad-wheels>=2.0",
+    "websockets>=12",
 ]
 
 [project.optional-dependencies]
@@ -73,7 +81,7 @@ where = ["."]
 include = ["scenario*"]
 
 [tool.setuptools.package-data]
-"scenario" = ["_generated/**/*"]
+"scenario" = ["_generated/**/*", "voice/assets/noise/*.wav", "voice/assets/noise/LICENSES.md"]
 
 [tool.pytest.ini_options]
 markers = ["agent_test: marks tests as agent scenario tests"]
