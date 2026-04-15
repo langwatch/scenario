@@ -116,6 +116,8 @@ class VoiceRecording:
                 w.writeframes(seg.audio)
         return buf.getvalue()
 
+    _ALLOWED_FORMATS = frozenset({"wav", "mp3", "ogg", "flac"})
+
     def save(self, path: Union[str, Path], format: Optional[str] = None) -> Path:
         """
         Save the conversation audio to a file.
@@ -123,16 +125,26 @@ class VoiceRecording:
         By default the format is inferred from the path suffix. ``format="mp3"``
         (or any non-wav format) uses the bundled ffmpeg binary via imageio-ffmpeg
         to transcode from the internal WAV representation.
+
+        Security: ``path`` is resolved (``Path.resolve()``) before writing, and
+        ``format`` is validated against an allowlist of supported formats. This
+        prevents passing arbitrary ffmpeg muxer names or relying on ambiguous
+        path semantics.
         """
-        path = Path(path)
-        fmt = (format or path.suffix.lstrip(".")).lower() or "wav"
+        resolved = Path(path).resolve()
+        fmt = (format or resolved.suffix.lstrip(".")).lower() or "wav"
+        if fmt not in self._ALLOWED_FORMATS:
+            raise ValueError(
+                f"save(format={fmt!r}) not supported; allowed: "
+                f"{sorted(self._ALLOWED_FORMATS)}"
+            )
         wav_bytes = self.full_wav
         if fmt == "wav":
-            path.write_bytes(wav_bytes)
-            return path
+            resolved.write_bytes(wav_bytes)
+            return resolved
 
-        # Transcode via bundled ffmpeg.
         import subprocess
+
         import imageio_ffmpeg
 
         ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
@@ -144,7 +156,7 @@ class VoiceRecording:
                 "-f", "wav",
                 "-i", "pipe:0",
                 "-f", fmt,
-                str(path),
+                str(resolved),
             ],
             input=wav_bytes,
             capture_output=True,
@@ -153,4 +165,4 @@ class VoiceRecording:
             raise RuntimeError(
                 f"ffmpeg transcode to {fmt!r} failed: {proc.stderr.decode(errors='replace')}"
             )
-        return path
+        return resolved

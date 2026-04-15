@@ -30,6 +30,9 @@ class LiveKitAgent(VoiceAgentAdapter):
         self.room = room
         self._room: Optional[object] = None
 
+    def __repr__(self) -> str:  # redact credentials
+        return f"LiveKitAgent(url={self.url!r}, room={self.room!r}, api_key='***', api_secret='***')"
+
     async def connect(self) -> None:
         self._room = object()
 
@@ -37,10 +40,13 @@ class LiveKitAgent(VoiceAgentAdapter):
         self._room = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._room is None:
             raise RuntimeError("LiveKitAgent: not connected")
+        raise PendingTransportError("LiveKitAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._room is None:
             raise RuntimeError("LiveKitAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("LiveKitAgent")

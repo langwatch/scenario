@@ -89,15 +89,13 @@ class UserSimulatorAgent(AgentAdapter):
     system_prompt: Optional[str]
     _extra_params: dict
 
-    _TEMPERATURE_UNSET = object()
-
     def __init__(
         self,
         *,
         model: Optional[str] = None,
         api_base: Optional[str] = None,
         api_key: Optional[str] = None,
-        temperature: float = _TEMPERATURE_UNSET,  # type: ignore[assignment]
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         voice: Optional[str] = None,
@@ -147,7 +145,7 @@ class UserSimulatorAgent(AgentAdapter):
             (e.g., headers, timeout, client) for specialized configurations. These are
             experimental and may not be supported in future versions.
         """
-        _temp_was_set = temperature is not self._TEMPERATURE_UNSET
+        _temp_was_set = temperature is not None
 
         self.api_base = api_base
         self.api_key = api_key

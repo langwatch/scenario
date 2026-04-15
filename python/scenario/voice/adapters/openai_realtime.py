@@ -57,13 +57,16 @@ class OpenAIRealtimeAgent(VoiceAgentAdapter):
         self._session = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._session is None:
             raise RuntimeError("OpenAIRealtimeAgent: not connected")
+        raise PendingTransportError("OpenAIRealtimeAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._session is None:
             raise RuntimeError("OpenAIRealtimeAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("OpenAIRealtimeAgent")
 
     async def send_text(self, text: str) -> None:
         """

@@ -39,10 +39,16 @@ class VapiAgent(VoiceAgentAdapter):
         self._ws = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        from ._stub import PendingTransportError
         if self._ws is None:
             raise RuntimeError("VapiAgent: not connected")
+        raise PendingTransportError("VapiAgent")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        from ._stub import PendingTransportError
         if self._ws is None:
             raise RuntimeError("VapiAgent: not connected")
-        return AudioChunk(data=b"")
+        raise PendingTransportError("VapiAgent")
+
+    def __repr__(self) -> str:  # redact credentials
+        return f"VapiAgent(assistant_id={self.assistant_id!r}, api_key='***')"
