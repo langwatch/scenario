@@ -99,6 +99,17 @@ class RedTeamStrategy(ABC):
         """
         return False
 
+    def chosen_technique_ids(self, strategy_text: str) -> list[str]:
+        """Extract typed technique identifiers from the attacker's
+        ``strategy`` field for telemetry.
+
+        Strategies that define a technique catalogue override this to return
+        the IDs of techniques actually used on a given turn — powering the
+        ``red_team.chosen_technique_ids`` span attribute. Default returns an
+        empty list so non-catalogue strategies contribute nothing.
+        """
+        return []
+
     @abstractmethod
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:
         """Return the name of the current phase for a given turn.

@@ -12,3 +12,5 @@ export {
   CodeBlockTechnique,
   DEFAULT_TECHNIQUES,
 } from "./techniques";
+export type { Technique } from "./goat-techniques";
+export { DEFAULT_GOAT_TECHNIQUES } from "./goat-techniques";
