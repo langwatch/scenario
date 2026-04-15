@@ -3016,3 +3016,141 @@ class TestTechniquesAsData:
     def test_crescendo_chosen_ids_empty_by_default(self):
         """Strategies without a catalogue return [] — no telemetry noise."""
         assert CrescendoStrategy().chosen_technique_ids("any text") == []
+
+
+# ---------------------------------------------------------------------------
+# Issue #337 — regression test for the KeyError helper in _generate_attack_plan
+# ---------------------------------------------------------------------------
+
+
+class TestMetapromptTemplateKeyErrorHelper:
+    """Asserts the helpful ValueError fires when a metaprompt template
+    references a placeholder that the strategy doesn't provide.
+
+    This guards the friendly-error-message code added during GOAT PR review —
+    a future refactor that drops the try/except would silently lose the
+    helpful hint, surfacing only a raw KeyError to users.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unknown_placeholder_raises_helpful_value_error(self):
+        bad_template = "Target: {target}\nDescription: {description}\nTotal: {total_turns}\nUnknown: {nonexistent_var}"
+        agent = RedTeamAgent.crescendo(
+            target="x",
+            model="openai/gpt-4",
+            metaprompt_template=bad_template,
+        )
+        with pytest.raises(ValueError) as exc_info:
+            await agent._generate_attack_plan("any description")
+        msg = str(exc_info.value)
+        assert "nonexistent_var" in msg
+        assert "Available variables" in msg
+        # The message should mention the Crescendo/GOAT template mismatch
+        # pathway so users can recognize the common cause.
+        assert "Crescendo" in msg or "GOAT" in msg
+
+
+# ---------------------------------------------------------------------------
+# Issue #333a — validate empty techniques list when injection is enabled
+# ---------------------------------------------------------------------------
+
+
+class TestTechniquesListValidation:
+    """An empty techniques list plus injection_probability > 0 is a
+    contradiction. Before this fix the code silently skipped injection on
+    every turn (falsy empty list short-circuited the `and self._techniques`
+    check in call()), so users got no encoding and no warning.
+    """
+
+    def test_empty_techniques_with_injection_raises(self):
+        with pytest.raises(ValueError, match="cannot be empty"):
+            RedTeamAgent.crescendo(
+                target="x",
+                model="openai/gpt-4",
+                injection_probability=0.5,
+                techniques=[],
+            )
+
+    def test_empty_techniques_without_injection_ok(self):
+        # injection_probability=0 means techniques list doesn't matter —
+        # empty is fine, no contradiction.
+        agent = RedTeamAgent.crescendo(
+            target="x",
+            model="openai/gpt-4",
+            injection_probability=0.0,
+            techniques=[],
+        )
+        assert agent._injection_probability == 0.0
+
+    def test_none_techniques_with_injection_uses_defaults(self):
+        # Omitting techniques entirely should fall back to DEFAULT_TECHNIQUES.
+        from scenario._red_team.techniques import DEFAULT_TECHNIQUES
+        agent = RedTeamAgent.crescendo(
+            target="x",
+            model="openai/gpt-4",
+            injection_probability=0.5,
+            techniques=None,
+        )
+        assert agent._techniques is DEFAULT_TECHNIQUES
+
+
+# ---------------------------------------------------------------------------
+# Issue #333b — empty metaprompt plan must fail loud, not silently degrade
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyMetapromptPlanRaises:
+    """A strategy that uses a plan (Crescendo, `needs_metaprompt_plan=True`)
+    requires real content. If the metaprompt LLM returns empty/whitespace,
+    proceeding silently would render a labeled-but-empty "ATTACK PLAN:" block
+    that the attacker reads as "your plan is nothing," degrading attack
+    quality without any signal. `_generate_attack_plan` should raise instead.
+    """
+
+    @pytest.mark.asyncio
+    async def test_empty_string_plan_raises(self, monkeypatch):
+        agent = RedTeamAgent.crescendo(target="x", model="openai/gpt-4")
+
+        async def fake_acompletion(*args, **kwargs):
+            class M: content = ""
+            class C: message = M()
+            class R:
+                choices = [C()]
+                def __repr__(self): return "<fake empty response>"
+            return R()
+
+        monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+        with pytest.raises(RuntimeError, match="empty/whitespace plan"):
+            await agent._generate_attack_plan("some description")
+
+    @pytest.mark.asyncio
+    async def test_whitespace_plan_raises(self, monkeypatch):
+        agent = RedTeamAgent.crescendo(target="x", model="openai/gpt-4")
+
+        async def fake_acompletion(*args, **kwargs):
+            class M: content = "   \n\t  \n\n   "
+            class C: message = M()
+            class R:
+                choices = [C()]
+                def __repr__(self): return "<fake ws response>"
+            return R()
+
+        monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+        with pytest.raises(RuntimeError, match="empty/whitespace plan"):
+            await agent._generate_attack_plan("some description")
+
+    @pytest.mark.asyncio
+    async def test_real_plan_passes_through(self, monkeypatch):
+        agent = RedTeamAgent.crescendo(target="x", model="openai/gpt-4")
+
+        async def fake_acompletion(*args, **kwargs):
+            class M: content = "1. Warm up\n2. Probe\n3. Escalate"
+            class C: message = M()
+            class R:
+                choices = [C()]
+                def __repr__(self): return "<fake ok response>"
+            return R()
+
+        monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+        plan = await agent._generate_attack_plan("some description")
+        assert "Warm up" in plan

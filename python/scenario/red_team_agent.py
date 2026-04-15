@@ -262,6 +262,15 @@ class RedTeamAgent(AgentAdapter):
                 f"injection_probability must be between 0.0 and 1.0, got {injection_probability}"
             )
         self._injection_probability = injection_probability
+        # Explicit empty list is a contradiction when injection is on — fail loud
+        # rather than silently skipping injection (issue #333).
+        if injection_probability > 0 and techniques is not None and len(techniques) == 0:
+            raise ValueError(
+                "techniques cannot be empty when injection_probability > 0 — "
+                "either disable injection (injection_probability=0.0) or provide "
+                "at least one AttackTechnique. Omit the techniques arg to use "
+                "DEFAULT_TECHNIQUES."
+            )
         self._techniques = techniques if techniques is not None else DEFAULT_TECHNIQUES
 
         # Attacker's private conversation history (H_attacker).
@@ -534,9 +543,15 @@ class RedTeamAgent(AgentAdapter):
 
                 if hasattr(response, "choices") and len(response.choices) > 0:
                     plan = cast(Choices, response.choices[0]).message.content
-                    if plan is None:
-                        raise Exception(
-                            f"Metaprompt model returned no content: {response.__repr__()}"
+                    # Treat None, empty, and whitespace-only alike — a strategy
+                    # that uses a plan (needs_metaprompt_plan=True) requires real
+                    # content; proceeding with an empty plan silently degrades
+                    # attack quality without signalling the failure (issue #333b).
+                    if plan is None or not plan.strip():
+                        raise RuntimeError(
+                            f"Metaprompt model returned empty/whitespace plan "
+                            f"(content={plan!r}). Check the metaprompt model's "
+                            f"output — the attacker needs a non-empty plan."
                         )
                     self._attack_plan = plan
                     logger.debug(
