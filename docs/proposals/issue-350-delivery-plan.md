@@ -119,12 +119,12 @@ Mocking approach:
 - **Audio fixtures:** Tiny (<50KB) WAV fixtures in `python/tests/fixtures/voice/` — real audio, not synthesized, so the audio path is exercised end-to-end.
 
 ### Integration tests (live TTS + live local transport, gated)
-- `python/tests/voice/integration/test_example_6_1_greeting.py` … `test_example_6_8_silence.py` — one file per §6 example, gated by `SCENARIO_VOICE_LIVE=1` env var.
+- `python/tests/voice/integration/test_example_6_1_greeting.py` … `test_example_6_8_silence.py` — one file per §6 example, gated by `API key presence (matches `python/tests/test_red_team_agent.py:1210-1216` pattern)` env var.
 - Pain-pattern ACs (§8) also live-gated.
 
 ### CI considerations
 - All `@unit` scenarios run in CI with mocked TTS/STT and loopback transports.
-- `@integration` scenarios run in a separate workflow with secrets (`OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, Twilio test creds), gated to main branch + manual dispatch.
+- `@integration` scenarios check `os.environ.get("OPENAI_API_KEY")` (etc.) and skip if absent. Matches the existing convention at `python/tests/test_red_team_agent.py:1210-1216`.
 - ffmpeg binary is installed via `imageio-ffmpeg` wheel — no apt install needed in CI image.
 - WebRTC tests (`aiortc`) need libsrtp. Most Linux runners have it; document in CI setup if not.
 
