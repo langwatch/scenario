@@ -14,8 +14,10 @@ class _SpyAdapter(VoiceAgentAdapter):
     def __init__(self):
         self.sent: list[AudioChunk] = []
 
-    async def connect(self): ...
-    async def disconnect(self): ...
+    async def connect(self):
+        pass
+    async def disconnect(self):
+        pass
     async def send_audio(self, chunk): self.sent.append(chunk)
     async def recv_audio(self, timeout): return AudioChunk(data=b"")
 
@@ -27,8 +29,10 @@ class _TelephonyAdapter(VoiceAgentAdapter):
         self.dtmf_calls: list[str] = []
         self.sent: list[AudioChunk] = []
 
-    async def connect(self): ...
-    async def disconnect(self): ...
+    async def connect(self):
+        pass
+    async def disconnect(self):
+        pass
     async def send_audio(self, chunk): self.sent.append(chunk)
     async def recv_audio(self, timeout): return AudioChunk(data=b"")
     async def send_dtmf(self, tones: str): self.dtmf_calls.append(tones)

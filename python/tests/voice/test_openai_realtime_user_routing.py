@@ -16,10 +16,12 @@ from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgent
 class _QuietAgent(VoiceAgentAdapter):
     capabilities = AdapterCapabilities()
 
-    async def connect(self): ...
-    async def disconnect(self): ...
-    async def send_audio(self, chunk): ...
-
+    async def connect(self):
+        pass
+    async def disconnect(self):
+        pass
+    async def send_audio(self, chunk):
+        pass
     async def recv_audio(self, timeout):
         return AudioChunk(data=b"\x00\x00" * 2400, transcript="ok")
 

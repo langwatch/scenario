@@ -20,9 +20,14 @@ class _SlowAdapter(VoiceAgentAdapter):
         self.recv_delay = recv_delay
         self.recv_returned_at: float | None = None
 
-    async def connect(self): ...
-    async def disconnect(self): ...
-    async def send_audio(self, chunk): ...
+    async def connect(self):
+        pass
+
+    async def disconnect(self):
+        pass
+
+    async def send_audio(self, chunk):
+        pass
 
     async def recv_audio(self, timeout):
         await asyncio.sleep(self.recv_delay)

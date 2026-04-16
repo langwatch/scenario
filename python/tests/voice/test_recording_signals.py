@@ -26,9 +26,10 @@ class _AudioEchoAdapter(VoiceAgentAdapter):
             data=b"\x00\x01" * 2400, transcript="response text"
         )
 
-    async def connect(self): ...
-    async def disconnect(self): ...
-
+    async def connect(self):
+        pass
+    async def disconnect(self):
+        pass
     async def send_audio(self, chunk: AudioChunk) -> None:
         self._incoming = chunk
 
