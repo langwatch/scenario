@@ -1430,6 +1430,7 @@ dev = [
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "pyright" },
     { name = "pytest-asyncio-concurrent" },
+    { name = "pytest-timeout" },
     { name = "respx" },
 ]
 
@@ -1484,6 +1485,7 @@ dev = [
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=1.56.0" },
     { name = "pyright", specifier = ">=1.1.405" },
     { name = "pytest-asyncio-concurrent", specifier = ">=0.4.1" },
+    { name = "pytest-timeout", specifier = ">=2.3" },
     { name = "respx", specifier = ">=0.22.0" },
 ]
 
@@ -3039,6 +3041,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6b/27/fd0209642f3a1069da3e0be3c7e339f942d052d81ccb1fb4eb9b187d3633/pytest_rerunfailures-16.2.tar.gz", hash = "sha256:5f5a32f15674a3d54f7598388fcd3cc1bc5c37284731a4704a44485dcdda5e23", size = 32121, upload-time = "2026-05-13T08:13:26.998Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/a5/d8c1ad74529b483044b787ead2d24ecc624bca4084a509002102e4bab8cc/pytest_rerunfailures-16.2-py3-none-any.whl", hash = "sha256:c22a53d2827becc76f057d4ded123c0e726523f2f0e5f0bb4efb31fd59e1f14e", size = 14505, upload-time = "2026-05-13T08:13:25.485Z" },
+]
+
+[[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
 ]
 
 [[package]]
