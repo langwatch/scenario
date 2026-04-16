@@ -1,5 +1,5 @@
 """
-OpenAIRealtimeAgent: direct-to-model adapter — the model IS the agent.
+OpenAIRealtimeAgentAdapter: direct-to-model adapter — the model IS the agent.
 
 Source §5.6 + §7.2 L1164-1171. Unlike the other adapters which wrap a user's
 running agent, this one IS the agent under test (or, when
@@ -16,7 +16,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 
 
-class OpenAIRealtimeAgent(VoiceAgentAdapter):
+class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
     """
     Exercise OpenAI's Realtime API as either the agent under test
     (role=AGENT, default) or as the voice-enabled user simulator
@@ -59,14 +59,14 @@ class OpenAIRealtimeAgent(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         from ._stub import PendingTransportError
         if self._session is None:
-            raise RuntimeError("OpenAIRealtimeAgent: not connected")
-        raise PendingTransportError("OpenAIRealtimeAgent")
+            raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
+        raise PendingTransportError("OpenAIRealtimeAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         from ._stub import PendingTransportError
         if self._session is None:
-            raise RuntimeError("OpenAIRealtimeAgent: not connected")
-        raise PendingTransportError("OpenAIRealtimeAgent")
+            raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
+        raise PendingTransportError("OpenAIRealtimeAgentAdapter")
 
     async def send_text(self, text: str) -> None:
         """
@@ -80,4 +80,4 @@ class OpenAIRealtimeAgent(VoiceAgentAdapter):
         model actually emitted, not what was scripted.
         """
         if self._session is None:
-            raise RuntimeError("OpenAIRealtimeAgent: not connected")
+            raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")

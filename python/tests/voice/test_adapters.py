@@ -11,64 +11,64 @@ import pytest
 import scenario
 from scenario.voice import (
     AdapterCapabilities,
-    ElevenLabsAgent,
-    GeminiLiveAgent,
-    LiveKitAgent,
-    OpenAIRealtimeAgent,
-    PipecatAgent,
-    TwilioAgent,
-    VapiAgent,
+    ElevenLabsAgentAdapter,
+    GeminiLiveAgentAdapter,
+    LiveKitAgentAdapter,
+    OpenAIRealtimeAgentAdapter,
+    PipecatAgentAdapter,
+    TwilioAgentAdapter,
+    VapiAgentAdapter,
     VoiceAgentAdapter,
-    WebRTCAgent,
-    WebSocketAgent,
+    WebRTCAgentAdapter,
+    WebSocketAgentAdapter,
     WebSocketProtocol,
 )
 
 
-# ---------------------------------------------------------------- PipecatAgent
+# ---------------------------------------------------------------- PipecatAgentAdapter
 
 def test_pipecat_websocket_construction_sets_transport_format():
-    a = PipecatAgent(url="ws://localhost:8765/ws", audio_format="mulaw", sample_rate=8000)
+    a = PipecatAgentAdapter(url="ws://localhost:8765/ws", audio_format="mulaw", sample_rate=8000)
     assert a.transport == "websocket"
     assert a.url == "ws://localhost:8765/ws"
     assert a.transport_format == "mulaw/8000"
 
 
 def test_pipecat_webrtc_requires_signaling_url():
-    a = PipecatAgent(signaling_url="http://localhost:7860/api/offer", transport="webrtc")
+    a = PipecatAgentAdapter(signaling_url="http://localhost:7860/api/offer", transport="webrtc")
     assert a.transport == "webrtc"
     assert a.signaling_url == "http://localhost:7860/api/offer"
 
 
 def test_pipecat_websocket_rejects_missing_url():
     with pytest.raises(ValueError):
-        PipecatAgent(transport="websocket")
+        PipecatAgentAdapter(transport="websocket")
 
 
 def test_pipecat_capabilities_advertise_streaming_and_vad():
-    caps = PipecatAgent.capabilities
+    caps = PipecatAgentAdapter.capabilities
     assert caps.streaming_transcripts is True
     assert caps.native_vad is True
     assert caps.dtmf is False
 
 
-# ---------------------------------------------------------------- LiveKitAgent
+# ---------------------------------------------------------------- LiveKitAgentAdapter
 
 def test_livekit_construction():
-    a = LiveKitAgent(
+    a = LiveKitAgentAdapter(
         url="wss://my-app.livekit.cloud",
         api_key="k",
         api_secret="s",
         room="test-room-123",
     )
     assert a.room == "test-room-123"
-    assert LiveKitAgent.capabilities.native_vad is True
+    assert LiveKitAgentAdapter.capabilities.native_vad is True
 
 
-# ---------------------------------------------------------------- TwilioAgent
+# ---------------------------------------------------------------- TwilioAgentAdapter
 
 def test_twilio_advertises_dtmf_capability():
-    caps = TwilioAgent.capabilities
+    caps = TwilioAgentAdapter.capabilities
     assert caps.dtmf is True
     # Media Streams has no native STT — after_words must raise on this adapter.
     assert caps.streaming_transcripts is False
@@ -77,7 +77,7 @@ def test_twilio_advertises_dtmf_capability():
 
 
 def test_twilio_construction():
-    a = TwilioAgent(
+    a = TwilioAgentAdapter(
         phone_number="+14155551234",
         from_number="+14155559876",
         account_sid="AC...",
@@ -89,33 +89,33 @@ def test_twilio_construction():
 # ---------------------------------------------------------------- ElevenLabs
 
 def test_elevenlabs_url_includes_agent_id():
-    a = ElevenLabsAgent(agent_id="abc123", api_key="k")
+    a = ElevenLabsAgentAdapter(agent_id="abc123", api_key="k")
     assert a.url == "wss://api.elevenlabs.io/v1/convai/conversation?agent_id=abc123"
 
 
 # ---------------------------------------------------------------- Vapi
 
 def test_vapi_capabilities():
-    a = VapiAgent(assistant_id="asst_...", api_key="k")
+    a = VapiAgentAdapter(assistant_id="asst_...", api_key="k")
     assert a.assistant_id == "asst_..."
-    assert VapiAgent.capabilities.streaming_transcripts is True
+    assert VapiAgentAdapter.capabilities.streaming_transcripts is True
 
 
 # ---------------------------------------------------------------- OpenAIRealtime
 
 def test_openai_realtime_defaults_to_agent_role():
-    a = OpenAIRealtimeAgent(model="gpt-4o-realtime-preview", voice="alloy")
+    a = OpenAIRealtimeAgentAdapter(model="gpt-4o-realtime-preview", voice="alloy")
     assert a.role == scenario.AgentRole.AGENT
 
 
 def test_openai_realtime_user_role_is_a_chosen_alternative():
     # Source §7.2 L1164-1171: this is a CHOSEN alternative, not a rejection.
-    a = OpenAIRealtimeAgent(role=scenario.AgentRole.USER)
+    a = OpenAIRealtimeAgentAdapter(role=scenario.AgentRole.USER)
     assert a.role == scenario.AgentRole.USER
 
 
 def test_openai_realtime_capabilities_are_streaming():
-    caps = OpenAIRealtimeAgent.capabilities
+    caps = OpenAIRealtimeAgentAdapter.capabilities
     assert caps.streaming_transcripts is True
     assert caps.native_vad is True
 
@@ -123,12 +123,12 @@ def test_openai_realtime_capabilities_are_streaming():
 # ---------------------------------------------------------------- GeminiLive
 
 def test_gemini_live_defaults():
-    a = GeminiLiveAgent()
+    a = GeminiLiveAgentAdapter()
     assert a.model == "gemini-2.5-flash-native-audio"
     assert a.voice == "Algieba"
 
 
-# ---------------------------------------------------------------- WebSocketAgent
+# ---------------------------------------------------------------- WebSocketAgentAdapter
 
 class _EchoProtocol(WebSocketProtocol):
     def encode_audio(self, audio):
@@ -141,7 +141,7 @@ class _EchoProtocol(WebSocketProtocol):
 
 
 def test_websocket_agent_stores_protocol():
-    a = WebSocketAgent(url="wss://example.com/ws", protocol=_EchoProtocol())
+    a = WebSocketAgentAdapter(url="wss://example.com/ws", protocol=_EchoProtocol())
     assert a.url == "wss://example.com/ws"
     assert isinstance(a.protocol, _EchoProtocol)
 
@@ -151,24 +151,24 @@ def test_websocket_protocol_is_abstract():
         WebSocketProtocol()  # type: ignore[abstract]
 
 
-# ---------------------------------------------------------------- WebRTCAgent
+# ---------------------------------------------------------------- WebRTCAgentAdapter
 
 def test_webrtc_agent_stores_signaling_url():
-    a = WebRTCAgent(signaling_url="https://example.com/offer")
+    a = WebRTCAgentAdapter(signaling_url="https://example.com/offer")
     assert a.signaling_url == "https://example.com/offer"
 
 
 # ---------------------------------------------------------------- all adapters
 
 ALL_ADAPTER_CLASSES = [
-    PipecatAgent,
-    LiveKitAgent,
-    TwilioAgent,
-    ElevenLabsAgent,
-    VapiAgent,
-    OpenAIRealtimeAgent,
-    GeminiLiveAgent,
-    WebRTCAgent,
+    PipecatAgentAdapter,
+    LiveKitAgentAdapter,
+    TwilioAgentAdapter,
+    ElevenLabsAgentAdapter,
+    VapiAgentAdapter,
+    OpenAIRealtimeAgentAdapter,
+    GeminiLiveAgentAdapter,
+    WebRTCAgentAdapter,
 ]
 
 

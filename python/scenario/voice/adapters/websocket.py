@@ -1,7 +1,7 @@
 """
 Generic WebSocket adapter: bring-your-own protocol.
 
-Users either subclass ``WebSocketAgent`` or pass a ``WebSocketProtocol`` that
+Users either subclass ``WebSocketAgentAdapter`` or pass a ``WebSocketProtocol`` that
 encodes audio on the wire and decodes responses. This is the escape hatch for
 custom voice backends that don't fit one of the platform-specific adapters.
 """
@@ -29,7 +29,7 @@ class WebSocketProtocol(ABC):
         """Parse a server message into an AudioChunk, or None if it's not audio."""
 
 
-class WebSocketAgent(VoiceAgentAdapter):
+class WebSocketAgentAdapter(VoiceAgentAdapter):
     """
     Connects to an arbitrary WebSocket endpoint using a user-supplied protocol.
 

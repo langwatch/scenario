@@ -864,7 +864,7 @@ class ScenarioExecutor:
         defaults on the next step — implemented via a context manager on the
         UserSimulatorAgent (``_one_shot_override``).
 
-        When the user-role agent is an ``OpenAIRealtimeAgent`` and ``content``
+        When the user-role agent is an ``OpenAIRealtimeAgentAdapter`` and ``content``
         is a plain string, route through the realtime session's text-input
         channel instead of TTS (per §7.2 L1164-1171).
         """
@@ -892,13 +892,13 @@ class ScenarioExecutor:
         return None
 
     def _find_realtime_user_agent(self):
-        """Return an OpenAIRealtimeAgent configured as role=USER, if any."""
+        """Return an OpenAIRealtimeAgentAdapter configured as role=USER, if any."""
         try:
-            from .voice.adapters.openai_realtime import OpenAIRealtimeAgent
+            from .voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
         except ImportError:  # pragma: no cover — voice adapters always importable here
             return None
         for agent in self.agents:
-            if isinstance(agent, OpenAIRealtimeAgent) and agent.role == AgentRole.USER:
+            if isinstance(agent, OpenAIRealtimeAgentAdapter) and agent.role == AgentRole.USER:
                 return agent
         return None
 

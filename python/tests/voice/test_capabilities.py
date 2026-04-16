@@ -27,12 +27,12 @@ def test_capabilities_are_immutable_after_construction():
 
 
 def test_error_names_adapter_and_capability():
-    err = UnsupportedCapabilityError("PipecatAgent", "dtmf", hint="Try TwilioAgent.")
+    err = UnsupportedCapabilityError("PipecatAgentAdapter", "dtmf", hint="Try TwilioAgentAdapter.")
     message = str(err)
-    assert "PipecatAgent" in message
+    assert "PipecatAgentAdapter" in message
     assert "dtmf" in message
-    assert "TwilioAgent" in message
-    assert err.adapter_name == "PipecatAgent"
+    assert "TwilioAgentAdapter" in message
+    assert err.adapter_name == "PipecatAgentAdapter"
     assert err.capability == "dtmf"
 
 

@@ -1,5 +1,5 @@
 """
-Unit test for OpenAIRealtimeAgent(role=USER) text-routing (§7.2 L1164-1171).
+Unit test for OpenAIRealtimeAgentAdapter(role=USER) text-routing (§7.2 L1164-1171).
 
 Scripted ``user("text")`` steps must route through the realtime session's
 text-input channel (send_text) rather than triggering TTS on a
@@ -10,7 +10,7 @@ import pytest
 
 import scenario
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
-from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgent
+from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
 
 
 class _QuietAgent(VoiceAgentAdapter):
@@ -30,7 +30,7 @@ class _QuietAgent(VoiceAgentAdapter):
 async def test_scripted_user_text_routes_to_realtime_send_text(monkeypatch):
     captured: list[str] = []
 
-    realtime_user = OpenAIRealtimeAgent(role=scenario.AgentRole.USER)
+    realtime_user = OpenAIRealtimeAgentAdapter(role=scenario.AgentRole.USER)
 
     async def _fake_send_text(text: str) -> None:
         captured.append(text)

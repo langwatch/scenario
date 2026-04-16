@@ -1,5 +1,5 @@
 """
-LiveKitAgent: join a LiveKit room as a participant and exchange audio.
+LiveKitAgentAdapter: join a LiveKit room as a participant and exchange audio.
 
 Source §5.2. Publishes user-simulator audio to the room; subscribes to the
 agent-under-test's audio track.
@@ -14,7 +14,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 
 
-class LiveKitAgent(VoiceAgentAdapter):
+class LiveKitAgentAdapter(VoiceAgentAdapter):
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
         streaming_transcripts=True,
         native_vad=True,
@@ -31,7 +31,7 @@ class LiveKitAgent(VoiceAgentAdapter):
         self._room: Optional[object] = None
 
     def __repr__(self) -> str:  # redact credentials
-        return f"LiveKitAgent(url={self.url!r}, room={self.room!r}, api_key='***', api_secret='***')"
+        return f"LiveKitAgentAdapter(url={self.url!r}, room={self.room!r}, api_key='***', api_secret='***')"
 
     async def connect(self) -> None:
         self._room = object()
@@ -42,11 +42,11 @@ class LiveKitAgent(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         from ._stub import PendingTransportError
         if self._room is None:
-            raise RuntimeError("LiveKitAgent: not connected")
-        raise PendingTransportError("LiveKitAgent")
+            raise RuntimeError("LiveKitAgentAdapter: not connected")
+        raise PendingTransportError("LiveKitAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         from ._stub import PendingTransportError
         if self._room is None:
-            raise RuntimeError("LiveKitAgent: not connected")
-        raise PendingTransportError("LiveKitAgent")
+            raise RuntimeError("LiveKitAgentAdapter: not connected")
+        raise PendingTransportError("LiveKitAgentAdapter")

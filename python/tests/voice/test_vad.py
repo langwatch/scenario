@@ -25,11 +25,11 @@ def test_vad_fallback_emits_userwarning_once_per_adapter():
     WebRTCVadFallback.reset_warnings()
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
-        WebRTCVadFallback("TwilioAgent")
-        WebRTCVadFallback("TwilioAgent")  # second instance must NOT re-warn
+        WebRTCVadFallback("TwilioAgentAdapter")
+        WebRTCVadFallback("TwilioAgentAdapter")  # second instance must NOT re-warn
     user_warnings = [w for w in captured if issubclass(w.category, UserWarning)]
     assert len(user_warnings) == 1
-    assert "TwilioAgent" in str(user_warnings[0].message)
+    assert "TwilioAgentAdapter" in str(user_warnings[0].message)
     assert "native VAD" in str(user_warnings[0].message)
     assert "accuracy" in str(user_warnings[0].message).lower()
 
