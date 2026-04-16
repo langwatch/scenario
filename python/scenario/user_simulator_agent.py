@@ -212,7 +212,7 @@ class UserSimulatorAgent(AgentAdapter):
         text_message = await self._generate_text(input)
         if not self.voice:
             return text_message
-        return await self._voiceify(text_message)
+        return await self._voiceify(text_message)  # type: ignore[arg-type]
 
     async def _voiceify(self, text_message: dict) -> AgentReturnTypes:
         """Convert a text user message into an audio message via TTS + effects."""
@@ -220,7 +220,7 @@ class UserSimulatorAgent(AgentAdapter):
 
         content = text_message.get("content", "")
         if not isinstance(content, str) or not content:
-            return text_message
+            return text_message  # type: ignore[return-value]
         if self._voice_style_override is not None:
             self._warn_voice_style_not_wired_once()
         chunk = await synthesize(content, self.voice)  # type: ignore[arg-type]

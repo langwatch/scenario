@@ -79,7 +79,7 @@ def audio(path_or_bytes: Union[str, Path, bytes]) -> ScriptStep:
         chunk = await asyncio.to_thread(_load_audio_to_chunk, path_or_bytes)
         adapter = _voice_adapter(state)
         if adapter is None:
-            state.messages.append(create_audio_message(chunk, role="user"))
+            state.messages.append(create_audio_message(chunk, role="user"))  # type: ignore[arg-type]
             return
         await adapter.send_audio(chunk)
 
@@ -123,7 +123,7 @@ def interrupt(
         if _is_audio_content(content):
             await audio(content)(state)  # type: ignore[arg-type]
         else:
-            await executor.user(content if content else None)
+            await executor.user(content if content else None)  # type: ignore[arg-type]
 
     return _step
 

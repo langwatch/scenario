@@ -39,7 +39,7 @@ async def test_audio_rejects_http_url():
     # issue an outbound HTTP request on the user's behalf).
     step = scenario.audio("http://evil.example/payload.mp3")
     with pytest.raises(ValueError) as excinfo:
-        await step(_FakeState(_SpyAdapter()))
+        await step(_FakeState(_SpyAdapter()))  # type: ignore[arg-type,misc,index]
     assert "http://evil.example/payload.mp3" in str(excinfo.value)
     assert "URL-like" in str(excinfo.value) or "download the asset" in str(excinfo.value)
 
@@ -48,14 +48,14 @@ async def test_audio_rejects_http_url():
 async def test_audio_rejects_rtmp_url():
     step = scenario.audio("rtmp://evil.example/stream")
     with pytest.raises(ValueError):
-        await step(_FakeState(_SpyAdapter()))
+        await step(_FakeState(_SpyAdapter()))  # type: ignore[arg-type,misc,index]
 
 
 @pytest.mark.asyncio
 async def test_audio_rejects_missing_file():
     step = scenario.audio("/nonexistent/path/that/does/not/exist.wav")
     with pytest.raises(FileNotFoundError):
-        await step(_FakeState(_SpyAdapter()))
+        await step(_FakeState(_SpyAdapter()))  # type: ignore[arg-type,misc,index]
 
 
 @pytest.mark.asyncio
@@ -72,5 +72,5 @@ async def test_audio_from_bytes_is_fine():
     wav_bytes = buf.getvalue()
 
     adapter = _SpyAdapter()
-    await scenario.audio(wav_bytes)(_FakeState(adapter))
+    await scenario.audio(wav_bytes)(_FakeState(adapter))  # type: ignore[arg-type,misc,index]
     assert len(adapter.sent) == 1

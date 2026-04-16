@@ -10,7 +10,7 @@ from scenario.voice import AudioSegment, LatencyMetrics, VoiceEvent, VoiceRecord
 
 def _segment(speaker: str, start: float, end: float) -> AudioSegment:
     # 100ms of silence per segment
-    return AudioSegment(speaker=speaker, start_time=start, end_time=end,
+    return AudioSegment(speaker=speaker, start_time=start, end_time=end,  # type: ignore[arg-type,misc,index]
                         audio=b"\x00\x00" * 2400, transcript="hi")
 
 
