@@ -19,10 +19,6 @@ import numpy as np
 import pytest
 
 from scenario.voice import AudioChunk, TwilioAgentAdapter
-from scenario.voice.adapters._twilio_shared import (
-    build_media_frame,
-    pcm16_24k_to_mulaw8k,
-)
 
 
 def _make_adapter(port: int) -> TwilioAgentAdapter:

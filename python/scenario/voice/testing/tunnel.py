@@ -176,6 +176,8 @@ class CloudflareTunnel:
                 self._proc.kill()
                 await self._proc.wait()
         except ProcessLookupError:
+            # Process already exited between the returncode check above and
+            # our send_signal; nothing to clean up.
             pass
         finally:
             self._proc = None

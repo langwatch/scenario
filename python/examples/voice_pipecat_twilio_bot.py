@@ -20,7 +20,6 @@ of OpenClaw-specific integrations). Lean version for scenario's smoke test.
 """
 
 import argparse
-import asyncio
 import os
 import sys
 from pathlib import Path
