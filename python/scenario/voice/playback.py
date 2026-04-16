@@ -93,8 +93,10 @@ class FfmpegPlayback:
         except Exception:  # pragma: no cover — best-effort cleanup
             try:
                 self._proc.kill()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Last-ditch kill failed (e.g. process already gone). Log
+                # and continue — we still need to release self._proc.
+                logger.debug("FfmpegPlayback.stop: final kill() failed: %s", exc)
         self._proc = None
         self._active = False
 
