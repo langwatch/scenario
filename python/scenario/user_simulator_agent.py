@@ -8,7 +8,8 @@ conversation history.
 """
 
 import logging
-from typing import Callable, List, Optional, cast
+from contextlib import contextmanager
+from typing import Callable, Iterator, List, Optional, cast
 
 import litellm
 from litellm import Choices
@@ -221,12 +222,49 @@ class UserSimulatorAgent(AgentAdapter):
         if not isinstance(content, str) or not content:
             return text_message
         # TTS cache key is (text, voice). Effects applied AFTER cache hit.
-        chunk = await synthesize(content, self.voice)  # type: ignore[arg-type]
+        text = content
+        if self._voice_style_override is not None:
+            # Inject the style hint inline so TTS providers that accept
+            # SSML-style style directives can honour it without us
+            # introducing a TTS-specific API field.
+            text = f"[{self._voice_style_override}] {content}"
+        chunk = await synthesize(text, self.voice)  # type: ignore[arg-type]
         audio_bytes = chunk.data
-        for effect in self.audio_effects:
+        effects = self._effective_audio_effects()
+        for effect in effects:
             audio_bytes = effect(audio_bytes)
         final = AudioChunk(data=audio_bytes, transcript=content)
         return create_audio_message(final, role="user")
+
+    # ---------------------------------------------- per-step overrides (§4.2)
+    # Per-step voice_style / audio_effects overrides. The executor uses
+    # ``_one_shot_override`` to install a single-turn override that is cleared
+    # on exit so subsequent turns revert to the simulator's defaults.
+
+    _voice_style_override: Optional[str] = None
+    _audio_effects_override: Optional[List[Callable[[bytes], bytes]]] = None
+
+    def _effective_audio_effects(self) -> List[Callable[[bytes], bytes]]:
+        if self._audio_effects_override is not None:
+            return list(self._audio_effects_override)
+        return list(self.audio_effects)
+
+    @contextmanager
+    def _one_shot_override(
+        self,
+        *,
+        voice_style: Optional[str] = None,
+        audio_effects: Optional[List[Callable[[bytes], bytes]]] = None,
+    ) -> Iterator[None]:
+        prev_style = self._voice_style_override
+        prev_effects = self._audio_effects_override
+        self._voice_style_override = voice_style
+        self._audio_effects_override = audio_effects
+        try:
+            yield
+        finally:
+            self._voice_style_override = prev_style
+            self._audio_effects_override = prev_effects
 
     @scenario_cache()
     async def _generate_text(
