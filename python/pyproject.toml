@@ -46,6 +46,9 @@ dependencies = [
     "numpy>=1.26",
     "webrtcvad-wheels>=2.0",
     "websockets>=12",
+    # Twilio transport (TwilioAgentAdapter): REST client + webhook server.
+    "twilio>=9.0",
+    "fastapi>=0.110",
 ]
 
 [project.optional-dependencies]
