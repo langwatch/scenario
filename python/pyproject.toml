@@ -50,6 +50,9 @@ dependencies = [
     "twilio>=9.0",
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    # µ-law codec: stdlib `audioop` was removed in Python 3.13; the LTS fork
+    # is a drop-in replacement on 3.13+.
+    "audioop-lts>=0.2.1; python_version>='3.13'",
 ]
 
 [project.optional-dependencies]

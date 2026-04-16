@@ -12,7 +12,7 @@ and press 1. The long (60s) timeout tolerates TTS latency + human reaction.
 Usage:
 
     export TARGET_PHONE_NUMBER=+1...   # your cell, verified in Twilio console
-    python examples/voice_twilio_outbound_scenario.py
+    python examples/voice_twilio_simulator_calls_human_scenario.py
 
 Requires in python/.env:
     TWILIO_ACCOUNT_SID

@@ -22,7 +22,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, Callable, ClassVar, Literal, Optional
+
+# The adapter is dormant after connect() and before a direction-specific kickoff
+# method is called. Mode is dynamic — we don't take it at construction — because
+# the same credentials + tunnel can serve either direction, and picking at
+# first-use keeps the API small.
+TwilioAdapterMode = Literal["idle", "answer", "call"]
 
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
@@ -100,6 +106,9 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._rest: Optional[TwilioRESTHelper] = None
         self._phone_number_sid: Optional[str] = None
         self._prior_voice_url: Optional[str] = None
+        # Set by the first of wait_for_call()/place_call(); subsequent calls to
+        # the other method raise. "idle" after connect() before either fires.
+        self._mode: TwilioAdapterMode = "idle"
 
         # Server / media stream state.
         self._server_task: Optional[asyncio.Task] = None
@@ -123,7 +132,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
-        """Resolve number SID, start FastAPI server, register webhook.
+        """Resolve number SID and start the FastAPI webhook + WS server.
+
+        Does NOT modify the Twilio account's ``voice_url``. That side-effect
+        only happens when ``wait_for_call()`` is invoked — callers (who will
+        use ``place_call()``) never overwrite their number's inbound webhook,
+        which makes caller-mode adapters safe to run against a shared pool of
+        Twilio numbers without clobbering anyone's prod webhook.
 
         Idempotent in the sense that double-connect raises; ``disconnect``
         resets state so it can be re-used.
@@ -140,27 +155,28 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
         self._rest = TwilioRESTHelper(self.account_sid, self.auth_token)
         self._phone_number_sid = self._rest.resolve_phone_number_sid(self.phone_number)
-        self._prior_voice_url = self._rest.read_voice_url(self._phone_number_sid)
 
         self._stream_connected = asyncio.Event()
         self._inbound_queue = asyncio.Queue()
         self._server_shutdown = asyncio.Event()
+        self._mode = "idle"
 
-        webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
         self._server_task = asyncio.create_task(self._run_server())
         # Give uvicorn a beat to bind the port before Twilio hits it.
         await asyncio.sleep(0.2)
 
-        self._rest.write_voice_url(self._phone_number_sid, webhook_url)
-        logger.info("TwilioAgentAdapter: webhook set to %s", webhook_url)
-
     async def disconnect(self) -> None:
-        """Restore prior voice_url, tear down server. Best-effort on errors."""
+        """Restore prior voice_url (answer mode only), tear down server.
+
+        Best-effort on errors. In caller mode we never touched the Twilio
+        number's voice_url, so there's nothing to restore.
+        """
         if self._rest is None:
             return
 
         # 1. Restore webhook first so Twilio doesn't keep hitting a dead URL.
-        if self._phone_number_sid is not None:
+        #    Only meaningful in answer mode — caller mode never overwrote it.
+        if self._mode == "answer" and self._phone_number_sid is not None:
             with suppress(Exception):
                 prior = self._prior_voice_url or ""
                 self._rest.write_voice_url(self._phone_number_sid, prior)
@@ -181,6 +197,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._rest = None
         self._phone_number_sid = None
         self._prior_voice_url = None
+        self._mode = "idle"
         self._server_task = None
         self._server_shutdown = None
         self._call_sid = None
@@ -199,8 +216,35 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ direction
 
     async def place_call(self, to: str, *, timeout: float = 30.0) -> None:
-        """Originate an outbound call. Blocks until the media stream is live."""
+        """
+        Originate an outbound call from this adapter's Twilio number to ``to``.
+
+        After this returns, the adapter is in a live bidirectional audio session:
+        ``send_audio`` plays into the callee's ear (the simulator talks) and
+        ``recv_audio`` yields what the callee says back (the agent responds).
+
+        The callee can be:
+            - Another Twilio number owned by any adapter (two-number self-tests).
+            - A real cell phone (human-in-the-loop smokes).
+            - A prod voice agent on any Twilio/SIP/PSTN endpoint reachable by E.164.
+
+        Blocks until Twilio opens the Media Streams WS back to our
+        ``/twilio/stream`` endpoint, i.e. until the callee has accepted and
+        audio can flow.
+
+        Caller mode never writes the Twilio number's ``voice_url``: Twilio
+        routes the outbound call to the TwiML URL we pass to ``calls.create``
+        directly, so the number's inbound webhook is irrelevant here.
+
+        Raises:
+            RuntimeError: If called after ``wait_for_call()`` (modes are
+                exclusive per adapter instance).
+            ValueError: If ``to`` is not in E.164 format.
+            asyncio.TimeoutError: If the media stream doesn't open within
+                ``timeout`` seconds.
+        """
         self._assert_connected()
+        self._enter_mode("call")
         validate_e164(to)
 
         assert self.public_base_url is not None
@@ -216,10 +260,50 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
 
     async def wait_for_call(self, timeout: float = 30.0) -> None:
-        """Block until someone dials in and the media stream is live."""
+        """
+        Block until someone dials in and the media stream is live.
+
+        Answer mode is the only mode that touches the Twilio number's
+        ``voice_url``: we snapshot the prior value, overwrite it with our own
+        webhook, and restore on ``disconnect``.
+
+        Raises:
+            RuntimeError: If called after ``place_call()``.
+            asyncio.TimeoutError: If nobody dials in within ``timeout``.
+        """
         self._assert_connected()
+        self._enter_mode("answer")
+
+        assert self.public_base_url is not None
+        assert self._rest is not None
+        assert self._phone_number_sid is not None
         assert self._stream_connected is not None
+
+        # Snapshot the prior webhook so we can restore it on disconnect, then
+        # point the number at our server. Only answer mode does this.
+        self._prior_voice_url = self._rest.read_voice_url(self._phone_number_sid)
+        webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+        self._rest.write_voice_url(self._phone_number_sid, webhook_url)
+        logger.info("TwilioAgentAdapter: webhook set to %s", webhook_url)
+
         await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+
+    def _enter_mode(self, mode: TwilioAdapterMode) -> None:
+        """Transition idle → mode, or raise if already in a different mode.
+
+        Modes are exclusive per connected session: an adapter can place a call
+        or answer a call, not both. Disconnect + reconnect to reuse the
+        instance in the other direction.
+        """
+        if self._mode == mode:
+            return  # idempotent re-entry (e.g. retrying place_call after timeout)
+        if self._mode != "idle":
+            raise RuntimeError(
+                f"TwilioAgentAdapter: already in {self._mode!r} mode; cannot "
+                f"switch to {mode!r}. Disconnect and reconnect to reuse this "
+                f"adapter in the other direction."
+            )
+        self._mode = mode
 
     # ------------------------------------------------------------------ I/O
 

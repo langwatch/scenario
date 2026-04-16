@@ -2,16 +2,58 @@
 
 Scenario can exercise real phone calls via Twilio Media Streams in two roles:
 
-| Role | Direction | Adapter class | Method |
-|------|-----------|---------------|--------|
-| Agent-under-test answers calls | **inbound** | `TwilioAgentAdapter` | `wait_for_call()` |
-| Scenario places calls | **outbound** | `TwilioAgentAdapter` | `place_call(to=...)` |
+| Role | Direction | Method | Who owns the agent-under-test |
+|------|-----------|--------|-------------------------------|
+| Scenario answers calls | **answer** | `wait_for_call()` | Scenario (when you want the adapter itself as the test target) |
+| Scenario places calls  | **call**   | `place_call(to=...)` | External (your prod agent, a human, another Twilio number) |
 
 Same class, same state — a Twilio number can both answer and originate, and
-the adapter mirrors that. See
-[`specs/voice-agents.feature`](../specs/voice-agents.feature) for the adapter
-contract and [`python/scenario/voice/adapters/twilio.py`](../python/scenario/voice/adapters/twilio.py)
-for the full surface.
+the adapter mirrors that. The first of `wait_for_call()` / `place_call()`
+that fires fixes the mode for the lifetime of that session; switching after
+the fact raises. See [`specs/voice-agents.feature`](../specs/voice-agents.feature)
+for the adapter contract.
+
+**Caller-mode adapters leave the Twilio account untouched.** `place_call` uses
+the TwiML URL passed to `calls.create()` directly; the number's inbound
+webhook is never overwritten. This is what makes it safe to test a prod
+agent without disturbing its deployment — see "Testing a prod voice agent"
+below.
+
+## Testing a prod voice agent
+
+Your agent is wired to a Twilio number in prod (say `+1-555-YOUR-AGENT`).
+You want scenario to bench it without touching its webhook, its deployment,
+or its code. Buy one Twilio number for scenario (`+1-555-SCENARIO`) and:
+
+```python
+import asyncio
+import scenario
+from scenario.voice.testing import TwilioHarness
+
+async def main() -> None:
+    async with TwilioHarness(
+        account_sid=...,
+        auth_token=...,
+        phone_number="+15555CENARIO",   # scenario's own number (the caller)
+    ) as caller:
+        await caller.place_call(to="+15555YOURAGENT")   # dials your prod agent
+        result = await scenario.run(
+            name="prod agent handles a return",
+            description="Customer wants to return a defective product.",
+            agents=[
+                caller,
+                scenario.UserSimulatorAgent(),
+                scenario.JudgeAgent(criteria=["agent identifies the issue"]),
+            ],
+        )
+        print(result)
+
+asyncio.run(main())
+```
+
+Scenario's number dials your prod agent as a simulated customer. The prod
+agent answers its phone as it always does. Your deployment is untouched; no
+webhook swap, no staging stack, no pipecat sidecar.
 
 ## Prerequisites
 
@@ -39,9 +81,10 @@ credit and can keep one number.
 From the console (https://console.twilio.com):
 1. **Account SID + Auth Token** — top-right "Account Info" panel. SID starts
    with `AC`.
-2. **Phone number** — Console → Phone Numbers → Manage → Buy a Number (US
-   numbers are $1.15/mo). Make sure it has **Voice** capability. The number
-   is in E.164 format (`+14155551234`).
+2. **Phone number** — Console → Phone Numbers → Manage → Buy a Number. Make
+   sure it has **Voice** capability. The number is in E.164 format
+   (`+14155551234`).
+3. For the automated two-number smoke, buy a **second** number.
 
 ### 3. Python .env
 
@@ -50,18 +93,21 @@ From the console (https://console.twilio.com):
 OPENAI_API_KEY=sk-...
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
-TWILIO_PHONE_NUMBER=+14155551234
+TWILIO_PHONE_NUMBER=+14155551234     # primary
+TWILIO_PHONE_NUMBER_2=+14155551235   # only needed for the two-number smoke
 ```
 
 ### Trial account restriction
 
 **Outbound calls to non-verified numbers fail on trial accounts.** Before
-running the outbound smoke, add your own cell to the Verified Caller IDs:
+running the `simulator_calls_human` smoke, add your own cell to the
+Verified Caller IDs:
 
 Console → Phone Numbers → Manage → **Verified Caller IDs** → Add a Number →
 enter your cell → enter the verification code you receive.
 
-Inbound calls have no such restriction — anyone can dial your Twilio number.
+Two Twilio numbers on the same trial account can call each other without
+verification. Inbound calls have no such restriction either.
 
 ## Smoke examples
 
@@ -93,40 +139,65 @@ python examples/voice_pipecat_scenario.py
 # the bot's /stream endpoint and judges it.
 ```
 
-### Smoke 2 — inbound, scenario answers directly
+### Smoke 2 — scenario answers an inbound call
 
-Tests `TwilioAgentAdapter.wait_for_call()`. No pipecat. Scenario IS the
-system-under-test.
+Tests `TwilioAgentAdapter.wait_for_call()`. Scenario IS the agent-under-test;
+a human dials in.
 
 ```sh
-python examples/voice_twilio_inbound_scenario.py
+python examples/voice_twilio_agent_answers_scenario.py
 
 # The script spins up a cloudflared tunnel, registers its URL as your
 # Twilio number's voice webhook (automatically), then prints:
 #   "Dial +1415… within 60s."
 # Dial it. Scenario's user-sim greets the caller, short exchange, hang up.
+# The script restores your number's prior webhook on exit.
 ```
 
-### Smoke 3 — outbound, scenario dials YOU
+### Smoke 3 — scenario dials a human
 
-Tests `TwilioAgentAdapter.place_call()` + `on_dtmf` callback.
-**Deterministic assertion**: user-sim says "Press 1 then hang up";
-scenario asserts `on_dtmf("1")` fires within 60s.
+Tests `TwilioAgentAdapter.place_call()` + `on_dtmf` callback. Requires a
+human with a phone. **Deterministic assertion**: user-sim says "Press 1
+then hang up"; scenario asserts `on_dtmf("1")` fires within 60s.
 
 ```sh
 export TARGET_PHONE_NUMBER=+14155557777   # YOUR cell, must be Verified in trial
-python examples/voice_twilio_outbound_scenario.py
+python examples/voice_twilio_simulator_calls_human_scenario.py
 
 # Your phone rings. Answer, listen for the instruction, press 1, hang up.
 # The script exits 0 on success, 1 on timeout.
 ```
 
+### Smoke 4 — two-number automated self-test (no human)
+
+Tests the full caller ↔ answerer pipeline end-to-end without anyone picking
+up a phone. Adapter A places a call from `TWILIO_PHONE_NUMBER_2` to adapter
+B on `TWILIO_PHONE_NUMBER`; B answers; tones round-trip both ways over
+real PSTN.
+
+```sh
+python examples/voice_twilio_simulator_calls_agent_scenario.py
+
+# ~30s, costs ~$0.02 per run (two legs × 30s domestic).
+# No human input needed. Exits 0 on success, 1 if audio doesn't round-trip.
+```
+
+Use this smoke to validate the transport — the two-number loop proves that
+send_audio → Media Streams frames → µ-law over real PSTN → decoder →
+recv_audio works both ways. The pure-unit loopback test in
+`python/tests/voice/test_twilio_two_adapter_bridge.py` covers the WS frame
+protocol without spending money; this smoke adds the real-network confidence.
+
 ## If a test crashes mid-run
 
-Scenario registers the tunnel URL as the Twilio number's `voice_url` at
-`connect()` and restores the prior value at `disconnect()`. If the process
-is killed, the webhook stays pointed at a dead cloudflared URL, and
-incoming calls fail.
+Only `wait_for_call()` (answer mode) modifies the Twilio number's
+`voice_url`; `place_call()` (caller mode) leaves it alone. So:
+
+- **Caller-mode crashes** leave no stale state — the number's webhook was
+  never touched.
+- **Answer-mode crashes** can leave the webhook pointed at a dead
+  cloudflared URL. `disconnect()` restores it on normal exit, but a `kill
+  -9` or power-off skips that.
 
 To reset manually:
 
