@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 
 from scenario.voice import effects as fx
-from scenario.voice import effects  # noqa: F401
 
 
 def _silence(samples: int) -> bytes:

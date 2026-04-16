@@ -15,9 +15,7 @@ hard limit). Transcription happens per turn, so this is rarely triggered.
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 

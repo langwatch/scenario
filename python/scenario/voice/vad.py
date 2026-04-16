@@ -14,7 +14,7 @@ know the fallback is in effect and accuracy may differ from native VAD.
 from __future__ import annotations
 
 import warnings
-from typing import Callable, Iterable, Iterator, Optional
+from typing import Callable, Optional
 
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 

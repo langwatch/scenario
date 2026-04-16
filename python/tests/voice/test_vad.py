@@ -3,7 +3,6 @@
 import warnings
 
 import numpy as np
-import pytest
 
 from scenario.voice import AudioChunk, WebRTCVadFallback
 

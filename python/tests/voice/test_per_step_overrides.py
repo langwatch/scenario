@@ -2,8 +2,6 @@
 Unit tests for per-step voice_style / audio_effects overrides on scenario.user (§4.2).
 """
 
-import pytest
-
 import scenario
 
 
