@@ -1,0 +1,10 @@
+{
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    ".venv",
+    "build",
+    "dist",
+    "examples/voice_pipecat_twilio_bot.py"
+  ]
+}

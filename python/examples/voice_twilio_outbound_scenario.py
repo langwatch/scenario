@@ -43,12 +43,12 @@ for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "O
     if not os.environ.get(key):
         sys.exit(f"Error: {key} is required. Set in python/.env.")
 
-TARGET = os.environ.get("TARGET_PHONE_NUMBER")
-if not TARGET:
+if not os.environ.get("TARGET_PHONE_NUMBER"):
     sys.exit(
         "Error: TARGET_PHONE_NUMBER is required (E.164, e.g. +14155551234). "
         "Must be a Verified Caller ID on Twilio trial accounts."
     )
+TARGET: str = os.environ["TARGET_PHONE_NUMBER"]
 
 
 from scenario.voice.testing import TwilioHarness
