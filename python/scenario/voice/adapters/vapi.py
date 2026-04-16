@@ -1,5 +1,5 @@
 """
-VapiAgent: call Vapi's REST API to create a call, then connect to the
+VapiAgentAdapter: call Vapi's REST API to create a call, then connect to the
 returned websocketCallUrl.
 
 Source §5.5.
@@ -14,7 +14,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 
 
-class VapiAgent(VoiceAgentAdapter):
+class VapiAgentAdapter(VoiceAgentAdapter):
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
         streaming_transcripts=True,
         native_vad=True,
@@ -41,14 +41,14 @@ class VapiAgent(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         from ._stub import PendingTransportError
         if self._ws is None:
-            raise RuntimeError("VapiAgent: not connected")
-        raise PendingTransportError("VapiAgent")
+            raise RuntimeError("VapiAgentAdapter: not connected")
+        raise PendingTransportError("VapiAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         from ._stub import PendingTransportError
         if self._ws is None:
-            raise RuntimeError("VapiAgent: not connected")
-        raise PendingTransportError("VapiAgent")
+            raise RuntimeError("VapiAgentAdapter: not connected")
+        raise PendingTransportError("VapiAgentAdapter")
 
     def __repr__(self) -> str:  # redact credentials
-        return f"VapiAgent(assistant_id={self.assistant_id!r}, api_key='***')"
+        return f"VapiAgentAdapter(assistant_id={self.assistant_id!r}, api_key='***')"

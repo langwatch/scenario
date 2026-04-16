@@ -1,5 +1,5 @@
 """
-PipecatAgent: connect to a user's running Pipecat bot over WebSocket or WebRTC.
+PipecatAgentAdapter: connect to a user's running Pipecat bot over WebSocket or WebRTC.
 
 Source §5.1. Pipecat is a framework for BUILDING voice agents (not itself an
 adapter). The user runs their Pipecat bot separately; this adapter connects
@@ -15,7 +15,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 
 
-class PipecatAgent(VoiceAgentAdapter):
+class PipecatAgentAdapter(VoiceAgentAdapter):
     """
     Test a running Pipecat bot via its exposed WebSocket or WebRTC endpoint.
 
@@ -43,9 +43,9 @@ class PipecatAgent(VoiceAgentAdapter):
         sample_rate: int = 24000,
     ):
         if transport == "websocket" and url is None:
-            raise ValueError("PipecatAgent(transport='websocket') requires url=")
+            raise ValueError("PipecatAgentAdapter(transport='websocket') requires url=")
         if transport == "webrtc" and signaling_url is None:
-            raise ValueError("PipecatAgent(transport='webrtc') requires signaling_url=")
+            raise ValueError("PipecatAgentAdapter(transport='webrtc') requires signaling_url=")
         self.url = url
         self.signaling_url = signaling_url
         self.transport = transport
@@ -66,11 +66,11 @@ class PipecatAgent(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         from ._stub import PendingTransportError
         if self._session is None:
-            raise RuntimeError("PipecatAgent: not connected")
-        raise PendingTransportError("PipecatAgent")
+            raise RuntimeError("PipecatAgentAdapter: not connected")
+        raise PendingTransportError("PipecatAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         from ._stub import PendingTransportError
         if self._session is None:
-            raise RuntimeError("PipecatAgent: not connected")
-        raise PendingTransportError("PipecatAgent")
+            raise RuntimeError("PipecatAgentAdapter: not connected")
+        raise PendingTransportError("PipecatAgentAdapter")

@@ -15,84 +15,84 @@ Feature: Voice agent testing in Scenario SDK
   # ======================================================================
 
   @unit
-  Scenario: PipecatAgent connects over WebSocket with Twilio audio format
+  Scenario: PipecatAgentAdapter connects over WebSocket with Twilio audio format
     # Source §4.1, L137-142 and §5.1, L664-682
-    Given a PipecatAgent configured with url "ws://localhost:8765/ws", audio_format "mulaw", sample_rate 8000
+    Given a PipecatAgentAdapter configured with url "ws://localhost:8765/ws", audio_format "mulaw", sample_rate 8000
     When the scenario executor starts
     Then connect() is called automatically before any script step
     And the adapter advertises mulaw/8000 as its transport format
 
   @unit
-  Scenario: PipecatAgent connects over WebRTC
+  Scenario: PipecatAgentAdapter connects over WebRTC
     # Source §4.1, L144-148 and §5.1, L684-700
-    Given a PipecatAgent configured with signaling_url and transport "webrtc"
+    Given a PipecatAgentAdapter configured with signaling_url and transport "webrtc"
     When the scenario executor starts
     Then a WebRTC peer connection is negotiated via the signaling endpoint
 
   @unit
-  Scenario: LiveKitAgent joins a room as a participant
+  Scenario: LiveKitAgentAdapter joins a room as a participant
     # Source §4.1, L151-156 and §5.2, L713-731
-    Given a LiveKitAgent with url, api_key, api_secret, room "test-room-123"
+    Given a LiveKitAgentAdapter with url, api_key, api_secret, room "test-room-123"
     When the scenario executor starts
     Then the adapter joins the room, publishes user-sim audio, and subscribes to the agent track
 
   @integration
-  Scenario: TwilioAgent places an outbound call
+  Scenario: TwilioAgentAdapter places an outbound call
     # Source §4.1, L161-166 and §5.3, L733-758
-    Given a TwilioAgent with phone_number, from_number, account_sid, auth_token
+    Given a TwilioAgentAdapter with phone_number, from_number, account_sid, auth_token
     When the scenario starts
     Then an outbound Twilio call is created and a Media Streams WebSocket is established
 
   @unit
-  Scenario: ElevenLabsAgent connects to conversational AI endpoint
+  Scenario: ElevenLabsAgentAdapter connects to conversational AI endpoint
     # Source §4.1, L171-174 and §5.4, L760-776
-    Given an ElevenLabsAgent with agent_id and api_key
+    Given an ElevenLabsAgentAdapter with agent_id and api_key
     When the scenario starts
     Then a WebSocket to wss://api.elevenlabs.io/v1/convai/conversation?agent_id=... is opened
     And PCM16 audio chunks are sent over the socket
 
   @unit
-  Scenario: VapiAgent creates a call and connects to websocketCallUrl
+  Scenario: VapiAgentAdapter creates a call and connects to websocketCallUrl
     # Source §4.1, L177-180 and §5.5, L778-793
-    Given a VapiAgent with assistant_id and api_key
+    Given a VapiAgentAdapter with assistant_id and api_key
     When the scenario starts
     Then a call is created via the Vapi REST API
     And the returned websocketCallUrl is connected for bidirectional audio
 
   @unit
-  Scenario: OpenAIRealtimeAgent connects as the agent under test
+  Scenario: OpenAIRealtimeAgentAdapter connects as the agent under test
     # Source §4.1, L185-190 and §5.6, L800-813
-    Given an OpenAIRealtimeAgent with model, voice, instructions, tools
+    Given an OpenAIRealtimeAgentAdapter with model, voice, instructions, tools
     When the scenario starts
     Then a realtime session is established and the model IS the agent
 
   @unit
-  Scenario: OpenAIRealtimeAgent with role=AgentRole.USER acts as the user simulator
+  Scenario: OpenAIRealtimeAgentAdapter with role=AgentRole.USER acts as the user simulator
     # Source §7.2, L1164-1171 (CHOSEN alternative — NOT rejected)
-    Given an OpenAIRealtimeAgent configured with role=AgentRole.USER, voice "nova", instructions "simulate a confused elderly customer"
+    Given an OpenAIRealtimeAgentAdapter configured with role=AgentRole.USER, voice "nova", instructions "simulate a confused elderly customer"
     When the scenario runs
     Then the realtime model drives the user side of the conversation with natural prosody
     And text TTS is bypassed for the user simulator
 
   @unit
-  Scenario: GeminiLiveAgent connects via native-audio endpoint
+  Scenario: GeminiLiveAgentAdapter connects via native-audio endpoint
     # Source §4.1, L193-197 and §5.6, L815-826
-    Given a GeminiLiveAgent with model "gemini-2.5-flash-native-audio", voice "Algieba"
+    Given a GeminiLiveAgentAdapter with model "gemini-2.5-flash-native-audio", voice "Algieba"
     When the scenario starts
     Then a Gemini Live session is established with the given system_instruction
 
   @unit
-  Scenario: WebSocketAgent uses a user-supplied protocol
+  Scenario: WebSocketAgentAdapter uses a user-supplied protocol
     # Source §4.1, L202-205 and §5.7, L856-868
-    Given a WebSocketAgent with url and a custom WebSocketProtocol
+    Given a WebSocketAgentAdapter with url and a custom WebSocketProtocol
     When audio is sent
     Then the protocol's encode_audio is used on the wire
     And decode_response is called on inbound messages
 
   @unit
-  Scenario: WebRTCAgent connects via signaling URL
+  Scenario: WebRTCAgentAdapter connects via signaling URL
     # Source §4.1, L208-210
-    Given a WebRTCAgent with signaling_url
+    Given a WebRTCAgentAdapter with signaling_url
     When the scenario starts
     Then a WebRTC peer connection is negotiated
 
@@ -253,7 +253,7 @@ Feature: Voice agent testing in Scenario SDK
   @integration
   Scenario: scenario.dtmf(tones) emits DTMF tones
     # Source §4.4, L419-432 and §5.3
-    Given a TwilioAgent and scenario.dtmf("1") in a script
+    Given a TwilioAgentAdapter and scenario.dtmf("1") in a script
     When the step runs
     Then the DTMF tone "1" is transmitted through the telephony channel
 
@@ -429,7 +429,7 @@ Feature: Voice agent testing in Scenario SDK
   @integration
   Scenario: Example 6.1 — basic greeting flow
     # Source §6.1, L874-899
-    Given a PipecatAgent, a voice UserSimulator (openai/nova), a JudgeAgent with greeting criteria
+    Given a PipecatAgentAdapter, a voice UserSimulator (openai/nova), a JudgeAgent with greeting criteria
     And a script: agent(), user("Hi, I need some help"), agent(), judge()
     When the scenario runs
     Then result.success is True
@@ -453,7 +453,7 @@ Feature: Voice agent testing in Scenario SDK
   @integration
   Scenario: Example 6.4 — DTMF IVR navigation
     # Source §6.4, L969-996
-    Given a TwilioAgent and a script using scenario.dtmf("1")
+    Given a TwilioAgentAdapter and a script using scenario.dtmf("1")
     When the scenario runs
     Then the agent routes to billing and result.success is True
 

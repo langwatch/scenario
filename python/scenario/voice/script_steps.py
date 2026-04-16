@@ -139,7 +139,7 @@ def dtmf(tones: str) -> ScriptStep:
         name = type(adapter).__name__ if adapter else "<no voice adapter>"
         if adapter is None or not adapter.capabilities.dtmf:
             raise UnsupportedCapabilityError(
-                name, "dtmf", hint="Use a telephony adapter such as TwilioAgent."
+                name, "dtmf", hint="Use a telephony adapter such as TwilioAgentAdapter."
             )
         if hasattr(adapter, "send_dtmf"):
             await adapter.send_dtmf(tones)  # type: ignore[attr-defined]

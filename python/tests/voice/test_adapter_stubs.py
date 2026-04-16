@@ -12,27 +12,27 @@ import pytest
 
 from scenario.voice import (
     AudioChunk,
-    ElevenLabsAgent,
-    GeminiLiveAgent,
-    LiveKitAgent,
-    OpenAIRealtimeAgent,
-    PipecatAgent,
-    TwilioAgent,
-    VapiAgent,
-    WebRTCAgent,
+    ElevenLabsAgentAdapter,
+    GeminiLiveAgentAdapter,
+    LiveKitAgentAdapter,
+    OpenAIRealtimeAgentAdapter,
+    PipecatAgentAdapter,
+    TwilioAgentAdapter,
+    VapiAgentAdapter,
+    WebRTCAgentAdapter,
 )
 from scenario.voice.adapters import PendingTransportError
 
 
 STUB_ADAPTERS = [
-    (PipecatAgent, {"url": "ws://x/ws"}),
-    (LiveKitAgent, {"url": "wss://x", "api_key": "k", "api_secret": "s", "room": "r"}),
-    (TwilioAgent, {"phone_number": "+1", "from_number": "+1", "account_sid": "AC", "auth_token": "t"}),
-    (ElevenLabsAgent, {"agent_id": "a", "api_key": "k"}),
-    (VapiAgent, {"assistant_id": "a", "api_key": "k"}),
-    (OpenAIRealtimeAgent, {}),
-    (GeminiLiveAgent, {}),
-    (WebRTCAgent, {"signaling_url": "https://x"}),
+    (PipecatAgentAdapter, {"url": "ws://x/ws"}),
+    (LiveKitAgentAdapter, {"url": "wss://x", "api_key": "k", "api_secret": "s", "room": "r"}),
+    (TwilioAgentAdapter, {"phone_number": "+1", "from_number": "+1", "account_sid": "AC", "auth_token": "t"}),
+    (ElevenLabsAgentAdapter, {"agent_id": "a", "api_key": "k"}),
+    (VapiAgentAdapter, {"assistant_id": "a", "api_key": "k"}),
+    (OpenAIRealtimeAgentAdapter, {}),
+    (GeminiLiveAgentAdapter, {}),
+    (WebRTCAgentAdapter, {"signaling_url": "https://x"}),
 ]
 
 

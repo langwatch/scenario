@@ -1,5 +1,5 @@
 """
-ElevenLabsAgent: connect to ElevenLabs Conversational AI via their WebSocket.
+ElevenLabsAgentAdapter: connect to ElevenLabs Conversational AI via their WebSocket.
 
 Source §5.4. Endpoint: wss://api.elevenlabs.io/v1/convai/conversation?agent_id=...
 Exchanges PCM16 audio chunks.
@@ -17,7 +17,7 @@ from ..capabilities import AdapterCapabilities
 CONVAI_URL_TEMPLATE = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}"
 
 
-class ElevenLabsAgent(VoiceAgentAdapter):
+class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
         streaming_transcripts=True,
         native_vad=True,
@@ -44,14 +44,14 @@ class ElevenLabsAgent(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         from ._stub import PendingTransportError
         if self._ws is None:
-            raise RuntimeError("ElevenLabsAgent: not connected")
-        raise PendingTransportError("ElevenLabsAgent")
+            raise RuntimeError("ElevenLabsAgentAdapter: not connected")
+        raise PendingTransportError("ElevenLabsAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         from ._stub import PendingTransportError
         if self._ws is None:
-            raise RuntimeError("ElevenLabsAgent: not connected")
-        raise PendingTransportError("ElevenLabsAgent")
+            raise RuntimeError("ElevenLabsAgentAdapter: not connected")
+        raise PendingTransportError("ElevenLabsAgentAdapter")
 
     def __repr__(self) -> str:  # redact credentials
-        return f"ElevenLabsAgent(agent_id={self.agent_id!r}, api_key='***')"
+        return f"ElevenLabsAgentAdapter(agent_id={self.agent_id!r}, api_key='***')"

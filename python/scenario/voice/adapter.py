@@ -3,7 +3,7 @@ VoiceAgentAdapter — base class for voice-capable agents.
 
 Extends AgentAdapter (text-based) with audio send/receive primitives and a
 capability matrix. Concrete subclasses live under
-``scenario.voice.adapters`` (PipecatAgent, LiveKitAgent, etc.).
+``scenario.voice.adapters`` (PipecatAgentAdapter, LiveKitAgentAdapter, etc.).
 
 The scenario executor calls ``connect()`` automatically at scenario start and
 ``disconnect()`` at end — users do not manage lifecycle.

@@ -1,5 +1,5 @@
 """
-GeminiLiveAgent: direct-to-model adapter for Gemini Live native-audio.
+GeminiLiveAgentAdapter: direct-to-model adapter for Gemini Live native-audio.
 
 Source §5.6.
 """
@@ -13,7 +13,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 
 
-class GeminiLiveAgent(VoiceAgentAdapter):
+class GeminiLiveAgentAdapter(VoiceAgentAdapter):
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
         streaming_transcripts=True,
         native_vad=True,
@@ -42,11 +42,11 @@ class GeminiLiveAgent(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         from ._stub import PendingTransportError
         if self._session is None:
-            raise RuntimeError("GeminiLiveAgent: not connected")
-        raise PendingTransportError("GeminiLiveAgent")
+            raise RuntimeError("GeminiLiveAgentAdapter: not connected")
+        raise PendingTransportError("GeminiLiveAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         from ._stub import PendingTransportError
         if self._session is None:
-            raise RuntimeError("GeminiLiveAgent: not connected")
-        raise PendingTransportError("GeminiLiveAgent")
+            raise RuntimeError("GeminiLiveAgentAdapter: not connected")
+        raise PendingTransportError("GeminiLiveAgentAdapter")

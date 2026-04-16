@@ -16,7 +16,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 
 
-class WebRTCAgent(VoiceAgentAdapter):
+class WebRTCAgentAdapter(VoiceAgentAdapter):
     """Generic WebRTC adapter that negotiates via an HTTP signaling URL."""
 
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
