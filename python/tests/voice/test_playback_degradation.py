@@ -10,7 +10,6 @@ headless CI), the FfmpegPlayback must:
 """
 
 import logging
-import subprocess
 from unittest.mock import patch
 
 from scenario.voice import AudioChunk

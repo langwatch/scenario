@@ -13,7 +13,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE, PCM16_CHANNELS
+from .audio_chunk import PCM16_SAMPLE_RATE, PCM16_CHANNELS
 
 
 SpeakerRole = Literal["user", "agent"]
