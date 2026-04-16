@@ -18,9 +18,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, Optional
-
-import numpy as np
+from typing import Iterator, Optional
 
 
 logger = logging.getLogger("scenario.voice.twilio")

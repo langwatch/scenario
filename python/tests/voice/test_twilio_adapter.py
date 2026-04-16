@@ -163,7 +163,7 @@ async def test_place_call_transitions_to_call_mode(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wait_for_call_transitions_to_answer_mode(monkeypatch):
-    rest_instances = _install_fake_rest(monkeypatch)
+    _install_fake_rest(monkeypatch)
     a = _make_adapter(http_port=0)
     await a.connect()
     try:

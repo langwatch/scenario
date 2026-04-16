@@ -161,14 +161,20 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
             self._recv_task.cancel()
             try:
                 await self._recv_task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
+                # Expected: we just cancelled it.
                 pass
+            except Exception:
+                # Unexpected teardown error — already logging enough context
+                # elsewhere; disconnect() is best-effort.
+                logger.debug("PipecatAgentAdapter: recv_task raised during cancel", exc_info=True)
             self._recv_task = None
 
         try:
             await ws.close()
         except Exception:
-            pass
+            # WS may already be closed by the peer; disconnect() is best-effort.
+            logger.debug("PipecatAgentAdapter: ws.close() raised", exc_info=True)
 
         self._ws = None
         self._inbound_queue = None

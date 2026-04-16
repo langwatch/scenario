@@ -14,7 +14,6 @@ import pytest
 
 from scenario.voice.adapters._twilio_shared import (
     TWILIO_FRAME_BYTES,
-    TWILIO_SAMPLE_RATE,
     build_clear_frame,
     build_media_frame,
     iter_mulaw_frames,
@@ -53,10 +52,8 @@ def test_validate_e164_rejects_malformed(bad):
 # ---------------------------------------------------------------- codec
 
 def test_roundtrip_preserves_length_proportion():
-    # 1 second of silence at 24kHz PCM16 = 48000 bytes
-    pcm = b"\x00\x00" * TWILIO_SAMPLE_RATE * 3  # 3 seconds at 8k PCM16 = 1s @ 24k
-    # Actually construct proper 1s of 24kHz PCM16:
-    pcm = b"\x00\x00" * 24000  # 1s at 24kHz PCM16 mono
+    # 1 second of silence at 24kHz PCM16 mono.
+    pcm = b"\x00\x00" * 24000
     mulaw = pcm16_24k_to_mulaw8k(pcm)
     # 1s at 8kHz µ-law = 8000 bytes
     assert abs(len(mulaw) - 8000) < 100, f"got {len(mulaw)} bytes of µ-law"
