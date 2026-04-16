@@ -8,7 +8,7 @@ send_audio/recv_audio.
 
 Usage:
 
-    python examples/voice_twilio_inbound_scenario.py
+    python examples/voice_twilio_agent_answers_scenario.py
     # Script will print a cloudflared trycloudflare.com URL.
     # Scenario automatically registers it as the Twilio webhook.
     # Dial your Twilio number from a real phone within 60s.
