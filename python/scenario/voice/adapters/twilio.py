@@ -1,73 +1,397 @@
 """
-TwilioAgentAdapter: place a real outbound phone call and stream audio via Twilio
-Media Streams WebSocket.
+TwilioAgentAdapter: bidirectional real phone transport via Twilio Media Streams.
 
-Source §5.3. The only adapter with ``dtmf`` capability — needed for IVR/phone
-tree testing. Media Streams emits raw audio without incremental transcripts,
-so ``interrupt(after_words=N)`` raises on this adapter (that's why
-streaming_transcripts=False and the user must fall back to interrupt(after=s)).
+One adapter class serves both directions a Twilio number can participate in:
+
+- **Inbound** — ``wait_for_call()`` sets the number's voice webhook to our
+  local server, blocks until a human dials in, and opens a Media Streams
+  WebSocket for the call.
+- **Outbound** — ``place_call(to=...)`` originates a call via Twilio REST,
+  then accepts the Media Streams WebSocket Twilio opens back to us.
+
+``connect()`` is direction-agnostic: resolve the number SID, start a
+FastAPI webhook + Media Streams WS server, open a public URL (user-supplied
+or via ``CloudflareTunnel``). After ``connect()``, call either
+``place_call()`` or ``wait_for_call()``.
+
+See source §5.3 and docs/proposals/issue-350-ralph-real-transports.md.
 """
 
 from __future__ import annotations
 
-from typing import ClassVar, Optional
+import asyncio
+import logging
+from contextlib import suppress
+from typing import Any, Callable, ClassVar, Optional
 
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from ._twilio_shared import (
+    TwilioRESTHelper,
+    build_clear_frame,
+    build_media_frame,
+    iter_mulaw_frames,
+    mulaw8k_to_pcm16_24k,
+    parse_media_stream_frame,
+    pcm16_24k_to_mulaw8k,
+    validate_e164,
+)
+
+
+logger = logging.getLogger("scenario.voice.twilio")
 
 
 class TwilioAgentAdapter(VoiceAgentAdapter):
+    """
+    Bidirectional Twilio Media Streams adapter.
+
+    Same class, same state, either direction:
+
+        adapter = TwilioAgentAdapter(
+            account_sid=..., auth_token=...,
+            phone_number="+14155551234",
+        )
+        async with adapter:                   # connect() / disconnect()
+            await adapter.place_call(to="+14155557777")  # OR wait_for_call()
+            # ... scenario.run(...) feeds send_audio / recv_audio ...
+
+    The adapter is the *only* adapter with ``dtmf=True``. DTMF events
+    received from the callee surface via the ``on_dtmf`` callback set at
+    construction time. To send DTMF, use ``send_dtmf()``.
+
+    ``interrupt(after_words=N)`` raises ``UnsupportedCapabilityError`` on this
+    adapter — Media Streams delivers raw audio without incremental
+    transcripts. Use ``interrupt(after=seconds)`` instead.
+    """
+
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
-        streaming_transcripts=False,  # Media Streams has no native STT
-        native_vad=False,  # SDK falls back to webrtcvad
+        streaming_transcripts=False,
+        native_vad=False,
         dtmf=True,
         input_formats=["mulaw/8000"],
         output_formats=["mulaw/8000"],
     )
 
+    # ------------------------------------------------------------------ init
+
     def __init__(
         self,
-        phone_number: str,
-        from_number: str,
+        *,
         account_sid: str,
         auth_token: str,
-    ):
-        self.phone_number = phone_number
-        self.from_number = from_number
+        phone_number: str,
+        public_base_url: Optional[str] = None,
+        allowed_callers: Optional[list[str]] = None,
+        on_dtmf: Optional[Callable[[str], None]] = None,
+        http_port: int = 8765,
+    ) -> None:
+        validate_e164(phone_number)
+
         self.account_sid = account_sid
         self.auth_token = auth_token
-        self._stream: Optional[object] = None
-        self._sent_dtmf: list[str] = []
+        self.phone_number = phone_number
+        self.public_base_url = public_base_url
+        self.allowed_callers = set(allowed_callers) if allowed_callers else None
+        self.on_dtmf = on_dtmf
+        self.http_port = http_port
+
+        # Populated during connect(); None when disconnected.
+        self._rest: Optional[TwilioRESTHelper] = None
+        self._phone_number_sid: Optional[str] = None
+        self._prior_voice_url: Optional[str] = None
+
+        # Server / media stream state.
+        self._server_task: Optional[asyncio.Task] = None
+        self._server_shutdown: Optional[asyncio.Event] = None
+        self._call_sid: Optional[str] = None
+        self._stream_sid: Optional[str] = None
+        self._stream_connected: Optional[asyncio.Event] = None
+        self._stream_ws: Any = None  # starlette WebSocket
+        self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
+
+    # ------------------------------------------------------------------ repr
 
     def __repr__(self) -> str:  # redact credentials
         return (
-            f"TwilioAgentAdapter(phone_number={self.phone_number!r}, "
-            f"from_number={self.from_number!r}, account_sid='***', auth_token='***')"
+            f"TwilioAgentAdapter("
+            f"phone_number={self.phone_number!r}, "
+            f"account_sid='***', auth_token='***', "
+            f"public_base_url={self.public_base_url!r})"
         )
 
+    # ------------------------------------------------------------------ lifecycle
+
     async def connect(self) -> None:
-        self._stream = object()
+        """Resolve number SID, start FastAPI server, register webhook.
+
+        Idempotent in the sense that double-connect raises; ``disconnect``
+        resets state so it can be re-used.
+        """
+        if self._rest is not None:
+            raise RuntimeError("TwilioAgentAdapter: already connected")
+
+        if self.public_base_url is None:
+            raise RuntimeError(
+                "TwilioAgentAdapter: public_base_url is required. Wrap the "
+                "adapter in scenario.voice.testing.TwilioHarness, or supply "
+                "a stable public HTTPS URL that routes to this machine."
+            )
+
+        self._rest = TwilioRESTHelper(self.account_sid, self.auth_token)
+        self._phone_number_sid = self._rest.resolve_phone_number_sid(self.phone_number)
+        self._prior_voice_url = self._rest.read_voice_url(self._phone_number_sid)
+
+        self._stream_connected = asyncio.Event()
+        self._inbound_queue = asyncio.Queue()
+        self._server_shutdown = asyncio.Event()
+
+        webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+        self._server_task = asyncio.create_task(self._run_server())
+        # Give uvicorn a beat to bind the port before Twilio hits it.
+        await asyncio.sleep(0.2)
+
+        self._rest.write_voice_url(self._phone_number_sid, webhook_url)
+        logger.info("TwilioAgentAdapter: webhook set to %s", webhook_url)
 
     async def disconnect(self) -> None:
-        self._stream = None
+        """Restore prior voice_url, tear down server. Best-effort on errors."""
+        if self._rest is None:
+            return
+
+        # 1. Restore webhook first so Twilio doesn't keep hitting a dead URL.
+        if self._phone_number_sid is not None:
+            with suppress(Exception):
+                prior = self._prior_voice_url or ""
+                self._rest.write_voice_url(self._phone_number_sid, prior)
+                logger.debug(
+                    "TwilioAgentAdapter: restored voice_url=%r on %s",
+                    prior,
+                    self._phone_number_sid,
+                )
+
+        # 2. Signal server to shut down, then wait for the task.
+        if self._server_shutdown is not None:
+            self._server_shutdown.set()
+        if self._server_task is not None:
+            with suppress(Exception):
+                await asyncio.wait_for(self._server_task, timeout=3.0)
+
+        # 3. Reset state.
+        self._rest = None
+        self._phone_number_sid = None
+        self._prior_voice_url = None
+        self._server_task = None
+        self._server_shutdown = None
+        self._call_sid = None
+        self._stream_sid = None
+        self._stream_connected = None
+        self._stream_ws = None
+        self._inbound_queue = None
+
+    async def __aenter__(self) -> "TwilioAgentAdapter":
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self.disconnect()
+
+    # ------------------------------------------------------------------ direction
+
+    async def place_call(self, to: str, *, timeout: float = 30.0) -> None:
+        """Originate an outbound call. Blocks until the media stream is live."""
+        self._assert_connected()
+        validate_e164(to)
+
+        assert self.public_base_url is not None
+        assert self._rest is not None
+        assert self._stream_connected is not None
+
+        twiml_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+        self._call_sid = self._rest.place_call(
+            to=to, from_=self.phone_number, twiml_url=twiml_url
+        )
+        logger.info("TwilioAgentAdapter: placed call %s to %s", self._call_sid, to)
+
+        await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+
+    async def wait_for_call(self, timeout: float = 30.0) -> None:
+        """Block until someone dials in and the media stream is live."""
+        self._assert_connected()
+        assert self._stream_connected is not None
+        await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+
+    # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        from ._stub import PendingTransportError
-        if self._stream is None:
-            raise RuntimeError("TwilioAgentAdapter: not connected")
-        raise PendingTransportError("TwilioAgentAdapter")
+        self._assert_stream_live()
+        ws = self._stream_ws
+        stream_sid = self._stream_sid
+        assert ws is not None and stream_sid is not None
+
+        mulaw = pcm16_24k_to_mulaw8k(chunk.data)
+        for frame in iter_mulaw_frames(mulaw):
+            if not frame:
+                continue
+            await ws.send_text(build_media_frame(stream_sid, frame))
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        from ._stub import PendingTransportError
-        if self._stream is None:
-            raise RuntimeError("TwilioAgentAdapter: not connected")
-        raise PendingTransportError("TwilioAgentAdapter")
+        self._assert_stream_live()
+        assert self._inbound_queue is not None
+        return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
 
     async def send_dtmf(self, tones: str) -> None:
-        """Send DTMF tones via the Twilio Media Streams control channel."""
-        if self._stream is None:
-            raise RuntimeError("TwilioAgentAdapter: not connected")
-        # Recorded for later verification; real wire implementation ships with
-        # the integration-level Twilio transport.
-        self._sent_dtmf.append(tones)
+        """Send DTMF digits on the live call (uses Twilio REST ``<Play digits>``)."""
+        if self._rest is None or self._call_sid is None:
+            raise RuntimeError("TwilioAgentAdapter: no active call; send_dtmf requires an in-progress call")
+        # Run blocking REST call off-thread so we don't stall the event loop.
+        await asyncio.to_thread(self._rest.send_dtmf_on_call, self._call_sid, tones)
+
+    async def interrupt(self) -> None:
+        """Drop any buffered outbound audio on Twilio's side (``clear`` event)."""
+        self._assert_stream_live()
+        ws = self._stream_ws
+        stream_sid = self._stream_sid
+        assert ws is not None and stream_sid is not None
+        await ws.send_text(build_clear_frame(stream_sid))
+
+    # ------------------------------------------------------------------ server
+
+    async def _run_server(self) -> None:
+        """Run the FastAPI/uvicorn webhook + WS server until shutdown is requested."""
+        import uvicorn
+        from fastapi import FastAPI
+
+        app = self._build_app()
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=self.http_port,
+            log_level="warning",
+            loop="asyncio",
+        )
+        server = uvicorn.Server(config)
+        server_task = asyncio.create_task(server.serve())
+        assert self._server_shutdown is not None
+        await self._server_shutdown.wait()
+        server.should_exit = True
+        with suppress(Exception):
+            await asyncio.wait_for(server_task, timeout=2.0)
+
+    def _build_app(self) -> Any:
+        """Build the FastAPI app with Twilio voice + stream routes.
+
+        Returned lazily so we don't import FastAPI at module load time.
+        """
+        from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
+        from fastapi.responses import Response
+
+        app = FastAPI()
+
+        @app.post("/twilio/voice")
+        async def voice(request: Request) -> Response:
+            """Twilio hits this when a call comes in (or when an outbound call
+            we placed needs its TwiML)."""
+            form = await request.form()
+            from_number = form.get("From") or ""
+
+            if self.allowed_callers is not None and from_number not in self.allowed_callers:
+                logger.info("TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)", from_number)
+                return Response(
+                    content="<Response><Reject/></Response>",
+                    media_type="application/xml",
+                )
+
+            # Use the authority-only host for the WSS URL.
+            assert self.public_base_url is not None
+            ws_url = (
+                self.public_base_url.replace("https://", "wss://").replace("http://", "ws://")
+                .rstrip("/")
+                + "/twilio/stream"
+            )
+            twiml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Response>'
+                f'<Connect><Stream url="{ws_url}"/></Connect>'
+                '</Response>'
+            )
+            return Response(content=twiml, media_type="application/xml")
+
+        @app.websocket("/twilio/stream")
+        async def stream(ws: WebSocket) -> None:
+            await ws.accept()
+            logger.debug("TwilioAgentAdapter: WS connection accepted")
+            try:
+                await self._media_stream_loop(ws)
+            except WebSocketDisconnect:
+                logger.debug("TwilioAgentAdapter: WS disconnected")
+            finally:
+                self._stream_ws = None
+                self._stream_sid = None
+
+        return app
+
+    async def _media_stream_loop(self, ws: Any) -> None:
+        """Per-call Media Streams loop: parse frames, enqueue audio, fire DTMF."""
+        assert self._inbound_queue is not None
+        assert self._stream_connected is not None
+
+        self._stream_ws = ws
+        # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
+        # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
+        # chunk to avoid thousands of tiny AudioChunk objects.
+        buffered_mulaw = bytearray()
+        BATCH_MS = 100
+
+        while True:
+            msg = await ws.receive_text()
+            frame = parse_media_stream_frame(msg)
+            if frame is None:
+                continue
+
+            if frame.event == "start":
+                self._stream_sid = frame.stream_sid
+                if frame.call_sid and self._call_sid is None:
+                    self._call_sid = frame.call_sid
+                self._stream_connected.set()
+
+            elif frame.event == "media" and frame.payload_mulaw:
+                buffered_mulaw.extend(frame.payload_mulaw)
+                # 20ms per frame → flush every ~5 frames.
+                if len(buffered_mulaw) >= (BATCH_MS * 8):  # 8 bytes/ms at 8kHz µ-law
+                    pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                    buffered_mulaw.clear()
+                    await self._inbound_queue.put(AudioChunk(data=pcm))
+
+            elif frame.event == "dtmf" and frame.dtmf_digit:
+                logger.debug("TwilioAgentAdapter: received DTMF %s", frame.dtmf_digit)
+                if self.on_dtmf is not None:
+                    try:
+                        self.on_dtmf(frame.dtmf_digit)
+                    except Exception:
+                        logger.warning(
+                            "TwilioAgentAdapter.on_dtmf callback raised; continuing",
+                            exc_info=True,
+                        )
+
+            elif frame.event == "stop":
+                # Flush trailing audio then exit.
+                if buffered_mulaw:
+                    pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                    buffered_mulaw.clear()
+                    await self._inbound_queue.put(AudioChunk(data=pcm))
+                return
+
+    # ------------------------------------------------------------------ assertions
+
+    def _assert_connected(self) -> None:
+        if self._rest is None:
+            raise RuntimeError("TwilioAgentAdapter: not connected; call connect() or use `async with`.")
+
+    def _assert_stream_live(self) -> None:
+        self._assert_connected()
+        if self._stream_ws is None or self._stream_sid is None:
+            raise RuntimeError(
+                "TwilioAgentAdapter: no live media stream. Call place_call() or "
+                "wait_for_call() first."
+            )
