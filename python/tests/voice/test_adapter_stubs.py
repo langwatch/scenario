@@ -23,10 +23,12 @@ from scenario.voice import (
 from scenario.voice.adapters import PendingTransportError
 
 
-# TwilioAgentAdapter has a REAL transport as of this PR — it's no longer
-# a stub and doesn't belong in this parametrize list.
+# Adapters whose send/recv still stub out fully after `connect()`.
+# Out of this list as of this PR:
+#   - TwilioAgentAdapter (real Media Streams transport shipped)
+#   - PipecatAgentAdapter(transport="websocket") (real WS transport shipped;
+#     webrtc mode still raises PendingTransportError — covered below).
 STUB_ADAPTERS = [
-    (PipecatAgentAdapter, {"url": "ws://x/ws"}),
     (LiveKitAgentAdapter, {"url": "wss://x", "api_key": "k", "api_secret": "s", "room": "r"}),
     (ElevenLabsAgentAdapter, {"agent_id": "a", "api_key": "k"}),
     (VapiAgentAdapter, {"assistant_id": "a", "api_key": "k"}),
@@ -53,3 +55,12 @@ async def test_recv_audio_raises_pending_transport_after_connect(cls, kwargs):
     await adapter.connect()
     with pytest.raises(PendingTransportError):
         await adapter.recv_audio(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_pipecat_webrtc_still_raises_pending_transport():
+    """WebRTC mode is a follow-up; calling connect() must fail loud."""
+    adapter = PipecatAgentAdapter(transport="webrtc", signaling_url="https://x/api/offer")
+    with pytest.raises(PendingTransportError) as excinfo:
+        await adapter.connect()
+    assert "webrtc" in str(excinfo.value).lower()
