@@ -105,6 +105,7 @@ class _AdapterRecorder:
     def record_user(self, chunk: AudioChunk) -> None:
         if self._executor is None or not chunk.data:
             return
+        _fire_audio_chunk(self._executor, chunk)
         start = self._offset()
         end = start + chunk.duration_seconds
         _append_segment(self._executor, "user", start, end, chunk)
@@ -117,6 +118,7 @@ class _AdapterRecorder:
     def record_agent(self, chunk: AudioChunk) -> None:
         if self._executor is None or not chunk.data:
             return
+        _fire_audio_chunk(self._executor, chunk)
         start = self._offset()
         end = start + chunk.duration_seconds
         _append_segment(self._executor, "agent", start, end, chunk)
@@ -151,6 +153,22 @@ def _append_event(executor, event: VoiceEvent) -> None:
     if timeline is None:
         return
     timeline.append(event)
+    hook = getattr(executor, "_on_voice_event", None)
+    if hook is not None:
+        try:
+            hook(event)
+        except Exception:  # pragma: no cover — hook errors shouldn't abort
+            pass
+
+
+def _fire_audio_chunk(executor, chunk: AudioChunk) -> None:
+    hook = getattr(executor, "_on_audio_chunk", None)
+    if hook is None:
+        return
+    try:
+        hook(chunk)
+    except Exception:  # pragma: no cover
+        pass
 
 
 def _record_latency(executor, latency: float) -> None:

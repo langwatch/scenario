@@ -139,6 +139,8 @@ class ScenarioExecutor:
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        on_audio_chunk: Optional[Callable[[Any], None]] = None,
+        on_voice_event: Optional[Callable[[Any], None]] = None,
     ):
         """
         Initialize a scenario executor.
@@ -170,6 +172,8 @@ class ScenarioExecutor:
         self.agents = agents
         self.script = script or [proceed()]
         self.metadata = metadata
+        self._on_audio_chunk = on_audio_chunk
+        self._on_voice_event = on_voice_event
 
         config = ScenarioConfig(
             max_turns=max_turns,
@@ -847,9 +851,33 @@ class ScenarioExecutor:
             self.add_message(message)
 
     async def user(
-        self, content: Optional[Union[str, ChatCompletionMessageParam]] = None
+        self,
+        content: Optional[Union[str, ChatCompletionMessageParam]] = None,
+        *,
+        voice_style: Optional[str] = None,
+        audio_effects: Optional[List[Callable[[bytes], bytes]]] = None,
     ) -> None:
-        await self._script_call_agent(AgentRole.USER, content)
+        """Invoke the user simulator, optionally with per-step voice overrides.
+
+        ``voice_style`` and ``audio_effects`` override the simulator's
+        configured defaults for this step only. The simulator restores its
+        defaults on the next step — implemented via a context manager on the
+        UserSimulatorAgent (``_one_shot_override``).
+        """
+        sim = self._find_user_sim()
+        if sim is not None and (voice_style is not None or audio_effects is not None):
+            with sim._one_shot_override(voice_style=voice_style, audio_effects=audio_effects):
+                await self._script_call_agent(AgentRole.USER, content)
+        else:
+            await self._script_call_agent(AgentRole.USER, content)
+
+    def _find_user_sim(self):
+        from .user_simulator_agent import UserSimulatorAgent
+
+        for agent in self.agents:
+            if isinstance(agent, UserSimulatorAgent):
+                return agent
+        return None
 
     async def agent(
         self,
@@ -1276,6 +1304,8 @@ async def run(
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    on_audio_chunk: Optional[Callable[[Any], None]] = None,
+    on_voice_event: Optional[Callable[[Any], None]] = None,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -1361,6 +1391,8 @@ async def run(
         script=script,
         set_id=set_id,
         metadata=metadata,
+        on_audio_chunk=on_audio_chunk,
+        on_voice_event=on_voice_event,
     )
 
     # We'll use a thread pool to run the execution logic, we
