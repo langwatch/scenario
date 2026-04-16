@@ -101,4 +101,8 @@ dev = [
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",
     "respx>=0.22.0",
+    # Guard the suite against individual hangs — any test taking longer
+    # than `timeout` in pytest.ini_options below fails fast instead of
+    # pinning the CI runner. Set per-test; global suite has no limit.
+    "pytest-timeout>=2.3",
 ]
