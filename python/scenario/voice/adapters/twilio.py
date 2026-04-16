@@ -283,17 +283,23 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
         Returned lazily so we don't import FastAPI at module load time.
         """
-        from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
+        from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
         from fastapi.responses import Response
 
         app = FastAPI()
 
-        @app.post("/twilio/voice")
-        async def voice(request: Request) -> Response:
+        async def _voice(request):
             """Twilio hits this when a call comes in (or when an outbound call
-            we placed needs its TwiML)."""
-            form = await request.form()
-            from_number = form.get("From") or ""
+            we placed needs its TwiML). Twilio POSTs
+            ``application/x-www-form-urlencoded``."""
+            # Parse the URL-encoded body manually to avoid requiring
+            # python-multipart as a dependency (which starlette.Request.form()
+            # pulls in).
+            from urllib.parse import parse_qs
+
+            body = (await request.body()).decode("utf-8", errors="replace")
+            fields = parse_qs(body)
+            from_number = (fields.get("From") or [""])[0]
 
             if self.allowed_callers is not None and from_number not in self.allowed_callers:
                 logger.info("TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)", from_number)
@@ -317,8 +323,14 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             )
             return Response(content=twiml, media_type="application/xml")
 
-        @app.websocket("/twilio/stream")
-        async def stream(ws: WebSocket) -> None:
+        # NOTE: the module uses ``from __future__ import annotations``, which
+        # stringifies annotations and breaks FastAPI's DI for the Request
+        # parameter. Assign annotations explicitly so FastAPI sees the real
+        # type objects and injects a Request instead of treating it as a query.
+        _voice.__annotations__ = {"request": Request, "return": Response}
+        app.post("/twilio/voice")(_voice)
+
+        async def _stream(ws):
             await ws.accept()
             logger.debug("TwilioAgentAdapter: WS connection accepted")
             try:
@@ -328,6 +340,9 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             finally:
                 self._stream_ws = None
                 self._stream_sid = None
+
+        _stream.__annotations__ = {"ws": WebSocket, "return": None}
+        app.websocket("/twilio/stream")(_stream)
 
         return app
 
