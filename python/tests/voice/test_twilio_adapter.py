@@ -300,6 +300,37 @@ async def test_place_call_rejects_non_e164_target(monkeypatch):
         await a.disconnect()
 
 
+# ---------------------------------------------------------------- TwiML shape
+
+@pytest.mark.asyncio
+async def test_voice_returns_connect_stream_twiml(monkeypatch):
+    """Both modes share the same <Connect><Stream> TwiML.
+
+    <Connect> is terminal and bidirectional on the current leg, which is
+    what we want in both directions:
+      - Answer mode: "current leg" is the inbound caller → we hear them.
+      - Call mode: "current leg" is the leg Twilio dialed out on → we
+        hear the callee, the callee hears us.
+    """
+    from starlette.testclient import TestClient
+
+    _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        app = a._build_app()
+        client = TestClient(app)
+
+        r = client.post("/twilio/voice", data={"From": "+14155551234"})
+        assert r.status_code == 200
+        body = r.text
+        assert "<Connect><Stream" in body
+        assert "/twilio/stream" in body
+        assert "<Dial>" not in body  # we don't use Dial topology
+    finally:
+        await a.disconnect()
+
+
 # ---------------------------------------------------------------- dtmf callback
 
 def test_on_dtmf_callback_stored():

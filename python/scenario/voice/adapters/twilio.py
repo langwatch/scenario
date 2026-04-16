@@ -251,6 +251,19 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._rest is not None
         assert self._stream_connected is not None
 
+        # Same TwiML URL for both directions: <Connect><Stream> attaches our
+        # leg's audio to the WS. For caller mode, "our leg" is the leg
+        # between the simulator's Twilio number and the callee — Twilio
+        # dials the callee (via `to=` on calls.create) and once the callee
+        # picks up, the bidirectional audio on our leg flows through the WS.
+        # This is the right topology for "simulator dials an external agent"
+        # (prod voice agent testing) — the primary use case.
+        #
+        # Note: two Twilio-owned numbers calling EACH OTHER (both legs
+        # running our <Connect><Stream> TwiML) cannot exchange audio
+        # automatically — each leg is attached to its own WS rather than
+        # bridged to the other number. That pattern requires <Conference>,
+        # which is out of scope for this PR.
         twiml_url = self.public_base_url.rstrip("/") + "/twilio/voice"
         self._call_sid = self._rest.place_call(
             to=to, from_=self.phone_number, twiml_url=twiml_url
@@ -373,12 +386,19 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         app = FastAPI()
 
         async def _voice(request):
-            """Twilio hits this when a call comes in (or when an outbound call
-            we placed needs its TwiML). Twilio POSTs
-            ``application/x-www-form-urlencoded``."""
-            # Parse the URL-encoded body manually to avoid requiring
-            # python-multipart as a dependency (which starlette.Request.form()
-            # pulls in).
+            """Return ``<Connect><Stream>`` TwiML — attaches our leg's audio
+            bidirectionally to the WS. Same TwiML for both directions:
+
+            - Answer mode: someone dialed our number; "our leg" is the
+              inbound caller's leg. We hear them, they hear us.
+            - Call mode: we originated a call via ``calls.create(to=X)``;
+              "our leg" is the leg between our Twilio number and X. Once
+              X picks up, the two-way audio on our leg flows through the
+              WS — we "are" the caller, X is a real external endpoint.
+
+            Twilio POSTs ``application/x-www-form-urlencoded``; we parse
+            manually to avoid depending on python-multipart.
+            """
             from urllib.parse import parse_qs
 
             body = (await request.body()).decode("utf-8", errors="replace")
@@ -392,7 +412,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     media_type="application/xml",
                 )
 
-            # Use the authority-only host for the WSS URL.
             assert self.public_base_url is not None
             ws_url = (
                 self.public_base_url.replace("https://", "wss://").replace("http://", "ws://")

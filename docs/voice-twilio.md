@@ -84,7 +84,6 @@ From the console (https://console.twilio.com):
 2. **Phone number** — Console → Phone Numbers → Manage → Buy a Number. Make
    sure it has **Voice** capability. The number is in E.164 format
    (`+14155551234`).
-3. For the automated two-number smoke, buy a **second** number.
 
 ### 3. Python .env
 
@@ -93,8 +92,7 @@ From the console (https://console.twilio.com):
 OPENAI_API_KEY=sk-...
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
-TWILIO_PHONE_NUMBER=+14155551234     # primary
-TWILIO_PHONE_NUMBER_2=+14155551235   # only needed for the two-number smoke
+TWILIO_PHONE_NUMBER=+14155551234
 ```
 
 ### Trial account restriction
@@ -168,25 +166,26 @@ python examples/voice_twilio_simulator_calls_human_scenario.py
 # The script exits 0 on success, 1 on timeout.
 ```
 
-### Smoke 4 — two-number automated self-test (no human)
+### Automated two-adapter testing (no human, no Twilio)
 
-Tests the full caller ↔ answerer pipeline end-to-end without anyone picking
-up a phone. Adapter A places a call from `TWILIO_PHONE_NUMBER_2` to adapter
-B on `TWILIO_PHONE_NUMBER`; B answers; tones round-trip both ways over
-real PSTN.
+The in-process loopback at `python/tests/voice/test_twilio_two_adapter_bridge.py`
+proves the Media Streams WS frame protocol is symmetric between two
+adapters without spending any money — two `TwilioAgentAdapter` instances
+are wired together via asyncio queues and a 440 Hz tone round-trips
+through µ-law encode → frame → parse → decode.
 
-```sh
-python examples/voice_twilio_simulator_calls_agent_scenario.py
+### Two Twilio numbers calling each other (NOT supported)
 
-# ~30s, costs ~$0.02 per run (two legs × 30s domestic).
-# No human input needed. Exits 0 on success, 1 if audio doesn't round-trip.
-```
+A seemingly-obvious smoke is "adapter A places a call to adapter B's
+number, both use `<Connect><Stream>`, tones round-trip over PSTN." This
+**does not work** with pure Media Streams. `<Connect>` is a terminal
+TwiML verb — each leg's audio attaches to its *own* WS endpoint rather
+than bridging to the other number. The legs never connect to each other.
 
-Use this smoke to validate the transport — the two-number loop proves that
-send_audio → Media Streams frames → µ-law over real PSTN → decoder →
-recv_audio works both ways. The pure-unit loopback test in
-`python/tests/voice/test_twilio_two_adapter_bridge.py` covers the WS frame
-protocol without spending money; this smoke adds the real-network confidence.
+Bridging two Twilio numbers with full bidirectional audio AND a WS tap
+from scenario requires `<Conference>` (each number joins a named
+conference room; scenario joins via a third call). That's a bigger
+feature than what's in scope here — tracked as a follow-up issue.
 
 ## If a test crashes mid-run
 

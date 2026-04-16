@@ -82,7 +82,18 @@ class TwilioHarness:
         )
         try:
             await self._adapter.connect()
+            # Now that the FastAPI server is bound on localhost, wait for the
+            # Cloudflare edge to actually route inbound traffic to it. This
+            # prevents the "Twilio fetched TwiML too early, got a 502, dropped
+            # the call with duration=0" race that otherwise bites callers
+            # placing outbound calls immediately after harness startup.
+            await self._tunnel.wait_until_edge_reachable()
         except Exception:
+            if self._adapter is not None:
+                try:
+                    await self._adapter.disconnect()
+                except Exception:
+                    pass
             await self._tunnel.__aexit__(None, None, None)
             self._tunnel = None
             self._adapter = None
