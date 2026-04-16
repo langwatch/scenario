@@ -6,7 +6,7 @@ Feature: Voice agent testing in Scenario SDK
 
   Background:
     Given the Scenario SDK is configured
-    And voice dependencies are installed as hard deps: imageio-ffmpeg, numpy, webrtcvad-wheels, websockets, twilio, fastapi
+    And voice dependencies are installed as hard deps: imageio-ffmpeg, numpy, webrtcvad-wheels, websockets, twilio, fastapi, uvicorn
     # Note: soundfile, aiortc, livekit, livekit-api, elevenlabs belong to
     # adapters whose transports are deferred (see PR body). They will be
     # added when the corresponding adapter transport ships.
@@ -560,7 +560,7 @@ Feature: Voice agent testing in Scenario SDK
   Scenario: Hard dependencies install with the SDK (no extras flag)
     # Locked decision: Hard deps — voice is first-class
     Given "pip install scenario"
-    Then imageio-ffmpeg, numpy, webrtcvad-wheels, websockets, twilio, fastapi are installed as hard deps
+    Then imageio-ffmpeg, numpy, webrtcvad-wheels, websockets, twilio, fastapi, uvicorn are installed as hard deps
     # soundfile, aiortc, livekit, livekit-api, elevenlabs ship with the adapters whose
     # transports need them (see follow-up issues linked from PR #355).
     And google-cloud-texttospeech and cartesia are NOT installed by default (lazy-imported when their provider prefix is used)

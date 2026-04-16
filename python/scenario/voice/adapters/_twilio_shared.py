@@ -212,7 +212,9 @@ class TwilioRESTHelper:
                 f"No incoming phone number found on this Twilio account matching "
                 f"{phone_number!r}. Check that the number is purchased and in E.164."
             )
-        return numbers[0].sid
+        # Twilio always returns non-None sid for list results; pyright type stubs
+        # are too loose.
+        return str(numbers[0].sid)
 
     def read_voice_url(self, phone_number_sid: str) -> Optional[str]:
         """Fetch the current ``voice_url`` configured on the number."""
@@ -225,7 +227,8 @@ class TwilioRESTHelper:
     def place_call(self, *, to: str, from_: str, twiml_url: str) -> str:
         """Originate an outbound call. Returns the call SID."""
         call = self._client.calls.create(to=to, from_=from_, url=twiml_url)
-        return call.sid
+        # Twilio always returns non-None sid for create results; see above.
+        return str(call.sid)
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
         """Send DTMF on an in-progress call via the REST ``send_digits`` update."""

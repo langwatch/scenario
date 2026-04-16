@@ -4,6 +4,7 @@ Unit tests for TwilioAgentAdapter transport behavior (REST client mocked).
 Real-phone e2e is covered in examples/voice_twilio_*_scenario.py.
 """
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,8 +12,8 @@ import pytest
 from scenario.voice import TwilioAgentAdapter
 
 
-def _make_adapter(**overrides):
-    kwargs = dict(
+def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
+    kwargs: dict[str, Any] = dict(
         account_sid="AC" + "0" * 32,
         auth_token="secret",
         phone_number="+14155551234",
