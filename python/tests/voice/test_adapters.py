@@ -78,12 +78,22 @@ def test_twilio_advertises_dtmf_capability():
 
 def test_twilio_construction():
     a = TwilioAgentAdapter(
-        phone_number="+14155551234",
-        from_number="+14155559876",
         account_sid="AC...",
         auth_token="t",
+        phone_number="+14155551234",
     )
     assert a.phone_number == "+14155551234"
+
+
+def test_twilio_rejects_non_e164_phone_number():
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="E.164"):
+        TwilioAgentAdapter(
+            account_sid="AC...",
+            auth_token="t",
+            phone_number="4155551234",  # missing +
+        )
 
 
 # ---------------------------------------------------------------- ElevenLabs

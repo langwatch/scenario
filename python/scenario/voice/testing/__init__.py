@@ -9,5 +9,6 @@ Not imported by default from ``scenario.voice``. Users opt-in via
 from __future__ import annotations
 
 from .tunnel import CloudflareTunnel, TunnelUnavailableError
+from .twilio_harness import TwilioHarness
 
-__all__ = ["CloudflareTunnel", "TunnelUnavailableError"]
+__all__ = ["CloudflareTunnel", "TunnelUnavailableError", "TwilioHarness"]

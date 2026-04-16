@@ -17,17 +17,17 @@ from scenario.voice import (
     LiveKitAgentAdapter,
     OpenAIRealtimeAgentAdapter,
     PipecatAgentAdapter,
-    TwilioAgentAdapter,
     VapiAgentAdapter,
     WebRTCAgentAdapter,
 )
 from scenario.voice.adapters import PendingTransportError
 
 
+# TwilioAgentAdapter has a REAL transport as of this PR — it's no longer
+# a stub and doesn't belong in this parametrize list.
 STUB_ADAPTERS = [
     (PipecatAgentAdapter, {"url": "ws://x/ws"}),
     (LiveKitAgentAdapter, {"url": "wss://x", "api_key": "k", "api_secret": "s", "room": "r"}),
-    (TwilioAgentAdapter, {"phone_number": "+1", "from_number": "+1", "account_sid": "AC", "auth_token": "t"}),
     (ElevenLabsAgentAdapter, {"agent_id": "a", "api_key": "k"}),
     (VapiAgentAdapter, {"assistant_id": "a", "api_key": "k"}),
     (OpenAIRealtimeAgentAdapter, {}),

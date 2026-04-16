@@ -10,10 +10,9 @@ from scenario.voice import ElevenLabsAgentAdapter, LiveKitAgentAdapter, TwilioAg
 
 def test_twilio_repr_redacts_auth_token_and_account_sid():
     a = TwilioAgentAdapter(
-        phone_number="+14155551234",
-        from_number="+14155559876",
         account_sid="AC_real_secret_sid",
         auth_token="real_auth_token",
+        phone_number="+14155551234",
     )
     r = repr(a)
     assert "+14155551234" in r  # phone numbers are not secret
