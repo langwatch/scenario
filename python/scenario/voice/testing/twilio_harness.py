@@ -93,7 +93,10 @@ class TwilioHarness:
                 try:
                     await self._adapter.disconnect()
                 except Exception:
-                    pass
+                    # Startup-path cleanup is best-effort; a secondary
+                    # disconnect error must not mask the original failure
+                    # we're about to re-raise.
+                    logger.exception("TwilioHarness: adapter.disconnect() during aborted startup raised")
             await self._tunnel.__aexit__(None, None, None)
             self._tunnel = None
             self._adapter = None
