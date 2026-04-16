@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from scenario.voice import AudioChunk, WebRTCVadFallback
-from scenario.voice.vad import _WARNED_ADAPTERS
 
 
 SR = 24000
@@ -24,7 +23,7 @@ def _silence_pcm(duration_s: float) -> bytes:
 
 
 def test_vad_fallback_emits_userwarning_once_per_adapter():
-    _WARNED_ADAPTERS.clear()
+    WebRTCVadFallback.reset_warnings()
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         WebRTCVadFallback("TwilioAgent")
@@ -37,7 +36,7 @@ def test_vad_fallback_emits_userwarning_once_per_adapter():
 
 
 def test_vad_fallback_warns_per_adapter_name():
-    _WARNED_ADAPTERS.clear()
+    WebRTCVadFallback.reset_warnings()
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         WebRTCVadFallback("AdapterA")
@@ -49,7 +48,7 @@ def test_vad_detects_silence_to_voice_to_silence_transitions():
     # Use dense random-noise "voice" between two silence chunks. Broadband
     # high-energy audio is reliably classified as speech by webrtcvad at
     # aggressiveness 2, where a pure tone is not.
-    _WARNED_ADAPTERS.clear()
+    WebRTCVadFallback.reset_warnings()
     starts, ends = [], []
     vad = WebRTCVadFallback(
         "TestAdapter",
@@ -70,7 +69,7 @@ def test_vad_detects_silence_to_voice_to_silence_transitions():
 
 
 def test_vad_with_silence_only_never_fires_speech_start():
-    _WARNED_ADAPTERS.clear()
+    WebRTCVadFallback.reset_warnings()
     starts = []
     vad = WebRTCVadFallback(
         "TestAdapter",

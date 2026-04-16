@@ -19,21 +19,6 @@ from typing import Callable, Iterable, Iterator, Optional
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 
 
-_WARNED_ADAPTERS: set[str] = set()
-
-
-def _emit_fallback_warning_once(adapter_name: str) -> None:
-    if adapter_name in _WARNED_ADAPTERS:
-        return
-    _WARNED_ADAPTERS.add(adapter_name)
-    warnings.warn(
-        f"Adapter {adapter_name!r} has no native VAD — using SDK-side webrtcvad. "
-        f"Accuracy may differ from native VAD.",
-        UserWarning,
-        stacklevel=2,
-    )
-
-
 class WebRTCVadFallback:
     """
     Incremental VAD over PCM16 @ 24kHz mono audio.
@@ -49,6 +34,25 @@ class WebRTCVadFallback:
     SAMPLES_PER_FRAME = PCM16_SAMPLE_RATE * FRAME_MS // 1000
     BYTES_PER_FRAME = SAMPLES_PER_FRAME * 2
 
+    _warned_adapters: "set[str]" = set()
+
+    @classmethod
+    def reset_warnings(cls) -> None:
+        """Clear the per-adapter warning memoization. Intended for tests."""
+        cls._warned_adapters = set()
+
+    @classmethod
+    def _emit_fallback_warning_once(cls, adapter_name: str) -> None:
+        if adapter_name in cls._warned_adapters:
+            return
+        cls._warned_adapters.add(adapter_name)
+        warnings.warn(
+            f"Adapter {adapter_name!r} has no native VAD — using SDK-side webrtcvad. "
+            f"Accuracy may differ from native VAD.",
+            UserWarning,
+            stacklevel=3,
+        )
+
     def __init__(
         self,
         adapter_name: str,
@@ -56,7 +60,7 @@ class WebRTCVadFallback:
         on_speech_start: Optional[Callable[[], None]] = None,
         on_speech_end: Optional[Callable[[], None]] = None,
     ):
-        _emit_fallback_warning_once(adapter_name)
+        self._emit_fallback_warning_once(adapter_name)
         import webrtcvad  # hard dep via webrtcvad-wheels
 
         self._vad = webrtcvad.Vad(aggressiveness)

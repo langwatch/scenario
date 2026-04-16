@@ -15,9 +15,12 @@ each adapter needing its own bookkeeping.
 
 from __future__ import annotations
 
+import logging
 import time
 from abc import abstractmethod
 from typing import ClassVar, Optional
+
+logger = logging.getLogger("scenario.voice")
 
 from ..agent_adapter import AgentAdapter
 from ..types import AgentInput, AgentReturnTypes, AgentRole
@@ -157,8 +160,11 @@ def _append_event(executor, event: VoiceEvent) -> None:
     if hook is not None:
         try:
             hook(event)
-        except Exception:  # pragma: no cover — hook errors shouldn't abort
-            pass
+        except Exception:
+            logger.warning(
+                "on_voice_event callback raised; continuing scenario.",
+                exc_info=True,
+            )
 
 
 def _fire_audio_chunk(executor, chunk: AudioChunk) -> None:
@@ -167,8 +173,11 @@ def _fire_audio_chunk(executor, chunk: AudioChunk) -> None:
         return
     try:
         hook(chunk)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception:
+        logger.warning(
+            "on_audio_chunk callback raised; continuing scenario.",
+            exc_info=True,
+        )
 
 
 def _record_latency(executor, latency: float) -> None:

@@ -63,5 +63,5 @@ def test_feed_tolerates_broken_pipe():
     pb = FfmpegPlayback()
     pb._proc = _FakeProc()  # type: ignore[assignment]
     pb._active = True
-    pb.feed(AudioChunk(data=b"\x00"))
+    pb.feed(AudioChunk(data=b"\x00\x00"))
     assert pb.active is False  # now marked inactive

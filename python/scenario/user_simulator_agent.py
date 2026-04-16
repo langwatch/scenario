@@ -221,14 +221,9 @@ class UserSimulatorAgent(AgentAdapter):
         content = text_message.get("content", "")
         if not isinstance(content, str) or not content:
             return text_message
-        # TTS cache key is (text, voice). Effects applied AFTER cache hit.
-        text = content
         if self._voice_style_override is not None:
-            # Inject the style hint inline so TTS providers that accept
-            # SSML-style style directives can honour it without us
-            # introducing a TTS-specific API field.
-            text = f"[{self._voice_style_override}] {content}"
-        chunk = await synthesize(text, self.voice)  # type: ignore[arg-type]
+            self._warn_voice_style_not_wired_once()
+        chunk = await synthesize(content, self.voice)  # type: ignore[arg-type]
         audio_bytes = chunk.data
         effects = self._effective_audio_effects()
         for effect in effects:
@@ -243,6 +238,27 @@ class UserSimulatorAgent(AgentAdapter):
 
     _voice_style_override: Optional[str] = None
     _audio_effects_override: Optional[List[Callable[[bytes], bytes]]] = None
+    _voice_style_warning_emitted: bool = False
+
+    @classmethod
+    def _warn_voice_style_not_wired_once(cls) -> None:
+        # Emit exactly one UserWarning per process the first time a user passes
+        # voice_style. The flag is intentionally stored on the class so every
+        # simulator instance shares the one-shot, matching the VAD fallback
+        # pattern used elsewhere in the voice package.
+        if cls._voice_style_warning_emitted:
+            return
+        import warnings
+
+        cls._voice_style_warning_emitted = True
+        warnings.warn(
+            "voice_style=... is accepted for forward compatibility but no "
+            "TTS provider currently honours it. The simulator will synthesise "
+            "without style modification. This will land as a per-provider "
+            "instructions channel in a follow-up.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     def _effective_audio_effects(self) -> List[Callable[[bytes], bytes]]:
         if self._audio_effects_override is not None:

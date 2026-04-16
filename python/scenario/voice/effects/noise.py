@@ -54,11 +54,24 @@ def background_noise(preset_or_path: str, volume: float = 0.3) -> EffectFn:
     if preset_or_path in _BACKGROUND_PRESETS:
         sample = _load_sample(preset_or_path)
     else:
+        # Only treat the argument as a filesystem path when it clearly is one
+        # (contains a separator or ends with .wav). Avoids the cwd-relative
+        # footgun where "cfae" (typo of "cafe") matches a stray local file.
+        looks_like_path = (
+            "/" in preset_or_path
+            or "\\" in preset_or_path
+            or preset_or_path.lower().endswith(".wav")
+        )
+        if not looks_like_path:
+            raise ValueError(
+                f"background_noise: preset {preset_or_path!r} is not one of "
+                f"{sorted(_BACKGROUND_PRESETS)}. To load a custom WAV pass a "
+                "path containing a separator or ending with .wav."
+            )
         p = Path(preset_or_path)
         if not p.exists():
             raise ValueError(
-                f"background_noise: preset {preset_or_path!r} is not one of "
-                f"{sorted(_BACKGROUND_PRESETS)} and not a readable path"
+                f"background_noise: path {preset_or_path!r} does not exist"
             )
         sample = _wav_to_np(p.read_bytes())
 
