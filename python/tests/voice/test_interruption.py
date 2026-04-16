@@ -60,7 +60,7 @@ class _FakeExecutor:
         self.agent_calls.append((content, wait))
 
     async def user(self, content=None):
-        self.user_calls.append(content)
+        self.user_calls.append(content)  # type: ignore[arg-type,misc]
 
 
 class _FakeState:
@@ -109,7 +109,7 @@ async def test_interrupt_after_words_raises_when_adapter_lacks_streaming():
     state = _FakeState([adapter])
     step = scenario.interrupt(after_words=5, content="cut in")
     with pytest.raises(UnsupportedCapabilityError) as exc:
-        await step(state)
+        await step(state)  # type: ignore[arg-type,misc]
     msg = str(exc.value).lower()
     assert "streaming_transcripts" in msg or "streaming transcripts" in msg
     assert "interrupt(after=seconds)" in msg or "after=seconds" in msg
@@ -123,7 +123,7 @@ async def test_interrupt_after_seconds_triggers_agent_wait_false_then_user():
     state = _FakeState([adapter])
     step = scenario.interrupt(after=0.2, content="wait that's wrong")
     t0 = time.monotonic()
-    await step(state)
+    await step(state)  # type: ignore[arg-type,misc]
     elapsed = time.monotonic() - t0
     assert elapsed >= 0.15
     # agent(wait=False) then user("wait that's wrong")
@@ -145,7 +145,7 @@ def test_interrupt_rejects_both_after_and_after_words():
 async def test_interrupt_after_words_works_when_streaming_supported():
     adapter = _StreamingAdapter()
     state = _FakeState([adapter])
-    await scenario.interrupt(after_words=3, content="cut in")(state)
+    await scenario.interrupt(after_words=3, content="cut in")(state)  # type: ignore[arg-type,misc]
     # agent(wait=False) was called before content delivery
     assert state._executor.agent_calls and state._executor.agent_calls[0][1] is False
     assert state._executor.user_calls == ["cut in"]

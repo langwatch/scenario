@@ -207,7 +207,7 @@ def test_custom_requires_callable_returns_bytes():
         return "not bytes"
 
     with pytest.raises(TypeError):
-        fx.custom(bad)(_tone(100))
+        fx.custom(bad)(_tone(100))  # type: ignore[arg-type,misc,index]
 
 
 # ----------------------------------------------------------- composability

@@ -54,7 +54,7 @@ async def test_sleep_does_not_send_audio_and_pauses_real_time():
     state = _FakeState([adapter])
     step = scenario.sleep(0.2)
     t0 = time.monotonic()
-    await step(state)
+    await step(state)  # type: ignore[arg-type,misc]
     elapsed = time.monotonic() - t0
     assert elapsed >= 0.15  # well below 0.2 to absorb loop latency
     assert adapter.sent == []  # no audio transmitted
@@ -64,7 +64,7 @@ async def test_sleep_does_not_send_audio_and_pauses_real_time():
 async def test_silence_sends_pcm16_zero_audio_of_requested_duration():
     adapter = _SpyAdapter()
     state = _FakeState([adapter])
-    await scenario.silence(0.1)(state)
+    await scenario.silence(0.1)(state)  # type: ignore[arg-type,misc]
     assert len(adapter.sent) == 1
     chunk = adapter.sent[0]
     assert abs(chunk.duration_seconds - 0.1) < 1e-3
@@ -87,7 +87,7 @@ async def test_audio_bytes_injects_chunk_into_adapter():
 
     adapter = _SpyAdapter()
     state = _FakeState([adapter])
-    await scenario.audio(wav_bytes)(state)
+    await scenario.audio(wav_bytes)(state)  # type: ignore[arg-type,misc]
     assert len(adapter.sent) == 1
     # Decoded back to PCM16 24kHz mono → should match what we put in.
     assert adapter.sent[0].sample_rate == 24000
@@ -98,7 +98,7 @@ async def test_dtmf_on_non_telephony_raises_unsupported_capability_error():
     adapter = _SpyAdapter()
     state = _FakeState([adapter])
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
-        await scenario.dtmf("1")(state)
+        await scenario.dtmf("1")(state)  # type: ignore[arg-type,misc]
     assert "dtmf" in str(excinfo.value).lower()
 
 
@@ -106,5 +106,5 @@ async def test_dtmf_on_non_telephony_raises_unsupported_capability_error():
 async def test_dtmf_on_telephony_adapter_delegates_to_send_dtmf():
     adapter = _TelephonyAdapter()
     state = _FakeState([adapter])
-    await scenario.dtmf("123")(state)
+    await scenario.dtmf("123")(state)  # type: ignore[arg-type,misc]
     assert adapter.dtmf_calls == ["123"]

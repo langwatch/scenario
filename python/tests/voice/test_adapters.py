@@ -137,7 +137,7 @@ class _EchoProtocol(WebSocketProtocol):
     def decode_response(self, message):
         from scenario.voice import AudioChunk
 
-        return AudioChunk(data=message) if isinstance(message, (bytes, bytearray)) else None
+        return AudioChunk(data=message) if isinstance(message, (bytes, bytearray)) else None  # type: ignore[arg-type,misc,index]
 
 
 def test_websocket_agent_stores_protocol():
