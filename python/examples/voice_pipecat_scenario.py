@@ -35,6 +35,8 @@ try:
 
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 except ImportError:
+    # python-dotenv is optional — required env vars may already be exported
+    # by the user's shell or CI. Missing dotenv just skips the .env load.
     pass
 
 
