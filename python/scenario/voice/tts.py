@@ -20,6 +20,7 @@ Google / Cartesia only when their provider prefix is actually used.
 from __future__ import annotations
 
 import hashlib
+from collections import OrderedDict
 from typing import Awaitable, Callable, Dict, Tuple
 
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
@@ -30,10 +31,13 @@ TTSCallable = Callable[[str, str], Awaitable[bytes]]
 
 
 _PROVIDERS: Dict[str, TTSCallable] = {}
-# In-process cache keyed on (sha256(text), voice) → PCM16 bytes. Keeping the
-# raw text out of the key keeps any future on-disk persistence layer from
-# leaking user-supplied strings (security review finding).
-_CACHE: Dict[Tuple[str, str], bytes] = {}
+# In-process LRU cache keyed on (sha256(text), voice) → PCM16 bytes. Keeping
+# the raw text out of the key avoids persisting user-supplied strings in any
+# future on-disk layer (security review finding). Bounded to prevent
+# unbounded memory growth in long-running processes — a 5-minute clip is
+# ~14 MB, so 64 entries caps the cache at ~900 MB even for long utterances.
+_CACHE_MAX_ENTRIES = 64
+_CACHE: "OrderedDict[Tuple[str, str], bytes]" = OrderedDict()
 
 
 def clear_cache() -> None:
@@ -59,18 +63,28 @@ def _split_voice(voice: str) -> Tuple[str, str]:
 
 
 async def _openai_tts(text: str, voice: str) -> bytes:
-    """Default OpenAI TTS provider. Uses gpt-4o-mini-tts for short clips."""
+    """Default OpenAI TTS provider. Uses gpt-4o-mini-tts for short clips.
+
+    OpenAI's ``response_format="pcm"`` is documented as raw PCM16 @ 24kHz mono
+    — matching our internal AudioChunk. We validate the byte-length-is-even
+    invariant via ``AudioChunk.__post_init__`` when the result flows through
+    an AudioChunk; we also trim a trailing odd byte here so a single framing
+    glitch from the HTTP stream does not poison the cache.
+    """
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI()
-    # PCM format means raw PCM16 @ 24kHz mono — matches our internal AudioChunk.
     response = await client.audio.speech.create(
         model="gpt-4o-mini-tts",
         voice=voice,
         input=text,
         response_format="pcm",
     )
-    return await response.aread()
+    data = await response.aread()
+    if len(data) % 2 == 1:
+        # PCM16 is 2 bytes/sample; an odd trailing byte cannot be played.
+        data = data[:-1]
+    return data
 
 
 async def _elevenlabs_tts(text: str, voice: str) -> bytes:
@@ -168,7 +182,11 @@ async def synthesize(text: str, voice: str) -> AudioChunk:
     cache_key = (_hash_text(text), voice)
     cached = _CACHE.get(cache_key)
     if cached is not None:
+        _CACHE.move_to_end(cache_key)  # LRU touch
         return AudioChunk(data=cached, transcript=text)
     pcm = await _synthesize_raw(text, voice)
     _CACHE[cache_key] = pcm
+    _CACHE.move_to_end(cache_key)
+    while len(_CACHE) > _CACHE_MAX_ENTRIES:
+        _CACHE.popitem(last=False)
     return AudioChunk(data=pcm, transcript=text)

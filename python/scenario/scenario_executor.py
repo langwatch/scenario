@@ -863,7 +863,19 @@ class ScenarioExecutor:
         configured defaults for this step only. The simulator restores its
         defaults on the next step — implemented via a context manager on the
         UserSimulatorAgent (``_one_shot_override``).
+
+        When the user-role agent is an ``OpenAIRealtimeAgent`` and ``content``
+        is a plain string, route through the realtime session's text-input
+        channel instead of TTS (per §7.2 L1164-1171).
         """
+        if isinstance(content, str):
+            realtime_user = self._find_realtime_user_agent()
+            if realtime_user is not None:
+                await realtime_user.send_text(content)
+                self.add_message(
+                    {"role": "user", "content": content}  # type: ignore[arg-type]
+                )
+                return
         sim = self._find_user_sim()
         if sim is not None and (voice_style is not None or audio_effects is not None):
             with sim._one_shot_override(voice_style=voice_style, audio_effects=audio_effects):
@@ -876,6 +888,17 @@ class ScenarioExecutor:
 
         for agent in self.agents:
             if isinstance(agent, UserSimulatorAgent):
+                return agent
+        return None
+
+    def _find_realtime_user_agent(self):
+        """Return an OpenAIRealtimeAgent configured as role=USER, if any."""
+        try:
+            from .voice.adapters.openai_realtime import OpenAIRealtimeAgent
+        except ImportError:  # pragma: no cover — voice adapters always importable here
+            return None
+        for agent in self.agents:
+            if isinstance(agent, OpenAIRealtimeAgent) and agent.role == AgentRole.USER:
                 return agent
         return None
 
@@ -892,14 +915,14 @@ class ScenarioExecutor:
         primitive that enables interruption testing: subsequent script steps
         run while the agent is still speaking.
 
-        A background turn finishes when the next blocking step (``agent()``,
-        ``judge()``, ``proceed()``, ``succeed()``/``fail()``) awaits
-        ``_drain_pending_agent_turn()``.
+        A background turn is drained at the start of the next blocking step
+        (``user()``, ``agent()``, ``judge()``, ``proceed()``, ``succeed()``
+        or ``fail()``) so subsequent reads of ``state.messages`` see the
+        completed agent message.
         """
         if not wait:
             self._schedule_background_agent_turn(content)
             return
-        await self._drain_pending_agent_turn()
         await self._script_call_agent(AgentRole.AGENT, content)
 
     def _schedule_background_agent_turn(
@@ -917,6 +940,13 @@ class ScenarioExecutor:
     async def _drain_pending_agent_turn(self) -> None:
         pending = getattr(self, "_pending_agent_task", None)
         if pending is None:
+            return
+        # If _script_call_agent itself is running under the pending background
+        # task (the drain centralised at its top re-entered on the background
+        # coroutine), awaiting would deadlock with "Task cannot await on
+        # itself". Skip the drain in that case — the task is already running.
+        current = asyncio.current_task()
+        if current is pending:
             return
         try:
             await pending
@@ -948,6 +978,7 @@ class ScenarioExecutor:
             ]
         ] = None,
     ) -> Optional[ScenarioResult]:
+        await self._drain_pending_agent_turn()
         initial_turn: Optional[int] = None
         while True:
             next_message = await self._step(
@@ -972,6 +1003,7 @@ class ScenarioExecutor:
                 return next_message
 
     async def succeed(self, reasoning: Optional[str] = None) -> ScenarioResult:
+        await self._drain_pending_agent_turn()
         return ScenarioResult(
             success=True,
             messages=self._state.messages,
@@ -980,6 +1012,7 @@ class ScenarioExecutor:
         )
 
     async def fail(self, reasoning: Optional[str] = None) -> ScenarioResult:
+        await self._drain_pending_agent_turn()
         return ScenarioResult(
             success=False,
             messages=self._state.messages,
@@ -999,6 +1032,11 @@ class ScenarioExecutor:
         content: Optional[Union[str, ChatCompletionMessageParam]] = None,
         judgment_request: Optional[JudgmentRequest] = None,
     ) -> Optional[ScenarioResult]:
+        # Any blocking script step (user/agent/judge/proceed) must drain a
+        # pending wait=False agent turn so later reads of state.messages are
+        # consistent. Centralised here to avoid shotgun surgery across every
+        # call site.
+        await self._drain_pending_agent_turn()
         self._consume_until_role(role)
         idx, next_agent = self._next_agent_for_role(role)
         if not next_agent:

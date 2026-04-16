@@ -21,7 +21,12 @@ class PendingTransportError(NotImplementedError):
     def __init__(self, adapter_name: str) -> None:
         super().__init__(
             f"{adapter_name}: transport implementation is not yet wired up. "
-            "Use an @integration test with a live endpoint, or subclass "
-            f"{adapter_name} and override send_audio / recv_audio."
+            "Options: (1) run this scenario as an @integration test against a "
+            f"live endpoint, (2) subclass {adapter_name} and implement "
+            "send_audio/recv_audio — and re-audit the inherited "
+            "`capabilities` ClassVar so the matrix matches what your subclass "
+            "can actually do. Claiming streaming_transcripts=True in a "
+            "subclass without a real transcript stream will silently break "
+            "after_words interruption."
         )
         self.adapter_name = adapter_name

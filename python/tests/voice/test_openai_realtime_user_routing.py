@@ -1,0 +1,49 @@
+"""
+Unit test for OpenAIRealtimeAgent(role=USER) text-routing (§7.2 L1164-1171).
+
+Scripted ``user("text")`` steps must route through the realtime session's
+text-input channel (send_text) rather than triggering TTS on a
+UserSimulatorAgent.
+"""
+
+import pytest
+
+import scenario
+from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
+from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgent
+
+
+class _QuietAgent(VoiceAgentAdapter):
+    capabilities = AdapterCapabilities()
+
+    async def connect(self): ...
+    async def disconnect(self): ...
+    async def send_audio(self, chunk): ...
+
+    async def recv_audio(self, timeout):
+        return AudioChunk(data=b"\x00\x00" * 2400, transcript="ok")
+
+
+@pytest.mark.asyncio
+async def test_scripted_user_text_routes_to_realtime_send_text(monkeypatch):
+    captured: list[str] = []
+
+    realtime_user = OpenAIRealtimeAgent(role=scenario.AgentRole.USER)
+
+    async def _fake_send_text(text: str) -> None:
+        captured.append(text)
+
+    monkeypatch.setattr(realtime_user, "send_text", _fake_send_text)
+
+    result = await scenario.run(
+        name="realtime-user-routing",
+        description="user('text') must call send_text, not TTS",
+        agents=[_QuietAgent(), realtime_user],
+        script=[
+            scenario.user("hello from the test"),
+            scenario.agent(),
+            scenario.succeed("done"),
+        ],
+    )
+    assert result.success
+    assert captured == ["hello from the test"]

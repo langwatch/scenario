@@ -37,6 +37,19 @@ class AudioChunk:
     start_time: Optional[float] = None
     end_time: Optional[float] = None
 
+    def __post_init__(self) -> None:
+        # PCM16 samples are 2 bytes each. An odd-length buffer means a WebSocket
+        # framing boundary split a sample — downstream code (np.frombuffer,
+        # duration_seconds) silently truncates and produces off-by-one drift.
+        # Catch it at the canonical boundary instead.
+        if len(self.data) % PCM16_SAMPLE_WIDTH_BYTES != 0:
+            raise ValueError(
+                f"AudioChunk.data length ({len(self.data)} bytes) is not a "
+                f"multiple of {PCM16_SAMPLE_WIDTH_BYTES} — not valid PCM16. "
+                "This usually indicates a partial transport frame; adapters "
+                "must buffer until a complete sample is available."
+            )
+
     @property
     def sample_rate(self) -> int:
         return PCM16_SAMPLE_RATE
