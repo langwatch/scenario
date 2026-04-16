@@ -560,7 +560,9 @@ Feature: Voice agent testing in Scenario SDK
   Scenario: Hard dependencies install with the SDK (no extras flag)
     # Locked decision: Hard deps — voice is first-class
     Given "pip install scenario"
-    Then imageio-ffmpeg, numpy, soundfile, webrtcvad-wheels, websockets, aiortc, twilio, livekit, livekit-api, elevenlabs are installed as hard deps
+    Then imageio-ffmpeg, numpy, webrtcvad-wheels, websockets, twilio, fastapi are installed as hard deps
+    # soundfile, aiortc, livekit, livekit-api, elevenlabs ship with the adapters whose
+    # transports need them (see follow-up issues linked from PR #355).
     And google-cloud-texttospeech and cartesia are NOT installed by default (lazy-imported when their provider prefix is used)
     And ffmpeg binary is available via imageio_ffmpeg.get_ffmpeg_exe()
     And bundled noise WAV samples (cafe, street, office, airport for background_noise; babble for multiple_voices) ship inside the package
