@@ -25,9 +25,12 @@ from scenario.voice import (
 class _NoStreamingAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities(streaming_transcripts=False)
 
-    async def connect(self): ...
-    async def disconnect(self): ...
-    async def send_audio(self, chunk): ...
+    async def connect(self):
+        pass
+    async def disconnect(self):
+        pass
+    async def send_audio(self, chunk):
+        pass
     async def recv_audio(self, timeout): return AudioChunk(data=b"")
 
 
@@ -38,9 +41,12 @@ class _StreamingAdapter(VoiceAgentAdapter):
         # Simulated streaming transcript that crosses the N-word threshold quickly.
         self.streaming_transcript = "one two three four five"
 
-    async def connect(self): ...
-    async def disconnect(self): ...
-    async def send_audio(self, chunk): ...
+    async def connect(self):
+        pass
+    async def disconnect(self):
+        pass
+    async def send_audio(self, chunk):
+        pass
     async def recv_audio(self, timeout): return AudioChunk(data=b"")
 
 

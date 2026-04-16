@@ -16,9 +16,14 @@ from scenario.voice import (
 class _EchoVoiceAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities()
 
-    async def connect(self): ...
-    async def disconnect(self): ...
-    async def send_audio(self, chunk): ...
+    async def connect(self):
+        pass
+
+    async def disconnect(self):
+        pass
+
+    async def send_audio(self, chunk):
+        pass
 
     async def recv_audio(self, timeout):
         return AudioChunk(data=b"\x00\x01" * 2400, transcript="echo")

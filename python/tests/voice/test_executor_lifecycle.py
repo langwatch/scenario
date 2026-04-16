@@ -28,8 +28,11 @@ class _LifecycleAdapter(VoiceAgentAdapter):
     async def disconnect(self):
         self.disconnects += 1
 
-    async def send_audio(self, chunk): ...
-    async def recv_audio(self, timeout): return AudioChunk(data=b"")
+    async def send_audio(self, chunk):
+        pass
+
+    async def recv_audio(self, timeout):
+        return AudioChunk(data=b"")
 
 
 class _TextAdapter(scenario.AgentAdapter):
