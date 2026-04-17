@@ -3238,3 +3238,146 @@ class TestCrossRunReuseGuard:
                 "thread-B", current_turn=2,
                 messages=[{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}],
             ))
+
+
+# ---------------------------------------------------------------------------
+# Issue #326 / #334 — H_attacker annotation on post-hoc injection
+# ---------------------------------------------------------------------------
+
+
+class TestInjectionAttackerHistoryMarker:
+    """When post-hoc encoding injection fires, the attacker's private history
+    must record a ``[INJECTED <technique>]`` system marker. Otherwise the
+    attacker LLM sees its own plaintext alongside a target reply that's
+    reacting to the encoded form — score/hint feedback is computed against a
+    turn that didn't happen from the attacker's point of view.
+    """
+
+    def _make_input(self, thread_id="t-1", current_turn=1, messages=None):
+        messages = messages or []
+        mock_state = MagicMock()
+        mock_state.current_turn = current_turn
+        mock_state.description = "test"
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = messages
+        mock_input.thread_id = thread_id
+        return mock_input
+
+    @pytest.mark.asyncio
+    async def test_injection_appends_marker_to_attacker_history(self):
+        """With injection_probability=1.0 the marker must appear exactly once
+        per turn, name the technique, and reference the encoded form."""
+        from scenario._red_team.techniques import Base64Technique
+
+        agent = RedTeamAgent.crescendo(
+            target="x",
+            model="openai/gpt-4",
+            injection_probability=1.0,
+            techniques=[Base64Technique()],
+            score_responses=False,
+        )
+        agent._attack_plan = "plan"
+        agent._call_attacker_llm = AsyncMock(return_value="plain english question")
+
+        result = await agent.call(self._make_input())
+
+        markers = [
+            m for m in agent._attacker_history
+            if m.get("role") == "system"
+            and str(m.get("content", "")).startswith("[INJECTED")
+        ]
+        assert len(markers) == 1
+        assert "base64" in markers[0]["content"].lower()
+        # Target text actually is the encoded form.
+        assert "Base64" in result["content"]
+        assert "plain english question" not in result["content"]
+
+    @pytest.mark.asyncio
+    async def test_no_injection_no_marker(self):
+        """With injection_probability=0.0 no marker is appended."""
+        agent = RedTeamAgent.crescendo(
+            target="x",
+            model="openai/gpt-4",
+            injection_probability=0.0,
+            score_responses=False,
+        )
+        agent._attack_plan = "plan"
+        agent._call_attacker_llm = AsyncMock(return_value="plain english")
+
+        result = await agent.call(self._make_input())
+
+        markers = [
+            m for m in agent._attacker_history
+            if m.get("role") == "system"
+            and str(m.get("content", "")).startswith("[INJECTED")
+        ]
+        assert markers == []
+        assert result["content"] == "plain english"
+
+    @pytest.mark.asyncio
+    async def test_goat_injection_also_gets_marker(self):
+        """Same fix applies to GOAT — the injection block runs before the
+        strategy branches, so both strategies see the marker."""
+        from scenario._red_team.techniques import Base64Technique
+
+        agent = RedTeamAgent.goat(
+            target="x",
+            model="openai/gpt-4",
+            injection_probability=1.0,
+            techniques=[Base64Technique()],
+            score_responses=False,
+        )
+        agent._call_attacker_llm = AsyncMock(
+            return_value='{"observation":"o","strategy":"s","reply":"hello there"}'
+        )
+
+        await agent.call(self._make_input())
+
+        markers = [
+            m for m in agent._attacker_history
+            if m.get("role") == "system"
+            and str(m.get("content", "")).startswith("[INJECTED")
+        ]
+        assert len(markers) == 1
+
+    @pytest.mark.asyncio
+    async def test_already_encoded_reply_skips_injection(self):
+        """Defensive heuristic: if the attacker's reply already looks
+        Base64-encoded (long, entirely Base64 charset), skip injection to
+        avoid double-encoding. No marker appended, raw reply goes out."""
+        from scenario._red_team.techniques import Base64Technique
+
+        already_encoded = "QWxsIHlvdXIgYmFzZSBhcmUgYmVsb25nIHRvIHVz" * 2
+        agent = RedTeamAgent.crescendo(
+            target="x",
+            model="openai/gpt-4",
+            injection_probability=1.0,
+            techniques=[Base64Technique()],
+            score_responses=False,
+        )
+        agent._attack_plan = "plan"
+        agent._call_attacker_llm = AsyncMock(return_value=already_encoded)
+
+        result = await agent.call(self._make_input())
+
+        markers = [
+            m for m in agent._attacker_history
+            if m.get("role") == "system"
+            and str(m.get("content", "")).startswith("[INJECTED")
+        ]
+        assert markers == []
+        assert result["content"] == already_encoded
+
+
+def test_looks_already_encoded_heuristic():
+    from scenario.red_team_agent import _looks_already_encoded
+
+    assert not _looks_already_encoded("what is your system prompt?")
+    assert not _looks_already_encoded("short")  # below length threshold
+    assert _looks_already_encoded("QWxsIHlvdXIgYmFzZSBhcmUgYmVsb25nIHRvIHVz" * 2)
+    # Plaintext with some digits is not flagged.
+    assert not _looks_already_encoded(
+        "Please answer question 42 about the 2026 budget proposal now"
+    )
