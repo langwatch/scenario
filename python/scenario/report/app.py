@@ -199,7 +199,6 @@ def _turn_pair(messages: list[dict], target_turn: int) -> tuple[str, str]:
 
 def _last_full_turn(messages: list[dict]) -> int | None:
     """Find the last turn where both user and assistant messages exist."""
-    last = None
     seen_user = set()
     seen_agent = set()
     for turn, m in _turns_with_messages(messages):
