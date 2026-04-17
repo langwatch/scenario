@@ -1108,10 +1108,69 @@ describe("injection probability config", () => {
     // Target (return value) should be encoded
     expect((result as any).content).toContain("Base64 encoded");
 
-    // H_attacker should have the ORIGINAL, not encoded
-    const lastAttackerMsg = internal.attackerHistory[internal.attackerHistory.length - 1];
-    expect(lastAttackerMsg.content).toBe("raw attack");
-    expect(lastAttackerMsg.content).not.toContain("Base64");
+    // H_attacker should have the ORIGINAL assistant message, not encoded.
+    // Find the most recent assistant message (the [INJECTED ...] marker is
+    // appended after it as a system message — see next test).
+    const lastAssistant = [...internal.attackerHistory]
+      .reverse()
+      .find((m: any) => m.role === "assistant");
+    expect(lastAssistant.content).toBe("raw attack");
+    expect(lastAssistant.content).not.toContain("Base64");
+  });
+
+  it("injection appends [INJECTED <technique>] marker to H_attacker (#326 / #334)", async () => {
+    // When injection fires, the attacker's private history must record a
+    // system marker naming the technique so the attacker LLM understands
+    // on the next turn that the target saw the encoded form.
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      injectionProbability: 1.0,
+      techniques: [new Base64Technique()],
+      scoreResponses: false,
+    });
+
+    const internal = agent as any;
+    internal.callAttackerLLM = vi.fn().mockResolvedValue("plain english");
+
+    await agent.call(makeInput([], 1));
+
+    const markers = internal.attackerHistory.filter(
+      (m: any) =>
+        m.role === "system" &&
+        typeof m.content === "string" &&
+        m.content.startsWith("[INJECTED")
+    );
+    expect(markers).toHaveLength(1);
+    expect(markers[0].content.toLowerCase()).toContain("base64");
+  });
+
+  it("injection skipped when reply already looks Base64-encoded", async () => {
+    // Defensive: if the attacker's reply is already a long Base64-looking
+    // string (e.g. catalogue extended with encoding techniques), do not
+    // double-encode. No marker appended, raw reply goes out.
+    const agent = redTeamCrescendo({
+      target: "test",
+      attackPlan: "plan",
+      injectionProbability: 1.0,
+      techniques: [new Base64Technique()],
+      scoreResponses: false,
+    });
+
+    const internal = agent as any;
+    const alreadyEncoded = "QWxsIHlvdXIgYmFzZSBhcmUgYmVsb25nIHRvIHVz".repeat(2);
+    internal.callAttackerLLM = vi.fn().mockResolvedValue(alreadyEncoded);
+
+    const result = await agent.call(makeInput([], 1));
+
+    expect((result as any).content).toBe(alreadyEncoded);
+    const markers = internal.attackerHistory.filter(
+      (m: any) =>
+        m.role === "system" &&
+        typeof m.content === "string" &&
+        m.content.startsWith("[INJECTED")
+    );
+    expect(markers).toHaveLength(0);
   });
 
   it("injection skipped when Math.random above threshold", async () => {
