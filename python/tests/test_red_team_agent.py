@@ -2,6 +2,7 @@
 
 import inspect
 import os
+from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -3289,10 +3290,12 @@ class TestInjectionAttackerHistoryMarker:
             and str(m.get("content", "")).startswith("[INJECTED")
         ]
         assert len(markers) == 1
-        assert "base64" in markers[0]["content"].lower()
+        assert "base64" in str(markers[0]["content"]).lower()
         # Target text actually is the encoded form.
-        assert "Base64" in result["content"]
-        assert "plain english question" not in result["content"]
+        assert isinstance(result, dict)
+        content = cast(str, result.get("content"))
+        assert "Base64" in content
+        assert "plain english question" not in content
 
     @pytest.mark.asyncio
     async def test_no_injection_no_marker(self):
@@ -3314,7 +3317,8 @@ class TestInjectionAttackerHistoryMarker:
             and str(m.get("content", "")).startswith("[INJECTED")
         ]
         assert markers == []
-        assert result["content"] == "plain english"
+        assert isinstance(result, dict)
+        assert result.get("content") == "plain english"
 
     @pytest.mark.asyncio
     async def test_goat_injection_also_gets_marker(self):
@@ -3368,7 +3372,8 @@ class TestInjectionAttackerHistoryMarker:
             and str(m.get("content", "")).startswith("[INJECTED")
         ]
         assert markers == []
-        assert result["content"] == already_encoded
+        assert isinstance(result, dict)
+        assert result.get("content") == already_encoded
 
 
 def test_looks_already_encoded_heuristic():
