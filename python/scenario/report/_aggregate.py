@@ -107,11 +107,13 @@ def load_or_generate(
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text())
-        except Exception:
+        except (OSError, json.JSONDecodeError):
+            # Cache is missing/unreadable/corrupt; fall back to fresh aggregation.
             pass
     result = aggregate_fixes(reports, model=model)
     try:
         cache.write_text(json.dumps(result, indent=2))
-    except Exception:
+    except OSError:
+        # Best-effort cache write failure should not block returning results.
         pass
     return result
