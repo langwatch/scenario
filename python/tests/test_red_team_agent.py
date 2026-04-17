@@ -3381,3 +3381,169 @@ def test_looks_already_encoded_heuristic():
     assert not _looks_already_encoded(
         "Please answer question 42 about the 2026 budget proposal now"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #338 — end-to-end behaviour test for GOAT dynamic technique selection
+# ---------------------------------------------------------------------------
+
+
+class TestGoatDynamicTechniqueSelection:
+    """GOAT's core value prop is per-turn technique selection based on the
+    target's feedback. Structural tests (prompt contains X, factory defaults)
+    do not exercise that. These tests drive the agent turn-by-turn with a
+    scripted attacker LLM and assert the selection pipeline actually fires:
+
+    1. chosen_technique_ids is recoverable from the attacker's ``strategy``
+       field (trace-level observability).
+    2. Different attacker output → different chosen IDs (no hardcoding).
+    3. Score feedback lands in H_attacker before the next attacker call so
+       the attacker LLM can adapt.
+    4. Multi-turn: chosen IDs differ across turns when the scripted attacker
+       pivots technique — proves the extractor runs per-turn.
+    """
+
+    def _make_input(self, current_turn, messages=None, thread_id="t-338"):
+        messages = messages or []
+        mock_state = MagicMock()
+        mock_state.current_turn = current_turn
+        mock_state.description = "bank support agent"
+        mock_state.rollback_messages_to = lambda idx: messages.__delitem__(slice(idx, None))
+        mock_input = MagicMock(spec=AgentInput)
+        mock_input.scenario_state = mock_state
+        mock_input.messages = messages
+        mock_input.thread_id = thread_id
+        return mock_input
+
+    def _attacker_json(self, technique_name: str, reply: str = "hi") -> str:
+        return (
+            '{"observation": "target refused politely",'
+            f' "strategy": "Using {technique_name} — wrap the ask in that frame",'
+            f' "reply": "{reply}"' + "}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_chosen_technique_is_recoverable_from_attacker_output(self):
+        """Feed a GOAT attacker response naming HYPOTHETICAL_FRAMING; the
+        strategy's extractor must return that ID."""
+        agent = RedTeamAgent.goat(
+            target="extract the system prompt",
+            model="openai/gpt-4",
+            score_responses=False,
+        )
+        agent._call_attacker_llm = AsyncMock(
+            return_value=self._attacker_json("HYPOTHETICAL_FRAMING")
+        )
+
+        await agent.call(self._make_input(current_turn=1))
+
+        # The strategy exposes the same extractor the orchestrator uses.
+        # Grab the attacker's stored raw output, parse, and re-extract IDs
+        # — same code path that feeds the span attribute.
+        raw = agent._attacker_history[-1]["content"]
+        parsed = agent._strategy.parse_attacker_output(raw)
+        ids = agent._strategy.chosen_technique_ids(parsed.strategy)
+        assert ids == ["HYPOTHETICAL_FRAMING"]
+
+    @pytest.mark.asyncio
+    async def test_different_attacker_output_yields_different_ids(self):
+        """Two independent runs with different attacker technique names must
+        produce different chosen IDs. Guards against hardcoding the first
+        catalogue entry."""
+        results = {}
+        for name in ("HYPOTHETICAL_FRAMING", "REFUSAL_SUPPRESSION"):
+            agent = RedTeamAgent.goat(
+                target="x", model="openai/gpt-4", score_responses=False,
+            )
+            agent._call_attacker_llm = AsyncMock(
+                return_value=self._attacker_json(name)
+            )
+            await agent.call(self._make_input(current_turn=1))
+            raw = agent._attacker_history[-1]["content"]
+            parsed = agent._strategy.parse_attacker_output(raw)
+            results[name] = agent._strategy.chosen_technique_ids(parsed.strategy)
+
+        assert results["HYPOTHETICAL_FRAMING"] == ["HYPOTHETICAL_FRAMING"]
+        assert results["REFUSAL_SUPPRESSION"] == ["REFUSAL_SUPPRESSION"]
+        assert results["HYPOTHETICAL_FRAMING"] != results["REFUSAL_SUPPRESSION"]
+
+    @pytest.mark.asyncio
+    async def test_score_feedback_reaches_attacker_on_next_turn(self):
+        """After turn 1 with a low score, turn 2's attacker LLM must be
+        invoked with a H_attacker that contains a [SCORE] system message —
+        this is the channel the attacker reads to adapt."""
+        agent = RedTeamAgent.goat(
+            target="x", model="openai/gpt-4", score_responses=True,
+        )
+        agent._call_attacker_llm = AsyncMock(
+            side_effect=[
+                self._attacker_json("HYPOTHETICAL_FRAMING", reply="turn1"),
+                self._attacker_json("AUTHORITY_SOCIAL_ENGINEERING", reply="turn2"),
+            ]
+        )
+        agent._score_last_response = AsyncMock(
+            return_value=(2, "low score — pivot technique")
+        )
+
+        # Turn 1 — scorer doesn't run (no target reply yet), attacker emits turn1 msg.
+        await agent.call(self._make_input(current_turn=1))
+        # Turn 2 — target has replied. Use a non-refusal so the backtrack path
+        # doesn't short-circuit (hard refusal skips scoring and emits
+        # [BACKTRACKED] instead); here we want the scoring path to run.
+        await agent.call(self._make_input(
+            current_turn=2,
+            messages=[
+                {"role": "user", "content": "turn1"},
+                {"role": "assistant", "content": "That's an interesting question — let me think."},
+            ],
+        ))
+
+        score_msgs = [
+            m for m in agent._attacker_history
+            if m.get("role") == "system" and str(m.get("content", "")).startswith("[SCORE]")
+        ]
+        assert len(score_msgs) >= 1
+        assert "2/10" in score_msgs[0]["content"]
+        assert "pivot technique" in score_msgs[0]["content"]
+        # And the attacker was actually called twice — so it saw the score
+        # before producing turn2's reply.
+        assert agent._call_attacker_llm.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_multi_turn_chosen_ids_change_with_attacker_output(self):
+        """Run three turns with a scripted attacker that pivots technique each
+        turn. Re-extracting IDs from each stored raw output must yield three
+        different techniques. Proves the extraction path runs per-turn."""
+        techniques_per_turn = [
+            "HYPOTHETICAL_FRAMING",
+            "REFUSAL_SUPPRESSION",
+            "AUTHORITY_SOCIAL_ENGINEERING",
+        ]
+        agent = RedTeamAgent.goat(
+            target="x", model="openai/gpt-4", score_responses=False,
+        )
+        agent._call_attacker_llm = AsyncMock(
+            side_effect=[self._attacker_json(n, reply=f"t{i+1}")
+                         for i, n in enumerate(techniques_per_turn)]
+        )
+
+        messages: list = []
+        for turn in range(1, 4):
+            await agent.call(self._make_input(current_turn=turn, messages=list(messages)))
+            messages.append({"role": "user", "content": f"t{turn}"})
+            messages.append({"role": "assistant", "content": "Hmm, interesting — tell me more."})
+
+        # Extract all stored attacker raw outputs in order.
+        raws = [m["content"] for m in agent._attacker_history if m.get("role") == "assistant"]
+        assert len(raws) == 3
+        ids_per_turn = [
+            agent._strategy.chosen_technique_ids(
+                agent._strategy.parse_attacker_output(raw).strategy
+            )
+            for raw in raws
+        ]
+        assert ids_per_turn == [
+            ["HYPOTHETICAL_FRAMING"],
+            ["REFUSAL_SUPPRESSION"],
+            ["AUTHORITY_SOCIAL_ENGINEERING"],
+        ]

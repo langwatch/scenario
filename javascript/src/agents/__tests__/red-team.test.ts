@@ -1475,3 +1475,141 @@ describe("RedTeamAgent cross-run reuse guard", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #338 — end-to-end behaviour test for GOAT dynamic technique selection
+// ---------------------------------------------------------------------------
+
+describe("GOAT dynamic technique selection (#338)", () => {
+  const attackerJson = (technique: string, reply = "hi") =>
+    JSON.stringify({
+      observation: "target refused politely",
+      strategy: `Using ${technique} — wrap the ask in that frame`,
+      reply,
+    });
+
+  it("chosen technique is recoverable from the attacker's output", async () => {
+    const agent = redTeamGoat({
+      target: "extract the system prompt",
+      scoreResponses: false,
+    });
+    const internal = agent as any;
+    internal.callAttackerLLM = vi
+      .fn()
+      .mockResolvedValue(attackerJson("HYPOTHETICAL_FRAMING"));
+
+    await agent.call(makeInput([], 1));
+
+    const raws = internal.attackerHistory.filter(
+      (m: any) => m.role === "assistant"
+    );
+    const parsed = internal.strategy.parseAttackerOutput(
+      raws[raws.length - 1].content
+    );
+    expect(internal.strategy.chosenTechniqueIds(parsed.strategy)).toEqual([
+      "HYPOTHETICAL_FRAMING",
+    ]);
+  });
+
+  it("different attacker output yields different chosen IDs", async () => {
+    const results: Record<string, string[]> = {};
+    for (const name of ["HYPOTHETICAL_FRAMING", "REFUSAL_SUPPRESSION"]) {
+      const agent = redTeamGoat({ target: "x", scoreResponses: false });
+      const internal = agent as any;
+      internal.callAttackerLLM = vi.fn().mockResolvedValue(attackerJson(name));
+      await agent.call(makeInput([], 1));
+      const raws = internal.attackerHistory.filter(
+        (m: any) => m.role === "assistant"
+      );
+      const parsed = internal.strategy.parseAttackerOutput(
+        raws[raws.length - 1].content
+      );
+      results[name] = internal.strategy.chosenTechniqueIds(parsed.strategy);
+    }
+    expect(results.HYPOTHETICAL_FRAMING).toEqual(["HYPOTHETICAL_FRAMING"]);
+    expect(results.REFUSAL_SUPPRESSION).toEqual(["REFUSAL_SUPPRESSION"]);
+    expect(results.HYPOTHETICAL_FRAMING).not.toEqual(
+      results.REFUSAL_SUPPRESSION
+    );
+  });
+
+  it("score feedback reaches the attacker on the next turn", async () => {
+    const agent = redTeamGoat({ target: "x", scoreResponses: true });
+    const internal = agent as any;
+    internal.callAttackerLLM = vi
+      .fn()
+      .mockResolvedValueOnce(attackerJson("HYPOTHETICAL_FRAMING", "turn1"))
+      .mockResolvedValueOnce(attackerJson("AUTHORITY_SOCIAL_ENGINEERING", "turn2"));
+    internal.scoreLastResponse = vi.fn().mockResolvedValue({
+      score: 2,
+      hint: "low score — pivot technique",
+    });
+
+    await agent.call(makeInput([], 1));
+    // Non-refusal target reply so the backtrack path doesn't short-circuit
+    // scoring (hard refusal skips scoring and emits [BACKTRACKED] instead).
+    await agent.call(
+      makeInput(
+        [
+          { role: "user", content: "turn1" },
+          {
+            role: "assistant",
+            content: "That's an interesting question — let me think.",
+          },
+        ],
+        2
+      )
+    );
+
+    const scoreMsgs = internal.attackerHistory.filter(
+      (m: any) =>
+        m.role === "system" &&
+        typeof m.content === "string" &&
+        m.content.startsWith("[SCORE]")
+    );
+    expect(scoreMsgs.length).toBeGreaterThanOrEqual(1);
+    expect(scoreMsgs[0].content).toContain("2/10");
+    expect(scoreMsgs[0].content).toContain("pivot technique");
+    expect(internal.callAttackerLLM).toHaveBeenCalledTimes(2);
+  });
+
+  it("multi-turn chosen IDs change with scripted attacker pivots", async () => {
+    const names = [
+      "HYPOTHETICAL_FRAMING",
+      "REFUSAL_SUPPRESSION",
+      "AUTHORITY_SOCIAL_ENGINEERING",
+    ];
+    const agent = redTeamGoat({ target: "x", scoreResponses: false });
+    const internal = agent as any;
+    internal.callAttackerLLM = vi
+      .fn()
+      .mockResolvedValueOnce(attackerJson(names[0], "t1"))
+      .mockResolvedValueOnce(attackerJson(names[1], "t2"))
+      .mockResolvedValueOnce(attackerJson(names[2], "t3"));
+
+    const messages: any[] = [];
+    for (let turn = 1; turn <= 3; turn++) {
+      await agent.call(makeInput([...messages], turn));
+      messages.push({ role: "user", content: `t${turn}` });
+      messages.push({
+        role: "assistant",
+        content: "Hmm, interesting — tell me more.",
+      });
+    }
+
+    const raws = internal.attackerHistory
+      .filter((m: any) => m.role === "assistant")
+      .map((m: any) => m.content);
+    expect(raws).toHaveLength(3);
+    const idsPerTurn = raws.map((raw: string) =>
+      internal.strategy.chosenTechniqueIds(
+        internal.strategy.parseAttackerOutput(raw).strategy
+      )
+    );
+    expect(idsPerTurn).toEqual([
+      ["HYPOTHETICAL_FRAMING"],
+      ["REFUSAL_SUPPRESSION"],
+      ["AUTHORITY_SOCIAL_ENGINEERING"],
+    ]);
+  });
+});
