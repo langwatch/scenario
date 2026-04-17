@@ -253,10 +253,17 @@ class TestInjectionProbability:
         content = cast(str, result.get("content"))
         assert "Base64 encoded" in content
 
-        # H_attacker should have the ORIGINAL, not encoded
-        last_attacker_msg = agent._attacker_history[-1]
-        assert last_attacker_msg.get("content") == "raw attack message"
-        assert "Base64" not in cast(str, last_attacker_msg.get("content"))
+        # H_attacker should have the ORIGINAL plaintext, not the encoded form.
+        # Post-hoc injection also appends a trailing [INJECTED <technique>]
+        # system marker (fix #326/#334), so the assistant turn is at [-2].
+        assistant_msg = agent._attacker_history[-2]
+        assert assistant_msg.get("role") == "assistant"
+        assert assistant_msg.get("content") == "raw attack message"
+        assert "Base64 encoded" not in cast(str, assistant_msg.get("content"))
+
+        marker = agent._attacker_history[-1]
+        assert marker.get("role") == "system"
+        assert "[INJECTED" in cast(str, marker.get("content"))
 
     @pytest.mark.asyncio
     async def test_injection_skipped_when_random_above_threshold(self):
