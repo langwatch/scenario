@@ -376,10 +376,19 @@ class JudgeAgent extends JudgeAgentAdapter {
       prompt: _p,
       messages: prevMessages,
       toolChoice: _tc,
+      tools: prevTools,
       ...rest
     } = params;
+    // Strip discovery tools so the model physically cannot return grep_trace/
+    // expand_trace again — some providers don't strictly honor tool_choice.
+    const finishOnlyTools: ToolSet | undefined = prevTools
+      ? Object.fromEntries(
+          Object.entries(prevTools).filter(([name]) => name === "finish_test")
+        )
+      : undefined;
     return this.invokeLLM({
       ...rest,
+      tools: finishOnlyTools,
       messages: [
         ...(prevMessages ?? []),
         {
@@ -436,6 +445,21 @@ class JudgeAgent extends JudgeAgentAdapter {
           return null;
 
         default:
+          if (
+            toolCall.toolName === "expand_trace" ||
+            toolCall.toolName === "grep_trace"
+          ) {
+            this.logger.warn(
+              `Discovery tool ${toolCall.toolName} leaked past discovery loop without reaching a terminal verdict`
+            );
+            return {
+              success: false,
+              reasoning:
+                "JudgeAgent: trace discovery did not converge on a verdict within the step budget",
+              metCriteria: [],
+              unmetCriteria: criteria,
+            };
+          }
           return {
             success: false,
             reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
