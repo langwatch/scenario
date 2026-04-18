@@ -64,7 +64,7 @@ pytest
 
 - You can use standard pytest features like markers, fixtures, and parallelization with scenario tests.
 - For deterministic results, use the `@scenario.cache()` decorator on your agent function.
-- If your agent holds a loop-bound resource (Google ADK `InMemoryRunner`, a gRPC channel, a Firestore client, or anything created in an async pytest fixture), use [`scenario.arun`](/advanced/async-native-parallelism) instead of `scenario.run` so those connections stay usable across concurrent scenarios.
+- `scenario.run` runs each scenario in its own worker thread, so sync and async adapters both parallelize with no extra setup. If your codebase is fully async-first and your adapter holds async state that has to stay on one event loop, use [`scenario.arun`](/advanced/async-native-parallelism) instead.
 
 See the [Scenario Python README](https://github.com/langwatch/scenario#python) for more advanced usage and options.
 

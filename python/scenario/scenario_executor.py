@@ -1131,15 +1131,17 @@ async def arun(
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
-    Runs the scenario directly on the caller's event loop so that any
-    loop-bound resources the agent adapter holds (gRPC channels, Firestore
-    clients, ADK ``InMemoryRunner`` instances, ``asyncio.Event`` / ``Lock``
-    primitives created in a pytest fixture, etc.) remain usable.
+    Runs the scenario directly on the caller's event loop, so async state
+    created on that loop (anything set up in an async fixture, for
+    example) stays usable across concurrent scenarios.
 
-    Prefer ``arun`` whenever your :class:`AgentAdapter` touches anything
-    bound to the event loop it was constructed on. Parallelism can then be
-    expressed with ``asyncio.gather`` / ``pytest-asyncio-concurrent``
-    instead of the private worker thread used by :func:`run`.
+    :func:`run` remains the default: it executes each scenario in its own
+    worker thread, so sync and async adapters both parallelize with no
+    extra work on your side. Reach for ``arun`` only when your codebase
+    is fully async-first and your adapter relies on async objects whose
+    identity is tied to the loop they were created on. Parallelism is
+    then the caller's responsibility, via ``asyncio.gather`` or
+    ``pytest-asyncio-concurrent``.
 
     The signature and return value mirror :func:`run`.
     """
@@ -1186,13 +1188,13 @@ async def run(
     ScenarioExecutor instance and runs it in an isolated thread pool to support
     parallel execution and prevent blocking.
 
-    .. warning::
-        If your :class:`AgentAdapter` awaits on resources that were created on
-        the caller's event loop (e.g. gRPC channels, Firestore clients, an
-        ADK ``InMemoryRunner`` instantiated in a pytest fixture), use
-        :func:`arun` instead. ``run`` spins up a fresh event loop on a worker
-        thread and those resources will raise ``"Future attached to a
-        different loop"`` the moment they are awaited from that thread.
+    .. note::
+        If your :class:`AgentAdapter` awaits on async state that was
+        created on the caller's event loop (anything set up in an async
+        fixture, for example), use :func:`arun` instead. ``run`` spins up
+        a fresh event loop on a worker thread and those objects will raise
+        ``"Future attached to a different loop"`` when they are awaited
+        from that thread.
 
     Args:
         name: Human-readable name for the scenario
@@ -1270,9 +1272,9 @@ async def run(
     # being used throughout, any user code on the callback can
     # be blocking, preventing them from running scenarios in parallel.
     #
-    # NB: this isolation also spins up a private event loop per run, which
-    # breaks adapters that hold loop-bound resources (gRPC, Firestore,
-    # ADK InMemoryRunner). Those callers should use :func:`arun` instead.
+    # NB: this isolation also spins up a private event loop per run, so
+    # adapters that depend on async state bound to the caller's loop must
+    # use :func:`arun` instead.
     with concurrent.futures.ThreadPoolExecutor() as executor:
 
         def run_in_thread():

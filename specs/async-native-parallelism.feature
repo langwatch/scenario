@@ -1,7 +1,7 @@
 Feature: Async-native parallelism for scenario runs
-  As a scenario test author whose agent harness holds loop-bound singletons
+  As a scenario test author whose adapter relies on loop-bound async state
   I want scenarios to execute on my own event loop instead of a private thread-loop
-  So that gRPC channels, Firestore clients, and async fixtures survive concurrent scenario runs without "Future attached to a different loop"
+  So that my async fixtures and objects survive concurrent scenario runs without "Future attached to a different loop"
 
   Background:
     Given an async-native AgentAdapter implementation
@@ -60,12 +60,12 @@ Feature: Async-native parallelism for scenario runs
     When the scenario turn completes
     Then every agent span parents up to the "Scenario Turn" root of that run
 
-  # --- ADK end-to-end ---
+  # --- End-to-end ---
 
   @e2e
-  Scenario: Shared ADK InMemoryRunner used by many scenarios concurrently
-    Given an ADK InMemoryRunner created once in a pytest fixture
-    And multiple scenarios that call runner.run_async during their adapter
+  Scenario: Shared async singleton used by many scenarios concurrently
+    Given a long-lived async singleton created in a pytest fixture on the caller's loop
+    And multiple scenarios whose adapter awaits on that singleton
     When they are executed concurrently through scenario.arun()
     Then all runs complete without loop-affinity errors
     And each run appears as a distinct trace in ClickHouse

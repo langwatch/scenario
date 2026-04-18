@@ -1,40 +1,35 @@
 ---
-title: Async-Native Parallelism - Shared Connections Across Concurrent Scenarios
-description: Use `scenario.arun` to run scenarios on the caller's event loop so loop-bound resources like Google ADK InMemoryRunner, gRPC channels, and Firestore clients stay usable across concurrent scenario runs. Covers migration, pytest-asyncio-concurrent, and when to prefer it over the default `scenario.run` threading path.
+title: Async-Native Parallelism - Run Scenarios On The Caller's Event Loop
+description: Use `scenario.arun` when your codebase is async-first and holds async state across calls. The default `scenario.run` already parallelizes scenarios via a thread pool — including sync adapters — so reach for `arun` only when you genuinely need everything on a single event loop.
 ---
 
 import { Callout } from "vocs/components";
 
-# Async-Native Parallelism [Shared connections across concurrent scenarios]
+# Async-Native Parallelism [When to prefer `scenario.arun` over the threaded default]
 
-`scenario.run(...)` wraps each invocation in a dedicated worker thread that spins up its own `asyncio` event loop. That isolation is ideal for sync adapters that might block, but it breaks any resource that remembers the event loop it was created on.
+By default, `scenario.run(...)` executes each invocation in a dedicated worker thread with its own `asyncio` event loop. That means **even synchronous adapters parallelize effortlessly** — no event loop plumbing on your side, and scenarios finish faster because they don't wait for each other. See [Test Runner Integration](/basics/test-runner-integration) for the standard parallel pytest setup.
 
-If your agent under test holds a **loop-bound resource** — a gRPC channel, a Firestore client, an ADK `InMemoryRunner`, or anything built via an async pytest fixture — you'll hit:
+Reach for `scenario.arun(...)` only when the threaded model gets in your way — specifically, when your code is async-first and your adapter awaits on async state that can't move between event loops. In that case the worker thread's fresh loop raises:
 
 ```
 RuntimeError: Task <...> got Future <...> attached to a different loop
 ```
 
-`scenario.arun(...)` is the async-native sibling. It executes the scenario directly on the caller's event loop, so every singleton stays usable across concurrent runs.
+`scenario.arun` executes the scenario on the caller's event loop, so that state stays usable across concurrent runs.
 
 ---
 
-## When to reach for `arun`
+## Which one should I use?
 
-Use `arun` whenever any of these apply:
-
-- Your agent holds a **Google ADK** `InMemoryRunner` (or any runner backed by a gRPC session service).
-- Your fixture instantiates a **gRPC channel** or **Firestore client** once, to avoid re-opening expensive connections for every scenario.
-- You want to run many scenarios concurrently on the **pytest-asyncio** loop via `@pytest.mark.asyncio_concurrent(group=...)`.
-
-Stick with `scenario.run` when your adapter is self-contained, has no shared async state, and may do sync blocking work you want offloaded to a worker thread.
+- **`scenario.run`** (default) — you have sync code, or async code without shared async state, and want parallelism for free. This is the right choice for most users.
+- **`scenario.arun`** — your stack is fully async-first and your adapter relies on async objects that must stay on one event loop. You're comfortable orchestrating concurrency yourself via `asyncio.gather` or `pytest-asyncio-concurrent`.
 
 <Callout type="info">
-Both `run` and `arun` live on the public module:
+Both live on the public module:
 
 ```python
-await scenario.run(...)    # threaded (default since v0.x)
-await scenario.arun(...)   # async-native (new)
+await scenario.run(...)    # threaded (default)
+await scenario.arun(...)   # async-native
 ```
 
 The signature and return value are identical. Only the execution model differs.
@@ -64,9 +59,9 @@ result = await scenario.arun(
 
 ---
 
-## Running scenarios concurrently
+## Running scenarios concurrently under `arun`
 
-Parallelism is the caller's job under `arun`. Two common patterns:
+Parallelism is the caller's responsibility under `arun`. Two common patterns:
 
 ### `asyncio.gather` for ad-hoc concurrency
 
@@ -78,7 +73,7 @@ results = await asyncio.gather(
 )
 ```
 
-All three scenarios run on the same event loop and share any singletons you built in a fixture.
+All three scenarios run on the same event loop and share any singletons you built alongside them.
 
 ### `pytest-asyncio-concurrent` for pytest-level fan-out
 
@@ -91,8 +86,7 @@ async def test_dinner_idea():
     result = await scenario.arun(
         name="dinner idea",
         description="User is looking for a dinner idea",
-        agents=[VegetarianRecipeAgent(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[
-            "Recipe is vegetarian",
+        agents=[RecipeAgent(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[
             "Recipe includes ingredients and steps",
         ])],
     )
@@ -104,77 +98,12 @@ async def test_hungry_user():
     result = await scenario.arun(
         name="hungry user",
         description="User is very hungry",
-        agents=[VegetarianRecipeAgent(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
+        agents=[RecipeAgent(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
     )
     assert result.success
 ```
 
-Sibling tests in the same `group` run concurrently on one event loop — perfect for amortising a shared gRPC channel or `InMemoryRunner`.
-
----
-
-## Google ADK example
-
-The canonical case: one `InMemoryRunner` constructed once, reused by many scenarios.
-
-```python
-import asyncio
-import pytest
-import scenario
-from google.adk.agents import Agent
-from google.adk.runners import InMemoryRunner
-from google.genai import types
-
-
-@pytest.fixture(scope="module")
-def runner():
-    agent = Agent(
-        name="weather_agent",
-        model="gemini-2.5-flash",
-        instruction="Call get_weather and answer briefly.",
-        tools=[get_weather],
-    )
-    return InMemoryRunner(agent=agent, app_name="weather-app")
-
-
-class WeatherAgent(scenario.AgentAdapter):
-    def __init__(self, runner, session_prefix: str):
-        self._runner = runner
-        self._session_prefix = session_prefix
-        self._i = 0
-
-    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
-        session_id = f"{self._session_prefix}-{self._i}"
-        self._i += 1
-        await self._runner.session_service.create_session(
-            app_name="weather-app",
-            user_id="user",
-            session_id=session_id,
-        )
-        reply = ""
-        async for event in self._runner.run_async(
-            user_id="user",
-            session_id=session_id,
-            new_message=types.Content(role="user", parts=[types.Part(text=input.messages[-1]["content"])]),
-        ):
-            if event.is_final_response():
-                reply = event.content.parts[0].text
-        return {"role": "assistant", "content": reply}
-
-
-async def test_cities_in_parallel(runner):
-    cities = ["Amsterdam", "Berlin", "Cairo", "Delhi"]
-    results = await asyncio.gather(
-        *(scenario.arun(
-            name=f"weather-{c}",
-            description=f"user asks about {c}",
-            agents=[WeatherAgent(runner, session_prefix=f"run-{i}"), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=["agent answers with weather info"])],
-        ) for i, c in enumerate(cities)),
-    )
-    assert all(r.success for r in results)
-```
-
-The same pattern fails under `scenario.run(...)` because each thread creates a fresh loop and the runner's gRPC session service raises on first use.
+Sibling tests in the same `group` run concurrently on a single event loop.
 
 ---
 
@@ -183,18 +112,18 @@ The same pattern fails under `scenario.run(...)` because each thread creates a f
 | Aspect | `scenario.run` | `scenario.arun` |
 |---|---|---|
 | Event loop | New loop in a worker thread | Caller's loop |
-| Loop-bound resources | ❌ re-created per run or broken | ✓ survive |
-| Blocking sync code in adapter | ✓ offloaded to worker thread | ⚠ blocks the caller loop |
-| Parallelism model | Thread-pool | `asyncio.gather` / pytest-asyncio-concurrent |
+| Sync blocking work in adapter | ✓ absorbed by the worker thread | ⚠ blocks the caller loop |
+| Async state bound to caller loop | ❌ broken across threads | ✓ preserved |
+| Parallelism model | Thread pool (automatic) | `asyncio.gather` / pytest-asyncio-concurrent (explicit) |
 | Telemetry | Same spans, same cost rollup | Same spans, same cost rollup |
 
-Traces land in LangWatch identically either way — the same `Scenario Turn` root, the same per-agent children, the same cost fold. Only the execution model differs.
+Traces land in LangWatch identically either way. Only the execution model differs.
 
 ---
 
 ## Common pitfalls
 
-**Blocking sync work in an async adapter.** `arun` runs your adapter on the caller's loop. If your adapter does `time.sleep(5)` or a sync database driver call, it blocks every other concurrent scenario on the same loop. Wrap the blocking work in `asyncio.to_thread(...)` yourself, or stick with `scenario.run`.
+**Blocking sync work in an async adapter.** `arun` runs your adapter on the caller's loop. If your adapter does `time.sleep(5)` or a sync driver call, it blocks every other concurrent scenario on the same loop. Wrap the blocking work in `asyncio.to_thread(...)` yourself, or stick with `scenario.run`.
 
 **Accidentally sharing mutable state across scenarios.** Concurrent scenarios on one loop means concurrent access to any module-level state your adapter touches. Either scope the state per-scenario instance or guard it with `asyncio.Lock`.
 
