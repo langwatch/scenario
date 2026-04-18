@@ -325,6 +325,10 @@ export default defineConfig({
           link: "/advanced/custom-observability",
         },
         {
+          text: "Async-Native Parallelism",
+          link: "/advanced/async-native-parallelism",
+        },
+        {
           text: "Red Teaming",
           items: [
             {
