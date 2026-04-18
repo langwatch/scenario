@@ -109,7 +109,7 @@ from .config import ScenarioConfig
 from ._tracing import setup_scenario_tracing, scenario_only, with_custom_scopes
 
 # Then import modules with dependencies
-from .scenario_executor import run
+from .scenario_executor import run, arun
 from .scenario_state import ScenarioState
 from .agent_adapter import AgentAdapter
 from .judge_agent import JudgeAgent
@@ -131,6 +131,7 @@ cache = scenario_cache
 __all__ = [
     # Functions
     "run",
+    "arun",
     "configure",
     "default_config",
     "cache",
