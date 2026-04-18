@@ -29,9 +29,9 @@ from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResu
 
 def _has_adk() -> bool:
     try:
-        import google.adk  # noqa: F401
-        from google.adk.agents import Agent  # noqa: F401
-        from google.adk.runners import InMemoryRunner  # noqa: F401
+        import google.adk  # noqa: F401  # pyright: ignore[reportMissingImports]
+        from google.adk.agents import Agent  # noqa: F401  # pyright: ignore[reportMissingImports]
+        from google.adk.runners import InMemoryRunner  # noqa: F401  # pyright: ignore[reportMissingImports]
     except Exception:
         return False
     return True
@@ -48,8 +48,8 @@ pytestmark = [
 # Sometimes the test environment has old google-genai / ADK combos where
 # ``InMemoryRunner`` cannot be constructed. Skip rather than fail loudly.
 def _build_runner():
-    from google.adk.agents import Agent
-    from google.adk.runners import InMemoryRunner
+    from google.adk.agents import Agent  # pyright: ignore[reportMissingImports]
+    from google.adk.runners import InMemoryRunner  # pyright: ignore[reportMissingImports]
 
     def get_weather(city: str) -> dict:
         return {"status": "ok", "report": f"Sunny in {city}"}
@@ -88,7 +88,7 @@ class _ADKAgent(AgentAdapter):
         self._session_idx = 0
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
-        from google.genai import types
+        from google.genai import types  # pyright: ignore[reportMissingImports]
 
         last_user = next(
             (m for m in reversed(input.messages) if m.get("role") == "user"),

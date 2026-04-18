@@ -81,6 +81,7 @@ class _InstrumentedAgent(AgentAdapter):
         self._barrier = barrier
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
+        reply = f"{self._label} done"
         with langwatch.span(name=f"user_work.{self._label}") as s:
             s.set_attributes({"user.label": self._label})
             # Synchronise across sibling scenarios so two user spans
@@ -88,7 +89,7 @@ class _InstrumentedAgent(AgentAdapter):
             # detectable if present.
             if self._barrier is not None:
                 await self._barrier.wait()
-            return {"role": "assistant", "content": f"{self._label} done"}
+        return {"role": "assistant", "content": reply}
 
 
 class _User(AgentAdapter):

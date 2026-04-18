@@ -65,12 +65,16 @@ class _RunningEchoServer:
         await self.server.stop(None)
 
 
+def _identity(x: bytes) -> bytes:
+    return x
+
+
 async def _call_echo(channel: grpc_aio.Channel, payload: bytes) -> bytes:
     """Single unary round-trip on the given channel."""
     rpc = channel.unary_unary(
         "/echo/Echo",
-        request_serializer=lambda x: x,
-        response_deserializer=lambda x: x,
+        request_serializer=_identity,
+        response_deserializer=_identity,
     )
     return await rpc(payload)
 

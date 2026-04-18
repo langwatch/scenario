@@ -75,7 +75,7 @@ async def test_cancellation_propagates_into_arun():
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
-        await task
+        _ = await task
 
 
 @pytest.mark.asyncio
@@ -118,4 +118,4 @@ async def test_cancellation_does_not_affect_sibling_arun():
     assert fast_result.success is True
 
     with pytest.raises(asyncio.CancelledError):
-        await slow_task
+        _ = await slow_task

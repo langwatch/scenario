@@ -10,7 +10,6 @@ line number of the actual bug.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import traceback
 
@@ -25,13 +24,14 @@ from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResu
 
 class _BadAgent(AgentAdapter):
     async def call(self, input: AgentInput) -> AgentReturnTypes:
-        # The marker string below must appear in the traceback to
-        # prove the user's frame is preserved.
-        return _divide_by_zero()
+        # _divide_by_zero always raises; the return is unreachable but
+        # required so the type checker sees a valid AgentReturnTypes path.
+        _divide_by_zero()
+        return {"role": "assistant", "content": "unreachable"}
 
 
-def _divide_by_zero():
-    return 1 / 0  # SENTINEL user frame
+def _divide_by_zero() -> None:
+    _ = 1 / 0  # SENTINEL user frame
 
 
 class _User(AgentAdapter):

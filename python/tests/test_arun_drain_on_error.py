@@ -11,9 +11,8 @@ whether the local endpoint is reachable.
 
 from __future__ import annotations
 
-import asyncio
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from unittest.mock import patch
 
 import pytest
@@ -31,13 +30,8 @@ class _CountingReporter(EventReporter):
     """Drop-in reporter that records every event instead of POSTing."""
 
     def __init__(self) -> None:
-        # Bypass parent __init__ — we want no env setup, no HTTP client.
+        super().__init__(endpoint="http://localhost", api_key="test")
         self.received: List[ScenarioEvent] = []
-        self.endpoint = "memory://"
-        self.api_key = "test"
-        import logging
-
-        self.logger = logging.getLogger(__name__)
 
     async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
         self.received.append(event)
