@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.24](https://github.com/langwatch/scenario/compare/python/v0.7.23...python/v0.7.24) (2026-04-18)
+
+
+### Features
+
+* add GOAT strategy with dynamic technique selection for RedTeamAgent ([#306](https://github.com/langwatch/scenario/issues/306)) ([e62c292](https://github.com/langwatch/scenario/commit/e62c292dbb46bbc6a7afd312604746541b02e84f))
+* **python:** add async-native scenario.arun for loop-bound resources ([#369](https://github.com/langwatch/scenario/issues/369)) ([a797773](https://github.com/langwatch/scenario/commit/a79777353dcfd3a44648f329ed75cf1321ccdd13))
+
 ## [0.7.23](https://github.com/langwatch/scenario/compare/python/v0.7.22...python/v0.7.23) (2026-04-08)
 
 
