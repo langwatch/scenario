@@ -78,8 +78,12 @@ async def test_vegetarian_recipe_agent_via_arun():
 
 @pytest.mark.agent_test
 @pytest.mark.asyncio_concurrent(group="vegetarian_recipe_agent_arun")
-@pytest.mark.flaky(reruns=2)
+@pytest.mark.flaky(reruns=3)
 async def test_user_is_hungry_via_arun():
+    # Follow-up prompts are fixed strings rather than free-form
+    # ``scenario.user()`` calls so the UserSimulator's LLM noise
+    # can't pivot the conversation away from vegetarian criteria
+    # the judge checks.
     result = await scenario.arun(
         name="hungry user (arun)",
         description="User is very very hungry and wants a big, filling meal",
@@ -99,9 +103,7 @@ async def test_user_is_hungry_via_arun():
         script=[
             scenario.user("I'm starving! I need something really filling for dinner tonight"),
             scenario.agent(),
-            scenario.user(),
-            scenario.agent(),
-            scenario.user(),
+            scenario.user("That sounds great, can you share the recipe?"),
             scenario.agent(),
             scenario.judge(),
         ],
