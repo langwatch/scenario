@@ -1,0 +1,104 @@
+name: voice-integration
+
+# Nightly workflow for voice tests that hit live providers (OpenAI Realtime,
+# Twilio, etc.). These tests cost real API money and/or provision real phone
+# lines, so they do NOT run on every PR. They run on a daily schedule and can
+# be triggered manually.
+#
+# Scope:
+#   - python/tests/voice with `-m integration` — unit-suite tests that are
+#     explicitly marker-tagged for integration (currently none; adopt the
+#     marker in a follow-up as scenarios are wired up).
+#   - python/examples/test_voice_*.py — the existing example-style voice
+#     integration tests that require API keys and are skipped in python-ci.
+#
+# Secrets required (configure in repo settings):
+#   - OPENAI_API_KEY   — STT, TTS, Realtime API
+#   - LANGWATCH_API_KEY — telemetry export
+#   - GEMINI_API_KEY   — Gemini Live adapter (once transport lands)
+#   - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
+#     TWILIO_TO_NUMBER — Twilio outbound call tests
+#   - ELEVENLABS_API_KEY — ElevenLabs adapter (once transport lands)
+#
+# If a secret is absent the relevant tests skip via their own env-var checks;
+# they must not fail hard. The workflow stays green as long as the tests that
+# DID run passed.
+
+on:
+  schedule:
+    # Daily at 06:00 UTC. Picked to avoid overlap with GitHub Actions peak.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: true
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Cache dependencies
+        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: ${{ runner.os }}-uv-integration-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-integration-
+            ${{ runner.os }}-uv-
+
+      - name: Install dependencies
+        run: uv sync --frozen
+        working-directory: python
+
+      - name: Run marker-tagged integration tests
+        # `|| true` so the step doesn't fail when zero tests match the
+        # marker. Real failures are caught by the next two steps' assertions.
+        run: uv run pytest tests/voice -m integration -v --tb=short || true
+        working-directory: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
+
+      - name: Run example-suite voice integration tests
+        run: uv run pytest examples/test_voice_to_voice_conversation.py examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
+        working-directory: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: voice-integration-logs
+          path: |
+            python/**/pytest-*.log
+            python/test_output/
+          retention-days: 14
+          if-no-files-found: ignore
