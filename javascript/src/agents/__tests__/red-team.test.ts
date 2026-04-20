@@ -1475,3 +1475,117 @@ describe("RedTeamAgent cross-run reuse guard", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// DX polish: phaseKind, metapromptTemplate warn, techniques kwarg split
+// ---------------------------------------------------------------------------
+
+describe("phaseKind", () => {
+  it("CrescendoStrategy is 'staged' (default)", async () => {
+    const { CrescendoStrategy } = await import("../red-team/crescendo-strategy");
+    const s = new CrescendoStrategy();
+    // Not set on Crescendo → orchestrator defaults to staged.
+    expect(s.phaseKind ?? "staged").toBe("staged");
+  });
+
+  it("GoatStrategy is 'progress'", () => {
+    expect(new GoatStrategy().phaseKind).toBe("progress");
+  });
+});
+
+describe("metapromptTemplate warning on strategies that ignore it", () => {
+  it("warns when passed to redTeamGoat", () => {
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      redTeamGoat({ target: "t", metapromptTemplate: "IGNORED {target}" });
+      const calls = spy.mock.calls.map((c) => c.join(" "));
+      expect(calls.some((m) => /GoatStrategy.*ignored/i.test(m))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not warn for redTeamCrescendo", () => {
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      redTeamCrescendo({
+        target: "t",
+        metapromptTemplate:
+          "{target} {description} {totalTurns} {phase1_end} {phase2_end} {phase3_end}",
+      });
+      const calls = spy.mock.calls.map((c) => c.join(" "));
+      expect(calls.some((m) => /ignored/i.test(m))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not warn when metapromptTemplate is omitted", () => {
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      redTeamGoat({ target: "t" });
+      const calls = spy.mock.calls.map((c) => c.join(" "));
+      expect(calls.some((m) => /ignored/i.test(m))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("redTeamGoat techniques kwarg split", () => {
+  it("goatTechniques overrides the semantic catalogue", () => {
+    const custom = [
+      { id: "X", name: "X", description: "x", example: "x" },
+      { id: "Y", name: "Y", description: "y", example: "y" },
+    ];
+    const agent = redTeamGoat({ target: "t", goatTechniques: custom }) as any;
+    expect((agent.strategy as GoatStrategy).techniques.map((t) => t.id)).toEqual([
+      "X",
+      "Y",
+    ]);
+  });
+
+  it("encodingTechniques reaches the injection pool", async () => {
+    const enc = [{ name: "noop", transform: (s: string) => s }];
+    const agent = redTeamGoat({ target: "t", encodingTechniques: enc }) as any;
+    expect(agent.techniques).toEqual(enc);
+  });
+
+  it("deprecated `techniques` alias still works and logs a warning", async () => {
+    const enc = [{ name: "noop", transform: (s: string) => s }];
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const agent = redTeamGoat({ target: "t", techniques: enc }) as any;
+      expect(agent.techniques).toEqual(enc);
+      const calls = spy.mock.calls.map((c) => c.join(" "));
+      expect(
+        calls.some((m) => /deprecated/i.test(m) && /encodingTechniques/.test(m))
+      ).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("throws when both techniques and encodingTechniques are provided", async () => {
+    const enc = [{ name: "noop", transform: (s: string) => s }];
+    expect(() =>
+      redTeamGoat({ target: "t", techniques: enc, encodingTechniques: enc })
+    ).toThrow(/only one of/i);
+  });
+
+  it("goat and encoding fields are independent", () => {
+    const catalogue = [
+      { id: "Z", name: "Z", description: "z", example: "z" },
+    ];
+    const enc = [{ name: "noop", transform: (s: string) => s }];
+    const agent = redTeamGoat({
+      target: "t",
+      goatTechniques: catalogue,
+      encodingTechniques: enc,
+    }) as any;
+    expect((agent.strategy as GoatStrategy).techniques.map((t) => t.id)).toEqual([
+      "Z",
+    ]);
+    expect(agent.techniques).toEqual(enc);
+  });
+});

@@ -3386,3 +3386,170 @@ def test_looks_already_encoded_heuristic():
     assert not _looks_already_encoded(
         "Please answer question 42 about the 2026 budget proposal now"
     )
+
+
+# ---------------------------------------------------------------------------
+# DX polish: phase_kind, metaprompt_template warn, techniques kwarg split
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseKind:
+    """`phase_kind` on the strategy disambiguates staged phase labels (Crescendo)
+    from coarse progress buckets (GOAT) so dashboards can key telemetry off a
+    stable attribute per strategy kind."""
+
+    def test_crescendo_phase_kind_is_staged(self):
+        assert CrescendoStrategy().phase_kind == "staged"
+
+    def test_goat_phase_kind_is_progress(self):
+        assert GoatStrategy().phase_kind == "progress"
+
+    def test_base_default_is_staged_for_backward_compat(self):
+        """Custom strategies that predate this property keep working as
+        'staged' — matching how the old single span attribute behaved."""
+
+        class OldCustomStrategy(RedTeamStrategy):
+            def build_system_prompt(self, **_kwargs) -> str:
+                return ""
+
+            def get_phase_name(self, current_turn, total_turns):
+                return "custom"
+
+        assert OldCustomStrategy().phase_kind == "staged"
+
+
+class TestMetapromptTemplateIgnoredWarning:
+    """Passing `metaprompt_template` to a strategy that doesn't use one should
+    warn loudly rather than silently store a value that never gets rendered."""
+
+    def test_warn_when_passed_to_goat(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            RedTeamAgent.goat(
+                target="t",
+                model="openai/gpt-4.1-mini",
+                metaprompt_template="IGNORED {target}",
+            )
+        messages = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+        assert any("GoatStrategy" in m and "ignored" in m for m in messages)
+
+    def test_no_warn_for_crescendo(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            RedTeamAgent.crescendo(
+                target="t",
+                model="openai/gpt-4.1-mini",
+                metaprompt_template="{target} {description} {total_turns} "
+                "{phase1_end} {phase2_end} {phase3_end}",
+            )
+        messages = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+        assert not any("ignored" in m for m in messages)
+
+    def test_no_warn_when_omitted(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            RedTeamAgent.goat(target="t", model="openai/gpt-4.1-mini")
+        messages = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+        assert not any("ignored" in m for m in messages)
+
+
+class TestGoatTechniquesKwargSplit:
+    """`.goat(techniques=...)` was ambiguous — the attribute name collided
+    between the GOAT semantic catalogue and single-turn encoding techniques.
+    Split into `goat_techniques=` and `encoding_techniques=`, keep the old
+    name as a deprecated alias for `encoding_techniques=`."""
+
+    def test_goat_techniques_overrides_catalogue(self):
+        from scenario._red_team.techniques_goat import Technique
+
+        custom = [
+            Technique(id="X", name="X", description="x", example="x"),
+            Technique(id="Y", name="Y", description="y", example="y"),
+        ]
+        agent = RedTeamAgent.goat(
+            target="t",
+            model="openai/gpt-4.1-mini",
+            goat_techniques=custom,
+        )
+        assert isinstance(agent._strategy, GoatStrategy)
+        assert [t.id for t in agent._strategy.techniques] == ["X", "Y"]
+
+    def test_encoding_techniques_reaches_injection_pool(self):
+        from scenario._red_team.techniques import AttackTechnique
+
+        class _NoopTechnique(AttackTechnique):
+            name = "noop"
+            def transform(self, message: str) -> str:
+                return message
+        custom = [_NoopTechnique()]
+        agent = RedTeamAgent.goat(
+            target="t",
+            model="openai/gpt-4.1-mini",
+            encoding_techniques=custom,
+        )
+        assert agent._techniques == custom
+
+    def test_deprecated_techniques_alias_still_works_but_warns(self):
+        import warnings
+        from scenario._red_team.techniques import AttackTechnique
+
+        class _NoopTechnique(AttackTechnique):
+            name = "noop"
+            def transform(self, message: str) -> str:
+                return message
+        custom = [_NoopTechnique()]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            agent = RedTeamAgent.goat(
+                target="t",
+                model="openai/gpt-4.1-mini",
+                techniques=custom,
+            )
+        assert agent._techniques == custom
+        deprecations = [
+            w for w in caught if issubclass(w.category, DeprecationWarning)
+        ]
+        assert deprecations, "expected a DeprecationWarning"
+        assert "encoding_techniques" in str(deprecations[0].message)
+
+    def test_both_techniques_and_encoding_techniques_raises(self):
+        from scenario._red_team.techniques import AttackTechnique
+
+        class _NoopTechnique(AttackTechnique):
+            name = "noop"
+            def transform(self, message: str) -> str:
+                return message
+        custom = [_NoopTechnique()]
+        with pytest.raises(TypeError, match="Pass only one of"):
+            RedTeamAgent.goat(
+                target="t",
+                model="openai/gpt-4.1-mini",
+                techniques=custom,
+                encoding_techniques=custom,
+            )
+
+    def test_goat_and_encoding_techniques_are_independent(self):
+        from scenario._red_team.techniques_goat import Technique
+        from scenario._red_team.techniques import AttackTechnique
+
+        catalogue = [Technique(id="Z", name="Z", description="z", example="z")]
+
+        class _NoopTechnique(AttackTechnique):
+            name = "noop"
+            def transform(self, message: str) -> str:
+                return message
+        encoders = [_NoopTechnique()]
+        agent = RedTeamAgent.goat(
+            target="t",
+            model="openai/gpt-4.1-mini",
+            goat_techniques=catalogue,
+            encoding_techniques=encoders,
+        )
+        assert [t.id for t in agent._strategy.techniques] == ["Z"]
+        assert agent._techniques == encoders

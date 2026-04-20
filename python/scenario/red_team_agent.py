@@ -10,6 +10,7 @@ import json
 import logging
 import random
 import re
+import warnings
 from typing import Callable, List, Literal, Optional, Sequence, cast
 
 import litellm
@@ -23,6 +24,7 @@ from scenario._red_team.base import RedTeamStrategy
 from scenario._red_team.crescendo import CrescendoStrategy
 from scenario._red_team.goat import GoatStrategy
 from scenario._red_team.techniques import AttackTechnique, DEFAULT_TECHNIQUES
+from scenario._red_team.techniques_goat import Technique as GoatTechnique
 from scenario.script import user, agent, judge
 from scenario._utils.utils import await_if_awaitable
 
@@ -219,6 +221,21 @@ class RedTeamAgent(AgentAdapter):
         self._strategy = strategy
         self.target = target
         self.total_turns = total_turns
+        # Warn early when the caller passed a metaprompt_template to a
+        # strategy that doesn't use one (e.g. GOAT). The value is stored
+        # but never rendered — better to surface that at construction
+        # than have users wonder why their custom plan never appears.
+        if (
+            metaprompt_template is not None
+            and not strategy.needs_metaprompt_plan
+        ):
+            warnings.warn(
+                f"{type(strategy).__name__} does not use a metaprompt "
+                "template (needs_metaprompt_plan=False); the value passed "
+                "via `metaprompt_template=` will be ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
         self._metaprompt_template = metaprompt_template if metaprompt_template is not None else _DEFAULT_METAPROMPT_TEMPLATE
         self._attack_plan: Optional[str] = attack_plan
         self._attack_plan_lock = asyncio.Lock()
@@ -367,6 +384,8 @@ class RedTeamAgent(AgentAdapter):
         success_score: Optional[int] = 9,
         success_confirm_turns: int = 2,
         injection_probability: float = 0.0,
+        goat_techniques: Optional[Sequence[GoatTechnique]] = None,
+        encoding_techniques: Optional[Sequence[AttackTechnique]] = None,
         techniques: Optional[Sequence[AttackTechnique]] = None,
         **kwargs,
     ) -> "RedTeamAgent":
@@ -408,8 +427,19 @@ class RedTeamAgent(AgentAdapter):
             injection_probability: Probability (0.0-1.0) of applying a random
                 encoding technique to each attack message. Default 0.0 (off).
                 See warning above before enabling for GOAT.
-            techniques: List of ``AttackTechnique`` instances to sample from.
-                Defaults to all built-in techniques.
+            goat_techniques: Override the GOAT *semantic* catalogue (the
+                technique list the attacker LLM chooses from each turn).
+                Must be :class:`~scenario._red_team.techniques_goat.Technique`
+                instances. Defaults to the 7-technique catalogue from the
+                paper (``DEFAULT_GOAT_TECHNIQUES``).
+            encoding_techniques: List of single-turn
+                :class:`~scenario._red_team.techniques.AttackTechnique`
+                encoders used by ``injection_probability`` to randomly
+                transform the attacker's reply (Base64/ROT13/leetspeak/...).
+                Unrelated to ``goat_techniques``. Defaults to
+                ``DEFAULT_TECHNIQUES``.
+            techniques: Deprecated alias for ``encoding_techniques``.
+                Emits a :class:`DeprecationWarning` — use the new name.
             **kwargs: All other arguments forwarded to ``RedTeamAgent.__init__``.
 
         Returns:
@@ -419,14 +449,30 @@ class RedTeamAgent(AgentAdapter):
         # so `metaprompt_template` is irrelevant for this strategy. The constructor
         # stores whatever the user passed (or the module-level Crescendo default)
         # but it's never rendered.
+        if techniques is not None and encoding_techniques is not None:
+            raise TypeError(
+                "Pass only one of `encoding_techniques=` (new) or "
+                "`techniques=` (deprecated alias) to RedTeamAgent.goat()."
+            )
+        if techniques is not None:
+            warnings.warn(
+                "RedTeamAgent.goat(techniques=...) is deprecated — this "
+                "argument collides with the GOAT semantic catalogue. Rename "
+                "to `encoding_techniques=` for the Base64/ROT13/... "
+                "single-turn encoders, or `goat_techniques=` to override "
+                "the catalogue the attacker LLM picks from.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            encoding_techniques = techniques
         return cls(
-            strategy=GoatStrategy(),
+            strategy=GoatStrategy(techniques=goat_techniques),
             target=target,
             total_turns=total_turns,
             success_score=success_score,
             success_confirm_turns=success_confirm_turns,
             injection_probability=injection_probability,
-            techniques=techniques,
+            techniques=encoding_techniques,
             **kwargs,
         )
 
@@ -963,7 +1009,11 @@ Reply with exactly this JSON and nothing else:
             )
 
             phase_name = self._strategy.get_phase_name(current_turn, self.total_turns)
-            span.set_attribute("red_team.phase", phase_name)
+            phase_attr = (
+                "red_team.phase" if self._strategy.phase_kind == "staged"
+                else "red_team.progress_bucket"
+            )
+            span.set_attribute(phase_attr, phase_name)
 
             logger.debug(
                 "RedTeamAgent turn=%d/%d phase=%s score=%s strategy=%s",

@@ -65,6 +65,22 @@ export interface RedTeamStrategy {
   getPhaseName(currentTurn: number, totalTurns: number): string;
 
   /**
+   * Describe what {@link getPhaseName} actually returns.
+   *
+   * `"staged"` — phases carry semantic meaning (e.g. Crescendo's
+   * `warmup` / `probing` / `escalation` / `direct`) and are emitted
+   * as `red_team.phase` in telemetry.
+   *
+   * `"progress"` — the label is a coarse progress bucket with no
+   * semantic meaning (e.g. GOAT's `early` / `mid` / `late`) and is
+   * emitted as `red_team.progress_bucket` so dashboards don't mistake
+   * it for a staged-strategy phase.
+   *
+   * Defaults to `"staged"` when omitted (backward-compatible).
+   */
+  phaseKind?: "staged" | "progress";
+
+  /**
    * Return phase boundary turn numbers to inject into the metaprompt template.
    *
    * Override this to inject strategy-specific template variables. Strategies

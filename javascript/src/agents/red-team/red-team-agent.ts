@@ -8,6 +8,7 @@ import {
   renderMetapromptTemplate,
 } from "./metaprompt-template";
 import { AttackTechnique, DEFAULT_TECHNIQUES } from "./techniques";
+import type { Technique as GoatTechnique } from "./goat-techniques";
 import { AgentInput, UserSimulatorAgentAdapter } from "../../domain";
 import { AgentReturnTypes } from "../../domain/agents/types/agent-return.types";
 import { ScriptStep } from "../../domain/scenarios";
@@ -58,8 +59,20 @@ export type CrescendoConfig = Omit<RedTeamAgentConfig, "strategy">;
  *  `metapromptTemplate` is accepted but ignored — GOAT does not pre-generate
  *  an attack plan (paper fidelity; see {@link GoatStrategy.needsMetapromptPlan}).
  *
- *  Reserved for future GOAT-specific fields. */
-export interface GoatConfig extends CrescendoConfig {}
+ *  Two `*techniques` fields live on this config and they mean different things:
+ *  - `goatTechniques` — override the GOAT *semantic* catalogue (the list the
+ *    attacker LLM picks from each turn). Accepts
+ *    {@link GoatTechnique}. Defaults to the 7-technique paper catalogue.
+ *  - `encodingTechniques` — single-turn Base64/ROT13/... encoders used by
+ *    `injectionProbability`. Accepts {@link AttackTechnique}.
+ *  - `techniques` — deprecated alias for `encodingTechniques`; keeps the
+ *    inherited `CrescendoConfig.techniques` field working with a warning. */
+export interface GoatConfig extends CrescendoConfig {
+  /** Override the GOAT semantic catalogue (the attacker's per-turn choices). */
+  goatTechniques?: readonly GoatTechnique[];
+  /** Single-turn encoders used when `injectionProbability > 0`. */
+  encodingTechniques?: AttackTechnique[];
+}
 
 const BASE64_LIKE = /^[A-Za-z0-9+/=]+$/;
 
@@ -156,6 +169,23 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
     this.totalTurns = config.totalTurns ?? 30;
     this.model = config.model;
     this.metapromptModel = config.metapromptModel ?? config.model;
+    // Warn early when the caller passed a metapromptTemplate to a strategy
+    // that doesn't use one (e.g. GOAT). The value is stored but never
+    // rendered — surface that at construction rather than have users
+    // wonder why their custom plan never appears. `needsMetapromptPlan`
+    // defaults to true when omitted.
+    if (
+      config.metapromptTemplate !== undefined
+      && config.strategy.needsMetapromptPlan === false
+    ) {
+      const name = config.strategy.constructor?.name ?? "Strategy";
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[RedTeamAgent] ${name} does not use a metaprompt template `
+          + "(needsMetapromptPlan=false); the value passed via "
+          + "`metapromptTemplate` will be ignored."
+      );
+    }
     this.metapromptTemplate =
       config.metapromptTemplate ?? DEFAULT_METAPROMPT_TEMPLATE;
     this.attackPlanValue = config.attackPlan ?? null;
@@ -713,9 +743,33 @@ export const redTeamGoat = (config: GoatConfig) => {
   // GOAT never renders a metaprompt template (`needsMetapromptPlan === false`).
   // Whatever `metapromptTemplate` the caller passes (or the constructor's
   // default) is stored but never used. No template setup needed here.
+  const {
+    goatTechniques,
+    encodingTechniques,
+    techniques,
+    ...rest
+  } = config;
+  if (techniques !== undefined && encodingTechniques !== undefined) {
+    throw new TypeError(
+      "Pass only one of `encodingTechniques` (new) or `techniques` "
+        + "(deprecated alias) to redTeamGoat()."
+    );
+  }
+  let resolvedEncoding = encodingTechniques;
+  if (techniques !== undefined) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[redTeamGoat] `techniques` is deprecated — this name collides with "
+        + "the GOAT semantic catalogue. Rename to `encodingTechniques` for "
+        + "the Base64/ROT13/... single-turn encoders, or `goatTechniques` "
+        + "to override the catalogue the attacker LLM picks from."
+    );
+    resolvedEncoding = techniques;
+  }
   return new RedTeamAgentImpl({
     totalTurns: 30,
-    ...config,
-    strategy: new GoatStrategy(),
+    ...rest,
+    techniques: resolvedEncoding,
+    strategy: new GoatStrategy(goatTechniques),
   });
 };

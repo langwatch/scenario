@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Literal
 
 
 # Structured output contract appended to every attacker system prompt.
@@ -130,6 +131,24 @@ class RedTeamStrategy(ABC):
         empty list so non-catalogue strategies contribute nothing.
         """
         return []
+
+    @property
+    def phase_kind(self) -> Literal["staged", "progress"]:
+        """Describe what ``get_phase_name`` actually returns.
+
+        ``"staged"`` — phases carry semantic meaning (e.g. Crescendo's
+        ``warmup`` / ``probing`` / ``escalation`` / ``direct``) and are
+        emitted as ``red_team.phase`` for dashboards.
+
+        ``"progress"`` — the label is a coarse progress bucket with no
+        semantic meaning (e.g. GOAT's ``early`` / ``mid`` / ``late``) and
+        is emitted as ``red_team.progress_bucket`` so dashboards don't
+        mistake it for a staged-strategy phase.
+
+        Default ``"staged"`` for backward compatibility with custom
+        strategies that predate this property.
+        """
+        return "staged"
 
     @abstractmethod
     def get_phase_name(self, current_turn: int, total_turns: int) -> str:

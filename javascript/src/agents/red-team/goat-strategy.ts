@@ -26,6 +26,10 @@ export class GoatStrategy implements RedTeamStrategy {
   // Paper fidelity: GOAT does not pre-generate an attack plan.
   readonly needsMetapromptPlan = false;
 
+  // GOAT has no semantic phases; `getPhaseName` returns a coarse progress
+  // bucket for observability only.
+  readonly phaseKind = "progress" as const;
+
   /**
    * The technique catalogue in use (read-only). Defaults to
    * {@link DEFAULT_GOAT_TECHNIQUES} — the 7 techniques from the paper.

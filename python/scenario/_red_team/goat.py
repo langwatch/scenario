@@ -16,7 +16,7 @@ References:
 """
 
 import json
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 
 from .base import AttackerOutput, RedTeamStrategy, JSON_OUTPUT_CONTRACT
 from .techniques_goat import (
@@ -112,6 +112,12 @@ class GoatStrategy(RedTeamStrategy):
         return AttackerOutput(
             reply=reply, observation=observation, strategy=strategy
         )
+
+    @property
+    def phase_kind(self) -> Literal["staged", "progress"]:
+        # GOAT has no semantic phases; ``get_phase_name`` returns a coarse
+        # progress bucket for observability only.
+        return "progress"
 
     @property
     def needs_metaprompt_plan(self) -> bool:
