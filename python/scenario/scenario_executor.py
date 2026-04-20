@@ -1250,6 +1250,8 @@ def _build_scenario(
     script: Optional[List[ScriptStep]],
     set_id: Optional[str],
     metadata: Optional[Dict[str, Any]],
+    on_audio_chunk: Optional[Callable[[Any], None]] = None,
+    on_voice_event: Optional[Callable[[Any], None]] = None,
 ) -> "ScenarioExecutor":
     """Shared setup used by both ``run()`` (threaded) and ``arun()`` (async-native)."""
     from ._tracing import ensure_tracing_initialized
@@ -1268,6 +1270,8 @@ def _build_scenario(
         script=script,
         set_id=set_id,
         metadata=metadata,
+        on_audio_chunk=on_audio_chunk,
+        on_voice_event=on_voice_event,
     )
 
 
@@ -1290,6 +1294,8 @@ async def arun(
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    on_audio_chunk: Optional[Callable[[Any], None]] = None,
+    on_voice_event: Optional[Callable[[Any], None]] = None,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -1318,6 +1324,8 @@ async def arun(
         script=script,
         set_id=set_id,
         metadata=metadata,
+        on_audio_chunk=on_audio_chunk,
+        on_voice_event=on_voice_event,
     )
 
     try:
