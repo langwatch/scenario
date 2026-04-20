@@ -1484,8 +1484,11 @@ describe("phaseKind", () => {
   it("CrescendoStrategy is 'staged' (default)", async () => {
     const { CrescendoStrategy } = await import("../red-team/crescendo-strategy");
     const s = new CrescendoStrategy();
-    // Not set on Crescendo → orchestrator defaults to staged.
-    expect(s.phaseKind ?? "staged").toBe("staged");
+    // Crescendo doesn't declare `phaseKind` — the interface marks it optional
+    // and orchestrator code treats `undefined` as "staged" (backward-compat).
+    expect((s as { phaseKind?: "staged" | "progress" }).phaseKind ?? "staged").toBe(
+      "staged"
+    );
   });
 
   it("GoatStrategy is 'progress'", () => {

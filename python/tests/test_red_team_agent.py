@@ -3559,5 +3559,6 @@ class TestGoatTechniquesKwargSplit:
             goat_techniques=catalogue,
             encoding_techniques=encoders,
         )
+        assert isinstance(agent._strategy, GoatStrategy)
         assert [t.id for t in agent._strategy.techniques] == ["Z"]
         assert agent._techniques == encoders
