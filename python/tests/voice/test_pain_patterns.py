@@ -153,7 +153,8 @@ async def test_pain_pattern_multi_intent_scripted_user_preserves_content():
     state._executor = executor  # type: ignore[misc]
 
     coroutine = step(state)  # type: ignore[arg-type]
-    await coroutine
+    assert coroutine is not None
+    await coroutine  # type: ignore[misc]
 
     assert len(calls) == 1
     assert calls[0][0] == multi
