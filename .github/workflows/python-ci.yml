@@ -82,8 +82,11 @@ jobs:
 
       # Examples — skipped for Dependabot PRs since they don't have access to repo secrets
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]'
-        run: uv run pytest examples/ -v --tb=short
+        # Examples hit real LLMs over the network; they can legitimately take
+        # well over the 60s per-test timeout that pytest.ini sets for the unit
+        # suite. Override to 300s here so slow-but-correct runs don't get
+        # pytest-timeout'd.
+        run: uv run pytest examples/ -v --tb=short --timeout=300
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
