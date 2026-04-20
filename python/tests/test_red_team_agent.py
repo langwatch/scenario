@@ -3409,7 +3409,15 @@ class TestPhaseKind:
         'staged' — matching how the old single span attribute behaved."""
 
         class OldCustomStrategy(RedTeamStrategy):
-            def build_system_prompt(self, **_kwargs) -> str:
+            def build_system_prompt(
+                self,
+                target,
+                current_turn,
+                total_turns,
+                scenario_description,
+                metaprompt_plan="",
+                **_kwargs,
+            ) -> str:
                 return ""
 
             def get_phase_name(self, current_turn, total_turns):
