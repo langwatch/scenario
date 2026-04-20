@@ -6,7 +6,7 @@ of a scenario execution, including conversation history, turn tracking, and
 utility methods for inspecting the conversation.
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
@@ -196,6 +196,23 @@ class ScenarioState(BaseModel):
                     if "function" in tool_call and tool_call["function"]["name"] == tool_name:
                         return tool_call  # type: ignore[return-value]
         return None
+
+    @property
+    def timeline(self) -> List[Any]:
+        """
+        Voice events (``VoiceEvent``) captured so far during this scenario.
+
+        Enables the Example 6.5 callable-as-script-step pattern: a plain
+        Python function dropped into ``script=[...]`` can read
+        ``state.timeline`` mid-scenario to assert that preceding voice turns
+        produced the expected events (``tool_call``, ``user_interrupt``,
+        ``agent_start_speaking``, etc.). Empty for text-only scenarios.
+
+        Returns a snapshot list; mutating it does not affect the executor's
+        live timeline.
+        """
+        events = getattr(self._executor, "_voice_timeline", None)
+        return list(events) if events else []
 
     def has_tool_call(self, tool_name: str) -> bool:
         """
