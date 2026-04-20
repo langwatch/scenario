@@ -6,7 +6,7 @@ of a scenario execution, including conversation history, turn tracking, and
 utility methods for inspecting the conversation.
 """
 
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, List, Optional, TYPE_CHECKING
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
@@ -196,6 +196,31 @@ class ScenarioState(BaseModel):
                     if "function" in tool_call and tool_call["function"]["name"] == tool_name:
                         return tool_call  # type: ignore[return-value]
         return None
+
+    def set_effects(self, effects: List[Callable[[bytes], bytes]]) -> None:
+        """
+        Replace audio effects on every ``UserSimulatorAgent`` in the scenario.
+
+        Enables the ``proceed(on_turn=...)`` pattern for effects that vary
+        during a conversation (proposal §4.5 L548-557):
+
+        ```python
+        scenario.proceed(
+            turns=3,
+            on_turn=lambda s: s.set_effects(
+                [effects.background_noise("cafe", volume=0.1 * s.current_turn)]
+            ),
+        )
+        ```
+
+        The mutation takes effect on the *next* user turn. Agents other than
+        user simulators (adapters, judges) are ignored.
+        """
+        from .user_simulator_agent import UserSimulatorAgent
+
+        for agent in getattr(self._executor, "agents", []) or []:
+            if isinstance(agent, UserSimulatorAgent):
+                agent.audio_effects = list(effects)
 
     @property
     def timeline(self) -> List[Any]:
