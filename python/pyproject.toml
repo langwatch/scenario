@@ -114,4 +114,9 @@ dev = [
     # than `timeout` in pytest.ini_options below fails fast instead of
     # pinning the CI runner. Set per-test; global suite has no limit.
     "pytest-timeout>=2.3",
+    # Voice agents feature contract in specs/voice-agents.feature: pytest-bdd
+    # binds each Scenario to a Python test function so the 83-scenario contract
+    # is verifiable (issue #350). Minimal bindings live under tests/voice/bdd/;
+    # scale-up tracked as follow-up.
+    "pytest-bdd>=8.1.0",
 ]
