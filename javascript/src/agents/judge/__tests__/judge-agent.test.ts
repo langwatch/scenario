@@ -564,5 +564,124 @@ describe("JudgeAgent", () => {
       expect(result!.metCriteria).toContain("Agent responds politely");
       expect(result!.unmetCriteria).toContain("Agent uses tools");
     });
+
+    it("strips toolset to finish_test only on the forced-verdict call", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      };
+
+      const agent = judgeAgent(config);
+
+      let callCount = 0;
+      let forcedCallTools: string[] | undefined;
+      agent.invokeLLM = async (params) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            text: "",
+            content: [],
+            toolCalls: [
+              {
+                toolName: "expand_trace",
+                input: { span_ids: ["0000000000000000"] },
+                type: "tool-call" as const,
+                toolCallId: "tc-1",
+              },
+            ],
+            toolResults: [],
+          } as unknown as InvokeLLMResult;
+        }
+        forcedCallTools = Object.keys(params.tools ?? {});
+        return mockLLMResult("finish_test", {
+          criteria: { agent_works_correctly: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      await agent.call(createBaseInput());
+
+      expect(callCount).toBe(2);
+      expect(forcedCallTools).toEqual(["finish_test"]);
+      expect(forcedCallTools).not.toContain("expand_trace");
+      expect(forcedCallTools).not.toContain("grep_trace");
+      expect(forcedCallTools).not.toContain("continue_test");
+    });
+
+    it("returns inconclusive verdict when forced call still leaks expand_trace", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      };
+
+      const agent = judgeAgent(config);
+
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        return {
+          text: "",
+          content: [],
+          toolCalls: [
+            {
+              toolName: "expand_trace",
+              input: { span_ids: ["0000000000000000"] },
+              type: "tool-call" as const,
+              toolCallId: `tc-${callCount}`,
+            },
+          ],
+          toolResults: [],
+        } as unknown as InvokeLLMResult;
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.reasoning).not.toContain("Unknown tool call");
+      expect(result!.reasoning).toContain("trace discovery");
+      expect(result!.metCriteria).toEqual([]);
+      expect(result!.unmetCriteria).toContain("Agent works correctly");
+    });
+
+    it("returns inconclusive verdict when forced call still leaks grep_trace", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      };
+
+      const agent = judgeAgent(config);
+
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        return {
+          text: "",
+          content: [],
+          toolCalls: [
+            {
+              toolName: "grep_trace",
+              input: { pattern: "anything" },
+              type: "tool-call" as const,
+              toolCallId: `tc-${callCount}`,
+            },
+          ],
+          toolResults: [],
+        } as unknown as InvokeLLMResult;
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.reasoning).not.toContain("Unknown tool call");
+      expect(result!.reasoning).toContain("trace discovery");
+      expect(result!.metCriteria).toEqual([]);
+      expect(result!.unmetCriteria).toContain("Agent works correctly");
+    });
   });
 });
