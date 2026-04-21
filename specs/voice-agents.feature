@@ -462,9 +462,11 @@ Feature: Voice agent testing in Scenario SDK
 
   # ======================================================================
   # End-to-End Examples — §6 (one contract AC per example, Example 6.5 not optional)
+  # Per TESTING.md: @e2e = happy paths via real examples, no mocks.
+  # Each scenario is backed by a runnable python/examples/voice_*.py file.
   # ======================================================================
 
-  @integration
+  @e2e
   Scenario: Example 6.1 — basic greeting flow
     # Source §6.1, L874-899
     Given a PipecatAgentAdapter, a voice UserSimulator (openai/nova), a JudgeAgent with greeting criteria
@@ -473,7 +475,7 @@ Feature: Voice agent testing in Scenario SDK
     Then result.success is True
     And result.audio.save() writes a WAV
 
-  @integration
+  @e2e
   Scenario: Example 6.2 — interruption recovery
     # Source §6.2, L901-929
     Given a voice scenario with agent(wait=False), sleep(2.0), user("Wait sorry, I meant Chicago, not LA")
@@ -481,21 +483,21 @@ Feature: Voice agent testing in Scenario SDK
     Then result.success is True
     And result.latency.interrupt_response_time < 1.0
 
-  @integration
+  @e2e
   Scenario: Example 6.3 — angry customer in noisy cafe
     # Source §6.3, L931-967 and §8 emotional escalation
     Given UserSimulatorAgent(voice="elevenlabs/rachel", persona="Very angry customer...", effects=[background_noise("cafe", 0.4), phone_quality()])
     When the scenario runs multiple turns
     Then the judge evaluates empathy, noise-robustness, and resolution
 
-  @integration
+  @e2e
   Scenario: Example 6.4 — DTMF IVR navigation
     # Source §6.4, L969-996
     Given a TwilioAgentAdapter and a script using scenario.dtmf("1")
     When the scenario runs
     Then the agent routes to billing and result.success is True
 
-  @integration
+  @e2e
   Scenario: Example 6.5 — tool call verification as a plain Python step
     # Source §6.5, L998-1028 — CALLABLE AS SCRIPT STEP PATTERN
     Given a function assert_tool_called(state) that raises if no get_customer_info tool_call event exists
@@ -504,14 +506,14 @@ Feature: Voice agent testing in Scenario SDK
     Then the plain Python callable is invoked with ScenarioState at its position
     And state.timeline is available and contains the tool_call event
 
-  @integration
+  @e2e
   Scenario: Example 6.6 — pre-recorded audio injection
     # Source §6.6, L1030-1055
     Given scenario.audio("fixtures/mumbly_inaudible_question.wav") as the first step
     When the scenario runs
     Then the judge evaluates whether the agent asks for clarification
 
-  @integration
+  @e2e
   Scenario: Example 6.7 — random interruptions via interrupt_probability
     # Source §6.7, L1057-1085
     Given UserSimulatorAgent(interrupt_probability=0.4) and proceed(turns=5)
@@ -519,7 +521,7 @@ Feature: Voice agent testing in Scenario SDK
     Then interruptions occur roughly 40% of agent turns
     And the judge evaluates recovery and context preservation
 
-  @integration
+  @e2e
   Scenario: Example 6.8 — silence handling
     # Source §6.8, L1087-1113
     Given a script with user(...), silence(10.0), agent(), user(...), agent(), judge()
@@ -528,16 +530,18 @@ Feature: Voice agent testing in Scenario SDK
 
   # ======================================================================
   # Real-World Pain Points — §8 (ACs for the 5 failure patterns, L1227-1271)
+  # Per TESTING.md: @e2e = happy paths via real examples.
+  # Each scenario is backed by a runnable python/examples/voice_pain_*.py file.
   # ======================================================================
 
-  @integration
+  @e2e
   Scenario: Pain pattern — "long hold" feedback during 15s tool call
     # Source §8 L1231-1241
     Given a script: user("What's my account balance?"), agent(), sleep(15), agent()
     When the scenario runs
     Then the judge checks "Agent provides audio feedback while waiting"
 
-  @integration
+  @e2e
   Scenario: Pain pattern — "accent misunderstanding" loop escape
     # Source §8 L1243-1257
     Given a user simulator with a heavy-accent voice spelling their name
@@ -545,26 +549,132 @@ Feature: Voice agent testing in Scenario SDK
     Then the judge checks the agent offers an alternative input method after 2 failed attempts
     And does not loop the same question more than 3 times
 
-  @integration
+  @e2e
   Scenario: Pain pattern — "multi-intent" single turn
     # Source §8 L1259-1261
     Given the user says "Cancel my subscription and also check if I have any credits left"
     When the scenario runs
     Then the judge checks both intents are addressed in the agent's response
 
-  @integration
+  @e2e
   Scenario: Pain pattern — "background handoff" should not trigger agent response
     # Source §8 L1263-1265
     Given the user says "hold on" then emits overheard-conversation audio as background
     When the scenario runs
     Then the judge checks the agent waits rather than responding to the background audio
 
-  @integration
+  @e2e
   Scenario: Pain pattern — "emotional escalation" detection and adjustment
     # Source §8 L1267-1269
     Given a user simulator whose persona escalates from calm to frustrated over turns
     When the scenario runs
     Then the judge checks the agent detects the shift and offers empathy or human escalation
+
+  # ======================================================================
+  # End-to-End Platform Demos — per adapter with real transports
+  # Per TESTING.md: @e2e = happy paths via real examples, no mocks.
+  # Each scenario is backed by a runnable python/examples/voice_*.py file
+  # exercising the shipped real transport end-to-end.
+  # ======================================================================
+
+  @e2e
+  Scenario: Demo — Pipecat WebSocket adapter happy path
+    # Covers: PipecatAgentAdapter real WS transport (shipped) + simulator + judge
+    Given a local Pipecat bot on ws://localhost:8765/ws and a PipecatAgentAdapter
+    When the demo script runs via scenario.run()
+    Then result.success is True
+    And the recording contains both user-sim and agent audio
+
+  @e2e
+  Scenario: Demo — ElevenLabs hosted Conversational AI
+    # Covers: ElevenLabsAgentAdapter real WS transport (§5.4) + simulator + judge
+    Given an ElevenLabsAgentAdapter with a live agent_id and ELEVENLABS_API_KEY
+    When the demo script runs via scenario.run()
+    Then the WS reaches wss://api.elevenlabs.io/v1/convai/conversation
+    And result.success is True after one turn
+
+  @e2e
+  Scenario: Demo — ElevenLabs composable + branded agent
+    # Covers: ComposableVoiceAgent + ElevenLabsVoiceAgent + ElevenLabsSTTProvider (locked decision #9)
+    Given an ElevenLabsVoiceAgent with branded defaults (ElevenLabsSTTProvider, elevenlabs/rachel TTS)
+    When the demo script runs via scenario.run()
+    Then the STT, LLM, and TTS seams each fire at least once
+    And result.success is True
+
+  @e2e
+  Scenario: Demo — Gemini Live native audio
+    # Covers: GeminiLiveAgentAdapter real transport + simulator + judge
+    Given a GeminiLiveAgentAdapter with model "gemini-2.5-flash-native-audio" and GEMINI_API_KEY
+    When the demo script runs via scenario.run()
+    Then a live session is established and result.success is True
+
+  @e2e
+  Scenario: Demo — OpenAI Realtime as the agent under test
+    # Covers: OpenAIRealtimeAgentAdapter (role=AGENT) end-to-end
+    Given an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY
+    When the demo script runs via scenario.run()
+    Then the model plays the agent role and result.success is True
+
+  @e2e
+  Scenario: Demo — OpenAI Realtime as the user simulator
+    # Covers: OpenAIRealtimeAgentAdapter(role=AgentRole.USER) natural-prosody simulator
+    Given an OpenAIRealtimeAgentAdapter with role=AgentRole.USER and a confused-elderly-customer persona
+    When the demo script runs via scenario.run()
+    Then scripted user("text") lines are delivered with natural prosody
+    And text TTS is bypassed for the user simulator
+
+  @e2e
+  Scenario: Demo — Twilio inbound (human dials in)
+    # Covers: TwilioAgentAdapter.wait_for_call() real-phone happy path
+    Given a TwilioAgentAdapter in answer mode with a tunneled Media Streams webhook
+    When a human dials the configured number during the demo run
+    Then the Media Streams WS opens and result.success is True after one turn
+
+  @e2e
+  Scenario: Demo — Twilio outbound (agent calls a human)
+    # Covers: TwilioAgentAdapter.place_call() real-phone happy path
+    Given a TwilioAgentAdapter and a destination phone number
+    When the demo script runs scenario.run() and place_call() dials out
+    Then the callee answers and the Media Streams WS opens
+    And result.success is True after one turn
+
+  # ======================================================================
+  # End-to-End Cross-cutting SDK Features
+  # Per TESTING.md: @e2e = happy paths via real examples. These demos prove
+  # first-class SDK features work via a runnable script, not just in isolation.
+  # ======================================================================
+
+  @e2e
+  Scenario: Demo — recording and playback
+    # Covers: result.audio.save() (WAV + MP3 via ffmpeg) + audio_playback=True live stream
+    Given a voice scenario run with audio_playback=True
+    When the demo script finishes and calls result.audio.save("demo.wav") and result.audio.save("demo.mp3")
+    Then both files exist on disk with non-zero duration
+    And ffplay was spawned at least once during live playback
+
+  @e2e
+  Scenario: Demo — observability hooks and latency metrics
+    # Covers: on_audio_chunk + on_voice_event callbacks and LatencyMetrics (TTFB, p50/p95)
+    Given a voice scenario run wired with on_audio_chunk and on_voice_event callbacks
+    When the demo script completes
+    Then both callbacks fired at least once per turn
+    And result.latency exposes time_to_first_byte, p50, and p95
+
+  @e2e
+  Scenario: Demo — STT provider swap via scenario.configure
+    # Covers: pluggable STTProvider (default OpenAI → ElevenLabsSTTProvider in demo)
+    Given a voice scenario configured with scenario.configure(stt=ElevenLabsSTTProvider(...))
+    When the demo script runs and the judge transcribes an audio turn
+    Then the ElevenLabsSTTProvider.transcribe() path was exercised (not the default)
+    And result.success is True
+
+  @e2e
+  Scenario: Demo — same scenario.run() entrypoint for voice and text
+    # Covers: text-only scenario still works; voice scenario same entrypoint/script shape
+    Given two scenarios sharing an identical script and judge, differing only in agents
+    When both are executed via scenario.run()
+    Then both result.success are True
+    And no voice imports are loaded in the text-only run
 
   # ======================================================================
   # Architectural Guarantees (Source §1 L9, §3 L107-124, §7 L1175-1186)
