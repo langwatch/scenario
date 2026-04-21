@@ -46,7 +46,8 @@ import scenario
 from scenario.voice.testing import TwilioHarness
 
 
-async def main() -> None:
+async def main() -> scenario.ScenarioResult:
+    """Run the inbound smoke. Returns the ScenarioResult for caller inspection."""
     async with TwilioHarness(
         account_sid=os.environ["TWILIO_ACCOUNT_SID"],
         auth_token=os.environ["TWILIO_AUTH_TOKEN"],
@@ -82,7 +83,8 @@ async def main() -> None:
         print("=== result ===")
         print(f"success: {result.success}")
         print(f"verdict: {result.reasoning}")
+        return result
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(0 if asyncio.run(main()).success else 1)

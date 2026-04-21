@@ -56,7 +56,8 @@ TARGET: str = os.environ["TARGET_PHONE_NUMBER"]
 from scenario.voice.testing import TwilioHarness
 
 
-async def main() -> None:
+async def main() -> bool:
+    """Run the outbound smoke. Returns True on success, False on timeout."""
     # Collect DTMF digits as they arrive.
     received: list[str] = []
 
@@ -97,12 +98,11 @@ async def main() -> None:
             print("=== SUCCESS ===")
             print("Outbound smoke passed: caller pressed 1, on_dtmf fired correctly.")
             print(f"All digits received: {received}")
-            sys.exit(0)
-        else:
-            print("=== FAILURE ===")
-            print(f"Did not receive DTMF '1' within 60s. Digits received: {received or '(none)'}")
-            sys.exit(1)
+            return True
+        print("=== FAILURE ===")
+        print(f"Did not receive DTMF '1' within 60s. Digits received: {received or '(none)'}")
+        return False
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(0 if asyncio.run(main()) else 1)

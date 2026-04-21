@@ -22,9 +22,4 @@ async def test_demo_twilio_outbound_e2e_success(requires_twilio_outbound):
     """Outbound Twilio call connects and DTMF is received."""
     from voice_demo_twilio_outbound import main  # type: ignore[import]
 
-    # The outbound demo exits via sys.exit(0/1), not returning a result.
-    # We wrap in try/except SystemExit to treat exit(0) as success.
-    try:
-        await main()
-    except SystemExit as exc:
-        assert exc.code == 0, f"Outbound demo exited with code {exc.code} (failure)"
+    assert await main(), "Outbound demo did not receive the expected DTMF input"
