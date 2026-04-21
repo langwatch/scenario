@@ -10,6 +10,7 @@ constructor parameters that don't fit cleanly on a generic class.
 from __future__ import annotations
 
 from ._stub import PendingTransportError
+from .composable import ComposableVoiceAgent, ElevenLabsVoiceAgent
 from .elevenlabs import ElevenLabsAgentAdapter
 from .gemini_live import GeminiLiveAgentAdapter
 from .livekit import LiveKitAgentAdapter
@@ -21,7 +22,9 @@ from .webrtc import WebRTCAgentAdapter
 from .websocket import WebSocketAgentAdapter, WebSocketProtocol
 
 __all__ = [
+    "ComposableVoiceAgent",
     "ElevenLabsAgentAdapter",
+    "ElevenLabsVoiceAgent",
     "GeminiLiveAgentAdapter",
     "LiveKitAgentAdapter",
     "OpenAIRealtimeAgentAdapter",

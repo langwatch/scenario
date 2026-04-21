@@ -12,7 +12,6 @@ import pytest
 
 from scenario.voice import (
     AudioChunk,
-    ElevenLabsAgentAdapter,
     GeminiLiveAgentAdapter,
     LiveKitAgentAdapter,
     OpenAIRealtimeAgentAdapter,
@@ -28,9 +27,9 @@ from scenario.voice.adapters import PendingTransportError
 #   - TwilioAgentAdapter (real Media Streams transport shipped)
 #   - PipecatAgentAdapter(transport="websocket") (real WS transport shipped;
 #     webrtc mode still raises PendingTransportError — covered below).
+#   - ElevenLabsAgentAdapter (real Conversational AI WebSocket transport shipped).
 STUB_ADAPTERS = [
     (LiveKitAgentAdapter, {"url": "wss://x", "api_key": "k", "api_secret": "s", "room": "r"}),
-    (ElevenLabsAgentAdapter, {"agent_id": "a", "api_key": "k"}),
     (VapiAgentAdapter, {"assistant_id": "a", "api_key": "k"}),
     (OpenAIRealtimeAgentAdapter, {}),
     (GeminiLiveAgentAdapter, {}),

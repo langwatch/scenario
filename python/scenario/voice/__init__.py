@@ -21,7 +21,9 @@ from __future__ import annotations
 
 from .adapter import VoiceAgentAdapter
 from .adapters import (
+    ComposableVoiceAgent,
     ElevenLabsAgentAdapter,
+    ElevenLabsVoiceAgent,
     GeminiLiveAgentAdapter,
     LiveKitAgentAdapter,
     OpenAIRealtimeAgentAdapter,
@@ -38,6 +40,7 @@ from .interruption import CONTEXTUAL_PROMPT, InterruptionConfig
 from .messages import create_audio_message, extract_audio, message_has_audio
 from .recording import AudioSegment, LatencyMetrics, VoiceEvent, VoiceRecording
 from .stt import (
+    ElevenLabsSTTProvider,
     OpenAISTTProvider,
     STTProvider,
     get_stt_provider,
@@ -52,7 +55,10 @@ __all__ = [
     "AudioChunk",
     "AudioSegment",
     "CONTEXTUAL_PROMPT",
+    "ComposableVoiceAgent",
     "ElevenLabsAgentAdapter",
+    "ElevenLabsSTTProvider",
+    "ElevenLabsVoiceAgent",
     "GeminiLiveAgentAdapter",
     "InterruptionConfig",
     "LatencyMetrics",

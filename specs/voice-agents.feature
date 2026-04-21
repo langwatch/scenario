@@ -49,10 +49,45 @@ Feature: Voice agent testing in Scenario SDK
   @unit
   Scenario: ElevenLabsAgentAdapter connects to conversational AI endpoint
     # Source §4.1, L171-174 and §5.4, L760-776
+    # Hosted path: ElevenLabs runs the STT→LLM→TTS loop themselves.
     Given an ElevenLabsAgentAdapter with agent_id and api_key
     When the scenario starts
     Then a WebSocket to wss://api.elevenlabs.io/v1/convai/conversation?agent_id=... is opened
     And PCM16 audio chunks are sent over the socket
+
+  @unit
+  Scenario: Users can compose arbitrary STT + LLM + TTS providers into a voice agent
+    # Locked decision #9: composable + branded voice agents
+    # Capability AC — no implementation shape prescribed.
+    Given an STTProvider implementation, an LLM identifier, and a TTSProvider identifier from any supported providers
+    When a user assembles them into a voice agent under test
+    Then the assembled agent implements the VoiceAgentAdapter contract
+    And the STT, LLM, and TTS seams are independently swappable without changes to the other two
+    And intermediate transcripts and LLM decisions are observable by the scenario harness
+
+  @unit
+  Scenario: Provider-branded voice agents expose typed, provider-specific signatures with sensible defaults
+    # Locked decision #9: branded wrappers — typing matters, defaults must be opinionated.
+    Given a provider-branded voice agent (e.g. an ElevenLabs-branded voice agent)
+    When a user instantiates it with only provider-specific required arguments
+    Then the branded agent applies opinionated defaults for that provider's STT and TTS
+    And the public signature is typed with provider-specific parameter names (not **kwargs forwarding)
+    And it implements the same VoiceAgentAdapter contract as the composable path
+
+  @unit
+  Scenario: Branded voice agents accept overrides for any piece (STT, LLM, or TTS)
+    # Locked decision #9: branded is a preset, not a cage — escape hatch is required.
+    Given a provider-branded voice agent
+    When a user overrides the LLM, STT, or TTS independently
+    Then the override takes effect and the other pieces retain their branded defaults
+
+  @unit
+  Scenario: ElevenLabsSTTProvider implements STTProvider and plugs into the composition path
+    # Locked decision #9 + existing AC that STT is pluggable.
+    Given an ElevenLabsSTTProvider
+    Then it implements the STTProvider interface (async transcribe(audio: AudioChunk) -> str)
+    And no ElevenLabs-specific types leak into the interface
+    And it can be used anywhere an STTProvider is accepted (scenario.configure, composable voice agents)
 
   @unit
   Scenario: VapiAgentAdapter creates a call and connects to websocketCallUrl
