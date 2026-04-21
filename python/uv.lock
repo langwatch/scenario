@@ -1871,6 +1871,7 @@ source = { editable = "." }
 dependencies = [
     { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
     { name = "fastapi" },
+    { name = "google-genai" },
     { name = "httpx" },
     { name = "imageio-ffmpeg" },
     { name = "joblib" },
@@ -1936,6 +1937,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "function-schema", marker = "extra == 'dev'" },
+    { name = "google-genai", specifier = ">=1.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.5.0" },
     { name = "isort", marker = "extra == 'dev'" },

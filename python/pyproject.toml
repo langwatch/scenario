@@ -53,6 +53,8 @@ dependencies = [
     # µ-law codec: stdlib `audioop` was removed in Python 3.13; the LTS fork
     # is a drop-in replacement on 3.13+.
     "audioop-lts>=0.2.1; python_version>='3.13'",
+    # Gemini Live transport (GeminiLiveAgentAdapter): official async SDK.
+    "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]

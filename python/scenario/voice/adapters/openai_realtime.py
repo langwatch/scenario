@@ -4,16 +4,37 @@ OpenAIRealtimeAgentAdapter: direct-to-model adapter — the model IS the agent.
 Source §5.6 + §7.2 L1164-1171. Unlike the other adapters which wrap a user's
 running agent, this one IS the agent under test (or, when
 ``role=AgentRole.USER``, the voice-enabled user simulator).
+
+Wire protocol:
+- Endpoint: ``wss://api.openai.com/v1/realtime?model=<model>``
+- Headers: ``Authorization: Bearer <api_key>``, ``OpenAI-Beta: realtime=v1``
+- On connect: emit ``session.update`` to configure audio formats, voice,
+  instructions, and tools.
+- Send audio: ``input_audio_buffer.append`` with base64-encoded PCM16.
+- Receive audio: loop over server events until ``response.audio.delta``;
+  return decoded PCM16. Transcript events update instance attributes.
+- Send text (role=USER): ``conversation.item.create`` (input_text) then
+  ``response.create``.
 """
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import json
+import logging
+import os
 from typing import Any, ClassVar, List, Optional
 
 from ...types import AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+
+
+logger = logging.getLogger("scenario.voice.openai_realtime")
+
+REALTIME_URL_TEMPLATE = "wss://api.openai.com/v1/realtime?model={model}"
 
 
 class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
@@ -24,6 +45,22 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
 
     When role=USER, scripted ``user("text")`` steps route text through the
     realtime session's text-input channel rather than triggering TTS.
+
+    Transcript observability:
+        - ``last_user_transcript`` — set from
+          ``conversation.item.input_audio_transcription.completed``
+        - ``last_agent_transcript`` — accumulated from
+          ``response.audio_transcript.delta`` / reset on done
+
+    Example::
+
+        adapter = OpenAIRealtimeAgentAdapter(
+            model="gpt-4o-realtime-preview",
+            voice="alloy",
+            instructions="You are a helpful assistant.",
+        )
+        async with adapter:
+            # scenario.run() feeds send_audio / recv_audio ...
     """
 
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
@@ -41,6 +78,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         instructions: str = "",
         tools: Optional[List[Any]] = None,
         *,
+        api_key: Optional[str] = None,
         role: AgentRole = AgentRole.AGENT,
     ):
         self.model = model
@@ -48,36 +86,209 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self.instructions = instructions
         self.tools = tools or []
         self.role = role  # type: ignore[misc]
-        self._session: Optional[object] = None
+        # Resolve API key: explicit param takes precedence over env var.
+        self._api_key: str = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self._ws: Any = None
+
+        # Transcript observability — updated on incoming transcript events.
+        self.last_user_transcript: Optional[str] = None
+        self.last_agent_transcript: Optional[str] = None
+
+        # Accumulation buffer for streaming agent transcript deltas.
+        self._agent_transcript_buf: str = ""
+
+    @property
+    def url(self) -> str:
+        return REALTIME_URL_TEMPLATE.format(model=self.model)
+
+    def __repr__(self) -> str:  # redact credentials
+        return (
+            f"OpenAIRealtimeAgentAdapter("
+            f"model={self.model!r}, "
+            f"voice={self.voice!r}, "
+            f"role={self.role!r}, "
+            f"api_key='***')"
+        )
+
+    # ------------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
-        self._session = object()
+        """Open the Realtime WebSocket and send the initial session.update."""
+        import websockets
+
+        self._ws = await websockets.connect(
+            self.url,
+            additional_headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "OpenAI-Beta": "realtime=v1",
+            },
+        )
+        logger.debug("OpenAIRealtimeAgentAdapter: connected to %s", self.url)
+
+        # Configure session: audio formats, voice, instructions, tools.
+        session_config: dict[str, Any] = {
+            "input_audio_format": "pcm16",
+            "output_audio_format": "pcm16",
+            "voice": self.voice,
+            "input_audio_transcription": {"model": "whisper-1"},
+        }
+        if self.instructions:
+            session_config["instructions"] = self.instructions
+        if self.tools:
+            session_config["tools"] = self.tools
+
+        await self._ws.send(
+            json.dumps({"type": "session.update", "session": session_config})
+        )
+        logger.debug("OpenAIRealtimeAgentAdapter: session.update sent")
 
     async def disconnect(self) -> None:
-        self._session = None
+        """Close the WebSocket if open."""
+        if self._ws is not None:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            finally:
+                self._ws = None
+            logger.debug("OpenAIRealtimeAgentAdapter: disconnected")
+
+    async def __aenter__(self) -> "OpenAIRealtimeAgentAdapter":
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self.disconnect()
+
+    # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        from ._stub import PendingTransportError
-        if self._session is None:
+        """
+        Send a PCM16 audio chunk to the model's input audio buffer.
+
+        Encodes the raw bytes as base64 and emits an
+        ``input_audio_buffer.append`` event. After appending, the model's
+        server-side VAD will detect end-of-speech and trigger a response;
+        callers do not need to manually commit the buffer.
+        """
+        if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
-        raise PendingTransportError("OpenAIRealtimeAgentAdapter")
+        b64 = base64.b64encode(chunk.data).decode()
+        await self._ws.send(
+            json.dumps({"type": "input_audio_buffer.append", "audio": b64})
+        )
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        from ._stub import PendingTransportError
-        if self._session is None:
+        """
+        Receive the next audio chunk produced by the model.
+
+        Loops over incoming events until a ``response.audio.delta`` event
+        arrives, then returns decoded PCM16. Transcript events update the
+        instance's ``last_user_transcript`` / ``last_agent_transcript``
+        attributes. An ``error`` event raises a ``RuntimeError``. All other
+        housekeeping events are ignored and the loop continues.
+
+        Raises:
+            asyncio.TimeoutError: if no audio arrives within ``timeout``.
+            RuntimeError: if the server sends an error event.
+        """
+        if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
-        raise PendingTransportError("OpenAIRealtimeAgentAdapter")
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError(
+                    "OpenAIRealtimeAgentAdapter: recv_audio timed out"
+                )
+
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            try:
+                event = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
+            except Exception:
+                logger.debug(
+                    "OpenAIRealtimeAgentAdapter: non-JSON message, skipping"
+                )
+                continue
+
+            etype = event.get("type", "")
+
+            if etype == "response.audio.delta":
+                # Base64-encoded PCM16 audio fragment from the model.
+                b64 = event.get("delta", "")
+                pcm = base64.b64decode(b64)
+                # Enforce PCM16 invariant: even byte count.
+                if len(pcm) % 2 == 1:
+                    pcm = pcm[:-1]
+                return AudioChunk(data=pcm)
+
+            elif etype == "response.audio_transcript.delta":
+                # Accumulate streaming agent transcript.
+                self._agent_transcript_buf += event.get("delta", "")
+
+            elif etype == "response.audio_transcript.done":
+                # Finalise; the `transcript` field may have the full text.
+                transcript = event.get("transcript", "")
+                if transcript:
+                    self.last_agent_transcript = transcript
+                elif self._agent_transcript_buf:
+                    self.last_agent_transcript = self._agent_transcript_buf
+                self._agent_transcript_buf = ""
+
+            elif etype == "conversation.item.input_audio_transcription.completed":
+                # User-side transcript from Whisper.
+                self.last_user_transcript = event.get("transcript", "")
+
+            elif etype == "error":
+                error_detail = event.get("error", {})
+                msg = error_detail.get("message", str(error_detail))
+                raise RuntimeError(
+                    f"OpenAIRealtimeAgentAdapter: server error — {msg}"
+                )
+
+            else:
+                # Housekeeping events — session.created, session.updated,
+                # response.created, response.output_item.added, etc. — are
+                # benign. Log at DEBUG and keep the loop running.
+                logger.debug(
+                    "OpenAIRealtimeAgentAdapter: ignoring event type %r", etype
+                )
 
     async def send_text(self, text: str) -> None:
         """
-        Inject text into the realtime session.
+        Inject scripted text into the realtime session as a user message.
 
         Used when this adapter is the user simulator (role=USER): scripted
         ``user("text")`` steps route through here instead of spawning TTS.
+        The model synthesises the text into spoken audio with natural prosody,
+        which is then delivered via ``recv_audio``.
 
         NOTE: per §7.2, OpenAI Realtime cannot populate assistant audio
         messages retroactively; the downstream transcript reflects what the
         model actually emitted, not what was scripted.
+
+        Raises:
+            RuntimeError: if called before ``connect()``.
         """
-        if self._session is None:
+        if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
+
+        # Create a user conversation item with the scripted text.
+        await self._ws.send(
+            json.dumps(
+                {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": text}],
+                    },
+                }
+            )
+        )
+        # Prompt the model to generate audio output.
+        await self._ws.send(json.dumps({"type": "response.create"}))
+        logger.debug(
+            "OpenAIRealtimeAgentAdapter: send_text injected %r", text[:60]
+        )

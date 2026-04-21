@@ -409,3 +409,362 @@ def test_branded_elevenlabs_voice_agent_repr_redacts_key():
 
 def test_branded_elevenlabs_voice_agent_is_voice_adapter():
     assert issubclass(ElevenLabsVoiceAgent, VoiceAgentAdapter)
+
+
+# ---------------------------------------------------------------- OpenAIRealtime transport
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_connects_and_sends_pcm16():
+    """Verify URL construction, session.update on connect, audio send/recv round-trip."""
+    adapter = OpenAIRealtimeAgentAdapter(
+        model="gpt-4o-realtime-preview",
+        voice="alloy",
+        api_key="sk-test",
+    )
+
+    pcm_payload = b"\x00\x01" * 8  # 16 bytes of dummy PCM16
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    events = [
+        json.dumps({"type": "session.created", "session": {}}),
+        json.dumps({"type": "session.updated", "session": {}}),
+        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)) as mock_connect:
+        await adapter.connect()
+
+        # Verify the URL contains the model.
+        connect_url = mock_connect.call_args[0][0]
+        assert "model=gpt-4o-realtime-preview" in connect_url
+        assert "api.openai.com" in connect_url
+
+        # Verify session.update was emitted (first send call).
+        first_send_raw = mock_ws.send.call_args_list[0][0][0]
+        first_sent = json.loads(first_send_raw)
+        assert first_sent["type"] == "session.update"
+        assert first_sent["session"]["input_audio_format"] == "pcm16"
+        assert first_sent["session"]["output_audio_format"] == "pcm16"
+
+        # send_audio must emit input_audio_buffer.append with base64 PCM16.
+        chunk = AudioChunk(data=b"\x10\x20" * 100)
+        await adapter.send_audio(chunk)
+        send_calls = mock_ws.send.call_args_list
+        audio_send = json.loads(send_calls[1][0][0])
+        assert audio_send["type"] == "input_audio_buffer.append"
+        decoded = base64.b64decode(audio_send["audio"])
+        assert decoded == chunk.data
+
+        # recv_audio must skip housekeeping events and return the audio delta.
+        result = await adapter.recv_audio(timeout=5.0)
+        assert isinstance(result, AudioChunk)
+        assert result.data == pcm_payload
+
+        await adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_send_text_routes_user_role():
+    """role=USER: send_text emits conversation.item.create + response.create."""
+    adapter = OpenAIRealtimeAgentAdapter(
+        role=scenario.AgentRole.USER,
+        api_key="sk-test",
+    )
+
+    mock_ws = AsyncMock()
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        # Reset send calls so we only inspect send_text's output.
+        mock_ws.send.reset_mock()
+
+        await adapter.send_text("hello")
+
+    assert mock_ws.send.call_count == 2
+
+    item_create_raw = mock_ws.send.call_args_list[0][0][0]
+    item_create = json.loads(item_create_raw)
+    assert item_create["type"] == "conversation.item.create"
+    item = item_create["item"]
+    assert item["role"] == "user"
+    assert item["content"][0]["type"] == "input_text"
+    assert item["content"][0]["text"] == "hello"
+
+    response_create_raw = mock_ws.send.call_args_list[1][0][0]
+    response_create = json.loads(response_create_raw)
+    assert response_create["type"] == "response.create"
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_tracks_transcripts():
+    """Transcript delta events update last_agent_transcript / last_user_transcript."""
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    pcm_payload = b"\x00\x00" * 8
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    events = [
+        json.dumps({"type": "response.audio_transcript.delta", "delta": "Hello "}),
+        json.dumps({"type": "response.audio_transcript.delta", "delta": "world"}),
+        json.dumps({"type": "response.audio_transcript.done", "transcript": "Hello world"}),
+        json.dumps({
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "user said hello",
+        }),
+        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        await adapter.recv_audio(timeout=5.0)
+
+    assert adapter.last_agent_transcript == "Hello world"
+    assert adapter.last_user_transcript == "user said hello"
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_raises_on_error_event():
+    """Server error events must surface as RuntimeError with the message text."""
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    events = [
+        json.dumps({"type": "error", "error": {"message": "oops, something went wrong"}}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        with pytest.raises(RuntimeError, match="oops, something went wrong"):
+            await adapter.recv_audio(timeout=5.0)
+
+
+def test_openai_realtime_adapter_repr_redacts_api_key():
+    """__repr__ must not expose the api_key value."""
+    adapter = OpenAIRealtimeAgentAdapter(api_key="super_secret_key_xyz")
+    r = repr(adapter)
+    assert "super_secret_key_xyz" not in r
+    assert "***" in r
+
+
+# ---------------------------------------------------------------- GeminiLive transport
+
+from contextlib import asynccontextmanager  # noqa: E402
+
+
+def _make_gemini_session(messages):
+    """Return an AsyncMock session whose receive() yields the given messages."""
+    session = AsyncMock()
+
+    async def _fake_receive():
+        for msg in messages:
+            yield msg
+
+    session.receive = _fake_receive
+    session.send_realtime_input = AsyncMock()
+    return session
+
+
+def _make_genai_client_patch(session):
+    """Patch google.genai.Client so that client.aio.live.connect yields ``session``."""
+    mock_client = MagicMock()
+    mock_aio = MagicMock()
+    mock_live = MagicMock()
+
+    @asynccontextmanager
+    async def _fake_connect(**kwargs):
+        yield session
+
+    mock_live.connect = _fake_connect
+    mock_aio.live = mock_live
+    mock_client.aio = mock_aio
+
+    return mock_client
+
+
+def _audio_message(pcm_bytes: bytes):
+    """Build a LiveServerMessage with an audio inline_data part."""
+    from google.genai import types
+    part = types.Part(inline_data=types.Blob(data=pcm_bytes, mime_type="audio/pcm;rate=24000"))
+    content = types.Content(parts=[part])
+    sc = types.LiveServerContent(model_turn=content, turn_complete=True)
+    return types.LiveServerMessage(server_content=sc)
+
+
+def _transcript_message(text: str):
+    """Build a LiveServerMessage with an output_transcription only."""
+    from google.genai import types
+    sc = types.LiveServerContent(
+        output_transcription=types.Transcription(text=text, finished=True),
+    )
+    return types.LiveServerMessage(server_content=sc)
+
+
+@pytest.mark.asyncio
+async def test_gemini_live_adapter_connects_with_model_and_api_key():
+    """Client is constructed with the supplied api_key; connect uses the correct model."""
+    session = _make_gemini_session([])
+    mock_client = _make_genai_client_patch(session)
+
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _recording_connect(*, model, config):
+        captured["model"] = model
+        captured["config"] = config
+        yield session
+
+    mock_client.aio.live.connect = _recording_connect
+
+    with patch("google.genai.Client", return_value=mock_client) as mock_cls:
+        adapter = GeminiLiveAgentAdapter(
+            model="gemini-2.5-flash-native-audio",
+            system_instruction="You are helpful.",
+            api_key="gm-test-key",
+        )
+        await adapter.connect()
+        await adapter.disconnect()
+
+    # Client was constructed with the api_key.
+    mock_cls.assert_called_once_with(api_key="gm-test-key")
+    # connect() received the right model.
+    assert captured["model"] == "gemini-2.5-flash-native-audio"
+    # system_instruction flowed through to the config.
+    assert captured["config"].system_instruction == "You are helpful."
+
+
+@pytest.mark.asyncio
+async def test_gemini_live_adapter_sends_resampled_audio():
+    """24kHz canonical AudioChunk is resampled to 16kHz before sending to Gemini."""
+    import numpy as np
+
+    session = _make_gemini_session([])
+    mock_client = _make_genai_client_patch(session)
+
+    with patch("google.genai.Client", return_value=mock_client):
+        adapter = GeminiLiveAgentAdapter(api_key="k")
+        await adapter.connect()
+
+        # 24kHz PCM16 input — 480 samples = 20ms
+        n_samples_24k = 480
+        pcm_24k = (np.zeros(n_samples_24k, dtype="<i2")).tobytes()
+        chunk = AudioChunk(data=pcm_24k)
+        await adapter.send_audio(chunk)
+
+        await adapter.disconnect()
+
+    # send_realtime_input should have been called once.
+    session.send_realtime_input.assert_called_once()
+    call_kwargs = session.send_realtime_input.call_args.kwargs
+    blob = call_kwargs["audio"]
+
+    # Blob mime_type must be 16kHz.
+    assert "16000" in blob.mime_type
+
+    # Resampled data length should be ~16/24 of input sample count.
+    resampled_samples = len(blob.data) // 2
+    expected_samples = int(n_samples_24k * 16000 / 24000)
+    assert abs(resampled_samples - expected_samples) <= 1  # ±1 rounding
+
+
+@pytest.mark.asyncio
+async def test_gemini_live_adapter_returns_agent_audio():
+    """recv_audio returns an AudioChunk with the bytes from the server's audio part."""
+    pcm_bytes = b"\x10\x20" * 100  # 200 bytes of PCM16 — must be even
+
+    audio_msg = _audio_message(pcm_bytes)
+    session = _make_gemini_session([audio_msg])
+    mock_client = _make_genai_client_patch(session)
+
+    with patch("google.genai.Client", return_value=mock_client):
+        adapter = GeminiLiveAgentAdapter(api_key="k")
+        await adapter.connect()
+        result = await adapter.recv_audio(timeout=5.0)
+        await adapter.disconnect()
+
+    assert isinstance(result, AudioChunk)
+    assert result.data == pcm_bytes
+
+
+@pytest.mark.asyncio
+async def test_gemini_live_adapter_tracks_transcripts():
+    """output_transcription text populates last_agent_transcript."""
+    transcript_msg = _transcript_message("Hello from Gemini")
+    # Follow with an audio message so recv_audio returns.
+    audio_msg = _audio_message(b"\x00\x00" * 8)
+    session = _make_gemini_session([transcript_msg, audio_msg])
+    mock_client = _make_genai_client_patch(session)
+
+    with patch("google.genai.Client", return_value=mock_client):
+        adapter = GeminiLiveAgentAdapter(api_key="k")
+        await adapter.connect()
+        await adapter.recv_audio(timeout=5.0)
+        await adapter.disconnect()
+
+    assert adapter.last_agent_transcript == "Hello from Gemini"
+
+
+@pytest.mark.asyncio
+async def test_gemini_live_adapter_raises_on_error_event():
+    """go_away messages must surface as RuntimeError."""
+    from google.genai import types
+
+    error_msg = types.LiveServerMessage(
+        go_away=types.LiveServerGoAway(time_left=None),  # type: ignore[arg-type]
+    )
+    session = _make_gemini_session([error_msg])
+    mock_client = _make_genai_client_patch(session)
+
+    with patch("google.genai.Client", return_value=mock_client):
+        adapter = GeminiLiveAgentAdapter(api_key="k")
+        await adapter.connect()
+        with pytest.raises(RuntimeError, match="go_away"):
+            await adapter.recv_audio(timeout=5.0)
+        await adapter.disconnect()
+
+
+def test_gemini_live_adapter_repr_redacts_api_key():
+    """__repr__ must not expose the api_key value."""
+    adapter = GeminiLiveAgentAdapter(api_key="gemini-secret-key-xyz")
+    r = repr(adapter)
+    assert "gemini-secret-key-xyz" not in r
+    assert "***" in r
