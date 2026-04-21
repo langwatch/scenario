@@ -564,5 +564,42 @@ describe("JudgeAgent", () => {
       expect(result!.metCriteria).toContain("Agent responds politely");
       expect(result!.unmetCriteria).toContain("Agent uses tools");
     });
+
+    it("returns inconclusive when forceVerdict still leaks a discovery tool", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      };
+
+      const agent = judgeAgent(config);
+
+      agent.invokeLLM = async () => {
+        // Simulate both the exhausted discovery loop and a forceVerdict
+        // response where the model ignored tool_choice and still returned
+        // only a discovery tool.
+        return {
+          text: "",
+          content: [],
+          toolCalls: [
+            {
+              toolName: "grep_trace",
+              input: { pattern: "anything" },
+              type: "tool-call" as const,
+              toolCallId: "tc-leak",
+            },
+          ],
+          toolResults: [],
+        } as unknown as InvokeLLMResult;
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.reasoning).not.toContain("Unknown tool call");
+      expect(result!.reasoning).toContain("did not converge");
+      expect(result!.unmetCriteria).toContain("Agent works correctly");
+    });
   });
 });

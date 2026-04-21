@@ -436,6 +436,21 @@ class JudgeAgent extends JudgeAgentAdapter {
           return null;
 
         default:
+          if (
+            toolCall.toolName === "expand_trace" ||
+            toolCall.toolName === "grep_trace"
+          ) {
+            this.logger.warn(
+              `Discovery tool ${toolCall.toolName} leaked past discovery loop without reaching a terminal verdict`
+            );
+            return {
+              success: false,
+              reasoning:
+                "JudgeAgent: trace discovery did not converge on a verdict within the step budget",
+              metCriteria: [],
+              unmetCriteria: criteria,
+            };
+          }
           return {
             success: false,
             reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
