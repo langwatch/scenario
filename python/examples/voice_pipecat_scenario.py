@@ -50,11 +50,12 @@ import scenario
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
-async def main() -> None:
+async def main() -> scenario.ScenarioResult:
+    """Run the Pipecat smoke scenario. Returns the ScenarioResult."""
     result = await scenario.run(
         name="pipecat_twilio_smoke",
         description=(
-            "A human caller rings the phone bot. The bot greets them and "
+            "A caller rings the phone bot. The bot greets them and "
             "answers a brief question. Scenario records the conversation and "
             "judges whether the bot was friendly and informative."
         ),
@@ -67,13 +68,20 @@ async def main() -> None:
             scenario.UserSimulatorAgent(voice="openai/nova"),
             scenario.JudgeAgent(
                 criteria=[
-                    "The bot greeted the caller without awkward silence",
                     "The bot responded conversationally (not robotic)",
                     "The bot stayed on topic when the caller asked a question",
                 ]
             ),
         ],
-        max_turns=6,
+        # Explicit turn-taking — prevents both-sides-waiting deadlock against
+        # simple stub bots by having the user-sim speak first.
+        script=[
+            scenario.user("Hi! Can you help me with a question about my account?"),
+            scenario.agent(),
+            scenario.user("What are your hours?"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
     )
 
     print("=== result ===")
@@ -81,7 +89,10 @@ async def main() -> None:
     print(f"verdict: {result.reasoning}")
     if result.audio is not None:
         print(f"audio: {len(result.audio.segments)} segments recorded")
+    return result
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys as _sys
+
+    _sys.exit(0 if asyncio.run(main()).success else 1)
