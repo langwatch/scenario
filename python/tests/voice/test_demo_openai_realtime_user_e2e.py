@@ -4,33 +4,41 @@ E2E wrapper for Demo — OpenAI Realtime as the user simulator.
 AC: scripted user("text") lines are delivered with natural prosody;
 text TTS is bypassed for the user simulator; result.success is True.
 
-Note: transport is Phase-2 stub; gated on OPENAI_REALTIME_ENABLED=1.
+Note: transport is Phase-2 stub; skipped via capability probe on the adapter's
+send_audio path (connect/disconnect are wired, but audio I/O raises
+PendingTransportError until the real Realtime WebSocket transport ships).
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 import pytest
 
-REQUIRED_ENV = ("OPENAI_API_KEY",)
-
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
-@pytest.mark.skipif(
-    not os.getenv("OPENAI_REALTIME_ENABLED"),
-    reason="Requires OPENAI_REALTIME_ENABLED=1 (Realtime transport is Phase-2 stub)",
-)
 @pytest.mark.asyncio
-async def test_demo_openai_realtime_user_e2e_success():
+async def test_demo_openai_realtime_user_e2e_success(requires_llm, requires_transport_ready):
     """OpenAI Realtime adapter (USER role) drives simulator; result.success is True."""
+    from scenario.voice import OpenAIRealtimeAgentAdapter
+    from scenario.voice.audio_chunk import AudioChunk
+    from scenario.voice.adapters._stub import PendingTransportError
+
+    # Probe the audio I/O path — connect/disconnect succeed on the stub, but
+    # send_audio raises PendingTransportError until the real transport ships.
+    adapter = OpenAIRealtimeAgentAdapter()
+    await adapter.connect()
+    try:
+        await adapter.send_audio(AudioChunk(data=b"\x00\x00"))
+    except PendingTransportError as exc:
+        await adapter.disconnect()
+        pytest.skip(f"transport not yet shipped: {exc}")
+    except Exception:
+        pass
+    await adapter.disconnect()
+
     from voice_demo_openai_realtime_user import main  # type: ignore[import]
 
     result = await main()

@@ -119,6 +119,7 @@ class ScenarioExecutor:
     _agent_times: Dict[int, float] = {}
     _events: Subject
     _trace: LangWatchTrace
+    _ffmpeg_playback: Optional[Any] = None
 
     event_bus: ScenarioEventBus
 
@@ -141,6 +142,7 @@ class ScenarioExecutor:
         metadata: Optional[Dict[str, Any]] = None,
         on_audio_chunk: Optional[Callable[[Any], None]] = None,
         on_voice_event: Optional[Callable[[Any], None]] = None,
+        audio_playback: bool = False,
     ):
         """
         Initialize a scenario executor.
@@ -174,6 +176,7 @@ class ScenarioExecutor:
         self.metadata = metadata
         self._on_audio_chunk = on_audio_chunk
         self._on_voice_event = on_voice_event
+        self._audio_playback = audio_playback
 
         config = ScenarioConfig(
             max_turns=max_turns,
@@ -673,12 +676,29 @@ class ScenarioExecutor:
 
         from .voice.adapter import VoiceAgentAdapter
         from .voice.recording import LatencyMetrics, VoiceRecording
+        from .voice.playback import FfmpegPlayback
 
         self._voice_recording: VoiceRecording = VoiceRecording()
         self._voice_timeline: list = []
         self._voice_latency: LatencyMetrics = LatencyMetrics()
         self._voice_recording_started_at: float = _time.monotonic()
         self._pending_agent_task = None
+        self._ffmpeg_playback: Optional[FfmpegPlayback] = None
+
+        if self._audio_playback:
+            player = FfmpegPlayback()
+            player.start()
+            self._ffmpeg_playback = player
+            # Wrap the user-supplied on_audio_chunk so playback coexists with it.
+            user_callback = self._on_audio_chunk
+
+            def _playback_and_forward(chunk: Any) -> None:
+                player.feed(chunk)
+                if user_callback is not None:
+                    user_callback(chunk)
+
+            self._on_audio_chunk = _playback_and_forward
+
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
                 await agent.connect()
@@ -716,6 +736,13 @@ class ScenarioExecutor:
                 await agent.disconnect()
             except Exception:  # pragma: no cover — defensive cleanup
                 pass
+
+        if self._ffmpeg_playback is not None:
+            try:
+                await asyncio.to_thread(self._ffmpeg_playback.stop)
+            except Exception:  # pragma: no cover — best-effort cleanup
+                pass
+            self._ffmpeg_playback = None
 
     async def _call_agent(
         self, idx: int, role: AgentRole, judgment_request: Optional[JudgmentRequest] = None
@@ -1252,6 +1279,7 @@ def _build_scenario(
     metadata: Optional[Dict[str, Any]],
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
+    audio_playback: bool = False,
 ) -> "ScenarioExecutor":
     """Shared setup used by both ``run()`` (threaded) and ``arun()`` (async-native)."""
     from ._tracing import ensure_tracing_initialized
@@ -1272,6 +1300,7 @@ def _build_scenario(
         metadata=metadata,
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
+        audio_playback=audio_playback,
     )
 
 
@@ -1296,6 +1325,7 @@ async def arun(
     metadata: Optional[Dict[str, Any]] = None,
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
+    audio_playback: bool = False,
 ) -> ScenarioResult:
     """Async-native counterpart of :func:`run`.
 
@@ -1326,6 +1356,7 @@ async def arun(
         metadata=metadata,
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
+        audio_playback=audio_playback,
     )
 
     try:
@@ -1352,6 +1383,7 @@ async def run(
     metadata: Optional[Dict[str, Any]] = None,
     on_audio_chunk: Optional[Callable[[Any], None]] = None,
     on_voice_event: Optional[Callable[[Any], None]] = None,
+    audio_playback: bool = False,
 ) -> ScenarioResult:
     """
     High-level interface for running a scenario test.
@@ -1439,6 +1471,7 @@ async def run(
         metadata=metadata,
         on_audio_chunk=on_audio_chunk,
         on_voice_event=on_voice_event,
+        audio_playback=audio_playback,
     )
 
     # We'll use a thread pool to run the execution logic, we

@@ -19,8 +19,9 @@ Required env vars:
 Note:
     The Realtime API transport is currently a Phase-2 stub
     (PendingTransportError on send_audio/recv_audio).  The demo will raise
-    PendingTransportError once the transport ships. The e2e test is gated on
-    OPENAI_REALTIME_ENABLED=1 to avoid false failures in CI.
+    PendingTransportError once the transport ships. The e2e test is gated
+    via a capability probe (requires_transport_ready) that auto-skips until
+    the real transport lands.
 """
 
 import asyncio

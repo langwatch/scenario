@@ -6,23 +6,16 @@ AC: result.success is True AND result.latency.interrupt_response_time < 1.0.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 import pytest
 
-REQUIRED_ENV = ("OPENAI_API_KEY",)
-
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
 @pytest.mark.asyncio
-async def test_example_6_2_interruption_recovery_e2e_success():
+async def test_example_6_2_interruption_recovery_e2e_success(requires_llm, requires_pipecat_bot):
     """Scenario succeeds with a voice interruption in the script."""
     from voice_example_6_2_interruption_recovery import main  # type: ignore[import]
 
@@ -31,12 +24,8 @@ async def test_example_6_2_interruption_recovery_e2e_success():
     assert result.success, f"Expected success; verdict: {result.reasoning}"
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
 @pytest.mark.asyncio
-async def test_example_6_2_interrupt_response_time():
+async def test_example_6_2_interrupt_response_time(requires_llm, requires_pipecat_bot):
     """
     interrupt_response_time is populated and under 1.0s.
     Skipped when no live bot (latency will be None without a real adapter).

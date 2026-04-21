@@ -17,7 +17,8 @@ Required env vars:
     OPENAI_API_KEY   — for OpenAIRealtimeAgentAdapter + JudgeAgent LLM
 
 Note:
-    Transport is Phase-2 stub. Gated on OPENAI_REALTIME_ENABLED=1 in e2e tests.
+    Transport is Phase-2 stub. The e2e test is gated via a capability probe
+    (requires_transport_ready) that auto-skips until the real transport lands.
 """
 
 import asyncio

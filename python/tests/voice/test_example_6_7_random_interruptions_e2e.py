@@ -7,23 +7,16 @@ recovery and context preservation.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 import pytest
 
-REQUIRED_ENV = ("OPENAI_API_KEY",)
-
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
 @pytest.mark.asyncio
-async def test_example_6_7_random_interruptions_e2e_success():
+async def test_example_6_7_random_interruptions_e2e_success(requires_llm, requires_pipecat_bot):
     """Scenario with interrupt_probability=0.4 over 5 turns succeeds."""
     from voice_example_6_7_random_interruptions import main  # type: ignore[import]
 
@@ -32,12 +25,8 @@ async def test_example_6_7_random_interruptions_e2e_success():
     assert result.success, f"Expected success; verdict: {result.reasoning}"
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
 @pytest.mark.asyncio
-async def test_example_6_7_timeline_has_interrupt_events():
+async def test_example_6_7_timeline_has_interrupt_events(requires_llm, requires_pipecat_bot):
     """
     When a live bot is present, user_interrupt events appear in result.timeline.
     Skipped when no live bot.
