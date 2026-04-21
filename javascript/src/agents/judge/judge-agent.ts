@@ -8,6 +8,115 @@ import {
   stepCountIs,
   hasToolCall,
 } from "ai";
+
+const DISCOVERY_TOOL_NAMES = new Set(["expand_trace", "grep_trace"]);
+
+/**
+ * Stringifies a tool result's `output` field into something safe to embed in
+ * a plain-text assistant message.
+ */
+function stringifyToolOutput(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (output && typeof output === "object") {
+    const maybeValue = (output as { value?: unknown }).value;
+    if (typeof maybeValue === "string") return maybeValue;
+    try {
+      return JSON.stringify(output);
+    } catch {
+      return String(output);
+    }
+  }
+  return String(output);
+}
+
+/**
+ * Rewrites the message history so every discovery cycle
+ * (assistant tool-call for expand_trace/grep_trace → tool-result) is
+ * collapsed into a single plain-text assistant message recounting what
+ * the judge called and what came back.
+ *
+ * Two reasons this matters before a forced verdict:
+ *  1. Anthropic rejects calls whose history references tools that aren't
+ *     in the current `tools` array. Plain-text history lets us safely strip
+ *     expand_trace/grep_trace from the tool set.
+ *  2. With the discovery tools gone from both history and tool set, the
+ *     model physically cannot emit them in the forced response — no more
+ *     leaks past `parseToolCalls`.
+ *
+ * Messages without discovery tool content pass through unchanged, so
+ * nothing else (criteria, transcripts, non-discovery tool calls) is
+ * affected.
+ */
+function collapseDiscoveryHistory(
+  messages: readonly ModelMessage[]
+): ModelMessage[] {
+  const out: ModelMessage[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      const parts = msg.content as Array<Record<string, unknown>>;
+      const discoveryCalls = parts.filter(
+        (p) =>
+          p?.type === "tool-call" &&
+          typeof p.toolName === "string" &&
+          DISCOVERY_TOOL_NAMES.has(p.toolName)
+      );
+
+      if (discoveryCalls.length > 0) {
+        const nextMsg = messages[i + 1];
+        const resultParts: Array<Record<string, unknown>> =
+          nextMsg?.role === "tool" && Array.isArray(nextMsg.content)
+            ? (nextMsg.content as Array<Record<string, unknown>>).filter(
+                (p) => p?.type === "tool-result"
+              )
+            : [];
+
+        const lines: string[] = [];
+        for (const p of parts) {
+          if (p?.type === "text" && typeof p.text === "string") {
+            lines.push(p.text);
+          } else if (
+            p?.type === "tool-call" &&
+            typeof p.toolName === "string" &&
+            DISCOVERY_TOOL_NAMES.has(p.toolName)
+          ) {
+            const match = resultParts.find(
+              (r) => r.toolCallId === p.toolCallId
+            );
+            let input: string;
+            try {
+              input = JSON.stringify(p.input);
+            } catch {
+              input = String(p.input);
+            }
+            const body = match
+              ? stringifyToolOutput(match.output)
+              : "(no result captured)";
+            lines.push(
+              `[Called ${String(p.toolName)} with ${input}]\n${body}`
+            );
+          }
+        }
+
+        out.push({
+          role: "assistant",
+          content: lines.join("\n\n"),
+        });
+
+        if (nextMsg?.role === "tool") {
+          i++;
+        }
+        continue;
+      }
+    }
+
+    out.push(msg);
+  }
+
+  return out;
+}
 import { z } from "zod/v4";
 
 import { JudgeUtils } from "./judge-utils";
@@ -351,8 +460,24 @@ class JudgeAgent extends JudgeAgentAdapter {
   /**
    * Checks whether the discovery loop ran out of steps without the judge
    * calling finish_test or continue_test.
+   *
+   * AI SDK v6 surfaces only the final step in `completion.toolCalls`; if a
+   * terminal call happened earlier in the loop, it would be invisible here.
+   * Inspect the aggregate `steps` array when present so we don't force a
+   * verdict on a run that already resolved.
    */
   private discoveryExhausted(completion: InvokeLLMResult): boolean {
+    const steps = completion.steps;
+    if (steps && steps.length > 0) {
+      const anyTerminal = steps.some((step) =>
+        step.toolCalls?.some(
+          (tc) =>
+            tc.toolName === "finish_test" || tc.toolName === "continue_test"
+        )
+      );
+      return !anyTerminal;
+    }
+
     if (!completion.toolCalls?.length) return false;
     return !completion.toolCalls.some(
       (tc) =>
@@ -361,9 +486,16 @@ class JudgeAgent extends JudgeAgentAdapter {
   }
 
   /**
-   * Makes one final LLM call with tool_choice forced to finish_test,
-   * so the judge renders a verdict with whatever context it accumulated
-   * during discovery instead of hard-failing.
+   * Makes one final LLM call with `tool_choice` forced to `finish_test`.
+   *
+   * Hardening (vs. a naive re-invocation with the same tool set):
+   *  - Prior discovery tool_use/tool_result pairs are rewritten in the
+   *    message history as plain-text assistant recaps. This lets us drop
+   *    `expand_trace`/`grep_trace` from the tool set without Anthropic
+   *    rejecting the call for referencing undefined tools.
+   *  - Discovery tools are then stripped so the model physically cannot
+   *    emit them, closing the leak path where `tool_choice` wasn't
+   *    honored and a discovery tool reached `parseToolCalls`.
    */
   private async forceVerdict(
     params: InvokeLLMParams
@@ -376,12 +508,24 @@ class JudgeAgent extends JudgeAgentAdapter {
       prompt: _p,
       messages: prevMessages,
       toolChoice: _tc,
+      tools: prevTools,
       ...rest
     } = params;
+
+    const rewrittenMessages = collapseDiscoveryHistory(prevMessages ?? []);
+    const finishOnlyTools: ToolSet | undefined = prevTools
+      ? (Object.fromEntries(
+          Object.entries(prevTools).filter(
+            ([name]) => !DISCOVERY_TOOL_NAMES.has(name)
+          )
+        ) as ToolSet)
+      : undefined;
+
     return this.invokeLLM({
       ...rest,
+      tools: finishOnlyTools,
       messages: [
-        ...(prevMessages ?? []),
+        ...rewrittenMessages,
         {
           role: "user" as const,
           content:

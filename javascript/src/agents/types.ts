@@ -13,7 +13,7 @@ export type InvokeLLMParams = Parameters<typeof generateText>[0];
  */
 export type InvokeLLMResult = Pick<
   Awaited<ReturnType<typeof generateText>>,
-  "text" | "content" | "toolCalls" | "toolResults"
+  "text" | "content" | "toolCalls" | "toolResults" | "steps"
 >;
 
 /**

@@ -31,6 +31,96 @@ from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 logger = logging.getLogger("scenario")
 
 
+_DISCOVERY_TOOL_NAMES = frozenset({"expand_trace", "grep_trace"})
+
+
+def _stringify_tool_output(output: Any) -> str:
+    """Best-effort stringify of a tool result for a plain-text recap."""
+    if isinstance(output, str):
+        return output
+    if isinstance(output, dict):
+        value = output.get("value")
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(output)
+        except (TypeError, ValueError):
+            return str(output)
+    try:
+        return json.dumps(output)
+    except (TypeError, ValueError):
+        return str(output)
+
+
+def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
+    """
+    Rewrites message history so every discovery cycle
+    (assistant tool_call for expand_trace/grep_trace → tool result)
+    collapses into a single plain-text assistant message recounting what
+    the judge called and what came back.
+
+    Required before a forced verdict so we can strip expand_trace /
+    grep_trace from the tool set without Anthropic rejecting the call
+    for referencing undefined tools, and so the model physically cannot
+    emit a discovery tool again.
+
+    Messages without discovery content pass through unchanged.
+    """
+    out: List[dict] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+        is_discovery_assistant = (
+            msg.get("role") == "assistant"
+            and isinstance(tool_calls, list)
+            and len(tool_calls) > 0
+            and all(
+                tc.get("function", {}).get("name") in _DISCOVERY_TOOL_NAMES
+                for tc in tool_calls
+            )
+        )
+
+        if is_discovery_assistant:
+            # Gather the matching tool result messages that immediately follow.
+            result_by_id: dict = {}
+            j = i + 1
+            while (
+                j < len(messages)
+                and messages[j].get("role") == "tool"
+                and messages[j].get("tool_call_id")
+            ):
+                result_by_id[messages[j]["tool_call_id"]] = messages[j].get(
+                    "content", ""
+                )
+                j += 1
+
+            lines: List[str] = []
+            leading_text = msg.get("content") or ""
+            if leading_text:
+                lines.append(str(leading_text))
+
+            for tc in tool_calls:
+                name = tc.get("function", {}).get("name", "unknown_tool")
+                raw_args = tc.get("function", {}).get("arguments", "")
+                try:
+                    parsed = json.loads(raw_args) if raw_args else {}
+                    args_str = json.dumps(parsed)
+                except (TypeError, ValueError):
+                    args_str = str(raw_args)
+                body = _stringify_tool_output(result_by_id.get(tc.get("id")))
+                lines.append(f"[Called {name} with {args_str}]\n{body}")
+
+            out.append({"role": "assistant", "content": "\n\n".join(lines)})
+            i = j
+            continue
+
+        out.append(msg)
+        i += 1
+
+    return out
+
+
 class JudgeAgent(AgentAdapter):
     """
     Agent that evaluates conversations against success criteria.
@@ -656,36 +746,53 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         effective_criteria: List[str],
     ) -> AgentReturnTypes:
         """
-        Makes one final LLM call with tool_choice forced to finish_test,
-        so the judge renders a verdict with whatever context it accumulated
-        during discovery instead of hard-failing.
+        Makes one final LLM call with tool_choice forced to finish_test.
+
+        Hardening (vs. a naive re-invocation with the same tool set):
+          - Prior discovery tool_call/tool_result pairs are rewritten in the
+            message history as plain-text assistant recaps. This lets us
+            drop expand_trace/grep_trace from the tool set without
+            Anthropic rejecting the call for referencing undefined tools.
+          - Discovery tools are then stripped so the model physically
+            cannot emit them, closing the leak path where tool_choice
+            wasn't honored and a discovery tool reached _parse_response.
         """
         logger.warning(
             f"Progressive discovery hit max steps ({self._max_discovery_steps}), "
             "forcing verdict"
         )
-        messages.append({
+
+        rewritten_messages = _collapse_discovery_history(messages)
+        rewritten_messages.append({
             "role": "user",
             "content": (
                 "You have reached the maximum number of trace exploration steps. "
                 "Based on the information you have gathered so far, give your final verdict now."
             ),
         })
+
+        finish_only_tools = [
+            t for t in tools
+            if t.get("function", {}).get("name") not in _DISCOVERY_TOOL_NAMES
+        ]
+
         forced_response = cast(
             ModelResponse,
             litellm.completion(
                 model=self.model,
-                messages=messages,
+                messages=rewritten_messages,
                 temperature=self.temperature,
                 api_key=self.api_key,
                 api_base=self.api_base,
                 max_tokens=self.max_tokens,
-                tools=tools,
+                tools=finish_only_tools,
                 tool_choice={"type": "function", "function": {"name": "finish_test"}},
                 **self._extra_params,
             ),
         )
-        return self._parse_response(forced_response, effective_criteria, messages)
+        return self._parse_response(
+            forced_response, effective_criteria, rewritten_messages
+        )
 
     def _execute_discovery_tool(self, tool_call: Any, spans: Sequence[Any]) -> str:
         """
@@ -784,6 +891,22 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 raise Exception(
                     f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
                 )
+
+        if tool_call.function.name in _DISCOVERY_TOOL_NAMES:
+            logger.warning(
+                f"Discovery tool {tool_call.function.name} leaked past "
+                "discovery loop without reaching a terminal verdict"
+            )
+            return ScenarioResult(
+                success=False,
+                messages=cast(Any, messages),
+                reasoning=(
+                    "JudgeAgent: trace discovery did not converge on a "
+                    "verdict within the step budget"
+                ),
+                passed_criteria=[],
+                failed_criteria=list(effective_criteria),
+            )
 
         raise Exception(
             f"Invalid tool call from judge agent: {tool_call.function.name}"

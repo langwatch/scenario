@@ -565,6 +565,180 @@ describe("JudgeAgent", () => {
       expect(result!.unmetCriteria).toContain("Agent uses tools");
     });
 
+    it("strips discovery tools and rewrites history before forced verdict", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      };
+
+      const agent = judgeAgent(config);
+
+      let forcedParams: InvokeLLMParams | undefined;
+      let callCount = 0;
+      agent.invokeLLM = async (params) => {
+        callCount++;
+        if (callCount === 1) {
+          // Simulate a real multi-step loop: last step emits a discovery tool
+          // and the accumulated history carries the matching tool_use /
+          // tool_result pair that would normally trip up a stripped call.
+          const prevMessages = params.messages ?? [];
+          params.messages = [
+            ...prevMessages,
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call" as const,
+                  toolCallId: "tc-1",
+                  toolName: "expand_trace",
+                  input: { span_ids: ["deadbeef00000000"] },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result" as const,
+                  toolCallId: "tc-1",
+                  toolName: "expand_trace",
+                  output: { type: "text", value: "span details here" },
+                },
+              ],
+            },
+          ] as any;
+          return {
+            text: "",
+            content: [],
+            toolCalls: [
+              {
+                toolName: "grep_trace",
+                input: { pattern: "error" },
+                type: "tool-call" as const,
+                toolCallId: "tc-2",
+              },
+            ],
+            toolResults: [],
+          } as unknown as InvokeLLMResult;
+        }
+        forcedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_works_correctly: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(callCount).toBe(2);
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(true);
+
+      // forceVerdict must have stripped expand_trace and grep_trace from the
+      // tool set, leaving only the terminal tools.
+      const toolNames = Object.keys(forcedParams!.tools ?? {});
+      expect(toolNames).not.toContain("expand_trace");
+      expect(toolNames).not.toContain("grep_trace");
+      expect(toolNames).toContain("finish_test");
+
+      // Message history must have been rewritten: no assistant message
+      // should still contain a tool-call part for a discovery tool, and no
+      // tool-role message should remain.
+      const msgs = forcedParams!.messages ?? [];
+      for (const m of msgs) {
+        expect(m.role).not.toBe("tool");
+        if (m.role === "assistant" && Array.isArray(m.content)) {
+          for (const part of m.content as Array<Record<string, unknown>>) {
+            expect(part.type).not.toBe("tool-call");
+          }
+        }
+      }
+
+      // The recap text should carry forward what the discovery tool returned
+      // so the model can still reason about it.
+      const recapHit = msgs.some(
+        (m) =>
+          m.role === "assistant" &&
+          typeof m.content === "string" &&
+          m.content.includes("expand_trace") &&
+          m.content.includes("span details here")
+      );
+      expect(recapHit).toBe(true);
+    });
+
+    it("skips forceVerdict when an earlier step already emitted finish_test", async () => {
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent works correctly"],
+        spanCollector: collector,
+        maxDiscoverySteps: 3,
+      };
+
+      const agent = judgeAgent(config);
+
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        // AI SDK v6 surfaces only the last step in `toolCalls`, but an
+        // earlier step did emit finish_test. discoveryExhausted should
+        // spot it via `steps` and skip the force path.
+        return {
+          text: "",
+          content: [],
+          toolCalls: [
+            {
+              toolName: "expand_trace",
+              input: { span_ids: ["0000000000000000"] },
+              type: "tool-call" as const,
+              toolCallId: "tc-last",
+            },
+          ],
+          toolResults: [],
+          steps: [
+            {
+              toolCalls: [
+                {
+                  toolName: "expand_trace",
+                  input: { span_ids: ["0000000000000000"] },
+                  type: "tool-call" as const,
+                  toolCallId: "tc-first",
+                },
+              ],
+            },
+            {
+              toolCalls: [
+                {
+                  toolName: "finish_test",
+                  input: {
+                    criteria: { agent_works_correctly: "true" },
+                    reasoning: "converged early",
+                    verdict: "success",
+                  },
+                  type: "tool-call" as const,
+                  toolCallId: "tc-finish",
+                },
+              ],
+            },
+            {
+              toolCalls: [
+                {
+                  toolName: "expand_trace",
+                  input: { span_ids: ["0000000000000000"] },
+                  type: "tool-call" as const,
+                  toolCallId: "tc-last",
+                },
+              ],
+            },
+          ],
+        } as unknown as InvokeLLMResult;
+      };
+
+      await agent.call(createBaseInput());
+      // Only one LLM call — forceVerdict must not have fired.
+      expect(callCount).toBe(1);
+    });
+
     it("returns inconclusive when forceVerdict still leaks a discovery tool", async () => {
       const config: JudgeAgentConfig = {
         criteria: ["Agent works correctly"],
