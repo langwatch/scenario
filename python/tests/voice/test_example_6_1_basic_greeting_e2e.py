@@ -6,25 +6,18 @@ AC: result.success is True AND result.audio.save() writes a WAV file.
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 
-REQUIRED_ENV = ("OPENAI_API_KEY",)
-
 # Add examples dir to path so we can import the example.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
 @pytest.mark.asyncio
-async def test_example_6_1_basic_greeting_e2e_success():
+async def test_example_6_1_basic_greeting_e2e_success(requires_llm, requires_pipecat_bot):
     """result.success is True and audio is recorded."""
     from voice_example_6_1_basic_greeting import main  # type: ignore[import]
 
@@ -33,12 +26,8 @@ async def test_example_6_1_basic_greeting_e2e_success():
     assert result.success, f"Expected success; verdict: {result.reasoning}"
 
 
-@pytest.mark.skipif(
-    any(not os.getenv(k) for k in REQUIRED_ENV),
-    reason=f"Requires {REQUIRED_ENV}",
-)
 @pytest.mark.asyncio
-async def test_example_6_1_audio_save_writes_wav():
+async def test_example_6_1_audio_save_writes_wav(requires_llm, requires_pipecat_bot):
     """result.audio.save() writes a non-empty WAV file."""
     from voice_example_6_1_basic_greeting import main  # type: ignore[import]
 
