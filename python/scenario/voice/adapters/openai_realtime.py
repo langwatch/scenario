@@ -97,6 +97,10 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # Accumulation buffer for streaming agent transcript deltas.
         self._agent_transcript_buf: str = ""
 
+        # Bytes appended to input_audio_buffer since last commit. Non-zero
+        # means recv_audio should commit + request a response before awaiting.
+        self._pending_audio_bytes: int = 0
+
     @property
     def url(self) -> str:
         return REALTIME_URL_TEMPLATE.format(model=self.model)
@@ -126,11 +130,14 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         logger.debug("OpenAIRealtimeAgentAdapter: connected to %s", self.url)
 
         # Configure session: audio formats, voice, instructions, tools.
+        # Disable server-side VAD so we control turn boundaries explicitly via
+        # input_audio_buffer.commit + response.create after each send_audio.
         session_config: dict[str, Any] = {
             "input_audio_format": "pcm16",
             "output_audio_format": "pcm16",
             "voice": self.voice,
             "input_audio_transcription": {"model": "whisper-1"},
+            "turn_detection": None,
         }
         if self.instructions:
             session_config["instructions"] = self.instructions
@@ -164,12 +171,14 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
 
     async def send_audio(self, chunk: AudioChunk) -> None:
         """
-        Send a PCM16 audio chunk to the model's input audio buffer.
+        Append a PCM16 audio chunk to the model's input audio buffer.
 
-        Encodes the raw bytes as base64 and emits an
-        ``input_audio_buffer.append`` event. After appending, the model's
-        server-side VAD will detect end-of-speech and trigger a response;
-        callers do not need to manually commit the buffer.
+        Only emits ``input_audio_buffer.append`` — the commit + response are
+        deferred to the next ``recv_audio`` call. The scenario executor may
+        call ``send_audio`` many times for a single user turn (TTS streams
+        audio as chunks); committing per-chunk would confuse the server with
+        sub-second turn boundaries. By deferring commit to recv_audio, we
+        get one server turn per user turn.
         """
         if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
@@ -177,10 +186,17 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         await self._ws.send(
             json.dumps({"type": "input_audio_buffer.append", "audio": b64})
         )
+        self._pending_audio_bytes += len(chunk.data)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
-        Receive the next audio chunk produced by the model.
+        Commit any pending audio, request a response, and return the first
+        audio chunk the model produces.
+
+        If ``send_audio`` was called since the last ``recv_audio``, this
+        method commits the buffer and emits ``response.create`` before
+        awaiting the reply. Subsequent recv calls without new send calls
+        just await the next audio delta (for multi-chunk responses).
 
         Loops over incoming events until a ``response.audio.delta`` event
         arrives, then returns decoded PCM16. Transcript events update the
@@ -194,6 +210,12 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         """
         if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
+
+        # If send_audio was called since last recv, commit and request response.
+        if self._pending_audio_bytes > 0:
+            await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+            await self._ws.send(json.dumps({"type": "response.create"}))
+            self._pending_audio_bytes = 0
 
         deadline = asyncio.get_event_loop().time() + timeout
         while True:
