@@ -88,15 +88,13 @@ async def _openai_tts(text: str, voice: str) -> bytes:
 
 
 async def _elevenlabs_tts(text: str, voice: str) -> bytes:
-    try:
-        from elevenlabs.client import AsyncElevenLabs  # type: ignore
-    except ImportError as exc:  # pragma: no cover — depends on host deps
-        raise ImportError(
-            "elevenlabs provider requires `pip install elevenlabs`"
-        ) from exc
+    from elevenlabs.client import AsyncElevenLabs  # type: ignore
+
     client = AsyncElevenLabs()
+    # The convert() call returns an async iterator of PCM chunks directly —
+    # do NOT `await` it (that's a TypeError on async_generator).
     chunks: list[bytes] = []
-    async for chunk in await client.text_to_speech.convert(
+    async for chunk in client.text_to_speech.convert(
         voice_id=voice,
         text=text,
         output_format="pcm_24000",

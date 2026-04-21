@@ -52,13 +52,28 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         output_formats=["pcm16/24000"],
     )
 
-    def __init__(self, stt: STTProvider, llm: str, tts: str) -> None:
+    DEFAULT_SYSTEM_PROMPT = (
+        "You are a helpful voice assistant. Respond naturally and conversationally "
+        "as this is an audio conversation — be concise, friendly, and clear."
+    )
+
+    def __init__(
+        self,
+        stt: STTProvider,
+        llm: str,
+        tts: str,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> None:
         """
         Args:
             stt: STTProvider implementation for the user's audio.
             llm: litellm-style model identifier, e.g. ``"openai/gpt-4o-mini"``.
             tts: TTS voice string in ``"provider/voice"`` format,
                  e.g. ``"openai/nova"`` or ``"elevenlabs/rachel"``.
+            system_prompt: Optional system prompt seeded at turn zero so the
+                LLM has guidance before the first user message. Defaults to a
+                generic helpful-assistant prompt.
         """
         self.stt = stt
         self.llm = llm
@@ -67,8 +82,12 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         self.last_user_transcript: Optional[str] = None
         self.last_llm_response: Optional[str] = None
 
-        # Conversation history maintained across turns for context.
-        self._history: List[dict] = []
+        # Seed history with a system prompt so the first recv_audio call (which
+        # can happen before any user audio when the agent speaks first) doesn't
+        # send an empty messages array to the LLM.
+        self._history: List[dict] = [
+            {"role": "system", "content": system_prompt or self.DEFAULT_SYSTEM_PROMPT}
+        ]
 
     def __repr__(self) -> str:
         return f"ComposableVoiceAgent(llm={self.llm!r}, tts={self.tts!r})"
@@ -143,20 +162,24 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
         api_key: str,
         *,
         llm: str = "openai/gpt-4o-mini",
-        voice: str = "elevenlabs/rachel",
+        voice: str = "elevenlabs/21m00Tcm4TlvDq8ikWAM",  # "Rachel" — public ElevenLabs voice
         stt: Optional[STTProvider] = None,
+        system_prompt: Optional[str] = None,
     ) -> None:
         """
         Args:
             api_key: ElevenLabs API key. Redacted in ``__repr__``.
             llm: litellm-style model identifier. Defaults to
                 ``"openai/gpt-4o-mini"``.
-            voice: TTS voice string. Defaults to ``"elevenlabs/rachel"``.
+            voice: TTS voice string. Defaults to the public "Rachel" voice
+                (``"elevenlabs/21m00Tcm4TlvDq8ikWAM"``).
             stt: STTProvider override. Defaults to
                 ``ElevenLabsSTTProvider(api_key=api_key)``.
+            system_prompt: Optional system prompt. Defaults to
+                ``ComposableVoiceAgent.DEFAULT_SYSTEM_PROMPT``.
         """
         resolved_stt = stt if stt is not None else ElevenLabsSTTProvider(api_key=api_key)
-        super().__init__(stt=resolved_stt, llm=llm, tts=voice)
+        super().__init__(stt=resolved_stt, llm=llm, tts=voice, system_prompt=system_prompt)
         self._api_key = api_key
         self.voice = voice
 
