@@ -19,8 +19,7 @@ How to run:
     uv run examples/voice_example_6_3_angry_customer.py
 
 Required env vars:
-    OPENAI_API_KEY       — for JudgeAgent LLM
-    ELEVENLABS_API_KEY   — for elevenlabs/rachel TTS voice
+    OPENAI_API_KEY   — for UserSimulatorAgent TTS + JudgeAgent LLM
 """
 
 import asyncio
@@ -35,7 +34,7 @@ try:
 except ImportError:
     pass
 
-REQUIRED_ENV = ("OPENAI_API_KEY", "ELEVENLABS_API_KEY")
+REQUIRED_ENV = ("OPENAI_API_KEY",)
 
 
 def _check_env() -> None:
@@ -68,7 +67,7 @@ async def main() -> scenario.ScenarioResult:
                 sample_rate=8000,
             ),
             scenario.UserSimulatorAgent(
-                voice="elevenlabs/rachel",
+                voice="openai/nova",
                 persona=(
                     "Very angry customer who was charged incorrectly. "
                     "Speaking loudly and impatiently from a cafe. "

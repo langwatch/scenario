@@ -166,6 +166,23 @@ def requires_elevenlabs_key():
 
 
 @pytest.fixture
+def requires_elevenlabs_paid_voice():
+    """Skip unless ELEVENLABS_VOICE_ID is set.
+
+    ElevenLabs free-tier accounts cannot use premade voice IDs (HTTP 402).
+    Set ELEVENLABS_VOICE_ID to a custom voice you own to run demos that use
+    ElevenLabsVoiceAgent TTS.  This is a legitimate env constraint, not a
+    code bug — hence skip rather than fail.
+    """
+    _require_env("ELEVENLABS_API_KEY")
+    if not os.getenv("ELEVENLABS_VOICE_ID"):
+        pytest.skip(
+            "ELEVENLABS_VOICE_ID not set; ElevenLabs free-tier cannot use premade voices. "
+            "Set ELEVENLABS_VOICE_ID to a custom voice you own to run this test."
+        )
+
+
+@pytest.fixture
 def requires_gemini_key():
     """Fail unless GEMINI_API_KEY is set."""
     _require_env("GEMINI_API_KEY")

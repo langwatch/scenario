@@ -27,6 +27,34 @@ from .types import AgentInput, AgentReturnTypes, AgentRole
 logger = logging.getLogger("scenario")
 
 
+def _strip_audio_content(messages: list) -> list:
+    """
+    Remove audio content blocks from messages before sending to a text-only LLM.
+
+    Voice turns use ``input_audio`` content parts (multimodal) which text-only
+    models like ``gpt-4.1-mini`` reject with an "expected text or image_url"
+    error.  This helper keeps ``text`` parts as-is and replaces audio-only
+    messages with an ``[audio message]`` placeholder so the LLM still has a
+    structural turn in the right position.
+    """
+    result = []
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            text_parts = [
+                p["text"]
+                for p in content
+                if isinstance(p, dict) and p.get("type") == "text"
+            ]
+            if text_parts:
+                result.append({**msg, "content": " ".join(text_parts)})
+            else:
+                result.append({**msg, "content": "[audio message]"})
+        else:
+            result.append(msg)
+    return result
+
+
 class UserSimulatorAgent(AgentAdapter):
     """
     Agent that simulates realistic user behavior in scenario conversations.
@@ -338,7 +366,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 {persona_block}""",
             },
             {"role": "assistant", "content": "Hello, how can I help you today?"},
-            *input.messages,
+            *_strip_audio_content(input.messages),
         ]
 
         # User to assistant role reversal

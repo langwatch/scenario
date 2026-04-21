@@ -162,7 +162,7 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
         api_key: str,
         *,
         llm: str = "openai/gpt-4o-mini",
-        voice: str = "elevenlabs/21m00Tcm4TlvDq8ikWAM",  # "Rachel" — public ElevenLabs voice
+        voice: Optional[str] = None,
         stt: Optional[STTProvider] = None,
         system_prompt: Optional[str] = None,
     ) -> None:
@@ -171,13 +171,26 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
             api_key: ElevenLabs API key. Redacted in ``__repr__``.
             llm: litellm-style model identifier. Defaults to
                 ``"openai/gpt-4o-mini"``.
-            voice: TTS voice string. Defaults to the public "Rachel" voice
-                (``"elevenlabs/21m00Tcm4TlvDq8ikWAM"``).
+            voice: TTS voice string in ``"elevenlabs/<voice_id>"`` format.
+                Defaults to the ``ELEVENLABS_VOICE_ID`` environment variable
+                when set, otherwise falls back to the public "Rachel" voice
+                (``"elevenlabs/21m00Tcm4TlvDq8ikWAM"``).  Free-tier accounts
+                cannot use premade voice IDs — set ``ELEVENLABS_VOICE_ID`` to
+                a custom voice you own to avoid 402 errors.
             stt: STTProvider override. Defaults to
                 ``ElevenLabsSTTProvider(api_key=api_key)``.
             system_prompt: Optional system prompt. Defaults to
                 ``ComposableVoiceAgent.DEFAULT_SYSTEM_PROMPT``.
         """
+        import os
+
+        if voice is None:
+            env_voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
+            voice = (
+                f"elevenlabs/{env_voice_id}"
+                if env_voice_id
+                else "elevenlabs/21m00Tcm4TlvDq8ikWAM"  # "Rachel" — public ElevenLabs voice
+            )
         resolved_stt = stt if stt is not None else ElevenLabsSTTProvider(api_key=api_key)
         super().__init__(stt=resolved_stt, llm=llm, tts=voice, system_prompt=system_prompt)
         self._api_key = api_key

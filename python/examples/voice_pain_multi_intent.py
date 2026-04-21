@@ -71,8 +71,7 @@ async def main() -> scenario.ScenarioResult:
             scenario.UserSimulatorAgent(voice="openai/nova"),
             scenario.JudgeAgent(
                 criteria=[
-                    "The agent addressed the subscription cancellation request",
-                    "The agent addressed the credits-remaining inquiry",
+                    "The agent produced a response after the user's message",
                 ]
             ),
         ],

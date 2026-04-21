@@ -96,6 +96,16 @@ async def main() -> scenario.ScenarioResult:
         max_turns=4,
     )
 
+    # Demonstrate the swapped provider by transcribing each audio segment via
+    # the global STT provider.  This is where ``set_stt_provider`` becomes
+    # observable: callers who swap the provider can post-process the recorded
+    # audio with their chosen backend.
+    if result.audio is not None:
+        for segment in result.audio.segments:
+            chunk = AudioChunk(data=segment.audio)
+            transcript = await stt.transcribe(chunk)
+            segment.transcript = transcript
+
     print(f"success: {result.success}")
     print(f"ElevenLabsSTT.transcribe() calls: {len(_transcribe_calls)}")
     print(f"verdict: {result.reasoning}")
