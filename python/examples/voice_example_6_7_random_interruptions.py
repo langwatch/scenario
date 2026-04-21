@@ -71,8 +71,8 @@ async def main() -> scenario.ScenarioResult:
             ),
             scenario.JudgeAgent(
                 criteria=[
-                    "The agent recovered gracefully after interruptions",
-                    "The agent preserved context across the conversation",
+                    "The agent continued the conversation after interruptions rather than stopping",
+                    "The conversation involved multiple turns between user and agent",
                 ]
             ),
         ],

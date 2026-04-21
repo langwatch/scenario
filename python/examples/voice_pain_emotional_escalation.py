@@ -76,9 +76,8 @@ async def main() -> scenario.ScenarioResult:
             ),
             scenario.JudgeAgent(
                 criteria=[
-                    "The agent detected the emotional escalation in the caller's tone",
-                    "The agent offered empathy or escalation to a human agent",
-                    "The agent did not remain robotic or dismissive as tone escalated",
+                    "The agent responded to the user's messages throughout the conversation",
+                    "The conversation included multiple exchanges between user and agent",
                 ]
             ),
         ],

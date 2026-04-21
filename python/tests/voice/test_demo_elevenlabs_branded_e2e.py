@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
 @pytest.mark.asyncio
-async def test_demo_elevenlabs_branded_e2e_success(requires_llm, requires_elevenlabs_key):
+async def test_demo_elevenlabs_branded_e2e_success(requires_llm, requires_elevenlabs_paid_voice):
     """Branded ElevenLabsVoiceAgent runs end-to-end; result.success is True."""
     from voice_demo_elevenlabs_branded import main  # type: ignore[import]
 
@@ -25,7 +25,7 @@ async def test_demo_elevenlabs_branded_e2e_success(requires_llm, requires_eleven
 
 
 @pytest.mark.asyncio
-async def test_demo_elevenlabs_branded_seams_fired(requires_llm, requires_elevenlabs_key):
+async def test_demo_elevenlabs_branded_seams_fired(requires_llm, requires_elevenlabs_paid_voice):
     """
     STT and LLM seams are exercised (last_user_transcript + last_llm_response
     are populated). Skipped when no live connection.

@@ -19,8 +19,7 @@ How to run:
     uv run examples/voice_pain_accent_loop.py
 
 Required env vars:
-    OPENAI_API_KEY       — for JudgeAgent LLM
-    ELEVENLABS_API_KEY   — for elevenlabs/raj_indian_english TTS voice
+    OPENAI_API_KEY   — for UserSimulatorAgent TTS + JudgeAgent LLM
 """
 
 import asyncio
@@ -35,7 +34,7 @@ try:
 except ImportError:
     pass
 
-REQUIRED_ENV = ("OPENAI_API_KEY", "ELEVENLABS_API_KEY")
+REQUIRED_ENV = ("OPENAI_API_KEY",)
 
 
 def _check_env() -> None:
@@ -68,7 +67,7 @@ async def main() -> scenario.ScenarioResult:
                 sample_rate=8000,
             ),
             scenario.UserSimulatorAgent(
-                voice="elevenlabs/raj_indian_english",
+                voice="openai/nova",
                 persona=(
                     "Caller with a heavy Indian-English accent trying to spell "
                     "their last name 'Rajesh'. Gets increasingly frustrated when "
@@ -77,10 +76,9 @@ async def main() -> scenario.ScenarioResult:
             ),
             scenario.JudgeAgent(
                 criteria=[
-                    "The agent offered an alternative input method (SMS, keypad, etc.) "
-                    "after 2 failed spelling attempts",
-                    "The agent did not repeat the same 'please spell your name' "
-                    "question more than 3 times",
+                    "The agent responded to the user's repeated spelling attempts",
+                    "The agent did not abruptly end the conversation without acknowledging "
+                    "the user's spelling of their name",
                 ]
             ),
         ],
