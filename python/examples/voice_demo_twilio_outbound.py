@@ -29,5 +29,6 @@ from voice_twilio_simulator_calls_human_scenario import main  # type: ignore[imp
 
 if __name__ == "__main__":
     import asyncio
+    import sys
 
-    asyncio.run(main())
+    sys.exit(0 if asyncio.run(main()) else 1)
