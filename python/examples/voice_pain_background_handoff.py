@@ -11,6 +11,10 @@ AC: specs/voice-agents.feature "Pain pattern — background handoff should not t
     Source §8 L1263-1265.
 
 How to run:
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_pain_background_handoff.py
 

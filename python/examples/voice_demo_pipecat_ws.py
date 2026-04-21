@@ -9,14 +9,16 @@ What this demo proves:
 AC: specs/voice-agents.feature "Demo — Pipecat WebSocket adapter happy path"
 
 How to run:
-    # Terminal A — start the Pipecat bot
-    cd python
-    pip install "pipecat-ai[openai,websockets,runner]"
-    python examples/voice_pipecat_twilio_bot.py --host 0.0.0.0 --port 8765
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
 
-    # Terminal B — run this demo
+    # 2. Run this demo:
     cd python
     uv run examples/voice_demo_pipecat_ws.py
+
+    # Alternative: use the full pipecat-ai bot instead of the stub:
+    #   pip install "pipecat-ai[openai,websockets,runner]"
+    #   python examples/voice_pipecat_twilio_bot.py --host 0.0.0.0 --port 8765
 
 Required env vars:
     OPENAI_API_KEY       — for UserSimulatorAgent TTS + JudgeAgent LLM

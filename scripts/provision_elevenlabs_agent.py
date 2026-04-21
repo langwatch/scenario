@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""
+Provision (or reuse) an ElevenLabs Conversational AI test agent.
+
+Usage:
+    # From repo root (via Makefile):
+    make voice-elevenlabs-provision
+
+    # Or directly from python/:
+    cd python && uv run python ../scripts/provision_elevenlabs_agent.py
+
+What it does:
+  1. Reads ELEVENLABS_API_KEY from the environment (or python/.env).
+  2. Lists existing agents via GET /v1/convai/agents.
+  3. If an agent named "scenario-e2e-test-agent" already exists, reuses it.
+  4. Otherwise, creates it via POST /v1/convai/agents with a minimal config.
+  5. Writes ``ELEVENLABS_AGENT_ID=<id>`` to python/.env (append only if not
+     already present). Idempotent — safe to re-run.
+  6. Prints the agent_id to stdout so callers can capture it.
+
+Exit codes:
+    0  — agent_id written and printed.
+    1  — ELEVENLABS_API_KEY missing or API call failed.
+
+Self-contained: uses httpx (already a hard dep of scenario). Does NOT import
+the elevenlabs Python SDK.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Load python/.env so the script works from any CWD.
+# ---------------------------------------------------------------------------
+
+_HERE = Path(__file__).resolve()
+_PYTHON_DIR = _HERE.parent.parent / "python"
+_ENV_FILE = _PYTHON_DIR / ".env"
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(_ENV_FILE)
+except ImportError:
+    pass  # dotenv is optional; env vars may already be set in the shell
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+AGENT_NAME = "scenario-e2e-test-agent"
+SYSTEM_PROMPT = "You are a helpful customer-service agent."
+ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
+
+
+def _api_key() -> str:
+    key = os.environ.get("ELEVENLABS_API_KEY", "")
+    if not key:
+        print("error: ELEVENLABS_API_KEY is not set", file=sys.stderr)
+        sys.exit(1)
+    return key
+
+
+def _list_agents(api_key: str) -> list[dict]:
+    """GET /v1/convai/agents — return list of agent dicts."""
+    import httpx
+
+    resp = httpx.get(
+        f"{ELEVENLABS_API_BASE}/v1/convai/agents",
+        headers={"xi-api-key": api_key},
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        print(
+            f"error: GET /v1/convai/agents returned {resp.status_code}: {resp.text}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    data = resp.json()
+    # The ElevenLabs response wraps agents in {"agents": [...]}
+    return data.get("agents") or []
+
+
+def _create_agent(api_key: str) -> str:
+    """POST /v1/convai/agents — create agent and return agent_id."""
+    import httpx
+
+    payload = {
+        "name": AGENT_NAME,
+        "conversation_config": {
+            "agent": {
+                "prompt": {
+                    "prompt": SYSTEM_PROMPT,
+                },
+                "first_message": "Hello! How can I help you today?",
+                "language": "en",
+            },
+        },
+    }
+    resp = httpx.post(
+        f"{ELEVENLABS_API_BASE}/v1/convai/agents",
+        headers={
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201):
+        print(
+            f"error: POST /v1/convai/agents returned {resp.status_code}: {resp.text}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return resp.json()["agent_id"]
+
+
+def _write_env(agent_id: str) -> None:
+    """
+    Append ELEVENLABS_AGENT_ID=<id> to python/.env if not already present.
+
+    Creates python/.env if it does not exist.
+    """
+    key_line = f"ELEVENLABS_AGENT_ID={agent_id}"
+
+    if _ENV_FILE.exists():
+        content = _ENV_FILE.read_text()
+        # Check if any line already sets ELEVENLABS_AGENT_ID.
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("ELEVENLABS_AGENT_ID="):
+                existing_id = stripped.split("=", 1)[1].strip()
+                if existing_id == agent_id:
+                    # Already present with the same value — nothing to do.
+                    return
+                # Present but with a different value — update it.
+                lines = content.splitlines(keepends=True)
+                new_lines = []
+                for l in lines:
+                    if l.strip().startswith("ELEVENLABS_AGENT_ID="):
+                        new_lines.append(f"{key_line}\n")
+                    else:
+                        new_lines.append(l)
+                _ENV_FILE.write_text("".join(new_lines))
+                print(f"info: updated ELEVENLABS_AGENT_ID in {_ENV_FILE}", file=sys.stderr)
+                return
+        # Key not found — append.
+        with _ENV_FILE.open("a") as fh:
+            if not content.endswith("\n"):
+                fh.write("\n")
+            fh.write(f"{key_line}\n")
+    else:
+        _ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _ENV_FILE.write_text(f"{key_line}\n")
+
+    print(f"info: wrote ELEVENLABS_AGENT_ID to {_ENV_FILE}", file=sys.stderr)
+
+
+def main() -> None:
+    api_key = _api_key()
+
+    print("info: listing existing ElevenLabs agents...", file=sys.stderr)
+    agents = _list_agents(api_key)
+
+    existing = next((a for a in agents if a.get("name") == AGENT_NAME), None)
+
+    if existing:
+        agent_id = existing["agent_id"]
+        print(f"info: reusing existing agent '{AGENT_NAME}' (id={agent_id})", file=sys.stderr)
+    else:
+        print(f"info: creating new agent '{AGENT_NAME}'...", file=sys.stderr)
+        agent_id = _create_agent(api_key)
+        print(f"info: created agent (id={agent_id})", file=sys.stderr)
+
+    _write_env(agent_id)
+    # Print agent_id to stdout — callers (Makefile, CI) can capture it.
+    print(agent_id)
+
+
+if __name__ == "__main__":
+    main()

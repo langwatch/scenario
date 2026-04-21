@@ -11,6 +11,10 @@ AC: specs/voice-agents.feature "Demo — ElevenLabs hosted Conversational AI"
     Source §5.4, L760-776.
 
 How to run:
+    # 1. Provision the ElevenLabs test agent (creates ELEVENLABS_AGENT_ID in .env):
+    make voice-elevenlabs-provision
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_demo_elevenlabs_hosted.py
 
@@ -18,6 +22,7 @@ Required env vars:
     OPENAI_API_KEY       — for JudgeAgent LLM
     ELEVENLABS_API_KEY   — ElevenLabs platform key
     ELEVENLABS_AGENT_ID  — ID of your hosted Conversational AI agent
+                           (set by `make voice-elevenlabs-provision`)
 """
 
 import asyncio

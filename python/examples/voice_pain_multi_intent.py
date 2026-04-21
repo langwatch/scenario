@@ -10,6 +10,10 @@ AC: specs/voice-agents.feature "Pain pattern — multi-intent single turn"
     Source §8 L1259-1261.
 
 How to run:
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_pain_multi_intent.py
 
