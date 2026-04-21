@@ -13,7 +13,7 @@ What it does:
   1. Reads ELEVENLABS_API_KEY from the environment (or python/.env).
   2. Lists existing agents via GET /v1/convai/agents.
   3. If an agent named "scenario-e2e-test-agent" already exists, reuses it.
-  4. Otherwise, creates it via POST /v1/convai/agents with a minimal config.
+  4. Otherwise, creates it via POST /v1/convai/agents/create with a minimal config.
   5. Writes ``ELEVENLABS_AGENT_ID=<id>`` to python/.env (append only if not
      already present). Idempotent — safe to re-run.
   6. Prints the agent_id to stdout so callers can capture it.
@@ -51,7 +51,9 @@ except ImportError:
 # Config
 # ---------------------------------------------------------------------------
 
-AGENT_NAME = "scenario-e2e-test-agent"
+# Sentinel name. Override via ELEVENLABS_AGENT_NAME env var (e.g. "Test Agent")
+# if your account already has an agent under a different name.
+AGENT_NAME = os.environ.get("ELEVENLABS_AGENT_NAME", "scenario-e2e-test-agent")
 SYSTEM_PROMPT = "You are a helpful customer-service agent."
 ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
 
@@ -85,7 +87,7 @@ def _list_agents(api_key: str) -> list[dict]:
 
 
 def _create_agent(api_key: str) -> str:
-    """POST /v1/convai/agents — create agent and return agent_id."""
+    """POST /v1/convai/agents/create — create agent and return agent_id."""
     import httpx
 
     payload = {
@@ -101,7 +103,7 @@ def _create_agent(api_key: str) -> str:
         },
     }
     resp = httpx.post(
-        f"{ELEVENLABS_API_BASE}/v1/convai/agents",
+        f"{ELEVENLABS_API_BASE}/v1/convai/agents/create",
         headers={
             "xi-api-key": api_key,
             "Content-Type": "application/json",
@@ -111,7 +113,7 @@ def _create_agent(api_key: str) -> str:
     )
     if resp.status_code not in (200, 201):
         print(
-            f"error: POST /v1/convai/agents returned {resp.status_code}: {resp.text}",
+            f"error: POST /v1/convai/agents/create returned {resp.status_code}: {resp.text}",
             file=sys.stderr,
         )
         sys.exit(1)

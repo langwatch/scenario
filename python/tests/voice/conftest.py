@@ -221,12 +221,16 @@ def requires_twilio_inbound():
 @pytest.fixture
 def requires_transport_ready():
     """
-    Factory for capability probes: skip (legitimately) if adapter.connect()
-    raises PendingTransportError — the transport isn't shipped yet.
+    Factory for capability probes: skip (legitimately) if an adapter's
+    send_audio / recv_audio still raise PendingTransportError — the
+    transport isn't shipped yet.
 
     This is the ONE case where skipping is correct per TESTING.md: we can't
     test code that doesn't exist. When the transport ships, the probe stops
-    raising and the test runs automatically.
+    detecting the sentinel raise and the test runs automatically.
+
+    Uses static source inspection rather than calling connect() so it works
+    inside already-running event loops (pytest-asyncio test bodies).
 
     Usage:
         def test_x(requires_transport_ready):
@@ -234,25 +238,25 @@ def requires_transport_ready():
             requires_transport_ready(adapter)
             # ...proceed
     """
-    import asyncio
-
-    from scenario.voice.adapters._stub import PendingTransportError
+    import inspect
 
     def _probe(adapter):
-        async def _try():
+        # The stub pattern is always the same: inside send_audio/recv_audio,
+        # import PendingTransportError and raise it. Inspect source for the
+        # sentinel string.
+        for method_name in ("send_audio", "recv_audio"):
+            method = getattr(type(adapter), method_name, None)
+            if method is None:
+                continue
             try:
-                await adapter.connect()
-                await adapter.disconnect()
-            except PendingTransportError as e:
-                pytest.skip(f"transport not yet shipped: {e}")
-            except Exception:
-                # Real errors (auth, network) should NOT be swallowed —
-                # let the test see them.
-                pass
-
-        try:
-            asyncio.get_event_loop().run_until_complete(_try())
-        except RuntimeError:
-            asyncio.run(_try())
+                source = inspect.getsource(method)
+            except (OSError, TypeError):
+                continue
+            if "raise PendingTransportError" in source:
+                pytest.skip(
+                    f"transport not yet shipped: "
+                    f"{type(adapter).__name__}.{method_name} still raises "
+                    "PendingTransportError"
+                )
 
     return _probe

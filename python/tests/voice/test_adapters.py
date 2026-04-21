@@ -144,7 +144,7 @@ def test_openai_realtime_capabilities_are_streaming():
 
 def test_gemini_live_defaults():
     a = GeminiLiveAgentAdapter()
-    assert a.model == "gemini-2.5-flash-native-audio"
+    assert a.model == "gemini-2.5-flash-preview-native-audio-dialog"
     assert a.voice == "Algieba"
 
 

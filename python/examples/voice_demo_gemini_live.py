@@ -3,7 +3,7 @@ Platform demo — Gemini Live native audio.
 
 What this demo proves:
     GeminiLiveAgentAdapter establishes a real Gemini Live session with
-    model="gemini-2.5-flash-native-audio", exchanges native-audio turns, and
+    model="gemini-2.5-flash-preview-native-audio-dialog", exchanges native-audio turns, and
     result.success == True after a one-turn exchange.
 
 AC: specs/voice-agents.feature "Demo — Gemini Live native audio"
@@ -55,7 +55,7 @@ async def main() -> scenario.ScenarioResult:
         ),
         agents=[
             scenario.GeminiLiveAgentAdapter(
-                model="gemini-2.5-flash-native-audio",
+                model="gemini-2.5-flash-preview-native-audio-dialog",
                 voice="Algieba",
                 system_instruction="You are a helpful assistant. Keep responses brief.",
             ),
