@@ -1,34 +1,31 @@
 """
-Shared test configuration and skip-guard fixtures for the voice suite.
+Shared test configuration and fail-fast preflight fixtures for the voice suite.
 
-Philosophy: each @e2e test skips only when the *specific infrastructure
-it needs* is absent — not when a generic API key happens to be missing.
-Detection methods:
+Philosophy per TESTING.md ("E2E = happy paths via real examples, no mocks"):
+missing infrastructure is a test FAILURE with a clear message, not a silent
+skip. The only legitimate "skip" is for code that genuinely isn't shipped yet
+(transport stubs that still raise PendingTransportError).
 
-- **Port probe** — for locally-run bots (Pipecat on :8765). A quick TCP
-  connect check answers "is the dev dependency actually up?" without
-  hitting real APIs.
-- **Env var** — for cloud creds that double as "is this feature enabled
-  in my account?" (ELEVENLABS_AGENT_ID, TWILIO_PHONE_NUMBER, etc.).
-- **Capability probe** — for adapters that still raise
-  PendingTransportError. Instantiate, try a connect(), skip if it
-  raises the sentinel. Avoids hardcoding "is this shipped yet" into
-  env-var feature flags that go stale.
-- **LLM smoke probe** — for keys that exist but may be scope-restricted
-  (e.g., test keys without model.request scope). One tiny completion
-  call answers "can the judge actually run?" before a 30-second test
-  wastes time failing in that.
+Preflight fixtures assert the required infrastructure is reachable before the
+test body runs. If anything is missing, the fixture fails with a one-line
+diagnosis naming the missing dependency — so the test runner output directly
+tells you what to set up.
 
-If a fixture decides to skip, it raises pytest.skip with a message
-explaining *which specific dependency is absent*, so CI logs show real
-coverage instead of opaque skips.
+Auto-provisioning: the Pipecat stub bot is cheap to spawn (no credentials,
+no API cost). If it isn't already on :8765 when a Pipecat-dependent test
+starts, the fixture starts it session-scoped and tears it down at end of run.
 """
 
 from __future__ import annotations
 
+import atexit
 import os
+import signal
 import socket
+import subprocess
+import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -49,7 +46,7 @@ if os.getenv("OPENAI_API_KEY"):
 
 
 # --------------------------------------------------------------------- #
-# Skip guards                                                           #
+# Helpers                                                               #
 # --------------------------------------------------------------------- #
 
 
@@ -62,109 +59,163 @@ def _tcp_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return False
 
 
-_llm_probe_cache: dict[str, bool] = {}
-
-
-def _llm_callable(model: str = "openai/gpt-4.1-mini") -> bool:
-    """
-    One-shot litellm probe: can we actually run a completion?
-
-    Cached per-model so the probe runs at most once per session. Catches
-    the "key exists but lacks model.request scope" failure mode that's
-    common with restricted test keys.
-    """
-    if model in _llm_probe_cache:
-        return _llm_probe_cache[model]
-    if not os.getenv("OPENAI_API_KEY"):
-        _llm_probe_cache[model] = False
-        return False
-    try:
-        import litellm
-
-        litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=1,
+def _require_env(*keys: str) -> None:
+    """Fail the test with a clear message if any env var is missing."""
+    missing = [k for k in keys if not os.getenv(k)]
+    if missing:
+        pytest.fail(
+            f"Required env var(s) missing: {', '.join(missing)}. "
+            "Set them in python/.env (see python/.env.example) — "
+            "e2e tests fail on missing infrastructure, not skip."
         )
-        _llm_probe_cache[model] = True
-    except Exception:
-        _llm_probe_cache[model] = False
-    return _llm_probe_cache[model]
+
+
+# --------------------------------------------------------------------- #
+# Session-scoped infrastructure                                         #
+# --------------------------------------------------------------------- #
+
+
+_bot_process: Optional[subprocess.Popen] = None
+
+
+def _start_pipecat_bot() -> None:
+    """Spawn the bundled stub bot on :8765 and wait for it to accept conns."""
+    global _bot_process
+    if _bot_process is not None and _bot_process.poll() is None:
+        return  # already running
+
+    bot_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "examples"
+        / "voice_pipecat_bot"
+        / "bot.py"
+    )
+    if not bot_path.exists():
+        pytest.fail(f"Pipecat stub bot not found at {bot_path}")
+
+    log_path = Path("/tmp/voice-pipecat-bot.log")
+    log_fh = open(log_path, "ab")
+    _bot_process = subprocess.Popen(
+        ["uv", "run", "python", str(bot_path)],
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
+        cwd=bot_path.parent.parent.parent,
+        preexec_fn=os.setsid,
+    )
+    atexit.register(_stop_pipecat_bot)
+
+    # Wait up to 15s for the port.
+    for _ in range(30):
+        if _tcp_port_open("localhost", 8765):
+            return
+        if _bot_process.poll() is not None:
+            tail = log_path.read_text()[-2000:] if log_path.exists() else ""
+            pytest.fail(f"Pipecat bot exited during startup. Log tail:\n{tail}")
+        time.sleep(0.5)
+    pytest.fail(
+        "Pipecat bot did not open :8765 within 15s. "
+        f"See {log_path} for details."
+    )
+
+
+def _stop_pipecat_bot() -> None:
+    global _bot_process
+    if _bot_process is None:
+        return
+    try:
+        os.killpg(os.getpgid(_bot_process.pid), signal.SIGTERM)
+        _bot_process.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(os.getpgid(_bot_process.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    _bot_process = None
+
+
+# --------------------------------------------------------------------- #
+# Preflight fixtures (fail-fast, not skip)                              #
+# --------------------------------------------------------------------- #
 
 
 @pytest.fixture
 def requires_llm():
-    """Skip unless the default judge/simulator LLM is actually callable."""
-    if not _llm_callable():
-        pytest.skip("default LLM not callable (missing/restricted OPENAI_API_KEY)")
+    """Fail unless OPENAI_API_KEY is set. No probe — let the test run, and
+    real scope errors surface as real test failures with informative errors
+    rather than cached preflight noise."""
+    _require_env("OPENAI_API_KEY")
 
 
 @pytest.fixture
 def requires_pipecat_bot():
-    """Skip unless a Pipecat bot is listening on localhost:8765."""
+    """Ensure a Pipecat-compatible bot is on :8765, auto-starting if needed."""
     if not _tcp_port_open("localhost", 8765):
-        pytest.skip("Pipecat bot not running on localhost:8765")
+        _start_pipecat_bot()
 
 
 @pytest.fixture
 def requires_elevenlabs_hosted_agent():
-    """Skip unless an ElevenLabs hosted agent_id + api_key are configured."""
-    if not (os.getenv("ELEVENLABS_API_KEY") and os.getenv("ELEVENLABS_AGENT_ID")):
-        pytest.skip("ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID required")
+    """Fail unless ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID are set."""
+    _require_env("ELEVENLABS_API_KEY", "ELEVENLABS_AGENT_ID")
 
 
 @pytest.fixture
 def requires_elevenlabs_key():
-    """Skip unless ELEVENLABS_API_KEY is set (STT + branded demos)."""
-    if not os.getenv("ELEVENLABS_API_KEY"):
-        pytest.skip("ELEVENLABS_API_KEY required")
+    """Fail unless ELEVENLABS_API_KEY is set (STT + branded demos)."""
+    _require_env("ELEVENLABS_API_KEY")
 
 
 @pytest.fixture
 def requires_gemini_key():
-    """Skip unless GEMINI_API_KEY is set."""
-    if not os.getenv("GEMINI_API_KEY"):
-        pytest.skip("GEMINI_API_KEY required")
+    """Fail unless GEMINI_API_KEY is set."""
+    _require_env("GEMINI_API_KEY")
 
 
 @pytest.fixture
 def requires_twilio_outbound():
-    """Skip unless Twilio creds + a destination phone are configured."""
-    for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "TWILIO_TO_NUMBER"):
-        if not os.getenv(k):
-            pytest.skip(f"Twilio outbound demo requires {k}")
+    """Fail unless Twilio outbound demo env is fully configured.
+
+    Outbound dials TWILIO_PHONE_NUMBER_2 by default — a second Twilio-owned
+    number whose own harness will answer. No human required.
+    """
+    _require_env(
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_PHONE_NUMBER",
+        "TWILIO_PHONE_NUMBER_2",
+    )
 
 
 @pytest.fixture
 def requires_twilio_inbound():
-    """
-    Skip unless Twilio creds + INTEGRATION_MANUAL=1 are set.
+    """Fail unless Twilio inbound demo env is configured.
 
-    Twilio inbound requires a human to dial the number; we gate it behind
-    an explicit manual flag so CI never hangs waiting for a call.
+    Inbound uses a second Twilio number (TWILIO_PHONE_NUMBER_2) to dial in
+    to the primary (TWILIO_PHONE_NUMBER). No human required.
     """
-    if not os.getenv("INTEGRATION_MANUAL"):
-        pytest.skip("Twilio inbound demo is manual — set INTEGRATION_MANUAL=1 to run")
-    for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"):
-        if not os.getenv(k):
-            pytest.skip(f"Twilio inbound demo requires {k}")
+    _require_env(
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_PHONE_NUMBER",
+        "TWILIO_PHONE_NUMBER_2",
+    )
 
 
 @pytest.fixture
 def requires_transport_ready():
     """
-    Factory for capability probes: skip if adapter.connect() still raises
-    PendingTransportError.
+    Factory for capability probes: skip (legitimately) if adapter.connect()
+    raises PendingTransportError — the transport isn't shipped yet.
+
+    This is the ONE case where skipping is correct per TESTING.md: we can't
+    test code that doesn't exist. When the transport ships, the probe stops
+    raising and the test runs automatically.
 
     Usage:
         def test_x(requires_transport_ready):
             adapter = OpenAIRealtimeAgentAdapter(...)
             requires_transport_ready(adapter)
             # ...proceed
-
-    Catches the "this transport isn't shipped yet" case without any
-    per-adapter env-var feature flag. When the transport ships, the probe
-    stops raising, and the test runs.
     """
     import asyncio
 

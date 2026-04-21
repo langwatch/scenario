@@ -1,10 +1,11 @@
 """
-E2E wrapper for Demo — Twilio outbound (agent calls a human).
+E2E wrapper for Demo — Twilio outbound (simulator calls the agent).
 
-AC: callee answers, Media Streams WS opens, result.success is True.
+Runs end-to-end using two Twilio numbers — no human required.
+Both TWILIO_PHONE_NUMBER and TWILIO_PHONE_NUMBER_2 must be Twilio-owned
+numbers you control. Missing env → test FAILS (not skips).
 
-This is a human-in-the-loop demo. The e2e test skips without INTEGRATION_MANUAL=1
-(a human must answer the outbound call).
+AC: result.success is True after the two-adapter exchange.
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 @pytest.mark.asyncio
 async def test_demo_twilio_outbound_e2e_success(requires_twilio_outbound):
-    """Outbound Twilio call connects and DTMF is received."""
+    """User-sim dials agent; both sides exchange audio; result.success is True."""
     from voice_demo_twilio_outbound import main  # type: ignore[import]
 
-    assert await main(), "Outbound demo did not receive the expected DTMF input"
+    result = await main()
+
+    assert result.success, f"Expected success; verdict: {result.reasoning}"
