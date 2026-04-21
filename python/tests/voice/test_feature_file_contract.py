@@ -45,14 +45,19 @@ def test_feature_file_parses_cleanly(parsed_feature):
 
 def test_feature_file_declares_expected_scenario_count(parsed_feature):
     """
-    The issue-350 contract is 87 scenarios (83 original + 4 added for locked
-    decision #9: composable + branded voice agents). Any change to this count
-    must be a deliberate contract update — and must be reflected in the
-    prove-it report at docs/proposals/issue-350-prove-it-report.md.
+    The issue-350 contract is 99 scenarios:
+      - 83 original
+      - +4 for locked decision #9 (composable + branded voice agents)
+      - +12 for @e2e demo parity (TESTING.md: every user-facing feature has
+        a runnable example). 8 platform-demo + 4 cross-cutting SDK demos.
+
+    Any change to this count must be a deliberate contract update — and must
+    be reflected in the prove-it report at
+    docs/proposals/issue-350-prove-it-report.md.
     """
     scenarios = _collect_scenarios(parsed_feature)
-    assert len(scenarios) == 87, (
-        f"Expected 87 scenarios; found {len(scenarios)}. "
+    assert len(scenarios) == 99, (
+        f"Expected 99 scenarios; found {len(scenarios)}. "
         "If this is an intentional contract change, update the count here "
         "AND regenerate docs/proposals/issue-350-prove-it-report.md."
     )
@@ -84,32 +89,37 @@ def test_every_scenario_has_at_least_one_given_and_one_then(parsed_feature):
     )
 
 
-def test_every_scenario_is_tagged_unit_or_integration(parsed_feature):
+def test_every_scenario_is_tagged_unit_integration_or_e2e(parsed_feature):
+    """Per TESTING.md, every scenario is @unit, @integration, or @e2e."""
     scenarios = _collect_scenarios(parsed_feature)
+    valid = {"@unit", "@integration", "@e2e"}
     offenders = []
     for scn in scenarios:
         tags = {t.name for t in scn.tags}
-        if "@unit" not in tags and "@integration" not in tags:
+        if not (tags & valid):
             offenders.append(scn.name)
     assert not offenders, (
-        "scenarios missing @unit or @integration tag:\n"
+        "scenarios missing @unit, @integration, or @e2e tag:\n"
         + "\n".join(f"  - {n}" for n in offenders)
     )
 
 
-def test_unit_and_integration_split_matches_prove_it_report(parsed_feature):
+def test_tag_split_matches_prove_it_report(parsed_feature):
     """
-    The prove-it report assumes 68 @unit / 19 @integration (64 original +
-    4 added for locked decision #9). If the split changes, the report must
-    be updated in the same PR.
+    The prove-it report assumes 68 @unit / 6 @integration / 25 @e2e.
+    §6 examples and §8 pain patterns are @e2e (happy paths via real examples,
+    per TESTING.md). If the split changes, the report must be updated in
+    the same PR.
     """
     scenarios = _collect_scenarios(parsed_feature)
     unit = sum(1 for s in scenarios if "@unit" in {t.name for t in s.tags})
     integration = sum(
         1 for s in scenarios if "@integration" in {t.name for t in s.tags}
     )
-    assert (unit, integration) == (68, 19), (
-        f"Expected 68 @unit / 19 @integration; found {unit} / {integration}. "
+    e2e = sum(1 for s in scenarios if "@e2e" in {t.name for t in s.tags})
+    assert (unit, integration, e2e) == (68, 6, 25), (
+        f"Expected 68 @unit / 6 @integration / 25 @e2e; found "
+        f"{unit} / {integration} / {e2e}. "
         "Update docs/proposals/issue-350-prove-it-report.md alongside this change."
     )
 
