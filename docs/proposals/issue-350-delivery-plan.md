@@ -135,6 +135,30 @@ Mocking approach:
 - ffmpeg binary is installed via `imageio-ffmpeg` wheel — no apt install needed in CI image.
 - WebRTC tests (`aiortc`) need libsrtp. Most Linux runners have it; document in CI setup if not.
 
+### Live-infra `@e2e` bring-up (issue body locked decision #11 + group 12)
+
+The 25 `@e2e` scenarios exist as runnable examples but skip without live
+infrastructure. To turn skips into passes, this PR ships:
+
+- `python/examples/voice_pipecat_bot/` — bundled local Pipecat bot speaking
+  the `PipecatAgentAdapter` WS protocol. Target for the 14 Pipecat-dependent
+  demos. `make voice-pipecat-up` (or equivalent) launches it on :8765.
+- `scripts/provision_elevenlabs_agent.py` — creates (or reuses by name) a
+  throwaway test agent via the ElevenLabs API and appends `ELEVENLABS_AGENT_ID`
+  to `python/.env`. Idempotent.
+- `make voice-demos-up` — aggregate target: pipecat-up + elevenlabs provision
+  + any other local services.
+- `VOICE_E2E=1` env gate — `@e2e` scenarios run in CI only under a dedicated
+  nightly/scheduled job that sets `VOICE_E2E=1`. Normal PR CI keeps them
+  skipped. Prevents live-infra flake from blocking unrelated PRs while
+  still catching demo regressions daily.
+- Human-in-the-loop demos (Twilio inbound, outbound with real cell) are
+  documented in each example's docstring with the exact env vars + human
+  steps required. `INTEGRATION_MANUAL=1` guards them.
+- Per-demo runbook pointer — each `@e2e` example file's module docstring
+  names the command that brings its infra up. Missing pointer = unmet AC
+  under locked decision #11.
+
 ## Locked Design Decisions (extend the 4 from the issue description)
 
 5. **STT provider** — pluggable `STTProvider` interface, not a hardcoded provider. Default implementation uses OpenAI (`gpt-4o-transcribe`, reuses existing `openai` dep). Users swap via `scenario.configure(stt=...)`. Provider-agnostic by design — we don't control which provider users prefer.
