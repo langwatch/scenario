@@ -55,6 +55,11 @@ dependencies = [
     "audioop-lts>=0.2.1; python_version>='3.13'",
     # Gemini Live transport (GeminiLiveAgentAdapter): official async SDK.
     "google-genai>=1.0",
+    # ElevenLabs TTS provider (elevenlabs/<voice> routing). STT + hosted
+    # Conversational AI adapters use raw httpx; TTS uses the SDK because
+    # its streaming-bytes API cleanly handles chunked PCM without us
+    # reimplementing the framing.
+    "elevenlabs>=1.0",
 ]
 
 [project.optional-dependencies]
