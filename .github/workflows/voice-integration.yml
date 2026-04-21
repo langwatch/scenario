@@ -69,6 +69,43 @@ jobs:
         run: uv sync --frozen
         working-directory: python
 
+      # ---------------------------------------------------------------
+      # @e2e bring-up: start the bundled stub bot so Pipecat-dependent
+      # e2e tests stop skipping.
+      # ---------------------------------------------------------------
+      - name: Start bundled Pipecat stub bot
+        run: |
+          uv run python examples/voice_pipecat_bot/bot.py \
+            >> /tmp/voice-pipecat-bot.log 2>&1 &
+          echo "$!" > /tmp/voice-bot.pid
+          # Poll until port 8765 accepts connections (up to 30 s).
+          for i in $(seq 1 60); do
+            if python3 -c "import socket; socket.create_connection(('127.0.0.1', 8765), 0.5)" 2>/dev/null; then
+              echo "voice_pipecat_bot: ready (PID=$(cat /tmp/voice-bot.pid))"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "ERROR: voice_pipecat_bot did not start within 30 s"
+          cat /tmp/voice-pipecat-bot.log || true
+          exit 1
+        working-directory: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      # ---------------------------------------------------------------
+      # @e2e bring-up: provision ElevenLabs agent (if API key present).
+      # Exports ELEVENLABS_AGENT_ID into GITHUB_ENV for subsequent steps.
+      # ---------------------------------------------------------------
+      - name: Provision ElevenLabs test agent
+        if: ${{ secrets.ELEVENLABS_API_KEY != '' }}
+        run: |
+          AGENT_ID=$(uv run python ../scripts/provision_elevenlabs_agent.py)
+          echo "ELEVENLABS_AGENT_ID=${AGENT_ID}" >> "${GITHUB_ENV}"
+        working-directory: python
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+
       - name: Run marker-tagged integration tests
         # `|| true` so the step doesn't fail when zero tests match the
         # marker. Real failures are caught by the next two steps' assertions.
@@ -92,6 +129,35 @@ jobs:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
+      # ---------------------------------------------------------------
+      # Run the 25 @e2e voice demos (VOICE_E2E=1 un-skips them).
+      # ---------------------------------------------------------------
+      - name: Run @e2e voice demos
+        run: |
+          uv run pytest tests/voice/ -v --tb=short -q 2>&1 | tee /tmp/e2e-voice-results.log
+        working-directory: python
+        env:
+          VOICE_E2E: "1"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
+
+      # ---------------------------------------------------------------
+      # Teardown: stop the bot regardless of pass/fail.
+      # ---------------------------------------------------------------
+      - name: Stop Pipecat stub bot
+        if: always()
+        run: |
+          if [ -f /tmp/voice-bot.pid ]; then
+            kill -TERM "$(cat /tmp/voice-bot.pid)" 2>/dev/null || true
+            rm -f /tmp/voice-bot.pid
+          fi
+
       - name: Upload test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -100,5 +166,7 @@ jobs:
           path: |
             python/**/pytest-*.log
             python/test_output/
+            /tmp/voice-pipecat-bot.log
+            /tmp/e2e-voice-results.log
           retention-days: 14
           if-no-files-found: ignore

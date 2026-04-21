@@ -9,6 +9,10 @@ AC: specs/voice-agents.feature "Demo — observability hooks and latency metrics
     Source §4.7, L647-653 and §4.6, L617-625.
 
 How to run:
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_demo_observability.py
 

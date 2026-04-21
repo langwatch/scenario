@@ -11,6 +11,10 @@ AC: specs/voice-agents.feature "Example 6.3 — angry customer in noisy cafe"
     Source §6.3, L931-967 and §8 emotional escalation.
 
 How to run:
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_example_6_3_angry_customer.py
 

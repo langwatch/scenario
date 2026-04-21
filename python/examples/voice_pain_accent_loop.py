@@ -11,6 +11,10 @@ AC: specs/voice-agents.feature "Pain pattern — accent misunderstanding loop es
     Source §8 L1243-1257.
 
 How to run:
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_pain_accent_loop.py
 

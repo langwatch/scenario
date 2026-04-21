@@ -11,6 +11,10 @@ AC: specs/voice-agents.feature "Example 6.5 — tool call verification as a plai
     Source §6.5, L998-1028.
 
 How to run:
+    # 1. Start the bundled stub bot (from repo root):
+    make voice-pipecat-up
+
+    # 2. Run this demo:
     cd python
     uv run examples/voice_example_6_5_tool_verification.py
 
