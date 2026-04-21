@@ -45,13 +45,14 @@ def test_feature_file_parses_cleanly(parsed_feature):
 
 def test_feature_file_declares_expected_scenario_count(parsed_feature):
     """
-    The issue-350 contract is 83 scenarios. Any change to this count must
-    be a deliberate contract update — and must be reflected in the
+    The issue-350 contract is 87 scenarios (83 original + 4 added for locked
+    decision #9: composable + branded voice agents). Any change to this count
+    must be a deliberate contract update — and must be reflected in the
     prove-it report at docs/proposals/issue-350-prove-it-report.md.
     """
     scenarios = _collect_scenarios(parsed_feature)
-    assert len(scenarios) == 83, (
-        f"Expected 83 scenarios; found {len(scenarios)}. "
+    assert len(scenarios) == 87, (
+        f"Expected 87 scenarios; found {len(scenarios)}. "
         "If this is an intentional contract change, update the count here "
         "AND regenerate docs/proposals/issue-350-prove-it-report.md."
     )
@@ -98,16 +99,17 @@ def test_every_scenario_is_tagged_unit_or_integration(parsed_feature):
 
 def test_unit_and_integration_split_matches_prove_it_report(parsed_feature):
     """
-    The prove-it report assumes 64 @unit / 19 @integration. If the split
-    changes, the report must be updated in the same PR.
+    The prove-it report assumes 68 @unit / 19 @integration (64 original +
+    4 added for locked decision #9). If the split changes, the report must
+    be updated in the same PR.
     """
     scenarios = _collect_scenarios(parsed_feature)
     unit = sum(1 for s in scenarios if "@unit" in {t.name for t in s.tags})
     integration = sum(
         1 for s in scenarios if "@integration" in {t.name for t in s.tags}
     )
-    assert (unit, integration) == (64, 19), (
-        f"Expected 64 @unit / 19 @integration; found {unit} / {integration}. "
+    assert (unit, integration) == (68, 19), (
+        f"Expected 68 @unit / 19 @integration; found {unit} / {integration}. "
         "Update docs/proposals/issue-350-prove-it-report.md alongside this change."
     )
 

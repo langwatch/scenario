@@ -15,7 +15,9 @@ hard limit). Transcription happens per turn, so this is rarely triggered.
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 
@@ -73,6 +75,49 @@ class OpenAISTTProvider(STTProvider):
             file=buf,
         )
         return getattr(resp, "text", "") or ""
+
+
+# ---------------------------------------------------------------- ElevenLabs STT
+
+ELEVENLABS_STT_ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text"
+ELEVENLABS_STT_MODEL = "scribe_v1"
+
+
+class ElevenLabsSTTProvider(STTProvider):
+    """
+    STT implementation backed by the ElevenLabs REST speech-to-text API.
+
+    Uses the ``scribe_v1`` model. Audio is converted from the canonical
+    PCM16/24kHz AudioChunk to a WAV byte payload before posting.
+
+    Reads ``ELEVENLABS_API_KEY`` from the environment when ``api_key`` is not
+    supplied explicitly.
+
+    Only ``text`` is returned — no ElevenLabs-specific types cross the
+    ``STTProvider`` interface boundary.
+    """
+
+    def __init__(self, api_key: Optional[str] = None) -> None:
+        self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "")
+
+    def __repr__(self) -> str:  # redact credentials
+        return "ElevenLabsSTTProvider(api_key='***')"
+
+    async def transcribe(self, audio: AudioChunk) -> str:
+        import httpx
+
+        from .messages import _pcm16_to_wav_bytes
+
+        wav_bytes = _pcm16_to_wav_bytes(audio.data)
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                ELEVENLABS_STT_ENDPOINT,
+                headers={"xi-api-key": self.api_key},
+                files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+                data={"model_id": ELEVENLABS_STT_MODEL},
+            )
+            response.raise_for_status()
+            return response.json().get("text", "")
 
 
 # ---------------------------------------------------------------- global provider
