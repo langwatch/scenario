@@ -4,7 +4,7 @@ TwilioAgentAdapter: bidirectional real phone transport via Twilio Media Streams.
 One adapter class serves both directions a Twilio number can participate in:
 
 - **Inbound** — ``wait_for_call()`` sets the number's voice webhook to our
-  local server, blocks until a human dials in, and opens a Media Streams
+  local server, blocks until a caller dials in, and opens a Media Streams
   WebSocket for the call.
 - **Outbound** — ``place_call(to=...)`` originates a call via Twilio REST,
   then accepts the Media Streams WebSocket Twilio opens back to us.
@@ -30,6 +30,7 @@ from typing import Any, Callable, ClassVar, Literal, Optional
 # first-use keeps the API small.
 TwilioAdapterMode = Literal["idle", "answer", "call"]
 
+from ...types import AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
@@ -91,6 +92,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         allowed_callers: Optional[list[str]] = None,
         on_dtmf: Optional[Callable[[str], None]] = None,
         http_port: int = 8765,
+        role: AgentRole = AgentRole.AGENT,
     ) -> None:
         validate_e164(phone_number)
 
@@ -101,6 +103,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self.allowed_callers = set(allowed_callers) if allowed_callers else None
         self.on_dtmf = on_dtmf
         self.http_port = http_port
+        self.role = role  # type: ignore[misc]
 
         # Populated during connect(); None when disconnected.
         self._rest: Optional[TwilioRESTHelper] = None

@@ -16,13 +16,13 @@ name: voice-integration
 #   - OPENAI_API_KEY   — STT, TTS, Realtime API
 #   - LANGWATCH_API_KEY — telemetry export
 #   - GEMINI_API_KEY   — Gemini Live adapter (once transport lands)
-#   - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
-#     TWILIO_TO_NUMBER — Twilio outbound call tests
+#   - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER,
+#     TWILIO_PHONE_NUMBER_2 — two Twilio-owned numbers for fully automated
+#     inbound/outbound demos (no human required)
 #   - ELEVENLABS_API_KEY — ElevenLabs adapter (once transport lands)
 #
-# If a secret is absent the relevant tests skip via their own env-var checks;
-# they must not fail hard. The workflow stays green as long as the tests that
-# DID run passed.
+# If a secret is absent the relevant tests FAIL with a clear diagnosis message.
+# The workflow stays green as long as the tests that DID run passed.
 
 on:
   schedule:
@@ -118,8 +118,8 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
-          TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
       - name: Run example-suite voice integration tests
         run: uv run pytest examples/test_voice_to_voice_conversation.py examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
@@ -130,22 +130,21 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       # ---------------------------------------------------------------
-      # Run the 25 @e2e voice demos (VOICE_E2E=1 un-skips them).
+      # Run the @e2e voice demos (fail-fast on missing infrastructure).
       # ---------------------------------------------------------------
       - name: Run @e2e voice demos
         run: |
           uv run pytest tests/voice/ -v --tb=short -q 2>&1 | tee /tmp/e2e-voice-results.log
         working-directory: python
         env:
-          VOICE_E2E: "1"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
-          TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
       # ---------------------------------------------------------------
       # Teardown: stop the bot regardless of pass/fail.
