@@ -116,7 +116,10 @@ class ElevenLabsSTTProvider(STTProvider):
                 files={"file": ("audio.wav", wav_bytes, "audio/wav")},
                 data={"model_id": ELEVENLABS_STT_MODEL},
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                raise RuntimeError(
+                    f"ElevenLabs STT {response.status_code}: {response.text[:300]}"
+                )
             return response.json().get("text", "")
 
 
