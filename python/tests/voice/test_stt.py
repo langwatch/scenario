@@ -97,7 +97,7 @@ async def test_elevenlabs_stt_provider_transcribe():
 
     # Build a fake response with the JSON the real endpoint returns.
     fake_response = MagicMock()
-    fake_response.raise_for_status = MagicMock()
+    fake_response.status_code = 200
     fake_response.json = MagicMock(return_value={"text": "hello"})
 
     # httpx.AsyncClient.post is a coroutine; patch it as AsyncMock.
