@@ -898,6 +898,9 @@ class ScenarioExecutor:
         if isinstance(content, str):
             realtime_user = self._find_realtime_user_agent()
             if realtime_user is not None:
+                # Note: voice_style / audio_effects are no-ops on the realtime
+                # text-routing path — the realtime model generates audio
+                # natively, not via the simulator's TTS chain. Document + pass.
                 await realtime_user.send_text(content)
                 self.add_message(
                     {"role": "user", "content": content}  # type: ignore[arg-type]
@@ -910,7 +913,20 @@ class ScenarioExecutor:
             # when the scenario script emits `scenario.user("...")`.
             sim = self._find_user_sim()
             if sim is not None and getattr(sim, "voice", None):
-                voiced = await sim._voiceify({"role": "user", "content": content})
+                # Apply per-step overrides if supplied — without this, callers
+                # using scenario.user("text", voice_style=..., audio_effects=...)
+                # would silently have those dropped on the voice-sim branch.
+                if voice_style is not None or audio_effects is not None:
+                    with sim._one_shot_override(
+                        voice_style=voice_style, audio_effects=audio_effects
+                    ):
+                        voiced = await sim._voiceify(
+                            {"role": "user", "content": content}
+                        )
+                else:
+                    voiced = await sim._voiceify(
+                        {"role": "user", "content": content}
+                    )
                 self.add_message(voiced)  # type: ignore[arg-type]
                 return
         sim = self._find_user_sim()
