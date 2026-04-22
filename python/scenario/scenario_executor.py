@@ -903,6 +903,16 @@ class ScenarioExecutor:
                     {"role": "user", "content": content}  # type: ignore[arg-type]
                 )
                 return
+            # If a voice-capable UserSimulatorAgent exists, TTS the scripted
+            # text through it so the agent adapter receives audio rather than
+            # a text-only message. Without this, voice agents under test
+            # (OpenAIRealtime, ElevenLabs hosted, Pipecat, etc.) see no audio
+            # when the scenario script emits `scenario.user("...")`.
+            sim = self._find_user_sim()
+            if sim is not None and getattr(sim, "voice", None):
+                voiced = await sim._voiceify({"role": "user", "content": content})
+                self.add_message(voiced)  # type: ignore[arg-type]
+                return
         sim = self._find_user_sim()
         if sim is not None and (voice_style is not None or audio_effects is not None):
             with sim._one_shot_override(voice_style=voice_style, audio_effects=audio_effects):
