@@ -1,0 +1,212 @@
+# Testing an ElevenLabs Voice Agent with Scenario
+
+**Audience**: a developer running an ElevenLabs Conversational AI agent in production who wants an automated test harness so regressions to tone, empathy, tool calls, or interruption handling surface in CI rather than in user complaints.
+
+---
+
+## Prerequisites
+
+- Python 3.11+
+- An ElevenLabs account with a deployed Conversational AI agent (`agent_id`)
+- `ELEVENLABS_API_KEY`
+- `OPENAI_API_KEY` — for the judge LLM and the default user simulator's TTS
+
+> **Why an OpenAI key?** Scenario's judge is an LLM, and the user simulator's default TTS is OpenAI. Both are separate from your ElevenLabs agent. A judge is what turns "did the agent sound warm?" into an automated pass/fail.
+
+---
+
+## Step 1 — Install
+
+```bash
+pip install scenario
+```
+
+Voice is first-class — no `[voice]` extras flag, no separate install step. ffmpeg ships bundled via `imageio-ffmpeg`. You're ready.
+
+---
+
+## Step 2 — Set env vars
+
+Create or edit `.env`:
+
+```bash
+ELEVENLABS_API_KEY=your-elevenlabs-key
+ELEVENLABS_AGENT_ID=your-agent-id
+OPENAI_API_KEY=your-openai-key
+```
+
+**Finding `ELEVENLABS_AGENT_ID`**: ElevenLabs dashboard → *Conversational AI* → your agent → copy the agent ID. It starts with `agent_`.
+
+---
+
+## Step 3 — Write a scenario
+
+Create `test_my_voice_agent.py`:
+
+```python
+import os
+import pytest
+import scenario
+from scenario.voice import ElevenLabsAgentAdapter
+
+
+@pytest.mark.asyncio
+async def test_greeting_is_warm():
+    result = await scenario.run(
+        name="greeting_warmth",
+        description="User calls in; agent should greet warmly and offer help.",
+        agents=[
+            # The agent under test — your real ElevenLabs agent.
+            ElevenLabsAgentAdapter(
+                agent_id=os.environ["ELEVENLABS_AGENT_ID"],
+                api_key=os.environ["ELEVENLABS_API_KEY"],
+            ),
+            # The simulated caller — what your agent would hear.
+            scenario.UserSimulatorAgent(voice="openai/nova"),
+            # The judge — LLM-evaluates whether criteria were met.
+            scenario.JudgeAgent(
+                criteria=["The agent greeted warmly and offered to help"]
+            ),
+        ],
+        script=[
+            scenario.user("Hi, I have a question about my account"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
+    )
+    assert result.success, result.reasoning
+```
+
+**How the three agents fit together:**
+- `ElevenLabsAgentAdapter` is **your real agent under test** — the one whose behavior regressions you're catching.
+- `UserSimulatorAgent` plays the human caller — TTS-es scripted lines so your agent hears real audio.
+- `JudgeAgent` evaluates the transcript + audio at the end with LLM-graded criteria.
+
+**Script steps explained:**
+- `scenario.user("...")` — inject a scripted user turn (user sim TTSes the text).
+- `scenario.agent()` — your agent responds. No args needed when there's only one agent-role adapter.
+- `scenario.judge()` — run the judge.
+
+---
+
+## Step 4 — Run it
+
+```bash
+pytest test_my_voice_agent.py -v
+```
+
+A pass means your agent met the criteria. A failure includes the judge's reasoning:
+
+```
+AssertionError: The agent started with a greeting but did not acknowledge
+the user's account-related context or offer specific help.
+```
+
+That verdict points at the exact drift. Drop the scenario into CI and it fires on regression.
+
+---
+
+## Step 5 — What you get back
+
+```python
+result = await scenario.run(...)
+
+result.success              # bool
+result.reasoning            # judge's verdict text
+result.audio                # VoiceRecording object
+result.audio.save("out.wav")       # save full conversation as WAV
+result.audio.save("out.mp3")       # or MP3 (ffmpeg)
+result.audio.segments              # list[AudioSegment] per speaker
+result.timeline                    # ordered VoiceEvent list
+result.latency                     # LatencyMetrics: TTFB, p50, p95
+```
+
+Good next step: `result.audio.save("captured.wav")` after a failed run and listen to the actual conversation. The judge is an LLM — sometimes you need ears.
+
+---
+
+## Step 6 — Iterate with effects and personas
+
+A noisier scenario:
+
+```python
+scenario.UserSimulatorAgent(
+    voice="openai/nova",
+    persona="Frustrated customer calling from a busy cafe",
+    audio_effects=[scenario.background_noise("cafe", 0.3)],
+)
+```
+
+**Bundled noise presets** (ship in the SDK, no download):
+- `cafe` — restaurant/coffee shop hum
+- `street` — traffic
+- `office` — keyboards, muffled voices
+- `airport` — announcements, crowd
+- `babble` — overlapping conversation
+
+**Other built-in effects**: `phone_quality()`, `static()`, `distortion()`, `volume_jitter()`, `packet_loss()`, `jitter()`, `codec_quality()`, `distance()`, `doppler()`.
+
+Persona text is free-form — the simulator LLM respects it when choosing words and tone.
+
+---
+
+## Step 7 — Add to CI
+
+`.github/workflows/voice-regression.yml`:
+
+```yaml
+name: voice regression
+on: [pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install scenario
+      - run: pytest test_my_voice_agent.py
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_AGENT_ID: ${{ secrets.ELEVENLABS_AGENT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+Each test call costs: one ElevenLabs agent turn + one OpenAI simulator TTS + one OpenAI judge call (~$0.01–0.05 per scenario). Budget accordingly; gate heavy suites behind `schedule:` triggers rather than `on: pull_request`.
+
+> **ffmpeg note**: the SDK spawns `ffmpeg` subprocess for audio conversion + MP3 save. GitHub Actions ubuntu-latest has it pre-installed.
+
+---
+
+## Pattern: write criteria the judge can evaluate
+
+The judge is an LLM. Good criteria are **behavioral and observable**:
+
+| ✅ Good | ❌ Problematic |
+|---|---|
+| "The agent acknowledged the user's frustration" | "The agent was nice" (too subjective) |
+| "The agent asked a clarifying question" | "The agent had perfect tone" (LLM will flake) |
+| "The agent did not repeat the same question twice" | "The agent used function X" (imperative — assert in code) |
+
+For imperative checks (tool called, specific function invoked), use `scenario.callable` script steps that run Python directly instead of judge criteria:
+
+```python
+def assert_tool_called(state):
+    tool_events = [e for e in state.timeline if e.type == "tool_call"]
+    assert tool_events, "Expected at least one tool_call"
+
+script = [
+    scenario.user("Check my balance"),
+    scenario.agent(),
+    assert_tool_called,    # callable — runs in-process against state
+    scenario.judge(),
+]
+```
+
+---
+
+## Next
+
+- **OpenAI Realtime** happy path: see `docs/voice/happy-path-openai-realtime.md`
+- **Full feature contract**: `specs/voice-agents.feature`
+- **Capability matrix per adapter**: `docs/voice/capability-matrix.md`

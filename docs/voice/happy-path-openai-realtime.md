@@ -1,0 +1,221 @@
+# Testing an OpenAI Realtime Voice Model with Scenario
+
+**Audience**: a developer whose "agent" is an OpenAI Realtime model with instructions and tools. There's no separate app layer — the model is the agent. They want regression tests.
+
+**How this differs from the hosted-provider path**: ElevenLabs (and platforms like it) hosts the STT→LLM→TTS loop; you test the platform's agent. With OpenAI Realtime, the model itself is the agent — no hosting layer, the session is the product. Scenario treats both the same way via `VoiceAgentAdapter`, but the configuration surface differs.
+
+---
+
+## Prerequisites
+
+- Python 3.11+
+- `OPENAI_API_KEY` with `model.request` scope (for chat completions + Realtime + TTS + STT)
+
+> **All-in-one key**: unlike the ElevenLabs path, everything here runs on OpenAI: the Realtime model itself, the user simulator TTS, the judge LLM, and the default STT. One key, one provider.
+
+---
+
+## Step 1 — Install
+
+```bash
+pip install scenario
+```
+
+No extras flag. Voice is first-class.
+
+---
+
+## Step 2 — Set env var
+
+```bash
+OPENAI_API_KEY=sk-...
+```
+
+The key must have access to the Realtime API (most standard keys do).
+
+---
+
+## Step 3 — Write a scenario
+
+Create `test_realtime_agent.py`:
+
+```python
+import pytest
+import scenario
+from scenario.voice import OpenAIRealtimeAgentAdapter
+
+
+@pytest.mark.asyncio
+async def test_realtime_handles_cancellation():
+    result = await scenario.run(
+        name="cancellation_flow",
+        description="Realtime agent must handle a subscription cancel without friction.",
+        agents=[
+            # The model IS the agent — instructions + voice + tools live here.
+            OpenAIRealtimeAgentAdapter(
+                model="gpt-4o-realtime-preview",
+                voice="alloy",
+                instructions=(
+                    "You are a customer support agent. Help users cancel "
+                    "subscriptions. If they change their mind, acknowledge "
+                    "and move on — no upsells."
+                ),
+            ),
+            scenario.UserSimulatorAgent(voice="openai/nova"),
+            scenario.JudgeAgent(
+                criteria=[
+                    "The agent processed the cancellation request",
+                    "The agent did not attempt to upsell or retain the customer",
+                ]
+            ),
+        ],
+        script=[
+            scenario.user("I want to cancel my subscription"),
+            scenario.agent(),
+            scenario.user("No, I'm sure"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
+    )
+    assert result.success, result.reasoning
+```
+
+**The key difference from the ElevenLabs path**: `OpenAIRealtimeAgentAdapter` takes `instructions` directly. You're configuring the agent at test time, not pointing at a deployed agent. This lets you A/B test instruction variations in the same suite.
+
+---
+
+## Step 4 — Run it
+
+```bash
+pytest test_realtime_agent.py -v
+```
+
+Same as any other voice scenario. Pass/fail + verdict + audio.
+
+---
+
+## Step 5 — Tools
+
+If your agent uses OpenAI Realtime tool calling, pass the tool schemas:
+
+```python
+OpenAIRealtimeAgentAdapter(
+    model="gpt-4o-realtime-preview",
+    voice="alloy",
+    instructions="...",
+    tools=[
+        {
+            "type": "function",
+            "name": "cancel_subscription",
+            "description": "Cancel the user's subscription immediately.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["user_id"],
+            },
+        },
+    ],
+)
+```
+
+Tool calls flow through as events on `result.timeline` — use a callable script step to assert the right tool fired with the right args:
+
+```python
+def assert_cancellation_called(state):
+    calls = [e for e in state.timeline if e.type == "tool_call"]
+    assert any(
+        c.tool_name == "cancel_subscription" for c in calls
+    ), "Expected cancel_subscription to fire"
+
+script = [
+    scenario.user("Cancel my subscription"),
+    scenario.agent(),
+    assert_cancellation_called,
+    scenario.judge(),
+]
+```
+
+---
+
+## Step 6 — Simulate natural-prosody users
+
+Normally `scenario.user("text")` runs the text through the OpenAI TTS (voice `nova` by default). For Realtime-specific tests you may want the user simulator itself to be a Realtime model with natural prosody, emotion, pacing:
+
+```python
+from scenario.types import AgentRole
+
+agents = [
+    OpenAIRealtimeAgentAdapter(
+        model="gpt-4o-realtime-preview",
+        voice="alloy",
+        instructions="You are a helpful support agent.",
+        role=AgentRole.AGENT,      # the agent under test
+    ),
+    OpenAIRealtimeAgentAdapter(
+        model="gpt-4o-realtime-preview",
+        voice="nova",
+        instructions="You are a confused elderly customer. Speak slowly.",
+        role=AgentRole.USER,       # the user simulator
+    ),
+    scenario.JudgeAgent(criteria=["The agent was patient and clear"]),
+]
+```
+
+When a scripted `scenario.user("text")` turn fires with a `role=USER` Realtime adapter present, the text is routed through that adapter's `send_text` (not the default TTS) — the Realtime model natively synthesises speech with the persona it's been given.
+
+---
+
+## Step 7 — Add to CI
+
+```yaml
+- run: pip install scenario
+- run: pytest test_realtime_agent.py
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+One secret. One provider. Cheapest voice-regression CI you can set up.
+
+---
+
+## Pattern: branched scenarios for A/B'ing instructions
+
+Instruction-level changes to a Realtime agent ARE the behavior change. Testing them side-by-side is the point:
+
+```python
+@pytest.mark.parametrize("instructions,expected_to_pass", [
+    ("You are a support agent. Be friendly and solve problems.", True),
+    ("You are a support agent. Prioritize upsells.", False),  # should fail
+])
+async def test_instruction_variants(instructions, expected_to_pass):
+    result = await scenario.run(
+        agents=[
+            OpenAIRealtimeAgentAdapter(
+                model="gpt-4o-realtime-preview",
+                voice="alloy",
+                instructions=instructions,
+            ),
+            scenario.UserSimulatorAgent(voice="openai/nova"),
+            scenario.JudgeAgent(
+                criteria=["The agent did not attempt to upsell"]
+            ),
+        ],
+        script=[scenario.user("Just processing my cancellation"),
+                scenario.agent(),
+                scenario.judge()],
+    )
+    assert result.success == expected_to_pass
+```
+
+This is the thing you can't do with a hosted agent — you're configuring the agent at test time.
+
+---
+
+## Next
+
+- **ElevenLabs (hosted provider)** happy path: `docs/voice/happy-path-elevenlabs.md`
+- **Feature contract**: `specs/voice-agents.feature`
+- **Capability matrix per adapter**: `docs/voice/capability-matrix.md`
