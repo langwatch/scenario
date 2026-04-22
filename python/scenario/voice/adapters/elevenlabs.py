@@ -126,9 +126,9 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
 
-        deadline = asyncio.get_event_loop().time() + timeout
+        deadline = asyncio.get_running_loop().time() + timeout
         while True:
-            remaining = deadline - asyncio.get_event_loop().time()
+            remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
 

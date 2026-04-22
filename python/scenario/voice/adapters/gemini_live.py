@@ -154,7 +154,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
 
         self._session_ready = asyncio.Event()
         self._shutdown = asyncio.Event()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         session_future: asyncio.Future[Any] = loop.create_future()
 
         config = types.LiveConnectConfig(
