@@ -103,6 +103,11 @@ async def main() -> scenario.ScenarioResult:
     if result.audio is not None:
         for segment in result.audio.segments:
             chunk = AudioChunk(data=segment.audio)
+            # ElevenLabs STT rejects <500ms clips with audio_too_short.  Skip
+            # those; the demo's point is "the swapped provider was called,"
+            # and we still exercise it on segments long enough to transcribe.
+            if chunk.duration_seconds < 0.5:
+                continue
             transcript = await stt.transcribe(chunk)
             segment.transcript = transcript
 
