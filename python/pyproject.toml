@@ -98,12 +98,11 @@ include = ["scenario*"]
 
 [tool.pytest.ini_options]
 markers = ["agent_test: marks tests as agent scenario tests"]
-# Guard @e2e voice tests against individual hangs while allowing the slower
-# demo scenarios (multi-turn + audio effects + judge) to complete. Applied
-# broadly since e2e tests may each take up to ~5 min; unit tests finish in
-# milliseconds anyway.
-timeout = 300
-timeout_method = "thread"
+# Per-test timeout deliberately NOT set in ini_options — pytest-timeout's
+# signal and thread methods both failed to isolate hangs in asyncio tests
+# (first hang killed the whole process). @e2e voice tests that hit LLMs
+# can legitimately take 5+ min; unit tests finish fast. Developers hitting
+# a hung test can add @pytest.mark.timeout(N) inline on that test.
 
 [tool.uv]
 constraint-dependencies = [
