@@ -104,6 +104,8 @@ class ElevenLabsSTTProvider(STTProvider):
         return "ElevenLabsSTTProvider(api_key='***')"
 
     async def transcribe(self, audio: AudioChunk) -> str:
+        import logging
+
         import httpx
 
         from .messages import _pcm16_to_wav_bytes
@@ -117,8 +119,16 @@ class ElevenLabsSTTProvider(STTProvider):
                 data={"model_id": ELEVENLABS_STT_MODEL},
             )
             if response.status_code >= 400:
+                # Log detail at DEBUG; keep exception message minimal so response
+                # body doesn't end up embedded in trace tooling output.
+                logging.getLogger("scenario.voice.stt").debug(
+                    "ElevenLabs STT %d: %s",
+                    response.status_code,
+                    response.text[:300],
+                )
                 raise RuntimeError(
-                    f"ElevenLabs STT {response.status_code}: {response.text[:300]}"
+                    f"ElevenLabs STT HTTP {response.status_code} "
+                    "(see DEBUG log for response body)"
                 )
             return response.json().get("text", "")
 

@@ -409,7 +409,9 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             from_number = (fields.get("From") or [""])[0]
 
             if self.allowed_callers is not None and from_number not in self.allowed_callers:
-                logger.info("TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)", from_number)
+                # Log only the last 4 digits to avoid PII leakage into log sinks.
+                from_redacted = f"***{from_number[-4:]}" if len(from_number) >= 4 else "***"
+                logger.info("TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)", from_redacted)
                 return Response(
                     content="<Response><Reject/></Response>",
                     media_type="application/xml",
