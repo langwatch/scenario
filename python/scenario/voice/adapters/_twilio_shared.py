@@ -36,6 +36,10 @@ TWILIO_FRAME_BYTES = TWILIO_SAMPLE_RATE * TWILIO_FRAME_MS // 1000  # 160
 
 E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 
+# DTMF tones: digits 0–9, star, pound, wait-1sec (w, W). No other chars.
+# Guards against TwiML XML injection in send_dtmf_on_call.
+DTMF_RE = re.compile(r"^[0-9*#wW]+$")
+
 
 def validate_e164(phone_number: str) -> None:
     """Raise ValueError if phone_number is not a valid E.164 number."""
@@ -43,6 +47,21 @@ def validate_e164(phone_number: str) -> None:
         raise ValueError(
             f"phone_number {phone_number!r} is not in E.164 format "
             f"(expected e.g. '+14155551234', pattern: leading '+' then 7–15 digits)."
+        )
+
+
+def validate_dtmf(tones: str) -> None:
+    """Raise ValueError if tones contains anything other than valid DTMF chars.
+
+    Required before embedding `tones` into TwiML — unvalidated input would
+    allow XML injection (e.g., a value of `1"/><Say>x</Say><Play digits="`
+    produces valid TwiML Twilio will execute).
+    """
+    if not tones or not DTMF_RE.match(tones):
+        raise ValueError(
+            f"DTMF tones {tones!r} must match [0-9*#wW]+ — "
+            "this string is embedded in TwiML, non-DTMF chars are rejected "
+            "to prevent XML injection."
         )
 
 
@@ -229,7 +248,12 @@ class TwilioRESTHelper:
         return str(call.sid)
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
-        """Send DTMF on an in-progress call via the REST ``send_digits`` update."""
+        """Send DTMF on an in-progress call via the REST ``send_digits`` update.
+
+        `tones` is validated against the DTMF charset before TwiML composition
+        to prevent XML injection.
+        """
+        validate_dtmf(tones)
         # Twilio's pattern for sending DTMF mid-call is to update the call with
         # a new TwiML that contains <Play digits="..."/>. This requires a
         # TwiML URL or an inline TwiML string.
@@ -242,7 +266,9 @@ __all__ = [
     "PCM16_SAMPLE_RATE",
     "TWILIO_FRAME_BYTES",
     "E164_RE",
+    "DTMF_RE",
     "validate_e164",
+    "validate_dtmf",
     "mulaw8k_to_pcm16_24k",
     "pcm16_24k_to_mulaw8k",
     "iter_mulaw_frames",
