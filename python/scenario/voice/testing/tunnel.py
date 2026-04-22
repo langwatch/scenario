@@ -114,13 +114,13 @@ class CloudflareTunnel:
         wires this correctly.
         """
         assert self.public_url is not None
-        deadline = asyncio.get_event_loop().time() + (timeout_s or self.edge_ready_timeout_s)
+        deadline = asyncio.get_running_loop().time() + (timeout_s or self.edge_ready_timeout_s)
         last_error: Optional[str] = None
         # Extract hostname from the URL.
         host = self.public_url.replace("https://", "").replace("http://", "").rstrip("/").split("/")[0]
 
         async with httpx.AsyncClient(timeout=5.0) as doh_client:
-            while asyncio.get_event_loop().time() < deadline:
+            while asyncio.get_running_loop().time() < deadline:
                 try:
                     # DoH against Cloudflare 1.1.1.1. Response format:
                     # {"Status": 0, "Answer": [{"data": "104.16.230.132", ...}]}

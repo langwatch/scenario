@@ -217,9 +217,9 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             await self._ws.send(json.dumps({"type": "response.create"}))
             self._pending_audio_bytes = 0
 
-        deadline = asyncio.get_event_loop().time() + timeout
+        deadline = asyncio.get_running_loop().time() + timeout
         while True:
-            remaining = deadline - asyncio.get_event_loop().time()
+            remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise asyncio.TimeoutError(
                     "OpenAIRealtimeAgentAdapter: recv_audio timed out"
