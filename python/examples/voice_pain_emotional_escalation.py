@@ -76,12 +76,16 @@ async def main() -> scenario.ScenarioResult:
             ),
             scenario.JudgeAgent(
                 criteria=[
-                    "The agent responded to the user's messages throughout the conversation",
-                    "The conversation included multiple exchanges between user and agent",
+                    # Structural: SDK can drive a multi-turn escalating voice
+                    # scenario. Bot behavior (empathy, escalation) is bot-prompt
+                    # territory, not SDK contract.
+                    "The agent engaged across multiple turns of escalating user tone",
                 ]
             ),
         ],
-        max_turns=8,
+        # 4 turns keeps the demo demonstrably escalating while fitting under
+        # the 300s pytest-timeout; 8 turns ran 4+ minutes and flaked.
+        max_turns=4,
     )
 
     print(f"success: {result.success}")
