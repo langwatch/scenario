@@ -98,6 +98,12 @@ include = ["scenario*"]
 
 [tool.pytest.ini_options]
 markers = ["agent_test: marks tests as agent scenario tests"]
+# Guard @e2e voice tests against individual hangs while allowing the slower
+# demo scenarios (multi-turn + audio effects + judge) to complete. Applied
+# broadly since e2e tests may each take up to ~5 min; unit tests finish in
+# milliseconds anyway.
+timeout = 300
+timeout_method = "signal"
 
 [dependency-groups]
 dev = [
