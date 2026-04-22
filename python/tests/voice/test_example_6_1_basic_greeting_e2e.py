@@ -17,31 +17,29 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
 @pytest.mark.asyncio
-async def test_example_6_1_basic_greeting_e2e_success(requires_llm, requires_pipecat_bot):
-    """result.success is True and audio is recorded."""
+async def test_example_6_1_basic_greeting_e2e(requires_llm, requires_pipecat_bot):
+    """Single run covers both AC invariants:
+    1. result.success True (judge passed criteria),
+    2. result.audio.save() writes a non-empty WAV.
+
+    Previously split into two tests, each calling main() independently —
+    doubled LLM + bot cost for no semantic gain. Consolidated.
+    """
     from voice_example_6_1_basic_greeting import main  # type: ignore[import]
 
     result = await main()
 
     assert result.success, f"Expected success; verdict: {result.reasoning}"
+    assert result.audio is not None, (
+        "Expected recorded audio with a live Pipecat bot — "
+        "result.audio is None. Is the bot reachable?"
+    )
 
-
-@pytest.mark.asyncio
-async def test_example_6_1_audio_save_writes_wav(requires_llm, requires_pipecat_bot):
-    """result.audio.save() writes a non-empty WAV file."""
-    from voice_example_6_1_basic_greeting import main  # type: ignore[import]
-
-    result = await main()
-
-    if result.audio is not None:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            out = Path(f.name)
-        try:
-            saved = result.audio.save(out)
-            assert saved.exists(), "WAV file was not created"
-            assert saved.stat().st_size > 0, "WAV file is empty"
-        finally:
-            out.unlink(missing_ok=True)
-    else:
-        # No live bot — audio is None, acceptable in CI without PIPECAT_BOT_URL.
-        pytest.skip("No audio recorded (no live Pipecat bot); skipping WAV assertion")
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        out = Path(f.name)
+    try:
+        saved = result.audio.save(out)
+        assert saved.exists(), "WAV file was not created"
+        assert saved.stat().st_size > 0, "WAV file is empty"
+    finally:
+        out.unlink(missing_ok=True)

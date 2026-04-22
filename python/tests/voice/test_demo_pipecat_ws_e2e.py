@@ -16,28 +16,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples"))
 
 
 @pytest.mark.asyncio
-async def test_demo_pipecat_ws_e2e_success(requires_llm, requires_pipecat_bot):
-    """Pipecat WebSocket demo runs and result.success is True."""
+async def test_demo_pipecat_ws_e2e(requires_llm, requires_pipecat_bot):
+    """Single run covers both AC invariants:
+    1. result.success True,
+    2. result.audio.segments non-empty (user-sim + agent audio captured).
+
+    Previously split; each test called main() independently — doubled
+    LLM + bot cost. Consolidated.
+    """
     from voice_demo_pipecat_ws import main  # type: ignore[import]
 
     result = await main()
 
     assert result.success, f"Expected success; verdict: {result.reasoning}"
-
-
-@pytest.mark.asyncio
-async def test_demo_pipecat_ws_recording_has_segments(requires_llm, requires_pipecat_bot):
-    """
-    When a live Pipecat bot is present, result.audio.segments contains
-    both user-sim and agent audio. Skipped without a live bot.
-    """
-    from voice_demo_pipecat_ws import main  # type: ignore[import]
-
-    result = await main()
-
-    if result.audio is None:
-        pytest.skip("No audio recorded (no live Pipecat bot at PIPECAT_BOT_URL)")
-
+    assert result.audio is not None, (
+        "Expected recorded audio with a live Pipecat bot — result.audio is None."
+    )
     assert len(result.audio.segments) > 0, (
         "Expected at least one audio segment in result.audio.segments"
     )
