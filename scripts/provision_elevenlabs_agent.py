@@ -2,6 +2,15 @@
 """
 Provision (or reuse) an ElevenLabs Conversational AI test agent.
 
+**This script is for Scenario SDK's own CI — NOT for SDK users.** If you
+are a developer using Scenario to test your own deployed ElevenLabs agent,
+you already have an ``agent_id`` from the ElevenLabs dashboard — set it as
+``ELEVENLABS_AGENT_ID`` in your ``.env`` and skip this script entirely.
+See docs/voice/happy-path-elevenlabs.md.
+
+This script exists so the SDK's own ``@e2e`` demos have a throwaway agent
+to target in CI without manual dashboard clicks.
+
 Usage:
     # From repo root (via Makefile):
     make voice-elevenlabs-provision

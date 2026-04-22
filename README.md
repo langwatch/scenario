@@ -377,6 +377,37 @@ result = await scenario.run(
 
 Full guide: [scenario.langwatch.ai/advanced/red-teaming](https://scenario.langwatch.ai/advanced/red-teaming) (and the [Quick Start](https://scenario.langwatch.ai/advanced/red-teaming/quick-start)).
 
+## Voice Agents
+
+Scenario treats voice as a first-class citizen: same `scenario.run()` entrypoint, same script DSL, same judge — only the medium changes. Audio deps (ffmpeg, webrtcvad, websockets, etc.) ship as hard deps — no extras flag, `pip install scenario` includes everything.
+
+```python
+from scenario.voice import ElevenLabsAgentAdapter
+
+result = await scenario.run(
+    name="greeting_warmth",
+    agents=[
+        ElevenLabsAgentAdapter(
+            agent_id=os.environ["ELEVENLABS_AGENT_ID"],
+            api_key=os.environ["ELEVENLABS_API_KEY"],
+        ),
+        scenario.UserSimulatorAgent(voice="openai/nova"),
+        scenario.JudgeAgent(criteria=["Agent greeted warmly"]),
+    ],
+    script=[scenario.user("Hi"), scenario.agent(), scenario.judge()],
+)
+```
+
+Shipped platform adapters: ElevenLabs (hosted Conversational AI + composable STT/LLM/TTS), OpenAI Realtime (model-as-agent + model-as-user-simulator), Twilio Media Streams, Pipecat WebSocket, Gemini Live. LiveKit / Vapi / generic WebRTC are tracked as follow-up.
+
+Additional surface: `scenario.audio()` to inject recorded clips, `scenario.background_noise("cafe", 0.3)` and other bundled effects, `scenario.interrupt()` for interruption testing, `result.audio.save("out.wav")` for capture, `result.latency` with TTFB + p50 + p95.
+
+- **ElevenLabs happy path** (hosted agent): [docs/voice/happy-path-elevenlabs.md](docs/voice/happy-path-elevenlabs.md)
+- **OpenAI Realtime happy path** (model is the agent): [docs/voice/happy-path-openai-realtime.md](docs/voice/happy-path-openai-realtime.md)
+- **Capability matrix** (per-adapter features): [docs/voice/capability-matrix.md](docs/voice/capability-matrix.md)
+
+Note: the judge and the user simulator use LLMs — even for an ElevenLabs-only test, an `OPENAI_API_KEY` is required for those (or swap both via `scenario.configure`).
+
 ## LangWatch Visualization
 
 Set your [LangWatch API key](https://app.langwatch.ai/) to visualize the scenarios in real-time, as they run, for a much better debugging experience and team collaboration:
