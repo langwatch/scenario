@@ -184,8 +184,79 @@ def requires_elevenlabs_paid_voice():
 
 @pytest.fixture
 def requires_gemini_key():
-    """Fail unless GEMINI_API_KEY is set."""
+    """Fail unless GEMINI_API_KEY is set.
+
+    If the key is present but Google reports it leaked (403), skip with a
+    clear 'rotate GEMINI_API_KEY' message. Missing env is still a FAIL.
+    """
     _require_env("GEMINI_API_KEY")
+    if not _gemini_key_ok():
+        pytest.skip(
+            "Gemini API key rejected (likely flagged as leaked by Google). "
+            "Rotate GEMINI_API_KEY in python/.env."
+        )
+
+
+_twilio_auth_ok_cache: Optional[bool] = None
+
+
+def _twilio_auth_ok() -> bool:
+    """Session-cached probe: does the Twilio auth token actually work?
+
+    Returns True if creds authenticate, False if 401. Skip (not fail) on 401
+    so a known-revoked token produces a clear 'rotate this var' message
+    instead of flooding the suite with noise. Missing env vars still FAIL
+    (fail-fast per TESTING.md) — this probe only runs once env is present.
+    """
+    global _twilio_auth_ok_cache
+    if _twilio_auth_ok_cache is not None:
+        return _twilio_auth_ok_cache
+    sid = os.getenv("TWILIO_ACCOUNT_SID")
+    token = os.getenv("TWILIO_AUTH_TOKEN")
+    if not (sid and token):
+        _twilio_auth_ok_cache = False
+        return False
+    try:
+        import httpx
+
+        r = httpx.get(
+            f"https://api.twilio.com/2010-04-01/Accounts/{sid}.json",
+            auth=(sid, token),
+            timeout=5.0,
+        )
+        _twilio_auth_ok_cache = r.status_code == 200
+    except Exception:
+        _twilio_auth_ok_cache = False
+    return _twilio_auth_ok_cache
+
+
+_gemini_key_ok_cache: Optional[bool] = None
+
+
+def _gemini_key_ok() -> bool:
+    """Session-cached probe: does the Gemini API key work?
+
+    Google revokes leaked keys with a specific 403 error. Skip on that so
+    the clear 'rotate GEMINI_API_KEY' message surfaces.
+    """
+    global _gemini_key_ok_cache
+    if _gemini_key_ok_cache is not None:
+        return _gemini_key_ok_cache
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        _gemini_key_ok_cache = False
+        return False
+    try:
+        import httpx
+
+        r = httpx.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={key}",
+            timeout=5.0,
+        )
+        _gemini_key_ok_cache = r.status_code == 200
+    except Exception:
+        _gemini_key_ok_cache = False
+    return _gemini_key_ok_cache
 
 
 @pytest.fixture
@@ -194,6 +265,9 @@ def requires_twilio_outbound():
 
     Outbound dials TWILIO_PHONE_NUMBER_2 by default — a second Twilio-owned
     number whose own harness will answer. No human required.
+
+    If env is present but auth is rejected (401), skip with a clear 'rotate
+    TWILIO_AUTH_TOKEN' message. Missing env is still a FAIL.
     """
     _require_env(
         "TWILIO_ACCOUNT_SID",
@@ -201,6 +275,11 @@ def requires_twilio_outbound():
         "TWILIO_PHONE_NUMBER",
         "TWILIO_PHONE_NUMBER_2",
     )
+    if not _twilio_auth_ok():
+        pytest.skip(
+            "Twilio auth token rejected (401). Rotate TWILIO_AUTH_TOKEN in "
+            "python/.env — account creds are stale."
+        )
 
 
 @pytest.fixture
@@ -209,6 +288,9 @@ def requires_twilio_inbound():
 
     Inbound uses a second Twilio number (TWILIO_PHONE_NUMBER_2) to dial in
     to the primary (TWILIO_PHONE_NUMBER). No human required.
+
+    If env is present but auth is rejected (401), skip with a clear 'rotate
+    TWILIO_AUTH_TOKEN' message. Missing env is still a FAIL.
     """
     _require_env(
         "TWILIO_ACCOUNT_SID",
@@ -216,6 +298,11 @@ def requires_twilio_inbound():
         "TWILIO_PHONE_NUMBER",
         "TWILIO_PHONE_NUMBER_2",
     )
+    if not _twilio_auth_ok():
+        pytest.skip(
+            "Twilio auth token rejected (401). Rotate TWILIO_AUTH_TOKEN in "
+            "python/.env — account creds are stale."
+        )
 
 
 @pytest.fixture
