@@ -14,6 +14,7 @@ from typing import Any, ClassVar, Optional
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from ._stub import PendingTransportError
 
 
 class WebRTCAgentAdapter(VoiceAgentAdapter):
@@ -41,13 +42,11 @@ class WebRTCAgentAdapter(VoiceAgentAdapter):
         self._pc = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        from ._stub import PendingTransportError
         if self._pc is None:
             raise RuntimeError(f"{type(self).__name__}: not connected")
         raise PendingTransportError(type(self).__name__)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        from ._stub import PendingTransportError
         if self._pc is None:
             raise RuntimeError(f"{type(self).__name__}: not connected")
         # If a subclass populated _inbound_audio, return from it.

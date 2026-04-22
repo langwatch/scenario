@@ -12,6 +12,7 @@ from typing import ClassVar, Optional
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from ._stub import PendingTransportError
 
 
 class LiveKitAgentAdapter(VoiceAgentAdapter):
@@ -40,13 +41,11 @@ class LiveKitAgentAdapter(VoiceAgentAdapter):
         self._room = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        from ._stub import PendingTransportError
         if self._room is None:
             raise RuntimeError("LiveKitAgentAdapter: not connected")
         raise PendingTransportError("LiveKitAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        from ._stub import PendingTransportError
         if self._room is None:
             raise RuntimeError("LiveKitAgentAdapter: not connected")
         raise PendingTransportError("LiveKitAgentAdapter")
