@@ -26,8 +26,9 @@ logger = logging.getLogger("scenario.voice.twilio")
 
 # Twilio Media Streams always uses µ-law 8kHz mono.
 TWILIO_SAMPLE_RATE = 8000
-# Our canonical internal format.
-PCM16_SAMPLE_RATE = 24000
+# Our canonical internal format. Single source of truth lives in audio_chunk;
+# re-exported here so existing imports don't break.
+from ..audio_chunk import PCM16_SAMPLE_RATE  # noqa: E402
 PCM16_SAMPLE_WIDTH = 2
 # Twilio Media Streams delivers audio in 20ms frames (160 µ-law bytes each).
 TWILIO_FRAME_MS = 20
