@@ -12,6 +12,7 @@ from typing import ClassVar, Optional
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from ._stub import PendingTransportError
 
 
 class VapiAgentAdapter(VoiceAgentAdapter):
@@ -39,13 +40,11 @@ class VapiAgentAdapter(VoiceAgentAdapter):
         self._ws = None
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        from ._stub import PendingTransportError
         if self._ws is None:
             raise RuntimeError("VapiAgentAdapter: not connected")
         raise PendingTransportError("VapiAgentAdapter")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        from ._stub import PendingTransportError
         if self._ws is None:
             raise RuntimeError("VapiAgentAdapter: not connected")
         raise PendingTransportError("VapiAgentAdapter")
