@@ -45,7 +45,7 @@
   },
   "homepage": "https://github.com/langwatch/scenario#readme",
   "author": "LangWatch",
-  "license": "AGPL-3.0",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=20",
     "pnpm": ">=8"

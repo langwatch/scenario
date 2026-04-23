@@ -8,12 +8,12 @@ version = "0.7.24"
 description = "The end-to-end agent testing library"
 readme = "README.md"
 authors = [{ name = "LangWatch Team", email = "support@langwatch.ai" }]
-license = { text = "AGPL-3.0" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
