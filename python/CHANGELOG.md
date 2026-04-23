@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.25](https://github.com/langwatch/scenario/compare/python/v0.7.24...python/v0.7.25) (2026-04-23)
+
+
+### Miscellaneous
+
+* relicense from AGPLv3 to Apache 2.0 ([66ad733](https://github.com/langwatch/scenario/commit/66ad73312c805c320232059635bab5cbc3c75be1))
+* relicense to Apache 2.0 ([#378](https://github.com/langwatch/scenario/issues/378)) ([66ad733](https://github.com/langwatch/scenario/commit/66ad73312c805c320232059635bab5cbc3c75be1))
+
 ## [0.7.24](https://github.com/langwatch/scenario/compare/python/v0.7.23...python/v0.7.24) (2026-04-18)
 
 
