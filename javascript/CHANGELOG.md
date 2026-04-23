@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.11](https://github.com/langwatch/scenario/compare/javascript/v0.4.10...javascript/v0.4.11) (2026-04-23)
+
+
+### Features
+
+* add GOAT strategy with dynamic technique selection for RedTeamAgent ([#306](https://github.com/langwatch/scenario/issues/306)) ([e62c292](https://github.com/langwatch/scenario/commit/e62c292dbb46bbc6a7afd312604746541b02e84f))
+
+
+### Miscellaneous
+
+* relicense from AGPLv3 to Apache 2.0 ([66ad733](https://github.com/langwatch/scenario/commit/66ad73312c805c320232059635bab5cbc3c75be1))
+* relicense to Apache 2.0 ([#378](https://github.com/langwatch/scenario/issues/378)) ([66ad733](https://github.com/langwatch/scenario/commit/66ad73312c805c320232059635bab5cbc3c75be1))
+
 ## [0.4.10](https://github.com/langwatch/scenario/compare/javascript/v0.4.9...javascript/v0.4.10) (2026-04-10)
 
 
