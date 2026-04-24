@@ -180,6 +180,7 @@ class TestParseResponseSafetyNet:
 
         assert isinstance(result, ScenarioResult)
         assert result.success is False
+        assert result.reasoning is not None
         assert "did not converge" in result.reasoning
         assert set(result.failed_criteria) == {"A", "B"}
         assert result.passed_criteria == []
