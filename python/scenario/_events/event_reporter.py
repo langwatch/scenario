@@ -1,9 +1,25 @@
 import logging
 import httpx
-from typing import Optional, Dict, Any
+from typing import ClassVar, Optional, Dict, Any
 from .events import ScenarioEvent
 from .event_alert_message_logger import EventAlertMessageLogger
 from scenario.config import LangWatchSettings, ScenarioConfig
+
+
+def _resolve_langwatch_client_api_key() -> str:
+    """Read the langwatch SDK's class-level api_key, if the SDK is importable.
+
+    The langwatch SDK accepts api_key both via env var and via
+    `langwatch.setup(api_key=...)`. When the user goes the programmatic route
+    (no env var), the value lives on `langwatch.client.Client._api_key`.
+    Falling back to it here keeps scenario events working in the same
+    process without forcing the user to set LANGWATCH_API_KEY twice.
+    """
+    try:
+        from langwatch.client import Client
+    except Exception:
+        return ""
+    return Client._api_key or ""
 
 
 class EventReporter:
@@ -15,16 +31,25 @@ class EventReporter:
 
     Args:
         endpoint (str, optional): Override endpoint URL. If not provided, uses LANGWATCH_ENDPOINT env var.
-        api_key (str, optional): Override API key. If not provided, uses LANGWATCH_API_KEY env var.
+        api_key (str, optional): Override API key. Resolution order: explicit
+            arg → LANGWATCH_API_KEY env var → langwatch.client.Client._api_key
+            (set by langwatch.setup(api_key=...)).
 
     Example:
         # Using environment variables (LANGWATCH_ENDPOINT, LANGWATCH_API_KEY)
+        reporter = EventReporter()
+
+        # Or rely on langwatch.setup(api_key=...) called earlier in the process
         reporter = EventReporter()
 
         # Override specific values
         reporter = EventReporter(endpoint="https://langwatch.yourdomain.com")
         reporter = EventReporter(api_key="your-api-key")
     """
+
+    # Process-wide flag: emit the "no api_key configured" warning at most once
+    # per process. Without this, every dropped event spams the logs.
+    _missing_api_key_warned: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -38,7 +63,12 @@ class EventReporter:
         # Strip trailing slashes to avoid double-slash URLs (e.g. HttpUrl adds trailing /)
         raw_endpoint = endpoint or str(langwatch_settings.endpoint)
         self.endpoint = raw_endpoint.rstrip("/") if raw_endpoint else ""
-        self.api_key = api_key or langwatch_settings.api_key
+        # Resolution order: explicit > env > langwatch SDK class state.
+        self.api_key = (
+            api_key
+            or langwatch_settings.api_key
+            or _resolve_langwatch_client_api_key()
+        )
         self.logger = logging.getLogger(__name__)
         self.event_alert_message_logger = EventAlertMessageLogger()
 
@@ -66,6 +96,21 @@ class EventReporter:
             )
             return result
 
+        if not self.api_key:
+            # Without an api_key the POST would be rejected with 401. Skip
+            # silently — the EventAlertMessageLogger already prints a one-time
+            # banner at startup explaining how to set LANGWATCH_API_KEY. Emit
+            # a single WARNING per process so the reason for missing
+            # visualization is searchable in logs.
+            if not EventReporter._missing_api_key_warned:
+                EventReporter._missing_api_key_warned = True
+                self.logger.warning(
+                    "No LangWatch api_key configured (set LANGWATCH_API_KEY "
+                    "env var or call langwatch.setup(api_key=...) before "
+                    "scenarios run); scenario events will not be reported."
+                )
+            return result
+
         try:
             url = f"{self.endpoint}/api/scenario-events"
             payload = event.to_dict()
@@ -78,6 +123,14 @@ class EventReporter:
                     json=payload,
                     headers={
                         "Content-Type": "application/json",
+                        # Send credentials as both Authorization: Bearer (RFC
+                        # 6750) and X-Auth-Token (legacy). Some corporate
+                        # proxies strip non-standard headers like X-Auth-Token
+                        # while preserving Authorization, so dual-emit makes
+                        # the SDK robust to that path. The server's auth
+                        # middleware accepts either; if both are present
+                        # Bearer wins by middleware priority.
+                        "Authorization": f"Bearer {self.api_key}",
                         "X-Auth-Token": self.api_key,
                     },
                     timeout=httpx.Timeout(30.0),
