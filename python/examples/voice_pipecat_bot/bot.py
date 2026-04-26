@@ -316,7 +316,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     greeted = True
                     greeting_text = "Hello! Thank you for calling. How can I help you today?"
                     logger.info("sending greeting (post-start): %r", greeting_text)
-                    await _send_tts(websocket, stream_sid, greeting_text, conversation_history)
+                    await _send_tts(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
                     conversation_history.append({"role": "assistant", "content": greeting_text})
 
             elif event == "media":

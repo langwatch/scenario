@@ -158,7 +158,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         session_future: asyncio.Future[Any] = loop.create_future()
 
         config = types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
+            response_modalities=[types.Modality.AUDIO],
             system_instruction=self.system_instruction or None,
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(

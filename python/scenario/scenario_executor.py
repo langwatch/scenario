@@ -9,6 +9,7 @@ and judge agents to determine test success or failure.
 import json
 import sys
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -21,6 +22,9 @@ from typing import (
     TypedDict,
     cast,
 )
+
+if TYPE_CHECKING:
+    from .voice.playback import FfmpegPlayback
 import time
 import warnings
 import termcolor
@@ -119,7 +123,7 @@ class ScenarioExecutor:
     _agent_times: Dict[int, float] = {}
     _events: Subject
     _trace: LangWatchTrace
-    _ffmpeg_playback: Optional[Any] = None
+    _ffmpeg_playback: Optional["FfmpegPlayback"] = None
 
     event_bus: ScenarioEventBus
 
@@ -683,7 +687,7 @@ class ScenarioExecutor:
         self._voice_latency: LatencyMetrics = LatencyMetrics()
         self._voice_recording_started_at: float = _time.monotonic()
         self._pending_agent_task = None
-        self._ffmpeg_playback: Optional[FfmpegPlayback] = None
+        self._ffmpeg_playback = None
 
         if self._audio_playback:
             player = FfmpegPlayback()

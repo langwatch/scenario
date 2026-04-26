@@ -58,9 +58,9 @@ _transcribe_calls: list[AudioChunk] = []
 
 
 class _InstrumentedSTT(ElevenLabsSTTProvider):
-    async def transcribe(self, chunk: AudioChunk) -> str:
-        _transcribe_calls.append(chunk)
-        return await super().transcribe(chunk)
+    async def transcribe(self, audio: AudioChunk) -> str:
+        _transcribe_calls.append(audio)
+        return await super().transcribe(audio)
 
 
 async def main() -> scenario.ScenarioResult:
