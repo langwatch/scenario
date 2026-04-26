@@ -347,3 +347,17 @@ def requires_transport_ready():
                 )
 
     return _probe
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark *_e2e.py tests with `integration`.
+
+    Why: voice e2e tests hit live providers (OpenAI, ElevenLabs, Twilio,
+    Gemini) and fail-fast on missing infrastructure. They run nightly via
+    voice-integration.yml, not on every PR. python-ci uses
+    `-m "not integration"` to deselect them.
+    """
+    integration = pytest.mark.integration
+    for item in items:
+        if item.fspath.basename.endswith("_e2e.py"):
+            item.add_marker(integration)
