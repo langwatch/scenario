@@ -322,9 +322,10 @@ async def test_composable_voice_agent_mix_and_match():
     fake_completion = MagicMock()
     fake_completion.choices = [fake_choice]
 
-    # Stub synthesize (TTS).
+    # Stub synthesize (TTS) — real synthesize returns AudioChunk, not bytes.
     synthesized_pcm = b"\x00\x00" * 24000  # 1 second of silence
     assert len(synthesized_pcm) % 2 == 0
+    synthesized_chunk = AudioChunk(data=synthesized_pcm, transcript="hi there")
 
     agent = ComposableVoiceAgent(stt=fake_stt, llm="openai/gpt-4o-mini", tts="openai/nova")
     await agent.connect()
@@ -332,7 +333,7 @@ async def test_composable_voice_agent_mix_and_match():
     chunk_in = AudioChunk(data=b"\x00\x00" * 100)
 
     with patch("litellm.acompletion", new=AsyncMock(return_value=fake_completion)) as mock_llm, \
-         patch("scenario.voice.tts.synthesize", new=AsyncMock(return_value=synthesized_pcm)) as mock_tts:
+         patch("scenario.voice.tts.synthesize", new=AsyncMock(return_value=synthesized_chunk)) as mock_tts:
         await agent.send_audio(chunk_in)
         result = await agent.recv_audio(timeout=10.0)
 

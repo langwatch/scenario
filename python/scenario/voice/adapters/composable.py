@@ -120,6 +120,8 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
 
         async def _run() -> AudioChunk:
             import litellm  # type: ignore
+            from litellm.types.utils import Choices, ModelResponse
+            from typing import cast as _cast
 
             from ..tts import synthesize
 
@@ -127,12 +129,15 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
                 model=self.llm,
                 messages=self._history,
             )
-            response_text: str = completion.choices[0].message.content or ""
+            # Non-streaming acompletion returns ModelResponse with Choices;
+            # cast satisfies pyright without runtime isinstance overhead.
+            completion = _cast(ModelResponse, completion)
+            choice = _cast(Choices, completion.choices[0])
+            response_text: str = choice.message.content or ""
             self.last_llm_response = response_text
             self._history.append({"role": "assistant", "content": response_text})
 
-            pcm = await synthesize(response_text, self.tts)
-            return AudioChunk(data=pcm)
+            return await synthesize(response_text, self.tts)
 
         return await asyncio.wait_for(_run(), timeout=timeout)
 
