@@ -13,6 +13,8 @@ Public surface:
     - AudioSegment — per-speaker slice of the recording
     - synthesize / STTProvider / set_stt_provider / get_stt_provider —
       TTS + STT plumbing
+    - transcribe_segments — post-hoc STT over a VoiceRecording (AC-15 judge
+      fallback path for non-multimodal judges, proposal §4.3)
     - WebRTCVadFallback — SDK-side VAD for adapters without native VAD
     - create_audio_message / extract_audio / message_has_audio — message helpers
 """
@@ -47,6 +49,7 @@ from .stt import (
     set_stt_provider,
     transcribe,
 )
+from ._transcribe import transcribe_segments
 from .tts import register_tts_provider, synthesize
 from .vad import WebRTCVadFallback
 
@@ -86,4 +89,5 @@ __all__ = [
     "silent_chunk",
     "synthesize",
     "transcribe",
+    "transcribe_segments",
 ]

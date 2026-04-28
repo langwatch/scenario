@@ -26,6 +26,7 @@ from ._judge.estimate_tokens import estimate_tokens, DEFAULT_TOKEN_THRESHOLD
 from ._judge.trace_tools import expand_trace, grep_trace
 from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
+from .voice._transcribe import transcribe_segments
 
 
 logger = logging.getLogger("scenario")
@@ -384,6 +385,30 @@ class JudgeAgent(AgentAdapter):
             return self.include_traces
         return otel_configured
 
+    # --------------------------------------------- AC-15 helpers (§4.3 fallback)
+
+    @staticmethod
+    def _conversation_has_audio(messages: List[Any]) -> bool:
+        """Return True if any message content contains an audio part."""
+        for msg in messages:
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") in ("input_audio", "audio"):
+                        return True
+        return False
+
+    @staticmethod
+    def _extract_recording(input: AgentInput) -> Any:
+        """Return the VoiceRecording from the executor, or None."""
+        scenario_state = getattr(input, "scenario_state", None)
+        if scenario_state is None:
+            return None
+        executor = getattr(scenario_state, "_executor", None)
+        if executor is None:
+            return None
+        return getattr(executor, "_voice_recording", None)
+
     @scenario_cache()
     async def call(
         self,
@@ -423,7 +448,18 @@ class JudgeAgent(AgentAdapter):
         )
 
         # Build transcript and traces digest
-        transcript = JudgeUtils.build_transcript_from_messages(input.messages)
+        # AC-15 (§4.3): when the judge model can't ingest audio, transcribe
+        # agent audio and substitute text so the judge can evaluate the content.
+        conversation_has_audio = self._conversation_has_audio(input.messages)
+        working_messages = input.messages
+        if conversation_has_audio and not self.effective_include_audio(conversation_has_audio):
+            recording = self._extract_recording(input)
+            if recording is not None:
+                await transcribe_segments(recording)
+                working_messages = _enrich_messages_with_transcripts(
+                    input.messages, recording
+                )
+        transcript = JudgeUtils.build_transcript_from_messages(working_messages)
         spans = self._span_collector.get_spans_for_thread(input.thread_id)
         digest, is_large_trace = self._build_trace_digest(spans)
 
@@ -970,3 +1006,71 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         raise Exception(
             f"Invalid tool call from judge agent: {tool_call.function.name}"
         )
+
+
+# --------------------------------------------------------------------- #
+# AC-15 helper — module-level to keep JudgeAgent clean                  #
+# --------------------------------------------------------------------- #
+
+
+def _enrich_messages_with_transcripts(
+    messages: List[Any],
+    recording: Any,
+) -> List[Any]:
+    """
+    Replace each agent audio-only message in messages with a text message
+    carrying the matching segment's transcript.
+
+    User messages are left untouched (their transcript lives alongside the
+    audio part already). Returns a new list — does not mutate input.
+
+    Matching strategy: ordinal — the Nth assistant audio-only message maps
+    to the Nth agent segment (in temporal order) whose transcript is
+    populated after transcribe_segments().
+
+    If a segment has no transcript (STT failed / unavailable), the
+    corresponding message is left as-is so evaluation degrades gracefully.
+    """
+    # Gather agent segments with a non-null transcript, in temporal order.
+    segments = getattr(recording, "segments", []) or []
+    agent_transcripts = [
+        s.transcript
+        for s in sorted(segments, key=lambda s: s.start_time)
+        if getattr(s, "speaker", None) == "agent" and s.transcript
+    ]
+
+    enriched: List[Any] = []
+    agent_msg_idx = 0  # ordinal counter over assistant audio-only messages
+
+    for msg in messages:
+        role = msg.get("role") if isinstance(msg, dict) else None
+        if role != "assistant":
+            enriched.append(msg)
+            continue
+
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            enriched.append(msg)
+            continue
+
+        # Check: does this message have audio but no text?
+        has_audio = any(
+            isinstance(p, dict) and p.get("type") in ("input_audio", "audio")
+            for p in content
+        )
+        has_text = any(
+            isinstance(p, dict) and p.get("type") == "text"
+            for p in content
+        )
+
+        if has_audio and not has_text and agent_msg_idx < len(agent_transcripts):
+            transcript_text = agent_transcripts[agent_msg_idx]
+            agent_msg_idx += 1
+            # Replace content with a plain text part.
+            enriched.append({**msg, "content": [{"type": "text", "text": transcript_text}]})
+        else:
+            if has_audio and not has_text:
+                agent_msg_idx += 1  # consume the slot even when no transcript
+            enriched.append(msg)
+
+    return enriched
