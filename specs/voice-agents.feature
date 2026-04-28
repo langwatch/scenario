@@ -822,3 +822,31 @@ Feature: Voice agent testing in Scenario SDK
     When the judge processes the conversation
     Then no role rewriting is needed
     And no "forceUserRole" style workaround exists anywhere in the Python SDK
+
+  # ======================================================================
+  # AC-14 — Voice demo recordings (per-segment + full + manifest)
+  # ======================================================================
+
+  Feature: Voice agent demo recordings
+
+  @unit
+  Scenario: Saving segments writes per-segment WAVs, full mix, and manifest
+    Given a VoiceRecording with two segments (user, then agent)
+    When save_segments is called with a target directory
+    Then the target directory contains a segments/ subdirectory with two WAV files
+    And the target directory contains a full.wav file
+    And the target directory contains a manifest.json with segment_count 2
+    And each manifest entry's file path resolves to a real WAV on disk
+
+  @integration
+  Scenario: Demo opt-in writes recordings under python/recordings/<demo>/
+    Given any voice_*.py demo runs to completion and produces result.audio
+    When the demo's main() calls save_demo_recording(result.audio, "<demo_name>")
+    Then a directory python/recordings/<demo_name>/ is created
+    And it contains segments/, full.wav, and manifest.json
+
+  @integration
+  Scenario: CI uploads recordings as a workflow artifact
+    Given the voice-integration workflow runs
+    Then it uploads python/recordings/** as the "voice-demo-recordings" artifact
+    And the upload step runs even when prior steps fail (if: always())

@@ -187,3 +187,6 @@ docs/docs/public/reference/python/**/*
 
 .claude/worktrees
 .worktrees
+
+# Voice demo recordings — generated, not committed
+python/recordings/
