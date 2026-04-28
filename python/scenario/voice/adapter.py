@@ -15,10 +15,11 @@ each adapter needing its own bookkeeping.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from abc import abstractmethod
-from typing import ClassVar, Optional
+from typing import ClassVar, List, Optional
 
 logger = logging.getLogger("scenario.voice")
 
@@ -49,6 +50,13 @@ class VoiceAgentAdapter(AgentAdapter):
     role: ClassVar[AgentRole] = AgentRole.AGENT
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities()
     response_timeout: float = 30.0
+    # Tail silence: once the first agent chunk arrives, keep draining recv_audio
+    # until no chunk shows up within this many seconds — that's how we detect the
+    # agent finished talking. Without this, demos record only the first ~100ms.
+    response_tail_silence: float = 0.6
+    # Hard cap on a single agent turn's audio. Prevents runaway loops if a
+    # transport never signals end-of-stream. 30s = a long sentence.
+    response_max_duration: float = 30.0
 
     @abstractmethod
     async def connect(self) -> None:
@@ -69,7 +77,16 @@ class VoiceAgentAdapter(AgentAdapter):
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         """
         Default implementation: extract audio from the latest user message,
-        send it, wait for a response, return as an assistant audio message.
+        send it, drain the agent's full response (multiple recv_audio chunks
+        until tail silence), record once, return as one assistant audio message.
+
+        Why drain instead of taking one chunk: TTS and realtime APIs stream
+        their response in many small chunks. A single recv_audio() returns the
+        first one only — the recorder would log ~100ms of agent audio per turn
+        and the judge would receive a truncated response. Draining until
+        tail-silence (no new chunk for ``response_tail_silence`` seconds) gives
+        the natural "agent finished talking" signal that works across
+        adapters without each one needing to know its transport's done event.
 
         Subclasses may override this for specialised flows but will usually
         inherit it.
@@ -80,9 +97,25 @@ class VoiceAgentAdapter(AgentAdapter):
             recorder.record_user(incoming)
             await self.send_audio(incoming)
         recorder.mark_user_stopped()
-        response = await self.recv_audio(timeout=self.response_timeout)
-        recorder.record_agent(response)
-        return create_audio_message(response, role="assistant")
+        merged = await self._drain_agent_response()
+        recorder.record_agent(merged)
+        return create_audio_message(merged, role="assistant")
+
+    async def _drain_agent_response(self) -> AudioChunk:
+        """Loop ``recv_audio`` until tail silence or max duration; merge result."""
+        first = await self.recv_audio(timeout=self.response_timeout)
+        chunks: List[AudioChunk] = [first]
+        accumulated = first.duration_seconds
+        while accumulated < self.response_max_duration:
+            try:
+                nxt = await self.recv_audio(timeout=self.response_tail_silence)
+            except asyncio.TimeoutError:
+                break
+            if not nxt.data:
+                break
+            chunks.append(nxt)
+            accumulated += nxt.duration_seconds
+        return _merge_chunks(chunks)
 
 
 class _AdapterRecorder:
@@ -134,6 +167,22 @@ class _AdapterRecorder:
             VoiceEvent(time=start, type="agent_start_speaking", latency=latency),
         )
         _append_event(self._executor, VoiceEvent(time=end, type="agent_stop_speaking"))
+
+
+def _merge_chunks(chunks: List[AudioChunk]) -> AudioChunk:
+    """Concatenate PCM bytes from drained agent chunks into one AudioChunk.
+
+    Transcripts: each adapter populates ``chunk.transcript`` differently —
+    some on the last chunk (after STT settles), some incrementally. Joining
+    non-empty transcripts with a space preserves whatever the adapter shipped
+    without forcing adapters to coordinate.
+    """
+    if len(chunks) == 1:
+        return chunks[0]
+    data = b"".join(c.data for c in chunks)
+    parts = [c.transcript for c in chunks if c.transcript]
+    transcript = " ".join(parts) if parts else None
+    return AudioChunk(data=data, transcript=transcript)
 
 
 def _append_segment(executor, speaker: str, start: float, end: float, chunk: AudioChunk) -> None:
