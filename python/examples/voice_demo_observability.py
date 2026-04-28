@@ -44,6 +44,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _pipecat_bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _voice_recording_helper import save_demo_recording  # noqa: E402
 from scenario.voice import AudioChunk, VoiceEvent  # noqa: E402
 
@@ -66,34 +67,35 @@ def on_voice_event(event: VoiceEvent) -> None:
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="demo_observability",
-        description=(
-            "Wire on_audio_chunk and on_voice_event callbacks to capture "
-            "real-time events. Assert both fired and latency metrics are present."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="demo_observability",
+            description=(
+                "Wire on_audio_chunk and on_voice_event callbacks to capture "
+                "real-time events. Assert both fired and latency metrics are present."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent responded helpfully",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Hello, quick question"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=4,
-        on_audio_chunk=on_audio_chunk,
-        on_voice_event=on_voice_event,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent responded helpfully",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("Hello, quick question"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=4,
+            on_audio_chunk=on_audio_chunk,
+            on_voice_event=on_voice_event,
+        )
 
     print(f"success: {result.success}")
     print(f"audio_chunks received: {len(_audio_chunks)}")

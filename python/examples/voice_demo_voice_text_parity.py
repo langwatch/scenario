@@ -33,6 +33,7 @@ try:
 except ImportError:
     pass
 
+from _pipecat_bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 REQUIRED_ENV = ("OPENAI_API_KEY",)

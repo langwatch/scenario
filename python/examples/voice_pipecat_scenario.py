@@ -45,6 +45,7 @@ if not os.environ.get("OPENAI_API_KEY"):
 
 
 import scenario
+from _pipecat_bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 
