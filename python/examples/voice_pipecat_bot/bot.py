@@ -216,7 +216,9 @@ def _openai_stt(mulaw_bytes: bytes) -> str:
                     model="whisper-1",
                     file=fh,
                 )
-            return result.text.strip()
+            text = result.text.strip()
+            logger.info("STT raw text=%r (input bytes=%d)", text, len(mulaw_bytes))
+            return text
         finally:
             try:
                 os.unlink(tmp_path)
@@ -286,11 +288,18 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     speech_started = False
     pcm16_8k_buf = bytearray()
     silence_frames = 0  # contiguous non-speech frames
-    # 5 frames * 20 ms = 100 ms. Picked low because TTS audio cuts straight to
-    # silence (no natural trailing breath like a real caller); a higher
-    # threshold would never fire — the user simulator just stops sending.
-    SILENCE_FRAMES_TO_END = 5
+    # 15 frames * 20 ms = 300 ms. Lower values fire on natural inter-word
+    # micro-pauses ("Hi[.] I need...") and split one utterance into two
+    # turns. 300 ms rides through normal speech rhythm without splitting.
+    SILENCE_FRAMES_TO_END = 15
+    # If speech was detected and then NO new media frame arrives for this
+    # long, treat it as end-of-utterance regardless of VAD. Catches the
+    # case where TTS cuts straight to silence with no trailing breath
+    # (the user simulator stops sending entirely; VAD never gets to run
+    # on the trailing silence because there's no trailing silence to feed).
+    INACTIVITY_END_MS = 400
     MIN_BYTES_TO_PROCESS = 1600  # don't fire on tiny bursts (~200ms µ-law)
+    inactivity_task: Optional[asyncio.Task] = None
     greeted = False
 
     def _mulaw8k_chunk_to_pcm16_8k(mulaw: bytes) -> bytes:
@@ -301,6 +310,10 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     async def _flush_user_turn() -> None:
         """Send accumulated µ-law to STT/LLM/TTS pipeline, reset buffers."""
         nonlocal accumulated_mulaw, pcm16_8k_buf, speech_started, silence_frames
+        nonlocal inactivity_task
+        if inactivity_task is not None and not inactivity_task.done():
+            inactivity_task.cancel()
+        inactivity_task = None
         if len(accumulated_mulaw) < MIN_BYTES_TO_PROCESS or not stream_sid:
             accumulated_mulaw.clear()
             pcm16_8k_buf.clear()
@@ -318,6 +331,24 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
             audio_to_process,
             conversation_history,
         )
+
+    async def _inactivity_watchdog() -> None:
+        """Fire end-of-turn after INACTIVITY_END_MS of no new audio."""
+        try:
+            await asyncio.sleep(INACTIVITY_END_MS / 1000)
+            if speech_started:
+                logger.debug("inactivity watchdog firing end-of-turn")
+                await _flush_user_turn()
+        except asyncio.CancelledError:
+            pass
+
+    def _kick_inactivity_watchdog() -> None:
+        """Restart the inactivity timer (called on every media frame after speech started)."""
+        nonlocal inactivity_task
+        if inactivity_task is not None and not inactivity_task.done():
+            inactivity_task.cancel()
+        if speech_started:
+            inactivity_task = asyncio.create_task(_inactivity_watchdog())
 
     def _feed_vad(mulaw_payload: bytes) -> bool:
         """Decode + feed VAD; return True iff end-of-utterance detected."""
@@ -363,6 +394,8 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                 accumulated_mulaw.extend(raw_message)
                 if _feed_vad(raw_message):
                     await _flush_user_turn()
+                else:
+                    _kick_inactivity_watchdog()
                 continue
 
             try:
@@ -409,6 +442,8 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                         accumulated_mulaw.extend(payload)
                         if _feed_vad(payload):
                             await _flush_user_turn()
+                        else:
+                            _kick_inactivity_watchdog()
                     except (ValueError, TypeError):
                         logger.debug("bad base64 in media frame")
 

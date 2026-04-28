@@ -49,6 +49,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _pipecat_bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _voice_recording_helper import save_demo_recording  # noqa: E402
 from scenario.types import AgentRole  # noqa: E402
 

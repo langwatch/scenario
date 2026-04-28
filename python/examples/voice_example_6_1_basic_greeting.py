@@ -51,6 +51,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _pipecat_bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
@@ -59,35 +60,36 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="example_6_1_basic_greeting",
-        description=(
-            "A caller rings the bot. The bot greets them; the caller "
-            "says 'Hi, I need some help'; the bot responds. "
-            "Judge: bot greeted naturally and provided a helpful response."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_1_basic_greeting",
+            description=(
+                "A caller rings the bot. The bot greets them; the caller "
+                "says 'Hi, I need some help'; the bot responds. "
+                "Judge: bot greeted naturally and provided a helpful response."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent greeted the user naturally",
-                    "The agent offered help in a friendly tone",
-                ]
-            ),
-        ],
-        script=[
-            scenario.agent(),
-            scenario.user("Hi, I need some help"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=4,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent greeted the user naturally",
+                        "The agent offered help in a friendly tone",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.agent(),
+                scenario.user("Hi, I need some help ordering pizza"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=4,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")
