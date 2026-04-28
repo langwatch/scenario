@@ -85,6 +85,7 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
         )
 
         if has_discovery_call:
+            assert isinstance(tool_calls, list)
             # Gather ALL consecutive following tool result messages (covers
             # both discovery and non-discovery results).
             result_by_id: dict = {}
