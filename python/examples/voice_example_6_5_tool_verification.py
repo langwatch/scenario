@@ -46,6 +46,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 from scenario.scenario_state import ScenarioState  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
@@ -122,6 +123,7 @@ async def main() -> scenario.ScenarioResult:
     if result.timeline:
         print(f"timeline events: {[e.type for e in result.timeline]}")
 
+    save_demo_recording(getattr(result, "audio", None), "example_6_5_tool_verification")
     return result
 
 

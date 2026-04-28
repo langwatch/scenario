@@ -33,6 +33,8 @@ try:
 except ImportError:
     pass
 
+from _voice_recording_helper import save_demo_recording  # noqa: E402
+
 REQUIRED_ENV = ("OPENAI_API_KEY",)
 
 
@@ -108,7 +110,7 @@ async def main() -> tuple[scenario.ScenarioResult, scenario.ScenarioResult]:
     print("\nRunning voice scenario…")
     voice_result = await run_voice_scenario()
     print(f"voice success={voice_result.success}  audio_segments={len(voice_result.audio.segments) if voice_result.audio else 0}")
-
+    save_demo_recording(getattr(voice_result, "audio", None), "demo_voice_text_parity")
     return text_result, voice_result
 
 

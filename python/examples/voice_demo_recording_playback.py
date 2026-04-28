@@ -32,7 +32,6 @@ Note:
 import asyncio
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 try:
@@ -54,18 +53,14 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
-OUT_DIR = Path(__file__).parent.parent / "tmp" / "demo_recording"
 
 
 async def main() -> scenario.ScenarioResult:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    wav_path = OUT_DIR / "demo.wav"
-    mp3_path = OUT_DIR / "demo.mp3"
-
     result = await scenario.run(
         name="demo_recording_playback",
         description=(
@@ -94,19 +89,8 @@ async def main() -> scenario.ScenarioResult:
         audio_playback=True,
     )
 
-    # Save in both formats.
-    if result.audio is not None:
-        result.audio.save(wav_path)
-        print(f"WAV saved: {wav_path} ({wav_path.stat().st_size} bytes)")
-        try:
-            result.audio.save(mp3_path, format="mp3")
-            print(f"MP3 saved: {mp3_path} ({mp3_path.stat().st_size} bytes)")
-        except Exception as e:
-            print(f"MP3 save failed (ffmpeg may not be available): {e}")
-    else:
-        print("No audio recorded (adapter stub or no live bot).")
-
     print(f"success: {result.success}")
+    save_demo_recording(getattr(result, "audio", None), "demo_recording_playback")
     return result
 
 
