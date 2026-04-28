@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.26](https://github.com/langwatch/scenario/compare/python/v0.7.25...python/v0.7.26) (2026-04-28)
+
+
+### Bug Fixes
+
+* **events:** dual-emit auth + graceful empty-key handling in Python EventReporter ([#383](https://github.com/langwatch/scenario/issues/383)) ([f9a87aa](https://github.com/langwatch/scenario/commit/f9a87aada92017be01122ff2884cdd99b270e464))
+
 ## [0.7.25](https://github.com/langwatch/scenario/compare/python/v0.7.24...python/v0.7.25) (2026-04-23)
 
 
