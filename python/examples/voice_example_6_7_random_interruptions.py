@@ -45,6 +45,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
 
@@ -91,6 +92,7 @@ async def main() -> scenario.ScenarioResult:
         interrupt_events = [e for e in result.timeline if e.type == "user_interrupt"]
         print(f"interruptions in timeline: {len(interrupt_events)}")
 
+    save_demo_recording(getattr(result, "audio", None), "example_6_7_random_interruptions")
     return result
 
 

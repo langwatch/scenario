@@ -53,6 +53,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 from scenario.types import AgentRole  # noqa: E402
 from scenario.voice.testing import TwilioHarness  # noqa: E402
 
@@ -121,6 +122,7 @@ async def main() -> scenario.ScenarioResult:
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")
+    save_demo_recording(getattr(result, "audio", None), "demo_twilio_inbound")
     return result
 
 

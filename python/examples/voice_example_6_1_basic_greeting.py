@@ -51,11 +51,11 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
-OUTPUT_WAV = Path(__file__).parent.parent / "tmp" / "example_6_1_greeting.wav"
 
 
 async def main() -> scenario.ScenarioResult:
@@ -91,12 +91,7 @@ async def main() -> scenario.ScenarioResult:
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")
-
-    if result.audio is not None:
-        OUTPUT_WAV.parent.mkdir(parents=True, exist_ok=True)
-        saved = result.audio.save(OUTPUT_WAV)
-        print(f"audio saved: {saved}")
-
+    save_demo_recording(getattr(result, "audio", None), "example_6_1_basic_greeting")
     return result
 
 

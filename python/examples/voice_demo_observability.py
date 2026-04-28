@@ -44,6 +44,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 from scenario.voice import AudioChunk, VoiceEvent  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
@@ -105,6 +106,7 @@ async def main() -> scenario.ScenarioResult:
     else:
         print("latency: None (no audio turns recorded)")
 
+    save_demo_recording(getattr(result, "audio", None), "demo_observability")
     return result
 
 

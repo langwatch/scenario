@@ -45,6 +45,7 @@ if not os.environ.get("OPENAI_API_KEY"):
 
 
 import scenario
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
@@ -89,6 +90,7 @@ async def main() -> scenario.ScenarioResult:
     print(f"verdict: {result.reasoning}")
     if result.audio is not None:
         print(f"audio: {len(result.audio.segments)} segments recorded")
+    save_demo_recording(getattr(result, "audio", None), "pipecat_scenario")
     return result
 
 

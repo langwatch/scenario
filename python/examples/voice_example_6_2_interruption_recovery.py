@@ -45,6 +45,7 @@ def _check_env() -> None:
 _check_env()
 
 import scenario  # noqa: E402
+from _voice_recording_helper import save_demo_recording  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-4.1-mini")
 
@@ -90,6 +91,7 @@ async def main() -> scenario.ScenarioResult:
     if result.latency is not None:
         print(f"interrupt_response_time: {result.latency.interrupt_response_time}")
 
+    save_demo_recording(getattr(result, "audio", None), "example_6_2_interruption_recovery")
     return result
 
 
