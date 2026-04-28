@@ -82,6 +82,40 @@ class TestCollapseDiscoveryHistory:
         ]
         assert _collapse_discovery_history(messages) == messages
 
+    def test_mixed_discovery_and_non_discovery_tool_calls(self):
+        """Discovery calls are collapsed to text; non-discovery calls and their
+        tool results are preserved so their references stay valid in the stripped
+        tool set."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    _make_tool_call("tc-grep", "grep_trace", {"pattern": "error"}),
+                    _make_tool_call("tc-ct", "continue_test", {}),
+                ],
+            },
+            {"role": "tool", "tool_call_id": "tc-grep", "content": "grep result"},
+            {"role": "tool", "tool_call_id": "tc-ct", "content": ""},
+        ]
+
+        out = _collapse_discovery_history(messages)
+
+        # assistant message + tool result for continue_test only
+        assert len(out) == 2
+        assert out[0]["role"] == "assistant"
+        # grep_trace recapped as text
+        assert "grep_trace" in (out[0].get("content") or "")
+        assert "grep result" in (out[0].get("content") or "")
+        # continue_test preserved as a tool_call
+        remaining_calls = out[0].get("tool_calls", [])
+        assert len(remaining_calls) == 1
+        assert remaining_calls[0]["function"]["name"] == "continue_test"
+        # tool result for continue_test kept, tool result for grep_trace dropped
+        assert out[1]["role"] == "tool"
+        assert out[1]["tool_call_id"] == "tc-ct"
+        assert not any(m.get("tool_call_id") == "tc-grep" for m in out)
+
 
 class TestForceVerdictHardening:
     def test_strips_discovery_tools_and_rewrites_history(self):

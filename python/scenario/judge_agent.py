@@ -64,25 +64,29 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
     for referencing undefined tools, and so the model physically cannot
     emit a discovery tool again.
 
-    Messages without discovery content pass through unchanged.
+    If an assistant message mixes discovery and non-discovery tool calls,
+    only the discovery calls are collapsed to text; non-discovery calls
+    and their corresponding tool results are preserved unchanged.
+
+    Messages without any discovery content pass through unchanged.
     """
     out: List[dict] = []
     i = 0
     while i < len(messages):
         msg = messages[i]
         tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
-        is_discovery_assistant = (
+        has_discovery_call = (
             msg.get("role") == "assistant"
             and isinstance(tool_calls, list)
-            and len(tool_calls) > 0
-            and all(
+            and any(
                 tc.get("function", {}).get("name") in _DISCOVERY_TOOL_NAMES
                 for tc in tool_calls
             )
         )
 
-        if is_discovery_assistant:
-            # Gather the matching tool result messages that immediately follow.
+        if has_discovery_call:
+            # Gather ALL consecutive following tool result messages (covers
+            # both discovery and non-discovery results).
             result_by_id: dict = {}
             j = i + 1
             while (
@@ -95,12 +99,22 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
                 )
                 j += 1
 
+            discovery_calls = [
+                tc for tc in tool_calls
+                if tc.get("function", {}).get("name") in _DISCOVERY_TOOL_NAMES
+            ]
+            non_discovery_calls = [
+                tc for tc in tool_calls
+                if tc.get("function", {}).get("name") not in _DISCOVERY_TOOL_NAMES
+            ]
+            discovery_ids = {tc.get("id") for tc in discovery_calls}
+
             lines: List[str] = []
             leading_text = msg.get("content") or ""
             if leading_text:
                 lines.append(str(leading_text))
 
-            for tc in tool_calls:
+            for tc in discovery_calls:
                 name = tc.get("function", {}).get("name", "unknown_tool")
                 raw_args = tc.get("function", {}).get("arguments", "")
                 try:
@@ -111,7 +125,18 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
                 body = _stringify_tool_output(result_by_id.get(tc.get("id")))
                 lines.append(f"[Called {name} with {args_str}]\n{body}")
 
-            out.append({"role": "assistant", "content": "\n\n".join(lines)})
+            new_msg: dict = {"role": "assistant", "content": "\n\n".join(lines)}
+            if non_discovery_calls:
+                new_msg["tool_calls"] = non_discovery_calls
+            out.append(new_msg)
+
+            # Re-emit tool result messages only for non-discovery calls so
+            # their tool references remain valid in the stripped tool set.
+            for k in range(i + 1, j):
+                result_msg = messages[k]
+                if result_msg.get("tool_call_id") not in discovery_ids:
+                    out.append(result_msg)
+
             i = j
             continue
 

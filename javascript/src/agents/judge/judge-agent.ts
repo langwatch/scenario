@@ -65,13 +65,21 @@ function collapseDiscoveryHistory(
       );
 
       if (discoveryCalls.length > 0) {
-        const nextMsg = messages[i + 1];
-        const resultParts: Array<Record<string, unknown>> =
-          nextMsg?.role === "tool" && Array.isArray(nextMsg.content)
-            ? (nextMsg.content as Array<Record<string, unknown>>).filter(
-                (p) => p?.type === "tool-result"
-              )
-            : [];
+        // Collect all consecutive tool-role messages so we catch results even
+        // when the AI SDK emits them across multiple separate messages.
+        const resultParts: Array<Record<string, unknown>> = [];
+        let toolMsgCount = 0;
+        for (let k = i + 1; k < messages.length; k++) {
+          const next = messages[k];
+          if (next.role === "tool" && Array.isArray(next.content)) {
+            for (const p of next.content as Array<Record<string, unknown>>) {
+              if (p?.type === "tool-result") resultParts.push(p);
+            }
+            toolMsgCount++;
+          } else {
+            break;
+          }
+        }
 
         const lines: string[] = [];
         for (const p of parts) {
@@ -105,9 +113,7 @@ function collapseDiscoveryHistory(
           content: lines.join("\n\n"),
         });
 
-        if (nextMsg?.role === "tool") {
-          i++;
-        }
+        i += toolMsgCount;
         continue;
       }
     }
@@ -465,6 +471,9 @@ class JudgeAgent extends JudgeAgentAdapter {
    * terminal call happened earlier in the loop, it would be invisible here.
    * Inspect the aggregate `steps` array when present so we don't force a
    * verdict on a run that already resolved.
+   *
+   * `continue_test` counts as non-exhausted: the judge explicitly asked to
+   * keep going, so the loop is progressing — forcing a verdict would be wrong.
    */
   private discoveryExhausted(completion: InvokeLLMResult): boolean {
     const steps = completion.steps;
