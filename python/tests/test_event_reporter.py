@@ -3,6 +3,7 @@ import pytest
 import respx
 import logging
 import time
+from typing import Generator
 from _pytest.logging import LogCaptureFixture
 from scenario._events.event_reporter import EventReporter
 from scenario._events.events import (
@@ -32,7 +33,7 @@ def _reset_warned_state() -> None:
 
 
 @pytest.fixture
-def _reset_langwatch_client_state() -> None:
+def _reset_langwatch_client_state() -> Generator[None, None, None]:
     """Avoid cross-test contamination of the langwatch SDK class-level api_key."""
     try:
         from langwatch.client import Client
