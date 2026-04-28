@@ -8,7 +8,9 @@ metrics attached to the ScenarioResult.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -166,3 +168,87 @@ class VoiceRecording:
                 f"ffmpeg transcode to {fmt!r} failed: {proc.stderr.decode(errors='replace')}"
             )
         return resolved
+
+    def save_segments(self, dir: Union[str, Path], manifest: bool = True) -> Path:
+        """
+        Write each segment as its own WAV file plus the full mixed conversation,
+        optionally with a JSON manifest pairing files to transcripts/timestamps.
+
+        Layout::
+
+            <dir>/
+                segments/
+                    00-user-0000ms.wav
+                    01-agent-0312ms.wav
+                    ...
+                full.wav
+                manifest.json   # iff manifest=True
+
+        Segment file names: zero-padded index, role, start_time in ms.
+        Manifest schema::
+
+            {
+              "generated_at": "<ISO 8601 UTC>",
+              "duration": <float seconds>,
+              "segment_count": <int>,
+              "segments": [
+                {"idx": 0, "file": "segments/00-user-0000ms.wav",
+                 "role": "user", "start_time": 0.0, "end_time": 1.2,
+                 "duration": 1.2, "transcript": "..."}
+              ]
+            }
+
+        The directory is created (parents=True, exist_ok=True). Existing
+        contents in the target directory are NOT cleared — caller decides
+        retention.  Returns the resolved directory path.
+        """
+        from io import BytesIO
+        import wave
+
+        target = Path(dir).resolve()
+        segments_dir = target / "segments"
+        target.mkdir(parents=True, exist_ok=True)
+        segments_dir.mkdir(parents=True, exist_ok=True)
+
+        ordered = sorted(self.segments, key=lambda s: s.start_time)
+        segment_entries: List[Dict[str, Any]] = []
+
+        for idx, seg in enumerate(ordered):
+            start_ms = int(seg.start_time * 1000)
+            filename = f"{idx:02d}-{seg.speaker}-{start_ms:04d}ms.wav"
+            seg_path = segments_dir / filename
+
+            buf = BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(PCM16_CHANNELS)
+                w.setsampwidth(2)
+                w.setframerate(PCM16_SAMPLE_RATE)
+                w.writeframes(seg.audio)
+            seg_path.write_bytes(buf.getvalue())
+
+            rel_file = f"segments/{filename}"
+            segment_entries.append({
+                "idx": idx,
+                "file": rel_file,
+                "role": seg.speaker,
+                "start_time": seg.start_time,
+                "end_time": seg.end_time,
+                "duration": seg.end_time - seg.start_time,
+                "transcript": seg.transcript,
+            })
+
+        # Write the full mixed WAV.
+        (target / "full.wav").write_bytes(self.full_wav)
+
+        if manifest:
+            manifest_data: Dict[str, Any] = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "duration": self.duration,
+                "segment_count": len(ordered),
+                "segments": segment_entries,
+            }
+            (target / "manifest.json").write_text(
+                json.dumps(manifest_data, indent=2), encoding="utf-8"
+            )
+
+        return target
