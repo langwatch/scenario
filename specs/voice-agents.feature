@@ -827,8 +827,6 @@ Feature: Voice agent testing in Scenario SDK
   # AC-14 — Voice demo recordings (per-segment + full + manifest)
   # ======================================================================
 
-  Feature: Voice agent demo recordings
-
   @unit
   Scenario: Saving segments writes per-segment WAVs, full mix, and manifest
     Given a VoiceRecording with two segments (user, then agent)

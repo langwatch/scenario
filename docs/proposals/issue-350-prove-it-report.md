@@ -2,7 +2,8 @@
 
 **Date:** 2026-04-20
 **Branch:** `issue350/voice-agents-implement-per-research`
-**Feature file:** `specs/voice-agents.feature` (83 scenarios: 64 `@unit`, 19 `@integration`)
+**Feature file:** `specs/voice-agents.feature` (102 scenarios: 69 `@unit`, 8 `@integration`, 25 `@e2e`).
+Header was 83/64/19; current header reflects two later additions: +16 for locked-decision composable/branded agents and @e2e demo parity (lifted to 99 total), and +3 for AC-14 demo recordings (1 @unit + 2 @integration). The §-by-§ evidence rows below were authored against the 83-scenario baseline and have not been regenerated row-by-row for the later additions — this is the drift called out in the contract test.
 
 ## Test-run baseline
 
