@@ -263,16 +263,95 @@ def _pcm16_to_wav(pcm16_bytes: bytes, sample_rate: int = PCM16_SAMPLE_RATE) -> b
 
 
 async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
-    """Handle one WS connection from a PipecatAgentAdapter client."""
+    """Handle one WS connection from a PipecatAgentAdapter client.
+
+    User-turn detection: feed inbound µ-law audio into webrtcvad. Once the
+    user has spoken and then stopped, fire STT on the accumulated buffer.
+    The previous "trigger after 1s of bytes" approach truncated longer user
+    utterances mid-sentence, causing the bot to reply "you got cut off."
+    """
+    import webrtcvad
     import websockets.exceptions  # noqa: F401  — imported for isinstance check below
 
     stream_sid: Optional[str] = None
     call_sid: Optional[str] = None
     accumulated_mulaw = bytearray()
     conversation_history: list[dict] = []
-    # How many µ-law bytes = 1 s of audio (8000 bytes/s for 8 kHz mono µ-law).
-    SILENCE_THRESHOLD_BYTES = 8000  # gather ~1 s before responding
+    # webrtcvad operates on PCM16 at 8/16/32/48 kHz with 10/20/30 ms frames.
+    # Our incoming audio is µ-law @ 8 kHz; we decode each batch to PCM16 @ 8k
+    # for VAD, but keep the µ-law version for STT (Whisper accepts WAV).
+    vad = webrtcvad.Vad(1)  # aggressiveness 0–3; 1 = more permissive (TTS audio quieter than human)
+    VAD_FRAME_MS = 20
+    VAD_BYTES_PER_FRAME_PCM16_8K = 8000 * VAD_FRAME_MS // 1000 * 2  # 320 bytes
+    speech_started = False
+    pcm16_8k_buf = bytearray()
+    silence_frames = 0  # contiguous non-speech frames
+    # 5 frames * 20 ms = 100 ms. Picked low because TTS audio cuts straight to
+    # silence (no natural trailing breath like a real caller); a higher
+    # threshold would never fire — the user simulator just stops sending.
+    SILENCE_FRAMES_TO_END = 5
+    MIN_BYTES_TO_PROCESS = 1600  # don't fire on tiny bursts (~200ms µ-law)
     greeted = False
+
+    def _mulaw8k_chunk_to_pcm16_8k(mulaw: bytes) -> bytes:
+        """µ-law @ 8k -> PCM16 @ 8k (no resample, just decode)."""
+        import audioop  # type: ignore[import]
+        return audioop.ulaw2lin(mulaw, 2)
+
+    async def _flush_user_turn() -> None:
+        """Send accumulated µ-law to STT/LLM/TTS pipeline, reset buffers."""
+        nonlocal accumulated_mulaw, pcm16_8k_buf, speech_started, silence_frames
+        if len(accumulated_mulaw) < MIN_BYTES_TO_PROCESS or not stream_sid:
+            accumulated_mulaw.clear()
+            pcm16_8k_buf.clear()
+            speech_started = False
+            silence_frames = 0
+            return
+        audio_to_process = bytes(accumulated_mulaw)
+        accumulated_mulaw.clear()
+        pcm16_8k_buf.clear()
+        speech_started = False
+        silence_frames = 0
+        await _process_user_audio(
+            websocket,
+            stream_sid,
+            audio_to_process,
+            conversation_history,
+        )
+
+    def _feed_vad(mulaw_payload: bytes) -> bool:
+        """Decode + feed VAD; return True iff end-of-utterance detected."""
+        nonlocal speech_started, silence_frames
+        pcm = _mulaw8k_chunk_to_pcm16_8k(mulaw_payload)
+        pcm16_8k_buf.extend(pcm)
+        end_detected = False
+        speech_count_in_burst = 0
+        non_speech_count_in_burst = 0
+        while len(pcm16_8k_buf) >= VAD_BYTES_PER_FRAME_PCM16_8K:
+            frame = bytes(pcm16_8k_buf[:VAD_BYTES_PER_FRAME_PCM16_8K])
+            del pcm16_8k_buf[:VAD_BYTES_PER_FRAME_PCM16_8K]
+            try:
+                is_speech = vad.is_speech(frame, 8000)
+            except Exception:
+                is_speech = False
+            if is_speech:
+                speech_count_in_burst += 1
+                speech_started = True
+                silence_frames = 0
+            else:
+                non_speech_count_in_burst += 1
+                if speech_started:
+                    silence_frames += 1
+                    if silence_frames >= SILENCE_FRAMES_TO_END:
+                        end_detected = True
+                        break
+        if speech_count_in_burst or non_speech_count_in_burst:
+            logger.debug(
+                "vad: speech=%d nonspeech=%d started=%s silence=%d end=%s",
+                speech_count_in_burst, non_speech_count_in_burst,
+                speech_started, silence_frames, end_detected,
+            )
+        return end_detected
 
     remote = getattr(websocket, "remote_address", "?")
     logger.info("connection from %s", remote)
@@ -282,6 +361,8 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
             if isinstance(raw_message, bytes):
                 # Binary frame — treat as raw µ-law payload.
                 accumulated_mulaw.extend(raw_message)
+                if _feed_vad(raw_message):
+                    await _flush_user_turn()
                 continue
 
             try:
@@ -326,19 +407,10 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     try:
                         payload = base64.b64decode(b64)
                         accumulated_mulaw.extend(payload)
+                        if _feed_vad(payload):
+                            await _flush_user_turn()
                     except (ValueError, TypeError):
                         logger.debug("bad base64 in media frame")
-
-                    # Once we have enough audio, transcribe + respond.
-                    if stream_sid and len(accumulated_mulaw) >= SILENCE_THRESHOLD_BYTES:
-                        audio_to_process = bytes(accumulated_mulaw)
-                        accumulated_mulaw.clear()
-                        await _process_user_audio(
-                            websocket,
-                            stream_sid,
-                            audio_to_process,
-                            conversation_history,
-                        )
 
             elif event == "stop":
                 logger.info("received stop event — closing")

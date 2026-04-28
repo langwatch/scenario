@@ -28,6 +28,7 @@ from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from ._twilio_shared import (
+    TWILIO_FRAME_MS,
     build_media_frame,
     iter_mulaw_frames,
     mulaw8k_to_pcm16_24k,
@@ -184,13 +185,20 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        # Pace at real-time (TWILIO_FRAME_MS/1000s per 20-ms frame). Without this
+        # we dump 1.5s of audio in a few ms, which trips the bot's VAD into
+        # treating the burst as a clipped utterance — the agent then replies
+        # with "your message got cut off." Pacing matches what a real caller
+        # produces over a PSTN line.
         self._assert_connected()
         assert self._ws is not None and self.stream_sid is not None
         mulaw = pcm16_24k_to_mulaw8k(chunk.data)
+        frame_secs = TWILIO_FRAME_MS / 1000
         for frame in iter_mulaw_frames(mulaw):
             if not frame:
                 continue
             await self._ws.send(build_media_frame(self.stream_sid, frame))
+            await asyncio.sleep(frame_secs)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         self._assert_connected()

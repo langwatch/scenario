@@ -139,11 +139,15 @@ class _AdapterRecorder:
         return time.monotonic() - anchor
 
     def record_user(self, chunk: AudioChunk) -> None:
+        # We're called AFTER the audio has been transmitted (or assembled),
+        # so the offset NOW is the end of the segment, not the start. Compute
+        # start by subtracting the chunk's natural duration. Without this the
+        # manifest's start_time looks like the END of the speaking interval.
         if self._executor is None or not chunk.data:
             return
         _fire_audio_chunk(self._executor, chunk)
-        start = self._offset()
-        end = start + chunk.duration_seconds
+        end = self._offset()
+        start = max(0.0, end - chunk.duration_seconds)
         _append_segment(self._executor, "user", start, end, chunk)
         _append_event(self._executor, VoiceEvent(time=start, type="user_start_speaking"))
         _append_event(self._executor, VoiceEvent(time=end, type="user_stop_speaking"))
@@ -152,11 +156,13 @@ class _AdapterRecorder:
         self._user_stopped_at = self._offset()
 
     def record_agent(self, chunk: AudioChunk) -> None:
+        # Same convention as record_user: we're called when the agent finished
+        # speaking (drain returned), so `now` is end_time and start is derived.
         if self._executor is None or not chunk.data:
             return
         _fire_audio_chunk(self._executor, chunk)
-        start = self._offset()
-        end = start + chunk.duration_seconds
+        end = self._offset()
+        start = max(0.0, end - chunk.duration_seconds)
         _append_segment(self._executor, "agent", start, end, chunk)
         latency = None
         if self._user_stopped_at is not None:
