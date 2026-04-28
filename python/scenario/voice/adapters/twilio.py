@@ -35,6 +35,7 @@ from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from ._twilio_shared import (
+    TWILIO_FRAME_MS,
     TwilioRESTHelper,
     build_clear_frame,
     build_media_frame,
@@ -324,16 +325,21 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
+        # Pace at real-time (one frame per TWILIO_FRAME_MS). Without pacing the
+        # whole utterance arrives in milliseconds, which trips bots' VAD into
+        # a clipped-utterance reading.
         self._assert_stream_live()
         ws = self._stream_ws
         stream_sid = self._stream_sid
         assert ws is not None and stream_sid is not None
 
         mulaw = pcm16_24k_to_mulaw8k(chunk.data)
+        frame_secs = TWILIO_FRAME_MS / 1000
         for frame in iter_mulaw_frames(mulaw):
             if not frame:
                 continue
             await ws.send_text(build_media_frame(stream_sid, frame))
+            await asyncio.sleep(frame_secs)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         self._assert_stream_live()

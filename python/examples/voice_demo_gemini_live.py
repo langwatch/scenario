@@ -14,8 +14,8 @@ How to run:
     uv run examples/voice_demo_gemini_live.py
 
 Required env vars:
-    OPENAI_API_KEY   — for JudgeAgent LLM
-    GEMINI_API_KEY   — for GeminiLiveAgentAdapter
+    GEMINI_API_KEY      — Gemini Live agent + judge LLM
+    ELEVENLABS_API_KEY  — user simulator TTS voice (no OpenAI dep)
 """
 
 import asyncio
@@ -30,7 +30,7 @@ try:
 except ImportError:
     pass
 
-REQUIRED_ENV = ("OPENAI_API_KEY", "GEMINI_API_KEY")
+REQUIRED_ENV = ("GEMINI_API_KEY", "ELEVENLABS_API_KEY")
 
 
 def _check_env() -> None:
@@ -44,7 +44,8 @@ _check_env()
 import scenario  # noqa: E402
 from _voice_recording_helper import save_demo_recording  # noqa: E402
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+# Judge runs on Gemini — no OpenAI dependency in this demo.
+scenario.configure(default_model="gemini/gemini-2.0-flash")
 
 
 async def main() -> scenario.ScenarioResult:
@@ -60,7 +61,8 @@ async def main() -> scenario.ScenarioResult:
                 voice="Algieba",
                 system_instruction="You are a helpful assistant. Keep responses brief.",
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
+            # ElevenLabs voice "Sarah" — premade, available on free tier.
+            scenario.UserSimulatorAgent(voice="elevenlabs/EXAVITQu4vr4xnSDxMaL"),
             scenario.JudgeAgent(
                 criteria=[
                     "The agent responded naturally to the greeting",
