@@ -848,3 +848,28 @@ Feature: Voice agent testing in Scenario SDK
     Given the voice-integration workflow runs
     Then it uploads python/recordings/** as the "voice-demo-recordings" artifact
     And the upload step runs even when prior steps fail (if: always())
+
+  # ======================================================================
+  # AC-15 — Auto-transcribe agent audio for non-multimodal judges
+  # ======================================================================
+
+  @unit
+  Scenario: transcribe_segments fills missing transcripts in place
+    Given a VoiceRecording with two agent segments lacking transcripts
+    When transcribe_segments is called with a configured STT provider
+    Then both segments have non-null transcript
+    And segments that already had a transcript are not re-transcribed
+
+  @unit
+  Scenario: judge auto-transcribes agent audio when model is non-multimodal
+    Given a voice scenario whose judge uses a text-only model
+    And the conversation contains an assistant message with audio content only
+    When the judge runs
+    Then transcribe_segments is invoked over result.audio
+    And the judge's transcript view contains the agent's spoken text
+
+  @unit
+  Scenario: missing STT provider degrades gracefully
+    Given transcribe_segments is called with no configured STT provider
+    Then it logs a warning and returns without raising
+    And segment transcripts remain null
