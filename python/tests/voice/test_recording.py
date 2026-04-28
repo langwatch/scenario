@@ -7,6 +7,7 @@ from io import BytesIO
 import pytest
 
 from scenario.voice import AudioSegment, LatencyMetrics, VoiceEvent, VoiceRecording
+from scenario.voice.recording import SpeakerRole
 
 
 def _segment(speaker: str, start: float, end: float) -> AudioSegment:
@@ -77,9 +78,11 @@ def test_recording_save_wav_writes_file(tmp_path):
 # AC-14 — save_segments
 # ---------------------------------------------------------------------------
 
-def _seg_pcm(speaker: str, start: float, end: float, transcript: str = "hello") -> AudioSegment:
+def _seg_pcm(
+    speaker: SpeakerRole, start: float, end: float, transcript: str = "hello"
+) -> AudioSegment:
     """50 ms of silence at 16 kHz PCM16 (1600 bytes)."""
-    return AudioSegment(  # type: ignore[arg-type,misc,index]
+    return AudioSegment(
         speaker=speaker,
         start_time=start,
         end_time=end,
