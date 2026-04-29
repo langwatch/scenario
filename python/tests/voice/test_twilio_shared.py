@@ -2,7 +2,7 @@
 Unit tests for scenario.voice.adapters._twilio_shared — the µ-law codec,
 Media Streams frame parser, and E.164 validator.
 
-The full adapter e2e test lives in examples/voice_twilio_*_scenario.py
+The full adapter e2e test lives in examples/voice/twilio_{inbound,outbound}.py
 (manual, real-phone).
 """
 

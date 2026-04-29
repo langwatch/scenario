@@ -1,6 +1,6 @@
 """
 Unit tests for CloudflareTunnel — error paths only. The real tunnel spawn
-is exercised in examples/voice_twilio_*_scenario.py (manual).
+is exercised in examples/voice/twilio_{inbound,outbound}.py (manual).
 """
 
 from unittest.mock import patch

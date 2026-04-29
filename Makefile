@@ -72,18 +72,18 @@ build-docs:
 # Start the bundled stub bot in the background.
 # Writes its PID to .voice-bot.pid and polls until :8765 accepts connections.
 voice-pipecat-up:
-	@echo "Starting voice_pipecat_bot on :8765 ..."
-	@( cd python && uv run python examples/voice_pipecat_bot/bot.py >> /tmp/voice-pipecat-bot.log 2>&1 ) & \
+	@echo "Starting voice stub bot on :8765 ..."
+	@( cd python && uv run python examples/voice/_bot/bot.py >> /tmp/voice-pipecat-bot.log 2>&1 ) & \
 		echo $$! > $(CURDIR)/.voice-bot.pid
 	@echo "Waiting for bot on :8765 (up to 15 s)..."
 	@for i in $$(seq 1 30); do \
 		if python3 -c "import socket; socket.create_connection(('127.0.0.1', 8765), 0.5)" 2>/dev/null; then \
-			echo "voice_pipecat_bot: ready (PID=$$(cat $(CURDIR)/.voice-bot.pid))"; \
+			echo "voice stub bot: ready (PID=$$(cat $(CURDIR)/.voice-bot.pid))"; \
 			exit 0; \
 		fi; \
 		sleep 0.5; \
 	done; \
-	echo "ERROR: voice_pipecat_bot did not start within 15 s. Check /tmp/voice-pipecat-bot.log"; \
+	echo "ERROR: voice stub bot did not start within 15 s. Check /tmp/voice-pipecat-bot.log"; \
 	cat /tmp/voice-pipecat-bot.log 2>/dev/null || true; \
 	exit 1
 
@@ -91,10 +91,10 @@ voice-pipecat-up:
 voice-pipecat-down:
 	@if [ -f $(CURDIR)/.voice-bot.pid ]; then \
 		PID=$$(cat $(CURDIR)/.voice-bot.pid); \
-		kill -TERM "$$PID" 2>/dev/null && echo "Stopped voice_pipecat_bot (PID=$$PID)" || true; \
+		kill -TERM "$$PID" 2>/dev/null && echo "Stopped voice stub bot (PID=$$PID)" || true; \
 		rm -f $(CURDIR)/.voice-bot.pid; \
 	else \
-		echo "voice_pipecat_bot: no .voice-bot.pid found (already down?)"; \
+		echo "voice stub bot: no .voice-bot.pid found (already down?)"; \
 	fi
 
 # Provision (or reuse) the ElevenLabs throwaway test agent.

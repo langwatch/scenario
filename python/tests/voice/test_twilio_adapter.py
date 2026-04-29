@@ -1,7 +1,7 @@
 """
 Unit tests for TwilioAgentAdapter transport behavior (REST client mocked).
 
-Real-phone e2e is covered in examples/voice_twilio_*_scenario.py.
+Real-phone e2e is covered in examples/voice/twilio_{inbound,outbound}.py.
 """
 
 import asyncio

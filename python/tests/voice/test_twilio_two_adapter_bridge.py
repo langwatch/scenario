@@ -5,7 +5,7 @@ symmetric — bytes sent by adapter A's ``send_audio`` surface at adapter B's
 conversion. No real Twilio, no cloudflared, no money spent.
 
 The real two-number PSTN smoke lives in
-``examples/voice_twilio_simulator_calls_agent_scenario.py``; this test is its
+``examples/voice/twilio_outbound.py``; this test is its
 fast, free, deterministic sibling that runs in CI.
 """
 
