@@ -10,21 +10,19 @@ AC: specs/voice-agents.feature "Example 6.1 — basic greeting flow"
     Source §6.1, L874-899.
 
 How to run:
-    # 1. Start the bundled stub bot (from repo root):
-    make voice-pipecat-up
-
-    # 2. Run this demo:
     cd python
     uv run examples/voice_example_6_1_basic_greeting.py
+
+    The bundled Pipecat stub bot is auto-spawned by ensure_pipecat_bot()
+    and torn down on exit. If a bot is already listening on :8765 it is
+    used as-is and left running.
 
 Required env vars:
     OPENAI_API_KEY   — for UserSimulatorAgent TTS + JudgeAgent LLM
 
 Note:
-    This demo uses PipecatAgentAdapter pointing at a local mock bot URL.
-    Without a live Pipecat bot the adapter will fail to connect; the demo
-    will exit with an error message.  Set PIPECAT_BOT_URL if your bot is
-    at a non-default URL.  The e2e test skips when OPENAI_API_KEY is absent.
+    Set PIPECAT_BOT_URL if your bot is at a non-default URL.  The e2e
+    test skips when OPENAI_API_KEY is absent.
 """
 
 import asyncio

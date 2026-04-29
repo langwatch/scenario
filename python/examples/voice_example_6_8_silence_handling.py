@@ -10,12 +10,12 @@ AC: specs/voice-agents.feature "Example 6.8 — silence handling"
     Source §6.8, L1087-1113.
 
 How to run:
-    # 1. Start the bundled stub bot (from repo root):
-    make voice-pipecat-up
-
-    # 2. Run this demo:
     cd python
     uv run examples/voice_example_6_8_silence_handling.py
+
+    The bundled Pipecat stub bot is auto-spawned by ensure_pipecat_bot()
+    and torn down on exit. If a bot is already listening on :8765 it is
+    used as-is and left running.
 
 Required env vars:
     OPENAI_API_KEY   — for UserSimulatorAgent TTS + JudgeAgent LLM

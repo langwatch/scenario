@@ -10,12 +10,12 @@ AC: specs/voice-agents.feature "Demo — same scenario.run() entrypoint for voic
     Source §1 L9 — "no scenario.voice.run(), no separate paradigm."
 
 How to run:
-    # 1. Start the bundled stub bot (from repo root):
-    make voice-pipecat-up
-
-    # 2. Run this demo:
     cd python
     uv run examples/voice_demo_voice_text_parity.py
+
+    The bundled Pipecat stub bot is auto-spawned by ensure_pipecat_bot()
+    and torn down on exit. If a bot is already listening on :8765 it is
+    used as-is and left running.
 
 Required env vars:
     OPENAI_API_KEY   — for UserSimulatorAgent TTS + JudgeAgent LLM
