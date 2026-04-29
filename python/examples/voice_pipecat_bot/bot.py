@@ -297,7 +297,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     # case where TTS cuts straight to silence with no trailing breath
     # (the user simulator stops sending entirely; VAD never gets to run
     # on the trailing silence because there's no trailing silence to feed).
-    INACTIVITY_END_MS = 400
+    INACTIVITY_END_MS = 1000
     MIN_BYTES_TO_PROCESS = 1600  # don't fire on tiny bursts (~200ms µ-law)
     inactivity_task: Optional[asyncio.Task] = None
     greeted = False
@@ -333,14 +333,26 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         )
 
     async def _inactivity_watchdog() -> None:
-        """Fire end-of-turn after INACTIVITY_END_MS of no new audio."""
+        """Fire end-of-turn after INACTIVITY_END_MS of no new audio.
+
+        Once the timer fires we DETACH ourselves from ``inactivity_task``
+        before doing any awaitable work, so a late media frame's
+        ``_kick_inactivity_watchdog`` cannot cancel us mid-flush. Cancellation
+        of the flush would lose the user's transcript silently — see
+        ND-17 follow-up.
+        """
+        nonlocal inactivity_task
         try:
             await asyncio.sleep(INACTIVITY_END_MS / 1000)
-            if speech_started:
-                logger.debug("inactivity watchdog firing end-of-turn")
-                await _flush_user_turn()
         except asyncio.CancelledError:
-            pass
+            return
+        if not speech_started:
+            return
+        # Detach: from this point on, kicks must spawn a new task rather
+        # than cancel us.
+        inactivity_task = None
+        logger.debug("inactivity watchdog firing end-of-turn")
+        await _flush_user_turn()
 
     def _kick_inactivity_watchdog() -> None:
         """Restart the inactivity timer (called on every media frame after speech started)."""
