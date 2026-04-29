@@ -86,37 +86,38 @@ def assert_tool_called(state: ScenarioState) -> None:
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="example_6_5_tool_verification",
-        description=(
-            "Customer asks for their account balance. The bot must call "
-            "get_customer_info before answering. A plain Python callable "
-            "asserts that mid-scenario."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_5_tool_verification",
+            description=(
+                "Customer asks for their account balance. The bot must call "
+                "get_customer_info before answering. A plain Python callable "
+                "asserts that mid-scenario."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent responded to the user's account balance question",
-                    "The conversation ended politely",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("What's my account balance?"),
-            scenario.agent(),
-            assert_tool_called,  # plain Python callable — Example 6.5 pattern
-            scenario.user("Thank you"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=6,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent responded to the user's account balance question",
+                        "The conversation ended politely",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("What's my account balance?"),
+                scenario.agent(),
+                assert_tool_called,  # plain Python callable — Example 6.5 pattern
+                scenario.user("Thank you"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=6,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

@@ -30,9 +30,7 @@ Optional env vars:
 # Re-export from the original pipecat scenario so we stay DRY.
 # The original demo is voice/pipecat_scenario.py; this module delegates to it.
 
-import sys
-
-from voice/pipecat_scenario import main  # type: ignore[import]
+from pipecat_scenario import main  # type: ignore[import]
 
 if __name__ == "__main__":
     import asyncio

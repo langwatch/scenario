@@ -54,37 +54,38 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="example_6_2_interruption_recovery",
-        description=(
-            "User starts speaking; the bot begins a response about LA travel. "
-            "After 2 seconds the user interrupts with a correction. "
-            "Judge: bot recovered gracefully and addressed the updated city."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_2_interruption_recovery",
+            description=(
+                "User asks about billing; the bot starts answering. "
+                "After 2 seconds the user interrupts with a correction. "
+                "Judge: bot recovered gracefully and addressed the updated topic."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent recovered gracefully after the interruption",
-                    "The agent addressed the corrected city (Chicago, not LA)",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Tell me about travel to LA"),
-            scenario.agent(wait=False),
-            scenario.sleep(2.0),
-            scenario.user("Wait sorry, I meant Chicago, not LA"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=6,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent recovered gracefully after the interruption",
+                        "The agent addressed the corrected topic (account support, not billing)",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("Tell me about my billing"),
+                scenario.agent(wait=False),
+                scenario.sleep(2.0),
+                scenario.user("Wait sorry, I meant account support, not billing"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=6,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

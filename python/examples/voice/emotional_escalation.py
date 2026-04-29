@@ -54,41 +54,42 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="pain_emotional_escalation",
-        description=(
-            "A caller starts calm but escalates to frustrated over several turns "
-            "because their problem is not being resolved. The bot must detect the "
-            "tone shift and offer empathy or human escalation."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="pain_emotional_escalation",
+            description=(
+                "A caller starts calm but escalates to frustrated over several turns "
+                "because their problem is not being resolved. The bot must detect the "
+                "tone shift and offer empathy or human escalation."
             ),
-            scenario.UserSimulatorAgent(
-                voice="openai/nova",
-                persona=(
-                    "Starts calm and polite. Becomes increasingly frustrated each "
-                    "turn when the issue isn't resolved. By turn 3 is visibly "
-                    "upset and says 'This is unacceptable, I need to speak to a "
-                    "human right now.'"
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
                 ),
-            ),
-            scenario.JudgeAgent(
-                criteria=[
-                    # Structural: SDK can drive a multi-turn escalating voice
-                    # scenario. Bot behavior (empathy, escalation) is bot-prompt
-                    # territory, not SDK contract.
-                    "The agent engaged across multiple turns of escalating user tone",
-                ]
-            ),
-        ],
-        # 4 turns keeps the demo demonstrably escalating while fitting under
-        # the 300s pytest-timeout; 8 turns ran 4+ minutes and flaked.
-        max_turns=4,
-    )
+                scenario.UserSimulatorAgent(
+                    voice="openai/nova",
+                    persona=(
+                        "Starts calm and polite. Becomes increasingly frustrated each "
+                        "turn when the issue isn't resolved. By turn 3 is visibly "
+                        "upset and says 'This is unacceptable, I need to speak to a "
+                        "human right now.'"
+                    ),
+                ),
+                scenario.JudgeAgent(
+                    criteria=[
+                        # Structural: SDK can drive a multi-turn escalating voice
+                        # scenario. Bot behavior (empathy, escalation) is bot-prompt
+                        # territory, not SDK contract.
+                        "The agent engaged across multiple turns of escalating user tone",
+                    ]
+                ),
+            ],
+            # 4 turns keeps the demo demonstrably escalating while fitting under
+            # the 300s pytest-timeout; 8 turns ran 4+ minutes and flaked.
+            max_turns=4,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

@@ -54,36 +54,37 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="pain_long_hold",
-        description=(
-            "Caller asks for their account balance. The bot fetches it (15s "
-            "simulated delay via sleep). The bot must not stay silent — it "
-            "should play hold music or verbal acknowledgement."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="pain_long_hold",
+            description=(
+                "Caller asks for their account balance. The bot fetches it (15s "
+                "simulated delay via sleep). The bot must not stay silent — it "
+                "should play hold music or verbal acknowledgement."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "Agent provides audio feedback while waiting (hold music or verbal)",
-                    "Agent does not leave the caller in dead silence for the full 15s",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("What's my account balance?"),
-            scenario.agent(),
-            scenario.sleep(15),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=6,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "Agent provides audio feedback while waiting (hold music or verbal)",
+                        "Agent does not leave the caller in dead silence for the full 15s",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("What's my account balance?"),
+                scenario.agent(),
+                scenario.sleep(15),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=6,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

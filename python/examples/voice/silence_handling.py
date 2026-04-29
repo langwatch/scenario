@@ -54,37 +54,38 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="example_6_8_silence_handling",
-        description=(
-            "After an initial question, 10 seconds of silence is injected. "
-            "The bot should prompt the caller during the silence. "
-            "The caller then speaks again and the bot closes out the call."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_8_silence_handling",
+            description=(
+                "After an initial question, 10 seconds of silence is injected. "
+                "The bot should prompt the caller during the silence. "
+                "The caller then speaks again and the bot closes out the call."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent prompted the caller during the silence",
-                    "The agent handled the silence gracefully without hanging up",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Hello"),
-            scenario.silence(10.0),
-            scenario.agent(),
-            scenario.user("Sorry, I'm still here"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=6,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent prompted the caller during the silence",
+                        "The agent handled the silence gracefully without hanging up",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("Hello"),
+                scenario.silence(10.0),
+                scenario.agent(),
+                scenario.user("Sorry, I'm still here"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=6,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

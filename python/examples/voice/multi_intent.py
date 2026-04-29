@@ -58,32 +58,33 @@ MULTI_INTENT_UTTERANCE = (
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="pain_multi_intent",
-        description=(
-            "A single user turn contains two intents: cancel subscription AND "
-            "check remaining credits. The agent must address both."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="pain_multi_intent",
+            description=(
+                "A single user turn contains two intents: cancel subscription AND "
+                "check remaining credits. The agent must address both."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent produced a response after the user's message",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user(MULTI_INTENT_UTTERANCE),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=4,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent produced a response after the user's message",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user(MULTI_INTENT_UTTERANCE),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=4,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

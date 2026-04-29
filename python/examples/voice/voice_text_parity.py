@@ -109,7 +109,8 @@ async def main() -> tuple[scenario.ScenarioResult, scenario.ScenarioResult]:
     print(f"text  success={text_result.success}  audio={text_result.audio}")
 
     print("\nRunning voice scenario…")
-    voice_result = await run_voice_scenario()
+    async with ensure_pipecat_bot():
+        voice_result = await run_voice_scenario()
     print(f"voice success={voice_result.success}  audio_segments={len(voice_result.audio.segments) if voice_result.audio else 0}")
     save_demo_recording(getattr(voice_result, "audio", None))
     return text_result, voice_result

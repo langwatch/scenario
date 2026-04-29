@@ -62,33 +62,34 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="demo_recording_playback",
-        description=(
-            "Record a two-turn voice conversation and save it as WAV + MP3. "
-            "audio_playback=True streams live to the local audio device."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="demo_recording_playback",
+            description=(
+                "Record a two-turn voice conversation and save it as WAV + MP3. "
+                "audio_playback=True streams live to the local audio device."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent responded helpfully",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Hello"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=4,
-        audio_playback=True,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent responded helpfully",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("Hello"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=4,
+            audio_playback=True,
+        )
 
     print(f"success: {result.success}")
     save_demo_recording(getattr(result, "audio", None))
