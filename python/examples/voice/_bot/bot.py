@@ -297,8 +297,13 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     # case where TTS cuts straight to silence with no trailing breath
     # (the user simulator stops sending entirely; VAD never gets to run
     # on the trailing silence because there's no trailing silence to feed).
-    INACTIVITY_END_MS = 1000
-    MIN_BYTES_TO_PROCESS = 1600  # don't fire on tiny bursts (~200ms µ-law)
+    # 1500ms intra-utterance pause tolerance: TTS output sometimes inserts
+    # 1s+ pauses after commas / between phrases. 1000ms wasn't enough — saw
+    # "Hi." flush prematurely while "I need help..." was still queued.
+    INACTIVITY_END_MS = 1500
+    # ~1s of µ-law @ 8kHz. Anything shorter is almost certainly a fragment
+    # (single word, throat-clear), not a full user turn worth replying to.
+    MIN_BYTES_TO_PROCESS = 8000
     inactivity_task: Optional[asyncio.Task] = None
     greeted = False
 
