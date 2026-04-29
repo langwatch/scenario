@@ -10,12 +10,12 @@ AC: specs/voice-agents.feature "Demo — OpenAI Realtime as the user simulator"
     Source §7.2, L1164-1171.
 
 How to run:
-    # 1. Start the bundled stub bot (from repo root, for the AUT side):
-    make voice-pipecat-up
-
-    # 2. Run this demo:
     cd python
     uv run examples/voice_demo_openai_realtime_user.py
+
+    The bundled Pipecat stub bot (the AUT side) is auto-spawned by
+    ensure_pipecat_bot() and torn down on exit. If a bot is already
+    listening on :8765 it is used as-is and left running.
 
 Required env vars:
     OPENAI_API_KEY   — for OpenAIRealtimeAgentAdapter + JudgeAgent LLM

@@ -11,12 +11,12 @@ AC: specs/voice-agents.feature "Example 6.6 — pre-recorded audio injection"
     Source §6.6, L1030-1055.
 
 How to run:
-    # 1. Start the bundled stub bot (from repo root):
-    make voice-pipecat-up
-
-    # 2. Run this demo:
     cd python
     uv run examples/voice_example_6_6_prerecorded_audio.py
+
+    The bundled Pipecat stub bot is auto-spawned by ensure_pipecat_bot()
+    and torn down on exit. If a bot is already listening on :8765 it is
+    used as-is and left running.
 
 Required env vars:
     OPENAI_API_KEY   — for JudgeAgent LLM
