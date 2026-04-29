@@ -75,18 +75,18 @@ jobs:
       # ---------------------------------------------------------------
       - name: Start bundled Pipecat stub bot
         run: |
-          uv run python examples/voice_pipecat_bot/bot.py \
+          uv run python examples/voice/_bot/bot.py \
             >> /tmp/voice-pipecat-bot.log 2>&1 &
           echo "$!" > /tmp/voice-bot.pid
           # Poll until port 8765 accepts connections (up to 30 s).
           for i in $(seq 1 60); do
             if python3 -c "import socket; socket.create_connection(('127.0.0.1', 8765), 0.5)" 2>/dev/null; then
-              echo "voice_pipecat_bot: ready (PID=$(cat /tmp/voice-bot.pid))"
+              echo "voice stub bot: ready (PID=$(cat /tmp/voice-bot.pid))"
               exit 0
             fi
             sleep 0.5
           done
-          echo "ERROR: voice_pipecat_bot did not start within 30 s"
+          echo "ERROR: voice stub bot did not start within 30 s"
           cat /tmp/voice-pipecat-bot.log || true
           exit 1
         working-directory: python

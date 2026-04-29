@@ -87,7 +87,8 @@ def _start_pipecat_bot() -> None:
     bot_path = (
         Path(__file__).resolve().parent.parent.parent
         / "examples"
-        / "voice_pipecat_bot"
+        / "voice"
+        / "_bot"
         / "bot.py"
     )
     if not bot_path.exists():
