@@ -29,6 +29,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
+    build_clear_frame,
     build_mark_frame,
     build_media_frame,
     iter_mulaw_frames,
@@ -58,6 +59,10 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         streaming_transcripts=True,
         native_vad=True,
         dtmf=False,
+        # Pipecat over the Twilio WS transport speaks the Twilio Media Streams
+        # protocol; the ``clear`` event drops all buffered outbound audio on
+        # the bot side. That's first-class interrupt — no VAD timing race.
+        interruption=True,
         input_formats=["pcm16/24000", "mulaw/8000", "opus"],
         output_formats=["pcm16/24000", "mulaw/8000", "opus"],
     )
@@ -220,6 +225,19 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         self._assert_connected()
         assert self._inbound_queue is not None
         return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
+
+    async def interrupt(self) -> None:
+        """Send a Twilio ``clear`` frame — the bot drops all buffered outbound
+        audio immediately. Cooperating Pipecat bots (and any code wired to
+        the Media Streams protocol) treat ``clear`` as "stop talking now."
+        Use this in preference to timing-based barge-in when the SUT
+        supports it: it's deterministic, doesn't depend on VAD detection
+        windows, and matches the same protocol used in production.
+        """
+        self._assert_connected()
+        assert self._ws is not None and self.stream_sid is not None
+        await self._ws.send(build_clear_frame(self.stream_sid))
+        logger.debug("PipecatAgentAdapter: sent clear frame (interrupt)")
 
     # ------------------------------------------------------------------ background
 

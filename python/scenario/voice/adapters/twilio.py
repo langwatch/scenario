@@ -77,6 +77,9 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         streaming_transcripts=False,
         native_vad=False,
         dtmf=True,
+        # Twilio Media Streams ``clear`` event drops all buffered outbound
+        # audio. Used by ``adapter.interrupt()`` already wired below.
+        interruption=True,
         input_formats=["mulaw/8000"],
         output_formats=["mulaw/8000"],
     )

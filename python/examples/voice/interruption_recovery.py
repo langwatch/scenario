@@ -2,17 +2,25 @@
 Example 6.2 — Interruption recovery.
 
 What this demo proves:
-    Two equivalent ways to interrupt the agent mid-utterance, run in
-    sequence within one scenario:
+    Two interruption forms, run in sequence within one scenario:
 
-      1. The unrolled form from spec §6.2 / Example 6.2:
+      1. **Timing-based barge-in** (spec §6.2 / Example 6.2 verbatim):
          agent(wait=False) + sleep(N) + user("...")
-      2. The declarative sugar from spec §4.4:
-         scenario.interrupt(after=N, content="...")
+         The user audio overlaps with the agent's TTS on the wire; the
+         SUT detects the new speech via VAD and cancels its own TTS.
+         No native interrupt protocol used.
 
-    Both push user audio onto the wire while the agent is still TTS-ing;
-    the bot's VAD detects the new speech and cancels its in-flight TTS
-    (barge-in). The judge sees the agent recover gracefully both times.
+      2. **Signal-based interrupt** (spec §4.4, scenario.interrupt sugar):
+         scenario.interrupt(after=N, content="...")
+         When the adapter advertises capabilities.interruption=True
+         (PipecatAgentAdapter, TwilioAgentAdapter, OpenAIRealtimeAgent-
+         Adapter), the step calls adapter.interrupt() to send the
+         transport-native interrupt signal — Twilio ``clear`` here. The
+         SUT stops generating audio immediately. Deterministic, no race
+         against VAD timing. When the adapter does NOT support native
+         interrupt, the sugar transparently falls back to barge-in.
+
+    The judge sees the agent recover gracefully both times.
 
 AC: specs/voice-agents.feature "Example 6.2 — interruption recovery"
     Source §6.2, L901-929; §4.4 L450-467.
@@ -87,9 +95,11 @@ async def main() -> scenario.ScenarioResult:
             ],
             script=[
                 # ------------------------------------------------------------------
-                # Interrupt #1 — unrolled form (spec §6.2 / Example 6.2 verbatim).
-                # A wordy first user turn elicits a long bot reply so the bot
-                # is still mid-TTS at the 1.5s interrupt mark.
+                # Interrupt #1 — timing-based barge-in (spec §6.2 verbatim).
+                # The user audio is sent while the agent is still TTS-ing; the
+                # SUT's VAD detects the speech and cancels its in-flight TTS.
+                # No native interrupt protocol — this is what scenario does
+                # against adapters that don't advertise capabilities.interruption.
                 # ------------------------------------------------------------------
                 scenario.user(
                     "Walk me through my entire billing history from the past year, "
@@ -101,8 +111,10 @@ async def main() -> scenario.ScenarioResult:
                 scenario.user("Wait sorry, I meant account support, not billing"),
                 scenario.agent(),
                 # ------------------------------------------------------------------
-                # Interrupt #2 — scenario.interrupt() sugar (spec §4.4).
-                # Same wire behaviour, one declarative step.
+                # Interrupt #2 — signal-based interrupt (spec §4.4 sugar).
+                # PipecatAgentAdapter advertises capabilities.interruption=True,
+                # so scenario.interrupt() calls adapter.interrupt() (Twilio
+                # ``clear`` event) — the SUT stops generating audio immediately.
                 # ------------------------------------------------------------------
                 scenario.user(
                     "Actually, can you also tell me about every product feature "

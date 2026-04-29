@@ -521,6 +521,16 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     logger.debug("received utterance_end mark — flushing")
                     await _flush_user_turn()
 
+            elif event == "clear":
+                # Twilio Media Streams ``clear`` — first-class interrupt
+                # signal. The controller (PipecatAgentAdapter / scenario
+                # interrupt step) has decided to interrupt us; cancel any
+                # in-flight TTS immediately. This is the deterministic
+                # interrupt path; VAD-based barge-in remains as a fallback
+                # for senders that don't emit clear.
+                logger.info("received clear event — cancelling in-flight response")
+                _maybe_barge_in()
+
             elif event == "stop":
                 logger.info("received stop event — closing")
                 break

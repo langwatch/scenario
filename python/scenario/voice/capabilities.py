@@ -30,6 +30,12 @@ class AdapterCapabilities:
             events (user_start_speaking / user_stop_speaking). When False, the
             SDK falls back to webrtcvad on the incoming audio stream.
         dtmf: True if the adapter can transmit DTMF tones (telephony).
+        interruption: True if the adapter can send a first-class interrupt
+            signal to the agent under test (e.g., Twilio ``clear``, OpenAI
+            Realtime ``response.cancel``). When True, ``scenario.interrupt()``
+            uses the signal path; when False, it falls back to timing-based
+            barge-in (audio sent over the wire while the agent is speaking,
+            which the SUT detects via VAD).
         input_formats: Wire formats the adapter can accept from the SDK for
             outgoing user audio (e.g., ["pcm16/24000", "mulaw/8000"]).
         output_formats: Wire formats the adapter emits for incoming agent
@@ -39,6 +45,7 @@ class AdapterCapabilities:
     streaming_transcripts: bool = False
     native_vad: bool = False
     dtmf: bool = False
+    interruption: bool = False
     input_formats: List[str] = field(default_factory=list)
     output_formats: List[str] = field(default_factory=list)
 
