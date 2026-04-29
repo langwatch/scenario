@@ -54,6 +54,24 @@ def _truncate_base64_media(value: Any) -> Any:
                     "data": f"[{category}: {media_type}, ~{len(obj['data'])} bytes]",
                 }
 
+            # Handle OpenAI input_audio parts: {type: "input_audio",
+            # input_audio: {data: "<base64>", format: "wav"}}. Without this
+            # branch, voice scenarios with long replies blow the judge's
+            # context window — a 5-second WAV is ~320KB of base64.
+            if obj.get("type") in ("input_audio", "audio"):
+                audio_obj = obj.get("input_audio") or obj.get("audio") or {}
+                if isinstance(audio_obj, dict) and isinstance(audio_obj.get("data"), str):
+                    fmt = audio_obj.get("format", "wav")
+                    size = len(audio_obj["data"])
+                    key = "input_audio" if obj.get("type") == "input_audio" else "audio"
+                    return {
+                        **obj,
+                        key: {
+                            **audio_obj,
+                            "data": f"[AUDIO: {fmt}, ~{size} bytes]",
+                        },
+                    }
+
             # Handle image parts with raw base64: {type: "image", image: "<base64>"}
             if obj.get("type") == "image" and isinstance(obj.get("image"), str):
                 image_data = obj["image"]

@@ -305,6 +305,10 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     INACTIVITY_END_MS = 1500
     MIN_BYTES_TO_PROCESS = 1600  # ~200ms µ-law; reject obvious fragments
     inactivity_task: Optional[asyncio.Task] = None
+    # Tracks the in-flight STT/LLM/TTS pipeline. When VAD detects fresh user
+    # speech while this is non-None, we cancel it — that's barge-in: the user
+    # interrupts the bot mid-utterance, the bot stops talking and listens.
+    response_task: Optional[asyncio.Task] = None
     greeted = False
 
     def _mulaw8k_chunk_to_pcm16_8k(mulaw: bytes) -> bytes:
@@ -313,9 +317,14 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         return audioop.ulaw2lin(mulaw, 2)
 
     async def _flush_user_turn() -> None:
-        """Send accumulated µ-law to STT/LLM/TTS pipeline, reset buffers."""
+        """Send accumulated µ-law to STT/LLM/TTS pipeline, reset buffers.
+
+        The STT/LLM/TTS pipeline runs as a separate task tracked in
+        ``response_task`` so that a subsequent barge-in (user starts talking
+        again while the bot is still TTS-ing) can cancel it.
+        """
         nonlocal accumulated_mulaw, pcm16_8k_buf, speech_started, silence_frames
-        nonlocal inactivity_task
+        nonlocal inactivity_task, response_task
         if inactivity_task is not None and not inactivity_task.done():
             inactivity_task.cancel()
         inactivity_task = None
@@ -338,11 +347,21 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         pcm16_8k_buf.clear()
         speech_started = False
         silence_frames = 0
-        await _process_user_audio(
-            websocket,
-            stream_sid,
-            audio_to_process,
-            conversation_history,
+        # Wait for any prior in-flight response to finish (or for its barge-in
+        # cancellation to settle) before starting a new one. Two responses
+        # writing to the websocket concurrently would interleave audio frames.
+        if response_task is not None and not response_task.done():
+            try:
+                await response_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        response_task = asyncio.create_task(
+            _process_user_audio(
+                websocket,
+                stream_sid,
+                audio_to_process,
+                conversation_history,
+            )
         )
 
     async def _inactivity_watchdog() -> None:
@@ -375,6 +394,18 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         if speech_started:
             inactivity_task = asyncio.create_task(_inactivity_watchdog())
 
+    def _maybe_barge_in() -> None:
+        """If the bot is currently TTS-ing and the user just started talking,
+        cancel the in-flight response so the bot stops mid-sentence and the
+        new turn can be processed once it ends. Called once per turn at the
+        first VAD-detected speech frame."""
+        nonlocal response_task
+        if response_task is None or response_task.done():
+            return
+        logger.info("barge-in: cancelling in-flight response task")
+        response_task.cancel()
+        response_task = None
+
     def _feed_vad(mulaw_payload: bytes) -> bool:
         """Decode + feed VAD; return True iff end-of-utterance detected."""
         nonlocal speech_started, silence_frames
@@ -392,6 +423,10 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                 is_speech = False
             if is_speech:
                 speech_count_in_burst += 1
+                if not speech_started:
+                    # First speech frame of this turn — if we're mid-TTS this
+                    # is barge-in and we cancel the in-flight response.
+                    _maybe_barge_in()
                 speech_started = True
                 silence_frames = 0
             else:
@@ -438,8 +473,9 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     greeted = True
                     greeting_text = "Hello! Thank you for calling. How can I help you today?"
                     logger.info("sending greeting: %r", greeting_text)
-                    await _send_tts(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
-                    conversation_history.append({"role": "assistant", "content": greeting_text})
+                    response_task = asyncio.create_task(
+                        _greet(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
+                    )
 
             elif event == "start":
                 stream_sid = (
@@ -455,8 +491,9 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     greeted = True
                     greeting_text = "Hello! Thank you for calling. How can I help you today?"
                     logger.info("sending greeting (post-start): %r", greeting_text)
-                    await _send_tts(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
-                    conversation_history.append({"role": "assistant", "content": greeting_text})
+                    response_task = asyncio.create_task(
+                        _greet(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
+                    )
 
             elif event == "media":
                 media = data.get("media") or {}
@@ -502,31 +539,56 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         logger.info("connection from %s closed", remote)
 
 
+async def _greet(
+    websocket,
+    stream_sid: str,
+    text: str,
+    history: list[dict],
+) -> None:
+    """TTS-only path used at session start. Wrapped as a task so a fast user
+    barge-in (rare, but possible if the user starts speaking before the
+    greeting finishes) cancels it cleanly. ``CancelledError`` is suppressed —
+    we want barge-in to silently stop the bot, not crash the connection."""
+    try:
+        await _send_tts(websocket, stream_sid, text, history)
+        history.append({"role": "assistant", "content": text})
+    except asyncio.CancelledError:
+        logger.info("greeting cancelled (barge-in)")
+        raise
+
+
 async def _process_user_audio(
     websocket,
     stream_sid: str,
     mulaw_bytes: bytes,
     history: list[dict],
 ) -> None:
-    """STT → LLM → TTS pipeline for one user turn."""
+    """STT → LLM → TTS pipeline for one user turn.
+
+    Wrapped as a task by ``_flush_user_turn`` so a barge-in (user starts
+    talking again) can cancel it cleanly mid-pipeline."""
     loop = asyncio.get_event_loop()
 
-    # STT (blocking I/O → run in thread pool).
-    transcript = await loop.run_in_executor(None, _openai_stt, mulaw_bytes)
-    logger.info("user said: %r", transcript)
-    if not transcript:
-        logger.debug("empty transcript, skipping response")
-        return
+    try:
+        # STT (blocking I/O → run in thread pool).
+        transcript = await loop.run_in_executor(None, _openai_stt, mulaw_bytes)
+        logger.info("user said: %r", transcript)
+        if not transcript:
+            logger.debug("empty transcript, skipping response")
+            return
 
-    history.append({"role": "user", "content": transcript})
+        history.append({"role": "user", "content": transcript})
 
-    # LLM.
-    reply = await loop.run_in_executor(None, _openai_chat_response, transcript, list(history))
-    logger.info("bot reply: %r", reply)
-    history.append({"role": "assistant", "content": reply})
+        # LLM.
+        reply = await loop.run_in_executor(None, _openai_chat_response, transcript, list(history))
+        logger.info("bot reply: %r", reply)
+        history.append({"role": "assistant", "content": reply})
 
-    # TTS → send.
-    await _send_tts(websocket, stream_sid, reply, history)
+        # TTS → send.
+        await _send_tts(websocket, stream_sid, reply, history)
+    except asyncio.CancelledError:
+        logger.info("response cancelled (barge-in) after %d bytes user audio", len(mulaw_bytes))
+        raise
 
 
 async def _send_tts(

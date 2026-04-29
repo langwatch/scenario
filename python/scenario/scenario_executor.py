@@ -932,6 +932,29 @@ class ScenarioExecutor:
                         {"role": "user", "content": content}
                     )
                 self.add_message(voiced)  # type: ignore[arg-type]
+                # Interruption: if a wait=False agent turn is currently in flight,
+                # the message-queue-only path above is not enough — the agent
+                # task already grabbed its `new_messages` snapshot before we
+                # added this one, so the audio would never reach the wire.
+                # Push it directly through the voice adapter so the SUT actually
+                # hears the user mid-utterance and can barge-in. The pending
+                # agent task is cancelled because the SUT will be cancelling
+                # its in-flight TTS too — there's no response coming back for
+                # the first turn, so awaiting it would hit recv_audio's
+                # response_timeout.
+                pending = getattr(self, "_pending_agent_task", None)
+                if pending is not None and not pending.done():
+                    adapter = self._find_voice_adapter()
+                    if adapter is not None:
+                        chunk = self._extract_audio_from_message(voiced)
+                        if chunk is not None:
+                            await adapter.send_audio(chunk)
+                    pending.cancel()
+                    try:
+                        await pending
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    self._pending_agent_task = None
                 return
         sim = self._find_user_sim()
         if sim is not None and (voice_style is not None or audio_effects is not None):
@@ -958,6 +981,31 @@ class ScenarioExecutor:
             if isinstance(agent, OpenAIRealtimeAgentAdapter) and agent.role == AgentRole.USER:
                 return agent
         return None
+
+    def _find_voice_adapter(self):
+        """Return the first VoiceAgentAdapter in role=AGENT on the scenario, if any.
+
+        Used by the interruption path: when ``user(text)`` is called while a
+        ``wait=False`` agent turn is in flight, we push the synthesised audio
+        through this adapter directly so the bot actually hears it on the wire.
+        """
+        from .voice.adapter import VoiceAgentAdapter
+
+        for agent in self.agents:
+            if isinstance(agent, VoiceAgentAdapter):
+                return agent
+        return None
+
+    @staticmethod
+    def _extract_audio_from_message(message):
+        """Pull the AudioChunk out of a multi-part user audio message, if present.
+
+        Mirrors ``scenario.voice.messages.extract_audio`` but avoids importing
+        it eagerly (it lives in the voice subtree).
+        """
+        from .voice.messages import extract_audio
+
+        return extract_audio(message)
 
     async def agent(
         self,

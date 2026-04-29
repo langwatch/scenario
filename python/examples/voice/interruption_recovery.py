@@ -77,9 +77,18 @@ async def main() -> scenario.ScenarioResult:
                 ),
             ],
             script=[
-                scenario.user("Tell me about my billing"),
+                # A wordy first user turn elicits a long bot reply, which
+                # makes the bot still be mid-TTS when the user interrupts.
+                scenario.user(
+                    "Walk me through my entire billing history from the past year, "
+                    "including every charge with date, amount, and category, and "
+                    "explain how each one was calculated."
+                ),
                 scenario.agent(wait=False),
-                scenario.sleep(2.0),
+                # The bot starts TTS-ing its long reply. After ~1.5s the user
+                # interrupts mid-sentence — barge-in. The bot's VAD should
+                # detect the new speech and cancel its in-flight TTS task.
+                scenario.sleep(1.5),
                 scenario.user("Wait sorry, I meant account support, not billing"),
                 scenario.agent(),
                 scenario.judge(),
