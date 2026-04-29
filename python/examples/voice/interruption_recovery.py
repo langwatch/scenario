@@ -2,12 +2,20 @@
 Example 6.2 — Interruption recovery.
 
 What this demo proves:
-    scenario.agent(wait=False) + scenario.sleep(N) + scenario.user("...") compose
-    correctly to simulate a mid-speech interruption.  The adapter accepts the
-    interrupt audio and result.latency.interrupt_response_time is populated.
+    Two equivalent ways to interrupt the agent mid-utterance, run in
+    sequence within one scenario:
+
+      1. The unrolled form from spec §6.2 / Example 6.2:
+         agent(wait=False) + sleep(N) + user("...")
+      2. The declarative sugar from spec §4.4:
+         scenario.interrupt(after=N, content="...")
+
+    Both push user audio onto the wire while the agent is still TTS-ing;
+    the bot's VAD detects the new speech and cancels its in-flight TTS
+    (barge-in). The judge sees the agent recover gracefully both times.
 
 AC: specs/voice-agents.feature "Example 6.2 — interruption recovery"
-    Source §6.2, L901-929.
+    Source §6.2, L901-929; §4.4 L450-467.
 
 How to run:
     cd python
@@ -58,9 +66,9 @@ async def main() -> scenario.ScenarioResult:
         result = await scenario.run(
             name="example_6_2_interruption_recovery",
             description=(
-                "User asks about billing; the bot starts answering. "
-                "After 2 seconds the user interrupts with a correction. "
-                "Judge: bot recovered gracefully and addressed the updated topic."
+                "User interrupts the agent twice mid-utterance — first via the "
+                "unrolled agent(wait=False)+sleep+user composition, then via "
+                "the scenario.interrupt() sugar. Judge: bot recovered both times."
             ),
             agents=[
                 scenario.PipecatAgentAdapter(
@@ -71,31 +79,43 @@ async def main() -> scenario.ScenarioResult:
                 scenario.UserSimulatorAgent(voice="openai/nova"),
                 scenario.JudgeAgent(
                     criteria=[
-                        "The agent recovered gracefully after the interruption",
-                        "The agent addressed the corrected topic (account support, not billing)",
+                        "The agent recovered gracefully from BOTH interruptions",
+                        "The agent addressed account support after the first interrupt",
+                        "The agent addressed business hours after the second interrupt",
                     ]
                 ),
             ],
             script=[
-                # A wordy first user turn elicits a long bot reply, which
-                # makes the bot still be mid-TTS at the interrupt mark.
+                # ------------------------------------------------------------------
+                # Interrupt #1 — unrolled form (spec §6.2 / Example 6.2 verbatim).
+                # A wordy first user turn elicits a long bot reply so the bot
+                # is still mid-TTS at the 1.5s interrupt mark.
+                # ------------------------------------------------------------------
                 scenario.user(
                     "Walk me through my entire billing history from the past year, "
                     "including every charge with date, amount, and category, and "
                     "explain how each one was calculated."
                 ),
-                # interrupt() = agent(wait=False) + sleep(after) + user(content)
-                # in one step. The agent starts replying, 1.5s later the user
-                # cuts in mid-sentence; the bot's VAD detects the new speech
-                # and cancels its in-flight TTS — that's barge-in.
+                scenario.agent(wait=False),
+                scenario.sleep(1.5),
+                scenario.user("Wait sorry, I meant account support, not billing"),
+                scenario.agent(),
+                # ------------------------------------------------------------------
+                # Interrupt #2 — scenario.interrupt() sugar (spec §4.4).
+                # Same wire behaviour, one declarative step.
+                # ------------------------------------------------------------------
+                scenario.user(
+                    "Actually, can you also tell me about every product feature "
+                    "you offer in great detail, top to bottom, the full catalogue."
+                ),
                 scenario.interrupt(
                     after=1.5,
-                    content="Wait sorry, I meant account support, not billing",
+                    content="Sorry one more thing — what are your business hours?",
                 ),
                 scenario.agent(),
                 scenario.judge(),
             ],
-            max_turns=6,
+            max_turns=10,
         )
 
     print(f"success: {result.success}")
