@@ -87,32 +87,33 @@ def audio(path_or_bytes: Union[str, Path, bytes]) -> ScriptStep:
 
 
 def interrupt(
-    *,
-    after: Optional[float] = None,
-    after_words: Optional[int] = None,
     content: Union[str, bytes, Path] = "",
+    *,
+    after_words: Optional[int] = None,
 ) -> ScriptStep:
     """
-    Declarative interruption step (§4.4 L450-492).
+    Declarative interruption step.
 
-    Two execution paths:
+    Equivalent to ``agent(wait=False) + user(content)``: the agent starts
+    replying in the background; ``user()`` waits until the agent has
+    actually started producing audio, fires the interrupt, then sends the
+    replacement turn. No wall-clock sleep — the timing is driven by "agent
+    has started speaking," not "N seconds have elapsed."
 
-    1. **Signal-based** (preferred): when the adapter advertises
-       ``capabilities.interruption=True``, the step calls
-       ``adapter.interrupt()`` to send the transport-native interrupt
-       (Twilio ``clear``, OpenAI Realtime ``response.cancel``, etc.). The
-       SUT stops generating audio immediately — deterministic, matches
-       what production code uses.
+    Path selection happens in ``executor.user()`` based on
+    ``adapter.capabilities.interruption``:
 
-    2. **Timing-based fallback** (legacy): when the adapter has no native
-       interrupt, the step composes ``agent(wait=False) + sleep(after) +
-       user(content)``. The user audio overlaps with the agent's TTS on
-       the wire and the SUT's VAD detects it (barge-in). Less
-       deterministic — depends on VAD detection windows and exact timing.
+      - ``True`` → ``adapter.interrupt()`` sends the transport-native
+        interrupt (Twilio ``clear``, OpenAI Realtime ``response.cancel``,
+        etc.). SUT stops generating immediately. Deterministic.
+      - ``False`` → user audio overlaps with the agent's TTS on the wire
+        and the SUT's VAD detects barge-in. Less deterministic but still
+        works.
 
-    Either way the timing knob (``after`` seconds, or ``after_words=N`` once
-    the agent has emitted N words) controls when the interrupt fires
-    relative to the start of the agent's turn.
+    ``after_words`` (optional): instead of interrupting at first chunk,
+    wait until the agent's streaming transcript has emitted N words.
+    Requires ``capabilities.streaming_transcripts``; raises
+    ``UnsupportedCapabilityError`` otherwise.
 
     ``content`` routing:
         - str that does NOT end with an audio extension: treated as user text
@@ -120,37 +121,21 @@ def interrupt(
         - str that ends with .wav/.mp3/.ogg/.flac, bytes, or Path: treated as
           audio and injected via ``scenario.audio(...)``.
     """
-    _validate_interrupt_args(after, after_words)
-
     async def _step(state: "ScenarioState") -> None:
         executor = state._executor
-        adapter = _voice_adapter(state)
-        signal_capable = adapter is not None and adapter.capabilities.interruption
 
-        # Start the agent turn in the background (wait=False semantics).
+        # Start the agent turn in the background.
         await executor.agent(wait=False)
 
+        # Optional after_words gating — replaces the default "wait for
+        # first audio chunk" with "wait for N transcript words."
         if after_words is not None:
             await _wait_for_streaming_words(state, after_words)
-        else:
-            assert after is not None
-            await asyncio.sleep(after)
 
-        if signal_capable:
-            # Signal path: tell the SUT to stop, cancel the pending agent
-            # task (it'll never produce a complete response), then send the
-            # new user input. Cleaner than racing VAD against a sleep.
-            assert adapter is not None
-            await adapter.interrupt()
-            pending = getattr(executor, "_pending_agent_task", None)
-            if pending is not None and not pending.done():
-                pending.cancel()
-                try:
-                    await pending
-                except (asyncio.CancelledError, Exception):
-                    pass
-                executor._pending_agent_task = None
-
+        # The actual interrupt happens inside executor.user() / scenario.audio()
+        # — both call into the executor, which detects the pending agent task,
+        # waits for the agent to start speaking, fires adapter.interrupt() if
+        # supported, then sends the new user content.
         if _is_audio_content(content):
             await audio(content)(state)  # type: ignore[arg-type]
         else:
@@ -181,15 +166,6 @@ def dtmf(tones: str) -> ScriptStep:
 
 
 # ----------------------------------------------------------------- helpers
-
-
-def _validate_interrupt_args(after: Optional[float], after_words: Optional[int]) -> None:
-    """Enforce that exactly one of after / after_words is provided."""
-    provided = [x for x in (after, after_words) if x is not None]
-    if len(provided) == 0:
-        raise ValueError("interrupt() requires after=seconds or after_words=N")
-    if len(provided) > 1:
-        raise ValueError("interrupt() takes after OR after_words, not both")
 
 
 def _is_audio_content(content: Union[str, bytes, Path]) -> bool:

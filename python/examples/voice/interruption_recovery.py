@@ -2,23 +2,23 @@
 Example 6.2 — Interruption recovery.
 
 What this demo proves:
-    Two interruption forms, run in sequence within one scenario:
+    Two equivalent ways to express an interruption, both deterministic
+    (no wall-clock sleeps):
 
-      1. **Timing-based barge-in** (spec §6.2 / Example 6.2 verbatim):
-         agent(wait=False) + sleep(N) + user("...")
-         The user audio overlaps with the agent's TTS on the wire; the
-         SUT detects the new speech via VAD and cancels its own TTS.
-         No native interrupt protocol used.
+      1. **Unrolled form**:  agent(wait=False) + user("...")
+         The agent starts replying in the background; user() waits for
+         the agent to actually start speaking, then interrupts.
 
-      2. **Signal-based interrupt** (spec §4.4, scenario.interrupt sugar):
-         scenario.interrupt(after=N, content="...")
-         When the adapter advertises capabilities.interruption=True
-         (PipecatAgentAdapter, TwilioAgentAdapter, OpenAIRealtimeAgent-
-         Adapter), the step calls adapter.interrupt() to send the
-         transport-native interrupt signal — Twilio ``clear`` here. The
-         SUT stops generating audio immediately. Deterministic, no race
-         against VAD timing. When the adapter does NOT support native
-         interrupt, the sugar transparently falls back to barge-in.
+      2. **Sugar**:  scenario.interrupt("...")
+         Same thing, declarative.
+
+    Both call into executor.user(), which on a pending agent task:
+    waits for the agent to start producing audio (so we don't interrupt
+    silence), fires the transport-native interrupt signal if the adapter
+    supports it (Twilio ``clear``, OpenAI Realtime ``response.cancel``,
+    etc.), then sends the replacement user turn. On adapters without
+    a native interrupt, the user audio simply overlaps with the agent's
+    TTS and the SUT's VAD detects barge-in.
 
     The judge sees the agent recover gracefully both times.
 
@@ -94,36 +94,16 @@ async def main() -> scenario.ScenarioResult:
                 ),
             ],
             script=[
-                # ------------------------------------------------------------------
-                # Interrupt #1 — timing-based barge-in (spec §6.2 verbatim).
-                # The user audio is sent while the agent is still TTS-ing; the
-                # SUT's VAD detects the speech and cancels its in-flight TTS.
-                # No native interrupt protocol — this is what scenario does
-                # against adapters that don't advertise capabilities.interruption.
-                # ------------------------------------------------------------------
-                scenario.user(
-                    "Walk me through my entire billing history from the past year, "
-                    "including every charge with date, amount, and category, and "
-                    "explain how each one was calculated."
-                ),
+                # Interrupt #1 — unrolled form. agent(wait=False) starts the
+                # bot's reply in the background; user() waits for the bot to
+                # actually start speaking, then interrupts.
+                scenario.user("Tell me about my billing"),
                 scenario.agent(wait=False),
-                scenario.sleep(1.5),
                 scenario.user("Wait sorry, I meant account support, not billing"),
                 scenario.agent(),
-                # ------------------------------------------------------------------
-                # Interrupt #2 — signal-based interrupt (spec §4.4 sugar).
-                # PipecatAgentAdapter advertises capabilities.interruption=True,
-                # so scenario.interrupt() calls adapter.interrupt() (Twilio
-                # ``clear`` event) — the SUT stops generating audio immediately.
-                # ------------------------------------------------------------------
-                scenario.user(
-                    "Actually, can you also tell me about every product feature "
-                    "you offer in great detail, top to bottom, the full catalogue."
-                ),
-                scenario.interrupt(
-                    after=1.5,
-                    content="Sorry one more thing — what are your business hours?",
-                ),
+                # Interrupt #2 — sugar. Identical behaviour, one step.
+                scenario.user("Tell me about every product feature you offer"),
+                scenario.interrupt("Sorry one more thing — what are your business hours?"),
                 scenario.agent(),
                 scenario.judge(),
             ],
