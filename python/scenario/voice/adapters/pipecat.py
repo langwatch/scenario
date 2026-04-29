@@ -29,6 +29,7 @@ from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
+    build_mark_frame,
     build_media_frame,
     iter_mulaw_frames,
     mulaw8k_to_pcm16_24k,
@@ -185,11 +186,17 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        # Pace at real-time (TWILIO_FRAME_MS/1000s per 20-ms frame). Without this
-        # we dump 1.5s of audio in a few ms, which trips the bot's VAD into
-        # treating the burst as a clipped utterance — the agent then replies
-        # with "your message got cut off." Pacing matches what a real caller
-        # produces over a PSTN line.
+        # Pace at real-time (TWILIO_FRAME_MS/1000s per 20-ms frame). Matches what
+        # a real caller produces over a PSTN line — the SUT sees normal speech
+        # rhythm, not a synthetic dump.
+        #
+        # After the last frame we send a Twilio ``mark`` named "utterance_end".
+        # Real-time pacing means TTS-induced inter-phrase pauses survive on the
+        # wire, and a stateless inactivity-timer on the receiver can't
+        # distinguish "speaker paused after a comma" from "speaker finished
+        # their turn." The mark is an explicit, non-ambiguous end-of-turn
+        # signal: cooperating SUTs flush on the mark; legacy SUTs fall back to
+        # VAD timing.
         self._assert_connected()
         assert self._ws is not None and self.stream_sid is not None
         mulaw = pcm16_24k_to_mulaw8k(chunk.data)
@@ -199,6 +206,7 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                 continue
             await self._ws.send(build_media_frame(self.stream_sid, frame))
             await asyncio.sleep(frame_secs)
+        await self._ws.send(build_mark_frame(self.stream_sid, "utterance_end"))
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         self._assert_connected()

@@ -203,6 +203,23 @@ def build_clear_frame(stream_sid: str) -> str:
     return json.dumps({"event": "clear", "streamSid": stream_sid})
 
 
+def build_mark_frame(stream_sid: str, name: str) -> str:
+    """Build an outbound ``mark`` frame — a named marker in the audio stream.
+
+    Twilio Media Streams natively supports marks: the sender embeds a marker
+    after a chunk of audio, the receiver echoes it back once that audio has
+    been played out. Our stub bot uses ``utterance_end`` marks as an
+    explicit end-of-turn signal so it doesn't have to guess via VAD timing.
+    """
+    return json.dumps(
+        {
+            "event": "mark",
+            "streamSid": stream_sid,
+            "mark": {"name": name},
+        }
+    )
+
+
 # ---------------------------------------------------------------- REST helpers
 
 
@@ -277,5 +294,6 @@ __all__ = [
     "parse_media_stream_frame",
     "build_media_frame",
     "build_clear_frame",
+    "build_mark_frame",
     "TwilioRESTHelper",
 ]

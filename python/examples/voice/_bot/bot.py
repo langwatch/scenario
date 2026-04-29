@@ -297,13 +297,13 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     # case where TTS cuts straight to silence with no trailing breath
     # (the user simulator stops sending entirely; VAD never gets to run
     # on the trailing silence because there's no trailing silence to feed).
-    # 1500ms intra-utterance pause tolerance: TTS output sometimes inserts
-    # 1s+ pauses after commas / between phrases. 1000ms wasn't enough — saw
-    # "Hi." flush prematurely while "I need help..." was still queued.
+    # Fallback turn-detection only — primary signal is the ``utterance_end``
+    # Twilio mark sent by cooperating clients (see scenario/voice/adapters/
+    # pipecat.py::send_audio). These thresholds matter only if a sender
+    # doesn't emit marks; they intentionally favor "wait a bit longer" over
+    # "flush prematurely."
     INACTIVITY_END_MS = 1500
-    # ~1s of µ-law @ 8kHz. Anything shorter is almost certainly a fragment
-    # (single word, throat-clear), not a full user turn worth replying to.
-    MIN_BYTES_TO_PROCESS = 8000
+    MIN_BYTES_TO_PROCESS = 1600  # ~200ms µ-law; reject obvious fragments
     inactivity_task: Optional[asyncio.Task] = None
     greeted = False
 
@@ -319,7 +319,15 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         if inactivity_task is not None and not inactivity_task.done():
             inactivity_task.cancel()
         inactivity_task = None
-        if len(accumulated_mulaw) < MIN_BYTES_TO_PROCESS or not stream_sid:
+        # Skip if buffer is too small OR if no real speech was detected since
+        # last reset. The latter guards against whisper hallucinating ("you",
+        # "thanks", etc.) on trailing silence between turns — easy to hit
+        # when a redundant utterance_end mark arrives after a VAD-driven flush.
+        if (
+            not speech_started
+            or len(accumulated_mulaw) < MIN_BYTES_TO_PROCESS
+            or not stream_sid
+        ):
             accumulated_mulaw.clear()
             pcm16_8k_buf.clear()
             speech_started = False
@@ -463,6 +471,18 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                             _kick_inactivity_watchdog()
                     except (ValueError, TypeError):
                         logger.debug("bad base64 in media frame")
+
+            elif event == "mark":
+                # Cooperating senders mark the end of an utterance explicitly,
+                # so we don't have to guess via VAD timing. ``utterance_end``
+                # means: flush whatever we've accumulated as one user turn
+                # right now. VAD-based detection stays as fallback for senders
+                # that don't emit marks.
+                mark = data.get("mark") or {}
+                mark_name = mark.get("name", "")
+                if mark_name == "utterance_end":
+                    logger.debug("received utterance_end mark — flushing")
+                    await _flush_user_turn()
 
             elif event == "stop":
                 logger.info("received stop event — closing")
