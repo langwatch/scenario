@@ -74,6 +74,34 @@ class VoiceAgentAdapter(AgentAdapter):
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """Receive the next AudioChunk from the agent."""
 
+    async def interrupt(self) -> None:
+        """Send a first-class interrupt signal to the agent under test.
+
+        Adapters that advertise ``capabilities.interruption=True`` override
+        this to send the transport-native interrupt (e.g., Twilio ``clear``,
+        OpenAI Realtime ``response.cancel``). The agent stops generating
+        audio immediately — much more deterministic than racing VAD against
+        a wall-clock sleep.
+
+        The default raises ``UnsupportedCapabilityError``. Callers
+        (``scenario.interrupt()``) check ``capabilities.interruption`` and
+        fall back to timing-based barge-in (sending audio while the agent
+        is speaking) when this returns False.
+        """
+        from .capabilities import UnsupportedCapabilityError
+
+        raise UnsupportedCapabilityError(
+            type(self).__name__,
+            "interruption",
+            hint=(
+                "This adapter has no native interrupt signal. Use the "
+                "timing-based barge-in pattern instead: "
+                "agent(wait=False) + sleep(N) + user(content), where the "
+                "user audio overlaps with the agent's TTS and the SUT's "
+                "VAD detects it."
+            ),
+        )
+
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         """
         Default implementation: extract audio from the latest user message,

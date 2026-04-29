@@ -67,6 +67,10 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         streaming_transcripts=True,
         native_vad=True,
         dtmf=False,
+        # OpenAI Realtime exposes ``response.cancel`` as a first-class
+        # interrupt event — the model stops generating immediately. Mapped
+        # below in ``interrupt()``.
+        interruption=True,
         input_formats=["pcm16/24000"],
         output_formats=["pcm16/24000"],
     )
@@ -187,6 +191,17 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             json.dumps({"type": "input_audio_buffer.append", "audio": b64})
         )
         self._pending_audio_bytes += len(chunk.data)
+
+    async def interrupt(self) -> None:
+        """Send ``response.cancel`` — the OpenAI Realtime API's first-class
+        interrupt. The model stops generating audio and text immediately.
+        No timing race against VAD: deterministic stop, then the next user
+        turn flows normally through ``send_audio`` + ``recv_audio``.
+        """
+        if self._ws is None:
+            raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
+        await self._ws.send(json.dumps({"type": "response.cancel"}))
+        logger.debug("OpenAIRealtimeAgentAdapter: sent response.cancel (interrupt)")
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """

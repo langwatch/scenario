@@ -95,11 +95,24 @@ def interrupt(
     """
     Declarative interruption step (§4.4 L450-492).
 
-    Equivalent to: ``agent(wait=False) + sleep(after) + user(content)``, with
-    the added option of triggering the interruption after the agent has
-    emitted ``after_words`` words (requires streaming transcripts — raises
-    UnsupportedCapabilityError on adapters that don't advertise it, per the
-    after_words UnsupportedCapabilityError locked decision).
+    Two execution paths:
+
+    1. **Signal-based** (preferred): when the adapter advertises
+       ``capabilities.interruption=True``, the step calls
+       ``adapter.interrupt()`` to send the transport-native interrupt
+       (Twilio ``clear``, OpenAI Realtime ``response.cancel``, etc.). The
+       SUT stops generating audio immediately — deterministic, matches
+       what production code uses.
+
+    2. **Timing-based fallback** (legacy): when the adapter has no native
+       interrupt, the step composes ``agent(wait=False) + sleep(after) +
+       user(content)``. The user audio overlaps with the agent's TTS on
+       the wire and the SUT's VAD detects it (barge-in). Less
+       deterministic — depends on VAD detection windows and exact timing.
+
+    Either way the timing knob (``after`` seconds, or ``after_words=N`` once
+    the agent has emitted N words) controls when the interrupt fires
+    relative to the start of the agent's turn.
 
     ``content`` routing:
         - str that does NOT end with an audio extension: treated as user text
@@ -111,6 +124,9 @@ def interrupt(
 
     async def _step(state: "ScenarioState") -> None:
         executor = state._executor
+        adapter = _voice_adapter(state)
+        signal_capable = adapter is not None and adapter.capabilities.interruption
+
         # Start the agent turn in the background (wait=False semantics).
         await executor.agent(wait=False)
 
@@ -119,6 +135,21 @@ def interrupt(
         else:
             assert after is not None
             await asyncio.sleep(after)
+
+        if signal_capable:
+            # Signal path: tell the SUT to stop, cancel the pending agent
+            # task (it'll never produce a complete response), then send the
+            # new user input. Cleaner than racing VAD against a sleep.
+            assert adapter is not None
+            await adapter.interrupt()
+            pending = getattr(executor, "_pending_agent_task", None)
+            if pending is not None and not pending.done():
+                pending.cancel()
+                try:
+                    await pending
+                except (asyncio.CancelledError, Exception):
+                    pass
+                executor._pending_agent_task = None
 
         if _is_audio_content(content):
             await audio(content)(state)  # type: ignore[arg-type]
