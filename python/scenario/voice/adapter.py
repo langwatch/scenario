@@ -58,6 +58,22 @@ class VoiceAgentAdapter(AgentAdapter):
     # transport never signals end-of-stream. 30s = a long sentence.
     response_max_duration: float = 30.0
 
+    @property
+    def _agent_speaking_event(self) -> asyncio.Event:
+        """Event set when the agent emits its first chunk of the current turn.
+
+        Lazy-init avoids forcing every subclass to call super().__init__()
+        (the existing adapters don't, and changing all of them is invasive).
+        Used by the interruption path to wait until the agent is actually
+        speaking before firing an interrupt — so we don't fire ``clear`` at
+        a silent SUT.
+        """
+        ev = self.__dict__.get("_agent_speaking")
+        if ev is None:
+            ev = asyncio.Event()
+            self.__dict__["_agent_speaking"] = ev
+        return ev
+
     @abstractmethod
     async def connect(self) -> None:
         """Open the transport and prepare to exchange audio."""
@@ -119,6 +135,8 @@ class VoiceAgentAdapter(AgentAdapter):
         Subclasses may override this for specialised flows but will usually
         inherit it.
         """
+        # Clear the speaking-event for this turn — set in _drain on first chunk.
+        self._agent_speaking_event.clear()
         recorder = _AdapterRecorder(input)
         incoming = extract_audio(input.new_messages[-1]) if input.new_messages else None
         if incoming is not None:
@@ -132,6 +150,9 @@ class VoiceAgentAdapter(AgentAdapter):
     async def _drain_agent_response(self) -> AudioChunk:
         """Loop ``recv_audio`` until tail silence or max duration; merge result."""
         first = await self.recv_audio(timeout=self.response_timeout)
+        # First chunk arrived → agent is now speaking. Wakes anyone awaiting
+        # _agent_speaking_event (the interruption path).
+        self._agent_speaking_event.set()
         chunks: List[AudioChunk] = [first]
         accumulated = first.duration_seconds
         while accumulated < self.response_max_duration:

@@ -932,20 +932,49 @@ class ScenarioExecutor:
                         {"role": "user", "content": content}
                     )
                 self.add_message(voiced)  # type: ignore[arg-type]
-                # Interruption: if a wait=False agent turn is currently in flight,
-                # the message-queue-only path above is not enough — the agent
-                # task already grabbed its `new_messages` snapshot before we
-                # added this one, so the audio would never reach the wire.
-                # Push it directly through the voice adapter so the SUT actually
-                # hears the user mid-utterance and can barge-in. The pending
-                # agent task is cancelled because the SUT will be cancelling
-                # its in-flight TTS too — there's no response coming back for
-                # the first turn, so awaiting it would hit recv_audio's
-                # response_timeout.
+                # Interruption path: when a wait=False agent turn is in flight,
+                # this user() call IS the interrupt. ``agent(wait=False) +
+                # user(...)`` reads as "agent starts replying; user
+                # interrupts" — no sleep needed.
+                #
+                # Steps:
+                #   1. Wait until the agent has actually started producing
+                #      audio. Otherwise we'd interrupt silence.
+                #   2. If the adapter supports a native interrupt signal
+                #      (capabilities.interruption=True), send it. The SUT
+                #      stops generating immediately. Deterministic.
+                #   3. Push the new user audio so the SUT hears the
+                #      replacement turn.
+                #   4. Cancel the pending agent task — it will never get a
+                #      complete response back (the SUT was cancelled), so
+                #      awaiting it would hit recv_audio's response_timeout.
+                #
+                # On adapters without native interrupt, step 2 is skipped;
+                # the user audio overlapping the agent's TTS triggers
+                # barge-in via the SUT's VAD. Less deterministic, but works.
                 pending = getattr(self, "_pending_agent_task", None)
                 if pending is not None and not pending.done():
                     adapter = self._find_voice_adapter()
                     if adapter is not None:
+                        try:
+                            await asyncio.wait_for(
+                                adapter._agent_speaking_event.wait(),
+                                timeout=adapter.response_timeout,
+                            )
+                        except asyncio.TimeoutError:
+                            # SUT never started speaking — fall through to
+                            # send the user audio anyway. This degrades to
+                            # "two sequential turns" rather than blocking
+                            # the scenario forever.
+                            pass
+                        if adapter.capabilities.interruption:
+                            try:
+                                await adapter.interrupt()
+                            except Exception:
+                                # Best-effort: if the native interrupt fails
+                                # we fall through to sending user audio — the
+                                # SUT's VAD-based barge-in (if any) takes over.
+                                pass
                         chunk = self._extract_audio_from_message(voiced)
                         if chunk is not None:
                             await adapter.send_audio(chunk)
