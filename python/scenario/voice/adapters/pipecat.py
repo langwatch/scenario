@@ -93,6 +93,12 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         self._ws: Any = None
         self._recv_task: Optional[asyncio.Task] = None
         self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
+        # Serialises concurrent send_audio() calls — without it two paced
+        # senders would interleave 20-ms mulaw frames on the wire and the
+        # bot would receive corrupted audio. Used for the interruption case
+        # where the executor calls send_audio() while a previous turn's
+        # send is still in flight.
+        self._send_lock: Optional[asyncio.Lock] = None
 
     @property
     def transport_format(self) -> str:
@@ -116,6 +122,7 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         assert self.url is not None  # validated in __init__
         self._ws = await websockets.connect(self.url)
         self._inbound_queue = asyncio.Queue()
+        self._send_lock = asyncio.Lock()
 
         # Send the synthetic `start` event that pipecat's TwilioFrameSerializer
         # requires to learn the stream/call SIDs and start deserializing
@@ -198,15 +205,16 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         # signal: cooperating SUTs flush on the mark; legacy SUTs fall back to
         # VAD timing.
         self._assert_connected()
-        assert self._ws is not None and self.stream_sid is not None
+        assert self._ws is not None and self.stream_sid is not None and self._send_lock is not None
         mulaw = pcm16_24k_to_mulaw8k(chunk.data)
         frame_secs = TWILIO_FRAME_MS / 1000
-        for frame in iter_mulaw_frames(mulaw):
-            if not frame:
-                continue
-            await self._ws.send(build_media_frame(self.stream_sid, frame))
-            await asyncio.sleep(frame_secs)
-        await self._ws.send(build_mark_frame(self.stream_sid, "utterance_end"))
+        async with self._send_lock:
+            for frame in iter_mulaw_frames(mulaw):
+                if not frame:
+                    continue
+                await self._ws.send(build_media_frame(self.stream_sid, frame))
+                await asyncio.sleep(frame_secs)
+            await self._ws.send(build_mark_frame(self.stream_sid, "utterance_end"))
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         self._assert_connected()
