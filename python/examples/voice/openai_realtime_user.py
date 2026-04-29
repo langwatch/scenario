@@ -59,44 +59,45 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="demo_openai_realtime_user",
-        description=(
-            "OpenAI Realtime model plays the USER role — a confused elderly customer. "
-            "Scripted user('...') lines are delivered with natural prosody. "
-            "The Pipecat bot plays the agent role."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="demo_openai_realtime_user",
+            description=(
+                "OpenAI Realtime model plays the USER role — a confused elderly customer. "
+                "Scripted user('...') lines are delivered with natural prosody. "
+                "The Pipecat bot plays the agent role."
             ),
-            scenario.OpenAIRealtimeAgentAdapter(
-                model="gpt-4o-realtime-preview",
-                voice="nova",
-                instructions=(
-                    "You are simulating a confused elderly customer who is not "
-                    "familiar with technology. Speak slowly and hesitantly."
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
                 ),
-                role=AgentRole.USER,
-            ),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The user simulator delivered lines with natural voice prosody",
-                    "The agent responded helpfully to the confused elderly persona",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Hello? Is this... the help desk?"),
-            scenario.agent(),
-            scenario.user("I don't understand what you mean by 'account number'"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=6,
-    )
+                scenario.OpenAIRealtimeAgentAdapter(
+                    model="gpt-4o-realtime-preview",
+                    voice="nova",
+                    instructions=(
+                        "You are simulating a confused elderly customer who is not "
+                        "familiar with technology. Speak slowly and hesitantly."
+                    ),
+                    role=AgentRole.USER,
+                ),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The user simulator delivered lines with natural voice prosody",
+                        "The agent responded helpfully to the confused elderly persona",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("Hello? Is this... the help desk?"),
+                scenario.agent(),
+                scenario.user("I don't understand what you mean by 'account number'"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=6,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

@@ -73,36 +73,37 @@ async def main() -> scenario.ScenarioResult:
     else:
         audio_step = scenario.audio(str(fixture_path))
 
-    result = await scenario.run(
-        name="example_6_6_prerecorded_audio",
-        description=(
-            "A pre-recorded (mumbly/unclear) audio clip is injected as the first "
-            "user turn. The bot should recognize it was inaudible and ask for "
-            "clarification rather than guessing."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_6_prerecorded_audio",
+            description=(
+                "A pre-recorded (mumbly/unclear) audio clip is injected as the first "
+                "user turn. The bot should recognize it was inaudible and ask for "
+                "clarification rather than guessing."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    # Structural: the scenario ran the audio step and the bot
-                    # responded. This is what the §6.6 AC is actually testing
-                    # (scenario.audio() injection works), not bot behavior.
-                    "The bot produced a response after receiving the injected audio",
-                ]
-            ),
-        ],
-        script=[
-            audio_step,  # inject pre-recorded file — bypasses UserSimulator TTS
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=4,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        # Structural: the scenario ran the audio step and the bot
+                        # responded. This is what the §6.6 AC is actually testing
+                        # (scenario.audio() injection works), not bot behavior.
+                        "The bot produced a response after receiving the injected audio",
+                    ]
+                ),
+            ],
+            script=[
+                audio_step,  # inject pre-recorded file — bypasses UserSimulator TTS
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=4,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

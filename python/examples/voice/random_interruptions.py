@@ -54,37 +54,38 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="example_6_7_random_interruptions",
-        description=(
-            "A user simulator with 40% interruption probability calls the bot "
-            "for help with their account. Over 5 turns, ~40% of agent responses "
-            "are cut short. Judge: bot recovered context after interruptions."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_7_random_interruptions",
+            description=(
+                "A user simulator with 40% interruption probability calls the bot "
+                "for help with their account. Over 5 turns, ~40% of agent responses "
+                "are cut short. Judge: bot recovered context after interruptions."
             ),
-            scenario.UserSimulatorAgent(
-                voice="openai/nova",
-                interrupt_probability=0.4,
-            ),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent continued the conversation after interruptions rather than stopping",
-                    "The conversation involved multiple turns between user and agent",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("I need help with my account"),
-            scenario.proceed(turns=5),
-            scenario.judge(),
-        ],
-        max_turns=12,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(
+                    voice="openai/nova",
+                    interrupt_probability=0.4,
+                ),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent continued the conversation after interruptions rather than stopping",
+                        "The conversation involved multiple turns between user and agent",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("I need help with my account"),
+                scenario.proceed(turns=5),
+                scenario.judge(),
+            ],
+            max_turns=12,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

@@ -55,41 +55,42 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
 async def main() -> scenario.ScenarioResult:
-    result = await scenario.run(
-        name="example_6_3_angry_customer",
-        description=(
-            "An angry customer calls from a noisy cafe about a wrong charge. "
-            "The bot must handle the emotional tone and background noise, "
-            "demonstrate empathy, and reach a resolution."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="example_6_3_angry_customer",
+            description=(
+                "An angry customer calls from a noisy cafe about a wrong charge. "
+                "The bot must handle the emotional tone and background noise, "
+                "demonstrate empathy, and reach a resolution."
             ),
-            scenario.UserSimulatorAgent(
-                voice="openai/nova",
-                persona=(
-                    "Very angry customer who was charged incorrectly. "
-                    "Speaking loudly and impatiently from a cafe. "
-                    "Wants this fixed immediately."
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
                 ),
-                audio_effects=[
-                    scenario.effects.background_noise("cafe", 0.4),
-                    scenario.effects.phone_quality(),
-                ],
-            ),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent demonstrated empathy toward the angry customer",
-                    "The agent maintained composure despite background noise",
-                    "The agent offered a concrete resolution or next step",
-                ]
-            ),
-        ],
-        max_turns=6,
-    )
+                scenario.UserSimulatorAgent(
+                    voice="openai/nova",
+                    persona=(
+                        "Very angry customer who was charged incorrectly. "
+                        "Speaking loudly and impatiently from a cafe. "
+                        "Wants this fixed immediately."
+                    ),
+                    audio_effects=[
+                        scenario.effects.background_noise("cafe", 0.4),
+                        scenario.effects.phone_quality(),
+                    ],
+                ),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent demonstrated empathy toward the angry customer",
+                        "The agent maintained composure despite background noise",
+                        "The agent offered a concrete resolution or next step",
+                    ]
+                ),
+            ],
+            max_turns=6,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")

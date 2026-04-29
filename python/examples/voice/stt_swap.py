@@ -71,32 +71,33 @@ async def main() -> scenario.ScenarioResult:
     # Configure the global STT provider before running.
     scenario.set_stt_provider(stt)
 
-    result = await scenario.run(
-        name="demo_stt_swap",
-        description=(
-            "Use ElevenLabsSTTProvider instead of the default OpenAI STT. "
-            "The judge transcribes audio turns via the swapped provider."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="demo_stt_swap",
+            description=(
+                "Use ElevenLabsSTTProvider instead of the default OpenAI STT. "
+                "The judge transcribes audio turns via the swapped provider."
             ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent responded helpfully",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Hello"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=4,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(voice="openai/nova"),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent responded helpfully",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("Hello"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=4,
+        )
 
     # Demonstrate the swapped provider by transcribing each audio segment via
     # the global STT provider.  This is where ``set_stt_provider`` becomes

@@ -58,45 +58,46 @@ async def main() -> scenario.ScenarioResult:
     # The user hands off (away from mic), then a background conversation is
     # audible.  We simulate this by using background_noise on the next user turn,
     # keeping the user's scripted audio low-volume so the background is dominant.
-    result = await scenario.run(
-        name="pain_background_handoff",
-        description=(
-            "The caller says 'hold on' and moves away from the mic. An overheard "
-            "side conversation plays as background. The bot should wait patiently "
-            "rather than respond to the background audio."
-        ),
-        agents=[
-            scenario.PipecatAgentAdapter(
-                url=BOT_WS_URL,
-                audio_format="mulaw",
-                sample_rate=8000,
+    async with ensure_pipecat_bot():
+        result = await scenario.run(
+            name="pain_background_handoff",
+            description=(
+                "The caller says 'hold on' and moves away from the mic. An overheard "
+                "side conversation plays as background. The bot should wait patiently "
+                "rather than respond to the background audio."
             ),
-            scenario.UserSimulatorAgent(
-                voice="openai/nova",
-                # background_noise simulates overheard conversation audio layered on top.
-                audio_effects=[
-                    scenario.effects.background_noise("cafe", 0.5),
-                ],
-            ),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent waited for the caller to return rather than responding "
-                    "to the background noise",
-                    "The agent did not treat the background conversation as user speech",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("hold on"),
-            # Silence simulates the user moving away from the mic
-            scenario.silence(5.0),
-            scenario.agent(),
-            scenario.user("Sorry I'm back"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-        max_turns=8,
-    )
+            agents=[
+                scenario.PipecatAgentAdapter(
+                    url=BOT_WS_URL,
+                    audio_format="mulaw",
+                    sample_rate=8000,
+                ),
+                scenario.UserSimulatorAgent(
+                    voice="openai/nova",
+                    # background_noise simulates overheard conversation audio layered on top.
+                    audio_effects=[
+                        scenario.effects.background_noise("cafe", 0.5),
+                    ],
+                ),
+                scenario.JudgeAgent(
+                    criteria=[
+                        "The agent waited for the caller to return rather than responding "
+                        "to the background noise",
+                        "The agent did not treat the background conversation as user speech",
+                    ]
+                ),
+            ],
+            script=[
+                scenario.user("hold on"),
+                # Silence simulates the user moving away from the mic
+                scenario.silence(5.0),
+                scenario.agent(),
+                scenario.user("Sorry I'm back"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            max_turns=8,
+        )
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")
