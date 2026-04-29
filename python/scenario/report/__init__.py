@@ -12,6 +12,12 @@ from such a directory.
 from ._save import save_redteam_report, set_batch_dir, current_batch_dir
 from ._aggregate import aggregate_fixes, load_or_generate as load_or_generate_fixes
 
+# Skip the Streamlit dashboard entry point during pdoc API doc generation.
+# `app` is launched via `streamlit run`, not imported, and `streamlit` is an
+# optional extra (`pip install langwatch-scenario[report]`) so the docs build
+# environment can't import it.
+__pdoc__ = {"app": False}
+
 __all__ = [
     "save_redteam_report",
     "set_batch_dir",
