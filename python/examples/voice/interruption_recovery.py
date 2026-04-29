@@ -48,7 +48,7 @@ import scenario  # noqa: E402
 from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-5-mini")
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
@@ -92,7 +92,7 @@ async def main() -> scenario.ScenarioResult:
     if result.latency is not None:
         print(f"interrupt_response_time: {result.latency.interrupt_response_time}")
 
-    save_demo_recording(getattr(result, "audio", None), "example_6_2_interruption_recovery")
+    save_demo_recording(getattr(result, "audio", None))
     return result
 
 

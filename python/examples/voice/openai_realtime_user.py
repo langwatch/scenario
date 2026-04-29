@@ -53,7 +53,7 @@ from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
 from scenario.types import AgentRole  # noqa: E402
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-5-mini")
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
@@ -100,7 +100,7 @@ async def main() -> scenario.ScenarioResult:
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")
-    save_demo_recording(getattr(result, "audio", None), "demo_openai_realtime_user")
+    save_demo_recording(getattr(result, "audio", None))
     return result
 
 

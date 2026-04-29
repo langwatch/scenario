@@ -79,7 +79,7 @@ async def main() -> scenario.ScenarioResult:
 
     print(f"success: {result.success}")
     print(f"verdict: {result.reasoning}")
-    save_demo_recording(getattr(result, "audio", None), "demo_gemini_live")
+    save_demo_recording(getattr(result, "audio", None))
     return result
 
 

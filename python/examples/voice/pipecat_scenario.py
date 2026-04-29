@@ -91,7 +91,7 @@ async def main() -> scenario.ScenarioResult:
     print(f"verdict: {result.reasoning}")
     if result.audio is not None:
         print(f"audio: {len(result.audio.segments)} segments recorded")
-    save_demo_recording(getattr(result, "audio", None), "pipecat_scenario")
+    save_demo_recording(getattr(result, "audio", None))
     return result
 
 

@@ -46,7 +46,7 @@ _check_env()
 import scenario  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
 
-scenario.configure(default_model="openai/gpt-4.1-mini")
+scenario.configure(default_model="openai/gpt-5-mini")
 
 
 async def main() -> scenario.ScenarioResult:
@@ -84,7 +84,7 @@ async def main() -> scenario.ScenarioResult:
     print(f"last_user_transcript: {agent.last_user_transcript!r}")
     print(f"last_llm_response: {agent.last_llm_response!r}")
     print(f"verdict: {result.reasoning}")
-    save_demo_recording(getattr(result, "audio", None), "demo_elevenlabs_branded")
+    save_demo_recording(getattr(result, "audio", None))
     return result
 
 
