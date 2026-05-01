@@ -50,7 +50,7 @@
     "node": ">=20",
     "pnpm": ">=8"
   },
-  "packageManager": "pnpm@10.12.1",
+  "packageManager": "pnpm@10.22.0",
   "dependencies": {
     "@ag-ui/core": "^0.0.28",
     "@ai-sdk/openai": "^3.0.26",
