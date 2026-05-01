@@ -49,7 +49,6 @@ class CustomLLMJudge extends AgentAdapter {
         reasoning: z.string(),
         results: z.array(
           z.object({
-            criterion: z.string(),
             met: z.boolean(),
           })
         ),
@@ -62,14 +61,11 @@ ${criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}
 Conversation:
 ${transcript}
 
-Return a result for each criterion using the exact criterion text.`,
+Return one result per criterion, in the same order as listed above.`,
     });
 
-    const resultsMap = new Map(
-      result.results.map((r) => [r.criterion, r.met])
-    );
-    const passed = criteria.filter((c) => resultsMap.get(c));
-    const failed = criteria.filter((c) => !resultsMap.get(c));
+    const passed = criteria.filter((_, i) => result.results[i]?.met);
+    const failed = criteria.filter((_, i) => !result.results[i]?.met);
 
     return {
       success: result.pass,

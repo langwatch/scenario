@@ -55,7 +55,7 @@ class CustomLLMJudge(scenario.AgentAdapter):
 Criteria:
 {criteria_numbered}
 
-Return a result for each criterion using the exact criterion text.""",
+Return one result per criterion, in the same order as listed above.""",
                 },
                 {"role": "user", "content": transcript},
             ],
@@ -73,10 +73,9 @@ Return a result for each criterion using the exact criterion text.""",
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "criterion": {"type": "string"},
                                         "met": {"type": "boolean"},
                                     },
-                                    "required": ["criterion", "met"],
+                                    "required": ["met"],
                                     "additionalProperties": False,
                                 },
                             },
@@ -90,9 +89,8 @@ Return a result for each criterion using the exact criterion text.""",
 
         result = json.loads(response.choices[0].message.content)  # type: ignore[union-attr]
 
-        results_map = {r["criterion"]: r["met"] for r in result["results"]}
-        passed = [c for c in effective_criteria if results_map.get(c, False)]
-        failed = [c for c in effective_criteria if not results_map.get(c, True)]
+        passed = [c for i, c in enumerate(effective_criteria) if result["results"][i]["met"]]
+        failed = [c for i, c in enumerate(effective_criteria) if not result["results"][i]["met"]]
 
         return ScenarioResult(
             success=result["pass"],
@@ -111,7 +109,6 @@ class PoliteAgent(scenario.AgentAdapter):
 
 
 @pytest.mark.agent_test
-@pytest.mark.flaky(reruns=2)
 @pytest.mark.asyncio
 async def test_custom_llm_judge():
     """Custom LLM judge evaluates a polite agent response."""
