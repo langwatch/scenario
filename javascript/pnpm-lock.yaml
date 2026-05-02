@@ -11,6 +11,7 @@ overrides:
   minimatch@<3.1.3: 3.1.3
   minimatch@>=9.0.0 <9.0.7: 9.0.7
   vite@>=7.0.0 <=7.3.1: '>=7.3.2'
+  trim-newlines@<4.0.1: '>=4.0.1'
 
 importers:
 
@@ -4959,9 +4960,9 @@ packages:
     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
     hasBin: true
 
-  trim-newlines@2.0.0:
-    resolution: {integrity: sha512-MTBWv3jhVjTU7XR3IQHllbiJs8sc75a80OEhB6or/q7pLTWgQ0bMGQXXYQSrSuXe6WiKWDZ5txXY5P59a/coVA==}
-    engines: {node: '>=4'}
+  trim-newlines@5.0.0:
+    resolution: {integrity: sha512-kstfs+hgwmdsOadN3KgA+C68wPJwnZq4DN6WMDCvZapDWEF34W2TyPKN2v2+BJnZgIz5QOfxFeldLyYvdgRAwg==}
+    engines: {node: '>=14.16'}
 
   troika-three-text@0.52.4:
     resolution: {integrity: sha512-V50EwcYGruV5rUZ9F4aNsrytGdKcXKALjEtQXIOBfhVoZU9VAqZNIoGQ3TMiooVqFAbR1w15T+f+8gkzoFzawg==}
@@ -9607,7 +9608,7 @@ snapshots:
       normalize-package-data: 2.5.0
       read-pkg-up: 3.0.0
       redent: 2.0.0
-      trim-newlines: 2.0.0
+      trim-newlines: 5.0.0
 
   merge-descriptors@2.0.0: {}
 
@@ -10571,7 +10572,7 @@ snapshots:
 
   tree-kill@1.2.2: {}
 
-  trim-newlines@2.0.0: {}
+  trim-newlines@5.0.0: {}
 
   troika-three-text@0.52.4(three@0.181.2):
     dependencies:
