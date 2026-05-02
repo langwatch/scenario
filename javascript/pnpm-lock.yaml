@@ -14,6 +14,7 @@ overrides:
   rollup@>=4.0.0 <4.59.0: '>=4.59.0'
   trim-newlines@<4.0.1: '>=4.0.1'
   flatted@<3.4.2: '>=3.4.2'
+  liquidjs@<10.25.7: '>=10.25.7'
 
 importers:
 
@@ -133,7 +134,7 @@ importers:
     dependencies:
       '@openai/agents':
         specifier: ^0.3.3
-        version: 0.3.3(@cfworker/json-schema@4.1.1)(ws@8.18.3)(zod@4.1.13)
+        version: 0.3.3(@cfworker/json-schema@4.1.1)(ws@8.18.3)(zod@3.25.76)
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -3939,8 +3940,8 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
-  liquidjs@10.24.0:
-    resolution: {integrity: sha512-TAUNAdgwaAXjjcUFuYVJm9kOVH7zc0mTKxsG9t9Lu4qdWjB2BEblyVIYpjWcmJLMGgiYqnGNJjpNMHx0gp/46A==}
+  liquidjs@10.25.7:
+    resolution: {integrity: sha512-rPCjJLiD4eDhQjvv964AeXFC+HbeYBbZrd7Z82Q6hqv1lX7G+5w4SJcKLn9CAAAwHI4aS3dTdo083UB79K3pDA==}
     engines: {node: '>=16'}
     hasBin: true
 
@@ -9226,7 +9227,7 @@ snapshots:
       dotenv: 17.3.1
       js-yaml: 4.1.1
       langchain: 0.3.36(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.212.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.5.1(@opentelemetry/api@1.9.0))(openai@6.9.1(ws@8.18.3)(zod@3.25.76)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.212.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.5.1(@opentelemetry/api@1.9.0))(handlebars@4.7.9)(openai@6.9.1(ws@8.18.3)(zod@3.25.76))(ws@8.18.3)
-      liquidjs: 10.24.0
+      liquidjs: 10.25.7
       open: 11.0.0
       openapi-fetch: 0.16.0
       ora: 5.4.1
@@ -9349,7 +9350,7 @@ snapshots:
 
   lines-and-columns@1.2.4: {}
 
-  liquidjs@10.24.0:
+  liquidjs@10.25.7:
     dependencies:
       commander: 10.0.1
 
