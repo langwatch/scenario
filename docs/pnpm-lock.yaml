@@ -12,6 +12,7 @@ overrides:
   vite@>=6.0.0 <=6.4.1: '>=6.4.2'
   rollup@>=4.0.0 <4.59.0: '>=4.59.0'
   flatted@<3.4.2: '>=3.4.2'
+  react-router@>=7.0.0 <7.12.0: '>=7.12.0'
 
 importers:
 
@@ -33,8 +34,8 @@ importers:
         specifier: latest
         version: 19.2.5(react@19.2.5)
       react-router:
-        specifier: ^7.9.6
-        version: 7.9.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+        specifier: '>=7.12.0'
+        version: 7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       tailwind-merge:
         specifier: ^3.4.0
         version: 3.4.0
@@ -3888,7 +3889,7 @@ packages:
       '@tanstack/react-router': ^1
       next: '>=14.2.0'
       react: '>=18.2.0 || ^19.0.0-0'
-      react-router: ^6 || ^7
+      react-router: '>=7.12.0'
       react-router-dom: ^6 || ^7
     peerDependenciesMeta:
       '@remix-run/react':
@@ -4176,8 +4177,8 @@ packages:
       '@types/react':
         optional: true
 
-  react-router@7.9.6:
-    resolution: {integrity: sha512-Y1tUp8clYRXpfPITyuifmSoE2vncSME18uVLgaqyxh9H35JWpIfzHo+9y3Fzh5odk/jxPW29IgLgzcdwxGqyNA==}
+  react-router@7.14.2:
+    resolution: {integrity: sha512-yCqNne6I8IB6rVCH7XUvlBK7/QKyqypBFGv+8dj4QBFJiiRX+FG7/nkdAvGElyvVZ/HQP5N19wzteuTARXi5Gw==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       react: '>=18'
@@ -9348,12 +9349,12 @@ snapshots:
     dependencies:
       boolbase: 1.0.0
 
-  nuqs@2.7.3(react-router@7.9.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5):
+  nuqs@2.7.3(react-router@7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5):
     dependencies:
       '@standard-schema/spec': 1.0.0
       react: 19.2.5
     optionalDependencies:
-      react-router: 7.9.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react-router: 7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
 
   object-assign@4.1.1: {}
 
@@ -9676,7 +9677,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.14
 
-  react-router@7.9.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
+  react-router@7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
     dependencies:
       cookie: 1.0.2
       react: 19.2.5
@@ -10625,7 +10626,7 @@ snapshots:
       mdast-util-to-markdown: 2.1.2
       minimatch: 9.0.7
       minisearch: 6.3.0
-      nuqs: 2.7.3(react-router@7.9.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
+      nuqs: 2.7.3(react-router@7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react@19.2.5)
       ora: 7.0.1
       p-limit: 5.0.0
       playwright: 1.56.1
@@ -10634,7 +10635,7 @@ snapshots:
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
       react-intersection-observer: 9.16.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      react-router: 7.9.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react-router: 7.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       rehype-autolink-headings: 7.1.0
       rehype-class-names: 2.0.0
       rehype-mermaid: 3.0.0(playwright@1.56.1)
