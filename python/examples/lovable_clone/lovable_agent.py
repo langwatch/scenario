@@ -4,6 +4,7 @@ import tempfile
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, UserPromptPart
 from pydantic_graph import End
+from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.models.openai import OpenAIModel
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -145,14 +146,14 @@ class LovableAgent:
                 new_messages
             )
 
-            return agent_run.result.data, new_messages_openai_format
+            return agent_run.result.output, new_messages_openai_format
 
     async def convert_to_openai_format(
         self, messages: list[ModelMessage]
     ) -> list[ChatCompletionMessageParam]:
         openai_model = OpenAIModel("any")
         new_messages_openai_format: list[ChatCompletionMessageParam] = []
-        for openai_message in await openai_model._map_messages(messages):
+        for openai_message in await openai_model._map_messages(messages, ModelRequestParameters()):
             new_messages_openai_format.append(openai_message)
 
         return new_messages_openai_format

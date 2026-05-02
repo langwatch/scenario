@@ -61,4 +61,4 @@ async def print_node(run: AgentRun, node: AgentNode[Any, Any] | End[Any]):
                     print(f"\n\n{indent(lines, ' ' * 4)}\n\n")
     elif Agent.is_end_node(node):
         assert run.result is not None
-        assert run.result.data == node.data.data
+        assert run.result.output == node.data.output
