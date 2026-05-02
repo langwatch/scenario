@@ -15,6 +15,7 @@ overrides:
   trim-newlines@<4.0.1: '>=4.0.1'
   flatted@<3.4.2: '>=3.4.2'
   liquidjs@<10.25.7: '>=10.25.7'
+  path-to-regexp@<6.3.1: '>=6.3.1'
 
 importers:
 
@@ -4349,9 +4350,6 @@ packages:
   path-scurry@1.11.1:
     resolution: {integrity: sha512-Xa4Nw17FS9ApQFJ9umLiJS4orGjm7ZzwUrwamcGQuHSzDyth9boKDaycYdDcZDuqYATXw4HFXgaqWTctW/v1HA==}
     engines: {node: '>=16 || 14 >=14.18'}
-
-  path-to-regexp@6.3.0:
-    resolution: {integrity: sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ==}
 
   path-to-regexp@8.3.0:
     resolution: {integrity: sha512-7jdwVIRtsP8MYpdXSwOS0YdD0Du+qOoF/AEPIt88PcCFrZCzx41oxku1jD88hZBwbNUIEfpqvuhjFaMAqMTWnA==}
@@ -9674,7 +9672,7 @@ snapshots:
       headers-polyfill: 4.0.3
       is-node-process: 1.2.0
       outvariant: 1.4.3
-      path-to-regexp: 6.3.0
+      path-to-regexp: 8.3.0
       picocolors: 1.1.1
       rettime: 0.7.0
       statuses: 2.0.2
@@ -9892,9 +9890,6 @@ snapshots:
     dependencies:
       lru-cache: 10.4.3
       minipass: 7.1.2
-
-  path-to-regexp@6.3.0:
-    optional: true
 
   path-to-regexp@8.3.0: {}
 
