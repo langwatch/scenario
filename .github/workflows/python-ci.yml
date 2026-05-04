@@ -62,7 +62,9 @@ jobs:
         run: uv run pyright .
         working-directory: python
 
+      # Examples — skipped for Dependabot PRs since they don't have access to repo secrets
       - name: Test (Examples)
+        if: github.actor != 'dependabot[bot]'
         run: uv run pytest examples/ -v --tb=short
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
