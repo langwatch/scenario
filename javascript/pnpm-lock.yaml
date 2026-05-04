@@ -16,6 +16,8 @@ overrides:
   flatted@<3.4.2: '>=3.4.2'
   liquidjs@<10.25.7: '>=10.25.7'
   path-to-regexp@<6.3.1: '>=6.3.1'
+  picomatch@<2.3.2: 2.3.2
+  picomatch@>=4 <4.0.4: 4.0.4
   '@langchain/core': 0.3.80
   langchain: 0.3.37
 
@@ -2851,7 +2853,7 @@ packages:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
     peerDependencies:
-      picomatch: ^3 || ^4
+      picomatch: 4.0.4
     peerDependenciesMeta:
       picomatch:
         optional: true
