@@ -48,7 +48,7 @@ dev = [
     "pytest-cov",
     "pre-commit",
     "pyright",
-    "pydantic-ai",
+    "pydantic-ai>=1.56.0",
     "function-schema",
     "pdoc3",
     "respx",
@@ -82,7 +82,7 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 dev = [
     "function-schema>=0.4.5",
     "pre-commit>=4.2.0",
-    "pydantic-ai>=0.0.52",
+    "pydantic-ai>=1.56.0",
     "pyright>=1.1.405",
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",
