@@ -139,7 +139,7 @@ Override the catalogue with your own techniques:
 :::code-group
 
 ```python [python]
-from scenario._red_team.techniques_goat import Technique
+from scenario import Technique
 
 custom_techniques = [
     Technique(
@@ -154,7 +154,7 @@ custom_techniques = [
 attacker = scenario.RedTeamAgent.goat(
     target="unauthorized transfer",
     model="openai/gpt-4o",
-    techniques=custom_techniques,  # replaces the default catalogue
+    goat_techniques=custom_techniques,  # replaces the default catalogue
 )
 ```
 
@@ -173,7 +173,7 @@ const customTechniques = [
 const attacker = scenario.redTeamGoat({
   target: "unauthorized transfer",
   model: "openai/gpt-4o",
-  techniques: customTechniques,
+  goatTechniques: customTechniques,
 });
 ```
 
@@ -188,7 +188,7 @@ Every technique's `id` appears in the `red_team.chosen_technique_ids` span attri
 | `target` | `str` | required | The attack objective. |
 | `total_turns` / `totalTurns` | `int` | `30` | Number of attacker turns. |
 | `model` | `str` | `scenario.configure`'s default | Attacker LLM. |
-| `techniques` | `list[Technique]` | 7 defaults above | Override the catalogue. |
+| `goat_techniques` / `goatTechniques` | `list[Technique]` | 7 defaults above | Override the semantic catalogue the attacker chooses from. |
 | `success_score` / `successScore` | `int \| None` | `9` | Early-exit threshold (0-10). `None` disables. |
 | `success_confirm_turns` / `successConfirmTurns` | `int` | `2` | Consecutive high-score turns before early exit. |
 | `injection_probability` / `injectionProbability` | `float` | `0.0` | Per-turn chance of post-hoc encoding (Base64 / ROT13 / …). See below. |
