@@ -895,6 +895,31 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 reasoning = args.get("reasoning", "No reasoning provided")
                 criteria_verdicts = args.get("criteria", {})
 
+                # Handle case where the LLM returns criteria as a JSON string instead of a dict.
+                # Can happen when the LLM is uncertain about the schema format (especially with
+                # complex dynamic schemas using sanitized criterion text as property names).
+                # See: https://github.com/langwatch/scenario/issues/161
+                if isinstance(criteria_verdicts, str):
+                    try:
+                        criteria_verdicts = json.loads(criteria_verdicts)
+                        logger.debug(
+                            "JudgeAgent: Parsed criteria from JSON string to dict"
+                        )
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            f"JudgeAgent: Failed to parse criteria string as JSON: {criteria_verdicts}. "
+                            "Using empty dict as fallback."
+                        )
+                        criteria_verdicts = {}
+
+                # Ensure criteria_verdicts is a dict before calling .values()
+                if not isinstance(criteria_verdicts, dict):
+                    logger.warning(
+                        f"JudgeAgent: criteria is {type(criteria_verdicts).__name__}, expected dict. "
+                        "Using empty dict as fallback."
+                    )
+                    criteria_verdicts = {}
+
                 passed_criteria = [
                     effective_criteria[idx]
                     for idx, criterion in enumerate(criteria_verdicts.values())
