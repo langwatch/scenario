@@ -719,6 +719,24 @@ class ScenarioExecutor:
         latency = getattr(self, "_voice_latency", None)
         if recording is not None and recording.segments:
             result.audio = recording
+            # Pin the timeline onto the recording too so save_segments() can
+            # write events into the manifest. The result already exposes
+            # timeline directly; this just makes it accessible from the
+            # recording object for serialisation.
+            recording.timeline = list(timeline) if timeline else []
+            # Mark agent segments whose span contains a user_interrupt event:
+            # the chunk-level transcripts come from the AUT's API and reflect
+            # the agent's INTENDED reply, not what actually played to the user
+            # before the interrupt cut the audio. Flag these so consumers
+            # (manifest readers, judges) know to re-transcribe from bytes.
+            interrupts = [e for e in (timeline or []) if e.type == "user_interrupt"]
+            for seg in recording.segments:
+                if seg.speaker != "agent":
+                    continue
+                for evt in interrupts:
+                    if seg.start_time <= evt.time <= seg.end_time:
+                        seg.transcript_truncated = True
+                        break
         if timeline:
             result.timeline = list(timeline)
         if latency is not None and latency.measurements:
@@ -1050,9 +1068,14 @@ class ScenarioExecutor:
             )
         except asyncio.TimeoutError:
             pass
+        # Track whether the transport-native interrupt actually ran so the
+        # timeline event metadata reflects how the barge-in landed (native
+        # cancel vs VAD fallback).
+        native_interrupt_fired = False
         if adapter.capabilities.interruption:
             try:
                 await adapter.interrupt()
+                native_interrupt_fired = True
             except Exception:
                 pass
         chunk = self._extract_audio_from_message(voiced_message)
@@ -1075,7 +1098,14 @@ class ScenarioExecutor:
                 from .voice.recording import VoiceEvent
 
                 t = (time.monotonic() - anchor) if anchor is not None else 0.0
-                event = VoiceEvent(time=t, type="user_interrupt")
+                event = VoiceEvent(
+                    time=t,
+                    type="user_interrupt",
+                    metadata={
+                        "adapter": type(adapter).__name__,
+                        "native": native_interrupt_fired,
+                    },
+                )
                 timeline.append(event)
                 hook = getattr(self, "_on_voice_event", None)
                 if hook is not None:
