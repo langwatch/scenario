@@ -114,17 +114,23 @@ async def test_send_audio_emits_media_frames_20ms_each(patched_ws):
     try:
         patched_ws.sent.clear()  # drop connected + start
         # 100ms of silence at 24kHz PCM16 = 4800 bytes → 100ms µ-law = 800 bytes
-        # → 5 frames of 160 bytes each.
+        # → 5 media frames of 160 bytes each, plus a trailing utterance_end mark.
         pcm = b"\x00\x00" * 2400  # 100ms
         await a.send_audio(AudioChunk(data=pcm))
         frames = [json.loads(s) for s in patched_ws.sent]
-        assert all(f["event"] == "media" for f in frames)
-        # Should be 5 frames (100ms @ 20ms per frame).
-        assert len(frames) == 5
-        # Each payload decodes to 160 bytes µ-law.
-        for f in frames:
+        media_frames = [f for f in frames if f["event"] == "media"]
+        mark_frames = [f for f in frames if f["event"] == "mark"]
+        # 5 media frames (100ms @ 20ms each) + 1 trailing utterance_end mark.
+        assert len(media_frames) == 5
+        assert len(frames) == len(media_frames) + len(mark_frames)
+        # Each media payload decodes to ≤ 160 bytes µ-law.
+        for f in media_frames:
             payload = base64.b64decode(f["media"]["payload"])
             assert len(payload) <= 160
+        # Trailing mark is the explicit end-of-turn signal.
+        assert mark_frames == [
+            {"event": "mark", "streamSid": a.stream_sid, "mark": {"name": "utterance_end"}}
+        ]
     finally:
         patched_ws.end_stream()
         await a.disconnect()
