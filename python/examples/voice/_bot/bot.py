@@ -52,6 +52,7 @@ import os
 import signal
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -319,6 +320,14 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     # interrupts the bot mid-utterance, the bot stops talking and listens.
     response_task: Optional[asyncio.Task] = None
     greeted = False
+    # Idle re-prompt: if the caller goes quiet for IDLE_REPROMPT_MS after a
+    # turn has completed, ask "Are you still there?" once. Resets when the
+    # caller speaks or a new bot response starts. Demos like
+    # examples/voice/silence_handling.py rely on this — AC #61.
+    IDLE_REPROMPT_MS = 6000
+    IDLE_REPROMPT_TEXT = "I'm sorry, are you still there?"
+    last_activity_at = time.monotonic()
+    idle_reprompted = False
 
     def _mulaw8k_chunk_to_pcm16_8k(mulaw: bytes) -> bytes:
         """µ-law @ 8k -> PCM16 @ 8k (no resample, just decode)."""
@@ -372,6 +381,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                 conversation_history,
             )
         )
+        response_task.add_done_callback(_track_response_completion)
 
     async def _inactivity_watchdog() -> None:
         """Fire end-of-turn after INACTIVITY_END_MS of no new audio.
@@ -415,6 +425,53 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         response_task.cancel()
         response_task = None
 
+    def _mark_activity() -> None:
+        """Reset the idle timer; the next silence period gets one fresh
+        re-prompt opportunity."""
+        nonlocal last_activity_at, idle_reprompted
+        last_activity_at = time.monotonic()
+        idle_reprompted = False
+
+    def _track_response_completion(task: asyncio.Task) -> None:
+        """Called when a response_task finishes. Restamps ``last_activity_at``
+        so the IDLE_REPROMPT_MS window starts from when the bot stopped
+        speaking, not from when the task was scheduled. Without this, a slow
+        TTS call would eat into the silence window."""
+        nonlocal last_activity_at
+        last_activity_at = time.monotonic()
+
+    def _maybe_idle_reprompt() -> None:
+        """If the caller has been silent past IDLE_REPROMPT_MS since the last
+        activity (user speech, bot response start, completed turn), TTS a
+        single 'are you still there?' prompt. Re-prompts once per silence
+        period — resets when the caller speaks again."""
+        nonlocal response_task, idle_reprompted, last_activity_at
+        if not greeted or idle_reprompted or speech_started:
+            return
+        if response_task is not None and not response_task.done():
+            return
+        if not stream_sid:
+            return
+        elapsed_ms = (time.monotonic() - last_activity_at) * 1000
+        if elapsed_ms < IDLE_REPROMPT_MS:
+            return
+        logger.info(
+            "idle re-prompt: %0.1fs without activity → %r",
+            elapsed_ms / 1000,
+            IDLE_REPROMPT_TEXT,
+        )
+        idle_reprompted = True
+        last_activity_at = time.monotonic()
+        response_task = asyncio.create_task(
+            _greet(
+                websocket,
+                stream_sid,
+                IDLE_REPROMPT_TEXT,
+                conversation_history,
+            )
+        )
+        response_task.add_done_callback(_track_response_completion)
+
     def _feed_vad(mulaw_payload: bytes) -> bool:
         """Decode + feed VAD; return True iff end-of-utterance detected."""
         nonlocal speech_started, silence_frames
@@ -438,6 +495,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     _maybe_barge_in()
                 speech_started = True
                 silence_frames = 0
+                _mark_activity()
             else:
                 non_speech_count_in_burst += 1
                 if speech_started:
@@ -465,6 +523,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     await _flush_user_turn()
                 else:
                     _kick_inactivity_watchdog()
+                    _maybe_idle_reprompt()
                 continue
 
             try:
@@ -485,6 +544,8 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     response_task = asyncio.create_task(
                         _greet(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
                     )
+                    response_task.add_done_callback(_track_response_completion)
+                    _mark_activity()
 
             elif event == "start":
                 stream_sid = (
@@ -503,6 +564,8 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     response_task = asyncio.create_task(
                         _greet(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
                     )
+                    response_task.add_done_callback(_track_response_completion)
+                    _mark_activity()
 
             elif event == "media":
                 media = data.get("media") or {}
@@ -515,6 +578,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                             await _flush_user_turn()
                         else:
                             _kick_inactivity_watchdog()
+                            _maybe_idle_reprompt()
                     except (ValueError, TypeError):
                         logger.debug("bad base64 in media frame")
 

@@ -60,7 +60,7 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 # Use AUDIO_FIXTURE_PATH override or fall back to the bundled example fixture.
 _DEFAULT_FIXTURE = (
-    Path(__file__).parent / "fixtures" / "male_or_female_voice.wav"
+    Path(__file__).resolve().parent.parent / "fixtures" / "male_or_female_voice.wav"
 )
 FIXTURE_PATH = os.environ.get("AUDIO_FIXTURE_PATH", str(_DEFAULT_FIXTURE))
 
