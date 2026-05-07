@@ -15,9 +15,10 @@ Wire format: Twilio Media Streams JSON (same as TwilioFrameSerializer in
 pipecat-ai).  No pipecat dependency needed — only ``websockets``, ``openai``,
 and stdlib.
 
-The bot uses OpenAI's chat API (gpt-4o-mini) to generate text responses, then
-synthesises speech via OpenAI TTS (tts-1 / alloy voice) and converts the
-resulting MP3 to µ-law 8 kHz for the wire.
+The bot uses OpenAI chat completions to generate text responses, then
+synthesises speech via OpenAI TTS (alloy voice) and converts the resulting
+audio to µ-law 8 kHz for the wire. Model defaults live in
+`scenario/config/voice_models.py` so the bot tracks the rest of the SDK.
 
 Running the bot
 ---------------
@@ -65,6 +66,13 @@ try:
     load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 except ImportError:
     pass  # dotenv is a scenario dep; if missing, env must already be set
+
+
+from scenario.config.voice_models import (
+    OPENAI_BOT_LLM_MODEL,
+    OPENAI_BOT_STT_MODEL,
+    OPENAI_TTS_MODEL,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +165,7 @@ def _openai_chat_response(transcript: str, history: list[dict]) -> str:
         messages.append({"role": "user", "content": transcript})
         client = openai.OpenAI()
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENAI_BOT_LLM_MODEL,
             messages=messages,  # type: ignore[arg-type]
             max_tokens=60,
             temperature=0.4,
@@ -180,7 +188,7 @@ def _openai_tts_pcm16(text: str) -> bytes:
 
         client = openai.OpenAI()
         resp = client.audio.speech.create(
-            model="tts-1",
+            model=OPENAI_TTS_MODEL,
             voice="alloy",
             input=text,
             response_format="pcm",   # raw PCM16 24 kHz from OpenAI
@@ -213,7 +221,7 @@ def _openai_stt(mulaw_bytes: bytes) -> str:
         try:
             with open(tmp_path, "rb") as fh:
                 result = client.audio.transcriptions.create(
-                    model="whisper-1",
+                    model=OPENAI_BOT_STT_MODEL,
                     file=fh,
                 )
             text = result.text.strip()

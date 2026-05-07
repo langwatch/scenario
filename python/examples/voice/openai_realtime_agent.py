@@ -49,6 +49,7 @@ _check_env()
 
 import scenario  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
+from scenario.config.voice_models import OPENAI_REALTIME_MODEL  # noqa: E402
 from scenario.types import AgentRole  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-5-mini")
@@ -63,7 +64,7 @@ async def main() -> scenario.ScenarioResult:
         ),
         agents=[
             scenario.OpenAIRealtimeAgentAdapter(
-                model="gpt-4o-realtime-preview",
+                model=OPENAI_REALTIME_MODEL,
                 voice="alloy",
                 instructions="You are a helpful assistant. Keep responses brief.",
                 role=AgentRole.AGENT,

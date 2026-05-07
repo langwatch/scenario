@@ -37,6 +37,7 @@ import logging
 import os
 from typing import Any, ClassVar, Optional
 
+from ...config.voice_models import GEMINI_LIVE_MODEL
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
@@ -88,7 +89,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
     Example::
 
         adapter = GeminiLiveAgentAdapter(
-            model="gemini-2.5-flash-native-audio-latest",
+            model=GEMINI_LIVE_MODEL,
             system_instruction="You are a helpful assistant.",
         )
         async with adapter:
@@ -109,7 +110,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
 
     def __init__(
         self,
-        model: str = "gemini-2.5-flash-native-audio-latest",
+        model: str = GEMINI_LIVE_MODEL,
         voice: str = "Algieba",
         system_instruction: str = "",
         api_key: Optional[str] = None,
