@@ -27,7 +27,7 @@ import socket
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 logger = logging.getLogger("voice_bot.lifecycle")
 
