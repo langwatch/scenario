@@ -88,7 +88,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
     Example::
 
         adapter = GeminiLiveAgentAdapter(
-            model="gemini-2.5-flash-preview-native-audio-dialog",
+            model="gemini-2.5-flash-native-audio-latest",
             system_instruction="You are a helpful assistant.",
         )
         async with adapter:
@@ -109,7 +109,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
 
     def __init__(
         self,
-        model: str = "gemini-2.5-flash-preview-native-audio-dialog",
+        model: str = "gemini-2.5-flash-native-audio-latest",
         voice: str = "Algieba",
         system_instruction: str = "",
         api_key: Optional[str] = None,
