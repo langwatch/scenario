@@ -23,13 +23,22 @@ SpeakerRole = Literal["user", "agent"]
 
 @dataclass
 class AudioSegment:
-    """A contiguous span of audio attributed to one speaker."""
+    """A contiguous span of audio attributed to one speaker.
+
+    ``transcript_truncated`` is True when this agent segment was cut short
+    by a user_interrupt event during the run — the audio bytes are
+    authoritative; the transcript may reflect what the agent INTENDED to
+    say, not what the user actually heard. Tools that care about wire
+    truth should re-transcribe the audio (transcribe_segments with
+    ``only_missing=False``) on truncated segments.
+    """
 
     speaker: SpeakerRole
     start_time: float
     end_time: float
     audio: bytes  # PCM16 bytes
     transcript: Optional[str] = None
+    transcript_truncated: bool = False
 
 
 @dataclass
@@ -43,6 +52,10 @@ class VoiceEvent:
 
     `latency` is populated for ``agent_start_speaking`` events and measures
     the response time from the preceding user_stop_speaking event.
+
+    `metadata` is a free-form dict for type-specific context. Examples:
+        - user_interrupt: {"adapter": "PipecatAgentAdapter", "native": True}
+        - tool_call:      {"call_id": "..."}
     """
 
     time: float
@@ -51,6 +64,7 @@ class VoiceEvent:
     args: Optional[Dict[str, Any]] = None
     result: Optional[Any] = None
     latency: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -93,9 +107,14 @@ class VoiceRecording:
         result.audio.save("conversation.wav")
         result.audio.save("conversation.mp3", format="mp3")
         for seg in result.audio.segments: ...
+
+    ``timeline`` mirrors result.timeline so save_segments() can write
+    timestamped events (user_interrupt, etc.) into the manifest. Populated
+    by the executor at end-of-scenario via _attach_voice_output.
     """
 
     segments: List[AudioSegment] = field(default_factory=list)
+    timeline: List["VoiceEvent"] = field(default_factory=list)
 
     @property
     def duration(self) -> float:
@@ -227,7 +246,7 @@ class VoiceRecording:
             seg_path.write_bytes(buf.getvalue())
 
             rel_file = f"segments/{filename}"
-            segment_entries.append({
+            entry: Dict[str, Any] = {
                 "idx": idx,
                 "file": rel_file,
                 "role": seg.speaker,
@@ -235,17 +254,35 @@ class VoiceRecording:
                 "end_time": seg.end_time,
                 "duration": seg.end_time - seg.start_time,
                 "transcript": seg.transcript,
-            })
+            }
+            if seg.transcript_truncated:
+                entry["transcript_truncated"] = True
+            segment_entries.append(entry)
 
         # Write the full mixed WAV.
         (target / "full.wav").write_bytes(self.full_wav)
 
         if manifest:
+            event_entries: List[Dict[str, Any]] = []
+            for evt in sorted(self.timeline, key=lambda e: e.time):
+                entry: Dict[str, Any] = {"time": evt.time, "type": evt.type}
+                if evt.latency is not None:
+                    entry["latency"] = evt.latency
+                if evt.name is not None:
+                    entry["name"] = evt.name
+                if evt.args is not None:
+                    entry["args"] = evt.args
+                if evt.result is not None:
+                    entry["result"] = evt.result
+                if evt.metadata is not None:
+                    entry["metadata"] = evt.metadata
+                event_entries.append(entry)
             manifest_data: Dict[str, Any] = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "duration": self.duration,
                 "segment_count": len(ordered),
                 "segments": segment_entries,
+                "events": event_entries,
             }
             (target / "manifest.json").write_text(
                 json.dumps(manifest_data, indent=2), encoding="utf-8"
