@@ -79,6 +79,9 @@ async def main() -> scenario.ScenarioResult:
                 scenario.JudgeAgent(
                     criteria=[
                         "The agent responded helpfully",
+                        # Claim from docstring: result.audio.save() writes WAV + MP3, audio_playback wires live playback.
+                        "The agent and user produced enough audio that a non-empty recording can be saved",
+                        "The conversation is a coherent example of the recording-and-playback flow",
                     ]
                 ),
             ],

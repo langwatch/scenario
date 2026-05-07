@@ -86,6 +86,10 @@ async def main() -> scenario.ScenarioResult:
                         "The agent demonstrated empathy toward the angry customer",
                         "The agent maintained composure despite background noise",
                         "The agent offered a concrete resolution or next step",
+                        # Claim from docstring: emotional persona + cafe noise + phone codec.
+                        "The user simulator delivered an emotionally heightened persona over audio",
+                        "Background cafe noise and phone-codec quality were audibly present",
+                        "The conversation is a coherent example of an angry-customer-in-a-noisy-cafe scenario",
                     ]
                 ),
             ],

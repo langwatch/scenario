@@ -77,6 +77,9 @@ async def main() -> scenario.ScenarioResult:
                     criteria=[
                         "The agent greeted the user naturally",
                         "The agent offered help in a friendly tone",
+                        # Claim from docstring: end-to-end voice pipeline.
+                        "The agent and user exchanged real audio turns",
+                        "The conversation is a coherent example of a basic greeting flow",
                     ]
                 ),
             ],

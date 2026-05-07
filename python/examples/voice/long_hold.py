@@ -73,6 +73,9 @@ async def main() -> scenario.ScenarioResult:
                     criteria=[
                         "Agent provides audio feedback while waiting (hold music or verbal)",
                         "Agent does not leave the caller in dead silence for the full 15s",
+                        # Claim from docstring: scenario.sleep(15) pauses the script while agent fills the wait.
+                        "The script paused for 15 seconds during which the agent owned the floor",
+                        "The conversation is a coherent example of the long-hold-with-feedback pain pattern",
                     ]
                 ),
             ],

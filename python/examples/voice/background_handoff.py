@@ -81,9 +81,11 @@ async def main() -> scenario.ScenarioResult:
                 ),
                 scenario.JudgeAgent(
                     criteria=[
-                        "The agent waited for the caller to return rather than responding "
-                        "to the background noise",
+                        "The agent waited for the caller to return rather than responding to the background noise",
                         "The agent did not treat the background conversation as user speech",
+                        # Claim from docstring: handoff signal then layered background audio.
+                        "The script delivered the handoff signal followed by background-noise-overlaid audio",
+                        "The conversation is a coherent example of ignoring audio not directed at the agent",
                     ]
                 ),
             ],

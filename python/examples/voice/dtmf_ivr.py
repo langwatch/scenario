@@ -106,6 +106,10 @@ async def main() -> scenario.ScenarioResult:
                         criteria=[
                             "The agent announced billing as the destination for pressing 1",
                             "The agent routed the caller after receiving DTMF tone 1",
+                            # Claim from docstring: scenario.dtmf("1") emits a real DTMF tone.
+                            "A real DTMF tone was delivered over the Twilio Media Streams transport",
+                            "The agent acknowledged the keypress",
+                            "The conversation is a coherent example of pressing-1-routes-to-billing",
                         ]
                     ),
                 ],

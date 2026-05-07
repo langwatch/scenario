@@ -94,6 +94,9 @@ async def main() -> scenario.ScenarioResult:
                         # responded. This is what the §6.6 AC is actually testing
                         # (scenario.audio() injection works), not bot behavior.
                         "The bot produced a response after receiving the injected audio",
+                        # Claim from docstring: scenario.audio(file) injects a real WAV bypassing user TTS.
+                        "A pre-recorded audio file was injected as the user's first turn instead of TTS",
+                        "The conversation is a coherent example of pre-recorded-audio-injection",
                     ]
                 ),
             ],

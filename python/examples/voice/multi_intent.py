@@ -75,6 +75,10 @@ async def main() -> scenario.ScenarioResult:
                 scenario.JudgeAgent(
                     criteria=[
                         "The agent produced a response after the user's message",
+                        # Claim from docstring: a single user turn carrying TWO distinct intents arrives intact.
+                        "The user's single turn contained two distinct intents and arrived as one turn",
+                        "The agent's response addressed both intents (cancellation AND credits)",
+                        "The conversation is a coherent example of the multi-intent-single-turn pain pattern",
                     ]
                 ),
             ],
