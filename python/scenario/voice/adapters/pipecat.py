@@ -125,7 +125,9 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         import websockets
 
         assert self.url is not None  # validated in __init__
-        self._ws = await websockets.connect(self.url)
+        self._ws = await websockets.connect(
+            self.url, ping_interval=None, ping_timeout=None
+        )
         self._inbound_queue = asyncio.Queue()
         self._send_lock = asyncio.Lock()
 

@@ -656,7 +656,9 @@ async def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    async with websockets.serve(_handle_connection, host, port) as server:
+    async with websockets.serve(
+        _handle_connection, host, port, ping_interval=None, ping_timeout=None
+    ) as server:
         logger.info(
             "bot listening on ws://%s:%d/stream  (CTRL-C to stop)",
             host,
