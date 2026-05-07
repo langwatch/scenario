@@ -40,20 +40,26 @@ def configure_logging() -> None:
         logger.addHandler(handler)
 
     # Optional file handler: set SCENARIO_LOG_FILE to write logs to a file.
-    # Useful for inspecting RedTeamAgent dual-history state across turns.
+    # Attached to the ROOT logger at SCENARIO_LOG_LEVEL so third-party
+    # libraries (litellm, OpenAI, OpenTelemetry, Pipecat) flow into the same
+    # file — otherwise their output is terminal-only and lost when the
+    # process exits.
     log_file: Optional[str] = os.environ.get("SCENARIO_LOG_FILE")
     if log_file:
+        root_logger = logging.getLogger()
+        if root_logger.level == logging.NOTSET or root_logger.level > level:
+            root_logger.setLevel(level)
         # Avoid duplicate file handlers on re-import
         if not any(
             isinstance(h, logging.FileHandler) and h.baseFilename == os.path.abspath(log_file)
-            for h in logger.handlers
+            for h in root_logger.handlers
         ):
             file_handler = logging.FileHandler(log_file, mode="a")
             file_handler.setLevel(level)
             file_handler.setFormatter(logging.Formatter(
                 "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
             ))
-            logger.addHandler(file_handler)
+            root_logger.addHandler(file_handler)
 
 
 configure_logging()
