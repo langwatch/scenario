@@ -62,7 +62,9 @@ _SENTINEL_CLOSE = object()
 def patched_ws(monkeypatch):
     fake = _FakeWebSocket()
 
-    async def _fake_connect(url):
+    async def _fake_connect(url, **_):
+        # Accept any keepalive kwargs (ping_interval, ping_timeout, etc) the
+        # production code passes; the mock ignores them.
         return fake
 
     monkeypatch.setattr("websockets.connect", _fake_connect)
