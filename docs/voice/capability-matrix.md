@@ -2,30 +2,96 @@
 
 Every `VoiceAgentAdapter` publishes an `AdapterCapabilities` instance as its
 class-level `capabilities` attribute. Capability-gated script steps — such as
-`interrupt(after_words=N)` (needs streaming transcripts) or `dtmf()` (needs
-telephony) — check this record and raise `UnsupportedCapabilityError` when the
-underlying adapter cannot implement the requested behavior.
+`interrupt(after_words=N)` (needs streaming transcripts), `dtmf()` (needs
+telephony), or `interrupt(content)` over a native cancel signal (needs
+`interruption=True`) — check this record and either route correctly or raise
+`UnsupportedCapabilityError` when the underlying adapter cannot implement the
+requested behavior.
 
 This page is the authoritative render of what each shipped adapter advertises.
 When `UnsupportedCapabilityError` or `PendingTransportError` point users here,
 this is the page they land on.
 
-## Matrix
+## Provider × capability matrix
 
-| Adapter | Streaming transcripts | Native VAD | DTMF | Input formats | Output formats | Real transport? |
+Internal audio format is always PCM16 @ 24 kHz mono (`AudioChunk`); each
+adapter converts at its send/recv boundary.
+
+| Adapter | Streaming transcripts | Native VAD | DTMF | Interruption (native cancel) | Wire transport | Real I/O? |
 |---|---|---|---|---|---|---|
-| `PipecatAgentAdapter` | ✅ | ✅ | ❌ | pcm16/24000, mulaw/8000, opus | pcm16/24000, mulaw/8000, opus | ✅ WebSocket only (WebRTC deferred) |
-| `LiveKitAgentAdapter` | ✅ | ✅ | ❌ | pcm16/48000 | pcm16/48000 | ❌ raises `PendingTransportError` |
-| `TwilioAgentAdapter` | ❌ | ❌ | ✅ | mulaw/8000 | mulaw/8000 | ✅ bidirectional Media Streams |
-| `ElevenLabsAgentAdapter` | ✅ | ✅ | ❌ | pcm16/24000 | pcm16/24000 | ❌ raises `PendingTransportError` |
-| `VapiAgentAdapter` | ✅ | ✅ | ❌ | pcm16/16000 | pcm16/16000 | ❌ raises `PendingTransportError` |
-| `OpenAIRealtimeAgentAdapter` | ✅ | ✅ | ❌ | pcm16/24000 | pcm16/24000 | ❌ raises `PendingTransportError` (text routing works) |
-| `GeminiLiveAgentAdapter` | ✅ | ✅ | ❌ | pcm16/16000 | pcm16/24000 | ❌ raises `PendingTransportError` |
-| `WebSocketAgentAdapter` | ❌ | ❌ | ❌ | pcm16/24000 | pcm16/24000 | ⚠️ user-supplied `WebSocketProtocol` |
-| `WebRTCAgentAdapter` | ❌ | ❌ | ❌ | pcm16/24000 | pcm16/24000 | ❌ raises `PendingTransportError` |
+| `PipecatAgentAdapter` | ✅ | ✅ | ❌ | ✅ Twilio Media Streams `clear` | WebSocket | ✅ |
+| `TwilioAgentAdapter` | ❌ | ❌ | ✅ | ✅ Twilio Media Streams `clear` | WebSocket (Media Streams) | ✅ |
+| `OpenAIRealtimeAgentAdapter` | ✅ | ✅ | ❌ | ✅ `response.cancel` | WebSocket | ✅ |
+| `ElevenLabsAgentAdapter` | ✅ | ✅ | ❌ | ❌ (transport supports it; SDK not yet wired) | WebSocket | ✅ |
+| `GeminiLiveAgentAdapter` | ✅ | ✅ | ❌ | ❌ (transport supports it; SDK not yet wired) | WebSocket | ✅ |
+| `LiveKitAgentAdapter` | ✅ | ✅ | ❌ | ❌ | WebRTC (planned) | ❌ stub raises `PendingTransportError` |
+| `VapiAgentAdapter` | ✅ | ✅ | ❌ | ❌ | WebSocket (planned) | ❌ stub raises `PendingTransportError` |
+| `WebRTCAgentAdapter` | ❌ | ❌ | ❌ | ❌ | WebRTC | ❌ stub raises `PendingTransportError` |
+| `WebSocketAgentAdapter` | ❌ | ❌ | ❌ | ❌ | user-supplied `WebSocketProtocol` | ⚠️ depends on user code |
 
-Internal audio format is always PCM16 @ 24kHz mono (`AudioChunk`); each adapter
-converts at its send/recv boundary.
+**Wire formats** (PCM16 mono at the listed sample rate):
+
+| Adapter | Input | Output |
+|---|---|---|
+| `PipecatAgentAdapter` | pcm16/24000, mulaw/8000, opus | pcm16/24000, mulaw/8000, opus |
+| `TwilioAgentAdapter` | mulaw/8000 | mulaw/8000 |
+| `OpenAIRealtimeAgentAdapter` | pcm16/24000 | pcm16/24000 |
+| `ElevenLabsAgentAdapter` | pcm16/24000 | pcm16/24000 |
+| `GeminiLiveAgentAdapter` | pcm16/16000 | pcm16/24000 |
+| `LiveKitAgentAdapter` | pcm16/48000 | pcm16/48000 |
+| `VapiAgentAdapter` | pcm16/16000 | pcm16/16000 |
+| `WebRTCAgentAdapter` | pcm16/24000 | pcm16/24000 |
+| `WebSocketAgentAdapter` | pcm16/24000 | pcm16/24000 |
+
+## Use case × provider — demos
+
+The `examples/voice/` directory has one demo per use case. Each picks a
+provider that supports the capability the demo proves; the cell shows where
+the same use case could also work with substitution.
+
+Legend:
+- ✅ shipped — running demo lives at `examples/voice/<file>.py` for the listed
+  provider, or via simple adapter substitution.
+- 🟡 supported, no demo — the capability works on the listed adapter but no
+  demo file exists yet. Track in follow-up issues.
+- ❌ unsupported — the adapter's transport or capability flags do not allow
+  this use case. Don't try.
+- ⏸ skipped — possible in principle but cost-prohibitive (real phone call,
+  paid voice, etc.); covered manually rather than in CI.
+
+| Use case | Demo | Pipecat WS | Twilio | OpenAI Realtime | ElevenLabs | Gemini Live |
+|---|---|---|---|---|---|---|
+| Basic greeting | `basic_greeting.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Interruption recovery | `interruption_recovery.py` | ✅ | 🟡 | 🟡 | ❌ until SDK wires interrupt | ❌ until SDK wires interrupt |
+| Random interruptions | `random_interruptions.py` | ✅ | 🟡 | 🟡 | ❌ | ❌ |
+| DTMF IVR navigation | `dtmf_ivr.py` | ❌ no DTMF | ✅ | ❌ no DTMF | ❌ no DTMF | ❌ no DTMF |
+| Pre-recorded audio | `prerecorded_audio.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Tool call verification | `tool_verification.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Silence handling | `silence_handling.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Long hold (15s wait) | `long_hold.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Multi-intent in one turn | `multi_intent.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Background handoff (effects) | `background_handoff.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Accent-misunderstanding loop | `accent_loop.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Angry customer + cafe noise | `angry_customer.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Emotional escalation | `emotional_escalation.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Twilio inbound call | `twilio_inbound.py` | ❌ | ⏸ real phone | ❌ | ❌ | ❌ |
+| Twilio outbound call | `twilio_outbound.py` | ❌ | ⏸ real phone | ❌ | ❌ | ❌ |
+| ElevenLabs branded composable | `elevenlabs_branded.py` | ❌ | ❌ | ❌ | ✅ | ❌ |
+| ElevenLabs hosted ConvAI | `elevenlabs_hosted.py` | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Gemini Live native audio | `gemini_live.py` | ❌ | ❌ | ❌ | ❌ | ✅ |
+| OpenAI Realtime as agent | `openai_realtime_agent.py` | ❌ | ❌ | ✅ | ❌ | ❌ |
+| OpenAI Realtime as user sim | `openai_realtime_user.py` | n/a | n/a | currently skip-guarded — no cross-adapter audio bridge yet | n/a | n/a |
+| Pipecat WebSocket happy path | `pipecat_ws.py` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Pipecat scenario harness | `pipecat_scenario.py` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Recording + playback | `recording_playback.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| STT provider swap | `stt_swap.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Voice/text entrypoint parity | `voice_text_parity.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+| Observability hooks + latency | `observability.py` | ✅ | 🟡 | 🟡 | 🟡 | 🟡 |
+
+🟡 cells convert to ✅ by swapping the adapter in the demo's `agents=[...]`
+list. They're 🟡 not because the use case fails — it generally works — but
+because a verified, recorded, rendered demo doesn't yet exist for that
+combination. File issues for the gaps you care about.
 
 ## Capability semantics
 
@@ -40,12 +106,21 @@ converts at its send/recv boundary.
 - **DTMF** — the adapter can transmit DTMF tones over a telephony transport.
   Required for `scenario.dtmf("1234#")`. Without it, that step raises
   `UnsupportedCapabilityError`.
-- **Input formats** — wire formats the adapter can accept from the SDK for
-  outgoing user audio. The SDK converts `AudioChunk` PCM16/24000 to one of
-  these at the adapter boundary.
-- **Output formats** — wire formats the adapter emits for incoming agent
-  audio. The SDK converts these back to internal PCM16/24000 mono before
-  exposing them as `AudioChunk`s.
+- **Interruption (native cancel)** — the adapter can send a transport-level
+  cancel signal that stops the agent under test mid-utterance (Twilio
+  Media Streams `clear`, OpenAI Realtime `response.cancel`, etc.). Required
+  for first-class barge-in. Without it, `scenario.interrupt(content)` falls
+  back to overlapping user audio with the agent's TTS and relying on the
+  AUT's own VAD-based barge-in (less deterministic).
+
+  Interrupts are inherently a **duplex-channel** capability: the SDK has to
+  send a control frame while the agent is still streaming. HTTP/REST
+  transports cannot support this. WebSocket and WebRTC adapters can — even
+  if the SDK has not yet wired it for a given adapter (see ElevenLabs and
+  Gemini Live above; transport is duplex but the SDK does not yet send a
+  cancel frame).
+- **Input formats / Output formats** — wire formats the adapter accepts /
+  emits. The SDK converts internally.
 
 ## Errors that reference this page
 
@@ -56,7 +131,8 @@ converts at its send/recv boundary.
 - `scenario.voice.adapters.PendingTransportError` — raised by adapter stubs
   whose `send_audio` / `recv_audio` implementations have not landed yet.
   Points users here so they can pick an adapter with a real transport
-  (today: Twilio or Pipecat/WebSocket) or subclass and implement their own.
+  (today: Pipecat WS, Twilio, OpenAI Realtime, ElevenLabs, Gemini Live) or
+  subclass and implement their own.
 
 ## Checking capabilities programmatically
 
@@ -69,8 +145,9 @@ if adapter.capabilities.dtmf:
 if adapter.capabilities.streaming_transcripts:
     script.append(scenario.interrupt(after_words=3, content="Wait"))
 else:
-    # Fall back to time-based interruption — works on every adapter.
-    script.append(scenario.interrupt(after=2.0, content="Wait"))
+    # Event-driven barge-in works on every adapter; native cancel fires
+    # iff capabilities.interruption=True.
+    script.append(scenario.interrupt(content="Wait"))
 ```
 
 ## Authoring a custom adapter
@@ -80,7 +157,9 @@ flags. Inheriting a parent's `AdapterCapabilities` ClassVar and not re-auditing
 it will silently break capability-gated script steps. For instance, claiming
 `streaming_transcripts=True` when your transport only delivers completed
 transcripts will cause `interrupt(after_words=N)` to hang indefinitely because
-no partial-transcript events ever arrive.
+no partial-transcript events ever arrive. Claiming `interruption=True` without
+implementing `async def interrupt()` will make the executor call a method that
+doesn't exist.
 
 ```python
 class MyCustomAdapter(scenario.VoiceAgentAdapter):
@@ -88,6 +167,7 @@ class MyCustomAdapter(scenario.VoiceAgentAdapter):
         streaming_transcripts=False,
         native_vad=False,
         dtmf=False,
+        interruption=False,
         input_formats=["pcm16/24000"],
         output_formats=["pcm16/24000"],
     )
@@ -95,10 +175,17 @@ class MyCustomAdapter(scenario.VoiceAgentAdapter):
 
 ## Deferred / follow-up items
 
-- Transport implementations for LiveKit, ElevenLabs, Vapi, OpenAI Realtime
-  (audio I/O; text routing works), Gemini Live, and generic WebRTC are
-  deferred to a follow-up issue. Their `capabilities` declarations above
-  describe what they *will* support — today they raise
-  `PendingTransportError` at `send_audio` / `recv_audio`.
-- The generic `WebSocketAgentAdapter` is a pluggable harness: users supply a
-  `WebSocketProtocol` that handles framing for their specific service.
+- **Native interrupt for ElevenLabs and Gemini Live**. Both have duplex
+  WebSockets but the SDK has not yet wired a cancel frame. Tracked as a
+  follow-up; once landed, set `interruption=True` and add an
+  `async def interrupt()` that sends the provider's cancel frame.
+- **Transport implementations for LiveKit, Vapi, WebRTC**. Stubs raise
+  `PendingTransportError` at `send_audio` / `recv_audio`. The capability
+  declarations describe what they *will* support.
+- **`OpenAIRealtimeAgentAdapter(role=USER)` cross-adapter audio bridging**.
+  When the OpenAI Realtime user simulator is paired with a different agent
+  adapter (e.g. Pipecat), there's no bridge piping the user-side audio into
+  the agent-side input. Demo `openai_realtime_user.py` skip-guards rather
+  than crashing.
+- **Use-case demos for non-default providers** (the 🟡 cells above). File
+  issues per (use case × provider) you want covered.
