@@ -53,8 +53,13 @@ scenario.configure(default_model="openai/gpt-5-mini")
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
 
-async def main() -> scenario.ScenarioResult:
-    """Run the Pipecat smoke scenario. Returns the ScenarioResult."""
+async def main(demo_name: str = "pipecat_scenario") -> scenario.ScenarioResult:
+    """Run the Pipecat smoke scenario. Returns the ScenarioResult.
+
+    `demo_name` controls which recordings/<name>/ dir the artifacts land in.
+    Defaults to 'pipecat_scenario'; pipecat_ws.py overrides to keep its
+    recording separate from this demo's.
+    """
     async with ensure_pipecat_bot():
         result = await scenario.run(
             name="pipecat_twilio_smoke",
@@ -93,7 +98,7 @@ async def main() -> scenario.ScenarioResult:
     print(f"verdict: {result.reasoning}")
     if result.audio is not None:
         print(f"audio: {len(result.audio.segments)} segments recorded")
-    save_demo_recording(getattr(result, "audio", None))
+    save_demo_recording(getattr(result, "audio", None), demo_name=demo_name)
     return result
 
 
