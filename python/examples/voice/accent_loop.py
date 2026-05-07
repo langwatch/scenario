@@ -86,6 +86,10 @@ async def main() -> scenario.ScenarioResult:
                         # the bot gracefully escalate is out of scope for the SDK
                         # test suite.
                         "The agent engaged in multiple turns rather than terminating abruptly",
+                        # Claim from docstring: heavy-accent user spells name; bot does not repeat same question >3x.
+                        "The user simulator delivered the heavy-accent spelling turns over audio",
+                        "The bot did not repeat the same clarification request more than 3 times",
+                        "The conversation is a coherent example of the accent-misunderstanding loop pain pattern",
                     ]
                 ),
             ],

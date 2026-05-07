@@ -116,6 +116,9 @@ async def main() -> scenario.ScenarioResult:
                         criteria=[
                             "The agent-side received audio from the caller",
                             "The call completed gracefully without transport errors",
+                            # Claim from docstring: TwilioAgentAdapter.place_call() outbound + wait_for_call() agent-side.
+                            "An outbound Twilio call was placed and a Media Streams WebSocket opened on each side",
+                            "The conversation is a coherent example of the Twilio-outbound path",
                         ]
                     ),
                 ],

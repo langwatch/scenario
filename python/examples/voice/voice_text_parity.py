@@ -53,7 +53,12 @@ scenario.configure(default_model="openai/gpt-5-mini")
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
-SHARED_CRITERIA = ["The agent responded helpfully to the greeting"]
+SHARED_CRITERIA = [
+    "The agent responded helpfully to the greeting",
+    # Claim from docstring: same scenario.run() entrypoint handles voice AND text scenarios.
+    "The exchange completed successfully through scenario.run() without a separate paradigm",
+    "The conversation is a coherent example of the voice/text-entrypoint-parity contract",
+]
 
 SHARED_SCRIPT = [
     scenario.user("Hello, can you help me?"),

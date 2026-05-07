@@ -69,6 +69,9 @@ async def main() -> scenario.ScenarioResult:
             scenario.JudgeAgent(
                 criteria=[
                     "The agent responded naturally to the greeting",
+                    # Claim from docstring: branded composable agent — STT, LLM, TTS seams all fire.
+                    "The user simulator delivered audio and the agent responded with audio",
+                    "The conversation is a coherent example of the ElevenLabs composable + branded agent path",
                 ]
             ),
         ],

@@ -105,6 +105,9 @@ async def main() -> scenario.ScenarioResult:
                     criteria=[
                         "The agent responded to the user's account balance question",
                         "The conversation ended politely",
+                        # Claim from docstring: a plain Python callable inserted into script= can inspect state mid-scenario.
+                        "A Python callable ran as a script step and inspected scenario state mid-run",
+                        "The conversation is a coherent example of the callable-as-script-step pattern",
                     ]
                 ),
             ],

@@ -83,6 +83,10 @@ async def main() -> scenario.ScenarioResult:
                         # scenario. Bot behavior (empathy, escalation) is bot-prompt
                         # territory, not SDK contract.
                         "The agent engaged across multiple turns of escalating user tone",
+                        # Claim from docstring: persona escalates calm → frustrated.
+                        "The user simulator delivered escalating tone across multiple turns",
+                        "The agent responded with audio at each turn",
+                        "The conversation is a coherent example of an emotionally-shifting voice exchange",
                     ]
                 ),
             ],

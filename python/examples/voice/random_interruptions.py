@@ -76,6 +76,10 @@ async def main() -> scenario.ScenarioResult:
                     criteria=[
                         "The agent continued the conversation after interruptions rather than stopping",
                         "The conversation involved multiple turns between user and agent",
+                        # Claim from docstring: interrupt_probability=0.4 + proceed(turns=5) yields random interruptions.
+                        "At least one agent turn was interrupted by the user during the run",
+                        "The agent recovered context after each interruption",
+                        "The conversation is a coherent example of probabilistic-random-interruptions",
                     ]
                 ),
             ],

@@ -79,6 +79,9 @@ async def main(demo_name: str = "pipecat_scenario") -> scenario.ScenarioResult:
                     criteria=[
                         "The bot responded conversationally (not robotic)",
                         "The bot stayed on topic when the caller asked a question",
+                        # Claim: PipecatAgentAdapter against the bundled stub bot drives a real WebSocket exchange.
+                        "The agent and user exchanged real audio turns over the live Pipecat WebSocket",
+                        "The conversation is a coherent example of a Pipecat-driven voice scenario",
                     ]
                 ),
             ],

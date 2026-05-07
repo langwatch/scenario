@@ -67,6 +67,9 @@ async def main() -> scenario.ScenarioResult:
             scenario.JudgeAgent(
                 criteria=[
                     "The agent responded naturally to the greeting",
+                    # Claim from docstring: Gemini Live native-audio session over real transport.
+                    "The agent and user exchanged native-audio turns over a real Gemini Live session",
+                    "The conversation is a coherent example of the Gemini Live native-audio path",
                 ]
             ),
         ],

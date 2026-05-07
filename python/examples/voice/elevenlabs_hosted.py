@@ -70,6 +70,9 @@ async def main() -> scenario.ScenarioResult:
             scenario.JudgeAgent(
                 criteria=[
                     "The agent responded naturally to the greeting",
+                    # Claim from docstring: hosted ElevenLabs Conversational AI over real WebSocket.
+                    "The agent and user exchanged real audio turns via the live WebSocket",
+                    "The conversation is a coherent example of the hosted ElevenLabs Conversational AI path",
                 ]
             ),
         ],

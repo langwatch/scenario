@@ -73,6 +73,9 @@ async def main() -> scenario.ScenarioResult:
                     criteria=[
                         "The agent prompted the caller during the silence",
                         "The agent handled the silence gracefully without hanging up",
+                        # Claim from docstring: scenario.silence(10.0) injects 10s of zero-audio.
+                        "10 seconds of silence were delivered to the agent during the script",
+                        "The conversation is a coherent example of the silence-handling flow",
                     ]
                 ),
             ],

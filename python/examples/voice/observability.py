@@ -84,6 +84,9 @@ async def main() -> scenario.ScenarioResult:
                 scenario.JudgeAgent(
                     criteria=[
                         "The agent responded helpfully",
+                        # Claim from docstring: on_audio_chunk + on_voice_event hooks fire and result.latency populates.
+                        "The on_audio_chunk and on_voice_event callbacks fired during the run",
+                        "The conversation is a coherent example of observability-hooks-and-latency-metrics",
                     ]
                 ),
             ],

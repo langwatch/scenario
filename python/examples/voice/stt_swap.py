@@ -88,6 +88,9 @@ async def main() -> scenario.ScenarioResult:
                 scenario.JudgeAgent(
                     criteria=[
                         "The agent responded helpfully",
+                        # Claim from docstring: scenario.configure(stt=...) swaps OpenAI default for ElevenLabs STT.
+                        "The judge transcribed an audio turn through the swapped-in ElevenLabs STT provider",
+                        "The conversation is a coherent example of the STT-provider-swap path",
                     ]
                 ),
             ],

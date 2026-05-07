@@ -90,6 +90,10 @@ async def main() -> scenario.ScenarioResult:
                         "The agent recovered gracefully from BOTH interruptions",
                         "The agent addressed account support after the first interrupt",
                         "The agent addressed business hours after the second interrupt",
+                        # Claim from docstring: two interrupt forms both fire transport-native barge-in.
+                        "The agent's first reply was actually cut off by the user's interruption",
+                        "The agent's second reply was actually cut off by the user's interruption",
+                        "The conversation is a coherent example of the interruption-recovery flow",
                     ]
                 ),
             ],
