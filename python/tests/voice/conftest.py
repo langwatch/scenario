@@ -96,13 +96,18 @@ def _start_pipecat_bot() -> None:
 
     log_path = Path("/tmp/voice-pipecat-bot.log")
     log_fh = open(log_path, "ab")
-    _bot_process = subprocess.Popen(
-        ["uv", "run", "python", str(bot_path)],
-        stdout=log_fh,
-        stderr=subprocess.STDOUT,
-        cwd=bot_path.parent.parent.parent,
-        preexec_fn=os.setsid,
-    )
+    try:
+        _bot_process = subprocess.Popen(
+            ["uv", "run", "python", str(bot_path)],
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            cwd=bot_path.parent.parent.parent,
+            preexec_fn=os.setsid,
+        )
+    finally:
+        # Close our copy of the fd; subprocess.Popen has duplicated it
+        # for the child process. Avoids leaking an open file in the parent.
+        log_fh.close()
     atexit.register(_stop_pipecat_bot)
 
     # Wait up to 15s for the port.

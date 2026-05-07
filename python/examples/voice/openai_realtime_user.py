@@ -20,9 +20,15 @@ How to run:
 Required env vars:
     OPENAI_API_KEY   — for OpenAIRealtimeAgentAdapter + JudgeAgent LLM
 
-Note:
-    Transport is Phase-2 stub. The e2e test is gated via a capability probe
-    (requires_transport_ready) that auto-skips until the real transport lands.
+Status — phase-2 gap:
+    Each adapter owns its own transport (OpenAI Realtime owns a WS to OpenAI;
+    PipecatAgentAdapter owns a WS to the bot). There is no bridge yet that
+    pipes the user-side adapter's emitted audio into the agent-side adapter's
+    input. As a result, the Pipecat AUT hears silence and times out in
+    recv_audio. The demo guards against that here so reviewers see a clear
+    "skipped: not yet implemented" instead of an opaque Pipecat traceback.
+    When cross-adapter audio bridging lands, delete the guard and remove
+    this section.
 """
 
 import asyncio
@@ -47,6 +53,16 @@ def _check_env() -> None:
 
 
 _check_env()
+
+# Phase-2 gap: cross-adapter audio bridging not yet implemented.
+# See module docstring "Status — phase-2 gap." Skip cleanly so reviewers
+# do not see an opaque Pipecat recv_audio timeout traceback.
+print(
+    "Skipped: OpenAI Realtime ↔ Pipecat audio bridging not yet implemented. "
+    "When the bridge ships this guard is removed and the demo runs end-to-end."
+)
+sys.exit(0)
+
 
 import scenario  # noqa: E402
 from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402

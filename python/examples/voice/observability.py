@@ -105,8 +105,24 @@ async def main() -> scenario.ScenarioResult:
         print(f"time_to_first_byte: {result.latency.time_to_first_byte}")
         print(f"p50_response_time: {result.latency.p50_response_time}")
         print(f"p95_response_time: {result.latency.p95_response_time}")
+
+        # Assert non-zero so the demo fails loudly when the latency pipeline
+        # is broken instead of silently printing 0.0 with success=True.
+        assert (
+            result.latency.time_to_first_byte
+            and result.latency.time_to_first_byte > 0
+        ), (
+            "time_to_first_byte is missing or zero — the latency pipeline "
+            "did not record any agent response time. The demo should not "
+            "report success when its central claim is unverifiable."
+        )
     else:
         print("latency: None (no audio turns recorded)")
+        raise AssertionError(
+            "result.latency is None — observability hooks fired but no "
+            "latency was recorded. The demo's purpose is to prove these "
+            "metrics get populated; bailing rather than printing success."
+        )
 
     save_demo_recording(getattr(result, "audio", None))
     return result

@@ -5,7 +5,8 @@ Covers:
     - InterruptionConfig defaults and sampling
     - interrupt(after_words=N) raises UnsupportedCapabilityError on adapters
       without streaming_transcripts (locked decision)
-    - interrupt() argument validation
+    - interrupt() event-driven path (no kwargs): agent(wait=False) + user(content)
+    - interrupt(after_words=N) on streaming-capable adapter
 """
 
 import random
@@ -112,33 +113,36 @@ async def test_interrupt_after_words_raises_when_adapter_lacks_streaming():
         await step(state)  # type: ignore[arg-type,misc]
     msg = str(exc.value).lower()
     assert "streaming_transcripts" in msg or "streaming transcripts" in msg
-    assert "interrupt(after=seconds)" in msg or "after=seconds" in msg
+    assert "interrupt(content)" in msg
 
 
 @pytest.mark.asyncio
-async def test_interrupt_after_seconds_triggers_agent_wait_false_then_user():
-    # Use a 200ms sleep with generous slack so CI scheduler jitter doesn't flake.
-    import time
+async def test_interrupt_event_driven_triggers_agent_wait_false_then_user():
+    """interrupt(content) with no kwargs runs agent(wait=False) then user(content).
+
+    The actual barge-in timing happens inside executor.user() on adapters that
+    support it; here we only assert the script step routes those two calls in
+    order. No wall-clock assertion — timing is event-driven, not seconds-based.
+    """
     adapter = _NoStreamingAdapter()
     state = _FakeState([adapter])
-    step = scenario.interrupt(after=0.2, content="wait that's wrong")
-    t0 = time.monotonic()
-    await step(state)  # type: ignore[arg-type,misc]
-    elapsed = time.monotonic() - t0
-    assert elapsed >= 0.15
+    await scenario.interrupt(content="wait that's wrong")(state)  # type: ignore[arg-type,misc]
     # agent(wait=False) then user("wait that's wrong")
     assert state._executor.agent_calls and state._executor.agent_calls[0][1] is False
     assert state._executor.user_calls == ["wait that's wrong"]
 
 
-def test_interrupt_requires_after_or_after_words():
-    with pytest.raises(ValueError):
-        scenario.interrupt(content="x")
+@pytest.mark.asyncio
+async def test_interrupt_with_no_kwargs_is_valid():
+    """interrupt(content) with neither after nor after_words is the new default.
 
-
-def test_interrupt_rejects_both_after_and_after_words():
-    with pytest.raises(ValueError):
-        scenario.interrupt(after=1.0, after_words=5, content="x")
+    The wall-clock `after=` kwarg was removed in favor of event-driven timing.
+    The script step should accept content alone without raising.
+    """
+    adapter = _NoStreamingAdapter()
+    state = _FakeState([adapter])
+    # Should not raise — empty kwargs is the event-driven default.
+    await scenario.interrupt(content="x")(state)  # type: ignore[arg-type,misc]
 
 
 @pytest.mark.asyncio
