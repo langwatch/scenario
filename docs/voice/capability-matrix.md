@@ -22,8 +22,8 @@ adapter converts at its send/recv boundary.
 | `PipecatAgentAdapter` | ✅ | ✅ | ❌ | ✅ Twilio Media Streams `clear` | WebSocket | ✅ |
 | `TwilioAgentAdapter` | ❌ | ❌ | ✅ | ✅ Twilio Media Streams `clear` | WebSocket (Media Streams) | ✅ |
 | `OpenAIRealtimeAgentAdapter` | ✅ | ✅ | ❌ | ✅ `response.cancel` | WebSocket | ✅ |
-| `ElevenLabsAgentAdapter` | ✅ | ✅ | ❌ | ❌ (transport supports it; SDK not yet wired) | WebSocket | ✅ |
-| `GeminiLiveAgentAdapter` | ✅ | ✅ | ❌ | ❌ (transport supports it; SDK not yet wired) | WebSocket | ✅ |
+| `ElevenLabsAgentAdapter` | ✅ | ✅ | ❌ | ❌ — server-side VAD barge-in only | WebSocket | ✅ |
+| `GeminiLiveAgentAdapter` | ✅ | ✅ | ❌ | ❌ — server-side VAD barge-in only | WebSocket | ✅ |
 | `LiveKitAgentAdapter` | ✅ | ✅ | ❌ | ❌ | WebRTC (planned) | ❌ stub raises `PendingTransportError` |
 | `VapiAgentAdapter` | ✅ | ✅ | ❌ | ❌ | WebSocket (planned) | ❌ stub raises `PendingTransportError` |
 | `WebRTCAgentAdapter` | ❌ | ❌ | ❌ | ❌ | WebRTC | ❌ stub raises `PendingTransportError` |
@@ -115,10 +115,23 @@ combination. File issues for the gaps you care about.
 
   Interrupts are inherently a **duplex-channel** capability: the SDK has to
   send a control frame while the agent is still streaming. HTTP/REST
-  transports cannot support this. WebSocket and WebRTC adapters can — even
-  if the SDK has not yet wired it for a given adapter (see ElevenLabs and
-  Gemini Live above; transport is duplex but the SDK does not yet send a
-  cancel frame).
+  transports cannot support this. WebSocket and WebRTC adapters can.
+
+  Two flavours exist in the wild:
+
+  1. **Client-initiated cancel** — the SDK sends a control frame
+     (`response.cancel` for OpenAI Realtime, `clear` for Twilio Media
+     Streams / Pipecat-over-Twilio). Deterministic and explicit. The
+     adapter publishes `interruption=True` and implements
+     `async def interrupt()`.
+  2. **Server-side VAD barge-in** — the provider's own VAD listens to
+     incoming user audio and cancels its current response when speech is
+     detected (ElevenLabs ConvAI, Gemini Live). The client only needs to
+     keep streaming user audio; there is no separate cancel frame and no
+     `interrupt()` method. The adapter advertises `interruption=False`
+     because we cannot send a cancel signal — the only knob is "send the
+     next user chunk." Barge-in still works, but its timing is the
+     server's call, not ours.
 - **Input formats / Output formats** — wire formats the adapter accepts /
   emits. The SDK converts internally.
 
@@ -175,10 +188,14 @@ class MyCustomAdapter(scenario.VoiceAgentAdapter):
 
 ## Deferred / follow-up items
 
-- **Native interrupt for ElevenLabs and Gemini Live**. Both have duplex
-  WebSockets but the SDK has not yet wired a cancel frame. Tracked as a
-  follow-up; once landed, set `interruption=True` and add an
-  `async def interrupt()` that sends the provider's cancel frame.
+- **Native interrupt for ElevenLabs and Gemini Live**. Investigated; both
+  providers run server-side VAD and have no client-initiated cancel frame
+  in their public protocols. Setting `interruption=True` on these adapters
+  is incorrect — `interrupt()` would have nothing to send. Barge-in
+  works the moment the executor's next user audio chunk hits the wire;
+  no SDK change required. EL emits a server→client `interruption` event
+  when its VAD fires; surfacing that into the voice timeline is a
+  separate enhancement.
 - **Transport implementations for LiveKit, Vapi, WebRTC**. Stubs raise
   `PendingTransportError` at `send_audio` / `recv_audio`. The capability
   declarations describe what they *will* support.
