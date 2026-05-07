@@ -150,7 +150,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         for the adapter's lifetime.  Returns once the session handshake is
         complete and audio can flow.
         """
-        from google import genai  # noqa: PLC0415 — lazy import
+        from google import genai  # type: ignore[attr-defined]  # noqa: PLC0415 — lazy import
         from google.genai import types  # noqa: PLC0415
 
         self._session_ready = asyncio.Event()
