@@ -377,14 +377,16 @@ def test_composable_voice_agent_implements_adapter_contract():
 
 def test_branded_elevenlabs_voice_agent_defaults():
     """Instantiate with only api_key; defaults must match spec."""
+    from scenario.config.voice_models import COMPOSABLE_VOICE_LLM_MODEL
     agent = ElevenLabsVoiceAgent(api_key="test_key")
-    assert agent.llm == "openai/gpt-4o-mini"
+    assert agent.llm == COMPOSABLE_VOICE_LLM_MODEL
     assert "elevenlabs/" in agent.voice
     assert isinstance(agent.stt, ElevenLabsSTTProvider)
 
 
 def test_branded_elevenlabs_voice_agent_override():
     """Override each piece individually; other defaults must be retained."""
+    from scenario.config.voice_models import COMPOSABLE_VOICE_LLM_MODEL
     class _MyStt(STTProvider):
         async def transcribe(self, audio: AudioChunk) -> str:
             return ""
@@ -394,7 +396,7 @@ def test_branded_elevenlabs_voice_agent_override():
     # Override STT only.
     a1 = ElevenLabsVoiceAgent(api_key="k", stt=custom_stt)
     assert a1.stt is custom_stt
-    assert a1.llm == "openai/gpt-4o-mini"
+    assert a1.llm == COMPOSABLE_VOICE_LLM_MODEL
     assert "elevenlabs/" in a1.voice
 
     # Override LLM only.
@@ -406,7 +408,7 @@ def test_branded_elevenlabs_voice_agent_override():
     # Override TTS voice only.
     a3 = ElevenLabsVoiceAgent(api_key="k", voice="elevenlabs/bella")
     assert a3.voice == "elevenlabs/bella"
-    assert a3.llm == "openai/gpt-4o-mini"
+    assert a3.llm == COMPOSABLE_VOICE_LLM_MODEL
     assert isinstance(a3.stt, ElevenLabsSTTProvider)
 
 

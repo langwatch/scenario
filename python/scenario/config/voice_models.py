@@ -36,3 +36,14 @@ OPENAI_BOT_STT_MODEL: str = "gpt-4o-mini-transcribe"
 # Gemini Live — bidirectional audio. `latest` follows whatever Google
 # promotes so this doesn't bitrot when previews shift.
 GEMINI_LIVE_MODEL: str = "gemini-2.5-flash-native-audio-latest"
+
+# OpenAI multimodal audio chat — used by the example openai_voice_agent
+# helper (chat completions with audio modality, separate API surface
+# from Realtime). `gpt-audio-mini` is the current cost-efficient GA
+# tier; `gpt-4o-audio-preview` was the legacy preview model.
+OPENAI_AUDIO_CHAT_MODEL: str = "gpt-audio-mini"
+
+# Composable voice agent LLM — text-only, drives the brain of the
+# `ComposableVoiceAgent` and `ElevenLabsVoiceAgent` stacks (STT → LLM
+# → TTS). Litellm-style identifier ("openai/...", "anthropic/...").
+COMPOSABLE_VOICE_LLM_MODEL: str = "openai/gpt-5.4-mini"

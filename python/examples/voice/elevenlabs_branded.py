@@ -51,7 +51,7 @@ scenario.configure(default_model="openai/gpt-5-mini")
 
 async def main() -> scenario.ScenarioResult:
     # ElevenLabsVoiceAgent provides opinionated defaults:
-    #   stt=ElevenLabsSTTProvider   tts="elevenlabs/rachel"   llm=openai/gpt-4o-mini
+    #   stt=ElevenLabsSTTProvider   tts="elevenlabs/rachel"   llm from voice_models
     # We surface last_user_transcript and last_llm_response to assert seams fired.
     agent = scenario.ElevenLabsVoiceAgent(
         api_key=os.environ["ELEVENLABS_API_KEY"],
@@ -60,7 +60,7 @@ async def main() -> scenario.ScenarioResult:
     result = await scenario.run(
         name="demo_elevenlabs_branded",
         description=(
-            "Branded ElevenLabsVoiceAgent: ElevenLabs STT + gpt-4o-mini LLM + "
+            "Branded ElevenLabsVoiceAgent: ElevenLabs STT + default LLM + "
             "ElevenLabs rachel TTS. User says hello; agent responds; judge passes."
         ),
         agents=[
