@@ -167,7 +167,8 @@ def _openai_chat_response(transcript: str, history: list[dict]) -> str:
         resp = client.chat.completions.create(
             model=OPENAI_BOT_LLM_MODEL,
             messages=messages,  # type: ignore[arg-type]
-            max_tokens=60,
+            # GPT-5.x rejects `max_tokens` in favour of `max_completion_tokens`.
+            max_completion_tokens=60,
             temperature=0.4,
         )
         return resp.choices[0].message.content or "I'm here to help you!"
