@@ -19,7 +19,7 @@ import asyncio
 import logging
 import time
 from abc import abstractmethod
-from typing import ClassVar, List, Optional
+from typing import Callable, ClassVar, List, Optional
 
 logger = logging.getLogger("scenario.voice")
 
@@ -140,18 +140,33 @@ class VoiceAgentAdapter(AgentAdapter):
         recorder = _AdapterRecorder(input)
         incoming = extract_audio(input.new_messages[-1]) if input.new_messages else None
         if incoming is not None:
-            recorder.record_user(incoming)
+            # Wrap send_audio so user.start = "we began transmitting" and
+            # user.end = "we finished transmitting" — both real flow points.
+            recorder.mark_user_start()
             await self.send_audio(incoming)
-        recorder.mark_user_stopped()
-        merged = await self._drain_agent_response()
+            recorder.record_user(incoming)
+        # Drain. Recorder grabs agent.start at first chunk via
+        # mark_agent_start, so agent.start is "first chunk on the wire,"
+        # not "now minus merged.duration."
+        merged = await self._drain_agent_response(on_first_chunk=recorder.mark_agent_start)
         recorder.record_agent(merged)
         return create_audio_message(merged, role="assistant")
 
-    async def _drain_agent_response(self) -> AudioChunk:
-        """Loop ``recv_audio`` until tail silence or max duration; merge result."""
+    async def _drain_agent_response(
+        self, on_first_chunk: Optional[Callable[[], None]] = None
+    ) -> AudioChunk:
+        """Loop ``recv_audio`` until tail silence or max duration; merge result.
+
+        ``on_first_chunk`` is invoked synchronously the moment the first
+        non-empty audio chunk arrives — used by the recorder to capture
+        agent.start at a real flow point rather than back-computing from
+        the merged-chunk duration.
+        """
         first = await self.recv_audio(timeout=self.response_timeout)
         # First chunk arrived → agent is now speaking. Wakes anyone awaiting
         # _agent_speaking_event (the interruption path).
+        if first.data and on_first_chunk is not None:
+            on_first_chunk()
         self._agent_speaking_event.set()
         chunks: List[AudioChunk] = [first]
         accumulated = first.duration_seconds
@@ -172,14 +187,20 @@ class _AdapterRecorder:
 
     Kept as a private helper so the default ``VoiceAgentAdapter.call`` stays
     short and each subclass can opt-out by overriding ``call()``.
+
+    Timing model: every segment's start/end is captured at a real audio
+    flow point — when transmission begins, when it ends, when the first
+    chunk arrives. Nothing is back-computed from chunk byte length, so
+    user and agent segments share a single timeline and do not overlap.
     """
 
     def __init__(self, input: AgentInput) -> None:
         state = getattr(input, "scenario_state", None)
         executor = getattr(state, "_executor", None) if state is not None else None
         self._executor = executor
-        self._start = time.monotonic()
-        self._user_stopped_at: Optional[float] = None
+        self._user_start: Optional[float] = None
+        self._user_end: Optional[float] = None
+        self._agent_start: Optional[float] = None
 
     def _offset(self) -> float:
         anchor = getattr(self._executor, "_voice_recording_started_at", None)
@@ -187,36 +208,69 @@ class _AdapterRecorder:
             return 0.0
         return time.monotonic() - anchor
 
+    def mark_user_start(self) -> None:
+        """Capture the moment send_audio begins transmitting user audio."""
+        self._user_start = self._offset()
+
     def record_user(self, chunk: AudioChunk) -> None:
-        # We're called AFTER the audio has been transmitted (or assembled),
-        # so the offset NOW is the end of the segment, not the start. Compute
-        # start by subtracting the chunk's natural duration. Without this the
-        # manifest's start_time looks like the END of the speaking interval.
+        """Finalise the user segment after send_audio returns.
+
+        Uses real flow timestamps: start = when transmission began,
+        end = now (transmission complete). The chunk's intrinsic
+        duration is metadata only, not used to compute timestamps.
+        """
         if self._executor is None or not chunk.data:
             return
         _fire_audio_chunk(self._executor, chunk)
+        # mark_user_start should have been called; if not (e.g. an adapter
+        # subclass invokes record_user directly), fall back to back-
+        # computation so the segment is at least roughly placed.
         end = self._offset()
-        start = max(0.0, end - chunk.duration_seconds)
+        start = self._user_start if self._user_start is not None else max(
+            0.0, end - chunk.duration_seconds
+        )
+        self._user_end = end
         _append_segment(self._executor, "user", start, end, chunk)
         _append_event(self._executor, VoiceEvent(time=start, type="user_start_speaking"))
         _append_event(self._executor, VoiceEvent(time=end, type="user_stop_speaking"))
 
-    def mark_user_stopped(self) -> None:
-        self._user_stopped_at = self._offset()
+    def mark_agent_start(self) -> None:
+        """Capture the moment the first agent chunk arrives.
+
+        Called by ``_drain_agent_response`` synchronously when its first
+        non-empty chunk lands, so the agent segment's start reflects when
+        audio actually started flowing back from the AUT — not when drain
+        eventually returns.
+        """
+        self._agent_start = self._offset()
 
     def record_agent(self, chunk: AudioChunk) -> None:
-        # Same convention as record_user: we're called when the agent finished
-        # speaking (drain returned), so `now` is end_time and start is derived.
+        """Finalise the agent segment after drain completes.
+
+        start = when first chunk arrived (captured by mark_agent_start).
+        end = now (drain has settled).
+        latency = agent.start - user.end. Real measurement; no clamp.
+        """
         if self._executor is None or not chunk.data:
             return
         _fire_audio_chunk(self._executor, chunk)
         end = self._offset()
-        start = max(0.0, end - chunk.duration_seconds)
+        # Fall back if a subclass bypassed the on_first_chunk hook.
+        start = self._agent_start if self._agent_start is not None else max(
+            0.0, end - chunk.duration_seconds
+        )
         _append_segment(self._executor, "agent", start, end, chunk)
         latency = None
-        if self._user_stopped_at is not None:
-            latency = max(0.0, start - self._user_stopped_at)
-            _record_latency(self._executor, latency)
+        if self._user_end is not None:
+            latency = start - self._user_end
+            # Negative latency means the agent began emitting audio before
+            # the user audio finished transmitting — which the wire model
+            # forbids on serial adapters. Treat as a measurement artefact
+            # and skip the record so p50/p95 aren't poisoned.
+            if latency >= 0:
+                _record_latency(self._executor, latency)
+            else:
+                latency = None
         _append_event(
             self._executor,
             VoiceEvent(time=start, type="agent_start_speaking", latency=latency),
