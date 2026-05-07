@@ -187,7 +187,8 @@ async def _wait_for_streaming_words(state: "ScenarioState", target_words: int) -
             "streaming_transcripts",
             hint=(
                 "interrupt(after_words=N) needs incremental transcripts. "
-                "Use interrupt(after=seconds) instead on this adapter."
+                "Use interrupt(content) without after_words on this adapter — "
+                "the executor fires barge-in at the agent's first audio chunk."
             ),
         )
     while True:
