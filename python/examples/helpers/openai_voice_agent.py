@@ -6,13 +6,15 @@ This module provides a base class for creating agents that can:
 - Generate audio output (voice responses)
 - Handle multi-turn voice conversations
 
-Uses OpenAI's gpt-4o-audio-preview model which supports voice-to-voice interaction.
+Uses OpenAI's audio chat completion API which supports voice-to-voice interaction.
+Default model is set in scenario.config.voice_models.OPENAI_AUDIO_CHAT_MODEL.
 """
 
 from typing import Any, List, Optional
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 import scenario
+from scenario.config.voice_models import OPENAI_AUDIO_CHAT_MODEL
 from scenario.types import AgentInput, AgentReturnTypes, AgentRole
 
 
@@ -142,7 +144,7 @@ class OpenAiVoiceAgent(scenario.AgentAdapter):
         """
         Call OpenAI's audio-enabled model to generate voice response
 
-        Uses gpt-4o-audio-preview with:
+        Uses OPENAI_AUDIO_CHAT_MODEL with:
         - Text and audio modalities
         - WAV format output
         - Configured voice
@@ -156,7 +158,7 @@ class OpenAiVoiceAgent(scenario.AgentAdapter):
             ]
 
         return await self.client.chat.completions.create(
-            model="gpt-4o-audio-preview",
+            model=OPENAI_AUDIO_CHAT_MODEL,
             modalities=["text", "audio"],
             audio={"voice": self.voice, "format": "wav"},
             messages=final_messages,

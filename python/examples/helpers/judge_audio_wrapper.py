@@ -9,6 +9,7 @@ import base64
 from typing import Any, List
 from openai import AsyncOpenAI
 import scenario
+from scenario.config.voice_models import OPENAI_STT_MODEL
 from scenario.types import AgentInput, AgentReturnTypes
 
 
@@ -116,7 +117,7 @@ async def transcribe_audio(audio_data: str) -> str:
         
         # Create a file-like object for the Whisper API
         response = await client.audio.transcriptions.create(
-            model="whisper-1",
+            model=OPENAI_STT_MODEL,
             file=("audio.wav", audio_bytes, "audio/wav"),
             language="en"
         )

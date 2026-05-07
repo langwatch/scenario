@@ -64,7 +64,7 @@ def _split_voice(voice: str) -> Tuple[str, str]:
 
 
 async def _openai_tts(text: str, voice: str) -> bytes:
-    """Default OpenAI TTS provider. Uses gpt-4o-mini-tts for short clips.
+    """Default OpenAI TTS provider. Uses OPENAI_TTS_MODEL for short clips.
 
     OpenAI's ``response_format="pcm"`` is documented as raw PCM16 @ 24kHz mono
     — matching our internal AudioChunk. We validate the byte-length-is-even

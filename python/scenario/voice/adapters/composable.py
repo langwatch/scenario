@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import ClassVar, List, Optional
 
+from ...config.voice_models import COMPOSABLE_VOICE_LLM_MODEL
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
@@ -68,7 +69,7 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         """
         Args:
             stt: STTProvider implementation for the user's audio.
-            llm: litellm-style model identifier, e.g. ``"openai/gpt-4o-mini"``.
+            llm: litellm-style model identifier, e.g. ``COMPOSABLE_VOICE_LLM_MODEL``.
             tts: TTS voice string in ``"provider/voice"`` format,
                  e.g. ``"openai/nova"`` or ``"elevenlabs/rachel"``.
             system_prompt: Optional system prompt seeded at turn zero so the
@@ -147,7 +148,7 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
     Composable voice agent with ElevenLabs-opinionated defaults.
 
     Instantiate with just an ``api_key`` to get an ElevenLabs STT +
-    ``openai/gpt-4o-mini`` LLM + ``elevenlabs/rachel`` TTS stack. Each piece
+    LLM (default ``COMPOSABLE_VOICE_LLM_MODEL``) + ``elevenlabs/rachel`` TTS stack. Each piece
     can be overridden independently without changing the others.
 
     Example::
@@ -166,7 +167,7 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
         self,
         api_key: str,
         *,
-        llm: str = "openai/gpt-4o-mini",
+        llm: str = COMPOSABLE_VOICE_LLM_MODEL,
         voice: Optional[str] = None,
         stt: Optional[STTProvider] = None,
         system_prompt: Optional[str] = None,
@@ -175,7 +176,7 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
         Args:
             api_key: ElevenLabs API key. Redacted in ``__repr__``.
             llm: litellm-style model identifier. Defaults to
-                ``"openai/gpt-4o-mini"``.
+                ``COMPOSABLE_VOICE_LLM_MODEL``.
             voice: TTS voice string in ``"elevenlabs/<voice_id>"`` format.
                 Defaults to the ``ELEVENLABS_VOICE_ID`` environment variable
                 when set, otherwise falls back to the public "Rachel" voice
