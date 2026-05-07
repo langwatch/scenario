@@ -48,6 +48,7 @@ import scenario
 from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
 
+scenario.configure(default_model="openai/gpt-5-mini")
 
 BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 
