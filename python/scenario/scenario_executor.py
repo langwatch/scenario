@@ -860,6 +860,14 @@ class ScenarioExecutor:
                         [m for m in messages if m["role"] != "system"],
                     )
 
+                # Voice path: if a wait=False (or interrupt-scheduled) agent
+                # turn is in flight when the user-sim produces its turn, fire
+                # the interrupt sequence so the new audio lands mid-response.
+                if role == AgentRole.USER and messages:
+                    pending = getattr(self, "_pending_agent_task", None)
+                    if pending is not None and not pending.done():
+                        await self._fire_user_interrupt(messages[-1])
+
                 return messages
         except Exception as e:
             agent_name = agent.__class__.__name__
@@ -935,55 +943,15 @@ class ScenarioExecutor:
                 # Interruption path: when a wait=False agent turn is in flight,
                 # this user() call IS the interrupt. ``agent(wait=False) +
                 # user(...)`` reads as "agent starts replying; user
-                # interrupts" — no sleep needed.
-                #
-                # Steps:
-                #   1. Wait until the agent has actually started producing
-                #      audio. Otherwise we'd interrupt silence.
-                #   2. If the adapter supports a native interrupt signal
-                #      (capabilities.interruption=True), send it. The SUT
-                #      stops generating immediately. Deterministic.
-                #   3. Push the new user audio so the SUT hears the
-                #      replacement turn.
-                #   4. Cancel the pending agent task — it will never get a
-                #      complete response back (the SUT was cancelled), so
-                #      awaiting it would hit recv_audio's response_timeout.
-                #
-                # On adapters without native interrupt, step 2 is skipped;
-                # the user audio overlapping the agent's TTS triggers
-                # barge-in via the SUT's VAD. Less deterministic, but works.
+                # interrupts" — no sleep needed. ``_fire_user_interrupt``
+                # handles the wait-for-speaking → adapter.interrupt() →
+                # send_audio → cancel sequence and emits the
+                # ``user_interrupt`` timeline event. Shared with the
+                # proceed-driven ``interrupt_probability`` path so the two
+                # interrupt code paths can't drift.
                 pending = getattr(self, "_pending_agent_task", None)
                 if pending is not None and not pending.done():
-                    adapter = self._find_voice_adapter()
-                    if adapter is not None:
-                        try:
-                            await asyncio.wait_for(
-                                adapter._agent_speaking_event.wait(),
-                                timeout=adapter.response_timeout,
-                            )
-                        except asyncio.TimeoutError:
-                            # SUT never started speaking — fall through to
-                            # send the user audio anyway. This degrades to
-                            # "two sequential turns" rather than blocking
-                            # the scenario forever.
-                            pass
-                        if adapter.capabilities.interruption:
-                            try:
-                                await adapter.interrupt()
-                            except Exception:
-                                # Best-effort: if the native interrupt fails
-                                # we fall through to sending user audio — the
-                                # SUT's VAD-based barge-in (if any) takes over.
-                                pass
-                        chunk = self._extract_audio_from_message(voiced)
-                        if chunk is not None:
-                            await adapter.send_audio(chunk)
-                    pending.cancel()
-                    try:
-                        await pending
-                    except (asyncio.CancelledError, Exception):
-                        pass
-                    self._pending_agent_task = None
+                    await self._fire_user_interrupt(voiced)
                 return
         sim = self._find_user_sim()
         if sim is not None and (voice_style is not None or audio_effects is not None):
@@ -1035,6 +1003,135 @@ class ScenarioExecutor:
         from .voice.messages import extract_audio
 
         return extract_audio(message)
+
+    def _interrupt_rng(self):
+        """Lazy ``random.Random`` instance for sampling interrupt_probability.
+
+        Seeded from ``ScenarioConfig.cache_key`` when present so replay with
+        the same cache_key produces the same interruption schedule. When
+        cache_key is unset the RNG is unseeded — interruption decisions vary
+        between runs, matching the rest of the executor's non-cached path.
+        """
+        existing = getattr(self, "_interrupt_rng_instance", None)
+        if existing is not None:
+            return existing
+        import random as _random
+
+        seed = getattr(self.config, "cache_key", None)
+        rng = _random.Random(seed) if seed else _random.Random()
+        self._interrupt_rng_instance = rng
+        return rng
+
+    async def _fire_user_interrupt(self, voiced_message) -> None:
+        """Mid-stream interrupt: wait for the agent to start speaking, send
+        the transport-native interrupt (if any), push the new user audio,
+        then cancel the in-flight agent task and record a ``user_interrupt``
+        timeline event.
+
+        No-op unless ``_pending_agent_task`` is in flight and a voice
+        adapter is on the scenario.
+        """
+        pending = getattr(self, "_pending_agent_task", None)
+        if pending is None or pending.done():
+            return
+        adapter = self._find_voice_adapter()
+        if adapter is None:
+            pending.cancel()
+            try:
+                await pending
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._pending_agent_task = None
+            return
+        try:
+            await asyncio.wait_for(
+                adapter._agent_speaking_event.wait(),
+                timeout=adapter.response_timeout,
+            )
+        except asyncio.TimeoutError:
+            pass
+        if adapter.capabilities.interruption:
+            try:
+                await adapter.interrupt()
+            except Exception:
+                pass
+        chunk = self._extract_audio_from_message(voiced_message)
+        if chunk is not None:
+            try:
+                await adapter.send_audio(chunk)
+            except Exception:
+                pass
+        pending.cancel()
+        try:
+            await pending
+        except (asyncio.CancelledError, Exception):
+            pass
+        self._pending_agent_task = None
+
+        timeline = getattr(self, "_voice_timeline", None)
+        anchor = getattr(self, "_voice_recording_started_at", None)
+        if timeline is not None:
+            try:
+                from .voice.recording import VoiceEvent
+
+                t = (time.monotonic() - anchor) if anchor is not None else 0.0
+                event = VoiceEvent(time=t, type="user_interrupt")
+                timeline.append(event)
+                hook = getattr(self, "_on_voice_event", None)
+                if hook is not None:
+                    try:
+                        hook(event)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    async def _maybe_schedule_interrupted_agent_turn(self) -> bool:
+        """If a UserSimulatorAgent has ``interrupt_probability > 0`` and the
+        next pending role with a still-unconsumed agent is AGENT, sample the
+        probability and — when it lands — dispatch the agent turn as a
+        background task so the next user-sim turn fires the interrupt path
+        mid-response.
+
+        Returns ``True`` if an interruption was scheduled (so the caller can
+        skip the normal step for AGENT this iteration).
+        """
+        # ``_step`` only pops a role from ``_pending_roles_on_turn`` lazily
+        # on the call after the role's agent was consumed, so the front of
+        # the list can still name a "spent" role. Walk past those to find
+        # the next role that will actually run.
+        next_role: Optional[AgentRole] = None
+        for r in self._pending_roles_on_turn:
+            _idx, _agent = self._next_agent_for_role(r)
+            if _agent is not None:
+                next_role = r
+                break
+        if next_role != AgentRole.AGENT:
+            return False
+        sim = self._find_user_sim()
+        prob = float(getattr(sim, "interrupt_probability", 0.0) or 0.0) if sim else 0.0
+        if prob <= 0.0:
+            return False
+        if self._find_voice_adapter() is None:
+            return False
+        pending = getattr(self, "_pending_agent_task", None)
+        if pending is not None and not pending.done():
+            return False
+        if self._interrupt_rng().random() >= prob:
+            return False
+        idx, agent = self._next_agent_for_role(AgentRole.AGENT)
+        if agent is None:
+            return False
+        self._pending_agents_on_turn.remove(agent)
+        # Consume spent roles up to (and including) AGENT so the proceed
+        # loop's next ``_step`` call advances to JUDGE / new turn cleanly.
+        while self._pending_roles_on_turn and self._pending_roles_on_turn[0] != AgentRole.AGENT:
+            self._pending_roles_on_turn.pop(0)
+        if self._pending_roles_on_turn and self._pending_roles_on_turn[0] == AgentRole.AGENT:
+            self._pending_roles_on_turn.pop(0)
+        coro = self._call_agent(idx, role=AgentRole.AGENT)
+        self._pending_agent_task = asyncio.create_task(coro)
+        return True
 
     async def agent(
         self,
@@ -1115,6 +1212,12 @@ class ScenarioExecutor:
         await self._drain_pending_agent_turn()
         initial_turn: Optional[int] = None
         while True:
+            # Voice path: roll UserSimulatorAgent.interrupt_probability against
+            # the upcoming AGENT turn. On a hit, the agent turn runs in the
+            # background and the next user-sim turn fires the interrupt path
+            # mid-response. No-op for text scenarios or when probability is 0.
+            await self._maybe_schedule_interrupted_agent_turn()
+
             next_message = await self._step(
                 on_turn=on_turn,
                 go_to_next_turn=(

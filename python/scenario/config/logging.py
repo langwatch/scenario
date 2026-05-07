@@ -54,6 +54,9 @@ def configure_logging() -> None:
             isinstance(h, logging.FileHandler) and h.baseFilename == os.path.abspath(log_file)
             for h in root_logger.handlers
         ):
+            log_dir = os.path.dirname(os.path.abspath(log_file))
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
             file_handler = logging.FileHandler(log_file, mode="a")
             file_handler.setLevel(level)
             file_handler.setFormatter(logging.Formatter(
