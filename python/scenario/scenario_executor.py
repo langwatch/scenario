@@ -1046,65 +1046,80 @@ class ScenarioExecutor:
         then cancel the in-flight agent task and record a ``user_interrupt``
         timeline event.
 
-        No-op unless ``_pending_agent_task`` is in flight and a voice
-        adapter is on the scenario.
+        Records the event regardless of whether the pending agent task was
+        still in flight — the script's INTENT to interrupt is meaningful
+        for timeline analysis even when the bot finished before the user
+        TTS was ready. ``metadata.outcome`` captures what actually
+        happened (fired / pending_done / no_adapter).
+
+        Time of the event is captured at the START of the sequence so
+        cross-referencing with agent segments correctly flags segments
+        that were live when the interrupt was intended, not when the
+        cancel-sequence finished settling.
         """
+        # Capture the interrupt timestamp NOW so it lands inside the agent's
+        # speaking window — not after we've awaited cancellation.
+        anchor = getattr(self, "_voice_recording_started_at", None)
+        interrupt_time = (time.monotonic() - anchor) if anchor is not None else 0.0
+
         pending = getattr(self, "_pending_agent_task", None)
-        if pending is None or pending.done():
-            return
         adapter = self._find_voice_adapter()
-        if adapter is None:
+
+        outcome: str
+        native_interrupt_fired = False
+
+        if pending is None or pending.done():
+            outcome = "pending_done"
+        elif adapter is None:
+            outcome = "no_adapter"
             pending.cancel()
             try:
                 await pending
             except (asyncio.CancelledError, Exception):
                 pass
             self._pending_agent_task = None
-            return
-        try:
-            await asyncio.wait_for(
-                adapter._agent_speaking_event.wait(),
-                timeout=adapter.response_timeout,
-            )
-        except asyncio.TimeoutError:
-            pass
-        # Track whether the transport-native interrupt actually ran so the
-        # timeline event metadata reflects how the barge-in landed (native
-        # cancel vs VAD fallback).
-        native_interrupt_fired = False
-        if adapter.capabilities.interruption:
+        else:
+            outcome = "fired"
             try:
-                await adapter.interrupt()
-                native_interrupt_fired = True
-            except Exception:
+                await asyncio.wait_for(
+                    adapter._agent_speaking_event.wait(),
+                    timeout=adapter.response_timeout,
+                )
+            except asyncio.TimeoutError:
                 pass
-        chunk = self._extract_audio_from_message(voiced_message)
-        if chunk is not None:
+            if adapter.capabilities.interruption:
+                try:
+                    await adapter.interrupt()
+                    native_interrupt_fired = True
+                except Exception:
+                    pass
+            chunk = self._extract_audio_from_message(voiced_message)
+            if chunk is not None:
+                try:
+                    await adapter.send_audio(chunk)
+                except Exception:
+                    pass
+            pending.cancel()
             try:
-                await adapter.send_audio(chunk)
-            except Exception:
+                await pending
+            except (asyncio.CancelledError, Exception):
                 pass
-        pending.cancel()
-        try:
-            await pending
-        except (asyncio.CancelledError, Exception):
-            pass
-        self._pending_agent_task = None
+            self._pending_agent_task = None
 
         timeline = getattr(self, "_voice_timeline", None)
-        anchor = getattr(self, "_voice_recording_started_at", None)
         if timeline is not None:
             try:
                 from .voice.recording import VoiceEvent
 
-                t = (time.monotonic() - anchor) if anchor is not None else 0.0
+                metadata = {
+                    "adapter": type(adapter).__name__ if adapter is not None else None,
+                    "native": native_interrupt_fired,
+                    "outcome": outcome,
+                }
                 event = VoiceEvent(
-                    time=t,
+                    time=interrupt_time,
                     type="user_interrupt",
-                    metadata={
-                        "adapter": type(adapter).__name__,
-                        "native": native_interrupt_fired,
-                    },
+                    metadata=metadata,
                 )
                 timeline.append(event)
                 hook = getattr(self, "_on_voice_event", None)
