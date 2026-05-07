@@ -51,6 +51,7 @@ _check_env()
 import scenario  # noqa: E402
 from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
+from scenario.config.voice_models import OPENAI_REALTIME_MODEL  # noqa: E402
 from scenario.types import AgentRole  # noqa: E402
 
 scenario.configure(default_model="openai/gpt-5-mini")
@@ -74,7 +75,7 @@ async def main() -> scenario.ScenarioResult:
                     sample_rate=8000,
                 ),
                 scenario.OpenAIRealtimeAgentAdapter(
-                    model="gpt-4o-realtime-preview",
+                    model=OPENAI_REALTIME_MODEL,
                     voice="nova",
                     instructions=(
                         "You are simulating a confused elderly customer who is not "

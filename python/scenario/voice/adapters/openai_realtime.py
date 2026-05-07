@@ -26,6 +26,7 @@ import logging
 import os
 from typing import Any, ClassVar, List, Optional
 
+from ...config.voice_models import OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL
 from ...types import AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
@@ -55,7 +56,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
     Example::
 
         adapter = OpenAIRealtimeAgentAdapter(
-            model="gpt-4o-realtime-preview",
+            model=OPENAI_REALTIME_MODEL,
             voice="alloy",
             instructions="You are a helpful assistant.",
         )
@@ -77,7 +78,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
 
     def __init__(
         self,
-        model: str = "gpt-4o-realtime-preview",
+        model: str = OPENAI_REALTIME_MODEL,
         voice: str = "alloy",
         instructions: str = "",
         tools: Optional[List[Any]] = None,
@@ -140,7 +141,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             "input_audio_format": "pcm16",
             "output_audio_format": "pcm16",
             "voice": self.voice,
-            "input_audio_transcription": {"model": "whisper-1"},
+            "input_audio_transcription": {"model": OPENAI_STT_MODEL},
             "turn_detection": None,
         }
         if self.instructions:

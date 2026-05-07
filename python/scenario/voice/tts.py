@@ -23,6 +23,7 @@ import hashlib
 from collections import OrderedDict
 from typing import Awaitable, Callable, Dict, Tuple
 
+from ..config.voice_models import OPENAI_TTS_MODEL
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 
 
@@ -75,7 +76,7 @@ async def _openai_tts(text: str, voice: str) -> bytes:
 
     client = AsyncOpenAI()
     response = await client.audio.speech.create(
-        model="gpt-4o-mini-tts",
+        model=OPENAI_TTS_MODEL,
         voice=voice,
         input=text,
         response_format="pcm",

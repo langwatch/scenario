@@ -124,8 +124,15 @@ def test_vapi_capabilities():
 # ---------------------------------------------------------------- OpenAIRealtime
 
 def test_openai_realtime_defaults_to_agent_role():
-    a = OpenAIRealtimeAgentAdapter(model="gpt-4o-realtime-preview", voice="alloy")
+    a = OpenAIRealtimeAgentAdapter(model="gpt-realtime-mini", voice="alloy")
     assert a.role == scenario.AgentRole.AGENT
+
+
+def test_openai_realtime_default_model_is_current_ga():
+    """Default model must come from voice_models.OPENAI_REALTIME_MODEL."""
+    from scenario.config.voice_models import OPENAI_REALTIME_MODEL
+    a = OpenAIRealtimeAgentAdapter()
+    assert a.model == OPENAI_REALTIME_MODEL
 
 
 def test_openai_realtime_user_role_is_a_chosen_alternative():
@@ -144,7 +151,8 @@ def test_openai_realtime_capabilities_are_streaming():
 
 def test_gemini_live_defaults():
     a = GeminiLiveAgentAdapter()
-    assert a.model == "gemini-2.5-flash-native-audio-latest"
+    from scenario.config.voice_models import GEMINI_LIVE_MODEL
+    assert a.model == GEMINI_LIVE_MODEL
     assert a.voice == "Algieba"
 
 
@@ -418,7 +426,7 @@ def test_branded_elevenlabs_voice_agent_is_voice_adapter():
 async def test_openai_realtime_adapter_connects_and_sends_pcm16():
     """Verify URL construction, session.update on connect, audio send/recv round-trip."""
     adapter = OpenAIRealtimeAgentAdapter(
-        model="gpt-4o-realtime-preview",
+        model="gpt-realtime-mini",
         voice="alloy",
         api_key="sk-test",
     )
@@ -450,7 +458,7 @@ async def test_openai_realtime_adapter_connects_and_sends_pcm16():
 
         # Verify the URL contains the model.
         connect_url = mock_connect.call_args[0][0]
-        assert "model=gpt-4o-realtime-preview" in connect_url
+        assert "model=gpt-realtime-mini" in connect_url
         assert "api.openai.com" in connect_url
 
         # Verify session.update was emitted (first send call).

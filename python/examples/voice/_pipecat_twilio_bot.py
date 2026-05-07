@@ -36,6 +36,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     sys.exit("Error: OPENAI_API_KEY is required. Set in python/.env or environment.")
 
+from scenario.config.voice_models import OPENAI_REALTIME_MODEL as DEFAULT_OPENAI_REALTIME_MODEL
+
 try:
     from fastapi import FastAPI, Request, WebSocket
     from fastapi.responses import Response
@@ -123,7 +125,7 @@ async def run_pipeline_for_call(
 
     llm = OpenAIRealtimeLLMService(
         api_key=OPENAI_API_KEY,
-        model=os.environ.get("OPENAI_REALTIME_MODEL", "gpt-4o-realtime-preview"),
+        model=os.environ.get("OPENAI_REALTIME_MODEL", DEFAULT_OPENAI_REALTIME_MODEL),
         session_properties=session_properties,
     )
 

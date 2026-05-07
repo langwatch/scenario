@@ -19,6 +19,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from ..config.voice_models import OPENAI_STT_MODEL
 from .audio_chunk import AudioChunk, PCM16_SAMPLE_RATE
 
 
@@ -43,7 +44,7 @@ class OpenAISTTProvider(STTProvider):
     transcribed independently and concatenated with single spaces.
     """
 
-    def __init__(self, model: str = "gpt-4o-transcribe"):
+    def __init__(self, model: str = OPENAI_STT_MODEL):
         self.model = model
 
     async def transcribe(self, audio: AudioChunk) -> str:
