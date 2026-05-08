@@ -1041,16 +1041,30 @@ class ScenarioExecutor:
         return rng
 
     async def _fire_user_interrupt(self, voiced_message) -> None:
-        """Mid-stream interrupt: wait for the agent to start speaking, send
-        the transport-native interrupt (if any), push the new user audio,
-        then cancel the in-flight agent task and record a ``user_interrupt``
-        timeline event.
+        """Mid-stream interrupt: send the transport-native interrupt (if any)
+        and push the new user audio IMMEDIATELY — without waiting for the
+        agent to start speaking — then cancel the in-flight agent task and
+        record a ``user_interrupt`` timeline event.
 
-        Records the event regardless of whether the pending agent task was
-        still in flight — the script's INTENT to interrupt is meaningful
-        for timeline analysis even when the bot finished before the user
-        TTS was ready. ``metadata.outcome`` captures what actually
-        happened (fired / pending_done / no_adapter).
+        The previous version waited for ``_agent_speaking_event`` before
+        barging in. That was wrong: if the bot is slow to start (LLM warm-up,
+        TTS warm-up), the wait blocks until the agent has nearly finished
+        replying, defeating the purpose of barge-in. Real production
+        providers (EL ConvAI, Gemini Live, OpenAI Realtime) expect the
+        client to push audio whenever the user speaks; their VADs handle
+        the rest. Our job is to be PROMPT, not POLITE.
+
+        ``metadata.outcome`` captures what actually happened:
+          - ``pending_done``: the agent task already completed before we got
+            here — nothing to interrupt
+          - ``no_adapter``: there's no voice adapter (text-only path)
+          - ``fired_after_speech``: the agent had started speaking when we
+            barged in (true mid-stream interrupt — manifest segment for
+            this turn will have ``transcript_truncated=True``)
+          - ``fired_before_speech``: the agent had not started speaking yet;
+            our barge-in landed in the bot's pre-reply window. Still
+            counted as ``fired`` from the script's perspective, but the
+            manifest will not flag a truncated segment for this turn.
 
         Time of the event is captured at the START of the sequence so
         cross-referencing with agent segments correctly flags segments
@@ -1079,26 +1093,39 @@ class ScenarioExecutor:
                 pass
             self._pending_agent_task = None
         else:
-            outcome = "fired"
-            try:
-                await asyncio.wait_for(
-                    adapter._agent_speaking_event.wait(),
-                    timeout=adapter.response_timeout,
-                )
-            except asyncio.TimeoutError:
-                pass
+            # Did the agent already start speaking? Snapshot BEFORE we barge
+            # in so we can label the outcome accurately. (After we send the
+            # user audio, the agent may belatedly emit a frame that races
+            # our cancel; that frame should NOT count as "agent was speaking
+            # when we interrupted.")
+            agent_was_speaking = adapter._agent_speaking_event.is_set()
+            outcome = "fired_after_speech" if agent_was_speaking else "fired_before_speech"
+
+            # 1. Send native cancel signal first (if supported) — this drops
+            #    the bot's buffered outbound audio on transports that honor
+            #    it (Twilio ``clear``, OpenAI Realtime ``response.cancel``).
             if adapter.capabilities.interruption:
                 try:
                     await adapter.interrupt()
                     native_interrupt_fired = True
                 except Exception:
                     pass
+
+            # 2. Push user audio — the bot's VAD detects the overlap and
+            #    triggers its own barge-in, regardless of whether it had
+            #    started speaking. This is what makes the interrupt actually
+            #    truncate the reply on adapters without a native cancel
+            #    (EL ConvAI, Gemini Live).
             chunk = self._extract_audio_from_message(voiced_message)
             if chunk is not None:
                 try:
                     await adapter.send_audio(chunk)
                 except Exception:
                     pass
+
+            # 3. Cancel scenario-side awaiter and let any in-flight agent
+            #    audio drain. The recorder will close out the partial agent
+            #    segment with whatever bytes landed before the cancel.
             pending.cancel()
             try:
                 await pending
