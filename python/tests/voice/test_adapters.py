@@ -6,7 +6,6 @@ implements connect/disconnect cleanly. Deep transport behaviour is exercised
 at @integration scope (requires real platform creds).
 """
 
-import asyncio
 import base64
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
