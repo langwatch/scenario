@@ -58,8 +58,8 @@ async def main() -> scenario.ScenarioResult:
         result = await scenario.run(
             name="example_6_7_random_interruptions",
             description=(
-                "A user simulator with 40% interruption probability calls the bot "
-                "for help with their account. Over 5 turns, ~40% of agent responses "
+                "A user simulator with 70% interruption probability calls the bot "
+                "for help with their account. Over 5 turns, most agent responses "
                 "are cut short. Judge: bot recovered context after interruptions."
             ),
             agents=[
@@ -70,7 +70,10 @@ async def main() -> scenario.ScenarioResult:
                 ),
                 scenario.UserSimulatorAgent(
                     voice="openai/nova",
-                    interrupt_probability=0.4,
+                    # 0.7 over 5 turns → P(zero interrupts) ≈ 0.24%, effectively
+                    # reliable for the demo as a test. The original 0.4 was a
+                    # better statistical illustration but flaked at ~7.8% per run.
+                    interrupt_probability=0.7,
                 ),
                 scenario.JudgeAgent(
                     criteria=[
