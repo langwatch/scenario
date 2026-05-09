@@ -1022,6 +1022,25 @@ class ScenarioExecutor:
 
         return extract_audio(message)
 
+    def _clear_adapter_pending_messages(self, adapter) -> None:
+        """Drop all queued ``new_messages`` for the adapter's idx.
+
+        Called from ``_fire_user_interrupt`` after we hand-deliver the
+        user interrupt audio to the adapter directly. Without this clear,
+        the recovery agent turn would re-send the original user audio
+        (the cancelled background ``_call_agent`` consumed it from
+        ``input.new_messages`` but never reached the post-call line that
+        empties the queue, so the message stays queued) AND/OR the
+        interrupt's user audio (which we already sent by hand). On
+        Gemini Live, replaying queued audio causes the SDK to emit
+        duplicate activity boundaries and produces garbled recovery.
+        """
+        try:
+            adapter_idx = self.agents.index(adapter)
+        except ValueError:
+            return
+        self._pending_messages[adapter_idx] = []
+
     def _interrupt_rng(self):
         """Lazy ``random.Random`` instance for sampling interrupt_probability.
 
@@ -1093,12 +1112,23 @@ class ScenarioExecutor:
                 pass
             self._pending_agent_task = None
         else:
-            # Did the agent already start speaking? Snapshot BEFORE we barge
-            # in so we can label the outcome accurately. (After we send the
-            # user audio, the agent may belatedly emit a frame that races
-            # our cancel; that frame should NOT count as "agent was speaking
-            # when we interrupted.")
-            agent_was_speaking = adapter._agent_speaking_event.is_set()
+            # If the agent hasn't started speaking yet, wait briefly for
+            # them to start so the barge-in lands mid-utterance (the whole
+            # point of an interrupt). Bounded so a hung bot doesn't stall
+            # the script forever — callers using ``scenario.interrupt()``
+            # can override via ``wait_for_speech_timeout``.
+            speaking = adapter._agent_speaking_event
+            if not speaking.is_set():
+                try:
+                    await asyncio.wait_for(speaking.wait(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    pass
+
+            # Snapshot BEFORE we barge in so we can label the outcome
+            # accurately. (After we send the user audio, the agent may
+            # belatedly emit a frame that races our cancel; that frame
+            # should NOT count as "agent was speaking when we interrupted.")
+            agent_was_speaking = speaking.is_set()
             outcome = "fired_after_speech" if agent_was_speaking else "fired_before_speech"
 
             # 1. Send native cancel signal first (if supported) — this drops
@@ -1117,9 +1147,11 @@ class ScenarioExecutor:
             #    truncate the reply on adapters without a native cancel
             #    (EL ConvAI, Gemini Live).
             chunk = self._extract_audio_from_message(voiced_message)
+            audio_was_sent = False
             if chunk is not None:
                 try:
                     await adapter.send_audio(chunk)
+                    audio_was_sent = True
                 except Exception:
                     pass
 
@@ -1132,6 +1164,17 @@ class ScenarioExecutor:
             except (asyncio.CancelledError, Exception):
                 pass
             self._pending_agent_task = None
+
+            # Mark the interrupt's user audio (and any other queued
+            # messages — including the original user turn the cancelled
+            # task was processing) as already consumed by this adapter.
+            # Without this, the next agent() call (the recovery turn)
+            # re-sends queued audio via adapter.call()'s
+            # extract-from-new-messages path, which on Gemini Live causes
+            # the SDK to emit duplicate activity boundaries and produces
+            # an empty/garbled recovery reply.
+            if audio_was_sent:
+                self._clear_adapter_pending_messages(adapter)
 
         timeline = getattr(self, "_voice_timeline", None)
         if timeline is not None:

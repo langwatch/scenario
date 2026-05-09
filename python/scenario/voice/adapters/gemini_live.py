@@ -104,6 +104,13 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         streaming_transcripts=True,
         native_vad=True,
         dtmf=False,
+        # ``interruption=True``: with explicit Activity markers and
+        # ``activity_handling=START_OF_ACTIVITY_INTERRUPTS`` (see
+        # ``connect``), the next ``activity_start`` we send while the
+        # model is replying causes Gemini to cut its in-flight audio.
+        # ``interrupt()`` itself just drains stale chunks out of the
+        # local queue so the recovery agent turn doesn't replay them.
+        interruption=True,
         input_formats=["pcm16/16000"],
         output_formats=["pcm16/24000"],
     )
@@ -127,6 +134,13 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         self._session_ready: Optional[asyncio.Event] = None
         self._shutdown: Optional[asyncio.Event] = None
         self._session_error: Optional[BaseException] = None
+
+        # Cached async iterator on ``session.receive()``. Acquired lazily
+        # on the first ``recv_audio`` call so we can iterate the same
+        # stream across consecutive agent turns. Without caching, each
+        # ``recv_audio`` would call ``session.receive()`` afresh — which
+        # the SDK does not support cleanly across turns.
+        self._recv_iter: Optional[Any] = None
 
         # Observability.
         self.last_agent_transcript: Optional[str] = None
@@ -168,6 +182,22 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                     )
                 )
             ),
+            # Disable Automatic Activity Detection. AAD requires a clean
+            # trailing silence to fire its end-of-speech detector, which is
+            # unreliable across the audio shapes scenario produces (TTS'd
+            # user-sim audio, scripted clips, layered interruptions). With
+            # AAD off we drive turn boundaries explicitly via
+            # ``activity_start`` / ``activity_end`` in ``send_audio``;
+            # Gemini replies the moment we close the turn instead of
+            # waiting on its own VAD heuristic. Activity handling is left
+            # at its default (START_OF_ACTIVITY_INTERRUPTS): when we send
+            # a new ``activity_start`` while Gemini is mid-reply, the
+            # model treats it as a barge-in and cuts its in-flight audio.
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    disabled=True,
+                ),
+            ),
             # Enable transcripts so the recv loop can populate
             # last_agent_transcript / chunk.transcript. Without these,
             # audio still flows but consumers (judge, manifest) get
@@ -208,10 +238,17 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             raise self._session_error
 
         self._session = await session_future
+        self._recv_iter = None
         logger.debug("GeminiLiveAgentAdapter: connected model=%s", self.model)
 
     async def disconnect(self) -> None:
         """Close the Gemini Live session."""
+        if self._recv_iter is not None:
+            try:
+                await self._recv_iter.aclose()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._recv_iter = None
         if self._shutdown is not None:
             self._shutdown.set()
         if self._session_task is not None:
@@ -236,22 +273,21 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        """Send a canonical 24kHz AudioChunk to Gemini Live.
+        """Send a canonical 24kHz AudioChunk to Gemini Live as a complete turn.
 
         Resamples from 24kHz → 16kHz at the wire boundary so the adapter
         speaks Gemini's expected ``audio/pcm;rate=16000`` format while the rest
         of the framework stays at the canonical 24kHz.
 
-        A ~1 second tail of digital silence is appended after the chunk's
-        content. Gemini Live runs server-side automatic activity detection
-        (AAD) by default; without a trailing silence buffer, AAD never
-        sees an end-of-speech and the model never produces a reply —
-        the receive loop hangs until ``response_timeout`` expires.
-        Explicit ``activity_end`` signals are not allowed when AAD is
-        on (the SDK raises ``1007 Explicit activity control is not
-        supported when automatic activity detection is enabled``), so the
-        only protocol-correct path is to give AAD enough trailing silence
-        to fire its end-of-speech detector itself.
+        Wraps the audio in explicit ``activity_start`` / ``activity_end``
+        markers because we connect with Automatic Activity Detection
+        disabled (see ``connect``). Each ``send_audio`` call is therefore a
+        complete user turn from Gemini's perspective: it triggers the
+        model to reply immediately on ``activity_end`` instead of waiting
+        on its own VAD heuristic to detect end-of-speech. This is critical
+        for the interrupt path — when the user barges in, we send a fresh
+        turn boundary on top of the agent's in-flight reply, which Gemini
+        treats as a deterministic interruption signal.
         """
         if self._session is None:
             raise RuntimeError("GeminiLiveAgentAdapter: not connected")
@@ -260,28 +296,68 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         pcm_16k = _resample_pcm16(chunk.data, CANONICAL_RATE, GEMINI_INPUT_RATE)
         if not pcm_16k:
             return
-        # Append 1s of silence at 16kHz PCM16 mono so AAD recognises EOS.
-        silence = b"\x00\x00" * GEMINI_INPUT_RATE
+        # New user turn → reset transcript and the per-turn receive
+        # iterator so the next ``recv_audio`` enters
+        # ``session.receive()`` fresh for this turn.
+        self._reset_turn_transcript()
+        if self._recv_iter is not None:
+            try:
+                await self._recv_iter.aclose()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._recv_iter = None
+        await self._session.send_realtime_input(activity_start=types.ActivityStart())
         blob = types.Blob(
-            data=pcm_16k + silence,
+            data=pcm_16k,
             mime_type="audio/pcm;rate=16000",
         )
         await self._session.send_realtime_input(audio=blob)
+        await self._session.send_realtime_input(activity_end=types.ActivityEnd())
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        """Receive the next audio response from Gemini Live.
+        """Receive the next audio fragment from Gemini Live for the current turn.
 
-        Iterates the server message stream until an audio part arrives.
-        Transcript events update ``self.last_agent_transcript`` in-band.
-        Raises ``asyncio.TimeoutError`` if no audio arrives within ``timeout``
-        seconds.
+        The SDK's ``session.receive()`` async generator yields messages
+        for ONE model turn then stops at ``turn_complete``. We cache the
+        per-turn iterator on ``self._recv_iter`` and reset it when the
+        previous turn ended (StopAsyncIteration), so each user turn
+        sent via ``send_audio`` can read its full reply across multiple
+        ``recv_audio`` calls without us re-entering ``session.receive()``
+        mid-turn (which would skip messages already buffered server-side).
+
+        Returns the next non-empty audio chunk as soon as it arrives
+        so the executor's ``_drain_agent_response`` can set
+        ``_agent_speaking_event`` early — the interruption path depends
+        on this.
+
+        On ``turn_complete`` returns an empty AudioChunk so the drain
+        loop's tail-silence path exits.
+
+        Raises ``asyncio.TimeoutError`` if no chunk arrives within
+        ``timeout`` seconds.
         """
         if self._session is None:
             raise RuntimeError("GeminiLiveAgentAdapter: not connected")
+        if self._recv_iter is None:
+            self._recv_iter = self._session.receive().__aiter__()  # type: ignore[union-attr]
 
-        async def _recv_loop() -> AudioChunk:
-            async for message in self._session.receive():  # type: ignore[union-attr]
-                # Check for server-side errors surfaced as go_away.
+        async def _next_chunk() -> AudioChunk:
+            pending_delta = ""
+            while True:
+                try:
+                    assert self._recv_iter is not None
+                    message = await self._recv_iter.__anext__()  # type: ignore[union-attr]
+                except StopAsyncIteration:
+                    # The previous turn ended (turn_complete already
+                    # consumed). Surface end-of-turn to the drain loop
+                    # and reset the iterator so the next user turn
+                    # can re-enter session.receive() afresh.
+                    self._recv_iter = None
+                    return AudioChunk(
+                        data=b"",
+                        transcript=pending_delta or None,
+                    )
+
                 if message.go_away is not None:
                     raise RuntimeError(
                         f"GeminiLiveAgentAdapter: server sent go_away: {message.go_away}"
@@ -291,40 +367,83 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                 if sc is None:
                     continue
 
-                # Capture output transcript for observability AND attach
-                # to the chunk so consumers (recording manifest, judge
-                # text-fallback path) can read what the agent said.
                 if sc.output_transcription is not None:
                     transcript_text = getattr(sc.output_transcription, "text", None)
                     if transcript_text:
-                        self.last_agent_transcript = transcript_text
+                        pending_delta += transcript_text
+                        existing = self.last_agent_transcript or ""
+                        self.last_agent_transcript = existing + transcript_text
 
-                # Extract inline audio data from model_turn parts.
                 if sc.model_turn is not None and sc.model_turn.parts:
                     audio_bytes = b""
                     for part in sc.model_turn.parts:
                         if part.inline_data is not None and part.inline_data.data:
                             audio_bytes += part.inline_data.data
-
                     if audio_bytes:
-                        # Gemini outputs 24kHz per docs; no resample needed.
-                        # Ensure PCM16 invariant.
                         if len(audio_bytes) % 2 == 1:
                             audio_bytes = audio_bytes[:-1]
                         if audio_bytes:
-                            # Attach the latest transcript snapshot to the
-                            # chunk; _merge_chunks joins partials, the manifest
-                            # pulls it as segment.transcript.
                             return AudioChunk(
                                 data=audio_bytes,
-                                transcript=self.last_agent_transcript,
+                                transcript=pending_delta or None,
                             )
 
                 if sc.turn_complete:
-                    # Turn ended with no audio — return silence rather than hang.
-                    return AudioChunk(data=b"")
+                    # Last message of this turn — yield empty AudioChunk
+                    # and reset the iterator. The next ``recv_audio``
+                    # call (for the next user turn) will re-enter
+                    # ``session.receive()``.
+                    self._recv_iter = None
+                    return AudioChunk(
+                        data=b"",
+                        transcript=pending_delta or None,
+                    )
 
-            # Stream exhausted.
-            return AudioChunk(data=b"")
+        return await asyncio.wait_for(_next_chunk(), timeout=timeout)
 
-        return await asyncio.wait_for(_recv_loop(), timeout=timeout)
+    async def interrupt(self) -> None:
+        """Drain leftover chunks from the in-flight agent turn so the
+        recovery agent's ``recv_audio`` doesn't pick them up as a fake
+        first reply.
+
+        On Gemini Live, when we send a fresh ``activity_start`` (the
+        next ``send_audio``) while the model is mid-reply, the server
+        cuts its in-flight audio AND emits ``turn_complete`` for that
+        cancelled turn. ``session.receive()`` is a one-turn generator,
+        so the cancelled turn's tail messages still need to be consumed
+        before the next ``session.receive()`` invocation can read the
+        recovery turn cleanly. ``interrupt()`` consumes them up to that
+        ``turn_complete`` and resets the cached iterator.
+
+        Best-effort: bounded by 2 seconds so a stuck stream doesn't
+        block the executor's interrupt sequence.
+        """
+        if self._session is None or self._recv_iter is None:
+            return
+        try:
+            async with asyncio.timeout(2.0):
+                while True:
+                    try:
+                        message = await self._recv_iter.__anext__()  # type: ignore[union-attr]
+                    except StopAsyncIteration:
+                        break
+                    sc = getattr(message, "server_content", None)
+                    if sc is not None and sc.turn_complete:
+                        break
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            try:
+                await self._recv_iter.aclose()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            self._recv_iter = None
+
+    def _reset_turn_transcript(self) -> None:
+        """Clear the running transcript before each new agent turn.
+
+        Called from ``send_audio`` so each turn starts fresh — otherwise
+        the agent's first reply text would be permanently prefixed onto
+        all subsequent turns' transcripts.
+        """
+        self.last_agent_transcript = None

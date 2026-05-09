@@ -90,25 +90,36 @@ def interrupt(
     content: Union[str, bytes, Path] = "",
     *,
     after_words: Optional[int] = None,
+    wait_for_speech_timeout: float = 8.0,
 ) -> ScriptStep:
     """
     Declarative interruption step.
 
-    Equivalent to ``agent(wait=False) + user(content)``: the agent starts
-    replying in the background; ``user()`` waits until the agent has
-    actually started producing audio, fires the interrupt, then sends the
-    replacement turn. No wall-clock sleep — the timing is driven by "agent
-    has started speaking," not "N seconds have elapsed."
+    Equivalent to ``agent(wait=False) + (bounded wait) + user(content)``:
+    the agent starts replying in the background; the step waits up to
+    ``wait_for_speech_timeout`` seconds for the agent to actually start
+    producing audio; then the user audio is sent so the barge-in lands
+    mid-utterance.
+
+    The bounded wait matters most on transports without a client-side
+    cancel signal (EL ConvAI, Gemini Live), where the interrupt must
+    overlap real agent audio for the server's VAD to fire. Without it,
+    user TTS finishes generating in ~600ms while the model still hasn't
+    started speaking — the "interrupt" lands during silence and
+    transports nothing for the bot to barge against.
+
+    On transports with a native cancel (Twilio ``clear``, OpenAI
+    Realtime ``response.cancel``), waiting for speech is harmless: the
+    cancel still fires deterministically once we hit
+    ``executor.user``.
 
     Path selection happens in ``executor.user()`` based on
     ``adapter.capabilities.interruption``:
 
       - ``True`` → ``adapter.interrupt()`` sends the transport-native
-        interrupt (Twilio ``clear``, OpenAI Realtime ``response.cancel``,
-        etc.). SUT stops generating immediately. Deterministic.
+        interrupt. Deterministic.
       - ``False`` → user audio overlaps with the agent's TTS on the wire
-        and the SUT's VAD detects barge-in. Less deterministic but still
-        works.
+        and the SUT's VAD detects barge-in.
 
     ``after_words`` (optional): instead of interrupting at first chunk,
     wait until the agent's streaming transcript has emitted N words.
@@ -131,17 +142,44 @@ def interrupt(
         # first audio chunk" with "wait for N transcript words."
         if after_words is not None:
             await _wait_for_streaming_words(state, after_words)
+        else:
+            # Bounded wait for the agent to start speaking. Cap at
+            # wait_for_speech_timeout so a hung bot doesn't stall the
+            # script forever, but give server-VAD adapters enough time
+            # to start producing real audio against which our barge-in
+            # can register.
+            await _wait_for_agent_speaking(
+                state, timeout=wait_for_speech_timeout
+            )
 
         # The actual interrupt happens inside executor.user() / scenario.audio()
         # — both call into the executor, which detects the pending agent task,
-        # waits for the agent to start speaking, fires adapter.interrupt() if
-        # supported, then sends the new user content.
+        # fires adapter.interrupt() if supported, and sends the new user
+        # content.
         if _is_audio_content(content):
             await audio(content)(state)  # type: ignore[arg-type]
         else:
             await executor.user(content if content else None)  # type: ignore[arg-type]
 
     return _step
+
+
+async def _wait_for_agent_speaking(state: "ScenarioState", timeout: float) -> None:
+    """Wait up to ``timeout`` seconds for the active voice adapter's
+    ``_agent_speaking_event`` to set. Returns silently on timeout —
+    callers proceed with the interrupt regardless so a hung or silent
+    bot doesn't block the script forever.
+    """
+    adapter = _voice_adapter(state)
+    if adapter is None:
+        return
+    speaking = getattr(adapter, "_agent_speaking_event", None)
+    if speaking is None or speaking.is_set():
+        return
+    try:
+        await asyncio.wait_for(speaking.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return
 
 
 def dtmf(tones: str) -> ScriptStep:
