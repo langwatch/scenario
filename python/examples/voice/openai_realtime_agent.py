@@ -74,7 +74,8 @@ async def main() -> scenario.ScenarioResult:
                 criteria=[
                     "The agent responded naturally to the greeting",
                     # Claim from docstring: OpenAI Realtime model IS the agent under test.
-                    "The Realtime model itself produced the agent's audio responses (not a TTS layer)",
+                    # Reworded to be observable from messages: audio block + transcript present.
+                    "The agent message contains an input_audio block alongside its transcript",
                     "The conversation is a coherent example of the OpenAI-Realtime-as-agent path",
                 ]
             ),

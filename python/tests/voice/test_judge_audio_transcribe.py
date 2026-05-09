@@ -104,9 +104,16 @@ class TestConversationHasAudio:
 
 
 class TestEnrichMessagesWithTranscripts:
-    def test_replaces_audio_only_assistant_message_with_transcript(self):
-        """Core invariant: audio-only assistant msg → text msg with transcript."""
+    def test_prepends_transcript_text_preserving_audio(self):
+        """Core invariant: audio-only assistant msg → message with text + audio.
+
+        Audio MUST be preserved so audio-presence criteria
+        ("agent and user exchanged real audio turns") still see the
+        ``input_audio`` block. Stripping audio caused those criteria to
+        fail with "the assistant's turns are text-only" verdicts.
+        """
         msgs = _voice_messages()
+        original_audio_part = msgs[1]["content"][0]
         recording = _make_recording(agent_transcript="agent reply text")
 
         result = _enrich_messages_with_transcripts(msgs, recording)
@@ -114,9 +121,12 @@ class TestEnrichMessagesWithTranscripts:
         # User message unchanged
         assert result[0] == msgs[0]
 
-        # Assistant message replaced with text
+        # Assistant message: text prepended, audio preserved.
         enriched_content = result[1]["content"]
-        assert enriched_content == [{"type": "text", "text": "agent reply text"}]
+        assert enriched_content == [
+            {"type": "text", "text": "agent reply text"},
+            original_audio_part,
+        ]
 
     def test_leaves_assistant_message_with_text_unchanged(self):
         """If assistant already has a text part, it should not be replaced."""
