@@ -179,10 +179,13 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
                 ``COMPOSABLE_VOICE_LLM_MODEL``.
             voice: TTS voice string in ``"elevenlabs/<voice_id>"`` format.
                 Defaults to the ``ELEVENLABS_VOICE_ID`` environment variable
-                when set, otherwise falls back to the public "Rachel" voice
-                (``"elevenlabs/21m00Tcm4TlvDq8ikWAM"``).  Free-tier accounts
-                cannot use premade voice IDs — set ``ELEVENLABS_VOICE_ID`` to
-                a custom voice you own to avoid 402 errors.
+                when set, otherwise falls back to "Sarah"
+                (``"elevenlabs/EXAVITQu4vr4xnSDxMaL"``) — premade and
+                accessible on the ElevenLabs free tier as of 2026-05.
+                Other premade voices (e.g. "Rachel"
+                ``21m00Tcm4TlvDq8ikWAM``) returned 402 paid_plan_required
+                from the EL TTS API; gating differs per voice.  Set
+                ``ELEVENLABS_VOICE_ID`` to override.
             stt: STTProvider override. Defaults to
                 ``ElevenLabsSTTProvider(api_key=api_key)``.
             system_prompt: Optional system prompt. Defaults to
@@ -195,7 +198,7 @@ class ElevenLabsVoiceAgent(ComposableVoiceAgent):
             voice = (
                 f"elevenlabs/{env_voice_id}"
                 if env_voice_id
-                else "elevenlabs/21m00Tcm4TlvDq8ikWAM"  # "Rachel" — public ElevenLabs voice
+                else "elevenlabs/EXAVITQu4vr4xnSDxMaL"  # "Sarah" — free-tier premade
             )
         resolved_stt = stt if stt is not None else ElevenLabsSTTProvider(api_key=api_key)
         super().__init__(stt=resolved_stt, llm=llm, tts=voice, system_prompt=system_prompt)

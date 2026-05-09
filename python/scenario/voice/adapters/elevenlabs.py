@@ -151,7 +151,20 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 return AudioChunk(data=pcm)
 
             elif etype == "ping":
-                event_id = event.get("event_id")
+                # ElevenLabs ConvAI ping shape (v1, observed 2026-05):
+                #   {"type": "ping", "ping_event": {"event_id": <int>, "ping_ms": <int>}}
+                # The previous code looked for "event_id" at the top level,
+                # which yielded null — EL then rejected our pong with a
+                # 1008 policy violation: "event_id: Input should be a valid
+                # integer". Source the id from ping_event.event_id; fall
+                # back to top-level for older shapes.
+                ping_event = event.get("ping_event") or {}
+                event_id = ping_event.get("event_id")
+                if event_id is None:
+                    event_id = event.get("event_id")
+                if event_id is None:
+                    logger.debug("ElevenLabsAgentAdapter: ping with no event_id, skipping pong: %r", event)
+                    continue
                 pong = json.dumps({"type": "pong", "event_id": event_id})
                 await self._ws.send(pong)
 

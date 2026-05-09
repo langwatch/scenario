@@ -304,6 +304,43 @@ async def test_elevenlabs_hosted_adapter_replies_to_ping():
     assert first_send["event_id"] == 42
 
 
+@pytest.mark.asyncio
+async def test_elevenlabs_hosted_adapter_replies_to_ping_nested_shape():
+    """The real EL ConvAI wire shape nests event_id under ``ping_event``.
+    The adapter must extract the id from there to keep EL's pong validator
+    (PongClientToOrchestratorEvent.event_id requires a valid integer) happy.
+    """
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+
+    pcm_payload = b"\x00\x00" * 8
+    b64_audio = base64.b64encode(pcm_payload).decode()
+    events = [
+        json.dumps({"type": "ping", "ping_event": {"event_id": 7, "ping_ms": 12}}),
+        json.dumps({"type": "audio", "audio_event": {"audio_base_64": b64_audio}}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        await adapter.recv_audio(timeout=5.0)
+
+    first_send = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert first_send["type"] == "pong"
+    assert first_send["event_id"] == 7
+
+
 # ---------------------------------------------------------------- ComposableVoiceAgent
 
 class _FakeSTT(STTProvider):
