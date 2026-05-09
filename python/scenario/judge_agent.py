@@ -1018,8 +1018,22 @@ def _enrich_messages_with_transcripts(
     recording: Any,
 ) -> List[Any]:
     """
-    Replace each agent audio-only message in messages with a text message
-    carrying the matching segment's transcript.
+    Add a transcript text part to each agent audio-only message, preserving
+    the audio part so the judge still sees ``input_audio`` evidence in the
+    message.
+
+    Why we don't REPLACE: criteria like "agent and user exchanged real audio
+    turns" need the audio block visible to the judge as proof the message
+    carried bytes, not just text. Replacing the content (the previous
+    behavior) made the message look text-only and the judge correctly
+    concluded "the assistant's turns are text-only" — which then failed
+    audio-presence criteria.
+
+    Strategy: insert a ``{"type": "text", "text": <transcript>}`` part at the
+    front of the content list, leaving the input_audio part in place.
+    ``_truncate_base64_media`` later collapses the base64 to a placeholder
+    so token cost stays bounded; what survives is the **shape** evidence
+    (the audio block) plus the readable transcript.
 
     User messages are left untouched (their transcript lives alongside the
     audio part already). Returns a new list — does not mutate input.
@@ -1066,8 +1080,11 @@ def _enrich_messages_with_transcripts(
         if has_audio and not has_text and agent_msg_idx < len(agent_transcripts):
             transcript_text = agent_transcripts[agent_msg_idx]
             agent_msg_idx += 1
-            # Replace content with a plain text part.
-            enriched.append({**msg, "content": [{"type": "text", "text": transcript_text}]})
+            # PREPEND text alongside the audio part — preserve audio evidence.
+            enriched.append({
+                **msg,
+                "content": [{"type": "text", "text": transcript_text}, *content],
+            })
         else:
             if has_audio and not has_text:
                 agent_msg_idx += 1  # consume the slot even when no transcript
