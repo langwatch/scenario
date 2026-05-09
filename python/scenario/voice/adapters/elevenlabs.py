@@ -140,6 +140,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 continue
 
             etype = event.get("type", "")
+            logger.debug("ElevenLabsAgentAdapter: recv event %s", etype)
 
             if etype == "audio":
                 audio_event = event.get("audio_event", {})

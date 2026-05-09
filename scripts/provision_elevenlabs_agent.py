@@ -63,7 +63,17 @@ except ImportError:
 # Sentinel name. Override via ELEVENLABS_AGENT_NAME env var (e.g. "Test Agent")
 # if your account already has an agent under a different name.
 AGENT_NAME = os.environ.get("ELEVENLABS_AGENT_NAME", "scenario-e2e-test-agent")
-SYSTEM_PROMPT = "You are a helpful customer-service agent."
+# Verbose system prompt so the agent produces multi-paragraph replies
+# the interrupt demos can barge in on. Without this, the default ConvAI
+# agent answers in 1-2 sentences and finishes before our interrupt has
+# any audio to overlap.
+SYSTEM_PROMPT = (
+    "You are a verbose product expert at TestCo. When the user asks anything "
+    "about features, services, products, or company information, give a "
+    "long, detailed multi-paragraph answer. Enumerate examples. Keep "
+    "talking until the user explicitly stops you. Never give a one-sentence "
+    "answer."
+)
 ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
 
 
@@ -109,6 +119,10 @@ def _create_agent(api_key: str) -> str:
                 "first_message": "Hello! How can I help you today?",
                 "language": "en",
             },
+            # Match the framework's canonical 24kHz PCM16 so we don't
+            # need a per-edge resample at the adapter boundary.
+            "asr": {"user_input_audio_format": "pcm_24000"},
+            "tts": {"agent_output_audio_format": "pcm_24000"},
         },
     }
     resp = httpx.post(
@@ -127,6 +141,44 @@ def _create_agent(api_key: str) -> str:
         )
         sys.exit(1)
     return resp.json()["agent_id"]
+
+
+def _patch_agent_prompt(api_key: str, agent_id: str) -> None:
+    """PATCH /v1/convai/agents/{id} — refresh the agent's prompt to
+    ``SYSTEM_PROMPT``. Idempotent. Used so re-runs of provisioning bring
+    older test agents in line with the verbose-prompt behaviour the
+    interrupt demos depend on.
+    """
+    import httpx
+
+    payload = {
+        "conversation_config": {
+            "agent": {
+                "prompt": {"prompt": SYSTEM_PROMPT},
+                "first_message": "Hello! How can I help you today?",
+            },
+            "asr": {"user_input_audio_format": "pcm_24000"},
+            "tts": {"agent_output_audio_format": "pcm_24000"},
+        },
+    }
+    resp = httpx.patch(
+        f"{ELEVENLABS_API_BASE}/v1/convai/agents/{agent_id}",
+        headers={
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
+    )
+    if resp.status_code not in (200, 201):
+        # Soft warning — the agent still works for happy-path demos
+        # even if the prompt didn't update.
+        print(
+            f"warn: PATCH /v1/convai/agents/{agent_id} returned {resp.status_code}: {resp.text}",
+            file=sys.stderr,
+        )
+        return
+    print(f"info: refreshed prompt on agent {agent_id}", file=sys.stderr)
 
 
 def _write_env(agent_id: str) -> None:
@@ -181,6 +233,9 @@ def main() -> None:
     if existing:
         agent_id = existing["agent_id"]
         print(f"info: reusing existing agent '{AGENT_NAME}' (id={agent_id})", file=sys.stderr)
+        # Refresh the prompt: older test agents may have been created
+        # with the previous (terse) SYSTEM_PROMPT.
+        _patch_agent_prompt(api_key, agent_id)
     else:
         print(f"info: creating new agent '{AGENT_NAME}'...", file=sys.stderr)
         agent_id = _create_agent(api_key)

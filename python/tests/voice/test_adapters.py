@@ -721,7 +721,8 @@ async def test_gemini_live_adapter_connects_with_model_and_api_key():
 
 @pytest.mark.asyncio
 async def test_gemini_live_adapter_sends_resampled_audio():
-    """24kHz canonical AudioChunk is resampled to 16kHz before sending to Gemini."""
+    """24kHz canonical AudioChunk is wrapped in activity_start/audio/activity_end
+    (AAD-off path), with the audio resampled 24kHz → 16kHz at the wire."""
     import numpy as np
 
     session = _make_gemini_session([])
@@ -739,18 +740,22 @@ async def test_gemini_live_adapter_sends_resampled_audio():
 
         await adapter.disconnect()
 
-    # send_realtime_input should have been called once.
-    session.send_realtime_input.assert_called_once()
-    call_kwargs = session.send_realtime_input.call_args.kwargs
-    blob = call_kwargs["audio"]
+    # send_realtime_input is called three times per send_audio:
+    # activity_start, audio, activity_end.
+    assert session.send_realtime_input.call_count == 3
+    calls = session.send_realtime_input.call_args_list
 
-    # Blob mime_type must be 16kHz.
+    # 1) activity_start
+    assert "activity_start" in calls[0].kwargs
+    # 2) audio blob — resampled to 16kHz
+    assert "audio" in calls[1].kwargs
+    blob = calls[1].kwargs["audio"]
     assert "16000" in blob.mime_type
-
-    # Resampled data length should be ~16/24 of input sample count.
     resampled_samples = len(blob.data) // 2
     expected_samples = int(n_samples_24k * 16000 / 24000)
     assert abs(resampled_samples - expected_samples) <= 1  # ±1 rounding
+    # 3) activity_end
+    assert "activity_end" in calls[2].kwargs
 
 
 @pytest.mark.asyncio
