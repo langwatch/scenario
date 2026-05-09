@@ -168,6 +168,12 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                     )
                 )
             ),
+            # Enable transcripts so the recv loop can populate
+            # last_agent_transcript / chunk.transcript. Without these,
+            # audio still flows but consumers (judge, manifest) get
+            # no readable text.
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
         )
 
         client = genai.Client(api_key=self._api_key)
@@ -285,7 +291,9 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                 if sc is None:
                     continue
 
-                # Capture output transcript for observability.
+                # Capture output transcript for observability AND attach
+                # to the chunk so consumers (recording manifest, judge
+                # text-fallback path) can read what the agent said.
                 if sc.output_transcription is not None:
                     transcript_text = getattr(sc.output_transcription, "text", None)
                     if transcript_text:
@@ -304,7 +312,13 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                         if len(audio_bytes) % 2 == 1:
                             audio_bytes = audio_bytes[:-1]
                         if audio_bytes:
-                            return AudioChunk(data=audio_bytes)
+                            # Attach the latest transcript snapshot to the
+                            # chunk; _merge_chunks joins partials, the manifest
+                            # pulls it as segment.transcript.
+                            return AudioChunk(
+                                data=audio_bytes,
+                                transcript=self.last_agent_transcript,
+                            )
 
                 if sc.turn_complete:
                     # Turn ended with no audio — return silence rather than hang.
