@@ -46,7 +46,7 @@ from _recording_helper import save_demo_recording  # noqa: E402
 from scenario.config.voice_models import GEMINI_LIVE_MODEL  # noqa: E402
 
 # Judge runs on Gemini — no OpenAI dependency in this demo.
-scenario.configure(default_model="gemini/gemini-2.0-flash")
+scenario.configure(default_model="gemini/gemini-2.5-flash")
 
 
 async def main() -> scenario.ScenarioResult:

@@ -235,6 +235,17 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         Resamples from 24kHz → 16kHz at the wire boundary so the adapter
         speaks Gemini's expected ``audio/pcm;rate=16000`` format while the rest
         of the framework stays at the canonical 24kHz.
+
+        A ~1 second tail of digital silence is appended after the chunk's
+        content. Gemini Live runs server-side automatic activity detection
+        (AAD) by default; without a trailing silence buffer, AAD never
+        sees an end-of-speech and the model never produces a reply —
+        the receive loop hangs until ``response_timeout`` expires.
+        Explicit ``activity_end`` signals are not allowed when AAD is
+        on (the SDK raises ``1007 Explicit activity control is not
+        supported when automatic activity detection is enabled``), so the
+        only protocol-correct path is to give AAD enough trailing silence
+        to fire its end-of-speech detector itself.
         """
         if self._session is None:
             raise RuntimeError("GeminiLiveAgentAdapter: not connected")
@@ -243,7 +254,12 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         pcm_16k = _resample_pcm16(chunk.data, CANONICAL_RATE, GEMINI_INPUT_RATE)
         if not pcm_16k:
             return
-        blob = types.Blob(data=pcm_16k, mime_type="audio/pcm;rate=16000")
+        # Append 1s of silence at 16kHz PCM16 mono so AAD recognises EOS.
+        silence = b"\x00\x00" * GEMINI_INPUT_RATE
+        blob = types.Blob(
+            data=pcm_16k + silence,
+            mime_type="audio/pcm;rate=16000",
+        )
         await self._session.send_realtime_input(audio=blob)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
