@@ -92,9 +92,15 @@ async def main() -> scenario.ScenarioResult:
             scenario.user("Tell me about every product feature you offer"),
             scenario.interrupt("Sorry one more thing — what are your business hours?"),
             scenario.agent(),
+            # Give the judge a second turn to confirm the agent stays on topic
+            # and recovered context — server-VAD interrupts on Gemini sometimes
+            # produce a very short first reply, so a follow-up clarifies the
+            # behaviour for the judge.
+            scenario.user("Just the hours, please"),
+            scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=6,
+        max_turns=10,
     )
 
     print(f"success: {result.success}")
