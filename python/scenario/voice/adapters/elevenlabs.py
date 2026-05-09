@@ -174,6 +174,23 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             elif etype == "agent_response":
                 self.last_agent_transcript = event.get("agent_response_event", {}).get("agent_response")
 
+            elif etype == "agent_response_correction":
+                # EL signals a corrected agent reply (post server-side
+                # barge-in detection). The corrected text replaces the
+                # last_agent_transcript so consumers see what the agent
+                # ACTUALLY said after our interrupt landed, not the
+                # pre-correction draft.
+                #
+                # Wire shape:
+                #   {"type": "agent_response_correction",
+                #    "agent_response_correction_event": {
+                #      "original_agent_response": "...",
+                #      "corrected_agent_response": "..."}}
+                correction = event.get("agent_response_correction_event", {}) or {}
+                corrected = correction.get("corrected_agent_response")
+                if corrected:
+                    self.last_agent_transcript = corrected
+
             elif etype in ("conversation_initiation_metadata", "interruption"):
                 pass  # expected non-audio events
 
