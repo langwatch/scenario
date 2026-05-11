@@ -83,12 +83,16 @@ async def main() -> scenario.ScenarioResult:
                     ]
                 ),
             ],
+            # Voice convention: the bot greets first on connect (matches Twilio,
+            # ElevenLabs ConvAI, OpenAI Realtime, etc.). The user's compound
+            # request is turn 2, in response to the greeting.
             script=[
+                scenario.agent(),
                 scenario.user(MULTI_INTENT_UTTERANCE),
                 scenario.agent(),
                 scenario.judge(),
             ],
-            max_turns=4,
+            max_turns=6,
         )
 
     print(f"success: {result.success}")

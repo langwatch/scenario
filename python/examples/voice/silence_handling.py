@@ -80,7 +80,12 @@ async def main() -> scenario.ScenarioResult:
                     ]
                 ),
             ],
+            # Voice convention: the bot greets first on connect (matches Twilio,
+            # ElevenLabs ConvAI, OpenAI Realtime, etc.). The user replies to the
+            # greeting, then goes silent — testing how the agent handles a long
+            # pause without user input.
             script=[
+                scenario.agent(),
                 scenario.user("Hello"),
                 scenario.silence(10.0),
                 scenario.agent(),
@@ -88,7 +93,7 @@ async def main() -> scenario.ScenarioResult:
                 scenario.agent(),
                 scenario.judge(),
             ],
-            max_turns=6,
+            max_turns=8,
         )
 
     print(f"success: {result.success}")
