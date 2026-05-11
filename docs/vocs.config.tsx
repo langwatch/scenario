@@ -415,6 +415,10 @@ export default defineConfig({
               text: "Capability Matrix",
               link: "/voice/capability-matrix",
             },
+            {
+              text: "Choosing an Adapter",
+              link: "/voice/choosing-an-adapter",
+            },
           ],
         },
         {

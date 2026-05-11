@@ -1,0 +1,177 @@
+---
+title: Choosing a Voice Adapter
+description: Pick the Scenario VoiceAgentAdapter that fits your use case — Twilio, OpenAI Realtime, Pipecat, ElevenLabs, and more.
+---
+
+import { Callout } from "vocs/components";
+
+# Choosing a Voice Adapter
+
+Pick the adapter that matches your use case.
+
+Every adapter wraps a different wire transport but exposes the same `scenario.run()` API.
+Start with the use case that describes your situation, follow the recipe, and check the
+[capability matrix](/voice/capability-matrix) if you need to compare specifics.
+
+---
+
+## I want to test my Twilio IVR
+
+**Adapter:** `TwilioAgentAdapter`
+
+Twilio Media Streams delivers audio over WebSocket. `TwilioAgentAdapter` speaks that
+protocol, handles DTMF tone detection, and exposes the full call-state lifecycle.
+
+```python
+from scenario.voice import TwilioAgentAdapter
+
+adapter = TwilioAgentAdapter(
+    url="wss://your-ngrok-tunnel.ngrok.io/streams",
+)
+```
+
+- DTMF tones: reported as `DtmfEvent` — assert them with `scenario.expect_dtmf("1")`.
+- Inbound vs outbound: use `twilio_inbound.py` for inbound call tests and `twilio_outbound.py` for dialer-side tests.
+
+**Worked example:**
+[`python/examples/voice/dtmf_ivr.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/dtmf_ivr.py) —
+demonstrates a DTMF-driven IVR menu test from dial-in to hang-up.
+
+See also:
+[`twilio_inbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_inbound.py),
+[`twilio_outbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_outbound.py)
+
+---
+
+## I want to test an OpenAI Realtime agent
+
+**Adapter:** `OpenAIRealtimeAgentAdapter`
+
+<Callout type="warning">
+  **Transport is currently stubbed.** `OpenAIRealtimeAgentAdapter.connect()` raises
+  `PendingTransportError` — the wire protocol is specified but the transport glue code
+  is not yet shipped. Check the [capability matrix](/voice/capability-matrix) for
+  current shipping status before building against this adapter.
+</Callout>
+
+```python
+from scenario.voice import OpenAIRealtimeAgentAdapter
+
+adapter = OpenAIRealtimeAgentAdapter(
+    url="wss://api.openai.com/v1/realtime",
+    model="gpt-4o-realtime-preview",
+)
+```
+
+The adapter declarations are final and match the OpenAI Realtime wire spec;
+only the transport glue code is pending.
+
+**Worked example:**
+[`python/examples/voice/openai_realtime_agent.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_agent.py) —
+shows the expected adapter wiring for when transport ships.
+
+---
+
+## I'm building a custom Pipecat bot
+
+**Adapter:** `PipecatAgentAdapter`
+
+Pipecat bots expose a WebSocket endpoint that speaks the Twilio Media Streams
+binary protocol. `PipecatAgentAdapter` connects to that endpoint and drives the
+full audio pipeline.
+
+```python
+from scenario.voice import PipecatAgentAdapter
+
+adapter = PipecatAgentAdapter(
+    url="ws://localhost:8765/stream",
+)
+```
+
+Use `ensure_pipecat_bot()` from `scenario.voice.testing` to auto-spawn the
+bundled stub bot locally for CI runs.
+
+**Worked example:**
+[`python/examples/voice/pipecat_ws.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_ws.py) —
+a full Pipecat WebSocket test with multi-turn conversation and a judge step.
+
+See also:
+[`pipecat_scenario.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_scenario.py)
+
+---
+
+## I want voice latency / TTFB benchmarks
+
+**Use:** `result.latency` + `LatencyMetrics`
+
+Any shipping adapter exposes latency metrics on the scenario result object.
+`result.latency.ttfb_ms` is time-to-first-byte from end of user turn to start
+of agent audio. `result.latency.total_ms` is the full round-trip wall-clock time.
+
+```python
+result = await scenario.run(adapter=adapter, ...)
+
+print(result.latency.ttfb_ms)   # float, milliseconds
+print(result.latency.total_ms)  # float, milliseconds
+
+# Assert an SLA
+assert result.latency.ttfb_ms < 500, "TTFB exceeded 500 ms"
+```
+
+Combine with `on_voice_event` hooks to capture per-turn timings at higher
+resolution, or call `result.audio.save("output.wav")` for offline analysis.
+
+**Worked example:**
+[`python/examples/voice/observability.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/observability.py) —
+demonstrates `on_audio_chunk`, `on_voice_event`, `result.audio.save()`, and
+`LatencyMetrics` assertions in a single scenario.
+
+---
+
+## I need branded ElevenLabs voice
+
+**Adapter:** `ElevenLabsAgentAdapter`
+
+ElevenLabs Conversational AI runs over WebSocket (the Convai protocol).
+Scenario ships two variants:
+
+| Variant | When to use |
+|---|---|
+| `ElevenLabsAgentAdapter` (composable) | You control the ElevenLabs pipeline — custom voice, custom LLM hook, custom tools. |
+| `ElevenLabsAgentAdapter` (hosted) | ElevenLabs hosts the agent entirely; you only supply an `agent_id`. |
+
+```python
+# Composable variant
+from scenario.voice import ElevenLabsAgentAdapter
+
+adapter = ElevenLabsAgentAdapter(
+    url="wss://api.elevenlabs.io/v1/convai/conversation",
+    voice_id="your-voice-id",
+)
+
+# Hosted variant — supply agent_id instead of a URL
+adapter = ElevenLabsAgentAdapter.hosted(agent_id="your-agent-id")
+```
+
+<Callout type="tip">
+  Check your ElevenLabs quota before running at scale. HTTP 401 `quota_exceeded`
+  from the ElevenLabs API means your character quota is exhausted — top up at
+  [elevenlabs.io/subscription](https://elevenlabs.io/subscription).
+</Callout>
+
+**Worked example:**
+[`python/examples/voice/elevenlabs_branded.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_branded.py) —
+branded voice scenario with interruption handling and a judge step.
+
+See also:
+[`elevenlabs_hosted.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_hosted.py),
+[`elevenlabs_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_interruption.py)
+
+---
+
+## What's next
+
+- [Capability matrix](/voice/capability-matrix) — per-adapter feature support table, shipping status, and wire transport details.
+- [Getting started](/voice/getting-started) — install, env vars, and your first runnable voice scenario.
+- [Voice agents proposal](https://github.com/langwatch/scenario/blob/main/docs/proposals/issue-350-voice-agents-source.md) — design rationale, adapter architecture, and the full adapter API surface.
+- [Voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) — the 99-scenario behavioral contract that drives adapter development.
