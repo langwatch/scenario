@@ -1295,7 +1295,7 @@ class ScenarioExecutor:
         if current is pending:
             return
         try:
-            await pending
+            _ = await pending
         finally:
             self._pending_agent_task = None
 

@@ -92,7 +92,7 @@ async def main() -> scenario.ScenarioResult:
                 to=os.environ["TWILIO_PHONE_NUMBER"],
                 timeout=60.0,
             )
-            await agent_wait
+            _ = await agent_wait
 
             result = await scenario.run(
                 name="example_6_4_dtmf_ivr",

@@ -100,7 +100,7 @@ async def main() -> scenario.ScenarioResult:
                 to=os.environ["TWILIO_PHONE_NUMBER_2"],
                 timeout=60.0,
             )
-            await agent_wait  # both sides now have live media streams
+            _ = await agent_wait  # both sides now have live media streams
 
             result = await scenario.run(
                 name="twilio_outbound_demo",

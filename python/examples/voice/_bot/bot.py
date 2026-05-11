@@ -233,6 +233,7 @@ def _openai_stt(mulaw_bytes: bytes) -> str:
             try:
                 os.unlink(tmp_path)
             except OSError:
+                # Tempfile already removed or never created — best-effort cleanup.
                 pass
     except Exception as exc:
         logger.warning("STT call failed (%s)", exc)
@@ -370,8 +371,9 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         # writing to the websocket concurrently would interleave audio frames.
         if response_task is not None and not response_task.done():
             try:
-                await response_task
+                _ = await response_task
             except (asyncio.CancelledError, Exception):
+                # Draining the prior turn — any failure here is non-fatal.
                 pass
         response_task = asyncio.create_task(
             _process_user_audio(
@@ -739,7 +741,7 @@ async def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
         )
         # Log a ready marker that the Makefile poll can grep for.
         print(f"bot: ready on ws://{host}:{port}/stream", flush=True)
-        await stop
+        _ = await stop
 
     logger.info("bot stopped")
 
