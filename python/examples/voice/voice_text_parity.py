@@ -31,6 +31,7 @@ try:
 
     load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 except ImportError:
+    # python-dotenv is optional — examples still run with env already exported.
     pass
 
 from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402
