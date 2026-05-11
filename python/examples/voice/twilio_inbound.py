@@ -33,6 +33,7 @@ try:
 
     load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 except ImportError:
+    # python-dotenv is optional — examples still run with env already exported.
     pass
 
 REQUIRED_ENV = (
