@@ -6,8 +6,6 @@ the JudgeAgent._conversation_has_audio / _extract_recording helpers.
 """
 from __future__ import annotations
 
-import pytest
-
 from scenario.judge_agent import JudgeAgent, _enrich_messages_with_transcripts
 from scenario.voice.recording import AudioSegment, VoiceRecording
 
