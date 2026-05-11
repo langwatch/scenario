@@ -83,17 +83,9 @@ audio. Two sub-causes:
 
 **Fix:**
 
-- If `webrtcvad` is not installed, install it:
-  ```bash
-  pip install webrtcvad-wheels
-  ```
+- `webrtcvad-wheels` is a base dependency of `langwatch-scenario` (see [pyproject.toml](https://github.com/langwatch/scenario/blob/main/python/pyproject.toml)). If somehow it's not installed in your environment, `pip install webrtcvad-wheels` will fix it.
 
-- If the fallback is installed but VAD is not firing on your audio, `WebRTCVadFallback`
-  defaults to `aggressiveness=2` (0 = least selective, 3 = most selective). At level 2
-  or 3, low-energy speech or TTS audio may be classified as silence.
-  Known limitation: `vad_aggressiveness` is not yet a constructor parameter on the adapter.
-  See [`scenario.voice.vad.WebRTCVadFallback`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/vad.py) and track
-  [langwatch/scenario#452](https://github.com/langwatch/scenario/issues/452) for the roadmap item.
+- Lowering aggressiveness is not yet exposed as an adapter constructor parameter; track this in a follow-up issue. See [`scenario.voice.vad.WebRTCVadFallback`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/vad.py) for the implementation.
 
 - For adapters with **native VAD** (Pipecat, ElevenLabs, Gemini Live), a missing
   speech-start event usually means the bot-side VAD threshold is set too aggressively.
@@ -116,24 +108,19 @@ import error.
 
 **Fix:**
 
-```bash
-pip install imageio-ffmpeg
-```
-
-`imageio-ffmpeg` is not included in `langwatch-scenario` by default.
-Install it explicitly if you need live playback:
+`imageio-ffmpeg` is a base dependency of `langwatch-scenario` (see [pyproject.toml](https://github.com/langwatch/scenario/blob/main/python/pyproject.toml)) — voice support is first-class. If you somehow have it uninstalled, reinstall:
 
 ```bash
 pip install imageio-ffmpeg
 ```
 
-After installing, re-run the scenario — the SDK will pick up the binary automatically via
+Then re-run the scenario — the SDK will pick up the binary automatically via
 `imageio_ffmpeg.get_ffmpeg_exe()`.
 
 <Callout type="info">
-  Live playback is optional — it is only active when you pass `play_audio=True`
-  (or the equivalent scenario flag). If you only need to save recordings or run
-  assertions, you do not need ffmpeg at all.
+  Live playback is optional — it is only active when you pass `audio_playback=True`
+  to `scenario.run()`. If you only need to save recordings or run assertions, you
+  do not need ffmpeg at all.
 </Callout>
 
 ---

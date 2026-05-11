@@ -23,14 +23,19 @@ Twilio Media Streams delivers audio over WebSocket. `TwilioAgentAdapter` speaks 
 protocol, handles DTMF tone detection, and exposes the full call-state lifecycle.
 
 ```python
+import os
 from scenario.voice.testing import TwilioHarness
 
-adapter = TwilioHarness(
+async with TwilioHarness(
     account_sid=os.environ["TWILIO_ACCOUNT_SID"],
     auth_token=os.environ["TWILIO_AUTH_TOKEN"],
     phone_number=os.environ["TWILIO_PHONE_NUMBER"],
     http_port=8766,
-)
+) as adapter:
+    # Use `adapter` inside `scenario.run(...)`. The harness sets up a
+    # cloudflared quick tunnel and configures the Twilio webhook for
+    # the lifetime of the `async with` block.
+    ...
 ```
 
 - DTMF tones: send them with `scenario.dtmf("1")` in your script step.
@@ -141,6 +146,7 @@ ElevenLabs Conversational AI runs over WebSocket (the Convai protocol).
 Supply your `agent_id` and `api_key`:
 
 ```python
+import os
 import scenario
 
 adapter = scenario.ElevenLabsAgentAdapter(
@@ -152,6 +158,7 @@ adapter = scenario.ElevenLabsAgentAdapter(
 For a composable stack (ElevenLabs STT + TTS with your own LLM), use `ElevenLabsVoiceAgent`:
 
 ```python
+import os
 import scenario
 
 agent = scenario.ElevenLabsVoiceAgent(
