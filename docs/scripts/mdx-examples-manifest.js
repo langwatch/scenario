@@ -95,6 +95,10 @@ export const examples = [
     sourcePath: "javascript/examples/vitest/tests/llm-provider-mocking.test.ts",
     label: "typescript",
   },
+  // Voice getting-started example
+  {
+    sourcePath: "python/examples/voice/getting_started.py",
+  },
   // Custom judge with traces examples
   {
     sourcePath: "python/examples/test_custom_judge_with_traces.py",

@@ -3,18 +3,53 @@ title: Voice Agents — Getting Started
 description: Run your first voice scenario with Scenario SDK's VoiceAgentAdapter system.
 ---
 
+import GettingStartedExample from "../_generated/examples/getting_started.mdx";
+
 # Voice Agents — Getting Started
 
-Test voice agents end-to-end with the same `scenario.run()` API you use for text. Pick a `VoiceAgentAdapter` for your provider (OpenAI Realtime, Pipecat, Twilio, ElevenLabs, Gemini Live, LiveKit, Vapi, or composable STT+LLM+TTS), describe what the agent should do, and let the simulator drive a voice conversation.
+Test voice agents end-to-end with the same `scenario.run()` API you use for text.
+Pick a `VoiceAgentAdapter` for your provider, describe what the agent should do,
+and let the simulator drive a voice conversation over real audio.
 
-> 🚧 **Under construction.** This page is being expanded as part of [#452](https://github.com/langwatch/scenario/issues/452). Full installs, env-var checklist, copy-paste recipe, and links to per-use-case recipes coming soon.
+## Install
 
-## Why voice testing
+```bash
+pip install "langwatch-scenario[voice]"
+```
 
-Voice introduces failure modes that text testing can't surface — interruption, latency, silence handling, DTMF, audio robustness. The `VoiceAgentAdapter` system shipped in [#350](https://github.com/langwatch/scenario/issues/350) makes voice agents first-class citizens in Scenario.
+## Required env vars
 
-## See also
+| Variable | Required | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | Yes | UserSimulatorAgent TTS + JudgeAgent LLM |
+| `PIPECAT_BOT_URL` | No | Override the default `ws://localhost:8765/stream` |
 
-- [Voice agents proposal](https://github.com/langwatch/scenario/blob/main/docs/proposals/issue-350-voice-agents-source.md) — design rationale.
-- [Voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) — 99-scenario behavioral contract.
-- [Demo files](https://github.com/langwatch/scenario/tree/main/python/examples/voice) — runnable examples per use case.
+Set `OPENAI_API_KEY` in `python/.env` or export it in your shell before running.
+
+## Your first voice scenario
+
+The snippet below uses `PipecatAgentAdapter` with the bundled stub bot — no extra
+services needed. `ensure_pipecat_bot()` auto-spawns the stub on `:8765` when you
+run the script and tears it down on exit.
+
+<GettingStartedExample />
+
+Save this as `getting_started.py` and run it:
+
+```bash
+cd python
+uv run examples/voice/getting_started.py
+```
+
+You should see:
+
+```
+success: True
+verdict: The bot responded to the user in a friendly tone ...
+```
+
+## What's next
+
+- [Voice examples on GitHub](https://github.com/langwatch/scenario/tree/main/python/examples/voice) — runnable demos per adapter and use case
+- [Voice agents proposal](https://github.com/langwatch/scenario/blob/main/docs/proposals/issue-350-voice-agents-source.md) — design rationale and adapter overview
+- [Voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) — full behavioral contract (99 scenarios)
