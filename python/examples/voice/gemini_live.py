@@ -15,7 +15,7 @@ How to run:
 
 Required env vars:
     GEMINI_API_KEY      — Gemini Live agent + judge LLM
-    ELEVENLABS_API_KEY  — user simulator TTS voice (no OpenAI dep)
+    OPENAI_API_KEY      — user simulator TTS voice (OpenAI nova)
 """
 
 import asyncio
@@ -30,7 +30,7 @@ try:
 except ImportError:
     pass
 
-REQUIRED_ENV = ("GEMINI_API_KEY", "ELEVENLABS_API_KEY")
+REQUIRED_ENV = ("GEMINI_API_KEY", "OPENAI_API_KEY")
 
 
 def _check_env() -> None:
@@ -53,8 +53,10 @@ async def main() -> scenario.ScenarioResult:
     result = await scenario.run(
         name="demo_gemini_live",
         description=(
-            "Single-turn happy path against Gemini 2.5 Flash native-audio model. "
-            "User says hello; Gemini responds; judge evaluates."
+            "Two-turn happy path against Gemini 2.5 Flash native-audio model. "
+            "User greets, Gemini responds, user asks a context-dependent "
+            "follow-up, Gemini answers coherently; judge evaluates "
+            "naturalness AND continuity (judge model is audio-capable)."
         ),
         agents=[
             scenario.GeminiLiveAgentAdapter(
@@ -62,23 +64,27 @@ async def main() -> scenario.ScenarioResult:
                 voice="Algieba",
                 system_instruction="You are a helpful assistant. Keep responses brief.",
             ),
-            # ElevenLabs voice "Sarah" — premade, available on free tier.
-            scenario.UserSimulatorAgent(voice="elevenlabs/EXAVITQu4vr4xnSDxMaL"),
+            scenario.UserSimulatorAgent(voice="openai/nova"),
             scenario.JudgeAgent(
                 criteria=[
                     "The agent responded naturally to the greeting",
                     # Claim from docstring: Gemini Live native-audio session over real transport.
                     "The agent and user exchanged native-audio turns over a real Gemini Live session",
+                    # Continuity: judge is audio-capable (gemini-2.5-flash) so it
+                    # actually hears the prosody, not just transcripts.
+                    "The agent's second reply coherently addresses the user's follow-up in context of the first turn",
                     "The conversation is a coherent example of the Gemini Live native-audio path",
                 ]
             ),
         ],
         script=[
-            scenario.user("Hello, can you help me?"),
+            scenario.user("Hello, I'm planning a trip to Japan next month."),
+            scenario.agent(),
+            scenario.user("What's one thing I shouldn't miss while I'm there?"),
             scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=4,
+        max_turns=6,
     )
 
     print(f"success: {result.success}")

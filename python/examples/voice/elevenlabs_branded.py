@@ -61,7 +61,9 @@ async def main() -> scenario.ScenarioResult:
         name="demo_elevenlabs_branded",
         description=(
             "Branded ElevenLabsVoiceAgent: ElevenLabs STT + default LLM + "
-            "ElevenLabs rachel TTS. User says hello; agent responds; judge passes."
+            "ElevenLabs rachel TTS. Two-turn exchange — user greets, agent "
+            "responds, user asks a context-dependent follow-up, agent "
+            "answers coherently; judge passes."
         ),
         agents=[
             agent,
@@ -71,16 +73,20 @@ async def main() -> scenario.ScenarioResult:
                     "The agent responded naturally to the greeting",
                     # Claim from docstring: branded composable agent — STT, LLM, TTS seams all fire.
                     "The user simulator delivered audio and the agent responded with audio",
+                    # Continuity: forces the LLM seam to maintain state across turns.
+                    "The agent's second reply addresses the user's follow-up coherently in context of the first turn",
                     "The conversation is a coherent example of the ElevenLabs composable + branded agent path",
                 ]
             ),
         ],
         script=[
-            scenario.user("Hi there, I have a quick question"),
+            scenario.user("Hi there, I have a quick question about my plan"),
+            scenario.agent(),
+            scenario.user("And can you tell me what features are included?"),
             scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=4,
+        max_turns=6,
     )
 
     print(f"success: {result.success}")

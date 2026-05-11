@@ -58,8 +58,10 @@ async def main() -> scenario.ScenarioResult:
     result = await scenario.run(
         name="demo_elevenlabs_hosted",
         description=(
-            "Single-turn happy path against a live ElevenLabs Conversational AI "
-            "agent. User says hello; agent responds; judge evaluates naturalness."
+            "Two-turn happy path against a live ElevenLabs Conversational AI "
+            "agent. User greets, agent responds, user asks a follow-up that "
+            "references the first turn, agent answers in context; judge "
+            "evaluates naturalness AND continuity."
         ),
         agents=[
             scenario.ElevenLabsAgentAdapter(
@@ -72,16 +74,21 @@ async def main() -> scenario.ScenarioResult:
                     "The agent responded naturally to the greeting",
                     # Claim from docstring: hosted ElevenLabs Conversational AI over real WebSocket.
                     "The agent and user exchanged real audio turns via the live WebSocket",
+                    # Continuity: the agent's second reply must address the follow-up,
+                    # which only makes sense in the context of the first exchange.
+                    "The agent's second reply addresses the user's follow-up question coherently",
                     "The conversation is a coherent example of the hosted ElevenLabs Conversational AI path",
                 ]
             ),
         ],
         script=[
-            scenario.user("Hello, can you help me?"),
+            scenario.user("Hello, I have a question about my account."),
+            scenario.agent(),
+            scenario.user("What information do you need from me to look it up?"),
             scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=4,
+        max_turns=6,
     )
 
     print(f"success: {result.success}")
