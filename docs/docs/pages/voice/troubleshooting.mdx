@@ -87,13 +87,13 @@ audio. Two sub-causes:
   ```bash
   pip install webrtcvad-wheels
   ```
-  The `langwatch-scenario[voice]` extras bundle already includes it.
 
-- If the fallback is installed but VAD is not firing on your audio, construct the
-  `WebRTCVadFallback` with a lower aggressiveness (e.g., `1` or `0`) by subclassing
-  the adapter and overriding the VAD factory, or by filing an issue to expose
-  `vad_aggressiveness` as an adapter constructor parameter. The relevant class is
-  `scenario.voice.vad.WebRTCVadFallback` (default `aggressiveness=2`).
+- If the fallback is installed but VAD is not firing on your audio, `WebRTCVadFallback`
+  defaults to `aggressiveness=2` (0 = least selective, 3 = most selective). At level 2
+  or 3, low-energy speech or TTS audio may be classified as silence.
+  Known limitation: `vad_aggressiveness` is not yet a constructor parameter on the adapter.
+  See [`scenario.voice.vad.WebRTCVadFallback`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/vad.py) and track
+  [langwatch/scenario#452](https://github.com/langwatch/scenario/issues/452) for the roadmap item.
 
 - For adapters with **native VAD** (Pipecat, ElevenLabs, Gemini Live), a missing
   speech-start event usually means the bot-side VAD threshold is set too aggressively.
@@ -120,9 +120,14 @@ import error.
 pip install imageio-ffmpeg
 ```
 
-The `langwatch-scenario[voice]` extras bundle already includes `imageio-ffmpeg`.
-If you installed the base package without extras, install it explicitly. After
-installing, re-run the scenario — the SDK will pick up the binary automatically via
+`imageio-ffmpeg` is not included in `langwatch-scenario` by default.
+Install it explicitly if you need live playback:
+
+```bash
+pip install imageio-ffmpeg
+```
+
+After installing, re-run the scenario — the SDK will pick up the binary automatically via
 `imageio_ffmpeg.get_ffmpeg_exe()`.
 
 <Callout type="info">
@@ -172,11 +177,11 @@ an empty recording. Common causes:
 <details>
 <summary>Resolved in prior versions</summary>
 
-- **Gemini Live: agent reply is ~60 bytes on turn 2+** — Fixed in commit `80461e2`
+- **Gemini Live: agent reply is ~60 bytes on turn 2+** — Fixed in commit `760a464`
   (PR #355). The Gemini adapter emitted a spurious empty-interrupt turn between agent
   replies, which caused the second agent message to be truncated to the interrupt
   header bytes (~60 bytes) rather than the full reply. If you are on a build older
-  than commit `80461e2`, upgrade. The mechanism: Gemini Live fires an `interrupted`
+  than commit `760a464`, upgrade. The mechanism: Gemini Live fires an `interrupted`
   event at the start of every agent turn (not just actual barge-ins); the adapter
   now filters these no-op interrupts before they reach the timeline so turn 2+ audio
   accumulates correctly.

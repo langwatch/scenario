@@ -11,9 +11,7 @@ adapter classes to read their ``capabilities`` ClassVar; those imports must
 not have network side-effects at module-load time.
 
 Output is idempotent: re-running with no source change produces no diff.
-The file is written between markers so hand-edits outside the markers
-survive a regen (the file lives in _generated/ and is fully regenerated
-each run — markers are belt-and-braces).
+The file lives in _generated/ and is fully regenerated each run.
 """
 
 from __future__ import annotations
@@ -75,15 +73,6 @@ COLUMNS = [
     "output_formats",
 ]
 
-COLUMN_HEADERS = {
-    "streaming_transcripts": "streaming_transcripts",
-    "native_vad": "native_vad",
-    "dtmf": "dtmf",
-    "interruption": "interruption",
-    "input_formats": "input_formats",
-    "output_formats": "output_formats",
-}
-
 
 def _adapter_name(cls: type) -> str:
     """Strip ``AgentAdapter`` / ``Agent`` / ``Adapter`` suffix to get a readable name."""
@@ -107,7 +96,7 @@ def _render_value(value: object) -> str:
 
 def _build_table() -> str:
     """Build the Markdown capability table string."""
-    header_cells = ["Adapter"] + [COLUMN_HEADERS[c] for c in COLUMNS]
+    header_cells = ["Adapter"] + list(COLUMNS)
     separator_cells = ["---"] + ["---"] * len(COLUMNS)
 
     rows: list[str] = []

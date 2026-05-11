@@ -64,7 +64,7 @@ def test_getting_started_file_exists():
 
 
 def _clean_env() -> dict:
-    """Return os.environ without any real API keys to avoid accidental calls."""
+    """Pass the current environment through; caller overrides OPENAI_API_KEY with a dummy."""
     import os
 
     return {k: v for k, v in os.environ.items()}

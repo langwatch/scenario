@@ -3,36 +3,84 @@ title: Voice Agents — Getting Started
 description: Run your first voice scenario with Scenario SDK's VoiceAgentAdapter system.
 ---
 
-import GettingStartedExample from "../_generated/examples/getting_started.mdx";
+import { Callout } from "vocs/components";
 
 # Voice Agents — Getting Started
 
 Test voice agents end-to-end with the same `scenario.run()` API you use for text.
-Pick a `VoiceAgentAdapter` for your provider, describe what the agent should do,
-and let the simulator drive a voice conversation over real audio.
+Scenario connects to YOUR agent over its native transport, drives a conversation
+with a voice user simulator, and judges the result.
 
 ## Install
 
 ```bash
-pip install "langwatch-scenario[voice]"
+pip install langwatch-scenario
 ```
 
 ## Required env vars
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | Yes | UserSimulatorAgent TTS + JudgeAgent LLM |
-| `PIPECAT_BOT_URL` | No | Override the default `ws://localhost:8765/stream` |
+| `OPENAI_API_KEY` | Yes | OpenAIRealtimeAgentAdapter + UserSimulatorAgent TTS + JudgeAgent LLM |
 
 Set `OPENAI_API_KEY` in `python/.env` or export it in your shell before running.
 
 ## Your first voice scenario
 
-The snippet below uses `PipecatAgentAdapter` with the bundled stub bot — no extra
-services needed. `ensure_pipecat_bot()` auto-spawns the stub on `:8765` when you
-run the script and tears it down on exit.
+The snippet below uses `OpenAIRealtimeAgentAdapter` — the OpenAI Realtime API acts
+as both the Scenario adapter and the agent under test. It is the lowest-friction
+starting point: only `OPENAI_API_KEY` is required.
 
-<GettingStartedExample />
+```python
+import asyncio
+import os
+import sys
+
+if not os.environ.get("OPENAI_API_KEY"):
+    sys.exit("Error: OPENAI_API_KEY required.")
+
+import scenario
+from scenario.config.voice_models import OPENAI_REALTIME_MODEL
+from scenario.types import AgentRole
+
+scenario.configure(default_model="openai/gpt-4.1-mini")
+
+
+async def main():
+    result = await scenario.run(
+        name="voice_getting_started",
+        description=(
+            "A caller asks the agent a simple question. "
+            "The agent responds helpfully."
+        ),
+        agents=[
+            scenario.OpenAIRealtimeAgentAdapter(
+                model=OPENAI_REALTIME_MODEL,
+                voice="alloy",
+                instructions="You are a helpful assistant. Keep responses brief.",
+                role=AgentRole.AGENT,
+            ),
+            scenario.UserSimulatorAgent(voice="openai/nova"),
+            scenario.JudgeAgent(
+                criteria=[
+                    "The agent responded helpfully to the user's question",
+                    "The agent and user exchanged real audio turns",
+                ]
+            ),
+        ],
+        script=[
+            scenario.user("Hi, can you help me?"),
+            scenario.agent(),
+            scenario.judge(),
+        ],
+    )
+    print(f"success: {result.success}")
+    return result
+
+
+if __name__ == "__main__":
+    sys.exit(0 if asyncio.run(main()).success else 1)
+```
 
 Save this as `getting_started.py` and run it:
 
@@ -45,11 +93,33 @@ You should see:
 
 ```
 success: True
-verdict: The bot responded to the user in a friendly tone ...
+verdict: The agent responded helpfully to the user's question ...
 ```
+
+## Using a different adapter
+
+Replace `OpenAIRealtimeAgentAdapter` with the adapter that matches your stack:
+
+- **Pipecat bot** → `PipecatAgentAdapter(url="ws://localhost:8765/stream", ...)`
+- **Twilio number** → `TwilioAgentAdapter(account_sid=..., auth_token=..., phone_number=...)`
+- **ElevenLabs hosted agent** → `ElevenLabsAgentAdapter(agent_id=..., api_key=...)`
+
+See [Choosing an Adapter](/voice/choosing-an-adapter) for constructor signatures and worked examples for each.
+
+<Callout type="tip">
+  **Just want to see Scenario work right now?** Run a demo without writing your
+  own agent:
+
+  ```bash
+  cd python && uv run examples/voice/pipecat_ws.py
+  ```
+
+  This auto-spawns the bundled Pipecat stub bot and runs a full conversation.
+</Callout>
 
 ## What's next
 
+- [Choosing an adapter](/voice/choosing-an-adapter) — pick the adapter for your stack (Twilio, Pipecat, ElevenLabs, Gemini Live)
+- [Capability matrix](/voice/capability-matrix) — per-adapter feature support table
 - [Voice examples on GitHub](https://github.com/langwatch/scenario/tree/main/python/examples/voice) — runnable demos per adapter and use case
-- [Voice agents proposal](https://github.com/langwatch/scenario/blob/main/docs/proposals/issue-350-voice-agents-source.md) — design rationale and adapter overview
-- [Voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) — full behavioral contract (99 scenarios)
+- [Voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) — full behavioral contract
