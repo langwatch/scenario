@@ -440,6 +440,10 @@ export default defineConfig({
                 },
               ],
             },
+            {
+              text: "Troubleshooting",
+              link: "/voice/troubleshooting",
+            },
           ],
         },
         {

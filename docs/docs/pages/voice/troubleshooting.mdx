@@ -1,0 +1,184 @@
+---
+title: Troubleshooting Voice Scenarios
+description: Diagnose and fix common failures in Scenario's VoiceAgentAdapter system.
+---
+
+import { Callout } from "vocs/components";
+
+# Troubleshooting voice scenarios
+
+This page covers the failure modes that show up most often when running voice
+scenarios. Each entry states the symptom, what is actually going wrong, and the
+minimum steps to fix it. If your failure is not listed here, check the
+[voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature)
+for the behavioral contract and the
+[voice agents proposal](https://github.com/langwatch/scenario/blob/main/docs/proposals/issue-350-voice-agents-source.md)
+for adapter internals.
+
+---
+
+## Current failure modes
+
+### "ElevenLabs HTTP 401 quota_exceeded"
+
+**Symptom:** The ElevenLabs adapter connection is rejected with HTTP 401 and the
+body contains `"quota_exceeded"`.
+
+**Diagnosis:** Your ElevenLabs account has exhausted its character quota for the
+current billing period. The API refuses all new Convai WebSocket connections until
+the quota resets or is topped up.
+
+**Fix:** Top up your character balance at
+[elevenlabs.io/app/usage](https://elevenlabs.io/app/usage). After topping up, the
+next scenario run will connect normally. If you are on the free tier, upgrade to a
+paid plan to remove the hard quota.
+
+---
+
+### "Twilio HTTP 401 code 20003"
+
+**Symptom:** Twilio rejects the request with HTTP 401 and error code 20003
+(`"Authenticate"`).
+
+**Diagnosis:** Your Twilio auth token has been rotated (or never set correctly).
+Twilio returns code 20003 specifically when the auth token in the request does not
+match the current token on the account — not when the account SID is wrong.
+
+**Fix:**
+
+1. Regenerate the auth token at
+   [console.twilio.com → Account → General settings → Auth token](https://console.twilio.com/us1/account/manage-account/general-settings).
+2. Copy the new primary auth token.
+3. Update `TWILIO_AUTH_TOKEN` in `python/.env`.
+4. Re-run the scenario.
+
+<Callout type="warning">
+  If you rotated the token in the Twilio console but the old token is still in
+  `python/.env`, every scenario run will fail until the env file is updated.
+  Double-check with `echo $TWILIO_AUTH_TOKEN` in your shell.
+</Callout>
+
+---
+
+### "VAD didn't fire"
+
+**Symptom:** The voice scenario hangs waiting for a speech-start event, or the
+agent never receives the user's audio, or `result.turns` is empty.
+
+**Diagnosis:** The adapter's voice-activity detection did not fire on the incoming
+audio. Two sub-causes:
+
+1. **Native VAD missing** — adapters such as `TwilioAgentAdapter` have
+   `capabilities.native_vad = False`. When this is the case, the SDK falls back to
+   [`webrtcvad`](https://pypi.org/project/webrtcvad-wheels/) running on the incoming
+   PCM16 audio stream. A `UserWarning` is emitted once per process when the fallback
+   activates:
+   ```
+   Adapter 'TwilioAgentAdapter' has no native VAD — using SDK-side webrtcvad. Accuracy may differ from native VAD.
+   ```
+
+2. **Aggressiveness too high** — the `WebRTCVadFallback` default aggressiveness is
+   `2` (0 = least selective, 3 = most selective). At level 3, low-energy speech or
+   TTS audio may be classified as silence.
+
+**Fix:**
+
+- If `webrtcvad` is not installed, install it:
+  ```bash
+  pip install webrtcvad-wheels
+  ```
+  The `langwatch-scenario[voice]` extras bundle already includes it.
+
+- If the fallback is installed but VAD is not firing on your audio, construct the
+  `WebRTCVadFallback` with a lower aggressiveness (e.g., `1` or `0`) by subclassing
+  the adapter and overriding the VAD factory, or by filing an issue to expose
+  `vad_aggressiveness` as an adapter constructor parameter. The relevant class is
+  `scenario.voice.vad.WebRTCVadFallback` (default `aggressiveness=2`).
+
+- For adapters with **native VAD** (Pipecat, ElevenLabs, Gemini Live), a missing
+  speech-start event usually means the bot-side VAD threshold is set too aggressively.
+  Consult your bot framework's VAD configuration.
+
+---
+
+### "ffmpeg not found for live playback"
+
+**Symptom:** Live audio playback fails with an error resembling `ffmpeg not found`
+or `imageio_ffmpeg.get_ffmpeg_exe() failed`, or the scenario exits without playing
+audio during a live demo run.
+
+**Diagnosis:** `imageio-ffmpeg` ships its own `ffmpeg` binary as a Python package
+data file and exposes it via `imageio_ffmpeg.get_ffmpeg_exe()`. The Scenario SDK
+uses this binary for live PCM → speaker playback. If `imageio-ffmpeg` is not
+installed, or the binary path is not resolvable, playback silently degrades (a
+`DEBUG`-level log is emitted) — but a missing dependency can also surface as an
+import error.
+
+**Fix:**
+
+```bash
+pip install imageio-ffmpeg
+```
+
+The `langwatch-scenario[voice]` extras bundle already includes `imageio-ffmpeg`.
+If you installed the base package without extras, install it explicitly. After
+installing, re-run the scenario — the SDK will pick up the binary automatically via
+`imageio_ffmpeg.get_ffmpeg_exe()`.
+
+<Callout type="info">
+  Live playback is optional — it is only active when you pass `play_audio=True`
+  (or the equivalent scenario flag). If you only need to save recordings or run
+  assertions, you do not need ffmpeg at all.
+</Callout>
+
+---
+
+### "Demo recording is empty"
+
+**Symptom:** After a scenario run, the saved recording directory exists but the
+audio file is empty, `manifest.json` reports zero segments, or no audio plays back.
+
+**Diagnosis:** The adapter's audio path was not wired correctly — audio chunks were
+never appended to the internal `VoiceRecording` buffer, so `save_segments()` wrote
+an empty recording. Common causes:
+
+- The adapter's `on_audio_chunk` callback was not registered, or was registered after
+  the scenario started streaming audio.
+- The adapter connected but the bot never sent audio (check bot-side logs).
+- The scenario completed in fewer turns than expected, leaving a zero-length buffer.
+
+**Fix:**
+
+1. Check `recordings/<demo>/manifest.json` (written by `result.audio.save_segments()`):
+   ```bash
+   cat recordings/<demo>/manifest.json
+   ```
+   Look at `"segments"` — a count of `0` means no audio was captured. A count > 0
+   with an empty file means the segment files are missing.
+
+2. Ensure the adapter is passed to `scenario.run()` **before** audio starts flowing.
+   The adapter's `connect()` must complete before the bot begins transmitting.
+
+3. Check the bot-side logs to confirm it is sending audio frames. The adapter can
+   only record what it receives.
+
+4. If using a custom adapter subclass, verify that `self._recording.append(chunk)`
+   is called inside the audio-receive loop.
+
+---
+
+## Historical fixes
+
+<details>
+<summary>Resolved in prior versions</summary>
+
+- **Gemini Live: agent reply is ~60 bytes on turn 2+** — Fixed in commit `80461e2`
+  (PR #355). The Gemini adapter emitted a spurious empty-interrupt turn between agent
+  replies, which caused the second agent message to be truncated to the interrupt
+  header bytes (~60 bytes) rather than the full reply. If you are on a build older
+  than commit `80461e2`, upgrade. The mechanism: Gemini Live fires an `interrupted`
+  event at the start of every agent turn (not just actual barge-ins); the adapter
+  now filters these no-op interrupts before they reach the timeline so turn 2+ audio
+  accumulates correctly.
+
+</details>
