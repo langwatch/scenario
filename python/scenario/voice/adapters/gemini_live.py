@@ -141,6 +141,12 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         # ``recv_audio`` would call ``session.receive()`` afresh — which
         # the SDK does not support cleanly across turns.
         self._recv_iter: Optional[Any] = None
+        # Tracks whether any audio was received on the CURRENT iterator
+        # (reset whenever ``_recv_iter`` is recreated). Used by
+        # ``recv_audio`` to distinguish a spurious empty-interrupt turn
+        # (no audio at all) from a real mid-reply interrupt (audio
+        # arrived before the interrupt landed).
+        self._iter_had_audio: bool = False
 
         # Observability.
         self.last_agent_transcript: Optional[str] = None
@@ -193,6 +199,14 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             # at its default (START_OF_ACTIVITY_INTERRUPTS): when we send
             # a new ``activity_start`` while Gemini is mid-reply, the
             # model treats it as a barge-in and cuts its in-flight audio.
+            #
+            # Subtlety: even after ``generation_complete`` on turn N, the
+            # next ``activity_start`` opening turn N+1 is still treated as
+            # a barge-in on the just-completed turn. The server emits a
+            # spurious ``interrupted → turn_complete`` pair (with no model
+            # output) BEFORE actually producing turn N+1's reply. The
+            # ``recv_audio`` loop transparently skips that empty pair and
+            # re-enters ``session.receive()`` to read the real reply.
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     disabled=True,
@@ -340,9 +354,20 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             raise RuntimeError("GeminiLiveAgentAdapter: not connected")
         if self._recv_iter is None:
             self._recv_iter = self._session.receive().__aiter__()  # type: ignore[union-attr]
+            self._iter_had_audio = False
 
         async def _next_chunk() -> AudioChunk:
             pending_delta = ""
+            # Local-to-call: detects the spurious empty-interrupt turn
+            # pattern (server emits ``interrupted=True`` then
+            # ``turn_complete=True`` with no audio at all when a fresh
+            # ``activity_start`` arrives during turn N's post-
+            # ``generation_complete`` playback delay). Combined with
+            # ``self._iter_had_audio`` (iterator-scope) we can tell the
+            # difference between a spurious turn (no audio ever, on this
+            # iterator) and a real mid-reply interrupt (audio arrived
+            # earlier on this iterator).
+            saw_interrupted = False
             while True:
                 try:
                     assert self._recv_iter is not None
@@ -367,6 +392,9 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                 if sc is None:
                     continue
 
+                if getattr(sc, "interrupted", None):
+                    saw_interrupted = True
+
                 if sc.output_transcription is not None:
                     transcript_text = getattr(sc.output_transcription, "text", None)
                     if transcript_text:
@@ -383,16 +411,38 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                         if len(audio_bytes) % 2 == 1:
                             audio_bytes = audio_bytes[:-1]
                         if audio_bytes:
+                            self._iter_had_audio = True
                             return AudioChunk(
                                 data=audio_bytes,
                                 transcript=pending_delta or None,
                             )
 
                 if sc.turn_complete:
-                    # Last message of this turn — yield empty AudioChunk
-                    # and reset the iterator. The next ``recv_audio``
-                    # call (for the next user turn) will re-enter
-                    # ``session.receive()``.
+                    # Spurious empty-interrupt turn? When activity_start
+                    # opens turn N+1 after turn N's generation_complete,
+                    # the server emits ``interrupted → turn_complete`` with
+                    # no audio FIRST, then the real reply in a separate
+                    # turn. Detect that pattern (saw interrupted=True, no
+                    # audio on THIS iterator, no transcript) and re-enter
+                    # ``session.receive()`` to read the actual reply.
+                    #
+                    # We gate on ``self._iter_had_audio`` (iterator-scope)
+                    # rather than this call's audio: a real mid-reply
+                    # interrupt earlier in the same turn would have yielded
+                    # audio chunks before this point, even if THIS call sees
+                    # only the trailing ``interrupted → turn_complete`` pair.
+                    if (
+                        saw_interrupted
+                        and not self._iter_had_audio
+                        and not pending_delta
+                    ):
+                        self._recv_iter = self._session.receive().__aiter__()  # type: ignore[union-attr]
+                        self._iter_had_audio = False
+                        saw_interrupted = False
+                        continue
+                    # Real end-of-turn — yield empty AudioChunk and reset
+                    # the iterator. The next ``recv_audio`` call (for the
+                    # next user turn) will re-enter ``session.receive()``.
                     self._recv_iter = None
                     return AudioChunk(
                         data=b"",
