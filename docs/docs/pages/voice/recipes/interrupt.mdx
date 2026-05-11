@@ -1,0 +1,76 @@
+---
+title: Interruptions — Voice Recipes
+description: Script mid-utterance interruptions with scenario.interrupt() and understand native vs VAD barge-in.
+---
+
+import { Callout } from "vocs/components";
+
+# Interruptions
+
+This recipe shows how to script a user interrupting the agent mid-reply, and explains
+how the SDK handles the interrupt signal differently depending on whether the adapter
+supports native barge-in or falls back to VAD-driven detection.
+
+## Pattern
+
+Two equivalent forms produce identical runtime behaviour.
+
+### Unrolled form
+
+```python
+scenario.user("Tell me about my billing"),
+scenario.agent(wait=False),          # start agent reply in background
+scenario.user("Wait — I meant account support"),  # interrupt when agent begins speaking
+scenario.agent(),                    # let the agent finish the recovery turn
+```
+
+`agent(wait=False)` starts the adapter's reply in the background without blocking the script.
+The following `user()` call waits until the agent begins producing audio, then fires the
+interrupt signal and sends the replacement user turn.
+
+### Sugar form
+
+```python
+scenario.user("Tell me about every product feature you offer"),
+scenario.interrupt("Sorry — what are your business hours?"),
+scenario.agent(),
+```
+
+`scenario.interrupt(text)` is shorthand for the unrolled form above. Prefer it when you
+only need to express a single interrupt.
+
+<Callout type="info">
+Both forms call into the same executor path. The sugar is purely syntactic — there is no
+behavioural difference between them at the transport layer.
+</Callout>
+
+## Native barge-in vs VAD-driven barge-in
+
+When `user()` fires the interrupt, the SDK checks whether the adapter reports native
+interrupt support (the `interruption` column in the [capability matrix](/voice/capability-matrix)).
+
+| Mode | How it works |
+|---|---|
+| **Native barge-in** | The adapter sends a provider-side cancel signal (`response.cancel` for OpenAI Realtime, `clear` for Twilio, etc.). The agent's TTS stops immediately and the user turn is queued. |
+| **VAD barge-in** | No provider cancel signal is available. The user audio overlaps with the agent TTS and the SUT's Voice Activity Detection detects barge-in and stops the agent. Requires `native_vad` support on the adapter side. |
+
+Check the adapter row in the [capability matrix](/voice/capability-matrix) to see which
+mode applies to your deployment.
+
+## Worked example
+
+[`interruption_recovery.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/interruption_recovery.py)
+— demonstrates both unrolled and sugar forms back-to-back in a single scenario, with a
+JudgeAgent verifying the agent recovered from both interruptions.
+
+Adapter-specific variants:
+
+- [`random_interruptions.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/random_interruptions.py) — randomised interrupt timing across turns
+- [`gemini_live_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live_interruption.py) — Gemini Live adapter with native barge-in
+- [`elevenlabs_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_interruption.py) — ElevenLabs adapter interrupt path
+
+## See also
+
+- [Capability matrix](/voice/capability-matrix) — `interruption` and `native_vad` columns per adapter
+- [Multi-turn recipe](/voice/recipes/multi-turn) — scripting multi-step conversations
+- [Observability recipe](/voice/recipes/observability) — capture interrupt timing via latency metrics

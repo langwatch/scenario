@@ -419,6 +419,27 @@ export default defineConfig({
               text: "Choosing an Adapter",
               link: "/voice/choosing-an-adapter",
             },
+            {
+              text: "Recipes",
+              items: [
+                {
+                  text: "Interruptions",
+                  link: "/voice/recipes/interrupt",
+                },
+                {
+                  text: "Multi-Turn Conversations",
+                  link: "/voice/recipes/multi-turn",
+                },
+                {
+                  text: "Audio Effects",
+                  link: "/voice/recipes/effects",
+                },
+                {
+                  text: "Observability",
+                  link: "/voice/recipes/observability",
+                },
+              ],
+            },
           ],
         },
         {

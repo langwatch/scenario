@@ -1,0 +1,81 @@
+---
+title: Audio Effects — Voice Recipes
+description: Inject background noise and audio degradation into voice scenarios using scenario.effects.
+---
+
+import { Callout } from "vocs/components";
+
+# Audio Effects
+
+This recipe shows how to inject background noise, codec degradation, and other audio
+impairments into a voice scenario. Effects are applied to the user simulator's audio
+after TTS synthesis — they are never baked into the TTS cache.
+
+## Pattern
+
+Pass a list of effect functions to `UserSimulatorAgent(audio_effects=[...])`. Effects
+compose left-to-right: the output of each effect is the input to the next.
+
+```python
+scenario.UserSimulatorAgent(
+    voice="openai/nova",
+    audio_effects=[
+        scenario.effects.background_noise("cafe", volume=0.4),
+        scenario.effects.phone_quality(),
+    ],
+)
+```
+
+### Available effects
+
+| Effect | Description |
+|---|---|
+| `background_noise(preset_or_path, volume)` | Overlay ambient noise. Built-in presets: `"cafe"`, `"street"`, `"office"`, `"airport"`. Pass a `.wav` path for custom noise. |
+| `static(intensity)` | White-noise static at the given fraction of full scale. |
+| `multiple_voices()` | Mix with a babble sample to simulate background conversation. |
+| `phone_quality()` | Bandpass 300Hz–3.4kHz + mild compression, mimicking a phone line. |
+| `low_quality(bitrate)` | Downsample to `bitrate` Hz and back — aliasing and quantisation artefacts. |
+| `packet_loss(probability, chunk_ms)` | Zero out random windows at the given probability. |
+| `echo(delay_ms, decay)` | Overlay a delayed, attenuated copy of the signal. |
+| `robotic()` | Ring-modulate the signal with a 100Hz carrier for a robotic timbre. |
+| `breaking_up()` | Frequent 100ms dropouts simulating a losing-signal scenario. |
+| `custom(fn)` | Bring your own `Callable[[bytes], bytes]` operating on PCM16 @ 24kHz mono. |
+
+<Callout type="tip">
+Accents are handled via TTS voice selection (e.g. `voice="elevenlabs/raj_indian_english"`),
+not via post-processing. There is no `accent` effect by design — see the effects module
+docstring (§4.5 L536-544).
+</Callout>
+
+### Per-step overrides
+
+The `audio_effects` list on `UserSimulatorAgent` applies to every user turn in the
+scenario. To apply effects only to a specific turn, use `scenario.user()` with an
+explicit `audio_effects` override (if supported by your script executor version).
+For finer control, inject audio directly with `scenario.audio(path)` on a pre-processed
+WAV file.
+
+<Callout type="warning">
+Per-step effect overrides via `scenario.user(audio_effects=[...])` are on the roadmap
+but not yet in the stable API. Use adapter-level `audio_effects` for global application,
+or pre-bake effects into WAV files and use `scenario.audio()` for per-step control.
+See [specs/voice-agents.feature §4.5](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature)
+for the full effects/degradation specification.
+</Callout>
+
+## Worked example
+
+[`angry_customer.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/angry_customer.py)
+— applies `background_noise("cafe", 0.4)` and `phone_quality()` to simulate an angry
+caller from a noisy cafe on a poor phone connection. JudgeAgent verifies the agent
+handles the emotional tone and noise robustly.
+
+[`background_handoff.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/background_handoff.py)
+— uses `background_noise("cafe", 0.5)` to simulate overheard conversation during a
+handoff; verifies the agent does not respond to the background audio as user speech.
+
+## See also
+
+- [Capability matrix](/voice/capability-matrix) — adapter support for audio processing
+- [Interruption recipe](/voice/recipes/interrupt) — barge-in and VAD interaction with noisy audio
+- [Observability recipe](/voice/recipes/observability) — capture raw audio chunks for offline analysis

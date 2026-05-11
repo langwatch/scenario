@@ -1,0 +1,69 @@
+---
+title: Multi-Turn Conversations — Voice Recipes
+description: Script multi-turn voice exchanges and assert cross-turn continuity with JudgeAgent criteria.
+---
+
+import { Callout } from "vocs/components";
+
+# Multi-Turn Conversations
+
+This recipe shows how to script a voice scenario with multiple back-and-forth turns, and
+how to configure the `JudgeAgent` to verify the agent maintains conversational continuity
+across turns — not just that individual replies are coherent, but that the second reply
+builds on the context of the first.
+
+## Pattern
+
+Each `scenario.user()` / `scenario.agent()` pair is one turn. Repeat the pair for
+each scripted exchange, then call `scenario.judge()` at the end.
+
+```python
+script=[
+    scenario.agent(),           # agent's opening greeting (turn 1)
+    scenario.user("Hello, I have a question about my account."),
+    scenario.agent(),           # agent's reply to turn 1
+    scenario.user("What information do you need from me to look it up?"),
+    scenario.agent(),           # agent's reply to turn 2 — must reference turn 1 context
+    scenario.judge(),
+],
+max_turns=6,
+```
+
+### Asserting continuity
+
+The `JudgeAgent` only evaluates what you put in `criteria`. For multi-turn scenarios,
+add an explicit continuity criterion that pins the second reply to the first exchange:
+
+```python
+scenario.JudgeAgent(
+    criteria=[
+        "The agent greeted the user naturally",
+        "The agent offered help in a friendly tone",
+        # Continuity: the second reply must make sense in context of turn 1.
+        "The agent's second reply addresses the user's follow-up question coherently",
+    ]
+)
+```
+
+<Callout type="info">
+A 1-turn happy path only proves the socket opens. The continuity criterion proves the
+platform maintains state across turns — a meaningfully stronger claim. This pattern was
+adopted in commit `5579aa5` when single-turn smoke tests were extended to 2-turn flows
+for bug-bash sign-off.
+</Callout>
+
+## Worked example
+
+[`basic_greeting.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/basic_greeting.py)
+— a clean 2-turn greeting flow: agent greets, user responds, agent follows up; judge
+checks naturalness and that audio turns exchanged.
+
+[`accent_loop.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/accent_loop.py)
+— a 3-turn scripted loop where the user spells their name across turns; demonstrates
+multi-turn scripting with a persona-driven user simulator.
+
+## See also
+
+- [Capability matrix](/voice/capability-matrix) — adapter support for multi-turn state
+- [Interruption recipe](/voice/recipes/interrupt) — layering interrupts into multi-turn flows
+- [Observability recipe](/voice/recipes/observability) — per-turn latency metrics

@@ -1,0 +1,93 @@
+---
+title: Observability — Voice Recipes
+description: Capture real-time audio events, save conversation audio, and measure latency with Scenario's voice observability hooks.
+---
+
+import { Callout } from "vocs/components";
+
+# Observability
+
+This recipe documents the hooks and result fields that let you instrument a voice scenario
+for offline review, performance measurement, and debugging without modifying your agent.
+
+## Pattern
+
+### Hooks
+
+Register `on_audio_chunk` and `on_voice_event` callbacks on `scenario.run()`:
+
+```python
+from scenario.voice import AudioChunk, VoiceEvent
+
+audio_chunks: list[AudioChunk] = []
+voice_events: list[VoiceEvent] = []
+
+def on_audio_chunk(chunk: AudioChunk) -> None:
+    audio_chunks.append(chunk)
+
+def on_voice_event(event: VoiceEvent) -> None:
+    print(f"[voice_event] {event.type} @ {event.time:.3f}s")
+    voice_events.append(event)
+
+result = await scenario.run(
+    name="my_scenario",
+    ...
+    on_audio_chunk=on_audio_chunk,
+    on_voice_event=on_voice_event,
+)
+```
+
+`on_audio_chunk` fires for every raw PCM16 audio chunk that flows through the pipeline.
+`on_voice_event` fires for higher-level events (turn start, turn end, VAD detection, etc.)
+and includes a wall-clock timestamp at `event.time`.
+
+### Saving the conversation audio
+
+After the run, call `result.audio.save(path)` to write the conversation audio to disk:
+
+```python
+if result.audio is not None:
+    result.audio.save("recordings/my_scenario.wav")
+```
+
+<Callout type="info">
+`result.audio` is `None` when no audio turns were recorded (e.g. the adapter disconnected
+before any exchange). Always guard with `if result.audio is not None`.
+</Callout>
+
+### Latency metrics
+
+`result.latency` exposes a `LatencyMetrics` object with the following fields:
+
+| Field | Description |
+|---|---|
+| `time_to_first_byte` | Wall-clock seconds from when the user turn ended to when the first byte of agent audio arrived. |
+| `p50_response_time` | Median agent response time across all turns. |
+| `p95_response_time` | 95th-percentile agent response time across all turns. |
+| `interrupt_response_time` | Time from interrupt signal to agent resume (populated only when `scenario.interrupt()` was used). |
+
+```python
+if result.latency is not None:
+    print(f"TTFB: {result.latency.time_to_first_byte:.3f}s")
+    print(f"p50:  {result.latency.p50_response_time:.3f}s")
+    print(f"p95:  {result.latency.p95_response_time:.3f}s")
+```
+
+<Callout type="warning">
+`result.latency` is `None` when no agent audio turns were recorded. Assert it is not `None`
+before reading its fields, especially in CI — a latency pipeline regression will silently
+report `None` rather than fail otherwise.
+</Callout>
+
+## Worked example
+
+[`observability.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/observability.py)
+— wires `on_audio_chunk` and `on_voice_event` callbacks, prints chunk and event counts
+post-run, asserts `time_to_first_byte > 0`, and raises a hard assertion if `result.latency`
+is `None`. Canonical reference for the full observability surface.
+
+## See also
+
+- [Capability matrix](/voice/capability-matrix) — adapter support for latency metrics and audio recording
+- [Interruption recipe](/voice/recipes/interrupt) — `interrupt_response_time` in latency metrics
+- [Effects recipe](/voice/recipes/effects) — capture raw chunks from audio-effect pipelines
