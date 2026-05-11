@@ -411,6 +411,10 @@ export default defineConfig({
               text: "Getting Started",
               link: "/voice/getting-started",
             },
+            {
+              text: "Capability Matrix",
+              link: "/voice/capability-matrix",
+            },
           ],
         },
         {

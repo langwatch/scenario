@@ -1,0 +1,66 @@
+---
+title: Voice Adapter Capability Matrix
+description: What each Scenario voice adapter can and cannot do — streaming transcripts, VAD, DTMF, interruption, and supported audio formats.
+---
+
+import CapabilityMatrix from "../_generated/voice/capability-matrix.mdx";
+
+# Voice Adapter Capability Matrix
+
+Every voice adapter in Scenario declares its capabilities via a frozen
+[`AdapterCapabilities`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/capabilities.py)
+dataclass. The table below is auto-generated from those declarations and kept
+in sync by a CI gate — if you change an adapter's capabilities, regenerate
+with:
+
+```bash
+cd python
+uv run python scripts/gen_capability_matrix.py
+```
+
+## Capabilities
+
+<CapabilityMatrix />
+
+**Column key**
+
+| Column | Meaning |
+|---|---|
+| `streaming_transcripts` | Adapter emits incremental transcript events during a turn |
+| `native_vad` | Adapter has built-in voice activity detection |
+| `dtmf` | Adapter can detect and forward DTMF (keypad) tones |
+| `interruption` | Adapter supports barge-in / user-initiated interruption |
+| `input_formats` | Audio formats the adapter accepts from the user simulator |
+| `output_formats` | Audio formats the adapter sends to the scenario harness |
+
+## Wire transport and shipping status
+
+The capabilities table above describes *what* each adapter supports.
+The table below describes *how* each adapter is wired and *whether* it is
+shipping or still stubbed behind `PendingTransportError`.
+
+| Adapter | Wire transport | Real I/O? |
+|---|---|---|
+| `ComposableVoiceAgent` | STT + LLM + TTS pipeline (provider-defined) | ✅ shipping |
+| `ElevenLabsAgentAdapter` | WebSocket (ElevenLabs Convai) | ✅ shipping |
+| `GeminiLiveAgentAdapter` | WebSocket (Gemini Live) | ✅ shipping |
+| `LiveKitAgentAdapter` | WebRTC (LiveKit room) | 🚧 stub (`PendingTransportError`) |
+| `OpenAIRealtimeAgentAdapter` | WebSocket (OpenAI Realtime) | ✅ shipping |
+| `PipecatAgentAdapter` | WebSocket (Twilio Media Streams protocol) | ✅ shipping |
+| `TwilioAgentAdapter` | Media Streams (WebSocket over Twilio) | ✅ shipping |
+| `VapiAgentAdapter` | REST (Vapi outbound) | 🚧 stub (`PendingTransportError`) |
+| `WebRTCAgentAdapter` | WebRTC (datachannel + audio track) | 🚧 stub (`PendingTransportError`) |
+| `WebSocketAgentAdapter` | WebSocket (bring-your-own protocol) | ✅ shipping |
+
+Adapters marked 🚧 raise `PendingTransportError` on `connect()` and are tracked
+as follow-up issues. Their capability declarations are final (they match the
+wire spec); only the transport glue code is pending.
+
+## Source of truth
+
+Capability values live in each adapter's `capabilities: ClassVar[AdapterCapabilities]`
+declaration. The canonical source file is
+[`python/scenario/voice/capabilities.py`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/capabilities.py).
+
+The generator script that produces the auto-generated table above is
+[`python/scripts/gen_capability_matrix.py`](https://github.com/langwatch/scenario/blob/main/python/scripts/gen_capability_matrix.py).

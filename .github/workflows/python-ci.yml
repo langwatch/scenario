@@ -54,6 +54,13 @@ jobs:
         run: uv sync --frozen
         working-directory: python
 
+      - name: Verify capability matrix is in sync with AdapterCapabilities
+        run: |
+          uv run python scripts/gen_capability_matrix.py
+          git diff --exit-code ../docs/docs/pages/_generated/voice/capability-matrix.mdx \
+            || (echo "Capability matrix is stale. Run 'python scripts/gen_capability_matrix.py' and commit the regen." && exit 1)
+        working-directory: python
+
       - name: Run tests
         # `-m "not integration"` deselects voice e2e tests (auto-marked by
         # tests/voice/conftest.py). Those hit live providers and run nightly
