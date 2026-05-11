@@ -186,6 +186,7 @@ docs/docs/public/reference/python/**/*
 !docs/docs/public/reference/python/.gitkeep
 
 .claude/worktrees
+.claude/scheduled_tasks.lock
 .worktrees
 
 # Voice demo recordings — generated, not committed
