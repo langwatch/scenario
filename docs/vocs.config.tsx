@@ -395,33 +395,21 @@ export default defineConfig({
               link: "/examples/multimodal/overview",
             },
             {
-              text: "Voice Agents",
-              items: [
-                {
-                  text: "Overview",
-                  link: "/examples/multimodal/testing-voice-agents",
-                },
-                {
-                  text: "Audio → Text",
-                  link: "/examples/multimodal/audio-to-text",
-                },
-                {
-                  text: "Audio → Audio",
-                  link: "/examples/multimodal/audio-to-audio",
-                },
-                {
-                  text: "Voice-to-Voice",
-                  link: "/examples/multimodal/voice-to-voice",
-                },
-              ],
-            },
-            {
               text: "Images",
               link: "/examples/multimodal/multimodal-images",
             },
             {
               text: "Files",
               link: "/examples/multimodal/multimodal-files",
+            },
+          ],
+        },
+        {
+          text: "Voice Agents",
+          items: [
+            {
+              text: "Getting Started",
+              link: "/voice/getting-started",
             },
           ],
         },

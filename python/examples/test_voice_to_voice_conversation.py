@@ -16,6 +16,11 @@ This showcases:
 - Role reversal for user simulation
 """
 
+# DEPRECATED: This file documents the legacy gpt-4o-audio-preview single-call pattern.
+# The canonical voice-agent demos now live in python/examples/voice/.
+# See python/examples/voice/ for the VoiceAgentAdapter-based examples (PR #350/#355).
+# This file is kept for reference; no behavior changes are planned here.
+
 import os
 from typing import ClassVar
 import pytest

@@ -1,0 +1,20 @@
+---
+title: Voice Agents — Getting Started
+description: Run your first voice scenario with Scenario SDK's VoiceAgentAdapter system.
+---
+
+# Voice Agents — Getting Started
+
+Test voice agents end-to-end with the same `scenario.run()` API you use for text. Pick a `VoiceAgentAdapter` for your provider (OpenAI Realtime, Pipecat, Twilio, ElevenLabs, Gemini Live, LiveKit, Vapi, or composable STT+LLM+TTS), describe what the agent should do, and let the simulator drive a voice conversation.
+
+> 🚧 **Under construction.** This page is being expanded as part of [#452](https://github.com/langwatch/scenario/issues/452). Full installs, env-var checklist, copy-paste recipe, and links to per-use-case recipes coming soon.
+
+## Why voice testing
+
+Voice introduces failure modes that text testing can't surface — interruption, latency, silence handling, DTMF, audio robustness. The `VoiceAgentAdapter` system shipped in [#350](https://github.com/langwatch/scenario/issues/350) makes voice agents first-class citizens in Scenario.
+
+## See also
+
+- [Voice agents proposal](https://github.com/langwatch/scenario/blob/main/docs/proposals/issue-350-voice-agents-source.md) — design rationale.
+- [Voice agents feature file](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) — 99-scenario behavioral contract.
+- [Demo files](https://github.com/langwatch/scenario/tree/main/python/examples/voice) — runnable examples per use case.
