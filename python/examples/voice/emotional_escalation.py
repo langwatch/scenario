@@ -91,9 +91,18 @@ async def main() -> scenario.ScenarioResult:
                     ]
                 ),
             ],
+            # Voice convention: the bot greets first on connect (matches Twilio,
+            # ElevenLabs ConvAI, OpenAI Realtime, etc.). The user's escalating
+            # turns start in response to the greeting.
+            script=[
+                scenario.agent(),
+                scenario.user(),
+                scenario.proceed(turns=3),
+                scenario.judge(),
+            ],
             # 4 turns keeps the demo demonstrably escalating while fitting under
             # the 300s pytest-timeout; 8 turns ran 4+ minutes and flaked.
-            max_turns=4,
+            max_turns=6,
         )
 
     print(f"success: {result.success}")
