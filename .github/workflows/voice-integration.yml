@@ -1,33 +1,31 @@
 name: voice-integration
 
-# Nightly workflow for voice tests that hit live providers (OpenAI Realtime,
-# Twilio, etc.). These tests cost real API money and/or provision real phone
-# lines, so they do NOT run on every PR. They run on a daily schedule and can
-# be triggered manually.
+# On-demand workflow for voice tests that hit live providers (OpenAI Realtime,
+# Twilio, ElevenLabs, Gemini Live). These tests cost real API money and/or
+# provision real phone lines, so they do NOT run on every PR and do NOT run on
+# a schedule — invocation is explicit via the Actions tab or `gh workflow run`.
 #
 # Scope:
 #   - python/tests/voice with `-m integration` — unit-suite tests that are
-#     explicitly marker-tagged for integration (currently none; adopt the
-#     marker in a follow-up as scenarios are wired up).
-#   - python/examples/test_voice_*.py — the existing example-style voice
-#     integration tests that require API keys and are skipped in python-ci.
+#     explicitly marker-tagged for integration.
+#   - python/examples/test_voice_*.py — example-style voice integration tests
+#     that require API keys and are skipped in python-ci.
+#   - python/tests/voice/test_*_e2e.py — the per-demo e2e wrappers (auto-marked
+#     `integration` by tests/voice/conftest.py).
 #
 # Secrets required (configure in repo settings):
-#   - OPENAI_API_KEY   — STT, TTS, Realtime API
-#   - LANGWATCH_API_KEY — telemetry export
-#   - GEMINI_API_KEY   — Gemini Live adapter (once transport lands)
+#   - OPENAI_API_KEY     — STT, TTS, Realtime API
+#   - LANGWATCH_API_KEY  — telemetry export
+#   - GEMINI_API_KEY     — Gemini Live adapter
+#   - ELEVENLABS_API_KEY — ElevenLabs adapter + STT
 #   - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER,
 #     TWILIO_PHONE_NUMBER_2 — two Twilio-owned numbers for fully automated
-#     inbound/outbound demos (no human required)
-#   - ELEVENLABS_API_KEY — ElevenLabs adapter (once transport lands)
+#     inbound/outbound demos
 #
 # If a secret is absent the relevant tests FAIL with a clear diagnosis message.
 # The workflow stays green as long as the tests that DID run passed.
 
 on:
-  schedule:
-    # Daily at 06:00 UTC. Picked to avoid overlap with GitHub Actions peak.
-    - cron: "0 6 * * *"
   workflow_dispatch:
 
 concurrency:
