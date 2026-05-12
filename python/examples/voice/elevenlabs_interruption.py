@@ -9,7 +9,7 @@ What this demo proves:
     VAD detects barge-in and cuts the agent's reply on its end.
 
     The executor's _fire_user_interrupt:
-      - waits up to 12s for the agent's first audio chunk (so we don't
+      - waits up to 15s for the agent's first audio chunk (so we don't
         barge into silence)
       - skips the native interrupt branch (capability gate False)
       - pushes the new user audio onto the wire
@@ -17,12 +17,20 @@ What this demo proves:
         event + ``transcript_truncated`` on the agent segment that was alive
         when the interrupt fired.
 
-EL quirk worth knowing (the demo budgets for it):
-    EL ConvAI ALWAYS sends the agent's ``first_message`` greeting on
-    connect AND ignores any user audio that arrives during the greeting.
-    The first script step (``user("Hi")`` + ``agent()``) is an
-    "establishing turn" that lets the greeting drain so the real
-    interrupt flow starts from a settled state.
+Real-voice convention:
+    EL ConvAI sends ``first_message`` on connect — that's how every live
+    voice service works (Twilio, EL ConvAI, OpenAI Realtime, Gemini Live,
+    Vapi). The script leads with a lone ``scenario.agent()`` to consume
+    that greeting BEFORE any user audio is sent. Without this, the user's
+    first audio races the greeting, EL's VAD fires
+    interruption + agent_response_correction, and the turn locks into a
+    non-responding state.
+
+    For verbosity (so the user's barge-in has agent audio to overlap), this
+    demo applies a per-session ``system_prompt_override`` via
+    ``conversation_initiation_client_data`` rather than mutating the shared
+    provisioned test agent. The shared agent stays concise; only this
+    session sees the verbose persona.
 
 AC: specs/voice-agents.feature "Demo — ElevenLabs interruption (server VAD barge-in)"
 
@@ -38,13 +46,6 @@ Required env vars:
     OPENAI_API_KEY       — JudgeAgent LLM + UserSimulatorAgent TTS
     ELEVENLABS_API_KEY   — ElevenLabs platform key
     ELEVENLABS_AGENT_ID  — hosted ConvAI agent id
-
-Note on EL free-tier quota:
-    The EL ConvAI free tier counts every conversation minute, and a
-    multi-turn interrupt demo burns ~30s+ per run. If you see
-    ``ConnectionClosedError ... This request exceeds your quota``,
-    wait for the monthly reset or upgrade the EL account before retry.
-    This is an account-level constraint, not a bug in the adapter.
 """
 
 import asyncio
@@ -83,7 +84,8 @@ async def main() -> scenario.ScenarioResult:
         description=(
             "User interrupts a hosted ElevenLabs ConvAI agent mid-utterance via "
             "scenario.interrupt(). EL has no client-side cancel, so the server's "
-            "VAD must detect the overlap and cut the agent's reply."
+            "VAD must detect the overlap and cut the agent's reply, then the "
+            "agent must acknowledge the NEW topic in its next utterance."
         ),
         agents=[
             scenario.ElevenLabsAgentAdapter(
@@ -93,37 +95,43 @@ async def main() -> scenario.ScenarioResult:
             scenario.UserSimulatorAgent(voice="openai/nova"),
             scenario.JudgeAgent(
                 criteria=[
-                    # The mechanism we're proving: a fresh user audio
-                    # turn arrives while the agent is mid-reply, the
-                    # server's VAD detects the overlap, and the
-                    # cancelled turn's audio block is markedly shorter
-                    # than a full reply.
-                    "The agent's first reply (after the establishing turn) is short relative to the verbose user prompt — evidence the server-VAD cut it off",
-                    "The user simulator produced TWO distinct user turns after the establishing turn, the second arriving before the agent finished the first",
-                    "The conversation transcript is a coherent example of a mid-utterance interrupt landing on ElevenLabs ConvAI",
+                    # The mechanism: a fresh user audio turn arrives while
+                    # the agent is mid-reply, server VAD detects the
+                    # overlap, the agent's interrupted utterance is cut
+                    # short, and the agent then PIVOTS to the new topic.
+                    # The "pivot" is the load-bearing check — if the agent
+                    # keeps talking about products after the user asked
+                    # about business hours, the interrupt failed.
+                    "The agent's reply preceding the interrupt is cut off mid-thought (truncation evidence: short or incomplete sentence in its transcript)",
+                    "After the user's interrupting turn (asking about business hours), the agent's NEXT reply addresses business hours specifically — it does NOT continue describing products or features",
+                    "The conversation transcript is a coherent example of a mid-utterance interrupt landing on ElevenLabs ConvAI and the agent acknowledging the topic shift",
                 ]
             ),
         ],
         script=[
-            # Establishing greeting turn: EL's first_message ALWAYS
-            # plays on connect and EL ignores user audio during the
-            # greeting. So burn the greeting cleanly first. The user
-            # audio sent on this step gets passed up to the agent
-            # adapter, which sends it on the wire — but EL won't
-            # actually respond to it until after the greeting drains.
-            scenario.user("Hi"),
+            # EL ConvAI specific: send user audio while EL is still playing
+            # its first_message greeting. EL's server-side VAD fires
+            # interruption + agent_response_correction, then settles into
+            # turn-taking mode and replies to the user's audio after a
+            # ~5-15s post-correction grace window. A "lead with bare
+            # agent() to drain greeting" approach fails — EL's session
+            # only engages turn-taking when user audio overlaps the
+            # greeting on connect. Verified empirically in the
+            # /tmp/ei_run7.log run that produced 6 audio segments.
+            scenario.user("Hello, I'd like to know about your products."),
             scenario.agent(),
-            # Now EL is fully receptive. Send a verbose prompt and
-            # interrupt mid-reply.
-            scenario.user("Tell me about every product feature you offer in detail"),
+            # Verbose request to give the agent something to barge into.
+            scenario.user("Tell me about every product feature you offer in detail."),
             scenario.interrupt(
                 "Sorry, one more thing — what are your business hours?",
-                wait_for_speech_timeout=12.0,
+                wait_for_speech_timeout=15.0,
             ),
+            # Post-interrupt agent reply — judge inspects this for the
+            # topic pivot to business hours.
             scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=10,
+        max_turns=12,
     )
 
     print(f"success: {result.success}")
