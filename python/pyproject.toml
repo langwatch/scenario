@@ -81,7 +81,9 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 [tool.uv]
 constraint-dependencies = [
     "urllib3>=2.7.0",
+    "python-liquid>=2.2.0",
 ]
+
 
 [dependency-groups]
 dev = [
