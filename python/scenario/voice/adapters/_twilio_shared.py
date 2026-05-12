@@ -259,9 +259,31 @@ class TwilioRESTHelper:
     def write_voice_url(self, phone_number_sid: str, voice_url: str) -> None:
         self._client.incoming_phone_numbers(phone_number_sid).update(voice_url=voice_url)
 
-    def place_call(self, *, to: str, from_: str, twiml_url: str) -> str:
-        """Originate an outbound call. Returns the call SID."""
-        call = self._client.calls.create(to=to, from_=from_, url=twiml_url)
+    def place_call(
+        self,
+        *,
+        to: str,
+        from_: str,
+        twiml_url: Optional[str] = None,
+        twiml: Optional[str] = None,
+    ) -> str:
+        """Originate an outbound call. Returns the call SID.
+
+        Exactly one of ``twiml_url`` or ``twiml`` must be provided.
+
+        - ``twiml_url`` (default mode): Twilio fetches TwiML from the URL
+          when the call connects. Used for the bidirectional
+          Connect+Stream topology.
+        - ``twiml`` (conference mode): inline TwiML is run when the call
+          connects. Used when each leg needs to join a shared Conference
+          room without depending on its destination number's voice_url.
+        """
+        if (twiml_url is None) == (twiml is None):
+            raise ValueError("place_call requires exactly one of twiml_url or twiml")
+        if twiml_url is not None:
+            call = self._client.calls.create(to=to, from_=from_, url=twiml_url)
+        else:
+            call = self._client.calls.create(to=to, from_=from_, twiml=twiml)
         # Twilio always returns non-None sid for create results; see above.
         return str(call.sid)
 
@@ -277,6 +299,41 @@ class TwilioRESTHelper:
         # TwiML URL or an inline TwiML string.
         twiml = f'<Response><Play digits="{tones}"/></Response>'
         self._client.calls(call_sid).update(twiml=twiml)
+
+    def find_conference_sid(self, friendly_name: str) -> Optional[str]:
+        """Look up the in-progress conference SID by FriendlyName.
+
+        Two-leg conference demos use a shared room name. Returns the SID of
+        the in-progress conference if found, else None (the conference
+        may not be created yet — caller can retry).
+        """
+        for conf in self._client.conferences.list(
+            friendly_name=friendly_name, status="in-progress", limit=1
+        ):
+            return str(conf.sid)
+        return None
+
+    def announce_to_conference(
+        self,
+        *,
+        conference_sid: str,
+        audio_url: str,
+    ) -> None:
+        """Broadcast ``audio_url`` audio to ALL participants in a conference.
+
+        ``conferences/{sid}`` PATCH with ``announce_url`` causes Twilio's
+        conference bridge to fetch the URL and play its audio into the
+        room — every connected participant hears it. This is the standard
+        way to inject programmatic audio into a Twilio conference.
+
+        For two-leg demos where adapter A wants to "speak" so adapter B
+        hears it: A renders its audio chunk to a WAV asset hosted on its
+        local FastAPI app (publicly reachable via the cloudflared tunnel),
+        then calls this to broadcast that URL into the shared conference.
+        """
+        self._client.conferences(conference_sid).update(
+            announce_url=audio_url, announce_method="GET"
+        )
 
 
 __all__ = [

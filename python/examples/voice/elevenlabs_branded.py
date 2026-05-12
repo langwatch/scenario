@@ -72,14 +72,16 @@ async def main() -> scenario.ScenarioResult:
             scenario.JudgeAgent(
                 criteria=[
                     "The agent responded naturally to the greeting",
-                    # Claim from docstring: branded composable agent — STT, LLM, TTS seams all fire.
                     "The user simulator delivered audio and the agent responded with audio",
-                    # Continuity: forces the LLM seam to maintain state across turns.
                     "The agent's second reply addresses the user's follow-up coherently in context of the first turn",
                     "The conversation is a coherent example of the ElevenLabs composable + branded agent path",
                 ]
             ),
         ],
+        # Note: branded agent is composable (no hosted EL ConvAI greeting on
+        # connect — STT/LLM/TTS providers are wired client-side). So the
+        # script starts with user(), unlike elevenlabs_hosted.py which has
+        # to drain EL's first_message.
         script=[
             scenario.user("Hi there, I have a quick question about my plan"),
             scenario.agent(),

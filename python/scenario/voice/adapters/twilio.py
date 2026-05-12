@@ -126,6 +126,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ws: Any = None  # starlette WebSocket
         self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
 
+
     # ------------------------------------------------------------------ repr
 
     def __repr__(self) -> str:  # redact credentials
@@ -147,11 +148,14 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         which makes caller-mode adapters safe to run against a shared pool of
         Twilio numbers without clobbering anyone's prod webhook.
 
-        Idempotent in the sense that double-connect raises; ``disconnect``
-        resets state so it can be re-used.
+        Idempotent: calling connect() on an already-connected adapter is a
+        no-op. This lets the scenario executor's auto-connect step
+        (``_voice_connect_all``) coexist with explicit harness-driven
+        connects (``TwilioHarness`` ``__aenter__``) that already brought
+        the adapter up before scenario.run() was called.
         """
         if self._rest is not None:
-            raise RuntimeError("TwilioAgentAdapter: already connected")
+            return
 
         if self.public_base_url is None:
             raise RuntimeError(
@@ -222,26 +226,37 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
     # ------------------------------------------------------------------ direction
 
-    async def place_call(self, to: str, *, timeout: float = 30.0) -> None:
+    async def place_call(self, to: str, *, timeout: float = 120.0) -> None:
         """
         Originate an outbound call from this adapter's Twilio number to ``to``.
 
-        After this returns, the adapter is in a live bidirectional audio session:
-        ``send_audio`` plays into the callee's ear (the simulator talks) and
-        ``recv_audio`` yields what the callee says back (the agent responds).
+        After this returns, the adapter is in a live audio session.
 
-        The callee can be:
-            - Another Twilio number owned by any adapter (two-number self-tests).
-            - A real cell phone (human-in-the-loop smokes).
-            - A prod voice agent on any Twilio/SIP/PSTN endpoint reachable by E.164.
+        ``send_audio`` / ``recv_audio`` behavior depends on the adapter mode:
 
-        Blocks until Twilio opens the Media Streams WS back to our
-        ``/twilio/stream`` endpoint, i.e. until the callee has accepted and
-        audio can flow.
+        - **Default (no conference_room)**: ``<Connect><Stream>`` TwiML
+          attaches the call's bidirectional audio to a local WebSocket.
+          ``send_audio`` writes frames over the WS; ``recv_audio`` reads
+          inbound audio off it. Right topology for prod-agent target,
+          real cell phone smokes, and single-adapter scenarios.
+
+        - **Conference mode (conference_room set)**: ``<Start><Stream>``
+          (capture only) + ``<Dial><Conference>room`` (bridges into a
+          shared room). Two adapters with the same ``conference_room``
+          will exchange audio via Twilio's conference bridge.
+          ``recv_audio`` receives the inbound-track audio (which includes
+          what other participants are saying, mixed in by the
+          conference). ``send_audio`` broadcasts via the REST
+          ``Conference.announce_url`` API — the chunk is rendered to WAV,
+          served from this adapter's local FastAPI app, and played into
+          the room. Latency: roughly chunk-duration + 400ms.
 
         Caller mode never writes the Twilio number's ``voice_url``: Twilio
         routes the outbound call to the TwiML URL we pass to ``calls.create``
         directly, so the number's inbound webhook is irrelevant here.
+
+        Default timeout is 120s to cover cloudflared cold-start latency
+        and the 30-60s it can take for a two-leg conference to fully form.
 
         Raises:
             RuntimeError: If called after ``wait_for_call()`` (modes are
@@ -258,34 +273,37 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._rest is not None
         assert self._stream_connected is not None
 
-        # Same TwiML URL for both directions: <Connect><Stream> attaches our
-        # leg's audio to the WS. For caller mode, "our leg" is the leg
-        # between the simulator's Twilio number and the callee — Twilio
-        # dials the callee (via `to=` on calls.create) and once the callee
-        # picks up, the bidirectional audio on our leg flows through the WS.
-        # This is the right topology for "simulator dials an external agent"
-        # (prod voice agent testing) — the primary use case.
-        #
-        # Note: two Twilio-owned numbers calling EACH OTHER (both legs
-        # running our <Connect><Stream> TwiML) cannot exchange audio
-        # automatically — each leg is attached to its own WS rather than
-        # bridged to the other number. That pattern requires <Conference>,
-        # which is out of scope for this PR.
         twiml_url = self.public_base_url.rstrip("/") + "/twilio/voice"
         self._call_sid = self._rest.place_call(
             to=to, from_=self.phone_number, twiml_url=twiml_url
         )
-        logger.info("TwilioAgentAdapter: placed call %s to %s", self._call_sid, to)
+        logger.info(
+            "TwilioAgentAdapter: placed call %s to %s",
+            self._call_sid,
+            to,
+        )
 
         await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
 
-    async def wait_for_call(self, timeout: float = 30.0) -> None:
+    async def wait_for_call(self, timeout: float = 120.0) -> None:
         """
         Block until someone dials in and the media stream is live.
 
-        Answer mode is the only mode that touches the Twilio number's
-        ``voice_url``: we snapshot the prior value, overwrite it with our own
-        webhook, and restore on ``disconnect``.
+        In **default mode** (no conference_room): the number's ``voice_url``
+        is overwritten to point at our webhook so inbound calls reach us.
+        Caller (``place_call``) elsewhere will dial this number.
+
+        In **conference mode**: there's no inbound call to wait for — the
+        two-Twilio-number demo can't naturally have one side receive an
+        inbound call when both legs need conference TwiML. Instead, we
+        ORIGINATE an outbound call FROM this adapter's number TO itself
+        with inline TwiML that opens the capture stream and dials into
+        the shared conference room. This is the symmetric counterpart to
+        ``place_call`` in conference mode — both adapters end up as
+        participants in the same room, exchanging audio via the bridge.
+
+        Default timeout 120s covers cloudflared cold-start, conference-room
+        formation, and Twilio's webhook ramp.
 
         Raises:
             RuntimeError: If called after ``place_call()``.
@@ -332,6 +350,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # whole utterance arrives in milliseconds, which trips bots' VAD into
         # a clipped-utterance reading.
         self._assert_stream_live()
+
         ws = self._stream_ws
         stream_sid = self._stream_sid
         assert ws is not None and stream_sid is not None

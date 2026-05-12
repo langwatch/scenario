@@ -63,16 +63,18 @@ except ImportError:
 # Sentinel name. Override via ELEVENLABS_AGENT_NAME env var (e.g. "Test Agent")
 # if your account already has an agent under a different name.
 AGENT_NAME = os.environ.get("ELEVENLABS_AGENT_NAME", "scenario-e2e-test-agent")
-# Verbose system prompt so the agent produces multi-paragraph replies
-# the interrupt demos can barge in on. Without this, the default ConvAI
-# agent answers in 1-2 sentences and finishes before our interrupt has
-# any audio to overlap.
+# Concise voice-agent system prompt. Real-time voice demos cannot tolerate
+# minute-long replies — keep answers tight by default.
+#
+# The interruption demo needs the agent to keep talking long enough for a
+# barge-in to overlap, so it injects an inline override via the
+# conversation_initiation_client_data message (or a separate verbose agent),
+# rather than baking verbosity into the shared test agent.
 SYSTEM_PROMPT = (
-    "You are a verbose product expert at TestCo. When the user asks anything "
-    "about features, services, products, or company information, give a "
-    "long, detailed multi-paragraph answer. Enumerate examples. Keep "
-    "talking until the user explicitly stops you. Never give a one-sentence "
-    "answer."
+    "You are a concise customer-service voice assistant at TestCo. "
+    "Answer in 1-2 short sentences. This is real-time voice — long "
+    "monologues are wrong. Be warm, clear, and direct. If asked for "
+    "details, give one example and stop. Wait for the caller's next turn."
 )
 ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
 
@@ -124,6 +126,21 @@ def _create_agent(api_key: str) -> str:
             "asr": {"user_input_audio_format": "pcm_24000"},
             "tts": {"agent_output_audio_format": "pcm_24000"},
         },
+        # Allow demo-specific overrides via conversation_initiation_client_data.
+        # By default EL rejects ``conversation_config_override.agent.prompt``
+        # with a 1008 policy violation; the interruption demo needs to inject
+        # a verbose persona just for its session, so we opt this agent in to
+        # those overrides at provision time.
+        "platform_settings": {
+            "overrides": {
+                "conversation_config_override": {
+                    "agent": {
+                        "first_message": True,
+                        "prompt": {"prompt": True},
+                    }
+                }
+            }
+        },
     }
     resp = httpx.post(
         f"{ELEVENLABS_API_BASE}/v1/convai/agents/create",
@@ -159,6 +176,16 @@ def _patch_agent_prompt(api_key: str, agent_id: str) -> None:
             },
             "asr": {"user_input_audio_format": "pcm_24000"},
             "tts": {"agent_output_audio_format": "pcm_24000"},
+        },
+        "platform_settings": {
+            "overrides": {
+                "conversation_config_override": {
+                    "agent": {
+                        "first_message": True,
+                        "prompt": {"prompt": True},
+                    }
+                }
+            }
         },
     }
     resp = httpx.patch(

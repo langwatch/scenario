@@ -60,7 +60,8 @@ async def main() -> scenario.ScenarioResult:
         name="demo_elevenlabs_hosted",
         description=(
             "Two-turn happy path against a live ElevenLabs Conversational AI "
-            "agent. User greets, agent responds, user asks a follow-up that "
+            "agent. Greeting plays on connect (real-voice convention), user "
+            "asks a question, agent responds, user asks a follow-up that "
             "references the first turn, agent answers in context; judge "
             "evaluates naturalness AND continuity."
         ),
@@ -72,24 +73,25 @@ async def main() -> scenario.ScenarioResult:
             scenario.UserSimulatorAgent(voice="openai/nova"),
             scenario.JudgeAgent(
                 criteria=[
-                    "The agent responded naturally to the greeting",
-                    # Claim from docstring: hosted ElevenLabs Conversational AI over real WebSocket.
+                    "The agent's initial greeting (sent on connect) is natural and conversational",
                     "The agent and user exchanged real audio turns via the live WebSocket",
-                    # Continuity: the agent's second reply must address the follow-up,
-                    # which only makes sense in the context of the first exchange.
-                    "The agent's second reply addresses the user's follow-up question coherently",
+                    "The agent's reply to the follow-up addresses it coherently in context of the first user turn",
                     "The conversation is a coherent example of the hosted ElevenLabs Conversational AI path",
                 ]
             ),
         ],
         script=[
+            # Real voice convention: EL sends first_message on connect.
+            # Lead with agent() so the greeting drains before user audio
+            # hits the wire.
+            scenario.agent(),
             scenario.user("Hello, I have a question about my account."),
             scenario.agent(),
             scenario.user("What information do you need from me to look it up?"),
             scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=6,
+        max_turns=8,
     )
 
     print(f"success: {result.success}")

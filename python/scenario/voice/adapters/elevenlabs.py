@@ -58,9 +58,22 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         output_formats=["pcm16/24000"],
     )
 
-    def __init__(self, agent_id: str, api_key: str) -> None:
+    def __init__(
+        self,
+        agent_id: str,
+        api_key: str,
+        *,
+        system_prompt_override: Optional[str] = None,
+        first_message_override: Optional[str] = None,
+    ) -> None:
         self.agent_id = agent_id
         self.api_key = api_key
+        # Per-session overrides applied via conversation_initiation_client_data
+        # at the start of every WS connect. Used by demos that need a
+        # different prompt shape (e.g. verbose for interrupt demos) without
+        # mutating the shared test agent's persistent config.
+        self._system_prompt_override = system_prompt_override
+        self._first_message_override = first_message_override
         self._ws: Any = None
 
         # Transcript observability — updated on each transcript event.
@@ -77,7 +90,18 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
-        """Open the WebSocket to ElevenLabs' ConvAI endpoint."""
+        """Open the WebSocket to ElevenLabs' ConvAI endpoint.
+
+        After the WS opens, we ALWAYS send ``conversation_initiation_client_data``
+        — even when there are no per-session overrides. EL's behavior on
+        a bare connect is inconsistent: sometimes ``first_message`` is sent
+        immediately, sometimes EL waits for client audio to "wake" the
+        session and then skips the greeting entirely. Sending the
+        initiation message (even with an empty override block) reliably
+        triggers ``first_message`` to fire on connect, which is what every
+        demo expects when its script leads with a ``scenario.agent()``
+        greeting drain.
+        """
         import websockets
 
         self._ws = await websockets.connect(
@@ -85,6 +109,22 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             additional_headers={"xi-api-key": self.api_key},
         )
         logger.debug("ElevenLabsAgentAdapter: connected to %s", self.url)
+
+        agent_override: dict[str, Any] = {}
+        if self._system_prompt_override:
+            agent_override["prompt"] = {"prompt": self._system_prompt_override}
+        if self._first_message_override:
+            agent_override["first_message"] = self._first_message_override
+
+        init = {
+            "type": "conversation_initiation_client_data",
+            "conversation_config_override": {"agent": agent_override},
+        }
+        await self._ws.send(json.dumps(init))
+        logger.debug(
+            "ElevenLabsAgentAdapter: sent conversation_initiation_client_data with overrides=%s",
+            list(agent_override.keys()) or "none",
+        )
 
     async def disconnect(self) -> None:
         """Close the WebSocket if open."""
@@ -107,12 +147,32 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     # ------------------------------------------------------------------ I/O
 
     async def send_audio(self, chunk: AudioChunk) -> None:
-        """Send a PCM16 audio chunk encoded as base64 in a JSON message."""
+        """Send a PCM16 audio chunk encoded as base64 in a JSON message.
+
+        After the speech audio is on the wire, append a short tail of
+        silent PCM16 to cue EL's server-side VAD that the user turn is
+        complete. Without this nudge, EL holds the turn open waiting for
+        more speech and never emits a reply — especially after an
+        interruption, where the silence-only signal is what tells EL to
+        re-engage turn-taking.
+
+        Tail length: 500ms is empirically enough for EL's VAD threshold.
+        """
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
+
+        # 1. Speech.
         b64 = base64.b64encode(chunk.data).decode()
-        msg = json.dumps({"user_audio_chunk": b64})
-        await self._ws.send(msg)
+        await self._ws.send(json.dumps({"user_audio_chunk": b64}))
+
+        # 2. 500ms of silence at 16kHz mono PCM16 = 16000 samples/s × 0.5s
+        # × 2 bytes/sample = 16000 bytes. EL's docstring says PCM16/16k for
+        # user audio; if a different sample rate is in play, this still
+        # works because we're just emitting zero-bytes, which any sane VAD
+        # treats as silence regardless of rate misalignment.
+        silence = b"\x00" * 16000
+        silence_b64 = base64.b64encode(silence).decode()
+        await self._ws.send(json.dumps({"user_audio_chunk": silence_b64}))
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
