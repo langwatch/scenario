@@ -21,24 +21,56 @@ TAP sits between them on the "branch budget vs. cost" axis: per turn it generate
 | Pruning | No | No | Score + on-topic filter |
 | Per-turn LLM cost | 1× | 1× | `width` × |
 
-## 2. Algorithm (paper §3, adapted)
+## 2. Algorithm — paper original vs. our adaptation
 
-Per the original paper, TAP grows a tree of attack prompts; at each depth it expands every leaf into `width` children, filters off-topic children with a separate LLM judge, scores survivors, and keeps the top-`width` by score. We adopt a **single-trunk variant** consistent with the existing per-turn streaming loop in `RedTeamAgent`:
+### 2a. Paper algorithm (Mehrotra et al. §3)
 
-For each turn `t = 1 … depth`:
+Hyperparameters, with **paper defaults**: `b = 4` (branching factor), `d = 10` (max depth), `w = 10` (max width). Both evaluators use a **1-10 scoring scale**.
 
-1. **Branch.** Call the attacker LLM `width` times with the standard system prompt (objective + conversation history + JSON contract). Vary `temperature` per call (base `temp` plus a small spread, e.g. `temp + 0.0`, `+0.15`, `+0.30`, `+0.45` for `width=4`) so the candidates diversify. Each call returns one `AttackerOutput` via `parse_attacker_output`.
-2. **On-topic filter** (optional, default ON). For each candidate, ask a lightweight judge "is this message still pursuing the stated objective? yes/no". Drop the `no`s. Implementation reuses the existing scorer LLM with a one-shot binary prompt — *no new judge model*.
-3. **Score.** Each remaining candidate is scored 0-10 using the same rubric as `_score_last_response` in `red_team_agent.py`. The scorer is asked to grade the **candidate message itself** (would this elicit forbidden output? — a goal-attainment estimate), not a target response which doesn't yet exist.
-4. **Prune.** Drop any candidate scoring below `prune_threshold`.
+The paper targets **single-turn jailbreaks**. A tree node is a candidate jailbreak prompt; each node carries its own conversation history `C = [(prompt, response, score), …]` with the target. Per iteration:
+
+1. **Branch.** For each surviving leaf, the attacker LLM generates `b` refined variations (it sees that leaf's own `C`).
+2. **Off-topic prune.** The off-topic evaluator drops variations that no longer pursue the original goal.
+3. **Attack the target.** Each remaining variation is sent to the target; the response is captured into that branch's `C`.
+4. **Score.** The judge evaluator scores each *response* 1-10.
+5. **Width prune.** Across all surviving leaves, keep the top-`w` by score for the next iteration; drop the rest.
+6. **Stop.** When any score hits 10 (full jailbreak) or after `d` iterations.
+
+Key properties: (a) the tree is **multi-leaf** — up to `w` parallel target conversation histories live in memory simultaneously; (b) scoring is on **target responses**, not candidate prompts; (c) depth `d` is refinement iterations of a *single* (eventually-successful) jailbreak prompt, **not** conversation length.
+
+### 2b. Why the paper algorithm doesn't drop in as-is
+
+`RedTeamAgent` lives inside the `scenario.run()` orchestrator, which owns the single `H_target` and is the only component that queries the target. `agent.call()` returns one user message per scenario turn. Running paper TAP verbatim would require:
+
+- Maintaining `w` parallel target conversation histories.
+- Making `b × w` direct target LLM calls *inside* `call()` (bypassing the orchestrator) so responses are available for scoring before the surviving exchange is committed.
+
+That's either (a) an orchestrator-wide fan-out refactor, or (b) granting the red-team agent direct access to the target adapter — both well outside this PR's scope. We document the constraint and ship a faithful-as-feasible adaptation.
+
+### 2c. Our adaptation: single-trunk per-turn TAP
+
+We map the TAP **branch / prune / select** mechanism to the **per-scenario-turn next-message selection** problem. Each scenario turn `t = 1 … total_turns` runs **one** TAP iteration:
+
+1. **Branch.** Call the attacker LLM `width` times with the same system prompt (objective + `H_attacker` history + `JSON_OUTPUT_CONTRACT`). Each branch `k = 0 … width-1` uses `temperature = base + k * temperature_spread` so candidates diversify.
+2. **On-topic filter** (default ON). Ask a binary yes/no judge: "does this message still pursue the objective?" Drop `no`s. *Deviation*: the paper's off-topic evaluator returns a 1-10 score; we use binary because there's nothing useful to do with a non-binary topical signal in a per-turn setting. Documented in the module docstring.
+3. **Score.** The 0-10 judge (the same one as `_score_last_response`) rates each surviving **candidate prompt** for predicted goal attainment. *Deviation*: the paper scores the target's response after sending; we score the prompt itself because we don't get to query the target speculatively. The rubric still applies — it asks how much the message advances toward the goal.
+4. **Prune.** Drop any candidate scoring `< prune_threshold`.
 5. **Select.** Send the highest-scoring survivor to the target. Ties → first.
 6. **Fallback.** If every candidate is pruned, log a warning and fall back to the existing single-call path (one attacker call, no filtering) so the run never hard-stops on a turn.
 
 After step 5 we have the target's response. From there the loop continues exactly like GOAT — score the *response* with `_score_last_response`, push score feedback into `H_attacker`, advance the turn counter.
 
-### Why a single-trunk variant?
+### 2d. Deviations from the paper, summarised
 
-The full TAP tree (keeping `width` leaves alive across depths) would require maintaining `width` parallel conversation histories with the target, which the orchestrator does not currently support and would `width`× the *target* cost too. Single-trunk preserves the paper's key contributions — multi-candidate sampling, on-topic filtering, score-based pruning — without re-plumbing the conversation loop. We document the deviation in the module docstring.
+| Paper | Our impl | Why |
+| --- | --- | --- |
+| Multi-leaf tree, `w` parallel target histories | Single trunk (`w = 1` effective) | Orchestrator owns `H_target`; can't fan-out from inside `agent.call()` without re-plumbing. |
+| Depth `d` = refinement iterations of one prompt | Depth = `total_turns` (conversation length) | We're adapting to a multi-turn framework, not a single-shot jailbreak. |
+| Score the target *response* | Score the candidate *prompt* (goal-attainment prediction) | We can't query the target speculatively from inside `call()`. |
+| Off-topic eval = 1-10 score | Off-topic eval = binary yes/no | Single-trunk has no need for graded topicality. |
+| Branching is the attacker LLM "refining" a previous leaf based on its conversation `C` | Branching is `width` parallel samples with bumped temperatures from the same `H_attacker` | Equivalent under single-trunk: there is only one history to refine from. |
+
+These deviations are spelled out in the module docstring so users running TAP know what they're getting.
 
 ## 3. RedTeamStrategy interface mapping
 
