@@ -7,11 +7,18 @@ Exchanges PCM16 audio chunks.
 Wire protocol:
 - Send: JSON ``{"user_audio_chunk": "<base64 PCM16>"}``
 - Recv events:
-  - ``conversation_initiation_metadata``, ``user_transcript``, ``agent_response`` — swallowed
-    (transcripts tracked on the instance for downstream observability)
+  - ``conversation_initiation_metadata`` — checked for audio-format
+    mismatch against advertised capability; warning logged on drift
+  - ``user_transcript`` / ``agent_response`` — text captured on
+    ``last_user_transcript`` / ``last_agent_transcript`` for observability
+  - ``agent_response_correction`` — corrected text replaces
+    ``last_agent_transcript`` (post-barge-in update)
   - ``audio`` — decoded and returned from ``recv_audio``
   - ``ping`` — replied to with ``{"type": "pong", "event_id": <id>}``
   - ``interruption`` — swallowed
+  - Other documented events (``vad_score``, ``client_tool_call``,
+    ``agent_response_metadata``, etc.) — silently skipped; the
+    provisioned test agent doesn't trigger them.
 """
 
 from __future__ import annotations
@@ -92,15 +99,13 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     async def connect(self) -> None:
         """Open the WebSocket to ElevenLabs' ConvAI endpoint.
 
-        After the WS opens, we ALWAYS send ``conversation_initiation_client_data``
-        — even when there are no per-session overrides. EL's behavior on
-        a bare connect is inconsistent: sometimes ``first_message`` is sent
-        immediately, sometimes EL waits for client audio to "wake" the
-        session and then skips the greeting entirely. Sending the
-        initiation message (even with an empty override block) reliably
-        triggers ``first_message`` to fire on connect, which is what every
-        demo expects when its script leads with a ``scenario.agent()``
-        greeting drain.
+        We send ``conversation_initiation_client_data`` on every connect.
+        The EL docs neither require nor forbid this (the reference SDK
+        sample sends it unconditionally with an empty body); empirically
+        we've seen ``first_message`` skipped on bare connects and reliably
+        fire when the init message is sent, even with an empty override
+        block. If EL's behavior changes, this is the first thing to
+        revisit.
         """
         import websockets
 
@@ -149,14 +154,24 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     async def send_audio(self, chunk: AudioChunk) -> None:
         """Send a PCM16 audio chunk encoded as base64 in a JSON message.
 
-        After the speech audio is on the wire, append a short tail of
-        silent PCM16 to cue EL's server-side VAD that the user turn is
-        complete. Without this nudge, EL holds the turn open waiting for
-        more speech and never emits a reply — especially after an
-        interruption, where the silence-only signal is what tells EL to
-        re-engage turn-taking.
+        Empirically, EL ConvAI stops responding to subsequent turns if
+        the client sends only a single chunk and never signals end of
+        turn. The EL docs document no client-driven end-of-turn signal
+        (server-side VAD is supposed to handle it) but in practice the
+        VAD only fires after enough silence has been observed. We
+        append a fixed-size tail of zero-bytes after every chunk to
+        provide that silence signal.
 
-        Tail length: 500ms is empirically enough for EL's VAD threshold.
+        Tail size: 16000 zero bytes — empirically the sweet spot.
+        - Removing the tail entirely: EL stops responding to user
+          turns after the greeting.
+        - Doubling to 24000 bytes (a "true 500ms" at the provisioned
+          pcm_24000 rate): EL stops responding mid-conversation, same
+          stall pattern.
+        - 16000 bytes at pcm_24000 = ~333ms of silence: reliable.
+
+        If EL ever exposes an explicit end-of-turn message we should
+        switch to that instead.
         """
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
@@ -165,11 +180,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         b64 = base64.b64encode(chunk.data).decode()
         await self._ws.send(json.dumps({"user_audio_chunk": b64}))
 
-        # 2. 500ms of silence at 16kHz mono PCM16 = 16000 samples/s × 0.5s
-        # × 2 bytes/sample = 16000 bytes. EL's docstring says PCM16/16k for
-        # user audio; if a different sample rate is in play, this still
-        # works because we're just emitting zero-bytes, which any sane VAD
-        # treats as silence regardless of rate misalignment.
+        # 2. Silence tail. See docstring for size rationale.
         silence = b"\x00" * 16000
         silence_b64 = base64.b64encode(silence).decode()
         await self._ws.send(json.dumps({"user_audio_chunk": silence_b64}))
@@ -212,13 +223,10 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 return AudioChunk(data=pcm)
 
             elif etype == "ping":
-                # ElevenLabs ConvAI ping shape (v1, observed 2026-05):
+                # Per EL docs, ping wire shape is
                 #   {"type": "ping", "ping_event": {"event_id": <int>, "ping_ms": <int>}}
-                # The previous code looked for "event_id" at the top level,
-                # which yielded null — EL then rejected our pong with a
-                # 1008 policy violation: "event_id: Input should be a valid
-                # integer". Source the id from ping_event.event_id; fall
-                # back to top-level for older shapes.
+                # Pong must echo the event_id at the top level. The
+                # fallback to top-level event_id covers any older shape.
                 ping_event = event.get("ping_event") or {}
                 event_id = ping_event.get("event_id")
                 if event_id is None:
@@ -252,8 +260,41 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 if corrected:
                     self.last_agent_transcript = corrected
 
-            elif etype in ("conversation_initiation_metadata", "interruption"):
-                pass  # expected non-audio events
+            elif etype == "conversation_initiation_metadata":
+                # EL reports the agent's actual configured audio formats
+                # here. Our adapter capabilities advertise pcm16/24000,
+                # matching the test agent we provision. If a caller
+                # points the adapter at an agent configured differently,
+                # this is where the mismatch becomes visible — warn so
+                # the codec mismatch is logged rather than silently
+                # garbling audio.
+                #
+                # Wire shape (per docs):
+                #   {"type": "conversation_initiation_metadata",
+                #    "conversation_initiation_metadata_event": {
+                #      "conversation_id": "...",
+                #      "agent_output_audio_format": "pcm_24000",
+                #      "user_input_audio_format": "pcm_24000"}}
+                meta = event.get("conversation_initiation_metadata_event", {}) or {}
+                out_fmt = meta.get("agent_output_audio_format")
+                in_fmt = meta.get("user_input_audio_format")
+                if out_fmt and out_fmt != "pcm_24000":
+                    logger.warning(
+                        "ElevenLabsAgentAdapter: agent_output_audio_format=%r "
+                        "differs from advertised pcm16/24000 capability; "
+                        "audio may pitch-shift or fail to decode.",
+                        out_fmt,
+                    )
+                if in_fmt and in_fmt != "pcm_24000":
+                    logger.warning(
+                        "ElevenLabsAgentAdapter: user_input_audio_format=%r "
+                        "differs from advertised pcm16/24000 capability; "
+                        "the agent may not understand audio we send.",
+                        in_fmt,
+                    )
+
+            elif etype == "interruption":
+                pass  # documented non-audio event, no action needed
 
             else:
                 logger.debug("ElevenLabsAgentAdapter: unknown event type %r, skipping", etype)
