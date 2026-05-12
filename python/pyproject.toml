@@ -78,6 +78,11 @@ include = ["scenario*"]
 [tool.pytest.ini_options]
 markers = ["agent_test: marks tests as agent scenario tests"]
 
+[tool.uv]
+constraint-dependencies = [
+    "urllib3>=2.7.0",
+]
+
 [dependency-groups]
 dev = [
     "function-schema>=0.4.5",
