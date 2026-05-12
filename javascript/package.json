@@ -118,7 +118,7 @@
   },
   "pnpm": {
     "overrides": {
-      "protobufjs@>=8.0.0 <8.0.1": "8.0.1",
+      "protobufjs@>=8.0.0 <8.0.2": "8.0.2",
       "protobufjs@<7.5.5": "7.5.5",
       "handlebars@>=4.0.0 <=4.7.8": "4.7.9",
       "minimatch@<3.1.3": "3.1.3",
