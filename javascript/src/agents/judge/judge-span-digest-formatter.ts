@@ -307,16 +307,16 @@ export class JudgeSpanDigestFormatter {
 }
 
 /**
- * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
- * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
- * The LangWatch SDK's internal spans still use the v1 parentSpanContext field.
+ * Extracts the parent span ID from a ReadableSpan.
+ * In OTel SDK v2, `parentSpanId` was removed from the ReadableSpan interface;
+ * the canonical accessor is now `parentSpanContext?.spanId`.
+ * Falls back to the legacy `parentSpanId` property (v1) when present at runtime.
  */
 function getParentSpanId(span: ReadableSpan): string | undefined {
-  if (span.parentSpanId) return span.parentSpanId;
-  const legacy = (span as unknown as Record<string, unknown>).parentSpanContext as
-    | { spanId?: string }
-    | undefined;
-  return legacy?.spanId;
+  const id =
+    (span as unknown as Record<string, unknown>).parentSpanId ??
+    span.parentSpanContext?.spanId;
+  return typeof id === "string" ? id : undefined;
 }
 
 /**
