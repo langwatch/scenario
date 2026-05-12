@@ -113,6 +113,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._rest: Optional[TwilioRESTHelper] = None
         self._phone_number_sid: Optional[str] = None
         self._prior_voice_url: Optional[str] = None
+        # Set by place_call() when it rewrites the callee's voice_url so
+        # B-leg's webhook lands on our harness. Restored in disconnect.
+        self._callee_phone_number_sid: Optional[str] = None
+        self._prior_callee_voice_url: Optional[str] = None
         # Set by the first of wait_for_call()/place_call(); subsequent calls to
         # the other method raise. "idle" after connect() before either fires.
         self._mode: TwilioAdapterMode = "idle"
@@ -186,7 +190,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             return
 
         # 1. Restore webhook first so Twilio doesn't keep hitting a dead URL.
-        #    Only meaningful in answer mode — caller mode never overwrote it.
         if self._mode == "answer" and self._phone_number_sid is not None:
             with suppress(Exception):
                 prior = self._prior_voice_url or ""
@@ -195,6 +198,17 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     "TwilioAgentAdapter: restored voice_url=%r on %s",
                     prior,
                     self._phone_number_sid,
+                )
+        # place_call() rewrites the CALLEE's voice_url to attach Media
+        # Streams to B-leg. Restore that too.
+        if self._mode == "call" and self._callee_phone_number_sid is not None:
+            with suppress(Exception):
+                prior_b = self._prior_callee_voice_url or ""
+                self._rest.write_voice_url(self._callee_phone_number_sid, prior_b)
+                logger.debug(
+                    "TwilioAgentAdapter: restored callee voice_url=%r on %s",
+                    prior_b,
+                    self._callee_phone_number_sid,
                 )
 
         # 2. Signal server to shut down, then wait for the task.
@@ -208,6 +222,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._rest = None
         self._phone_number_sid = None
         self._prior_voice_url = None
+        self._callee_phone_number_sid = None
+        self._prior_callee_voice_url = None
         self._mode = "idle"
         self._server_task = None
         self._server_shutdown = None
@@ -230,37 +246,45 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         """
         Originate an outbound call from this adapter's Twilio number to ``to``.
 
-        After this returns, the adapter is in a live audio session.
+        Twilio's REST ``Calls.create`` runs TwiML on TWO legs of the
+        resulting call:
 
-        ``send_audio`` / ``recv_audio`` behavior depends on the adapter mode:
+        - **A-leg** (the originator, ``from_=self.phone_number``): runs the
+          inline TwiML passed via ``twiml=`` to ``Calls.create``. We use
+          ``<Pause length=120>`` so the originator just holds the bridge
+          open while the demo runs.
+        - **B-leg** (the callee, ``to=``): when Twilio dials B and B picks
+          up, B's number's ``voice_url`` fires — that's where the bridge's
+          Media Streams attach. This is identical to the inbound demo's
+          flow: B's voice_url returns ``<Connect><Stream>``, the WS opens,
+          audio flows.
 
-        - **Default (no conference_room)**: ``<Connect><Stream>`` TwiML
-          attaches the call's bidirectional audio to a local WebSocket.
-          ``send_audio`` writes frames over the WS; ``recv_audio`` reads
-          inbound audio off it. Right topology for prod-agent target,
-          real cell phone smokes, and single-adapter scenarios.
+        So ``place_call`` only makes sense when ``to`` is another Twilio
+        number on this account whose ``voice_url`` is set to OUR harness
+        webhook. To make that wiring automatic, ``place_call`` temporarily
+        rewrites B's ``voice_url`` for the duration of the call and
+        restores it on ``disconnect``. The harness on this adapter's own
+        number does NOT need to be answer-mode — the Stream attaches to
+        B's leg, NOT this adapter's leg, but B's webhook is hosted on this
+        adapter's local server, so the WS still lands here.
 
-        - **Conference mode (conference_room set)**: ``<Start><Stream>``
-          (capture only) + ``<Dial><Conference>room`` (bridges into a
-          shared room). Two adapters with the same ``conference_room``
-          will exchange audio via Twilio's conference bridge.
-          ``recv_audio`` receives the inbound-track audio (which includes
-          what other participants are saying, mixed in by the
-          conference). ``send_audio`` broadcasts via the REST
-          ``Conference.announce_url`` API — the chunk is rendered to WAV,
-          served from this adapter's local FastAPI app, and played into
-          the room. Latency: roughly chunk-duration + 400ms.
+        The bidirectional audio model is unchanged: ``send_audio`` writes
+        frames over the WS (B hears them and bridges to A), ``recv_audio``
+        reads inbound frames off the WS (whatever the bridge mixes from
+        both legs).
 
-        Caller mode never writes the Twilio number's ``voice_url``: Twilio
-        routes the outbound call to the TwiML URL we pass to ``calls.create``
-        directly, so the number's inbound webhook is irrelevant here.
+        Limitation: ``to`` MUST be a phone number on this same Twilio
+        account. Calling an external PSTN endpoint (a real cell phone)
+        requires a different topology (``<Start><Stream>`` + ``<Dial>``)
+        which we don't implement here because the inline TwiML route on
+        the A-leg can't capture B's audio when B is external.
 
-        Default timeout is 120s to cover cloudflared cold-start latency
-        and the 30-60s it can take for a two-leg conference to fully form.
+        Default timeout 120s covers cloudflared cold-start latency.
 
         Raises:
             RuntimeError: If called after ``wait_for_call()`` (modes are
-                exclusive per adapter instance).
+                exclusive per adapter instance), or if ``to`` is not a
+                Twilio number on this account.
             ValueError: If ``to`` is not in E.164 format.
             asyncio.TimeoutError: If the media stream doesn't open within
                 ``timeout`` seconds.
@@ -273,13 +297,34 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._rest is not None
         assert self._stream_connected is not None
 
-        twiml_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+        # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
+        # B's leg attaches its Media Stream to our harness webhook. We own
+        # this number (same Twilio account); disconnect() will restore.
+        self._callee_phone_number_sid = self._rest.resolve_phone_number_sid(to)
+        self._prior_callee_voice_url = self._rest.read_voice_url(
+            self._callee_phone_number_sid
+        )
+        webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+        self._rest.write_voice_url(self._callee_phone_number_sid, webhook_url)
+        logger.info(
+            "TwilioAgentAdapter: rewrote callee %s voice_url to %s",
+            to,
+            webhook_url,
+        )
+
+        # A-leg TwiML: just hold the bridge open. Twilio runs this on the
+        # originator side while B's webhook attaches the Media Stream.
+        inline_a_leg_twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Response><Pause length="120"/></Response>'
+        )
         self._call_sid = self._rest.place_call(
-            to=to, from_=self.phone_number, twiml_url=twiml_url
+            to=to, from_=self.phone_number, twiml=inline_a_leg_twiml
         )
         logger.info(
-            "TwilioAgentAdapter: placed call %s to %s",
+            "TwilioAgentAdapter: placed call %s from %s to %s",
             self._call_sid,
+            self.phone_number,
             to,
         )
 
@@ -508,8 +553,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
             elif frame.event == "media" and frame.payload_mulaw:
                 buffered_mulaw.extend(frame.payload_mulaw)
-                # 20ms per frame → flush every ~5 frames.
-                if len(buffered_mulaw) >= (BATCH_MS * 8):  # 8 bytes/ms at 8kHz µ-law
+                # 20ms per frame → flush every ~5 frames. Queue may be
+                # None if disconnect() raced ahead of the final frames;
+                # drop the chunk silently in that window.
+                if (
+                    len(buffered_mulaw) >= (BATCH_MS * 8)
+                    and self._inbound_queue is not None
+                ):
                     pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                     buffered_mulaw.clear()
                     await self._inbound_queue.put(AudioChunk(data=pcm))
@@ -526,8 +576,11 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                         )
 
             elif frame.event == "stop":
-                # Flush trailing audio then exit.
-                if buffered_mulaw:
+                # Flush trailing audio then exit. After disconnect() has
+                # already reset state, _inbound_queue may be None — guard
+                # against a race where Twilio's final stop frame arrives
+                # after teardown started.
+                if buffered_mulaw and self._inbound_queue is not None:
                     pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                     buffered_mulaw.clear()
                     await self._inbound_queue.put(AudioChunk(data=pcm))
