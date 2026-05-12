@@ -3,19 +3,23 @@ Platform demo — Twilio outbound (real PSTN call originated by the adapter).
 
 What this demo proves:
     TwilioAgentAdapter.place_call() originates a real outbound PSTN call
-    from ``TWILIO_PHONE_NUMBER_2`` to ``TWILIO_PHONE_NUMBER`` and exchanges
-    audio with the scenario's UserSimulatorAgent over Twilio Media Streams.
+    via REST (``client.calls.create``), and the scenario exchanges audio
+    with that call's bridged audio over Twilio Media Streams.
 
-    Number mapping convention (shared with twilio_inbound.py):
-      - ``TWILIO_PHONE_NUMBER`` is the number that must actually terminate
-        inbound voice calls. Required because Twilio Media Streams needs
-        the callee leg to be reachable.
-      - ``TWILIO_PHONE_NUMBER_2`` is the originator. Just needs to be a
-        valid Twilio number that can place outbound calls.
+    Topology:
+      - The adapter's ``phone_number`` is ``TWILIO_PHONE_NUMBER_2`` — the
+        originator (A-leg, caller-ID). Twilio's REST ``Calls.create``
+        runs an inline ``<Pause>`` on this leg to hold the bridge open.
+      - The call is dialed to ``TWILIO_PHONE_NUMBER`` — the callee
+        (B-leg). When B picks up, Twilio fires B's ``voice_url``, which
+        ``place_call`` has temporarily rewritten to our harness webhook.
+        The webhook returns ``<Connect><Stream>``, attaching Media
+        Streams to B's leg. Audio bridges both directions.
 
-    Both legs run Connect+Stream TwiML against this adapter's webhook;
-    the originating leg's <Connect><Stream> is what carries the audio for
-    the scenario. The callee leg is just the call-setup conduit.
+    Two Twilio-owned numbers are needed because Twilio Media Streams
+    attaches via a ``voice_url`` webhook on the callee leg. Calling an
+    external (non-Twilio-account) PSTN endpoint via this API requires
+    a different topology and is out of scope for this demo.
 
 AC: specs/voice-agents.feature "Demo — Twilio outbound"
 
@@ -27,8 +31,11 @@ Required env vars:
     TWILIO_ACCOUNT_SID
     TWILIO_AUTH_TOKEN
     TWILIO_PHONE_NUMBER    — E.164 Twilio number that terminates voice
-                             (the destination of the outbound call).
-    TWILIO_PHONE_NUMBER_2  — E.164 Twilio number that originates the call.
+                             (the call's destination, B-leg). Must accept
+                             inbound voice on this Twilio account.
+    TWILIO_PHONE_NUMBER_2  — E.164 Twilio number used as caller-ID for
+                             the outbound originator (A-leg). Only needs
+                             to be valid for outbound dialing.
     OPENAI_API_KEY         — for UserSimulatorAgent TTS + JudgeAgent LLM
 """
 
