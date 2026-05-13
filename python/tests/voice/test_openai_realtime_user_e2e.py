@@ -36,6 +36,10 @@ async def test_demo_openai_realtime_user_e2e_success(requires_llm, requires_tran
         await adapter.disconnect()
         pytest.skip(f"transport not yet shipped: {exc}")
     except Exception:
+        # Probe-only path: send_audio failed for some reason other than
+        # PendingTransportError (network, auth, etc). We swallow it here
+        # because the real test body below runs against the actual demo
+        # script; that will surface a richer error than the probe could.
         pass
     await adapter.disconnect()
 
