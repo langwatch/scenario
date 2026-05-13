@@ -126,7 +126,9 @@ async def main() -> scenario.ScenarioResult:
         print(f"Originator call placed: {originator_call_sid}")
 
         # Block until the agent's Media Streams WS is live.
-        await agent_wait
+        # `_ =` silences code-quality's "statement has no effect" false
+        # positive — awaiting the Task IS the effect.
+        _ = await agent_wait
         print(f"Agent stream live on {agent_number}.")
 
         result = await scenario.run(

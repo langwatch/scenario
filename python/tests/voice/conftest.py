@@ -35,6 +35,8 @@ try:
 
     load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 except ImportError:
+    # python-dotenv is optional — tests still run when env is already
+    # exported (CI sets vars directly). Silent skip is correct here.
     pass
 
 import scenario
@@ -135,6 +137,8 @@ def _stop_pipecat_bot() -> None:
         try:
             os.killpg(os.getpgid(_bot_process.pid), signal.SIGKILL)
         except ProcessLookupError:
+            # Process already exited between the SIGTERM/KILL — nothing
+            # to clean up. Teardown is best-effort by design.
             pass
     _bot_process = None
 
