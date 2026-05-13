@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-05-11T16:25:40.905019+00:00",
+  "duration": 35.732263207999495,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-16169ms.wav",
+      "role": "agent",
+      "start_time": 16.169067792001442,
+      "end_time": 16.776479457999812,
+      "duration": 0.6074116659983702,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-23634ms.wav",
+      "role": "user",
+      "start_time": 23.63495083300222,
+      "end_time": 26.32037175000005,
+      "duration": 2.6854209169978276,
+      "transcript": "hold on"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-26320ms.wav",
+      "role": "agent",
+      "start_time": 26.320576124999207,
+      "end_time": 26.922383542001626,
+      "duration": 0.6018074170024192,
+      "transcript": "I'm sorry, are you still there?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-33884ms.wav",
+      "role": "user",
+      "start_time": 33.884793458000786,
+      "end_time": 35.13106420799886,
+      "duration": 1.2462707499980752,
+      "transcript": "Sorry I'm back"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-35131ms.wav",
+      "role": "agent",
+      "start_time": 35.131082874999265,
+      "end_time": 35.732263207999495,
+      "duration": 0.6011803330002294,
+      "transcript": "No problem, take your time. I'm here when you're ready."
+    }
+  ],
+  "events": [
+    {
+      "time": 16.169067792001442,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 16.776479457999812,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 23.63495083300222,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 26.32037175000005,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 26.320576124999207,
+      "type": "agent_start_speaking",
+      "latency": 0.00020437499915715307
+    },
+    {
+      "time": 26.922383542001626,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 33.884793458000786,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 35.13106420799886,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 35.131082874999265,
+      "type": "agent_start_speaking",
+      "latency": 1.8667000404093415e-05
+    },
+    {
+      "time": 35.732263207999495,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

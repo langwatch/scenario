@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-05-07T10:16:25.078266+00:00",
+  "duration": 17.096473958000388,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0.0,
+      "end_time": 1.4772563750002519,
+      "duration": 1.4772563750002519,
+      "transcript": "Hi! Can you help me with a question about my account?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-6150ms.wav",
+      "role": "agent",
+      "start_time": 6.150451458332977,
+      "end_time": 9.547618124999644,
+      "duration": 3.397166666666667,
+      "transcript": "Of course! What question do you have about your account?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-8917ms.wav",
+      "role": "user",
+      "start_time": 8.91730170799965,
+      "end_time": 10.51730170799965,
+      "duration": 1.5999999999999996,
+      "transcript": "What are your hours?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-11198ms.wav",
+      "role": "agent",
+      "start_time": 11.198890624667055,
+      "end_time": 17.096473958000388,
+      "duration": 5.897583333333333,
+      "transcript": "We're open Monday through Friday from 9am to 6pm. Is there anything else I can assist you with?"
+    }
+  ]
+}

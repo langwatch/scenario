@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-05-09T18:32:46.512333+00:00",
+  "duration": 13.153745000017807,
+  "segment_count": 3,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-3334ms.wav",
+      "role": "agent",
+      "start_time": 3.3346521250205114,
+      "end_time": 3.945879708015127,
+      "duration": 0.6112275829946157,
+      "transcript": "Hello. Thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-5733ms.wav",
+      "role": "user",
+      "start_time": 5.733902666019276,
+      "end_time": 8.822892333002528,
+      "duration": 3.0889896669832524,
+      "transcript": "Hi, I need some help ordering pizza"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-12540ms.wav",
+      "role": "agent",
+      "start_time": 12.540053375007119,
+      "end_time": 13.153745000017807,
+      "duration": 0.6136916250106879,
+      "transcript": "Sure, I can help with that. What size and toppings would you like? And do you want delivery or pickup?"
+    }
+  ],
+  "events": [
+    {
+      "time": 3.3346521250205114,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.945879708015127,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 5.733902666019276,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.822892333002528,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 12.540053375007119,
+      "type": "agent_start_speaking",
+      "latency": 3.717161042004591
+    },
+    {
+      "time": 13.153745000017807,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

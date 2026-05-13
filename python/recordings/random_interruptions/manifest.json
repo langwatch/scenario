@@ -1,0 +1,70 @@
+{
+  "generated_at": "2026-05-09T18:45:56.398190+00:00",
+  "duration": 51.27651125000557,
+  "segment_count": 3,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-16609ms.wav",
+      "role": "user",
+      "start_time": 16.609962041984545,
+      "end_time": 19.92702904198086,
+      "duration": 3.317066999996314,
+      "transcript": "tell me what's wrong and your account email"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-19927ms.wav",
+      "role": "agent",
+      "start_time": 19.927070375008043,
+      "end_time": 20.5279386669863,
+      "duration": 0.6008682919782586,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-50675ms.wav",
+      "role": "agent",
+      "start_time": 50.675058583990904,
+      "end_time": 51.27651125000557,
+      "duration": 0.6014526660146657,
+      "transcript": "I'm sorry about that. Let's get you reset. Please check your spam/junk folder and confirm you entered the email exactly as user@example.com. Then I can resend the password reset link right away."
+    }
+  ],
+  "events": [
+    {
+      "time": 16.609962041984545,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 18.095348959002877,
+      "type": "user_interrupt",
+      "metadata": {
+        "adapter": "PipecatAgentAdapter",
+        "native": true,
+        "outcome": "fired_before_speech"
+      }
+    },
+    {
+      "time": 19.92702904198086,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 19.927070375008043,
+      "type": "agent_start_speaking",
+      "latency": 4.133302718400955e-05
+    },
+    {
+      "time": 20.5279386669863,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 50.675058583990904,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 51.27651125000557,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

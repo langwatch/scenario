@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-05-07T10:54:50.999950+00:00",
+  "duration": 5.827318499999819,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0.0,
+      "end_time": 1.0070082919992274,
+      "duration": 1.0070082919992274,
+      "transcript": "Hello, can you help me?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-3129ms.wav",
+      "role": "agent",
+      "start_time": 3.1295684999998192,
+      "end_time": 5.827318499999819,
+      "duration": 2.69775,
+      "transcript": "Thank you for calling. How can I help you today?"
+    }
+  ]
+}
