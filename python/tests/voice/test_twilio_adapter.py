@@ -257,6 +257,37 @@ async def test_place_call_writes_and_restores_callee_voice_url(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_place_call_originator_only_mode_skips_voice_url_rewrite(monkeypatch):
+    """attach_stream_to_self=False: place the call, capture SID, leave
+    voice_url alone.
+
+    Used when two TwilioHarnesses are coexisting in the same demo
+    (e.g. dtmf_ivr): the callee has its OWN harness that owns its
+    number's voice_url, so the originator must not clobber it. The
+    SID is still tracked so scenario.dtmf() → send_dtmf can later
+    target the active call.
+    """
+    rest_instances = _install_fake_rest(monkeypatch)
+    a = _make_adapter(http_port=0)
+    await a.connect()
+    try:
+        assert a._stream_connected is not None
+        a._stream_connected.set()  # would be set by callee's harness, not used here
+        await a.place_call(to="+14155557777", attach_stream_to_self=False)
+        rest = rest_instances[0]
+        # Zero writes — voice_url left alone in originator-only mode.
+        assert rest.write_calls == []
+        # SID captured for later send_dtmf.
+        assert a._call_sid is not None
+        # No callee SID resolved (no rewrite means no need).
+        assert a._callee_phone_number_sid is None
+    finally:
+        await a.disconnect()
+        # Still no writes on disconnect — nothing to restore.
+        assert rest_instances[0].write_calls == []
+
+
+@pytest.mark.asyncio
 async def test_wait_for_call_writes_and_restores_voice_url(monkeypatch):
     """Answer mode is the only mode that mutates the Twilio account."""
     rest_instances = _install_fake_rest(monkeypatch)
