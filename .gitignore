@@ -225,3 +225,5 @@ python/recordings/random_interruptions/segments/
 python/recordings/angry_customer/segments/
 !python/recordings/background_handoff/
 python/recordings/background_handoff/segments/
+!python/recordings/stt_swap/
+python/recordings/stt_swap/segments/

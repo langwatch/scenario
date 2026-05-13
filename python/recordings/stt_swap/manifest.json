@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-05-13T10:14:59.492303+00:00",
+  "duration": 8.939420458016684,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-2064ms.wav",
+      "role": "user",
+      "start_time": 2.0648692499962635,
+      "end_time": 4.272795291006332,
+      "duration": 2.2079260410100687,
+      "transcript": "Hello."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-8325ms.wav",
+      "role": "agent",
+      "start_time": 8.325832500006072,
+      "end_time": 8.939420458016684,
+      "duration": 0.6135879580106121,
+      "transcript": "Hi there. How can I help you today? Billing, account support or our store hours?"
+    }
+  ],
+  "events": [
+    {
+      "time": 2.0648692499962635,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 4.272795291006332,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 8.325832500006072,
+      "type": "agent_start_speaking",
+      "latency": 4.05303720899974
+    },
+    {
+      "time": 8.939420458016684,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

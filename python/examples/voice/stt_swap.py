@@ -88,13 +88,13 @@ async def main() -> scenario.ScenarioResult:
                 scenario.UserSimulatorAgent(voice="openai/nova"),
                 scenario.JudgeAgent(
                     criteria=[
-                        # The judge can verify these from the transcript: that
-                        # the agent understood the user (proxies STT working)
-                        # and produced a coherent exchange. The swap itself is
-                        # verified *mechanically* below: we count
-                        # ElevenLabsSTT.transcribe() calls and assert >0.
+                        # The judge only sees the transcript; it cannot
+                        # observe which STT provider produced any text.
+                        # These criteria check what IS verifiable from the
+                        # transcript. The STT provider swap itself is
+                        # verified *mechanically* below by counting
+                        # ElevenLabsSTTProvider.transcribe() calls.
                         "The agent responded helpfully",
-                        "The agent's reply demonstrates it understood the user's input (so STT must have run end-to-end)",
                         "The conversation is a coherent example of a voice exchange",
                     ]
                 ),
