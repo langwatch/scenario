@@ -464,6 +464,8 @@ export default defineConfig({
             },
             {
               text: "Recipes",
+              link: "/voice/recipes",
+              collapsed: true,
               items: [
                 {
                   text: "Interruptions",
