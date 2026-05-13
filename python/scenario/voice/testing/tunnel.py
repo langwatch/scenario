@@ -103,10 +103,18 @@ class CloudflareTunnel:
         internet. Without this wait, Twilio's TwiML fetch races and
         silently fails (call completed, duration 0, no notification).
 
-        Uses DNS-over-HTTPS against 1.1.1.1 rather than the system
-        resolver — local resolvers (especially home routers) often lag
-        public DNS by tens of seconds, which would make this probe
-        incorrectly block even when the tunnel is reachable by Twilio.
+        Resolution strategy: race multiple resolvers, return on the first
+        one that says "this host resolves." Empirically, both
+        Cloudflare DoH and the system resolver have been observed to
+        lag the other on freshly-minted trycloudflare hostnames; either
+        can be authoritative on a given day. We need ANY resolver to
+        say yes, because Twilio's edge will hit one of these paths too.
+
+        Resolvers tried each tick:
+        - Cloudflare DoH (1.1.1.1) — historically the canonical signal.
+        - Google DoH (dns.google) — backup public resolver.
+        - System getaddrinfo — what local DNS sees; fastest when
+          Cloudflare DoH is the laggard (observed 2026-05-13).
 
         Caller is responsible for starting the local HTTP server *before*
         calling this — otherwise the HTTP probe sees 502 from Cloudflare
@@ -116,30 +124,62 @@ class CloudflareTunnel:
         assert self.public_url is not None
         deadline = asyncio.get_running_loop().time() + (timeout_s or self.edge_ready_timeout_s)
         last_error: Optional[str] = None
-        # Extract hostname from the URL.
         host = self.public_url.replace("https://", "").replace("http://", "").rstrip("/").split("/")[0]
+
+        async def _via_doh(client: httpx.AsyncClient, url: str) -> Optional[str]:
+            r = await client.get(
+                url,
+                params={"name": host, "type": "A"},
+                headers={"accept": "application/dns-json"},
+            )
+            data = r.json()
+            if data.get("Status") == 0 and data.get("Answer"):
+                return data["Answer"][0].get("data")
+            return None
+
+        async def _via_system() -> Optional[str]:
+            try:
+                infos = await asyncio.get_running_loop().getaddrinfo(
+                    host, None, family=0, type=0, proto=0, flags=0
+                )
+                if infos:
+                    return infos[0][4][0]
+                return None
+            except Exception:
+                return None
 
         async with httpx.AsyncClient(timeout=5.0) as doh_client:
             while asyncio.get_running_loop().time() < deadline:
-                try:
-                    # DoH against Cloudflare 1.1.1.1. Response format:
-                    # {"Status": 0, "Answer": [{"data": "104.16.230.132", ...}]}
-                    r = await doh_client.get(
-                        "https://cloudflare-dns.com/dns-query",
-                        params={"name": host, "type": "A"},
-                        headers={"accept": "application/dns-json"},
+                # Race three resolvers — succeed if ANY say "resolved" within this tick.
+                tasks = [
+                    asyncio.create_task(_via_doh(doh_client, "https://cloudflare-dns.com/dns-query")),
+                    asyncio.create_task(_via_doh(doh_client, "https://dns.google/resolve")),
+                    asyncio.create_task(_via_system()),
+                ]
+                # Wait for ALL to complete (or timeout) — fast resolvers
+                # returning None must not cause us to give up before slower
+                # resolvers (which may have the answer) finish.
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED, timeout=5.0)
+                resolved_ip: Optional[str] = None
+                fail_reasons: list[str] = []
+                for t in done:
+                    try:
+                        result = t.result()
+                        if result:
+                            resolved_ip = result
+                            break
+                        fail_reasons.append("no answer")
+                    except Exception as e:
+                        fail_reasons.append(f"{type(e).__name__}: {e}")
+                for p in pending:
+                    p.cancel()
+                if resolved_ip:
+                    logger.debug(
+                        "cloudflared tunnel %s resolves globally (A=%s)",
+                        host, resolved_ip,
                     )
-                    data = r.json()
-                    if data.get("Status") == 0 and data.get("Answer"):
-                        ip = data["Answer"][0].get("data")
-                        logger.debug(
-                            "cloudflared tunnel %s resolves globally (A=%s)",
-                            host, ip,
-                        )
-                        return
-                    last_error = f"DoH Status={data.get('Status')}"
-                except Exception as e:
-                    last_error = f"{type(e).__name__}: {e}"
+                    return
+                last_error = ", ".join(fail_reasons) or "no resolver responded"
                 await asyncio.sleep(1.0)
 
         raise TunnelUnavailableError(
