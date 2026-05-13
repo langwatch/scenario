@@ -136,14 +136,46 @@ class TestEnrichMessagesWithTranscripts:
         # The assistant message still has its original content
         assert result[1]["content"] == msgs[1]["content"]
 
-    def test_leaves_user_messages_unchanged(self):
-        """User messages with audio content are never modified."""
-        msgs = _voice_messages()
+    def test_leaves_user_message_with_text_unchanged(self):
+        """A user message that already carries text (audio+text) is not modified."""
+        msgs = _voice_messages()  # user has BOTH text + audio
         recording = _make_recording()
 
         result = _enrich_messages_with_transcripts(msgs, recording)
 
         assert result[0] == msgs[0]
+
+    def test_audio_only_user_message_gets_transcript_prepended(self):
+        """An audio-only user message (no text part) gets its segment's
+        transcript prepended. This is what lets a text-only judge read
+        what the user simulator said via the swapped STT provider.
+        """
+        user_msg = {
+            "role": "user",
+            "content": [
+                {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}},
+            ],
+        }
+        assistant_msg = {
+            "role": "assistant",
+            "content": [
+                {"type": "input_audio", "input_audio": {"data": "BBBB", "format": "wav"}},
+            ],
+        }
+        original_user_audio = user_msg["content"][0]
+        original_agent_audio = assistant_msg["content"][0]
+        recording = _make_recording(agent_transcript="agent reply text")
+
+        result = _enrich_messages_with_transcripts([user_msg, assistant_msg], recording)
+
+        assert result[0]["content"] == [
+            {"type": "text", "text": "user said hi"},
+            original_user_audio,
+        ]
+        assert result[1]["content"] == [
+            {"type": "text", "text": "agent reply text"},
+            original_agent_audio,
+        ]
 
     def test_degrades_gracefully_when_no_transcript(self):
         """If no transcript available (STT failed), the message is left as-is."""

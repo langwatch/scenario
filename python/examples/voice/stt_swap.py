@@ -88,10 +88,14 @@ async def main() -> scenario.ScenarioResult:
                 scenario.UserSimulatorAgent(voice="openai/nova"),
                 scenario.JudgeAgent(
                     criteria=[
+                        # The judge can verify these from the transcript: that
+                        # the agent understood the user (proxies STT working)
+                        # and produced a coherent exchange. The swap itself is
+                        # verified *mechanically* below: we count
+                        # ElevenLabsSTT.transcribe() calls and assert >0.
                         "The agent responded helpfully",
-                        # Claim from docstring: scenario.configure(stt=...) swaps OpenAI default for ElevenLabs STT.
-                        "The judge transcribed an audio turn through the swapped-in ElevenLabs STT provider",
-                        "The conversation is a coherent example of the STT-provider-swap path",
+                        "The agent's reply demonstrates it understood the user's input (so STT must have run end-to-end)",
+                        "The conversation is a coherent example of a voice exchange",
                     ]
                 ),
             ],
@@ -118,10 +122,27 @@ async def main() -> scenario.ScenarioResult:
             transcript = await stt.transcribe(chunk)
             segment.transcript = transcript
 
+    # Mechanical proof of the swap: ElevenLabsSTTProvider.transcribe() was
+    # called. The judge cannot observe provider internals from the transcript;
+    # this assertion is what verifies the docstring claim.
+    transcribe_count = len(_transcribe_calls)
+    swap_verified = transcribe_count > 0
+
     print(f"success: {result.success}")
-    print(f"ElevenLabsSTT.transcribe() calls: {len(_transcribe_calls)}")
+    print(f"ElevenLabsSTT.transcribe() calls: {transcribe_count}")
+    print(f"swap verified (transcribe count > 0): {swap_verified}")
     print(f"verdict: {result.reasoning}")
     save_demo_recording(getattr(result, "audio", None))
+
+    if not swap_verified:
+        # If the swap didn't fire, demo failed regardless of judge verdict.
+        result.success = False
+        result.reasoning = (
+            "STT provider swap NOT verified: ElevenLabsSTTProvider.transcribe() "
+            "was never called. The configured provider failed to engage. "
+            f"(Original judge verdict: {result.reasoning})"
+        )
+
     return result
 
 
