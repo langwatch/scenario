@@ -261,6 +261,10 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             try:
                 await self._recv_iter.aclose()  # type: ignore[attr-defined]
             except Exception:
+                # Best-effort teardown: the iterator may already be
+                # closed or in an invalid state during shutdown. Any
+                # exception here is non-actionable since we're tearing
+                # down anyway.
                 pass
             self._recv_iter = None
         if self._shutdown is not None:
@@ -269,6 +273,10 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             try:
                 await asyncio.wait_for(self._session_task, timeout=5.0)
             except (asyncio.TimeoutError, Exception):
+                # Timeout: task didn't finish in 5s — proceed with
+                # teardown anyway, can't block disconnect indefinitely.
+                # Other Exception: task error during shutdown is
+                # non-actionable; we're discarding the session.
                 pass
         self._session = None
         self._session_task = None

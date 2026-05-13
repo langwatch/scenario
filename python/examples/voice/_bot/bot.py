@@ -768,6 +768,8 @@ def main() -> None:
     try:
         asyncio.run(serve(host=args.host, port=args.port))
     except KeyboardInterrupt:
+        # Ctrl-C is the expected shutdown signal for this CLI; swallow
+        # so the user doesn't see an unhandled traceback.
         pass
 
 
