@@ -326,6 +326,9 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             try:
                 await self._recv_iter.aclose()  # type: ignore[attr-defined]
             except Exception:
+                # Best-effort: prior turn's receive iterator may already be
+                # closed or in an error state. We're resetting to start a new
+                # turn — propagating here would block legitimate new turns.
                 pass
             self._recv_iter = None
         await self._session.send_realtime_input(activity_start=types.ActivityStart())
@@ -489,11 +492,16 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                     if sc is not None and sc.turn_complete:
                         break
         except asyncio.TimeoutError:
+            # Bounded drain: if the server doesn't close out the turn within
+            # 2s after we sent the activity_end, give up and proceed. The
+            # finally block will still close the iterator.
             pass
         finally:
             try:
                 await self._recv_iter.aclose()  # type: ignore[attr-defined]
             except Exception:
+                # Best-effort close; the iterator may already be exhausted
+                # or in an error state. Don't mask the original outcome.
                 pass
             self._recv_iter = None
 

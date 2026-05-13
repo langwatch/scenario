@@ -1109,6 +1109,9 @@ class ScenarioExecutor:
             try:
                 await pending
             except (asyncio.CancelledError, Exception):
+                # Drain the cancellation — any exception from the cancelled
+                # task is expected and intentional. We're abandoning this
+                # agent turn because no adapter is available to barge in on.
                 pass
             self._pending_agent_task = None
         else:
@@ -1122,6 +1125,10 @@ class ScenarioExecutor:
                 try:
                     await asyncio.wait_for(speaking.wait(), timeout=15.0)
                 except asyncio.TimeoutError:
+                    # Bounded wait: don't stall the script forever if a hung
+                    # bot never starts speaking. We proceed and fire the
+                    # interrupt anyway — the outcome label will be
+                    # "fired_before_speech" so callers can see what happened.
                     pass
 
             # Snapshot BEFORE we barge in so we can label the outcome
