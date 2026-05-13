@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-05-11T16:25:33.843856+00:00",
+  "duration": 34.55243087499912,
+  "segment_count": 3,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-3818ms.wav",
+      "role": "agent",
+      "start_time": 3.8187994159998198,
+      "end_time": 4.433622458000173,
+      "duration": 0.6148230420003529,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-14812ms.wav",
+      "role": "user",
+      "start_time": 14.812213790999522,
+      "end_time": 25.20841866599949,
+      "duration": 10.396204874999967,
+      "transcript": "you charged me the wrong amount fix it now i'm in a noisy cafe and i'm furious refund the $42 charge from today"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-33922ms.wav",
+      "role": "agent",
+      "start_time": 33.92260399999941,
+      "end_time": 34.55243087499912,
+      "duration": 0.6298268749997078,
+      "transcript": "I'm sorry about that. I'd be happy to help with a refund. Can you confirm the date and the merchant name or last four digits of the card for the $42 charge so I can get it started?"
+    }
+  ],
+  "events": [
+    {
+      "time": 3.8187994159998198,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 4.433622458000173,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 14.812213790999522,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 25.20841866599949,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 33.92260399999941,
+      "type": "agent_start_speaking",
+      "latency": 8.714185333999922
+    },
+    {
+      "time": 34.55243087499912,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

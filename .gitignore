@@ -203,3 +203,25 @@ python/recordings/*
 !python/recordings/twilio_outbound/
 !python/recordings/gemini_live/
 !python/recordings/gemini_live_interruption/
+# Additional demos — commit only full.wav + manifest.json (skip segments/
+# to avoid hundreds of tiny per-turn wavs in the tree).
+!python/recordings/openai_realtime_agent/
+python/recordings/openai_realtime_agent/segments/
+!python/recordings/pipecat_scenario/
+python/recordings/pipecat_scenario/segments/
+!python/recordings/pipecat_ws/
+python/recordings/pipecat_ws/segments/
+!python/recordings/basic_greeting/
+python/recordings/basic_greeting/segments/
+!python/recordings/voice_text_parity/
+python/recordings/voice_text_parity/segments/
+!python/recordings/recording_playback/
+python/recordings/recording_playback/segments/
+!python/recordings/interruption_recovery/
+python/recordings/interruption_recovery/segments/
+!python/recordings/random_interruptions/
+python/recordings/random_interruptions/segments/
+!python/recordings/angry_customer/
+python/recordings/angry_customer/segments/
+!python/recordings/background_handoff/
+python/recordings/background_handoff/segments/

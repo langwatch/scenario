@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-08T16:53:29.160196+00:00",
+  "duration": 14.178388458996778,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-2167ms.wav",
+      "role": "user",
+      "start_time": 2.1672973750100937,
+      "end_time": 5.851027042008354,
+      "duration": 3.6837296669982607,
+      "transcript": "Hi! Can you help me with a question about my account?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-5851ms.wav",
+      "role": "agent",
+      "start_time": 5.851106250003795,
+      "end_time": 6.452671417006059,
+      "duration": 0.6015651670022635,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-7836ms.wav",
+      "role": "user",
+      "start_time": 7.8361696250067325,
+      "end_time": 9.777834292006446,
+      "duration": 1.9416646669997135,
+      "transcript": "What are your hours?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-13458ms.wav",
+      "role": "agent",
+      "start_time": 13.458843334010453,
+      "end_time": 14.178388458996778,
+      "duration": 0.7195451249863254,
+      "transcript": "We're open Monday through Friday, 9 AM to 6 PM. What's your account question?"
+    }
+  ],
+  "events": [
+    {
+      "time": 2.1672973750100937,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 5.851027042008354,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 5.851106250003795,
+      "type": "agent_start_speaking",
+      "latency": 7.920799544081092e-05
+    },
+    {
+      "time": 6.452671417006059,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 7.8361696250067325,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.777834292006446,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 13.458843334010453,
+      "type": "agent_start_speaking",
+      "latency": 3.681009042004007
+    },
+    {
+      "time": 14.178388458996778,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

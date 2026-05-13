@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-05-09T18:36:47.903423+00:00",
+  "duration": 4.3192643750226125,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-2553ms.wav",
+      "role": "user",
+      "start_time": 2.553723582997918,
+      "end_time": 2.56050462499843,
+      "duration": 0.006781042000511661,
+      "transcript": "Hello, can you help me?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-3408ms.wav",
+      "role": "agent",
+      "start_time": 3.408141833002446,
+      "end_time": 4.3192643750226125,
+      "duration": 0.9111225420201663,
+      "transcript": "Of course, I'm here to help. What do you need assistance with today?"
+    }
+  ],
+  "events": [
+    {
+      "time": 2.553723582997918,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.56050462499843,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 3.408141833002446,
+      "type": "agent_start_speaking",
+      "latency": 0.8476372080040164
+    },
+    {
+      "time": 4.3192643750226125,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
