@@ -416,7 +416,7 @@ export default defineConfig({
               link: "/voice/capability-matrix",
             },
             {
-              text: "Adapters",
+              text: "How to choose an adapter",
               link: "/voice/choosing-an-adapter",
               collapsed: true,
               items: [
