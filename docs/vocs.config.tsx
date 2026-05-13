@@ -306,6 +306,93 @@ export default defineConfig({
       ],
     },
     {
+      text: "Voice Agents",
+      items: [
+        {
+          text: "Getting Started",
+          link: "/voice/getting-started",
+        },
+        {
+          text: "Capability Matrix",
+          link: "/voice/capability-matrix",
+        },
+        {
+          text: "How to choose an adapter",
+          link: "/voice/choosing-an-adapter",
+          collapsed: true,
+          items: [
+            {
+              text: "Twilio",
+              link: "/voice/adapters/twilio",
+            },
+            {
+              text: "OpenAI Realtime",
+              link: "/voice/adapters/openai-realtime",
+            },
+            {
+              text: "Pipecat",
+              link: "/voice/adapters/pipecat",
+            },
+            {
+              text: "ElevenLabs",
+              link: "/voice/adapters/elevenlabs",
+            },
+            {
+              text: "Gemini Live",
+              link: "/voice/adapters/gemini-live",
+            },
+            {
+              text: "LiveKit (preview)",
+              link: "/voice/adapters/livekit",
+            },
+            {
+              text: "Vapi (preview)",
+              link: "/voice/adapters/vapi",
+            },
+            {
+              text: "WebRTC (preview)",
+              link: "/voice/adapters/webrtc",
+            },
+            {
+              text: "Composable",
+              link: "/voice/adapters/composable",
+            },
+            {
+              text: "WebSocket",
+              link: "/voice/adapters/websocket",
+            },
+          ],
+        },
+        {
+          text: "Recipes",
+          link: "/voice/recipes",
+          collapsed: true,
+          items: [
+            {
+              text: "Interruptions",
+              link: "/voice/recipes/interrupt",
+            },
+            {
+              text: "Multi-Turn Conversations",
+              link: "/voice/recipes/multi-turn",
+            },
+            {
+              text: "Audio Effects",
+              link: "/voice/recipes/effects",
+            },
+            {
+              text: "Observability",
+              link: "/voice/recipes/observability",
+            },
+          ],
+        },
+        {
+          text: "Troubleshooting",
+          link: "/voice/troubleshooting",
+        },
+      ],
+    },
+    {
       text: "Advanced",
       items: [
         {
@@ -401,93 +488,6 @@ export default defineConfig({
             {
               text: "Files",
               link: "/examples/multimodal/multimodal-files",
-            },
-          ],
-        },
-        {
-          text: "Voice Agents",
-          items: [
-            {
-              text: "Getting Started",
-              link: "/voice/getting-started",
-            },
-            {
-              text: "Capability Matrix",
-              link: "/voice/capability-matrix",
-            },
-            {
-              text: "How to choose an adapter",
-              link: "/voice/choosing-an-adapter",
-              collapsed: true,
-              items: [
-                {
-                  text: "Twilio",
-                  link: "/voice/adapters/twilio",
-                },
-                {
-                  text: "OpenAI Realtime",
-                  link: "/voice/adapters/openai-realtime",
-                },
-                {
-                  text: "Pipecat",
-                  link: "/voice/adapters/pipecat",
-                },
-                {
-                  text: "ElevenLabs",
-                  link: "/voice/adapters/elevenlabs",
-                },
-                {
-                  text: "Gemini Live",
-                  link: "/voice/adapters/gemini-live",
-                },
-                {
-                  text: "LiveKit (preview)",
-                  link: "/voice/adapters/livekit",
-                },
-                {
-                  text: "Vapi (preview)",
-                  link: "/voice/adapters/vapi",
-                },
-                {
-                  text: "WebRTC (preview)",
-                  link: "/voice/adapters/webrtc",
-                },
-                {
-                  text: "Composable",
-                  link: "/voice/adapters/composable",
-                },
-                {
-                  text: "WebSocket",
-                  link: "/voice/adapters/websocket",
-                },
-              ],
-            },
-            {
-              text: "Recipes",
-              link: "/voice/recipes",
-              collapsed: true,
-              items: [
-                {
-                  text: "Interruptions",
-                  link: "/voice/recipes/interrupt",
-                },
-                {
-                  text: "Multi-Turn Conversations",
-                  link: "/voice/recipes/multi-turn",
-                },
-                {
-                  text: "Audio Effects",
-                  link: "/voice/recipes/effects",
-                },
-                {
-                  text: "Observability",
-                  link: "/voice/recipes/observability",
-                },
-              ],
-            },
-            {
-              text: "Troubleshooting",
-              link: "/voice/troubleshooting",
             },
           ],
         },
