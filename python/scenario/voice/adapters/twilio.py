@@ -242,7 +242,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
 
     # ------------------------------------------------------------------ direction
 
-    async def place_call(self, to: str, *, timeout: float = 120.0) -> None:
+    async def place_call(
+        self,
+        to: str,
+        *,
+        timeout: float = 120.0,
+        attach_stream_to_self: bool = True,
+    ) -> None:
         """
         Originate an outbound call from this adapter's Twilio number to ``to``.
 
@@ -297,20 +303,21 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._rest is not None
         assert self._stream_connected is not None
 
-        # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
-        # B's leg attaches its Media Stream to our harness webhook. We own
-        # this number (same Twilio account); disconnect() will restore.
-        self._callee_phone_number_sid = self._rest.resolve_phone_number_sid(to)
-        self._prior_callee_voice_url = self._rest.read_voice_url(
-            self._callee_phone_number_sid
-        )
-        webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
-        self._rest.write_voice_url(self._callee_phone_number_sid, webhook_url)
-        logger.info(
-            "TwilioAgentAdapter: rewrote callee %s voice_url to %s",
-            to,
-            webhook_url,
-        )
+        if attach_stream_to_self:
+            # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
+            # B's leg attaches its Media Stream to our harness webhook. We own
+            # this number (same Twilio account); disconnect() will restore.
+            self._callee_phone_number_sid = self._rest.resolve_phone_number_sid(to)
+            self._prior_callee_voice_url = self._rest.read_voice_url(
+                self._callee_phone_number_sid
+            )
+            webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+            self._rest.write_voice_url(self._callee_phone_number_sid, webhook_url)
+            logger.info(
+                "TwilioAgentAdapter: rewrote callee %s voice_url to %s",
+                to,
+                webhook_url,
+            )
 
         # A-leg TwiML: just hold the bridge open. Twilio runs this on the
         # originator side while B's webhook attaches the Media Stream.
@@ -328,7 +335,12 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             to,
         )
 
-        await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+        if attach_stream_to_self:
+            # Wait for OUR webhook to fire — only meaningful when we rewrote
+            # the callee's voice_url to point at us. In originator-only mode
+            # (attach_stream_to_self=False), there's no stream coming to us;
+            # the callee has its own harness which owns the stream.
+            await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
 
     async def wait_for_call(self, timeout: float = 120.0) -> None:
         """

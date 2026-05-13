@@ -88,9 +88,15 @@ async def main() -> scenario.ScenarioResult:
             )
             await asyncio.sleep(1.0)
 
+            # Originator-only mode: place the call so we capture its SID
+            # (needed later for scenario.dtmf() → send_dtmf_on_call), but
+            # do NOT rewrite the callee's voice_url. The callee is the
+            # agent adapter's number, whose harness already owns its
+            # voice_url and is in wait_for_call mode.
             await sim_adapter.place_call(
                 to=os.environ["TWILIO_PHONE_NUMBER"],
                 timeout=60.0,
+                attach_stream_to_self=False,
             )
             _ = await agent_wait
 
