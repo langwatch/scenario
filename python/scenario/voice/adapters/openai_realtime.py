@@ -160,6 +160,9 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             try:
                 await self._ws.close()
             except Exception:
+                # Best-effort: connection may already be half-closed or in an
+                # error state when disconnect() is called. We're tearing down
+                # regardless — propagating here would just leak the WS reference.
                 pass
             finally:
                 self._ws = None
