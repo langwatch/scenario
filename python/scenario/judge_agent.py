@@ -1018,9 +1018,9 @@ def _enrich_messages_with_transcripts(
     recording: Any,
 ) -> List[Any]:
     """
-    Add a transcript text part to each agent audio-only message, preserving
-    the audio part so the judge still sees ``input_audio`` evidence in the
-    message.
+    Add a transcript text part to each audio-only message (both user AND
+    agent), preserving the audio part so the judge still sees ``input_audio``
+    evidence in the message.
 
     Why we don't REPLACE: criteria like "agent and user exchanged real audio
     turns" need the audio block visible to the judge as proof the message
@@ -1035,30 +1035,40 @@ def _enrich_messages_with_transcripts(
     so token cost stays bounded; what survives is the **shape** evidence
     (the audio block) plus the readable transcript.
 
-    User messages are left untouched (their transcript lives alongside the
-    audio part already). Returns a new list — does not mutate input.
+    Returns a new list — does not mutate input.
 
-    Matching strategy: ordinal — the Nth assistant audio-only message maps
-    to the Nth agent segment (in temporal order) whose transcript is
-    populated after transcribe_segments().
+    Matching strategy: per-role ordinal — the Nth assistant audio-only
+    message maps to the Nth agent segment, and the Nth user audio-only
+    message maps to the Nth user segment (each in temporal order). This
+    role-scoped matching is important when scenarios interleave turns:
+    user/agent counts don't have to match.
 
     If a segment has no transcript (STT failed / unavailable), the
     corresponding message is left as-is so evaluation degrades gracefully.
     """
-    # Gather agent segments with a non-null transcript, in temporal order.
+    # Gather transcripts per-role in temporal order. Both rails are
+    # transcribed by the same provider via ``transcribe_segments`` upstream;
+    # this loop just routes the resulting text into the matching message.
     segments = getattr(recording, "segments", []) or []
+    sorted_segments = sorted(segments, key=lambda s: s.start_time)
     agent_transcripts = [
         s.transcript
-        for s in sorted(segments, key=lambda s: s.start_time)
+        for s in sorted_segments
         if getattr(s, "speaker", None) == "agent" and s.transcript
+    ]
+    user_transcripts = [
+        s.transcript
+        for s in sorted_segments
+        if getattr(s, "speaker", None) == "user" and s.transcript
     ]
 
     enriched: List[Any] = []
     agent_msg_idx = 0  # ordinal counter over assistant audio-only messages
+    user_msg_idx = 0  # ordinal counter over user audio-only messages
 
     for msg in messages:
         role = msg.get("role") if isinstance(msg, dict) else None
-        if role != "assistant":
+        if role not in ("assistant", "user"):
             enriched.append(msg)
             continue
 
@@ -1077,17 +1087,29 @@ def _enrich_messages_with_transcripts(
             for p in content
         )
 
-        if has_audio and not has_text and agent_msg_idx < len(agent_transcripts):
-            transcript_text = agent_transcripts[agent_msg_idx]
-            agent_msg_idx += 1
-            # PREPEND text alongside the audio part — preserve audio evidence.
-            enriched.append({
-                **msg,
-                "content": [{"type": "text", "text": transcript_text}, *content],
-            })
-        else:
-            if has_audio and not has_text:
-                agent_msg_idx += 1  # consume the slot even when no transcript
-            enriched.append(msg)
+        if has_audio and not has_text:
+            if role == "assistant" and agent_msg_idx < len(agent_transcripts):
+                transcript_text = agent_transcripts[agent_msg_idx]
+                agent_msg_idx += 1
+                enriched.append({
+                    **msg,
+                    "content": [{"type": "text", "text": transcript_text}, *content],
+                })
+                continue
+            if role == "user" and user_msg_idx < len(user_transcripts):
+                transcript_text = user_transcripts[user_msg_idx]
+                user_msg_idx += 1
+                enriched.append({
+                    **msg,
+                    "content": [{"type": "text", "text": transcript_text}, *content],
+                })
+                continue
+            # No transcript available — consume the ordinal slot anyway so
+            # subsequent messages map to the right segment.
+            if role == "assistant":
+                agent_msg_idx += 1
+            else:
+                user_msg_idx += 1
+        enriched.append(msg)
 
     return enriched
