@@ -38,6 +38,7 @@ jobs:
     timeout-minutes: 45
     env:
       CI: true
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -96,13 +97,11 @@ jobs:
       # Exports ELEVENLABS_AGENT_ID into GITHUB_ENV for subsequent steps.
       # ---------------------------------------------------------------
       - name: Provision ElevenLabs test agent
-        if: ${{ secrets.ELEVENLABS_API_KEY != '' }}
+        if: ${{ env.ELEVENLABS_API_KEY != '' }}
         run: |
           AGENT_ID=$(uv run python ../scripts/provision_elevenlabs_agent.py)
           echo "ELEVENLABS_AGENT_ID=${AGENT_ID}" >> "${GITHUB_ENV}"
         working-directory: python
-        env:
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
       - name: Run marker-tagged integration tests
         # `|| true` so the step doesn't fail when zero tests match the
