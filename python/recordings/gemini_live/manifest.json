@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-11T10:39:49.480056+00:00",
+  "duration": 16.100540667000132,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-2571ms.wav",
+      "role": "user",
+      "start_time": 2.571218958000827,
+      "end_time": 2.576416708000579,
+      "duration": 0.005197749999751977,
+      "transcript": "Hello, I'm planning a trip to Japan next month."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-6898ms.wav",
+      "role": "agent",
+      "start_time": 6.898636249999981,
+      "end_time": 8.315688292000232,
+      "duration": 1.4170520420002504,
+      "transcript": "That sounds exciting!  Is there  a specific  part  or things  you plan  to do?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-9882ms.wav",
+      "role": "user",
+      "start_time": 9.88269420800043,
+      "end_time": 9.884898083000735,
+      "duration": 0.0022038750003048335,
+      "transcript": "What's one thing I shouldn't miss while I'm there?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-14053ms.wav",
+      "role": "agent",
+      "start_time": 14.053779625000061,
+      "end_time": 16.100540667000132,
+      "duration": 2.046761042000071,
+      "transcript": "Kyoto is a must-see  for its  incredible  temples,  gardens,  and traditional  culture."
+    }
+  ],
+  "events": [
+    {
+      "time": 2.571218958000827,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.576416708000579,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 6.898636249999981,
+      "type": "agent_start_speaking",
+      "latency": 4.322219541999402
+    },
+    {
+      "time": 8.315688292000232,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 9.88269420800043,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.884898083000735,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 14.053779625000061,
+      "type": "agent_start_speaking",
+      "latency": 4.168881541999326
+    },
+    {
+      "time": 16.100540667000132,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

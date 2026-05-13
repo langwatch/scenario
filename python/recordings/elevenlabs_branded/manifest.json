@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-12T21:46:57.476391+00:00",
+  "duration": 11.673752083006548,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-1437ms.wav",
+      "role": "user",
+      "start_time": 1.4374842919933144,
+      "end_time": 2.8485018750070594,
+      "duration": 1.411017583013745,
+      "transcript": "Hi there, I have a quick question about my plan"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-5334ms.wav",
+      "role": "agent",
+      "start_time": 5.334270457999082,
+      "end_time": 5.93668220800464,
+      "duration": 0.6024117500055581,
+      "transcript": "Hi! Sure \u2014 what would you like to know about your plan?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-7374ms.wav",
+      "role": "user",
+      "start_time": 7.374319374997867,
+      "end_time": 8.714773624989903,
+      "duration": 1.3404542499920353,
+      "transcript": "And can you tell me what features are included?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-11072ms.wav",
+      "role": "agent",
+      "start_time": 11.072001791995717,
+      "end_time": 11.673752083006548,
+      "duration": 0.6017502910108306,
+      "transcript": "Of course \u2014 I can help with that. Which plan are you referring to?"
+    }
+  ],
+  "events": [
+    {
+      "time": 1.4374842919933144,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.8485018750070594,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 5.334270457999082,
+      "type": "agent_start_speaking",
+      "latency": 2.485768582992023
+    },
+    {
+      "time": 5.93668220800464,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 7.374319374997867,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.714773624989903,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 11.072001791995717,
+      "type": "agent_start_speaking",
+      "latency": 2.3572281670058146
+    },
+    {
+      "time": 11.673752083006548,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
