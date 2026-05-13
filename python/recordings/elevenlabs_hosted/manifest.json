@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-05-12T21:46:17.574933+00:00",
+  "duration": 12.082665083988104,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0989ms.wav",
+      "role": "agent",
+      "start_time": 0.9893273749912623,
+      "end_time": 1.6257294589886442,
+      "duration": 0.6364020839973819,
+      "transcript": "Hello, how can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3178ms.wav",
+      "role": "user",
+      "start_time": 3.1781378340092488,
+      "end_time": 3.1819462919957004,
+      "duration": 0.0038084579864516854,
+      "transcript": "Hello, I have a question about my account."
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-6443ms.wav",
+      "role": "agent",
+      "start_time": 6.4437228750030044,
+      "end_time": 7.2568342500017025,
+      "duration": 0.813111374998698,
+      "transcript": "Certainly, I can help with that. What specifically would you like to know about your account?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-8715ms.wav",
+      "role": "user",
+      "start_time": 8.715622999996413,
+      "end_time": 8.718775666988222,
+      "duration": 0.003152666991809383,
+      "transcript": "What information do you need from me to look it up?"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-11278ms.wav",
+      "role": "agent",
+      "start_time": 11.278413749998435,
+      "end_time": 12.082665083988104,
+      "duration": 0.8042513339896686,
+      "transcript": "I will need your account number or the email address associated with your account, please."
+    }
+  ],
+  "events": [
+    {
+      "time": 0.9893273749912623,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 1.6257294589886442,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.1781378340092488,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 3.1819462919957004,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 6.4437228750030044,
+      "type": "agent_start_speaking",
+      "latency": 3.261776583007304
+    },
+    {
+      "time": 7.2568342500017025,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 8.715622999996413,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.718775666988222,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 11.278413749998435,
+      "type": "agent_start_speaking",
+      "latency": 2.5596380830102134
+    },
+    {
+      "time": 12.082665083988104,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

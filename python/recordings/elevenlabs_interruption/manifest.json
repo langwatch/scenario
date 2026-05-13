@@ -1,0 +1,114 @@
+{
+  "generated_at": "2026-05-12T21:47:55.184542+00:00",
+  "duration": 11.158703624998452,
+  "segment_count": 6,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-1996ms.wav",
+      "role": "user",
+      "start_time": 1.9969398329849355,
+      "end_time": 1.9983238329878077,
+      "duration": 0.0013840000028721988,
+      "transcript": "Hello, I'd like to know about your products."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-1998ms.wav",
+      "role": "agent",
+      "start_time": 1.9986019999778364,
+      "end_time": 2.599403749976773,
+      "duration": 0.6008017499989364,
+      "transcript": "Hello, how can I help you today?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-4001ms.wav",
+      "role": "user",
+      "start_time": 4.001898332993733,
+      "end_time": 4.003496499994071,
+      "duration": 0.0015981670003384352,
+      "transcript": "Tell me about every product feature you offer in detail."
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-4699ms.wav",
+      "role": "agent",
+      "start_time": 4.6999075829808135,
+      "end_time": 5.3011621669866145,
+      "duration": 0.601254584005801,
+      "transcript": "We offer a range"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-user-5551ms.wav",
+      "role": "user",
+      "start_time": 5.551433291984722,
+      "end_time": 5.556759041995974,
+      "duration": 0.005325750011252239,
+      "transcript": "Sorry, one more thing \u2014 what are your business hours?"
+    },
+    {
+      "idx": 5,
+      "file": "segments/05-agent-10077ms.wav",
+      "role": "agent",
+      "start_time": 10.077544291998493,
+      "end_time": 11.158703624998452,
+      "duration": 1.0811593329999596,
+      "transcript": "We offer features such as secure data storage. Our business hours are Monday through Friday from 9 a.m. to 5 p.m."
+    }
+  ],
+  "events": [
+    {
+      "time": 1.9969398329849355,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 1.9983238329878077,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 1.9986019999778364,
+      "type": "agent_start_speaking",
+      "latency": 0.00027816699002869427
+    },
+    {
+      "time": 2.599403749976773,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 4.001898332993733,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 4.003496499994071,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 4.6999075829808135,
+      "type": "agent_start_speaking",
+      "latency": 0.6964110829867423
+    },
+    {
+      "time": 5.3011621669866145,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 5.551433291984722,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 5.556759041995974,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 10.077544291998493,
+      "type": "agent_start_speaking",
+      "latency": 4.520785250002518
+    },
+    {
+      "time": 11.158703624998452,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-05-11T10:42:07.552268+00:00",
+  "duration": 10.907875416000024,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-2465ms.wav",
+      "role": "user",
+      "start_time": 2.4656587499994203,
+      "end_time": 2.4717919579998124,
+      "duration": 0.006133208000392187,
+      "transcript": "Tell me everything you can about your platform"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-10346ms.wav",
+      "role": "agent",
+      "start_time": 10.346090000000004,
+      "end_time": 10.907875416000024,
+      "duration": 0.5617854160000206,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 2.4656587499994203,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.4717919579998124,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 10.329755374999877,
+      "type": "user_interrupt",
+      "metadata": {
+        "adapter": "GeminiLiveAgentAdapter",
+        "native": false,
+        "outcome": "fired_after_speech"
+      }
+    },
+    {
+      "time": 10.346090000000004,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 10.907875416000024,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

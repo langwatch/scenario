@@ -189,5 +189,17 @@ docs/docs/public/reference/python/**/*
 .claude/scheduled_tasks.lock
 .worktrees
 
-# Voice demo recordings — generated, not committed
-python/recordings/
+# Voice demo recordings — most are regenerated per local run, NOT
+# committed. But the subset listed below is checked in as PR
+# evidence: each demo's `full.wav`, `manifest.json`, and per-turn
+# `segments/` directory are the canonical "prove it" artifacts for
+# reviewers. See python/recordings/README.md.
+python/recordings/*
+!python/recordings/README.md
+!python/recordings/elevenlabs_hosted/
+!python/recordings/elevenlabs_branded/
+!python/recordings/elevenlabs_interruption/
+!python/recordings/twilio_inbound/
+!python/recordings/twilio_outbound/
+!python/recordings/gemini_live/
+!python/recordings/gemini_live_interruption/

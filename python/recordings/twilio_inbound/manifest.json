@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-05-12T17:32:16.301777+00:00",
+  "duration": 29.760395499994047,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-1853ms.wav",
+      "role": "user",
+      "start_time": 1.8534086250001565,
+      "end_time": 4.484551249988726,
+      "duration": 2.63114262498857,
+      "transcript": "Hello, I have a quick question."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-4484ms.wav",
+      "role": "agent",
+      "start_time": 4.484716457998729,
+      "end_time": 29.760395499994047,
+      "duration": 25.275679041995318,
+      "transcript": "\u0391\u03c5\u03c4\u03cc \u03c4\u03bf \u03b2\u03b9\u03b2\u03bb\u03af\u03bf"
+    }
+  ],
+  "events": [
+    {
+      "time": 1.8534086250001565,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 4.484551249988726,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 4.484716457998729,
+      "type": "agent_start_speaking",
+      "latency": 0.0001652080100029707
+    },
+    {
+      "time": 29.760395499994047,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
