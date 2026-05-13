@@ -1146,6 +1146,11 @@ class ScenarioExecutor:
                     await adapter.interrupt()
                     native_interrupt_fired = True
                 except Exception:
+                    # Best-effort native cancel — adapters' interrupt() may
+                    # fail mid-flight (WS closed, transport error). Step 2
+                    # (push user audio) is the load-bearing barge-in path
+                    # and runs regardless; native_interrupt_fired stays
+                    # False so the outcome label reflects reality.
                     pass
 
             # 2. Push user audio — the bot's VAD detects the overlap and
@@ -1160,6 +1165,11 @@ class ScenarioExecutor:
                     await adapter.send_audio(chunk)
                     audio_was_sent = True
                 except Exception:
+                    # Best-effort: send_audio may fail if the adapter just
+                    # tore down. The interrupt sequence still completes —
+                    # audio_was_sent stays False so the cleanup branch
+                    # below skips clearing pending messages (which would
+                    # otherwise drop the unsent user turn on the floor).
                     pass
 
             # 3. Cancel scenario-side awaiter and let any in-flight agent
@@ -1169,6 +1179,11 @@ class ScenarioExecutor:
             try:
                 await pending
             except (asyncio.CancelledError, Exception):
+                # Drain the cancellation — CancelledError is expected; any
+                # other exception thrown by the agent task at cancel time
+                # is also intentional (we're tearing the turn down). The
+                # recorder closes out the partial segment from already-
+                # received bytes.
                 pass
             self._pending_agent_task = None
 
@@ -1204,8 +1219,15 @@ class ScenarioExecutor:
                     try:
                         hook(event)
                     except Exception:
+                        # User-supplied hook — swallow exceptions so a
+                        # buggy observer can't break the scenario. The
+                        # event is still recorded on the timeline above.
                         pass
             except Exception:
+                # Timeline append is observability, not control flow. If
+                # construction or recording fails, the scenario should
+                # still complete — surfacing here would mask the actual
+                # scenario outcome behind a recorder bug.
                 pass
 
     async def _maybe_schedule_interrupted_agent_turn(self) -> bool:
