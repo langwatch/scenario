@@ -1,0 +1,51 @@
+---
+title: WebSocket Adapter
+description: Speak a custom WebSocket protocol with WebSocketAgentAdapter and a WebSocketProtocol implementation.
+---
+
+# `WebSocketAgentAdapter`
+
+The bring-your-own primitive. Use when your bot speaks a custom WebSocket
+protocol that doesn't match any of the bundled adapters. You supply a
+`WebSocketProtocol` implementation that handles framing and audio encoding.
+
+## Constructor
+
+```python
+import scenario
+from scenario.voice import WebSocketProtocol  # implement this
+
+class MyProtocol(WebSocketProtocol):
+    ...
+
+adapter = scenario.WebSocketAgentAdapter(
+    url="ws://my-bot.example/stream",
+    protocol=MyProtocol(),
+)
+```
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ❌ | ❌ | ❌ | ❌ | `pcm16/24000` | `pcm16/24000` |
+
+Your `WebSocketProtocol` implementation decides the actual wire formats; the
+capability row above describes what the adapter declares to the scenario
+harness by default.
+
+## When to use this
+
+- Your bot speaks a custom binary or JSON protocol over WebSocket.
+- You need full control over the framing, audio encoding, and event mapping.
+- The bundled adapters (`PipecatAgentAdapter`, `TwilioAgentAdapter`, etc.) don't fit.
+
+If you're writing a Pipecat or Twilio Media Streams bot, prefer
+[`PipecatAgentAdapter`](/voice/adapters/pipecat) or
+[`TwilioAgentAdapter`](/voice/adapters/twilio) instead — they implement those
+protocols for you.
+
+## Worked examples
+
+No shipping demo yet — see the protocol contract in
+[`python/scenario/voice/adapters/websocket.py`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/adapters/websocket.py).

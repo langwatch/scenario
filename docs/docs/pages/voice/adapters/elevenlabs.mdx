@@ -1,0 +1,63 @@
+---
+title: ElevenLabs Adapter
+description: Test a branded ElevenLabs Conversational AI agent with ElevenLabsAgentAdapter, or compose your own stack with ElevenLabsVoiceAgent.
+---
+
+import { Callout } from "vocs/components";
+
+# `ElevenLabsAgentAdapter`
+
+Connects to an ElevenLabs Conversational AI ("Convai") agent over WebSocket.
+Use this when you've built an agent in the ElevenLabs dashboard and want to
+test it end-to-end.
+
+## Constructor
+
+```python
+import os
+import scenario
+
+adapter = scenario.ElevenLabsAgentAdapter(
+    agent_id=os.environ["ELEVENLABS_AGENT_ID"],
+    api_key=os.environ["ELEVENLABS_API_KEY"],
+)
+```
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ✅ | ✅ | ❌ | ❌ | `pcm16/24000` | `pcm16/24000` |
+
+## Worked examples
+
+- [`elevenlabs_hosted.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_hosted.py) — hosted Convai scenario with a judge step.
+- [`elevenlabs_branded.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_branded.py) — branded voice variant.
+- [`elevenlabs_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_interruption.py) — barge-in handling.
+
+## Common failures
+
+- **HTTP 401 `quota_exceeded`** — your character quota is exhausted. See
+  [Troubleshooting → ElevenLabs HTTP 401 quota_exceeded](/voice/troubleshooting#elevenlabs-http-401-quota_exceeded).
+
+## Composable variant — `ElevenLabsVoiceAgent`
+
+If you'd rather pair ElevenLabs STT/TTS with a different LLM, use
+`ElevenLabsVoiceAgent`:
+
+```python
+import os
+import scenario
+
+agent = scenario.ElevenLabsVoiceAgent(
+    api_key=os.environ["ELEVENLABS_API_KEY"],
+)
+```
+
+Optional keyword-only args: `llm` (default `"openai/gpt-5.4-mini"`), `voice`,
+`stt` (custom `STTProvider`), `system_prompt`.
+
+<Callout type="tip">
+  For a fully composable stack with provider-defined STT + LLM + TTS, see the
+  [Composable adapter](/voice/adapters/composable).
+</Callout>

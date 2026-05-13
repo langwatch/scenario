@@ -1,0 +1,72 @@
+---
+title: Twilio Adapter
+description: Test Twilio IVR and phone agents with TwilioAgentAdapter — DTMF, Media Streams WebSocket, full call lifecycle.
+---
+
+import { Callout } from "vocs/components";
+
+# `TwilioAgentAdapter`
+
+Connects to a Twilio phone number over Media Streams (WebSocket) and drives a
+full inbound or outbound call. Supports DTMF detection and the full Twilio
+call-state lifecycle.
+
+## Constructor
+
+```python
+import os
+import scenario
+
+adapter = scenario.TwilioAgentAdapter(
+    account_sid=os.environ["TWILIO_ACCOUNT_SID"],
+    auth_token=os.environ["TWILIO_AUTH_TOKEN"],
+    phone_number=os.environ["TWILIO_PHONE_NUMBER"],
+    http_port=8765,
+)
+```
+
+All arguments after the first three are keyword-only:
+`public_base_url`, `allowed_callers`, `on_dtmf`, `http_port` (default `8765`),
+`role` (default `AgentRole.AGENT`).
+
+## Test harness (recommended)
+
+For end-to-end tests, use `TwilioHarness` — it spins up a cloudflared quick
+tunnel, configures the Twilio webhook for the lifetime of the `async with`
+block, and tears down on exit.
+
+```python
+import os
+from scenario.voice.testing import TwilioHarness
+
+async with TwilioHarness(
+    account_sid=os.environ["TWILIO_ACCOUNT_SID"],
+    auth_token=os.environ["TWILIO_AUTH_TOKEN"],
+    phone_number=os.environ["TWILIO_PHONE_NUMBER"],
+    http_port=8766,
+) as adapter:
+    # Pass `adapter` to `scenario.run(...)`.
+    ...
+```
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ❌ | ❌ | ✅ | ✅ | `mulaw/8000` | `mulaw/8000` |
+
+DTMF tones: send them with `scenario.dtmf("1")` in your script step.
+
+VAD: Twilio has no native VAD; the SDK falls back to `webrtcvad`. See
+[Troubleshooting → VAD didn't fire](/voice/troubleshooting#vad-didnt-fire).
+
+## Worked examples
+
+- [`dtmf_ivr.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/dtmf_ivr.py) — DTMF-driven IVR menu test from dial-in to hang-up.
+- [`twilio_inbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_inbound.py) — inbound call test.
+- [`twilio_outbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_outbound.py) — dialer-side outbound test.
+
+## Common failures
+
+- **HTTP 401 code 20003** — auth token mismatch. See
+  [Troubleshooting → Twilio HTTP 401 code 20003](/voice/troubleshooting#twilio-http-401-code-20003).

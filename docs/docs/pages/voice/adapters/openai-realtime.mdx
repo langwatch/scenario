@@ -1,0 +1,40 @@
+---
+title: OpenAI Realtime Adapter
+description: Use OpenAI Realtime as the agent under test (or as the voice user simulator) with OpenAIRealtimeAgentAdapter.
+---
+
+# `OpenAIRealtimeAgentAdapter`
+
+Connects directly to `wss://api.openai.com/v1/realtime`. Use this when the
+OpenAI Realtime model itself is the agent under test, or as a voice-enabled
+user simulator.
+
+## Constructor
+
+```python
+import scenario
+from scenario.config.voice_models import OPENAI_REALTIME_MODEL
+from scenario.types import AgentRole
+
+adapter = scenario.OpenAIRealtimeAgentAdapter(
+    model=OPENAI_REALTIME_MODEL,
+    voice="alloy",
+    instructions="You are a helpful assistant. Keep responses brief.",
+    role=AgentRole.AGENT,
+)
+```
+
+`api_key` is read from `OPENAI_API_KEY` by default; pass it explicitly to
+override. `tools` accepts function-calling schemas.
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ✅ | ✅ | ❌ | ✅ | `pcm16/24000` | `pcm16/24000` |
+
+## Worked examples
+
+- [`openai_realtime_agent.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_agent.py) — OpenAI Realtime as the agent under test with a judge step.
+- [`openai_realtime_user.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_user.py) — OpenAI Realtime as a voice user simulator.
+- [`getting_started.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/getting_started.py) — minimal runnable scenario from the [getting-started](/voice/getting-started) page.

@@ -1,0 +1,36 @@
+---
+title: Pipecat Adapter
+description: Test a custom Pipecat bot over WebSocket or WebRTC with PipecatAgentAdapter.
+---
+
+# `PipecatAgentAdapter`
+
+Drives a custom Pipecat bot. Connects to your bot's WebSocket endpoint (which
+speaks the Twilio Media Streams binary protocol) or to a WebRTC signaling
+endpoint.
+
+## Constructor
+
+```python
+import scenario
+
+adapter = scenario.PipecatAgentAdapter(
+    url="ws://localhost:8765/stream",
+    audio_format="mulaw",
+    sample_rate=8000,
+)
+```
+
+Other keyword-only arguments: `signaling_url` (for `transport="webrtc"`),
+`transport` (`"websocket"` default or `"webrtc"`), `stream_sid`, `call_sid`.
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ✅ | ✅ | ❌ | ✅ | `pcm16/24000`, `mulaw/8000`, `opus` | `pcm16/24000`, `mulaw/8000`, `opus` |
+
+## Worked examples
+
+- [`pipecat_ws.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_ws.py) — full Pipecat WebSocket test with multi-turn conversation and a judge step.
+- [`pipecat_scenario.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_scenario.py) — multi-scenario Pipecat example.

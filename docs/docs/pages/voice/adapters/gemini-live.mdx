@@ -1,0 +1,42 @@
+---
+title: Gemini Live Adapter
+description: Test a Gemini Live agent over WebSocket with GeminiLiveAgentAdapter.
+---
+
+# `GeminiLiveAgentAdapter`
+
+Connects to Google's Gemini Live API over WebSocket. Native VAD and barge-in
+are built-in.
+
+## Constructor
+
+```python
+import os
+import scenario
+
+adapter = scenario.GeminiLiveAgentAdapter(
+    model="gemini-2.5-flash-native-audio-latest",
+    voice="Algieba",
+    system_instruction="You are a helpful assistant.",
+    api_key=os.environ.get("GEMINI_API_KEY"),
+)
+```
+
+If `api_key` is not passed, it falls back to `GEMINI_API_KEY` in the
+environment.
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ✅ | ✅ | ❌ | ✅ | `pcm16/16000` | `pcm16/24000` |
+
+## Worked examples
+
+- [`gemini_live.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live.py) — basic Gemini Live scenario.
+- [`gemini_live_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live_interruption.py) — barge-in handling.
+
+## Known-fixed quirks
+
+- **Truncated agent reply on turn 2+** — fixed in commit `760a464` (PR #355).
+  See [Troubleshooting → Historical fixes](/voice/troubleshooting#historical-fixes).

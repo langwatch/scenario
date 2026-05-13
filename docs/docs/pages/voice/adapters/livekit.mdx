@@ -1,0 +1,43 @@
+---
+title: LiveKit Adapter (preview)
+description: LiveKitAgentAdapter — stubbed transport, capability declaration is final.
+---
+
+import { Callout } from "vocs/components";
+
+# `LiveKitAgentAdapter` (preview)
+
+Designed to join a LiveKit room as a participant and drive a voice agent over
+WebRTC.
+
+<Callout type="warning">
+  **Transport not yet implemented.** Calling `connect()` raises
+  `PendingTransportError`. The capability declaration is final (it matches the
+  wire spec); only the transport glue code is pending. Track progress in
+  follow-up issues on the [scenario repo](https://github.com/langwatch/scenario/issues).
+</Callout>
+
+## Constructor
+
+```python
+import os
+import scenario
+
+adapter = scenario.LiveKitAgentAdapter(
+    url=os.environ["LIVEKIT_URL"],
+    api_key=os.environ["LIVEKIT_API_KEY"],
+    api_secret=os.environ["LIVEKIT_API_SECRET"],
+    room="my-room",
+)
+```
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ✅ | ✅ | ❌ | ❌ | `pcm16/48000` | `pcm16/48000` |
+
+## Worked examples
+
+No shipping demo yet — see test fixtures in
+[`python/tests/voice/test_adapter_stubs.py`](https://github.com/langwatch/scenario/blob/main/python/tests/voice/test_adapter_stubs.py).

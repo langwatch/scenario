@@ -1,0 +1,39 @@
+---
+title: WebRTC Adapter (preview)
+description: WebRTCAgentAdapter — stubbed transport, capability declaration is final.
+---
+
+import { Callout } from "vocs/components";
+
+# `WebRTCAgentAdapter` (preview)
+
+Designed to drive a raw WebRTC agent (datachannel + audio track) given a
+signaling URL.
+
+<Callout type="warning">
+  **Transport not yet implemented.** Calling `connect()` raises
+  `PendingTransportError`. The capability declaration is final (it matches the
+  wire spec); only the transport glue code is pending. Track progress in
+  follow-up issues on the [scenario repo](https://github.com/langwatch/scenario/issues).
+</Callout>
+
+## Constructor
+
+```python
+import scenario
+
+adapter = scenario.WebRTCAgentAdapter(
+    signaling_url="https://signaling.example.com/room/abc",
+)
+```
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ❌ | ❌ | ❌ | ❌ | `pcm16/24000` | `pcm16/24000` |
+
+## Worked examples
+
+No shipping demo yet — see test fixtures in
+[`python/tests/voice/test_adapter_stubs.py`](https://github.com/langwatch/scenario/blob/main/python/tests/voice/test_adapter_stubs.py).

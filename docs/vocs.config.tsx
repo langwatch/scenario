@@ -420,6 +420,52 @@ export default defineConfig({
               link: "/voice/choosing-an-adapter",
             },
             {
+              text: "Adapters",
+              collapsed: true,
+              items: [
+                {
+                  text: "Twilio",
+                  link: "/voice/adapters/twilio",
+                },
+                {
+                  text: "OpenAI Realtime",
+                  link: "/voice/adapters/openai-realtime",
+                },
+                {
+                  text: "Pipecat",
+                  link: "/voice/adapters/pipecat",
+                },
+                {
+                  text: "ElevenLabs",
+                  link: "/voice/adapters/elevenlabs",
+                },
+                {
+                  text: "Gemini Live",
+                  link: "/voice/adapters/gemini-live",
+                },
+                {
+                  text: "LiveKit (preview)",
+                  link: "/voice/adapters/livekit",
+                },
+                {
+                  text: "Vapi (preview)",
+                  link: "/voice/adapters/vapi",
+                },
+                {
+                  text: "WebRTC (preview)",
+                  link: "/voice/adapters/webrtc",
+                },
+                {
+                  text: "Composable",
+                  link: "/voice/adapters/composable",
+                },
+                {
+                  text: "WebSocket",
+                  link: "/voice/adapters/websocket",
+                },
+              ],
+            },
+            {
               text: "Recipes",
               items: [
                 {

@@ -1,0 +1,41 @@
+---
+title: Composable Adapter
+description: Plug in your own STT + LLM + TTS pipeline with ComposableVoiceAgent.
+---
+
+# `ComposableVoiceAgent`
+
+Plug in a `STTProvider`, an LLM model string, and a TTS model string. Useful
+when you want to test a hand-rolled voice stack against the same scenario
+harness as the bundled adapters.
+
+## Constructor
+
+```python
+import scenario
+
+agent = scenario.ComposableVoiceAgent(
+    stt=scenario.ElevenLabsSTTProvider(api_key=...),
+    llm="openai/gpt-5.4-mini",
+    tts="elevenlabs/some-voice-id",
+    system_prompt="You are a helpful assistant.",
+)
+```
+
+`stt` accepts any `STTProvider` implementation (e.g.
+`scenario.ElevenLabsSTTProvider`).
+
+## Capabilities
+
+| streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- |
+| ✅ | ❌ | ❌ | ❌ | `pcm16/24000` | `pcm16/24000` |
+
+VAD: Composable has no native VAD; the SDK falls back to `webrtcvad`. See
+[Troubleshooting → VAD didn't fire](/voice/troubleshooting#vad-didnt-fire).
+
+## Worked examples
+
+No standalone shipping demo yet — see the
+[ElevenLabs composable variant](/voice/adapters/elevenlabs#composable-variant--elevenlabsvoiceagent)
+for a working pattern.
