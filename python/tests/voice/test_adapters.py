@@ -253,13 +253,19 @@ async def test_elevenlabs_hosted_adapter_connects_and_sends_pcm16():
         assert "api.elevenlabs.io" in connect_url
 
         # send_audio should emit a base64-encoded user_audio_chunk message.
+        # connect() sends conversation_initiation_client_data first, then
+        # send_audio emits TWO chunks per call (speech + silence tail —
+        # see ElevenLabsAgentAdapter.send_audio for the empirical
+        # rationale). Walk all sent messages and assert the speech chunk
+        # is among them.
         chunk = AudioChunk(data=b"\x10\x20" * 100)
         await adapter.send_audio(chunk)
-        sent_raw = mock_ws.send.call_args[0][0]
-        sent = json.loads(sent_raw)
-        assert "user_audio_chunk" in sent
-        decoded = base64.b64decode(sent["user_audio_chunk"])
-        assert decoded == chunk.data
+        user_audio_decoded = []
+        for call in mock_ws.send.call_args_list:
+            payload = json.loads(call[0][0])
+            if "user_audio_chunk" in payload:
+                user_audio_decoded.append(base64.b64decode(payload["user_audio_chunk"]))
+        assert chunk.data in user_audio_decoded
 
         # recv_audio must skip metadata + transcript and return audio bytes.
         result = await adapter.recv_audio(timeout=5.0)
