@@ -298,10 +298,14 @@ async def test_elevenlabs_hosted_adapter_replies_to_ping():
         await adapter.connect()
         await adapter.recv_audio(timeout=5.0)
 
-    # First send call should be the pong.
-    first_send = json.loads(mock_ws.send.call_args_list[0][0][0])
-    assert first_send["type"] == "pong"
-    assert first_send["event_id"] == 42
+    # connect() now sends `conversation_initiation_client_data` first
+    # (empirically required for EL to reliably trigger `first_message`).
+    # The pong is therefore the SECOND send.
+    init_send = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert init_send["type"] == "conversation_initiation_client_data"
+    pong_send = json.loads(mock_ws.send.call_args_list[1][0][0])
+    assert pong_send["type"] == "pong"
+    assert pong_send["event_id"] == 42
 
 
 @pytest.mark.asyncio
@@ -336,9 +340,12 @@ async def test_elevenlabs_hosted_adapter_replies_to_ping_nested_shape():
         await adapter.connect()
         await adapter.recv_audio(timeout=5.0)
 
-    first_send = json.loads(mock_ws.send.call_args_list[0][0][0])
-    assert first_send["type"] == "pong"
-    assert first_send["event_id"] == 7
+    # As with the flat-shape test: init goes first, pong is second.
+    init_send = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert init_send["type"] == "conversation_initiation_client_data"
+    pong_send = json.loads(mock_ws.send.call_args_list[1][0][0])
+    assert pong_send["type"] == "pong"
+    assert pong_send["event_id"] == 7
 
 
 # ---------------------------------------------------------------- ComposableVoiceAgent
