@@ -5,7 +5,7 @@ Real-phone e2e is covered in examples/voice/twilio_{inbound,outbound}.py.
 """
 
 import asyncio
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 
@@ -68,8 +68,20 @@ class FakeREST:
     def write_voice_url(self, sid: str, url: str) -> None:
         self.write_calls.append((sid, url))
 
-    def place_call(self, *, to: str, from_: str, twiml_url: str) -> str:
-        self.place_call_kwargs.append({"to": to, "from_": from_, "twiml_url": twiml_url})
+    def place_call(
+        self,
+        *,
+        to: str,
+        from_: str,
+        twiml_url: Optional[str] = None,
+        twiml: Optional[str] = None,
+    ) -> str:
+        # Mirror the real TwilioRESTHelper.place_call signature: exactly
+        # one of twiml_url / twiml. Adapter uses `twiml` for the inline
+        # <Pause> A-leg pattern; older callers pass twiml_url.
+        self.place_call_kwargs.append(
+            {"to": to, "from_": from_, "twiml_url": twiml_url, "twiml": twiml}
+        )
         return "CA" + "1" * 32
 
     def send_dtmf_on_call(self, call_sid: str, tones: str) -> None:
@@ -207,11 +219,20 @@ async def test_place_call_then_wait_for_call_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_place_call_does_not_modify_voice_url(monkeypatch):
-    """Caller mode must not touch the Twilio number's inbound webhook.
+async def test_place_call_writes_and_restores_callee_voice_url(monkeypatch):
+    """Caller mode rewrites the CALLEE's voice_url for the bridge.
 
-    This lets teams run caller-mode adapters against a shared pool of Twilio
-    numbers without clobbering anyone's prod configuration.
+    Twilio's REST `Calls.create(from_=A, to=B, twiml=X)` runs X on the
+    A-leg only. To attach Media Streams to B-leg we must point B's
+    incoming voice_url at our harness webhook for the duration of the
+    call. disconnect() restores the prior value so we don't leave the
+    callee's prod config clobbered.
+
+    (This invariant changed in commit ae70862 — previously, caller mode
+    was write-free against the assumption that <Connect><Stream> on the
+    parent would carry both legs' audio. That assumption was wrong;
+    <Connect> replaces TwiML and B was never dialed. See
+    python/examples/voice/twilio_outbound.py for the docs.)
     """
     rest_instances = _install_fake_rest(monkeypatch)
     a = _make_adapter(http_port=0)
@@ -220,13 +241,19 @@ async def test_place_call_does_not_modify_voice_url(monkeypatch):
         assert a._stream_connected is not None
         a._stream_connected.set()
         await a.place_call(to="+14155557777")
-        assert rest_instances[0].write_calls == [], (
-            "caller mode must not write voice_url"
-        )
+        rest = rest_instances[0]
+        # Exactly one write on place_call: callee's voice_url → harness.
+        assert len(rest.write_calls) == 1
+        sid, url = rest.write_calls[0]
+        assert sid == "PN" + "0" * 32
+        assert url.endswith("/twilio/voice")
     finally:
         await a.disconnect()
-        # Nothing to restore either — the whole session was write-free.
-        assert rest_instances[0].write_calls == []
+        # Second write on disconnect restores the prior URL.
+        assert rest_instances[0].write_calls[-1] == (
+            "PN" + "0" * 32,
+            "https://old-webhook.example.com/previous",
+        )
 
 
 @pytest.mark.asyncio
@@ -255,7 +282,14 @@ async def test_wait_for_call_writes_and_restores_voice_url(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_place_call_passes_twiml_url_to_rest(monkeypatch):
+async def test_place_call_passes_inline_pause_twiml_to_rest(monkeypatch):
+    """place_call passes inline <Pause> TwiML on the A-leg, NOT a twiml_url.
+
+    The B-leg picks up Media Streams via its rewritten voice_url
+    (verified in test_place_call_writes_and_restores_callee_voice_url);
+    the A-leg just needs to hold the bridge open. <Pause length=120>
+    matches the inbound demo's originator-side TwiML.
+    """
     rest_instances = _install_fake_rest(monkeypatch)
     a = _make_adapter(http_port=0)
     await a.connect()
@@ -266,7 +300,10 @@ async def test_place_call_passes_twiml_url_to_rest(monkeypatch):
         kw = rest_instances[0].place_call_kwargs[0]
         assert kw["to"] == "+14155557777"
         assert kw["from_"] == "+14155551234"
-        assert kw["twiml_url"] == "https://example.trycloudflare.com/twilio/voice"
+        # New shape: inline twiml only, no twiml_url.
+        assert kw["twiml_url"] is None
+        assert kw["twiml"] is not None
+        assert "<Pause" in kw["twiml"]
     finally:
         await a.disconnect()
 
