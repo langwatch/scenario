@@ -1090,8 +1090,12 @@ class ScenarioExecutor:
         that were live when the interrupt was intended, not when the
         cancel-sequence finished settling.
         """
-        # Capture the interrupt timestamp NOW so it lands inside the agent's
-        # speaking window — not after we've awaited cancellation.
+        # ``interrupt_time`` is set at the actual barge-in point below —
+        # AFTER we wait for the agent to start speaking. Capturing it up
+        # front (as the earlier version did) misrepresented the event when
+        # the agent was still warming up: the event landed seconds before
+        # the agent_start_speaking event the script was trying to truncate
+        # (see issue #467).
         anchor = getattr(self, "_voice_recording_started_at", None)
         interrupt_time = (time.monotonic() - anchor) if anchor is not None else 0.0
 
@@ -1138,6 +1142,12 @@ class ScenarioExecutor:
             agent_was_speaking = speaking.is_set()
             outcome = "fired_after_speech" if agent_was_speaking else "fired_before_speech"
 
+            # Refresh interrupt_time so the timeline event lands at the
+            # actual barge-in point — inside the agent's speaking window
+            # when one exists, or at the give-up moment when the warm-up
+            # never produced audio (issue #467).
+            interrupt_time = (time.monotonic() - anchor) if anchor is not None else interrupt_time
+
             # 1. Send native cancel signal first (if supported) — this drops
             #    the bot's buffered outbound audio on transports that honor
             #    it (Twilio ``clear``, OpenAI Realtime ``response.cancel``).
@@ -1161,6 +1171,12 @@ class ScenarioExecutor:
             chunk = self._extract_audio_from_message(voiced_message)
             audio_was_sent = False
             if chunk is not None:
+                # Capture the user-segment timestamps around the send so
+                # the recording's manifest reflects the interrupting turn.
+                # Without this, transports like Gemini Live emit a
+                # user_interrupt event but no user segment — the recording
+                # only shows the original user turn (see issue #466).
+                user_start = (time.monotonic() - anchor) if anchor is not None else 0.0
                 try:
                     await adapter.send_audio(chunk)
                     audio_was_sent = True
@@ -1171,6 +1187,8 @@ class ScenarioExecutor:
                     # below skips clearing pending messages (which would
                     # otherwise drop the unsent user turn on the floor).
                     pass
+                if audio_was_sent:
+                    self._record_interrupt_user_segment(chunk, user_start)
 
             # 3. Cancel scenario-side awaiter and let any in-flight agent
             #    audio drain. The recorder will close out the partial agent
@@ -1229,6 +1247,35 @@ class ScenarioExecutor:
                 # still complete — surfacing here would mask the actual
                 # scenario outcome behind a recorder bug.
                 pass
+
+    def _record_interrupt_user_segment(self, chunk, user_start: float) -> None:
+        """Append a user segment + start/stop events for an interrupt's audio.
+
+        The default ``VoiceAgentAdapter.call`` path records user segments
+        via ``_AdapterRecorder.record_user``. ``_fire_user_interrupt``
+        calls ``adapter.send_audio`` directly, bypassing that recorder —
+        so without this helper, transports like Gemini Live emit a
+        ``user_interrupt`` event but no corresponding user segment.
+        """
+        anchor = getattr(self, "_voice_recording_started_at", None)
+        user_end = (time.monotonic() - anchor) if anchor is not None else user_start
+        try:
+            from .voice.adapter import (
+                _append_event,
+                _append_segment,
+                _fire_audio_chunk,
+            )
+            from .voice.recording import VoiceEvent
+
+            _fire_audio_chunk(self, chunk)
+            _append_segment(self, "user", user_start, user_end, chunk)
+            _append_event(self, VoiceEvent(time=user_start, type="user_start_speaking"))
+            _append_event(self, VoiceEvent(time=user_end, type="user_stop_speaking"))
+        except Exception:
+            # Recording is observability; if append fails the scenario
+            # should still run. The interrupt itself already landed via
+            # adapter.send_audio above.
+            pass
 
     async def _maybe_schedule_interrupted_agent_turn(self) -> bool:
         """If a UserSimulatorAgent has ``interrupt_probability > 0`` and the

@@ -71,11 +71,20 @@ async def main() -> scenario.ScenarioResult:
                     sample_rate=8000,
                 ),
                 scenario.UserSimulatorAgent(
-                    voice="openai/nova",
+                    # ElevenLabs voice with emotion support — openai/nova
+                    # read angry text in a calm tone, defeating the demo.
+                    voice="elevenlabs/rachel",
                     persona=(
                         "Very angry customer who was charged incorrectly. "
                         "Speaking loudly and impatiently from a cafe. "
-                        "Wants this fixed immediately."
+                        "Wants this fixed immediately. "
+                        "IMPORTANT: format every reply with ElevenLabs tonal "
+                        "markers inline so the synthesised voice sounds "
+                        "audibly angry, not just textually. Use markers like "
+                        "[shouting], [angry], [sigh], [exhales sharply], "
+                        "[frustrated]. Example: '[shouting] You charged me "
+                        "the wrong amount! [angry] Fix it NOW.' Do not strip "
+                        "the markers — the TTS reads them as performance cues."
                     ),
                     audio_effects=[
                         scenario.effects.background_noise("cafe", 0.4),
@@ -88,7 +97,7 @@ async def main() -> scenario.ScenarioResult:
                         "The agent maintained composure despite background noise",
                         "The agent offered a concrete resolution or next step",
                         # Claim from docstring: emotional persona + cafe noise + phone codec.
-                        "The user simulator delivered an emotionally heightened persona over audio",
+                        "The user simulator delivered an emotionally heightened persona over audio (anger is audible in tone, not just in word choice — ElevenLabs tonal markers like [shouting] / [angry] drive the synthesis)",
                         "Background cafe noise and phone-codec quality were audibly present",
                         "The conversation is a coherent example of an angry-customer-in-a-noisy-cafe scenario",
                     ]

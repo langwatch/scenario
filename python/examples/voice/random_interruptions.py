@@ -75,6 +75,17 @@ async def main() -> scenario.ScenarioResult:
                     # reliable for the demo as a test. The original 0.4 was a
                     # better statistical illustration but flaked at ~7.8% per run.
                     interrupt_probability=0.7,
+                    # Persona pins the role-direction so role-reversal in
+                    # _generate_text doesn't drift into assistant-flavored
+                    # lines on later turns. Without this, the simulator's
+                    # first follow-up sometimes mirrors what the assistant
+                    # would say next ("tell me what's wrong"), not what a
+                    # user would say.
+                    persona=(
+                        "A customer calling for help with their account. "
+                        "Speak as a customer would — describing problems, "
+                        "asking questions, never offering help yourself."
+                    ),
                 ),
                 scenario.JudgeAgent(
                     criteria=[

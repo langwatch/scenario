@@ -153,3 +153,51 @@ async def test_interrupt_after_words_works_when_streaming_supported():
     # agent(wait=False) was called before content delivery
     assert state._executor.agent_calls and state._executor.agent_calls[0][1] is False
     assert state._executor.user_calls == ["cut in"]
+
+
+def test_record_interrupt_user_segment_appends_segment_and_events():
+    """Regression for #466 — interrupts must write a user segment, not just an event.
+
+    Before the fix, ``_fire_user_interrupt`` only emitted a ``user_interrupt``
+    timeline event; ``adapter.send_audio`` bypassed ``_AdapterRecorder``, so
+    transports like Gemini Live produced a manifest with the interrupt event
+    but no corresponding user segment.
+    """
+    import time as _time
+
+    from scenario.scenario_executor import ScenarioExecutor
+    from scenario.voice.audio_chunk import silent_chunk
+    from scenario.voice.recording import VoiceRecording
+
+    executor = ScenarioExecutor.__new__(ScenarioExecutor)
+    executor._voice_recording = VoiceRecording()
+    executor._voice_timeline = executor._voice_recording.timeline
+    executor._voice_recording_started_at = _time.monotonic()
+    executor._on_voice_event = None
+    executor._on_audio_chunk = None
+
+    chunk = silent_chunk(0.5)
+    chunk.transcript = "Sorry, one more thing"
+    user_start = _time.monotonic() - executor._voice_recording_started_at
+
+    ScenarioExecutor._record_interrupt_user_segment(executor, chunk, user_start)
+
+    segments = executor._voice_recording.segments
+    timeline = executor._voice_timeline
+
+    user_segments = [s for s in segments if s.speaker == "user"]
+    assert len(user_segments) == 1, (
+        f"Expected one user segment after interrupt; got {len(user_segments)} "
+        f"(segments={segments})"
+    )
+    assert user_segments[0].transcript == "Sorry, one more thing"
+    assert user_segments[0].audio == chunk.data
+    assert user_segments[0].start_time == pytest.approx(user_start, abs=0.01)
+    assert user_segments[0].end_time >= user_segments[0].start_time
+
+    start_events = [e for e in timeline if e.type == "user_start_speaking"]
+    stop_events = [e for e in timeline if e.type == "user_stop_speaking"]
+    assert len(start_events) == 1
+    assert len(stop_events) == 1
+    assert start_events[0].time == pytest.approx(user_start, abs=0.01)
+    assert stop_events[0].time >= start_events[0].time
