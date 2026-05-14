@@ -1,70 +1,99 @@
 {
-  "generated_at": "2026-05-09T20:27:26.818279+00:00",
-  "duration": 31.23520512500545,
-  "segment_count": 6,
+  "generated_at": "2026-05-14T18:23:35.722377+00:00",
+  "duration": 36.15055816699896,
+  "segment_count": 8,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-user-0974ms.wav",
+      "file": "segments/00-user-2702ms.wav",
       "role": "user",
-      "start_time": 0.9743285409931559,
-      "end_time": 3.0656638329965062,
-      "duration": 2.0913352920033503,
+      "start_time": 2.7025523749998683,
+      "end_time": 4.687604291999378,
+      "duration": 1.9850519169995096,
       "transcript": "Tell me about my billing"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-7316ms.wav",
+      "file": "segments/01-agent-4687ms.wav",
       "role": "agent",
-      "start_time": 7.3164785410044715,
-      "end_time": 7.9525420410209335,
-      "duration": 0.6360635000164621,
-      "transcript": "Sure, I can help with that. What would you like to know? Your current balance, a specific charge receipt, or your payment status? If you share the last four digits of the account or the date of the charge, I'll look it up."
+      "start_time": 4.687643416998981,
+      "end_time": 5.288736417000109,
+      "duration": 0.6010930000011285,
+      "transcript": "Hello, thank you for calling. How can I help you today?",
+      "transcript_truncated": true
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-14670ms.wav",
-      "role": "agent",
-      "start_time": 14.670164208015194,
-      "end_time": 15.291851540998323,
-      "duration": 0.6216873329831287,
-      "transcript": "No problem at all, I can help with account support. What do you need help with? Logging in, updating your profile, changing your email/phone, or something else?"
+      "file": "segments/02-user-4688ms.wav",
+      "role": "user",
+      "start_time": 4.688243667000279,
+      "end_time": 8.395072666999113,
+      "duration": 3.7068289999988338,
+      "transcript": "Wait sorry, I meant account support, not billing"
     },
     {
       "idx": 3,
-      "file": "segments/03-user-16385ms.wav",
-      "role": "user",
-      "start_time": 16.38599341601366,
-      "end_time": 19.857145957998,
-      "duration": 3.4711525419843383,
-      "transcript": "Tell me about every product feature you offer"
+      "file": "segments/03-agent-13238ms.wav",
+      "role": "agent",
+      "start_time": 13.23852375000024,
+      "end_time": 13.876516166999863,
+      "duration": 0.637992416999623,
+      "transcript": "No problem at all, happy to help with account support. What issue are you running into? Login, password reset, updating your info, or something else?"
     },
     {
       "idx": 4,
-      "file": "segments/04-agent-24120ms.wav",
-      "role": "agent",
-      "start_time": 24.120328499993775,
-      "end_time": 24.770210375019815,
-      "duration": 0.6498818750260398,
-      "transcript": "I can definitely help, but every product feature is a lot. What product or plan are you asking about? If you tell me the product name or what you use it for, I'll walk you through the key features one by one."
+      "file": "segments/04-user-17079ms.wav",
+      "role": "user",
+      "start_time": 17.07904683400011,
+      "end_time": 20.76533841699893,
+      "duration": 3.6862915829988196,
+      "transcript": "Tell me about every product feature you offer"
     },
     {
       "idx": 5,
-      "file": "segments/05-agent-30615ms.wav",
+      "file": "segments/05-agent-26604ms.wav",
       "role": "agent",
-      "start_time": 30.615178958018078,
-      "end_time": 31.23520512500545,
-      "duration": 0.6200261669873726,
-      "transcript": "We're open Monday through Friday, 9 a.m. to 6 p.m."
+      "start_time": 26.604447249999794,
+      "end_time": 27.243213208999805,
+      "duration": 0.6387659590000112,
+      "transcript": "I can definitely help, but I'll need a bit more detail. What product or plan are you referring to, and if you know it, the product name? Once I have that, I'll walk you through every feature included.",
+      "transcript_truncated": true
+    },
+    {
+      "idx": 6,
+      "file": "segments/06-user-26605ms.wav",
+      "role": "user",
+      "start_time": 26.605929249999463,
+      "end_time": 29.9353758749985,
+      "duration": 3.3294466249990364,
+      "transcript": "Sorry one more thing \u2014 what are your business hours?"
+    },
+    {
+      "idx": 7,
+      "file": "segments/07-agent-35535ms.wav",
+      "role": "agent",
+      "start_time": 35.53532558400002,
+      "end_time": 36.15055816699896,
+      "duration": 0.6152325829989422,
+      "transcript": "We're open Monday through Friday, 9am to 6pm."
     }
   ],
   "events": [
     {
-      "time": 0.9743285409931559,
+      "time": 2.7025523749998683,
       "type": "user_start_speaking"
     },
     {
-      "time": 1.9021935000200756,
+      "time": 4.687604291999378,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 4.687643416998981,
+      "type": "agent_start_speaking",
+      "latency": 3.912499960279092e-05
+    },
+    {
+      "time": 4.687812333999318,
       "type": "user_interrupt",
       "metadata": {
         "adapter": "PipecatAgentAdapter",
@@ -73,32 +102,40 @@
       }
     },
     {
-      "time": 3.0656638329965062,
-      "type": "user_stop_speaking"
-    },
-    {
-      "time": 7.3164785410044715,
-      "type": "agent_start_speaking",
-      "latency": 4.250814708007965
-    },
-    {
-      "time": 7.9525420410209335,
-      "type": "agent_stop_speaking"
-    },
-    {
-      "time": 14.670164208015194,
-      "type": "agent_start_speaking"
-    },
-    {
-      "time": 15.291851540998323,
-      "type": "agent_stop_speaking"
-    },
-    {
-      "time": 16.38599341601366,
+      "time": 4.688243667000279,
       "type": "user_start_speaking"
     },
     {
-      "time": 17.615012041002046,
+      "time": 5.288736417000109,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 8.395072666999113,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 13.23852375000024,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 13.876516166999863,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 17.07904683400011,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 20.76533841699893,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 26.604447249999794,
+      "type": "agent_start_speaking",
+      "latency": 5.839108833000864
+    },
+    {
+      "time": 26.604730999999447,
       "type": "user_interrupt",
       "metadata": {
         "adapter": "PipecatAgentAdapter",
@@ -107,24 +144,23 @@
       }
     },
     {
-      "time": 19.857145957998,
-      "type": "user_stop_speaking"
+      "time": 26.605929249999463,
+      "type": "user_start_speaking"
     },
     {
-      "time": 24.120328499993775,
-      "type": "agent_start_speaking",
-      "latency": 4.263182541995775
-    },
-    {
-      "time": 24.770210375019815,
+      "time": 27.243213208999805,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 30.615178958018078,
+      "time": 29.9353758749985,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 35.53532558400002,
       "type": "agent_start_speaking"
     },
     {
-      "time": 31.23520512500545,
+      "time": 36.15055816699896,
       "type": "agent_stop_speaking"
     }
   ]
