@@ -1,43 +1,43 @@
 {
-  "generated_at": "2026-05-12T17:32:16.301777+00:00",
-  "duration": 29.760395499994047,
+  "generated_at": "2026-05-14T18:12:08.513670+00:00",
+  "duration": 30.18283020800027,
   "segment_count": 2,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-user-1853ms.wav",
+      "file": "segments/00-user-19126ms.wav",
       "role": "user",
-      "start_time": 1.8534086250001565,
-      "end_time": 4.484551249988726,
-      "duration": 2.63114262498857,
+      "start_time": 19.126248375000614,
+      "end_time": 21.765976292000232,
+      "duration": 2.639727916999618,
       "transcript": "Hello, I have a quick question."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-4484ms.wav",
+      "file": "segments/01-agent-21766ms.wav",
       "role": "agent",
-      "start_time": 4.484716457998729,
-      "end_time": 29.760395499994047,
-      "duration": 25.275679041995318,
-      "transcript": "\u0391\u03c5\u03c4\u03cc \u03c4\u03bf \u03b2\u03b9\u03b2\u03bb\u03af\u03bf"
+      "start_time": 21.766091167000013,
+      "end_time": 30.18283020800027,
+      "duration": 8.416739041000255,
+      "transcript": "Thank you for calling. I will hold the line while you complete your scenario."
     }
   ],
   "events": [
     {
-      "time": 1.8534086250001565,
+      "time": 19.126248375000614,
       "type": "user_start_speaking"
     },
     {
-      "time": 4.484551249988726,
+      "time": 21.765976292000232,
       "type": "user_stop_speaking"
     },
     {
-      "time": 4.484716457998729,
+      "time": 21.766091167000013,
       "type": "agent_start_speaking",
-      "latency": 0.0001652080100029707
+      "latency": 0.00011487499978102278
     },
     {
-      "time": 29.760395499994047,
+      "time": 30.18283020800027,
       "type": "agent_stop_speaking"
     }
   ]
