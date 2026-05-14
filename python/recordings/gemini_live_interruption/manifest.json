@@ -1,51 +1,78 @@
 {
-  "generated_at": "2026-05-11T10:42:07.552268+00:00",
-  "duration": 10.907875416000024,
-  "segment_count": 2,
+  "generated_at": "2026-05-14T17:55:07.019051+00:00",
+  "duration": 66.75922608400015,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-user-2465ms.wav",
+      "file": "segments/00-user-26749ms.wav",
       "role": "user",
-      "start_time": 2.4656587499994203,
-      "end_time": 2.4717919579998124,
-      "duration": 0.006133208000392187,
+      "start_time": 26.749965916999827,
+      "end_time": 26.752948166999886,
+      "duration": 0.002982250000059139,
       "transcript": "Tell me everything you can about your platform"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-10346ms.wav",
+      "file": "segments/01-agent-36439ms.wav",
       "role": "agent",
-      "start_time": 10.346090000000004,
-      "end_time": 10.907875416000024,
-      "duration": 0.5617854160000206,
-      "transcript": null
+      "start_time": 36.43973845900018,
+      "end_time": 50.93546874999993,
+      "duration": 14.495730290999745,
+      "transcript": "My platform is  a sophisticated  large  language  model,  developed  by Google.  It's  built  upon  cutting-edge  architectures,  leveraging  the power  of machine  learning  to understand  and  generate  human-like  text  and  perform  diverse  tasks.  The core  of my  platform  is  the extensive  training  I have  received  on a  massive  dataset  comprising  text,  code,  images,  audio,  and  video  from  various  sources.  This  enables  me to  understand  context,  recognize  patterns,  and"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-65446ms.wav",
+      "role": "user",
+      "start_time": 65.44663991699963,
+      "end_time": 65.4505597919997,
+      "duration": 0.003919875000065076,
+      "transcript": "Sorry, one more thing \u2014 what are your business hours?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-65450ms.wav",
+      "role": "agent",
+      "start_time": 65.45073191699976,
+      "end_time": 66.75922608400015,
+      "duration": 1.30849416700039,
+      "transcript": " generate  coherent  and relevant  responses. \n\nMy core  capabilities  are multifaceted.  I excel  in  natural  language  understanding,  allowing  me  to  process  and  interpret  complex  queries,  discern  nuance,  and  extract  meaningful  information.  In terms  of  natural  language  generation,  I can  produce  diverse  text  formats,  from  creative  stories  and  poems  to detailed  explanations  and  coherent  code.  Furthermore,  my  platform  is  multimodal,  meaning  I can  interpret"
     }
   ],
   "events": [
     {
-      "time": 2.4656587499994203,
+      "time": 26.749965916999827,
       "type": "user_start_speaking"
     },
     {
-      "time": 2.4717919579998124,
+      "time": 26.752948166999886,
       "type": "user_stop_speaking"
     },
     {
-      "time": 10.329755374999877,
-      "type": "user_interrupt",
-      "metadata": {
-        "adapter": "GeminiLiveAgentAdapter",
-        "native": false,
-        "outcome": "fired_after_speech"
-      }
+      "time": 36.43973845900018,
+      "type": "agent_start_speaking",
+      "latency": 9.686790292000296
     },
     {
-      "time": 10.346090000000004,
-      "type": "agent_start_speaking"
+      "time": 50.93546874999993,
+      "type": "agent_stop_speaking"
     },
     {
-      "time": 10.907875416000024,
+      "time": 65.44663991699963,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 65.4505597919997,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 65.45073191699976,
+      "type": "agent_start_speaking",
+      "latency": 0.00017212500006280607
+    },
+    {
+      "time": 66.75922608400015,
       "type": "agent_stop_speaking"
     }
   ]

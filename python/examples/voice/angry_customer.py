@@ -73,7 +73,11 @@ async def main() -> scenario.ScenarioResult:
                 scenario.UserSimulatorAgent(
                     # ElevenLabs voice with emotion support — openai/nova
                     # read angry text in a calm tone, defeating the demo.
-                    voice="elevenlabs/rachel",
+                    # Sarah (EXAVITQu4vr4xnSDxMaL) is a clear, mature female
+                    # voice in the default EL voice library; pair with the
+                    # tonal markers in the persona below to render audible
+                    # anger.
+                    voice="elevenlabs/EXAVITQu4vr4xnSDxMaL",
                     persona=(
                         "Very angry customer who was charged incorrectly. "
                         "Speaking loudly and impatiently from a cafe. "
