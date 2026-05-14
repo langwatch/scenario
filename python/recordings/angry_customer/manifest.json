@@ -1,60 +1,60 @@
 {
-  "generated_at": "2026-05-11T16:25:33.843856+00:00",
-  "duration": 34.55243087499912,
+  "generated_at": "2026-05-14T18:19:59.647086+00:00",
+  "duration": 36.2746817920015,
   "segment_count": 3,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-agent-3818ms.wav",
+      "file": "segments/00-agent-6223ms.wav",
       "role": "agent",
-      "start_time": 3.8187994159998198,
-      "end_time": 4.433622458000173,
-      "duration": 0.6148230420003529,
+      "start_time": 6.223416625000027,
+      "end_time": 6.833838750000723,
+      "duration": 0.6104221250006958,
       "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-14812ms.wav",
+      "file": "segments/01-user-20770ms.wav",
       "role": "user",
-      "start_time": 14.812213790999522,
-      "end_time": 25.20841866599949,
-      "duration": 10.396204874999967,
-      "transcript": "you charged me the wrong amount fix it now i'm in a noisy cafe and i'm furious refund the $42 charge from today"
+      "start_time": 20.770369792000565,
+      "end_time": 28.838929458001076,
+      "duration": 8.06855966600051,
+      "transcript": "[shouting] you charged me twice for my order fix this immediately [angry] [exhales sharply] i'm in a noisy cafe hurry up"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-33922ms.wav",
+      "file": "segments/02-agent-35633ms.wav",
       "role": "agent",
-      "start_time": 33.92260399999941,
-      "end_time": 34.55243087499912,
-      "duration": 0.6298268749997078,
-      "transcript": "I'm sorry about that. I'd be happy to help with a refund. Can you confirm the date and the merchant name or last four digits of the card for the $42 charge so I can get it started?"
+      "start_time": 35.63368058300148,
+      "end_time": 36.2746817920015,
+      "duration": 0.6410012090000237,
+      "transcript": "I'm really sorry about that. Being charged twice is frustrating. I can get this fixed right away. Please tell me your order number and the email or phone number on the order, and I'll start the refund for the duplicate charge immediately."
     }
   ],
   "events": [
     {
-      "time": 3.8187994159998198,
+      "time": 6.223416625000027,
       "type": "agent_start_speaking"
     },
     {
-      "time": 4.433622458000173,
+      "time": 6.833838750000723,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 14.812213790999522,
+      "time": 20.770369792000565,
       "type": "user_start_speaking"
     },
     {
-      "time": 25.20841866599949,
+      "time": 28.838929458001076,
       "type": "user_stop_speaking"
     },
     {
-      "time": 33.92260399999941,
+      "time": 35.63368058300148,
       "type": "agent_start_speaking",
-      "latency": 8.714185333999922
+      "latency": 6.794751125000403
     },
     {
-      "time": 34.55243087499912,
+      "time": 36.2746817920015,
       "type": "agent_stop_speaking"
     }
   ]

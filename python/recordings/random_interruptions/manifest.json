@@ -1,70 +1,88 @@
 {
-  "generated_at": "2026-05-09T18:45:56.398190+00:00",
-  "duration": 51.27651125000557,
-  "segment_count": 3,
+  "generated_at": "2026-05-14T18:18:15.733497+00:00",
+  "duration": 50.97064720799972,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-user-16609ms.wav",
-      "role": "user",
-      "start_time": 16.609962041984545,
-      "end_time": 19.92702904198086,
-      "duration": 3.317066999996314,
-      "transcript": "tell me what's wrong and your account email"
-    },
-    {
-      "idx": 1,
-      "file": "segments/01-agent-19927ms.wav",
+      "file": "segments/00-agent-1667ms.wav",
       "role": "agent",
-      "start_time": 19.927070375008043,
-      "end_time": 20.5279386669863,
-      "duration": 0.6008682919782586,
+      "start_time": 1.6679779579990281,
+      "end_time": 2.2822202909992484,
+      "duration": 0.6142423330002202,
       "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
+      "idx": 1,
+      "file": "segments/01-user-37052ms.wav",
+      "role": "user",
+      "start_time": 37.052890124999976,
+      "end_time": 41.48344849999921,
+      "duration": 4.4305583749992365,
+      "transcript": "i can't log in, it says my account is locked"
+    },
+    {
       "idx": 2,
-      "file": "segments/02-agent-50675ms.wav",
+      "file": "segments/02-agent-48661ms.wav",
       "role": "agent",
-      "start_time": 50.675058583990904,
-      "end_time": 51.27651125000557,
-      "duration": 0.6014526660146657,
-      "transcript": "I'm sorry about that. Let's get you reset. Please check your spam/junk folder and confirm you entered the email exactly as user@example.com. Then I can resend the password reset link right away."
+      "start_time": 48.66164533299889,
+      "end_time": 49.31068187500023,
+      "duration": 0.6490365420013404,
+      "transcript": "I'm really sorry about that. An account lock usually happens after too many login attempts or a security check. Please try resetting your password, and if it's still locked, tell me whether you're getting a locked message on the login page or an email notice.",
+      "transcript_truncated": true
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-48663ms.wav",
+      "role": "user",
+      "start_time": 48.66355579099945,
+      "end_time": 50.97064720799972,
+      "duration": 2.307091417000265,
+      "transcript": "unlock my account"
     }
   ],
   "events": [
     {
-      "time": 16.609962041984545,
+      "time": 1.6679779579990281,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 2.2822202909992484,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 37.052890124999976,
       "type": "user_start_speaking"
     },
     {
-      "time": 18.095348959002877,
+      "time": 41.48344849999921,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 48.66164533299889,
+      "type": "agent_start_speaking",
+      "latency": 7.178196832999674
+    },
+    {
+      "time": 48.66194179099875,
       "type": "user_interrupt",
       "metadata": {
         "adapter": "PipecatAgentAdapter",
         "native": true,
-        "outcome": "fired_before_speech"
+        "outcome": "fired_after_speech"
       }
     },
     {
-      "time": 19.92702904198086,
+      "time": 48.66355579099945,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 49.31068187500023,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 50.97064720799972,
       "type": "user_stop_speaking"
-    },
-    {
-      "time": 19.927070375008043,
-      "type": "agent_start_speaking",
-      "latency": 4.133302718400955e-05
-    },
-    {
-      "time": 20.5279386669863,
-      "type": "agent_stop_speaking"
-    },
-    {
-      "time": 50.675058583990904,
-      "type": "agent_start_speaking"
-    },
-    {
-      "time": 51.27651125000557,
-      "type": "agent_stop_speaking"
     }
   ]
 }
