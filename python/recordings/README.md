@@ -69,10 +69,16 @@ the new demo's directory and commit it alongside this README's table.
 ## Referencing recordings from docs
 
 User-facing docs that reference these recordings should link to the
-raw GitHub URL after this PR merges to main, e.g.:
+GitHub **blob** URL after this PR merges to main, e.g.:
 
 ```
-https://github.com/langwatch/scenario/raw/main/python/recordings/elevenlabs_hosted/full.wav
+https://github.com/langwatch/scenario/blob/main/python/recordings/elevenlabs_hosted/full.wav
 ```
 
-GitHub renders raw `.wav` URLs as inline audio players in Markdown.
+The blob page renders an inline `<audio>` player at the top of the
+file view, so a single click on the link lands the reader on a page
+where they can press play. GitHub does **not** auto-render an inline
+audio player inside Markdown bodies for raw `.wav` URLs — the
+`raw.githubusercontent.com` host serves the file as
+`Content-Disposition: attachment`, which most browsers download
+rather than play.
