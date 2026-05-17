@@ -50,6 +50,21 @@ from ._twilio_shared import (
 logger = logging.getLogger("scenario.voice.twilio")
 
 
+def _redact_e164(number: str) -> str:
+    """Redact an E.164 phone number for logs: ``+14155551234`` → ``***1234``.
+
+    GitHub Actions retains workflow logs for 14 days and uploads on
+    failure, so emitting full phone numbers at INFO would leak PII into
+    a retention sink. The last-4 form is enough for operators to
+    correlate ``rejected`` events without exposing the full number.
+    """
+    if not number:
+        return "***"
+    if len(number) >= 4:
+        return f"***{number[-4:]}"
+    return "***"
+
+
 class TwilioAgentAdapter(VoiceAgentAdapter):
     """
     Bidirectional Twilio Media Streams adapter.
@@ -97,6 +112,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         on_dtmf: Optional[Callable[[str], None]] = None,
         http_port: int = 8765,
         role: AgentRole = AgentRole.AGENT,
+        validate_signature: bool = True,
     ) -> None:
         validate_e164(phone_number)
 
@@ -108,6 +124,15 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self.on_dtmf = on_dtmf
         self.http_port = http_port
         self.role = role  # type: ignore[misc]
+        # When True (default), the inbound /twilio/voice route requires a
+        # valid X-Twilio-Signature header before accepting the webhook
+        # body. The cloudflared tunnel URL is ephemeral and not
+        # guessable, but anyone who learns it could otherwise POST fake
+        # Twilio webhook events into the harness. Tests that don't have
+        # real Twilio credentials disable this with
+        # ``validate_signature=False``; production callers should leave
+        # it on.
+        self.validate_signature = validate_signature
 
         # Populated during connect(); None when disconnected.
         self._rest: Optional[TwilioRESTHelper] = None
@@ -315,7 +340,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             self._rest.write_voice_url(self._callee_phone_number_sid, webhook_url)
             logger.info(
                 "TwilioAgentAdapter: rewrote callee %s voice_url to %s",
-                to,
+                _redact_e164(to),
                 webhook_url,
             )
 
@@ -344,8 +369,8 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         logger.info(
             "TwilioAgentAdapter: placed call %s from %s to %s",
             self._call_sid,
-            self.phone_number,
-            to,
+            _redact_e164(self.phone_number),
+            _redact_e164(to),
         )
 
         if attach_stream_to_self:
@@ -476,6 +501,49 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         with suppress(Exception):
             await asyncio.wait_for(server_task, timeout=2.0)
 
+    def _verify_twilio_signature(
+        self,
+        request: Any,
+        body: str,
+        fields: dict,
+    ) -> bool:
+        """Verify the ``X-Twilio-Signature`` header on an inbound webhook.
+
+        Twilio signs each webhook with HMAC-SHA1(auth_token, url+sorted_params)
+        and sends the result base64-encoded in ``X-Twilio-Signature``. We
+        reconstruct the same input and compare in constant time via the
+        ``twilio.request_validator`` helper.
+
+        Returns False (reject) on missing header, missing twilio lib, or
+        any error in validation. Returns True only when the signature
+        cleanly matches.
+        """
+        signature = request.headers.get("X-Twilio-Signature")
+        if not signature:
+            return False
+        try:
+            from twilio.request_validator import RequestValidator
+        except Exception:
+            # If the optional twilio package is missing we can't
+            # validate, and unsigned requests are unsafe — fail closed.
+            return False
+        try:
+            validator = RequestValidator(self.auth_token)
+            # Reconstruct the canonical URL Twilio signed. Twilio uses the
+            # absolute URL it called, including scheme + host + port +
+            # path. starlette's request.url is that absolute form.
+            url = str(request.url)
+            # RequestValidator expects {key: str} not {key: list[str]} —
+            # parse_qs gives lists; collapse single-element lists.
+            params = {k: v[0] if isinstance(v, list) and v else v for k, v in fields.items()}
+            return bool(validator.validate(url, params, signature))
+        except Exception:
+            logger.warning(
+                "TwilioAgentAdapter: signature validation raised; treating as invalid",
+                exc_info=True,
+            )
+            return False
+
     def _build_app(self) -> Any:
         """Build the FastAPI app with Twilio voice + stream routes.
 
@@ -506,10 +574,22 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             fields = parse_qs(body)
             from_number = (fields.get("From") or [""])[0]
 
+            # Reject unsigned/forged requests before doing any further work
+            # — once we get past this gate we've already trusted the From
+            # field for the allowed_callers check.
+            if self.validate_signature:
+                if not self._verify_twilio_signature(request, body, fields):
+                    logger.warning(
+                        "TwilioAgentAdapter: rejecting voice webhook — "
+                        "missing or invalid X-Twilio-Signature"
+                    )
+                    return Response(content="forbidden", status_code=403)
+
             if self.allowed_callers is not None and from_number not in self.allowed_callers:
-                # Log only the last 4 digits to avoid PII leakage into log sinks.
-                from_redacted = f"***{from_number[-4:]}" if len(from_number) >= 4 else "***"
-                logger.info("TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)", from_redacted)
+                logger.info(
+                    "TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)",
+                    _redact_e164(from_number),
+                )
                 return Response(
                     content="<Response><Reject/></Response>",
                     media_type="application/xml",
