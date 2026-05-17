@@ -1274,8 +1274,15 @@ class ScenarioExecutor:
         except Exception:
             # Recording is observability; if append fails the scenario
             # should still run. The interrupt itself already landed via
-            # adapter.send_audio above.
-            pass
+            # adapter.send_audio above. Log so a buggy recorder is
+            # visible in CI/logs rather than silently degrading the
+            # manifest — matches the _append_event pattern.
+            import logging
+            logging.getLogger(__name__).warning(
+                "_record_interrupt_user_segment failed; manifest may "
+                "omit the interrupt user turn — interrupt itself fired.",
+                exc_info=True,
+            )
 
     async def _maybe_schedule_interrupted_agent_turn(self) -> bool:
         """If a UserSimulatorAgent has ``interrupt_probability > 0`` and the

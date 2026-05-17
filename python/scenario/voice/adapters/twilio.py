@@ -319,11 +319,24 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 webhook_url,
             )
 
-        # A-leg TwiML: just hold the bridge open. Twilio runs this on the
-        # originator side while B's webhook attaches the Media Stream.
+        # A-leg TwiML: play a short deterministic <Say> line, then hold
+        # the bridge open. Twilio runs this on the originator side while
+        # B's webhook attaches the Media Stream.
+        #
+        # The <Say> gives the recording a known-good utterance to
+        # transcribe. A bare <Pause> alone produces 120s of line silence
+        # that Whisper has been observed to hallucinate as non-English
+        # text (issue #465 in this PR). The Say is a one-time anchor at
+        # call setup; the Media Stream carries the real bidirectional
+        # conversation that follows.
         inline_a_leg_twiml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Response><Pause length="120"/></Response>'
+            "<Response>"
+            '<Say voice="Polly.Joanna">'
+            "Thank you for calling. I will hold the line while you complete your scenario."
+            "</Say>"
+            '<Pause length="120"/>'
+            "</Response>"
         )
         self._call_sid = self._rest.place_call(
             to=to, from_=self.phone_number, twiml=inline_a_leg_twiml
