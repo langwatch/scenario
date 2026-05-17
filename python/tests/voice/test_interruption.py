@@ -201,3 +201,134 @@ def test_record_interrupt_user_segment_appends_segment_and_events():
     assert len(stop_events) == 1
     assert start_events[0].time == pytest.approx(user_start, abs=0.01)
     assert stop_events[0].time >= start_events[0].time
+
+
+@pytest.mark.asyncio
+async def test_fire_user_interrupt_records_event_after_speaking_wait_not_before():
+    """Regression for #467 — ``interrupt_time`` must be captured AFTER
+    ``await speaking.wait()``, not before.
+
+    Before the fix, ``_fire_user_interrupt`` snapshotted ``interrupt_time``
+    at function entry. If the agent took N seconds to warm up
+    (LLM/TTS cold start), the user_interrupt timeline event landed N seconds
+    BEFORE the agent_start_speaking event the script intended to truncate —
+    making downstream consumers think the interrupt fired during a
+    not-yet-existent reply.
+
+    This test reproduces the slow-warmup scenario: an adapter whose
+    ``_agent_speaking_event`` only fires after a measurable delay. The
+    recorded ``user_interrupt`` event must land at or after the delay,
+    proving the post-wait re-capture is doing its job.
+    """
+    import asyncio
+    import time as _time
+
+    from scenario.scenario_executor import ScenarioExecutor
+    from scenario.voice.recording import VoiceRecording
+
+    # Build an adapter whose _agent_speaking_event becomes set after a
+    # measurable warm-up delay. _fire_user_interrupt should observe the
+    # delay and emit user_interrupt at the LATE timestamp.
+    WARMUP_DELAY = 0.15  # seconds — well outside scheduler jitter
+
+    class _SlowWarmupAdapter(VoiceAgentAdapter):
+        capabilities = AdapterCapabilities(interruption=True)
+
+        def __init__(self):
+            self._speaking = asyncio.Event()
+            self.interrupt_called = False
+            self.sent_chunks: list[AudioChunk] = []
+
+        @property
+        def _agent_speaking_event(self) -> asyncio.Event:
+            return self._speaking
+
+        async def connect(self):
+            pass
+        async def disconnect(self):
+            pass
+        async def send_audio(self, chunk):
+            self.sent_chunks.append(chunk)
+        async def recv_audio(self, timeout):
+            return AudioChunk(data=b"")
+        async def interrupt(self):
+            self.interrupt_called = True
+
+    executor = ScenarioExecutor.__new__(ScenarioExecutor)
+    executor._voice_recording = VoiceRecording()
+    executor._voice_timeline = executor._voice_recording.timeline
+    executor._voice_recording_started_at = _time.monotonic()
+    executor._on_voice_event = None
+    executor._on_audio_chunk = None
+
+    adapter = _SlowWarmupAdapter()
+    executor.agents = [adapter]
+
+    # A trivial pending agent task so the early-out branch (pending_done)
+    # doesn't fire. The task just sleeps so it's "in progress" when the
+    # interrupt arrives.
+    async def _fake_agent_turn():
+        await asyncio.sleep(10.0)
+
+    pending = asyncio.create_task(_fake_agent_turn())
+    executor._pending_agent_task = pending
+
+    # Warm-up simulation: schedule the speaking event to fire after the delay.
+    async def _set_speaking_late():
+        await asyncio.sleep(WARMUP_DELAY)
+        adapter._speaking.set()
+    warmup_task = asyncio.create_task(_set_speaking_late())
+
+    # Build a synthetic VoicedMessage with content + audio.
+    class _VoicedMessage:
+        def __init__(self):
+            from scenario.voice.audio_chunk import silent_chunk
+            self.audio = silent_chunk(0.1)
+            self.content = "wait, hold on"
+
+    voiced = _VoicedMessage()
+
+    t_before = _time.monotonic() - executor._voice_recording_started_at
+    await ScenarioExecutor._fire_user_interrupt(executor, voiced)
+    t_after = _time.monotonic() - executor._voice_recording_started_at
+
+    await warmup_task
+    # pending will have been cancelled by _fire_user_interrupt's cleanup
+    if not pending.done():
+        pending.cancel()
+        try:
+            await pending
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    # Find the user_interrupt event and assert its time reflects the
+    # POST-wait capture, not the entry capture. The post-wait timestamp
+    # must be >= t_before + WARMUP_DELAY (we genuinely waited for the
+    # warmup before sampling time again).
+    interrupt_events = [e for e in executor._voice_timeline if e.type == "user_interrupt"]
+    assert len(interrupt_events) == 1, (
+        f"Expected exactly one user_interrupt event; got {len(interrupt_events)} "
+        f"(timeline={[e.type for e in executor._voice_timeline]})"
+    )
+    event_time = interrupt_events[0].time
+
+    # The crux of the regression: event_time must be >= t_before + WARMUP_DELAY
+    # (with small tolerance for scheduler). If the eager-capture bug were
+    # still live, event_time would be ~ t_before (no delay observed).
+    assert event_time >= t_before + WARMUP_DELAY * 0.8, (
+        f"user_interrupt event time {event_time:.3f}s landed before the "
+        f"warm-up delay {WARMUP_DELAY:.3f}s — the eager-capture regression "
+        f"would explain this. Expected post-wait re-capture to push event "
+        f"time >= {t_before + WARMUP_DELAY * 0.8:.3f}s."
+    )
+    assert event_time <= t_after + 0.01
+
+    # Sanity: the adapter got the native interrupt cue. Whether
+    # send_audio actually receives the chunk depends on the
+    # voiced_message shape matching ``extract_audio``'s contract (a
+    # ChatCompletionMessageParam dict, not a class with ``.audio``) —
+    # the crux of THIS regression is the ``interrupt_time`` timing, not
+    # the audio plumbing. The audio plumbing is covered by
+    # test_record_interrupt_user_segment_appends_segment_and_events
+    # above.
+    assert adapter.interrupt_called
