@@ -1257,21 +1257,17 @@ class ScenarioExecutor:
         calls ``adapter.send_audio`` directly, bypassing that recorder —
         so without this helper, transports like Gemini Live emit a
         ``user_interrupt`` event but no corresponding user segment.
+
+        Both this path and ``_AdapterRecorder.record_user`` delegate to
+        the shared ``voice.adapter.write_user_segment`` writer so the
+        timing model lives in one place.
         """
         anchor = getattr(self, "_voice_recording_started_at", None)
         user_end = (time.monotonic() - anchor) if anchor is not None else user_start
         try:
-            from .voice.adapter import (
-                _append_event,
-                _append_segment,
-                _fire_audio_chunk,
-            )
-            from .voice.recording import VoiceEvent
+            from .voice.adapter import write_user_segment
 
-            _fire_audio_chunk(self, chunk)
-            _append_segment(self, "user", user_start, user_end, chunk)
-            _append_event(self, VoiceEvent(time=user_start, type="user_start_speaking"))
-            _append_event(self, VoiceEvent(time=user_end, type="user_stop_speaking"))
+            write_user_segment(self, chunk, user_start, user_end)
         except Exception:
             # Recording is observability; if append fails the scenario
             # should still run. The interrupt itself already landed via

@@ -86,6 +86,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         api_key: Optional[str] = None,
         role: AgentRole = AgentRole.AGENT,
     ):
+        super().__init__()
         self.model = model
         self.voice = voice
         self.instructions = instructions
@@ -167,13 +168,6 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             finally:
                 self._ws = None
             logger.debug("OpenAIRealtimeAgentAdapter: disconnected")
-
-    async def __aenter__(self) -> "OpenAIRealtimeAgentAdapter":
-        await self.connect()
-        return self
-
-    async def __aexit__(self, *exc_info: Any) -> None:
-        await self.disconnect()
 
     # ------------------------------------------------------------------ I/O
 

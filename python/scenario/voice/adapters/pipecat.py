@@ -78,6 +78,7 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         stream_sid: Optional[str] = None,
         call_sid: Optional[str] = None,
     ) -> None:
+        super().__init__()
         if transport == "websocket" and url is None:
             raise ValueError("PipecatAgentAdapter(transport='websocket') requires url=")
         if transport == "webrtc" and signaling_url is None:

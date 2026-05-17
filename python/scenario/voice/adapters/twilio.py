@@ -50,6 +50,16 @@ from ._twilio_shared import (
 logger = logging.getLogger("scenario.voice.twilio")
 
 
+#: A-leg <Say> anchor for outbound calls. Whisper hallucinates non-English
+#: text on bare ``<Pause>`` silence (#465 in this PR), so we play one known-
+#: good utterance at call setup, then hold the line for the Media Stream to
+#: carry the real bidirectional conversation.
+PLACE_CALL_A_LEG_SAY_TEXT = (
+    "Thank you for calling. "
+    "I will hold the line while you complete your scenario."
+)
+
+
 def _redact_e164(number: str) -> str:
     """Redact an E.164 phone number for logs: ``+14155551234`` → ``***1234``.
 
@@ -114,6 +124,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         role: AgentRole = AgentRole.AGENT,
         validate_signature: bool = True,
     ) -> None:
+        super().__init__()
         validate_e164(phone_number)
 
         self.account_sid = account_sid
@@ -258,13 +269,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ws = None
         self._inbound_queue = None
 
-    async def __aenter__(self) -> "TwilioAgentAdapter":
-        await self.connect()
-        return self
-
-    async def __aexit__(self, *exc_info: Any) -> None:
-        await self.disconnect()
-
     # ------------------------------------------------------------------ direction
 
     async def place_call(
@@ -357,9 +361,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         inline_a_leg_twiml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             "<Response>"
-            '<Say voice="Polly.Joanna">'
-            "Thank you for calling. I will hold the line while you complete your scenario."
-            "</Say>"
+            f'<Say voice="Polly.Joanna">{PLACE_CALL_A_LEG_SAY_TEXT}</Say>'
             '<Pause length="120"/>'
             "</Response>"
         )

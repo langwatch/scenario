@@ -73,6 +73,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         system_prompt_override: Optional[str] = None,
         first_message_override: Optional[str] = None,
     ) -> None:
+        super().__init__()
         self.agent_id = agent_id
         self.api_key = api_key
         # Per-session overrides applied via conversation_initiation_client_data
@@ -145,13 +146,6 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             finally:
                 self._ws = None
             logger.debug("ElevenLabsAgentAdapter: disconnected")
-
-    async def __aenter__(self) -> "ElevenLabsAgentAdapter":
-        await self.connect()
-        return self
-
-    async def __aexit__(self, *exc_info: Any) -> None:
-        await self.disconnect()
 
     # ------------------------------------------------------------------ I/O
 

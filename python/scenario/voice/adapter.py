@@ -19,7 +19,7 @@ import asyncio
 import logging
 import time
 from abc import abstractmethod
-from typing import Callable, ClassVar, List, Optional
+from typing import Any, Callable, ClassVar, List, Optional
 
 logger = logging.getLogger("scenario.voice")
 
@@ -58,20 +58,25 @@ class VoiceAgentAdapter(AgentAdapter):
     # transport never signals end-of-stream. 30s = a long sentence.
     response_max_duration: float = 30.0
 
+    def __init__(self) -> None:
+        # Per-instance event used by the interruption path to wait until
+        # the agent is actually speaking before firing an interrupt — so
+        # we don't fire ``clear`` at a silent SUT. Subclasses that
+        # override ``__init__`` must call ``super().__init__()``.
+        self._agent_speaking = asyncio.Event()
+
     @property
     def _agent_speaking_event(self) -> asyncio.Event:
-        """Event set when the agent emits its first chunk of the current turn.
-
-        Lazy-init avoids forcing every subclass to call super().__init__()
-        (the existing adapters don't, and changing all of them is invasive).
-        Used by the interruption path to wait until the agent is actually
-        speaking before firing an interrupt — so we don't fire ``clear`` at
-        a silent SUT.
-        """
-        ev = self.__dict__.get("_agent_speaking")
+        """Event set when the agent emits its first chunk of the current turn."""
+        # Safety net for subclasses that pre-date this base ``__init__``
+        # contract and didn't call ``super().__init__()``. They get a
+        # one-shot lazy event so the interruption path doesn't crash;
+        # logging would be ideal but the call site is in hot timing
+        # code. New adapters must call super().__init__().
+        ev = getattr(self, "_agent_speaking", None)
         if ev is None:
             ev = asyncio.Event()
-            self.__dict__["_agent_speaking"] = ev
+            self._agent_speaking = ev
         return ev
 
     @abstractmethod
@@ -89,6 +94,17 @@ class VoiceAgentAdapter(AgentAdapter):
     @abstractmethod
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """Receive the next AudioChunk from the agent."""
+
+    async def __aenter__(self):
+        # Default async context manager: subclasses don't need to
+        # reimplement this — they get connect/disconnect sandwiching
+        # for free. Override only if a transport needs extra setup
+        # ordering around connect.
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self.disconnect()
 
     async def interrupt(self) -> None:
         """Send a first-class interrupt signal to the agent under test.
@@ -221,7 +237,6 @@ class _AdapterRecorder:
         """
         if self._executor is None or not chunk.data:
             return
-        _fire_audio_chunk(self._executor, chunk)
         # mark_user_start should have been called; if not (e.g. an adapter
         # subclass invokes record_user directly), fall back to back-
         # computation so the segment is at least roughly placed.
@@ -230,9 +245,7 @@ class _AdapterRecorder:
             0.0, end - chunk.duration_seconds
         )
         self._user_end = end
-        _append_segment(self._executor, "user", start, end, chunk)
-        _append_event(self._executor, VoiceEvent(time=start, type="user_start_speaking"))
-        _append_event(self._executor, VoiceEvent(time=end, type="user_stop_speaking"))
+        write_user_segment(self._executor, chunk, start, end)
 
     def mark_agent_start(self) -> None:
         """Capture the moment the first agent chunk arrives.
@@ -292,6 +305,24 @@ def _merge_chunks(chunks: List[AudioChunk]) -> AudioChunk:
     parts = [c.transcript for c in chunks if c.transcript]
     transcript = " ".join(parts) if parts else None
     return AudioChunk(data=data, transcript=transcript)
+
+
+def write_user_segment(executor, chunk: AudioChunk, start: float, end: float) -> None:
+    """Append a finalised user segment + start/stop timeline events.
+
+    Single path that both ``_AdapterRecorder.record_user`` (the default
+    ``call()`` flow) and ``ScenarioExecutor._record_interrupt_user_segment``
+    (the barge-in flow that bypasses the recorder) call into. Previously
+    those two paths each open-coded the same four-step sequence
+    (``_fire_audio_chunk`` + ``_append_segment`` + two ``_append_event``s),
+    drifting apart as the timing model evolved.
+    """
+    if executor is None or not chunk.data:
+        return
+    _fire_audio_chunk(executor, chunk)
+    _append_segment(executor, "user", start, end, chunk)
+    _append_event(executor, VoiceEvent(time=start, type="user_start_speaking"))
+    _append_event(executor, VoiceEvent(time=end, type="user_stop_speaking"))
 
 
 def _append_segment(executor, speaker: str, start: float, end: float, chunk: AudioChunk) -> None:

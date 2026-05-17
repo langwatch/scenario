@@ -76,6 +76,7 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
                 LLM has guidance before the first user message. Defaults to a
                 generic helpful-assistant prompt.
         """
+        super().__init__()
         self.stt = stt
         self.llm = llm
         self.tts = tts
