@@ -195,8 +195,8 @@ class _AdapterRecorder:
     """
 
     def __init__(self, input: AgentInput) -> None:
-        state = getattr(input, "scenario_state", None)
-        executor = getattr(state, "_executor", None) if state is not None else None
+        state = input.scenario_state
+        executor = getattr(state, "_executor", None)
         self._executor = executor
         self._user_start: Optional[float] = None
         self._user_end: Optional[float] = None

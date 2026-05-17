@@ -17,8 +17,6 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
-import numpy as np
-
 from ..types import ScriptStep
 from .audio_chunk import AudioChunk, silent_chunk
 from .capabilities import UnsupportedCapabilityError
@@ -300,6 +298,12 @@ _DTMF_COL_HZ = {"1": 1209, "2": 1336, "3": 1477, "4": 1209, "5": 1336, "6": 1477
 
 def _dtmf_to_pcm(tones: str, sr: int = 24000, dur_s: float = 0.1, gap_s: float = 0.05) -> AudioChunk:
     """Fallback DTMF generator (used only when adapter has no send_dtmf)."""
+    # numpy is deferred to here so callers that never hit the fallback (every
+    # transport adapter that ships send_dtmf — Twilio, Pipecat, ElevenLabs,
+    # OpenAI Realtime) don't pay the import cost on `from scenario.voice
+    # import script_steps`.
+    import numpy as np
+
     n_tone = int(sr * dur_s)
     n_gap = int(sr * gap_s)
     t = np.arange(n_tone) / sr

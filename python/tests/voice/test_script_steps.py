@@ -49,14 +49,20 @@ class _FakeState:
 
 @pytest.mark.asyncio
 async def test_sleep_does_not_send_audio_and_pauses_real_time():
-    # Use a 200ms sleep with generous slack so CI scheduler jitter doesn't flake.
+    # Two-sided assertion: catches both "sleep got skipped" (the lower bound)
+    # AND "sleep got stuck or balloons wall-clock" (the upper bound). A
+    # one-sided lower bound would silently pass even if asyncio.sleep ever
+    # gets stubbed to a no-op in this code path. 50ms target with 40ms floor
+    # / 1s ceiling keeps the suite tight without flaking on CI scheduler
+    # jitter.
+    target = 0.05
     adapter = _SpyAdapter()
     state = _FakeState([adapter])
-    step = scenario.sleep(0.2)
+    step = scenario.sleep(target)
     t0 = time.monotonic()
     await step(state)  # type: ignore[arg-type,misc]
     elapsed = time.monotonic() - t0
-    assert elapsed >= 0.15  # well below 0.2 to absorb loop latency
+    assert 0.8 * target <= elapsed <= 1.0
     assert adapter.sent == []  # no audio transmitted
 
 

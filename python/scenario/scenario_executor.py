@@ -25,11 +25,14 @@ from typing import (
 
 if TYPE_CHECKING:
     from .voice.playback import FfmpegPlayback
+import logging
 import time
 import warnings
 import termcolor
 import asyncio
 import concurrent.futures
+
+logger = logging.getLogger("scenario")
 
 from scenario.config import ScenarioConfig
 from langwatch.attributes import AttributeKey
@@ -676,8 +679,6 @@ class ScenarioExecutor:
 
     async def _voice_connect_all(self) -> None:
         """Invoke ``connect()`` on every VoiceAgentAdapter in the scenario."""
-        import time as _time
-
         from .voice.adapter import VoiceAgentAdapter
         from .voice.recording import LatencyMetrics, VoiceRecording
         from .voice.playback import FfmpegPlayback
@@ -685,7 +686,7 @@ class ScenarioExecutor:
         self._voice_recording: VoiceRecording = VoiceRecording()
         self._voice_timeline: list = []
         self._voice_latency: LatencyMetrics = LatencyMetrics()
-        self._voice_recording_started_at: float = _time.monotonic()
+        self._voice_recording_started_at: float = time.monotonic()
         self._pending_agent_task = None
         self._ffmpeg_playback = None
 
@@ -1277,8 +1278,7 @@ class ScenarioExecutor:
             # adapter.send_audio above. Log so a buggy recorder is
             # visible in CI/logs rather than silently degrading the
             # manifest — matches the _append_event pattern.
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "_record_interrupt_user_segment failed; manifest may "
                 "omit the interrupt user turn — interrupt itself fired.",
                 exc_info=True,
