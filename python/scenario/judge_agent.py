@@ -899,6 +899,14 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 # Can happen when the LLM is uncertain about the schema format (especially with
                 # complex dynamic schemas using sanitized criterion text as property names).
                 # See: https://github.com/langwatch/scenario/issues/161
+                #
+                # If we cannot recover a dict, fail closed: return an inconclusive
+                # ScenarioResult with success=False instead of silently falling back to
+                # an empty dict. With an empty dict + verdict=="success", the original
+                # success formula `verdict == "success" and len(failed_criteria) == 0`
+                # would evaluate True and report a passing scenario for a malformed
+                # response. That is exactly the false-green we want to avoid.
+                malformed_reason: Optional[str] = None
                 if isinstance(criteria_verdicts, str):
                     try:
                         criteria_verdicts = json.loads(criteria_verdicts)
@@ -906,19 +914,35 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                             "JudgeAgent: Parsed criteria from JSON string to dict"
                         )
                     except json.JSONDecodeError:
-                        logger.warning(
-                            f"JudgeAgent: Failed to parse criteria string as JSON: {criteria_verdicts}. "
-                            "Using empty dict as fallback."
+                        malformed_reason = (
+                            f"criteria was a string that could not be parsed as JSON: "
+                            f"{criteria_verdicts!r}"
                         )
-                        criteria_verdicts = {}
 
-                # Ensure criteria_verdicts is a dict before calling .values()
-                if not isinstance(criteria_verdicts, dict):
-                    logger.warning(
-                        f"JudgeAgent: criteria is {type(criteria_verdicts).__name__}, expected dict. "
-                        "Using empty dict as fallback."
+                if malformed_reason is None and not isinstance(criteria_verdicts, dict):
+                    malformed_reason = (
+                        f"criteria was {type(criteria_verdicts).__name__}, expected dict"
                     )
-                    criteria_verdicts = {}
+
+                if malformed_reason is not None:
+                    logger.warning(
+                        "JudgeAgent: malformed criteria from LLM (%s); "
+                        "returning inconclusive to avoid reporting a false success.",
+                        malformed_reason,
+                    )
+                    return ScenarioResult(
+                        success=False,
+                        messages=cast(Any, messages),
+                        reasoning=(
+                            f"JudgeAgent: malformed verdict response from LLM "
+                            f"({malformed_reason}). Original LLM verdict "
+                            f"{verdict!r} was discarded because the criteria "
+                            f"payload could not be evaluated. Original LLM "
+                            f"reasoning: {reasoning}"
+                        ),
+                        passed_criteria=[],
+                        failed_criteria=list(effective_criteria),
+                    )
 
                 passed_criteria = [
                     effective_criteria[idx]
