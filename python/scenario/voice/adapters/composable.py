@@ -90,6 +90,14 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         self._history: List[dict] = [
             {"role": "system", "content": system_prompt or self.DEFAULT_SYSTEM_PROMPT}
         ]
+        # ``recv_audio`` synthesises one full chunk per turn. The default
+        # ``call()`` drains by re-calling ``recv_audio`` until tail-silence,
+        # which on this adapter would kick a second LLM call only to be
+        # cancelled by the 0.6s timeout — wasted credits + latency. The
+        # flag below makes subsequent ``recv_audio`` calls in the same turn
+        # return an empty chunk, which the drain loop interprets as
+        # end-of-stream and exits cleanly.
+        self._turn_synthesised: bool = False
 
     def __repr__(self) -> str:
         return f"ComposableVoiceAgent(llm={self.llm!r}, tts={self.tts!r})"
@@ -109,6 +117,8 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         transcript = await self.stt.transcribe(chunk)
         self.last_user_transcript = transcript
         self._history.append({"role": "user", "content": transcript})
+        # New user turn → next recv_audio is allowed to synthesise.
+        self._turn_synthesised = False
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
@@ -116,8 +126,14 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         and return the resulting AudioChunk.
 
         ``timeout`` is honoured for the combined LLM+TTS call via
-        ``asyncio.wait_for``.
+        ``asyncio.wait_for``. Subsequent calls in the same turn (the
+        default ``call()`` drains until tail-silence) return an empty
+        chunk so the drain loop exits without billing a second LLM
+        round-trip.
         """
+        if self._turn_synthesised:
+            return AudioChunk(data=b"")
+
         import asyncio
 
         async def _run() -> AudioChunk:
@@ -141,12 +157,21 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
 
             return await synthesize(response_text, self.tts)
 
-        return await asyncio.wait_for(_run(), timeout=timeout)
+        chunk = await asyncio.wait_for(_run(), timeout=timeout)
+        self._turn_synthesised = True
+        return chunk
 
 
 class ElevenLabsVoiceAgent(ComposableVoiceAgent):
     """
     Composable voice agent with ElevenLabs-opinionated defaults.
+
+    Not to be confused with :class:`ElevenLabsAgentAdapter` (in
+    ``scenario.voice.adapters.elevenlabs``) — that one talks to ElevenLabs'
+    **hosted** Conversational AI endpoint where EL runs the full
+    STT→LLM→TTS loop. This class is local: you compose ``ElevenLabsSTTProvider``
+    + any LLM + ElevenLabs TTS yourself, keeping full control over prompts,
+    model choice, and tool calls.
 
     Instantiate with just an ``api_key`` to get an ElevenLabs STT +
     LLM (default ``COMPOSABLE_VOICE_LLM_MODEL``) + ``elevenlabs/rachel`` TTS stack. Each piece
