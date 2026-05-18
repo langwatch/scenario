@@ -84,6 +84,7 @@ constraint-dependencies = [
     "python-liquid>=2.2.0",
     "filelock>=3.20.3",
     "virtualenv>=20.36.1",
+    "requests>=2.33.0",
 ]
 
 
