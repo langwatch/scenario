@@ -169,9 +169,14 @@ class VoiceRecording:
         import imageio_ffmpeg
 
         ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        # -protocol_whitelist file,pipe — defence in depth. Input here is
+        # our own WAV bytes (not user-controlled), but the whitelist costs
+        # nothing and forecloses future regressions if a caller pipes in
+        # externally sourced container bytes through this path.
         proc = subprocess.run(
             [
                 ffmpeg,
+                "-protocol_whitelist", "file,pipe",
                 "-loglevel", "error",
                 "-y",
                 "-f", "wav",

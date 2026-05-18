@@ -359,9 +359,15 @@ def _redact_e164(number: str) -> str:
     failure, so emitting full phone numbers at INFO would leak PII into
     a retention sink. The last-4 form is enough for operators to
     correlate ``rejected`` events without exposing the full number.
+
+    Safety: extracts last-4 *digits* (not last-4 characters) so short or
+    malformed inputs (e.g. ``+123`` from an unvalidated webhook ``From``
+    field) cannot leak the leading ``+`` or country-code fragments.
+    Inputs with fewer than 4 digits are fully redacted to ``***``.
     """
     if not number:
         return "***"
-    if len(number) >= 4:
-        return f"***{number[-4:]}"
+    digits = "".join(ch for ch in number if ch.isdigit())
+    if len(digits) >= 4:
+        return f"***{digits[-4:]}"
     return "***"

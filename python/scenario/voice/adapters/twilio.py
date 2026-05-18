@@ -128,6 +128,12 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # ``validate_signature=False``; production callers should leave
         # it on.
         self.validate_signature = validate_signature
+        if not validate_signature:
+            logger.warning(
+                "TwilioAgentAdapter: validate_signature=False — inbound "
+                "webhooks accept any payload without signature checks. "
+                "Use only in tests; do not deploy to production."
+            )
 
         # Populated during connect(); None when disconnected.
         self._rest: Optional[TwilioRESTHelper] = None

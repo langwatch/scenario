@@ -108,7 +108,7 @@ class TwilioHarness:
         # Don't leak full E.164 number into the workflow log (CI retains
         # for 14 days). Reuse the adapter's redactor — last-4 is enough
         # to identify which test number is in use.
-        from ..adapters.twilio import _redact_e164
+        from ..adapters._twilio_shared import _redact_e164
 
         logger.info(
             "TwilioHarness ready — tunnel %s → localhost:%d, number %s",

@@ -272,8 +272,14 @@ def _load_audio_to_chunk(path_or_bytes: Union[str, Path, bytes]) -> AudioChunk:
         stdin_input = None
 
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    # -protocol_whitelist file,pipe — defence in depth. The bytes-input
+    # path accepts caller-supplied container bytes; without this, a
+    # crafted file with embedded URL data refs could steer ffmpeg into
+    # an HTTP/RTSP demuxer. URL-like strings are already rejected above
+    # for the path-input case; this hardens the bytes path symmetrically.
     cmd = [
         ffmpeg,
+        "-protocol_whitelist", "file,pipe",
         "-loglevel", "error",
         "-y",
         *source_args,
