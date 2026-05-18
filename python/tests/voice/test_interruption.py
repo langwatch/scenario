@@ -39,6 +39,7 @@ class _StreamingAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities(streaming_transcripts=True)
 
     def __init__(self):
+        super().__init__()
         # Simulated streaming transcript that crosses the N-word threshold quickly.
         self.streaming_transcript = "one two three four five"
 

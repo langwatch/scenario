@@ -36,6 +36,7 @@ class _SlowAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities(interruption=True)
 
     def __init__(self, recv_delay: float = 0.4):
+        super().__init__()
         self.recv_delay = recv_delay
         self.send_audio_calls: int = 0
         self.interrupt_calls: int = 0

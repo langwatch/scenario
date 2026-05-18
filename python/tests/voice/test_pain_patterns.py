@@ -32,6 +32,7 @@ class _SpyAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities(dtmf=False)
 
     def __init__(self):
+        super().__init__()
         self.sent: list[AudioChunk] = []
 
     async def connect(self):

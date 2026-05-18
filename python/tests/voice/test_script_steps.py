@@ -12,6 +12,7 @@ class _SpyAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities(dtmf=False)
 
     def __init__(self):
+        super().__init__()
         self.sent: list[AudioChunk] = []
 
     async def connect(self):
@@ -26,6 +27,7 @@ class _TelephonyAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities(dtmf=True)
 
     def __init__(self):
+        super().__init__()
         self.dtmf_calls: list[str] = []
         self.sent: list[AudioChunk] = []
 
