@@ -48,7 +48,7 @@ class AudioToAudioAgent(OpenAiVoiceAgent):
     """
     Agent that accepts audio input and responds with audio
 
-    Uses OpenAI's gpt-4o-audio-preview model which can:
+    Uses OpenAI's gpt-4o model which can:
     - Process audio input
     - Generate audio responses with voice
     - Maintain conversational context

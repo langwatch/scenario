@@ -49,7 +49,7 @@ class AudioToTextAgent(scenario.AgentAdapter):
     """
     Agent that accepts audio input and responds with text
 
-    Uses OpenAI's gpt-4o-audio-preview model which can:
+    Uses OpenAI's gpt-audio-mini model which can:
     - Process audio input
     - Generate text transcripts
     - Respond with text-only messages
@@ -154,7 +154,7 @@ class AudioToTextAgent(scenario.AgentAdapter):
         Call OpenAI's audio model to process audio and generate text response
         """
         return await self.client.chat.completions.create(
-            model="gpt-4o-audio-preview",
+            model="gpt-audio-mini",
             modalities=["text", "audio"],
             audio={"voice": "alloy", "format": "wav"},
             messages=messages,
