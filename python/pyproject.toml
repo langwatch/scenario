@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "pytest>=8.1.1",
+    "pytest>=9.0.3",
     "pytest-rerunfailures>=14.0",
     "litellm>=1.83.14",
     "openai>=1.88.0",
