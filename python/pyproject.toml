@@ -82,6 +82,7 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 constraint-dependencies = [
     "urllib3>=2.7.0",
     "python-liquid>=2.2.0",
+    "filelock>=3.20.3",
 ]
 
 
