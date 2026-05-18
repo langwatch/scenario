@@ -84,7 +84,7 @@ class VoiceAgentAdapter(AgentAdapter):
                     "Add super().__init__() to silence this warning.",
                     cls.__name__,
                 )
-                cls._agent_speaking_lazy_warned = True
+                setattr(cls, "_agent_speaking_lazy_warned", True)
             ev = asyncio.Event()
             self._agent_speaking = ev
         return ev
