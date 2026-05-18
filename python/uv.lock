@@ -1548,7 +1548,7 @@ wheels = [
 
 [[package]]
 name = "langwatch"
-version = "0.22.0"
+version = "0.2.19"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -1567,13 +1567,12 @@ dependencies = [
     { name = "pksuid" },
     { name = "pydantic" },
     { name = "python-liquid" },
-    { name = "pyyaml" },
     { name = "retry" },
     { name = "termcolor" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dd/4a/8b37cb091f47ed63ad816feb5f5a5d90173ba11a1465d348cf13552c87b5/langwatch-0.22.0.tar.gz", hash = "sha256:a7b479767f075816a47d2fd23d786d7b90a3944d3881c6ad67d991211d5a671f", size = 1644216, upload-time = "2026-04-22T08:17:20.822Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/8c/2bb59cfa693f6c5778e97207627bd4edc21124ae6dd3e15e3e588219e6f6/langwatch-0.2.19.tar.gz", hash = "sha256:3e0861a92a1e13b7362fc91c3c27cda8eec554b92cdf7be00c96805b6ec009a4", size = 1265063, upload-time = "2025-09-05T13:34:30.161Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/8d/70704f51a48dcea940f583e446de2f1775dd506c5985fd10fdfc7d06ad5e/langwatch-0.22.0-py3-none-any.whl", hash = "sha256:87e79bdabc073ab7cf03401496740fdef017b963be866d658bbe8908f6434120", size = 1283456, upload-time = "2026-04-22T08:17:19.003Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/af/5012ff10a2517db17450b17b27f820c08d7fbfe0c561dc6fc20163d81ea8/langwatch-0.2.19-py3-none-any.whl", hash = "sha256:1ba948d0e10eb83c9033c10b4d56737c035bcb14f2b4c162ba8ea8eb13131a5a", size = 456561, upload-time = "2025-09-05T13:34:28.454Z" },
 ]
 
 [[package]]
@@ -1656,7 +1655,7 @@ requires-dist = [
     { name = "imageio-ffmpeg", specifier = ">=0.5.0" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "joblib", specifier = ">=1.4.2" },
-    { name = "langwatch", specifier = ">=0.2.19" },
+    { name = "langwatch", specifier = ">=0.2.19,<0.3" },
     { name = "litellm", specifier = ">=1.83.14" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.88.0" },
