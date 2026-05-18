@@ -70,11 +70,21 @@ class VoiceAgentAdapter(AgentAdapter):
         """Event set when the agent emits its first chunk of the current turn."""
         # Safety net for subclasses that pre-date this base ``__init__``
         # contract and didn't call ``super().__init__()``. They get a
-        # one-shot lazy event so the interruption path doesn't crash;
-        # logging would be ideal but the call site is in hot timing
-        # code. New adapters must call super().__init__().
+        # one-shot lazy event so the interruption path doesn't crash.
+        # We emit a single warning per subclass — silent fallback masks
+        # bugs, but a warning per call would spam the timing-critical
+        # interruption path. New adapters must call super().__init__().
         ev = getattr(self, "_agent_speaking", None)
         if ev is None:
+            cls = type(self)
+            if not getattr(cls, "_agent_speaking_lazy_warned", False):
+                logger.warning(
+                    "%s.__init__() did not call super().__init__(); "
+                    "lazily initialising _agent_speaking event. "
+                    "Add super().__init__() to silence this warning.",
+                    cls.__name__,
+                )
+                cls._agent_speaking_lazy_warned = True
             ev = asyncio.Event()
             self._agent_speaking = ev
         return ev

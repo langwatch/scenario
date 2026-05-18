@@ -90,14 +90,17 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         self._history: List[dict] = [
             {"role": "system", "content": system_prompt or self.DEFAULT_SYSTEM_PROMPT}
         ]
-        # ``recv_audio`` synthesises one full chunk per turn. The default
-        # ``call()`` drains by re-calling ``recv_audio`` until tail-silence,
-        # which on this adapter would kick a second LLM call only to be
-        # cancelled by the 0.6s timeout — wasted credits + latency. The
-        # flag below makes subsequent ``recv_audio`` calls in the same turn
-        # return an empty chunk, which the drain loop interprets as
-        # end-of-stream and exits cleanly.
-        self._turn_synthesised: bool = False
+        # Turn-output guard. ``recv_audio`` synthesises ONE chunk per
+        # user turn. The default ``call()`` drains by re-calling
+        # ``recv_audio`` until tail-silence — on this adapter that would
+        # kick a second LLM call, cancelled later by timeout (wasted
+        # credits + latency). The guard makes subsequent ``recv_audio``
+        # calls in the same turn return an empty chunk, which the drain
+        # loop interprets as end-of-stream.
+        #
+        # Reset boundary: ``send_audio`` (new user audio → new turn).
+        # Set boundary: end of ``recv_audio`` (LLM+TTS completed).
+        self._turn_output_emitted: bool = False
 
     def __repr__(self) -> str:
         return f"ComposableVoiceAgent(llm={self.llm!r}, tts={self.tts!r})"
@@ -118,7 +121,7 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         self.last_user_transcript = transcript
         self._history.append({"role": "user", "content": transcript})
         # New user turn → next recv_audio is allowed to synthesise.
-        self._turn_synthesised = False
+        self._turn_output_emitted = False
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
@@ -129,9 +132,9 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
         ``asyncio.wait_for``. Subsequent calls in the same turn (the
         default ``call()`` drains until tail-silence) return an empty
         chunk so the drain loop exits without billing a second LLM
-        round-trip.
+        round-trip — see ``_turn_output_emitted`` for the guard contract.
         """
-        if self._turn_synthesised:
+        if self._turn_output_emitted:
             return AudioChunk(data=b"")
 
         import asyncio
@@ -158,7 +161,7 @@ class ComposableVoiceAgent(VoiceAgentAdapter):
             return await synthesize(response_text, self.tts)
 
         chunk = await asyncio.wait_for(_run(), timeout=timeout)
-        self._turn_synthesised = True
+        self._turn_output_emitted = True
         return chunk
 
 

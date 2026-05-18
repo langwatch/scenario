@@ -351,3 +351,17 @@ __all__ = [
     "build_mark_frame",
     "TwilioRESTHelper",
 ]
+
+def _redact_e164(number: str) -> str:
+    """Redact an E.164 phone number for logs: ``+14155551234`` → ``***1234``.
+
+    GitHub Actions retains workflow logs for 14 days and uploads on
+    failure, so emitting full phone numbers at INFO would leak PII into
+    a retention sink. The last-4 form is enough for operators to
+    correlate ``rejected`` events without exposing the full number.
+    """
+    if not number:
+        return "***"
+    if len(number) >= 4:
+        return f"***{number[-4:]}"
+    return "***"

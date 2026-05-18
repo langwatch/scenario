@@ -235,6 +235,7 @@ async def test_fire_user_interrupt_records_event_after_speaking_wait_not_before(
         capabilities = AdapterCapabilities(interruption=True)
 
         def __init__(self):
+            super().__init__()
             self._speaking = asyncio.Event()
             self.interrupt_called = False
             self.sent_chunks: list[AudioChunk] = []
@@ -260,6 +261,10 @@ async def test_fire_user_interrupt_records_event_after_speaking_wait_not_before(
     executor._voice_recording_started_at = _time.monotonic()
     executor._on_voice_event = None
     executor._on_audio_chunk = None
+    # _fire_user_interrupt calls _clear_adapter_pending_messages once
+    # audio is hand-delivered to the adapter — that path expects the
+    # dict to be present.
+    executor._pending_messages = {}
 
     adapter = _SlowWarmupAdapter()
     executor.agents = [adapter]
@@ -279,14 +284,12 @@ async def test_fire_user_interrupt_records_event_after_speaking_wait_not_before(
         adapter._speaking.set()
     warmup_task = asyncio.create_task(_set_speaking_late())
 
-    # Build a synthetic VoicedMessage with content + audio.
-    class _VoicedMessage:
-        def __init__(self):
-            from scenario.voice.audio_chunk import silent_chunk
-            self.audio = silent_chunk(0.1)
-            self.content = "wait, hold on"
-
-    voiced = _VoicedMessage()
+    # Build a real OpenAI-shaped message with audio — matches the
+    # ChatCompletionMessageParam contract that ``extract_audio`` expects
+    # (a dict with role + content parts, not a class with .audio).
+    from scenario.voice.audio_chunk import silent_chunk
+    from scenario.voice.messages import create_audio_message
+    voiced = create_audio_message(silent_chunk(0.1), role="user")
 
     t_before = _time.monotonic() - executor._voice_recording_started_at
     await ScenarioExecutor._fire_user_interrupt(executor, voiced)
@@ -323,12 +326,7 @@ async def test_fire_user_interrupt_records_event_after_speaking_wait_not_before(
     )
     assert event_time <= t_after + 0.01
 
-    # Sanity: the adapter got the native interrupt cue. Whether
-    # send_audio actually receives the chunk depends on the
-    # voiced_message shape matching ``extract_audio``'s contract (a
-    # ChatCompletionMessageParam dict, not a class with ``.audio``) —
-    # the crux of THIS regression is the ``interrupt_time`` timing, not
-    # the audio plumbing. The audio plumbing is covered by
-    # test_record_interrupt_user_segment_appends_segment_and_events
-    # above.
+    # Sanity: the adapter got the native interrupt cue. The crux of
+    # this regression is interrupt_time TIMING — audio plumbing is
+    # covered by test_record_interrupt_user_segment_appends_segment_and_events.
     assert adapter.interrupt_called

@@ -37,6 +37,7 @@ from ..capabilities import AdapterCapabilities
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
     TwilioRESTHelper,
+    _redact_e164,
     build_clear_frame,
     build_media_frame,
     iter_mulaw_frames,
@@ -56,21 +57,6 @@ PLACE_CALL_A_LEG_SAY_TEXT = (
     "Thank you for calling. "
     "I will hold the line while you complete your scenario."
 )
-
-
-def _redact_e164(number: str) -> str:
-    """Redact an E.164 phone number for logs: ``+14155551234`` → ``***1234``.
-
-    GitHub Actions retains workflow logs for 14 days and uploads on
-    failure, so emitting full phone numbers at INFO would leak PII into
-    a retention sink. The last-4 form is enough for operators to
-    correlate ``rejected`` events without exposing the full number.
-    """
-    if not number:
-        return "***"
-    if len(number) >= 4:
-        return f"***{number[-4:]}"
-    return "***"
 
 
 class TwilioAgentAdapter(VoiceAgentAdapter):

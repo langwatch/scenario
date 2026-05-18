@@ -31,6 +31,7 @@ from typing import Any, TYPE_CHECKING
 
 from ..audio_chunk import AudioChunk
 from ._twilio_shared import (
+    _redact_e164,
     mulaw8k_to_pcm16_24k,
     parse_media_stream_frame,
 )
@@ -124,7 +125,6 @@ class TwilioWebhookServer:
         from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
         from fastapi.responses import Response
 
-        from .twilio import _redact_e164  # avoid circular import at module load
 
         app = FastAPI()
         adapter = self._adapter
