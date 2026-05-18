@@ -29,7 +29,11 @@ dependencies = [
     "termcolor>=2.4.0",
     "pydantic>=2.7.0",
     "joblib>=1.4.2",
-    "wrapt>=1.17.2",
+    # Pin <2 — wrapt 2.x is RC-only as of 2026-05 and its type stubs
+    # break pyright on `@scenario.cache()`-decorated example agents
+    # (decorated callables surface as accepting 0 positional args).
+    # Revert when wrapt 2.x stabilises and the stubs are correct.
+    "wrapt>=1.17.2,<2",
     "pytest-asyncio>=0.26.0",
     "rich>=13.3.3,<15.0.0",
     "pksuid>=1.1.2",
