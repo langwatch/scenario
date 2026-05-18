@@ -83,6 +83,7 @@ constraint-dependencies = [
     "urllib3>=2.7.0",
     "python-liquid>=2.2.0",
     "filelock>=3.20.3",
+    "virtualenv>=20.36.1",
 ]
 
 
