@@ -501,6 +501,18 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._webhook_server is not None
         return self._webhook_server.build_app()
 
+    async def _media_stream_loop(self, ws: Any) -> None:
+        """Test seam: kick off the Media Streams WS loop directly.
+
+        The two-adapter-bridge test in
+        ``tests/voice/test_twilio_two_adapter_bridge.py`` uses this to
+        drive a loopback WS without going through the FastAPI route
+        wrapper. Production code reaches the loop via the ``/twilio/stream``
+        WebSocket handler defined in ``_twilio_server.build_app``.
+        """
+        assert self._webhook_server is not None
+        await self._webhook_server.media_stream_loop(ws)
+
     # ------------------------------------------------------------------ assertions
 
     def _assert_connected(self) -> None:

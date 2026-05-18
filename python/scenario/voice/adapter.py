@@ -211,8 +211,12 @@ class _AdapterRecorder:
     """
 
     def __init__(self, input: AgentInput) -> None:
-        state = input.scenario_state
-        executor = getattr(state, "_executor", None)
+        # ``scenario_state`` is declared on AgentInput, but tests use lightweight
+        # _FakeInput stubs that don't carry it. Guard so the recorder
+        # degrades to a no-op (segments unwritten) instead of crashing the
+        # call(), matching the established test-double seam.
+        state = getattr(input, "scenario_state", None)
+        executor = getattr(state, "_executor", None) if state is not None else None
         self._executor = executor
         self._user_start: Optional[float] = None
         self._user_end: Optional[float] = None
