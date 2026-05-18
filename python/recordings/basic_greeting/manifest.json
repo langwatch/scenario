@@ -1,60 +1,60 @@
 {
-  "generated_at": "2026-05-09T18:32:46.512333+00:00",
-  "duration": 13.153745000017807,
+  "generated_at": "2026-05-18T19:58:05.872474+00:00",
+  "duration": 15.01540316700266,
   "segment_count": 3,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-agent-3334ms.wav",
+      "file": "segments/00-agent-2849ms.wav",
       "role": "agent",
-      "start_time": 3.3346521250205114,
-      "end_time": 3.945879708015127,
-      "duration": 0.6112275829946157,
-      "transcript": "Hello. Thank you for calling. How can I help you today?"
+      "start_time": 2.8499631250015227,
+      "end_time": 3.466766457997437,
+      "duration": 0.6168033329959144,
+      "transcript": "Hello, thank you for calling, how can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-5733ms.wav",
+      "file": "segments/01-user-5201ms.wav",
       "role": "user",
-      "start_time": 5.733902666019276,
-      "end_time": 8.822892333002528,
-      "duration": 3.0889896669832524,
+      "start_time": 5.201288958000077,
+      "end_time": 8.449160083000606,
+      "duration": 3.247871125000529,
       "transcript": "Hi, I need some help ordering pizza"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-12540ms.wav",
+      "file": "segments/02-agent-14391ms.wav",
       "role": "agent",
-      "start_time": 12.540053375007119,
-      "end_time": 13.153745000017807,
-      "duration": 0.6136916250106879,
-      "transcript": "Sure, I can help with that. What size and toppings would you like? And do you want delivery or pickup?"
+      "start_time": 14.391004249999241,
+      "end_time": 15.01540316700266,
+      "duration": 0.6243989170034183,
+      "transcript": "Sure, I can help with that. What size pizza, what toppings, and do you want delivery or pickup?"
     }
   ],
   "events": [
     {
-      "time": 3.3346521250205114,
+      "time": 2.8499631250015227,
       "type": "agent_start_speaking"
     },
     {
-      "time": 3.945879708015127,
+      "time": 3.466766457997437,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 5.733902666019276,
+      "time": 5.201288958000077,
       "type": "user_start_speaking"
     },
     {
-      "time": 8.822892333002528,
+      "time": 8.449160083000606,
       "type": "user_stop_speaking"
     },
     {
-      "time": 12.540053375007119,
+      "time": 14.391004249999241,
       "type": "agent_start_speaking",
-      "latency": 3.717161042004591
+      "latency": 5.941844166998635
     },
     {
-      "time": 13.153745000017807,
+      "time": 15.01540316700266,
       "type": "agent_stop_speaking"
     }
   ]

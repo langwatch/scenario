@@ -1,60 +1,60 @@
 {
-  "generated_at": "2026-05-14T18:19:59.647086+00:00",
-  "duration": 36.2746817920015,
+  "generated_at": "2026-05-18T21:58:50.165568+00:00",
+  "duration": 42.34881300000416,
   "segment_count": 3,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-agent-6223ms.wav",
+      "file": "segments/00-agent-1482ms.wav",
       "role": "agent",
-      "start_time": 6.223416625000027,
-      "end_time": 6.833838750000723,
-      "duration": 0.6104221250006958,
+      "start_time": 1.4827431669982616,
+      "end_time": 2.090200874998118,
+      "duration": 0.6074577079998562,
       "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-20770ms.wav",
+      "file": "segments/01-user-15170ms.wav",
       "role": "user",
-      "start_time": 20.770369792000565,
-      "end_time": 28.838929458001076,
-      "duration": 8.06855966600051,
-      "transcript": "[shouting] you charged me twice for my order fix this immediately [angry] [exhales sharply] i'm in a noisy cafe hurry up"
+      "start_time": 15.170355333997577,
+      "end_time": 22.33333975000278,
+      "duration": 7.162984416005202,
+      "transcript": "[shouting] you charged me the wrong amount [angry] fix it now [exhales sharply] i'm in a noisy cafe"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-35633ms.wav",
+      "file": "segments/02-agent-41734ms.wav",
       "role": "agent",
-      "start_time": 35.63368058300148,
-      "end_time": 36.2746817920015,
-      "duration": 0.6410012090000237,
-      "transcript": "I'm really sorry about that. Being charged twice is frustrating. I can get this fixed right away. Please tell me your order number and the email or phone number on the order, and I'll start the refund for the duplicate charge immediately."
+      "start_time": 41.734610334002355,
+      "end_time": 42.34881300000416,
+      "duration": 0.6142026660018018,
+      "transcript": "No problem, I'll keep it simple. What can I help you with today? Billing, account access, or our hours?"
     }
   ],
   "events": [
     {
-      "time": 6.223416625000027,
+      "time": 1.4827431669982616,
       "type": "agent_start_speaking"
     },
     {
-      "time": 6.833838750000723,
+      "time": 2.090200874998118,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 20.770369792000565,
+      "time": 15.170355333997577,
       "type": "user_start_speaking"
     },
     {
-      "time": 28.838929458001076,
+      "time": 22.33333975000278,
       "type": "user_stop_speaking"
     },
     {
-      "time": 35.63368058300148,
+      "time": 41.734610334002355,
       "type": "agent_start_speaking",
-      "latency": 6.794751125000403
+      "latency": 19.401270583999576
     },
     {
-      "time": 36.2746817920015,
+      "time": 42.34881300000416,
       "type": "agent_stop_speaking"
     }
   ]
