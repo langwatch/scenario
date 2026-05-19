@@ -9,6 +9,11 @@ import {
 } from "./helpers";
 import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
 
+// Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
+// returns 404 model_not_found as of 2026-05-19. Tracked separately — the
+// voice work PR will unskip these tests once model access is restored.
+const skipInCi = process.env.CI === "true";
+
 class AudioAgent extends OpenAiVoiceAgent {
   role: AgentRole = AgentRole.AGENT;
 }
@@ -20,7 +25,7 @@ const setId = "multimodal-audio-test";
  * This example shows how to test an agent that can take audio input
  * from a fixture and respond with audio output.
  */
-describe("Multimodal Audio to Audio Tests", () => {
+describe.skipIf(skipInCi)("Multimodal Audio to Audio Tests", () => {
   it("should handle audio input", async () => {
     const myAgent = new AudioAgent({
       systemPrompt: `
