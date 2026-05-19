@@ -18,6 +18,11 @@ import { encodeAudioToBase64 } from "./audio-encoding";
 import { getFixturePath } from "./fixture-utils";
 import { OpenAiVoiceAgent } from "./openai-voice-agent";
 
+// Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
+// returns 404 model_not_found as of 2026-05-19. Tracked separately — the
+// voice work PR will unskip these tests once model access is restored.
+const skipInCi = process.env.CI === "true";
+
 /**
  * Test agent that responds with audio
  * Uses OpenAI's voice-to-voice model to generate brief audio greetings
@@ -34,7 +39,7 @@ class TestVoiceAgent extends OpenAiVoiceAgent {
   }
 }
 
-describe("OpenAiVoiceAgent", () => {
+describe.skipIf(skipInCi)("OpenAiVoiceAgent", () => {
   /**
    * Tests basic audio input/output functionality
    *

@@ -24,6 +24,14 @@ from scenario.types import AgentInput, AgentReturnTypes, AgentRole
 from scenario._utils.utils import reverse_roles
 from helpers import OpenAiVoiceAgent, save_conversation_audio, wrap_judge_for_audio
 
+# Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
+# returns 404 model_not_found as of 2026-05-19. Tracked separately — the
+# voice work PR will unskip these tests once model access is restored.
+pytestmark = pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Depends on gpt-4o-audio-preview model — unavailable in CI as of 2026-05-19. See issue tracking unskip.",
+)
+
 
 class MyAgent(OpenAiVoiceAgent):
     """

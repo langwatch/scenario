@@ -27,6 +27,11 @@ import {
 } from "./helpers";
 import { messageRoleReversal } from "../../../src/agents/utils";
 
+// Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
+// returns 404 model_not_found as of 2026-05-19. Tracked separately — the
+// voice work PR will unskip these tests once model access is restored.
+const skipInCi = process.env.CI === "true";
+
 /**
  * Main agent that responds with helpful audio answers
  * Uses "echo" voice for a distinct sound
@@ -101,7 +106,7 @@ const outputPath = path.join(
   "full-conversation.wav"
 );
 
-describe("Multimodal Voice-to-Voice Conversation Tests", () => {
+describe.skipIf(skipInCi)("Multimodal Voice-to-Voice Conversation Tests", () => {
   it("should handle complete audio-to-audio conversation", async () => {
     // Initialize both agents for the conversation
     const audioUserSimulator = new AudioUserSimulatorAgent();

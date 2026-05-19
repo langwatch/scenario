@@ -18,6 +18,14 @@ from scenario.types import AgentRole
 from openai.types.chat import ChatCompletionMessageParam
 from helpers import encode_audio_to_base64, wrap_judge_for_audio, OpenAiVoiceAgent
 
+# Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
+# returns 404 model_not_found as of 2026-05-19. Tracked separately — the
+# voice work PR will unskip these tests once model access is restored.
+pytestmark = pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Depends on gpt-4o-audio-preview model — unavailable in CI as of 2026-05-19. See issue tracking unskip.",
+)
+
 
 # Type definitions for multimodal messages with file content
 class TextContentPart(TypedDict):
