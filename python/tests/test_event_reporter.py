@@ -217,3 +217,51 @@ async def test_warns_only_once_when_api_key_missing(
         f"Expected exactly one warning across 10 events, got {len(matching)}: "
         f"{[r.getMessage() for r in matching]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_post_event_failure_log_redacts_base64_audio(
+    caplog: LogCaptureFixture,
+    monkeypatch,
+) -> None:
+    """Failed POST log must not dump raw base64 WAV payloads."""
+    from scenario._events.events import ScenarioMessageSnapshotEvent
+
+    big_b64 = "U" * 5000
+    messages = [
+        {
+            "id": "msg-1",
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {
+                    "type": "input_audio",
+                    "input_audio": {"data": big_b64, "format": "wav"},
+                },
+            ],
+        }
+    ]
+    event = ScenarioMessageSnapshotEvent(
+        batch_run_id="batch-1",
+        scenario_id="scenario-1",
+        scenario_run_id="run-1",
+        messages=messages,  # type: ignore[arg-type]
+        timestamp=int(time.time() * 1000),
+    )
+
+    monkeypatch.setenv("LANGWATCH_ENDPOINT", "https://example.test")
+    monkeypatch.setenv("LANGWATCH_API_KEY", "sk-test")
+    reporter = EventReporter()
+
+    with respx.mock:
+        respx.post("https://example.test/api/scenario-events").mock(
+            return_value=httpx.Response(500, text="boom")
+        )
+        with caplog.at_level(logging.ERROR):
+            await reporter.post_event(event)
+
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    # Either path (failed POST or in-flight exception) must scrub the payload.
+    assert "Event POST" in joined
+    assert big_b64 not in joined
+    assert "<audio:" in joined

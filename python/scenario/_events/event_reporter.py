@@ -1,9 +1,60 @@
 import logging
+import re
 import httpx
 from typing import ClassVar, Optional, Dict, Any
 from .events import ScenarioEvent
 from .event_alert_message_logger import EventAlertMessageLogger
 from scenario.config import LangWatchSettings, ScenarioConfig
+
+
+def _redacted_event_repr(event: Any) -> str:
+    """
+    Repr-style summary of an event with base64 audio payloads stripped.
+
+    Failure logs include the full event for debuggability, but multimodal
+    voice messages carry base64-encoded WAVs that dwarf everything else and
+    flood the terminal. Replace audio payloads with ``<audio:N b64 chars
+    elided>`` placeholders so the log stays readable while preserving message
+    order and metadata. The redaction is applied to ``event.to_dict()`` when
+    available, falling back to scrubbing the raw ``repr(event)`` string —
+    that fallback matters because logging often runs in the exception path,
+    where ``to_dict()`` itself may have failed.
+    """
+    try:
+        payload = event.to_dict()
+        _redact_audio_in_place(payload)
+        return repr(payload)
+    except Exception:
+        return _redact_b64_runs_in_text(repr(event))
+
+
+def _redact_audio_in_place(node: Any) -> None:
+    if isinstance(node, dict):
+        for value in node.values():
+            if isinstance(value, dict):
+                data = value.get("data")
+                if isinstance(data, str) and len(data) > 64 and _looks_base64(data):
+                    value["data"] = f"<audio:{len(data)} b64 chars elided>"
+                    continue
+            _redact_audio_in_place(value)
+    elif isinstance(node, list):
+        for item in node:
+            _redact_audio_in_place(item)
+
+
+_B64_RUN = re.compile(r"[A-Za-z0-9+/]{200,}={0,2}")
+
+
+def _looks_base64(value: str) -> bool:
+    return bool(_B64_RUN.fullmatch(value)) or (
+        len(value) > 200 and all(c.isalnum() or c in "+/=" for c in value[:200])
+    )
+
+
+def _redact_b64_runs_in_text(text: str) -> str:
+    return _B64_RUN.sub(
+        lambda m: f"<audio:{len(m.group(0))} b64 chars elided>", text
+    )
 
 
 def _resolve_langwatch_client_api_key() -> str:
@@ -153,11 +204,11 @@ class EventReporter:
                     self.logger.error(
                         f"[{event_type}] Event POST failed: status={response.status_code}, "
                         f"reason={response.reason_phrase}, error={error_text}, "
-                        f"event={event}"
+                        f"event={_redacted_event_repr(event)}"
                     )
         except Exception as error:
             self.logger.error(
-                f"[{event_type}] Event POST error: {repr(error)}, event={event}, endpoint={self.endpoint}"
+                f"[{event_type}] Event POST error: {repr(error)}, event={_redacted_event_repr(event)}, endpoint={self.endpoint}"
             )
 
         return result

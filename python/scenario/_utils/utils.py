@@ -160,6 +160,43 @@ def title_case(string: str) -> str:
     return " ".join(word.capitalize() for word in string.split("_"))
 
 
+_ITALIC_ON = "\x1b[3m"
+_ITALIC_OFF = "\x1b[23m"
+
+
+def _format_message_content(content: Any) -> Any:
+    """
+    Render message content for terminal output.
+
+    Multimodal content (a list of parts) is collapsed into a readable string:
+    audio parts become ``<audio>`` and text parts (e.g. transcripts) are
+    rendered in italic so the user sees the spoken text without the raw
+    base64-encoded WAV payload that the model actually consumes.
+
+    Plain string content (and anything we don't recognise) is returned as-is.
+    """
+    if not isinstance(content, list):
+        return content
+
+    rendered: list[str] = []
+    for part in content:
+        if not isinstance(part, dict):
+            rendered.append(str(part))
+            continue
+        part_type = part.get("type")
+        if part_type in ("input_audio", "audio"):
+            rendered.append("<audio>")
+        elif part_type == "text":
+            text = part.get("text") or ""
+            if text:
+                rendered.append(f"{_ITALIC_ON}{text}{_ITALIC_OFF}")
+        elif part_type == "image_url":
+            rendered.append("<image>")
+        else:
+            rendered.append(f"<{part_type or 'part'}>")
+    return " ".join(rendered) if rendered else content
+
+
 def print_openai_messages(
     scenario_name: str, messages: list[ChatCompletionMessageParam]
 ):
@@ -196,7 +233,10 @@ def print_openai_messages(
         if role == "assistant":
             tool_calls = safe_attr_or_key(msg, "tool_calls")
             if content:
-                print(scenario_name + termcolor.colored("Agent:", "blue"), content)
+                print(
+                    scenario_name + termcolor.colored("Agent:", "blue"),
+                    _format_message_content(content),
+                )
             if tool_calls:
                 for tool_call in tool_calls:
                     function = safe_attr_or_key(tool_call, "function")
@@ -209,7 +249,10 @@ def print_openai_messages(
                         f"\n\n{indent(args, ' ' * 4)}\n",
                     )
         elif role == "user":
-            print(scenario_name + termcolor.colored("User:", "green"), content)
+            print(
+                scenario_name + termcolor.colored("User:", "green"),
+                _format_message_content(content),
+            )
         elif role == "tool":
             content = _take_maybe_json_first_lines(content or msg.__repr__())
             print(
