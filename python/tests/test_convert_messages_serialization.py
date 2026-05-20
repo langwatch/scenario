@@ -17,8 +17,26 @@ from __future__ import annotations
 
 import base64
 import json
+from typing import cast
 
 from scenario._events.utils import convert_messages_to_api_client_messages
+from scenario.types import ChatCompletionMessageParamWithTrace
+
+
+def _messages(*entries: dict) -> list[ChatCompletionMessageParamWithTrace]:
+    """Cast helper. The OpenAI ChatCompletionMessageParam types are strict
+    TypedDict unions; passing dict literals directly trips pyright in the
+    monorepo type-check job. The runtime function only reads ``.get(...)``,
+    so the cast preserves behavior and unblocks CI."""
+    return cast("list[ChatCompletionMessageParamWithTrace]", list(entries))
+
+
+def _content_str(value: object) -> str:
+    """Narrow the API client's ``str | Unset`` content union to ``str`` so
+    callers can hand it to ``json.loads``. Fails loud if the SDK ever
+    starts emitting Unset for converted messages."""
+    assert isinstance(value, str), f"expected serialized content as str, got {type(value)!r}"
+    return value
 
 
 def test_user_multimodal_content_serializes_as_json():
@@ -37,12 +55,11 @@ def test_user_multimodal_content_serializes_as_json():
     ]
 
     result = convert_messages_to_api_client_messages(
-        [{"role": "user", "content": content_parts}]
+        _messages({"role": "user", "content": content_parts})
     )
 
     assert len(result) == 1
-    serialized = result[0].content
-    assert isinstance(serialized, str), "API client expects content as str"
+    serialized = _content_str(result[0].content)
 
     # Must be parseable as JSON. Python repr produces single quotes that
     # json.loads rejects.
@@ -70,40 +87,40 @@ def test_assistant_multimodal_content_serializes_as_json():
     ]
 
     result = convert_messages_to_api_client_messages(
-        [{"role": "assistant", "content": content_parts}]
+        _messages({"role": "assistant", "content": content_parts})
     )
 
-    parsed = json.loads(result[0].content)
+    parsed = json.loads(_content_str(result[0].content))
     assert parsed == content_parts
 
 
 def test_system_multimodal_content_serializes_as_json():
     content_parts = [{"type": "text", "text": "system instruction with i'm"}]
     result = convert_messages_to_api_client_messages(
-        [{"role": "system", "content": content_parts}]
+        _messages({"role": "system", "content": content_parts})
     )
-    assert json.loads(result[0].content) == content_parts
+    assert json.loads(_content_str(result[0].content)) == content_parts
 
 
 def test_tool_multimodal_content_serializes_as_json():
     content_parts = [{"type": "text", "text": "tool's output"}]
     result = convert_messages_to_api_client_messages(
-        [
+        _messages(
             {
                 "role": "tool",
                 "content": content_parts,
                 "tool_call_id": "call_123",
             }
-        ]
+        )
     )
-    assert json.loads(result[0].content) == content_parts
+    assert json.loads(_content_str(result[0].content)) == content_parts
 
 
 def test_plain_string_content_passes_through_unchanged():
     """Backwards compatibility: existing text-only messages must not get
     re-quoted as JSON strings."""
     result = convert_messages_to_api_client_messages(
-        [{"role": "user", "content": "hello world"}]
+        _messages({"role": "user", "content": "hello world"})
     )
     assert result[0].content == "hello world"
 
@@ -112,6 +129,6 @@ def test_assistant_string_content_with_quotes_passes_through():
     """Strings that happen to contain quote characters or look like JSON
     must still be treated as plain text, not double-encoded."""
     result = convert_messages_to_api_client_messages(
-        [{"role": "assistant", "content": 'he said "hi" and left'}]
+        _messages({"role": "assistant", "content": 'he said "hi" and left'})
     )
     assert result[0].content == 'he said "hi" and left'
