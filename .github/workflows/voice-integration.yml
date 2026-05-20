@@ -38,6 +38,7 @@ jobs:
     timeout-minutes: 45
     env:
       CI: true
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -96,13 +97,18 @@ jobs:
       # Exports ELEVENLABS_AGENT_ID into GITHUB_ENV for subsequent steps.
       # ---------------------------------------------------------------
       - name: Provision ElevenLabs test agent
-        if: ${{ secrets.ELEVENLABS_API_KEY != '' }}
+        if: ${{ env.ELEVENLABS_API_KEY != '' }}
         run: |
           AGENT_ID=$(uv run python ../scripts/provision_elevenlabs_agent.py)
+          # Mask BEFORE writing to GITHUB_ENV so any later step that
+          # echos $ELEVENLABS_AGENT_ID gets `***` in the log instead of
+          # the raw ID. The ID is a public-ish identifier (it identifies
+          # which provisioned ConvAI agent to reach), not a secret, but
+          # we treat it conservatively so debug logs don't leak the
+          # specific test fixture's ID.
+          echo "::add-mask::${AGENT_ID}"
           echo "ELEVENLABS_AGENT_ID=${AGENT_ID}" >> "${GITHUB_ENV}"
         working-directory: python
-        env:
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
       - name: Run marker-tagged integration tests
         # `|| true` so the step doesn't fail when zero tests match the

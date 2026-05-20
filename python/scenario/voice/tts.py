@@ -94,10 +94,17 @@ async def _elevenlabs_tts(text: str, voice: str) -> bytes:
     client = AsyncElevenLabs()
     # The convert() call returns an async iterator of PCM chunks directly —
     # do NOT `await` it (that's a TypeError on async_generator).
+    #
+    # model_id="eleven_v3": v3 is the only EL model that honors inline
+    # paralinguistic markers like [shouting], [whispering], [sigh],
+    # [laughs] — the SDK default eleven_multilingual_v2 reads them as
+    # text, which surfaced in the angry_customer demo where the user
+    # simulator said the word "angry" aloud instead of sounding angry.
     chunks: list[bytes] = []
     async for chunk in client.text_to_speech.convert(
         voice_id=voice,
         text=text,
+        model_id="eleven_v3",
         output_format="pcm_24000",
     ):
         chunks.append(chunk)

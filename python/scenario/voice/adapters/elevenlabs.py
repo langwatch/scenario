@@ -41,11 +41,23 @@ CONVAI_URL_TEMPLATE = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={
 
 class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     """
-    ElevenLabs Conversational AI adapter.
+    ElevenLabs **hosted** Conversational AI adapter.
 
     Connects to ElevenLabs' hosted endpoint where the STT→LLM→TTS loop runs
     on their infrastructure. All audio is PCM16 @ 24kHz mono — no conversion
     needed at either edge.
+
+    Not to be confused with :class:`ElevenLabsVoiceAgent` (in
+    ``scenario.voice.adapters.composable``), which is the typed composable
+    preset that runs locally with separate STT, LLM, and TTS providers. The
+    two complement each other:
+
+    - ``ElevenLabsAgentAdapter`` (this class): black-box hosted EL ConvAI;
+      you provide an ``agent_id`` provisioned in the EL dashboard and EL
+      runs the whole pipeline server-side.
+    - :class:`ElevenLabsVoiceAgent`: composes ``ElevenLabsSTTProvider`` +
+      any LLM + ElevenLabs TTS on your side; you control the prompts,
+      model choice, and tool calls.
 
     Intermediate transcripts are tracked on ``last_user_transcript`` and
     ``last_agent_transcript`` for scenario observability.
@@ -73,6 +85,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         system_prompt_override: Optional[str] = None,
         first_message_override: Optional[str] = None,
     ) -> None:
+        super().__init__()
         self.agent_id = agent_id
         self.api_key = api_key
         # Per-session overrides applied via conversation_initiation_client_data
@@ -145,13 +158,6 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             finally:
                 self._ws = None
             logger.debug("ElevenLabsAgentAdapter: disconnected")
-
-    async def __aenter__(self) -> "ElevenLabsAgentAdapter":
-        await self.connect()
-        return self
-
-    async def __aexit__(self, *exc_info: Any) -> None:
-        await self.disconnect()
 
     # ------------------------------------------------------------------ I/O
 

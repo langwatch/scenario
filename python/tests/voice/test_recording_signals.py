@@ -21,6 +21,7 @@ class _AudioEchoAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities()
 
     def __init__(self):
+        super().__init__()
         self._incoming: AudioChunk | None = None
         self.response = AudioChunk(
             data=b"\x00\x01" * 2400, transcript="response text"

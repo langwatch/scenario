@@ -162,9 +162,6 @@ from .voice.script_steps import audio, dtmf, interrupt, silence, sleep
 from .voice.interruption import InterruptionConfig
 from .voice import effects  # scenario.effects.background_noise(...) etc.
 
-# Import pytest plugin components
-# from .pytest_plugin import pytest_configure, scenario_reporter
-
 configure = ScenarioConfig.configure
 
 default_config = ScenarioConfig.default_config

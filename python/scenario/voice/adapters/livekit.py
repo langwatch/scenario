@@ -25,6 +25,7 @@ class LiveKitAgentAdapter(VoiceAgentAdapter):
     )
 
     def __init__(self, url: str, api_key: str, api_secret: str, room: str):
+        super().__init__()
         self.url = url
         self.api_key = api_key
         self.api_secret = api_secret

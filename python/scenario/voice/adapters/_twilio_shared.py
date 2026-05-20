@@ -264,26 +264,23 @@ class TwilioRESTHelper:
         *,
         to: str,
         from_: str,
-        twiml_url: Optional[str] = None,
-        twiml: Optional[str] = None,
+        twiml: str,
     ) -> str:
         """Originate an outbound call. Returns the call SID.
 
-        Exactly one of ``twiml_url`` or ``twiml`` must be provided.
+        ``twiml`` is inline TwiML run when the call connects. The
+        adapter always builds the inline form (an A-leg ``<Say>`` +
+        ``<Pause>`` while the B-leg attaches the Media Stream); no
+        production path passes an external URL.
 
-        - ``twiml_url`` (default mode): Twilio fetches TwiML from the URL
-          when the call connects. Used for the bidirectional
-          Connect+Stream topology.
-        - ``twiml`` (conference mode): inline TwiML is run when the call
-          connects. Used when each leg needs to join a shared Conference
-          room without depending on its destination number's voice_url.
+        Historically this method accepted a ``twiml_url`` parameter that
+        let Twilio fetch TwiML from an arbitrary URL. That formed a
+        latent SSRF-via-Twilio risk: if a caller ever passed an
+        attacker-controlled URL, Twilio would server-side fetch it on
+        the caller's behalf. No active caller ever needed it, so it was
+        removed.
         """
-        if (twiml_url is None) == (twiml is None):
-            raise ValueError("place_call requires exactly one of twiml_url or twiml")
-        if twiml_url is not None:
-            call = self._client.calls.create(to=to, from_=from_, url=twiml_url)
-        else:
-            call = self._client.calls.create(to=to, from_=from_, twiml=twiml)
+        call = self._client.calls.create(to=to, from_=from_, twiml=twiml)
         # Twilio always returns non-None sid for create results; see above.
         return str(call.sid)
 
@@ -354,3 +351,23 @@ __all__ = [
     "build_mark_frame",
     "TwilioRESTHelper",
 ]
+
+def _redact_e164(number: str) -> str:
+    """Redact an E.164 phone number for logs: ``+14155551234`` → ``***1234``.
+
+    GitHub Actions retains workflow logs for 14 days and uploads on
+    failure, so emitting full phone numbers at INFO would leak PII into
+    a retention sink. The last-4 form is enough for operators to
+    correlate ``rejected`` events without exposing the full number.
+
+    Safety: extracts last-4 *digits* (not last-4 characters) so short or
+    malformed inputs (e.g. ``+123`` from an unvalidated webhook ``From``
+    field) cannot leak the leading ``+`` or country-code fragments.
+    Inputs with fewer than 4 digits are fully redacted to ``***``.
+    """
+    if not number:
+        return "***"
+    digits = "".join(ch for ch in number if ch.isdigit())
+    if len(digits) >= 4:
+        return f"***{digits[-4:]}"
+    return "***"

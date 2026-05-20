@@ -46,6 +46,7 @@ class WebSocketAgentAdapter(VoiceAgentAdapter):
     )
 
     def __init__(self, url: str, protocol: WebSocketProtocol):
+        super().__init__()
         self.url = url
         self.protocol = protocol
         self._ws: Optional[Any] = None

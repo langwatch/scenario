@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "pytest>=8.1.1",
+    "pytest>=9.0.3",
     "pytest-rerunfailures>=14.0",
     "litellm>=1.83.14",
     "openai>=1.88.0",
@@ -29,7 +29,11 @@ dependencies = [
     "termcolor>=2.4.0",
     "pydantic>=2.7.0",
     "joblib>=1.4.2",
-    "wrapt>=1.17.2",
+    # Pin <2 — wrapt 2.x is RC-only as of 2026-05 and its type stubs
+    # break pyright on `@scenario.cache()`-decorated example agents
+    # (decorated callables surface as accepting 0 positional args).
+    # Revert when wrapt 2.x stabilises and the stubs are correct.
+    "wrapt>=1.17.2,<2",
     "pytest-asyncio>=0.26.0",
     "rich>=13.3.3,<15.0.0",
     "pksuid>=1.1.2",
@@ -37,7 +41,10 @@ dependencies = [
     "rx>=3.2.0",
     "python-dateutil>=2.9.0.post0",
     "pydantic-settings>=2.9.1",
-    "langwatch>=0.2.19",
+    # Pin <0.3 — 0.22.0 imports pandas at module load (via langwatch.evaluation),
+    # which breaks `test (3.12)` CI since pandas is in the [report] extra not
+    # installed by default. Reverting an unbounded floor that surfaced on rebase.
+    "langwatch>=0.2.19,<0.3",
     "opentelemetry-sdk>=1.20.0",
     # Voice agent support (issue #350). Hard deps: voice is first-class.
     # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
@@ -108,6 +115,8 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 constraint-dependencies = [
     "urllib3>=2.7.0",
     "python-liquid>=2.2.0",
+    "filelock>=3.20.3",
+    "virtualenv>=20.36.1",
 ]
 
 

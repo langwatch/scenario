@@ -187,6 +187,45 @@ class TestEnrichMessagesWithTranscripts:
         # Original audio-only message preserved
         assert result[1] == msgs[1]
 
+    def test_ordinal_advances_past_segment_with_missing_transcript(self):
+        """When an audio-only message exhausts the transcript list (e.g. STT
+        dropped one segment), the ordinal must still advance so any LATER
+        per-role message doesn't accidentally re-claim a transcript.
+
+        Pins the safety-net at judge_agent.py:1107-1112 ('consume the ordinal
+        slot anyway'). Without that branch, two agent messages with only one
+        agent transcript would both map to the same transcript text. With it,
+        the second message degrades gracefully.
+        """
+        # Two agent audio-only messages, but recording only yields ONE
+        # agent transcript. Second message must NOT get the first transcript.
+        msgs = [
+            {"role": "user", "content": [
+                {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}},
+            ]},
+            {"role": "assistant", "content": [
+                {"type": "input_audio", "input_audio": {"data": "BBBB", "format": "wav"}},
+            ]},
+            {"role": "assistant", "content": [
+                {"type": "input_audio", "input_audio": {"data": "CCCC", "format": "wav"}},
+            ]},
+        ]
+        recording = VoiceRecording(segments=[
+            AudioSegment(speaker="user", start_time=0.0, end_time=1.0,
+                         audio=b"\x00" * 200, transcript="user 1"),
+            AudioSegment(speaker="agent", start_time=1.0, end_time=2.0,
+                         audio=b"\x00" * 200, transcript="agent 1"),
+            # Note: NO second agent segment → only "agent 1" in transcript list
+        ])
+
+        result = _enrich_messages_with_transcripts(msgs, recording)
+
+        # First agent message: claims "agent 1"
+        assert result[1]["content"][0] == {"type": "text", "text": "agent 1"}
+        # Second agent message: NO transcript available — passes through
+        # unchanged (does NOT re-claim "agent 1").
+        assert result[2] == msgs[2]
+
     def test_does_not_mutate_input(self):
         """Returns a new list; original messages list is not modified."""
         msgs = _voice_messages()

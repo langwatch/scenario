@@ -1,29 +1,46 @@
+# Always-run workflow with internal path gating + aggregator. See #364.
+#
+# Why: branch protection on `main` requires specific checks to pass on
+# every PR. A top-level `paths:` filter would make this workflow silently
+# absent on unrelated PRs, leaving any required check stuck pending. So
+# the workflow always runs; `changes` decides whether jobs do real work
+# or skip; `javascript-complete` aggregates and reports one final status
+# that branch protection requires.
 name: javascript-ci
 
 on:
   push:
     branches:
       - main
-    paths:
-      - "javascript/**"
-      - ".github/workflows/javascript-ci.yml"
   pull_request:
-    paths:
-      - "javascript/**"
-      - ".github/workflows/javascript-ci.yml"
   workflow_dispatch:
 
 env:
   CI: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci-checks:
+  changes:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    outputs:
+      relevant: ${{ steps.detect.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+      - uses: ./.github/actions/detect-changes
+        id: detect
+        with:
+          filters: |
+            relevant:
+              - 'javascript/**'
+              - '.github/workflows/javascript-ci.yml'
+
+  ci-checks:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
 
     strategy:
       matrix:
@@ -71,3 +88,15 @@ jobs:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: javascript
+
+  # One required check for the whole workflow. Reports success if every
+  # upstream job either passed or was legitimately skipped (paths didn't
+  # match). Reports failure if any upstream job failed.
+  javascript-complete:
+    needs: [changes, ci-checks]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all needs succeeded or were legitimately skipped
+        run: |
+          echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success" or .value.result == "skipped")'

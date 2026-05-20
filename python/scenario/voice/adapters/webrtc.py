@@ -29,6 +29,7 @@ class WebRTCAgentAdapter(VoiceAgentAdapter):
     )
 
     def __init__(self, signaling_url: str):
+        super().__init__()
         self.signaling_url = signaling_url
         self._pc: Optional[Any] = None
         self._inbound_audio: "asyncio.Queue[AudioChunk]" = asyncio.Queue()

@@ -70,20 +70,17 @@ def test_every_scenario_has_at_least_one_given_and_one_then(parsed_feature):
     Every scenario must have at minimum a Given setup and a Then assertion.
     When is not strictly required (valid Gherkin permits Given..Then for
     state-assertion scenarios like "result.X preserves existing fields").
+
+    And/But steps inherit their kind from the preceding step, so a
+    scenario like ``Given X / And Y / Then Z`` correctly covers both
+    Given and Then (the And resolves to Given).
     """
     scenarios = _collect_scenarios(parsed_feature)
     offenders = []
     for scn in scenarios:
-        step_kinds = {_step_keyword(s).lower().strip() for s in scn.steps}
         covered = _keywords_covered_by(scn)
-        has_given = "given" in step_kinds or "given" in covered
-        has_then = "then" in step_kinds or "then" in covered
-        if not (has_given and has_then):
-            missing = [
-                kw
-                for kw in ("given", "then")
-                if kw not in step_kinds and kw not in covered
-            ]
+        missing = [kw for kw in ("given", "then") if kw not in covered]
+        if missing:
             offenders.append((scn.name, missing))
     assert not offenders, (
         "scenarios missing Given and/or Then:\n"
@@ -149,18 +146,23 @@ def _step_keyword(step):
 
 def _keywords_covered_by(scn):
     """
-    Return the set of {given/when/then} that are *structurally* present as
-    non-leading steps (And/But take their keyword from the preceding step,
-    so a scenario with Given..And..Then passes without an explicit When).
+    Return the set of {given/when/then} that are present after resolving
+    And/But to the immediately-preceding step's keyword.
 
-    We accept this loose rule because the feature file is a mix of
-    Given/When/Then and Given..And..Then forms. Stricter checking would
-    require a full keyword-inheritance walk — unneeded here.
+    Walks steps in order; an And or But step "inherits" the kind of the
+    most recent Given/When/Then. The previous implementation returned the
+    full {given, when, then} set whenever ANY And/But was present — which
+    made the outer ``has_given and has_then`` check vacuous for every
+    scenario that uses And. Now Given..And..And..And without a Then is
+    correctly flagged as missing Then.
     """
-    kinds = {_step_keyword(s).lower().strip() for s in scn.steps}
-    covered = set()
-    if "and" in kinds or "but" in kinds:
-        # Assume continuation keywords inherit — cover all three so the
-        # outer missing-set computation doesn't flag legitimate usage.
-        covered.update({"given", "when", "then"})
+    covered: set[str] = set()
+    inherited: str | None = None
+    for step in scn.steps:
+        kw = _step_keyword(step).lower().strip()
+        if kw in ("given", "when", "then"):
+            covered.add(kw)
+            inherited = kw
+        elif kw in ("and", "but") and inherited is not None:
+            covered.add(inherited)
     return covered

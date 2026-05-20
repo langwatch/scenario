@@ -20,6 +20,7 @@ class _DummyAdapter(VoiceAgentAdapter):
     )
 
     def __init__(self):
+        super().__init__()
         self.connected = False
         self.sent: list[AudioChunk] = []
         self._response = AudioChunk(data=b"\x00\x00" * 1200, transcript="hi back")

@@ -31,6 +31,7 @@ class _LifecycleAdapter(VoiceAgentAdapter):
     capabilities = AdapterCapabilities()
 
     def __init__(self):
+        super().__init__()
         self.connects = 0
         self.disconnects = 0
 

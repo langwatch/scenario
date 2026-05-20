@@ -55,6 +55,7 @@ class TwilioHarness:
         http_port: int = 8765,
         allowed_callers: Optional[list[str]] = None,
         on_dtmf: Optional[Callable[[str], None]] = None,
+        validate_signature: bool = True,
     ) -> None:
         self._account_sid = account_sid
         self._auth_token = auth_token
@@ -62,6 +63,7 @@ class TwilioHarness:
         self._http_port = http_port
         self._allowed_callers = allowed_callers
         self._on_dtmf = on_dtmf
+        self._validate_signature = validate_signature
 
         self._tunnel: Optional[CloudflareTunnel] = None
         self._adapter: Optional[TwilioAgentAdapter] = None
@@ -79,6 +81,7 @@ class TwilioHarness:
             allowed_callers=self._allowed_callers,
             on_dtmf=self._on_dtmf,
             http_port=self._http_port,
+            validate_signature=self._validate_signature,
         )
         try:
             await self._adapter.connect()
@@ -102,11 +105,16 @@ class TwilioHarness:
             self._adapter = None
             raise
 
+        # Don't leak full E.164 number into the workflow log (CI retains
+        # for 14 days). Reuse the adapter's redactor — last-4 is enough
+        # to identify which test number is in use.
+        from ..adapters._twilio_shared import _redact_e164
+
         logger.info(
             "TwilioHarness ready — tunnel %s → localhost:%d, number %s",
             self._tunnel.public_url,
             self._http_port,
-            self._phone_number,
+            _redact_e164(self._phone_number),
         )
         return self._adapter
 

@@ -17,8 +17,6 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
-import numpy as np
-
 from ..types import ScriptStep
 from .audio_chunk import AudioChunk, silent_chunk
 from .capabilities import UnsupportedCapabilityError
@@ -274,8 +272,14 @@ def _load_audio_to_chunk(path_or_bytes: Union[str, Path, bytes]) -> AudioChunk:
         stdin_input = None
 
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    # -protocol_whitelist file,pipe — defence in depth. The bytes-input
+    # path accepts caller-supplied container bytes; without this, a
+    # crafted file with embedded URL data refs could steer ffmpeg into
+    # an HTTP/RTSP demuxer. URL-like strings are already rejected above
+    # for the path-input case; this hardens the bytes path symmetrically.
     cmd = [
         ffmpeg,
+        "-protocol_whitelist", "file,pipe",
         "-loglevel", "error",
         "-y",
         *source_args,
@@ -300,6 +304,12 @@ _DTMF_COL_HZ = {"1": 1209, "2": 1336, "3": 1477, "4": 1209, "5": 1336, "6": 1477
 
 def _dtmf_to_pcm(tones: str, sr: int = 24000, dur_s: float = 0.1, gap_s: float = 0.05) -> AudioChunk:
     """Fallback DTMF generator (used only when adapter has no send_dtmf)."""
+    # numpy is deferred to here so callers that never hit the fallback (every
+    # transport adapter that ships send_dtmf — Twilio, Pipecat, ElevenLabs,
+    # OpenAI Realtime) don't pay the import cost on `from scenario.voice
+    # import script_steps`.
+    import numpy as np
+
     n_tone = int(sr * dur_s)
     n_gap = int(sr * gap_s)
     t = np.arange(n_tone) / sr

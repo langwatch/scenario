@@ -25,6 +25,7 @@ class VapiAgentAdapter(VoiceAgentAdapter):
     )
 
     def __init__(self, assistant_id: str, api_key: str):
+        super().__init__()
         self.assistant_id = assistant_id
         self.api_key = api_key
         self.websocket_call_url: Optional[str] = None

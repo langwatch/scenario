@@ -18,6 +18,10 @@ def _make_adapter(**overrides: Any) -> TwilioAgentAdapter:
         auth_token="secret",
         phone_number="+14155551234",
         public_base_url="https://example.trycloudflare.com",
+        # Unit tests POST synthetic webhook bodies without a real Twilio
+        # signature; signature validation is exercised in dedicated
+        # tests below.
+        validate_signature=False,
     )
     kwargs.update(overrides)
     return TwilioAgentAdapter(**kwargs)
@@ -73,14 +77,13 @@ class FakeREST:
         *,
         to: str,
         from_: str,
-        twiml_url: Optional[str] = None,
-        twiml: Optional[str] = None,
+        twiml: str,
     ) -> str:
-        # Mirror the real TwilioRESTHelper.place_call signature: exactly
-        # one of twiml_url / twiml. Adapter uses `twiml` for the inline
-        # <Pause> A-leg pattern; older callers pass twiml_url.
+        # Mirrors the real TwilioRESTHelper.place_call signature. The
+        # twiml_url parameter was removed (latent SSRF-via-Twilio risk)
+        # and the adapter always builds inline TwiML for the A-leg.
         self.place_call_kwargs.append(
-            {"to": to, "from_": from_, "twiml_url": twiml_url, "twiml": twiml}
+            {"to": to, "from_": from_, "twiml": twiml}
         )
         return "CA" + "1" * 32
 
@@ -314,7 +317,7 @@ async def test_wait_for_call_writes_and_restores_voice_url(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_place_call_passes_inline_pause_twiml_to_rest(monkeypatch):
-    """place_call passes inline <Pause> TwiML on the A-leg, NOT a twiml_url.
+    """place_call passes inline TwiML on the A-leg, NOT a remote URL.
 
     The B-leg picks up Media Streams via its rewritten voice_url
     (verified in test_place_call_writes_and_restores_callee_voice_url);
@@ -331,8 +334,6 @@ async def test_place_call_passes_inline_pause_twiml_to_rest(monkeypatch):
         kw = rest_instances[0].place_call_kwargs[0]
         assert kw["to"] == "+14155557777"
         assert kw["from_"] == "+14155551234"
-        # New shape: inline twiml only, no twiml_url.
-        assert kw["twiml_url"] is None
         assert kw["twiml"] is not None
         assert "<Pause" in kw["twiml"]
     finally:
@@ -414,3 +415,81 @@ def test_on_dtmf_callback_stored():
 def test_allowed_callers_normalized_to_set():
     a = _make_adapter(allowed_callers=["+14155551234", "+14155557777"])
     assert a.allowed_callers == {"+14155551234", "+14155557777"}
+
+
+
+# ---------------------------------------------------------------- signature validation
+
+@pytest.mark.asyncio
+async def test_voice_webhook_rejects_request_without_signature_when_validation_enabled(monkeypatch):
+    """When validate_signature=True (the production default), a webhook
+    POST without an X-Twilio-Signature header is rejected with 403.
+
+    Protects against an attacker who learns the cloudflared tunnel URL
+    forging Twilio webhook events. Forged events would otherwise hit
+    the allowed_callers check with attacker-controlled `From` data.
+    """
+    _install_fake_rest(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    a = _make_adapter(http_port=0, validate_signature=True)
+    await a.connect()
+    try:
+        app = a._build_app()
+        client = TestClient(app)
+        r = client.post("/twilio/voice", data={"From": "+14155551234"})
+        assert r.status_code == 403
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_voice_webhook_rejects_request_with_invalid_signature_when_validation_enabled(monkeypatch):
+    _install_fake_rest(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    a = _make_adapter(http_port=0, validate_signature=True)
+    await a.connect()
+    try:
+        app = a._build_app()
+        client = TestClient(app)
+        r = client.post(
+            "/twilio/voice",
+            data={"From": "+14155551234"},
+            headers={"X-Twilio-Signature": "definitely-not-the-right-hmac"},
+        )
+        assert r.status_code == 403
+    finally:
+        await a.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_voice_webhook_accepts_valid_signature_when_validation_enabled(monkeypatch):
+    """A genuine Twilio signature lets the webhook through.
+
+    Computes the signature using the same RequestValidator the adapter
+    uses, then verifies the round-trip lands on a 200 + Connect/Stream
+    TwiML body.
+    """
+    _install_fake_rest(monkeypatch)
+    from fastapi.testclient import TestClient
+    from twilio.request_validator import RequestValidator
+
+    auth_token = "the-shared-secret"
+    a = _make_adapter(http_port=0, validate_signature=True, auth_token=auth_token)
+    await a.connect()
+    try:
+        app = a._build_app()
+        client = TestClient(app, base_url="https://example.trycloudflare.com")
+        url = "https://example.trycloudflare.com/twilio/voice"
+        params = {"From": "+14155551234"}
+        signature = RequestValidator(auth_token).compute_signature(url, params)
+        r = client.post(
+            "/twilio/voice",
+            data=params,
+            headers={"X-Twilio-Signature": signature},
+        )
+        assert r.status_code == 200, r.text
+        assert "<Connect><Stream" in r.text
+    finally:
+        await a.disconnect()

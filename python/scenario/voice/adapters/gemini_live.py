@@ -122,6 +122,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         system_instruction: str = "",
         api_key: Optional[str] = None,
     ) -> None:
+        super().__init__()
         self.model = model
         self.voice = voice
         self.system_instruction = system_instruction
@@ -284,13 +285,6 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         self._shutdown = None
         self._session_error = None
         logger.debug("GeminiLiveAgentAdapter: disconnected")
-
-    async def __aenter__(self) -> "GeminiLiveAgentAdapter":
-        await self.connect()
-        return self
-
-    async def __aexit__(self, *exc_info: Any) -> None:
-        await self.disconnect()
 
     # ------------------------------------------------------------------ I/O
 

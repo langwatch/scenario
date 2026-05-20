@@ -84,10 +84,20 @@ async def _dial_in_from_second_number(*, account_sid: str, auth_token: str, from
     Returns the originator call SID so the caller can cancel it on teardown.
     """
     helper = TwilioRESTHelper(account_sid, auth_token)
-    # Pause 120s — covers the scenario duration. The agent harness's
-    # disconnect() restores voice_url, so any TwiML hanging around past
-    # then is harmless.
-    inline = '<?xml version="1.0" encoding="UTF-8"?><Response><Pause length="120"/></Response>'
+    # The originator leg plays a short deterministic <Say> line, then
+    # pauses for the rest of the scenario. The <Say> gives the recording
+    # a known-good English utterance to transcribe (without it, the
+    # agent-side captures 25s of line silence/noise and Whisper has been
+    # observed to hallucinate non-English text — see #465).
+    inline = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        '<Say voice="Polly.Joanna">'
+        "Thank you for calling. I will hold the line while you complete your scenario."
+        "</Say>"
+        '<Pause length="120"/>'
+        "</Response>"
+    )
     return await asyncio.to_thread(
         helper.place_call,
         to=to_number,
@@ -148,6 +158,8 @@ async def main() -> scenario.ScenarioResult:
                         "The agent received audio from the user simulator",
                         "The agent and user exchanged audio turns via Media Streams",
                         "The call completed without transport errors",
+                        # Guard against the silent-line-noise-transcribed-as-gibberish failure mode (#465).
+                        "Any captured agent audio transcribes as coherent English (not nonsense or non-English text)",
                     ]
                 ),
             ],

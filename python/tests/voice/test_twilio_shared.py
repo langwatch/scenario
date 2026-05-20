@@ -14,6 +14,7 @@ import pytest
 
 from scenario.voice.adapters._twilio_shared import (
     TWILIO_FRAME_BYTES,
+    _redact_e164,
     build_clear_frame,
     build_media_frame,
     iter_mulaw_frames,
@@ -174,3 +175,34 @@ def test_build_clear_frame():
     text = build_clear_frame("MZ_x")
     obj = json.loads(text)
     assert obj == {"event": "clear", "streamSid": "MZ_x"}
+
+
+
+# ---------------------------------------------------------------- redact_e164
+# These pin the safety invariant: short or malformed inputs must NEVER leak
+# more than the last-4 digits, and never the leading "+" or country code.
+
+@pytest.mark.parametrize(
+    "short_input",
+    ["", "+", "+1", "+12", "+123"],  # all <4 chars → fully redacted
+)
+def test_redact_e164_short_input_never_leaks_digits(short_input):
+    assert _redact_e164(short_input) == "***"
+
+
+def test_redact_e164_full_e164_leaks_only_last_4():
+    assert _redact_e164("+14155551234") == "***1234"
+    assert _redact_e164("+3197010223520") == "***3520"
+
+
+def test_redact_e164_non_digit_input_is_fully_redacted():
+    # Non-digit junk has 0 extractable digits → "***", never the input.
+    assert _redact_e164("abcd") == "***"
+    assert _redact_e164("not a number") == "***"
+
+
+def test_redact_e164_strips_punctuation_before_taking_last_4():
+    # Common log scrapings include hyphens or spaces — last-4 must be of
+    # digits, not characters, to avoid leaking separator artefacts.
+    assert _redact_e164("+1-415-555-1234") == "***1234"
+    assert _redact_e164("+1 (415) 555 1234") == "***1234"
