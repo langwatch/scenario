@@ -474,10 +474,12 @@ async def test_voice_disconnect_logs_adapter_failures(caplog):
     from scenario.voice.adapter import VoiceAgentAdapter
 
     class ExplodingVoiceAdapter(VoiceAgentAdapter):
-        async def connect(self) -> None: ...
+        async def connect(self) -> None:
+            pass
         async def disconnect(self) -> None:
             raise RuntimeError("twilio voice_url restore failed")
-        async def send_audio(self, chunk): ...  # type: ignore[override]
+        async def send_audio(self, chunk):  # type: ignore[override]
+            pass
         async def recv_audio(self, timeout):  # type: ignore[override]
             raise NotImplementedError
 

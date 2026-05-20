@@ -53,9 +53,12 @@ async def test_interrupt_raises_unsupported_when_interruption_false():
 
     class BareVoiceAdapter(VoiceAgentAdapter):
         # Inherits the default AdapterCapabilities() → interruption=False.
-        async def connect(self) -> None: ...
-        async def disconnect(self) -> None: ...
-        async def send_audio(self, chunk) -> None: ...  # type: ignore[override]
+        async def connect(self) -> None:
+            pass
+        async def disconnect(self) -> None:
+            pass
+        async def send_audio(self, chunk) -> None:  # type: ignore[override]
+            pass
         async def recv_audio(self, timeout):  # type: ignore[override]
             raise NotImplementedError
 
