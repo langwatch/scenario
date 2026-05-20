@@ -19,36 +19,29 @@ def _redacted_event_repr(event: Any) -> str:
     available, falling back to scrubbing the raw ``repr(event)`` string —
     that fallback matters because logging often runs in the exception path,
     where ``to_dict()`` itself may have failed.
+
+    The dict-walker scrubs both real ``input_audio.data`` keys and any long
+    base64 runs that appear inside string values, since upstream sometimes
+    serialises content lists to ``repr()`` strings before they reach us.
     """
     try:
         payload = event.to_dict()
-        _redact_audio_in_place(payload)
-        return repr(payload)
+        return repr(_redact_audio(payload))
     except Exception:
         return _redact_b64_runs_in_text(repr(event))
 
 
-def _redact_audio_in_place(node: Any) -> None:
+def _redact_audio(node: Any) -> Any:
     if isinstance(node, dict):
-        for value in node.values():
-            if isinstance(value, dict):
-                data = value.get("data")
-                if isinstance(data, str) and len(data) > 64 and _looks_base64(data):
-                    value["data"] = f"<audio:{len(data)} b64 chars elided>"
-                    continue
-            _redact_audio_in_place(value)
-    elif isinstance(node, list):
-        for item in node:
-            _redact_audio_in_place(item)
+        return {key: _redact_audio(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_redact_audio(item) for item in node]
+    if isinstance(node, str):
+        return _redact_b64_runs_in_text(node)
+    return node
 
 
 _B64_RUN = re.compile(r"[A-Za-z0-9+/]{200,}={0,2}")
-
-
-def _looks_base64(value: str) -> bool:
-    return bool(_B64_RUN.fullmatch(value)) or (
-        len(value) > 200 and all(c.isalnum() or c in "+/=" for c in value[:200])
-    )
 
 
 def _redact_b64_runs_in_text(text: str) -> str:

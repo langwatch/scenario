@@ -265,3 +265,31 @@ async def test_post_event_failure_log_redacts_base64_audio(
     assert "Event POST" in joined
     assert big_b64 not in joined
     assert "<audio:" in joined
+
+
+def test_redacted_event_repr_scrubs_b64_inside_stringified_content() -> None:
+    """The wire format sometimes carries content as a repr() string. Scrub that too."""
+    from scenario._events.event_reporter import _redacted_event_repr
+
+    big_b64 = "U" * 5000
+
+    class _FakeEvent:
+        def to_dict(self) -> dict:
+            return {
+                "type": "SCENARIO_MESSAGE_SNAPSHOT",
+                "messages": [
+                    {
+                        "id": "scenariomsg_1",
+                        "role": "assistant",
+                        "content": (
+                            "[{'type': 'input_audio', 'input_audio': "
+                            f"{{'data': '{big_b64}', 'format': 'wav'}}}}]"
+                        ),
+                    }
+                ],
+            }
+
+    rendered = _redacted_event_repr(_FakeEvent())
+
+    assert big_b64 not in rendered
+    assert "<audio:" in rendered
