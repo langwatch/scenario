@@ -45,21 +45,22 @@ def test_feature_file_parses_cleanly(parsed_feature):
 
 def test_feature_file_declares_expected_scenario_count(parsed_feature):
     """
-    The issue-350 contract is 105 scenarios:
+    The issue-350 contract is 108 scenarios:
       - 83 original
       - +4 for locked decision #9 (composable + branded voice agents)
       - +12 for @e2e demo parity (TESTING.md: every user-facing feature has
         a runnable example). 8 platform-demo + 4 cross-cutting SDK demos.
       - +3 for AC-14 (demo recordings: save_segments + opt-in + CI artifact).
       - +3 for AC-15 (auto-transcribe agent audio for non-multimodal judges).
+      - +3 for AC-16 (audio messages render cleanly in the terminal).
 
     Any change to this count must be a deliberate contract update — and must
     be reflected in the prove-it report at
     docs/proposals/issue-350-prove-it-report.md.
     """
     scenarios = _collect_scenarios(parsed_feature)
-    assert len(scenarios) == 105, (
-        f"Expected 105 scenarios; found {len(scenarios)}. "
+    assert len(scenarios) == 108, (
+        f"Expected 108 scenarios; found {len(scenarios)}. "
         "If this is an intentional contract change, update the count here "
         "AND regenerate docs/proposals/issue-350-prove-it-report.md."
     )
@@ -105,10 +106,11 @@ def test_every_scenario_is_tagged_unit_integration_or_e2e(parsed_feature):
 
 def test_tag_split_matches_prove_it_report(parsed_feature):
     """
-    The prove-it report assumes 72 @unit / 8 @integration / 25 @e2e.
+    The prove-it report assumes 75 @unit / 8 @integration / 25 @e2e.
     §6 examples and §8 pain patterns are @e2e (happy paths via real examples,
     per TESTING.md). AC-14 adds 1 @unit + 2 @integration. AC-15 adds 3 @unit.
-    If the split changes, the report must be updated in the same PR.
+    AC-16 adds 3 @unit. If the split changes, the report must be updated in
+    the same PR.
     """
     scenarios = _collect_scenarios(parsed_feature)
     unit = sum(1 for s in scenarios if "@unit" in {t.name for t in s.tags})
@@ -116,8 +118,8 @@ def test_tag_split_matches_prove_it_report(parsed_feature):
         1 for s in scenarios if "@integration" in {t.name for t in s.tags}
     )
     e2e = sum(1 for s in scenarios if "@e2e" in {t.name for t in s.tags})
-    assert (unit, integration, e2e) == (72, 8, 25), (
-        f"Expected 72 @unit / 8 @integration / 25 @e2e; found "
+    assert (unit, integration, e2e) == (75, 8, 25), (
+        f"Expected 75 @unit / 8 @integration / 25 @e2e; found "
         f"{unit} / {integration} / {e2e}. "
         "Update docs/proposals/issue-350-prove-it-report.md alongside this change."
     )
