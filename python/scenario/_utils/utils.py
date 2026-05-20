@@ -162,38 +162,54 @@ def title_case(string: str) -> str:
 
 _ITALIC_ON = "\x1b[3m"
 _ITALIC_OFF = "\x1b[23m"
+_AUDIO_ICON = "\U0001f50a"
 
 
 def _format_message_content(content: Any) -> Any:
     """
     Render message content for terminal output.
 
-    Multimodal content (a list of parts) is collapsed into a readable string:
-    audio parts become ``<audio>`` and text parts (e.g. transcripts) are
-    rendered in italic so the user sees the spoken text without the raw
-    base64-encoded WAV payload that the model actually consumes.
+    Multimodal content (a list of parts) is collapsed into a readable line.
+    Audio turns are prefixed with the speaker emoji and (if a transcript is
+    attached) the spoken text follows in italic, so voice scenarios read
+    cleanly in demo terminals and recordings without leaking the raw base64
+    WAV payload that the model actually consumes. Audio-only turns render
+    as ``🔊 (audio)``.
 
     Plain string content (and anything we don't recognise) is returned as-is.
     """
     if not isinstance(content, list):
         return content
 
-    rendered: list[str] = []
+    has_audio = False
+    transcripts: list[str] = []
+    other_parts: list[str] = []
     for part in content:
         if not isinstance(part, dict):
-            rendered.append(str(part))
+            other_parts.append(str(part))
             continue
         part_type = part.get("type")
         if part_type in ("input_audio", "audio"):
-            rendered.append("<audio>")
+            has_audio = True
         elif part_type == "text":
             text = part.get("text") or ""
             if text:
-                rendered.append(f"{_ITALIC_ON}{text}{_ITALIC_OFF}")
+                transcripts.append(text)
         elif part_type == "image_url":
-            rendered.append("<image>")
+            other_parts.append("<image>")
         else:
-            rendered.append(f"<{part_type or 'part'}>")
+            other_parts.append(f"<{part_type or 'part'}>")
+
+    rendered: list[str] = []
+    if has_audio:
+        if transcripts:
+            transcript = " ".join(transcripts)
+            rendered.append(f"{_AUDIO_ICON} {_ITALIC_ON}{transcript}{_ITALIC_OFF}")
+        else:
+            rendered.append(f"{_AUDIO_ICON} (audio)")
+    elif transcripts:
+        rendered.extend(transcripts)
+    rendered.extend(other_parts)
     return " ".join(rendered) if rendered else content
 
 

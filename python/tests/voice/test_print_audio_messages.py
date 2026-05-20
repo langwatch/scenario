@@ -22,13 +22,16 @@ def _voice_chunk(transcript: str | None = "hello world") -> AudioChunk:
     return AudioChunk(data=b"\x00\x00" * 2400, transcript=transcript)
 
 
-def test_audio_with_transcript_renders_as_audio_marker_plus_italic_text(capsys):
+_SPEAKER_ICON = "\U0001f50a"
+
+
+def test_audio_with_transcript_renders_as_speaker_icon_plus_italic_text(capsys):
     msg = create_audio_message(_voice_chunk("hello world"), role="assistant")
 
     print_openai_messages("", [msg])
     out = capsys.readouterr().out
 
-    assert "<audio>" in out
+    assert _SPEAKER_ICON in out
     assert "hello world" in out
     assert "\x1b[3m" in out and "\x1b[23m" in out
     assert not _BASE64_RUN.search(out), (
@@ -36,13 +39,13 @@ def test_audio_with_transcript_renders_as_audio_marker_plus_italic_text(capsys):
     )
 
 
-def test_audio_without_transcript_renders_only_audio_marker(capsys):
+def test_audio_without_transcript_renders_as_speaker_icon_audio_placeholder(capsys):
     msg = create_audio_message(_voice_chunk(transcript=None), role="user")
 
     print_openai_messages("", [msg])
     out = capsys.readouterr().out
 
-    assert "<audio>" in out
+    assert f"{_SPEAKER_ICON} (audio)" in out
     assert not _BASE64_RUN.search(out)
 
 
@@ -50,11 +53,11 @@ def test_plain_string_content_is_unchanged():
     assert _format_message_content("just text") == "just text"
 
 
-def test_text_only_multimodal_content_renders_as_italic_text():
+def test_text_only_multimodal_content_renders_without_speaker_icon():
     content = [{"type": "text", "text": "just text"}]
     rendered = _format_message_content(content)
-    assert "just text" in rendered
-    assert "\x1b[3m" in rendered
+    assert rendered == "just text"
+    assert _SPEAKER_ICON not in rendered
 
 
 def test_unknown_part_types_render_as_typed_placeholder():

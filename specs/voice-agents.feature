@@ -879,23 +879,23 @@ Feature: Voice agent testing in Scenario SDK
   # ======================================================================
 
   @unit
-  Scenario: print_openai_messages renders audio parts without base64 payloads
+  Scenario: print_openai_messages renders audio with transcript as speaker icon plus italic text
     Given a message with multimodal content containing an input_audio part
     And the message also includes a text transcript part
     When print_openai_messages is called for the message
-    Then the printed output contains "<audio>"
+    Then the printed output starts the audio with the 🔊 speaker icon
     And the transcript is rendered in italic
     And no base64-encoded WAV data appears in the output
 
   @unit
-  Scenario: print_openai_messages renders audio-only parts as <audio>
+  Scenario: print_openai_messages renders audio-only parts as "🔊 (audio)"
     Given a message with multimodal content containing only an input_audio part
     When print_openai_messages is called for the message
-    Then the printed output contains "<audio>"
+    Then the printed output contains "🔊 (audio)"
     And no base64-encoded WAV data appears in the output
 
   @unit
   Scenario: text-only multimodal content still prints normally
     Given a message with multimodal content containing only a text part
     When print_openai_messages is called for the message
-    Then the printed output contains the text without italics or audio markers
+    Then the printed output contains the text without the speaker icon or italics
