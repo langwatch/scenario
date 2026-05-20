@@ -1,60 +1,60 @@
 {
-  "generated_at": "2026-05-18T21:58:50.165568+00:00",
-  "duration": 42.34881300000416,
+  "generated_at": "2026-05-20T15:46:37.286936+00:00",
+  "duration": 19.01243216599687,
   "segment_count": 3,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-agent-1482ms.wav",
+      "file": "segments/00-agent-1829ms.wav",
       "role": "agent",
-      "start_time": 1.4827431669982616,
-      "end_time": 2.090200874998118,
-      "duration": 0.6074577079998562,
-      "transcript": "Hello, thank you for calling. How can I help you today?"
+      "start_time": 1.829398832996958,
+      "end_time": 2.4435947079909965,
+      "duration": 0.6141958749940386,
+      "transcript": "Hello, thank you for calling! How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-15170ms.wav",
+      "file": "segments/01-user-11044ms.wav",
       "role": "user",
-      "start_time": 15.170355333997577,
-      "end_time": 22.33333975000278,
-      "duration": 7.162984416005202,
-      "transcript": "[shouting] you charged me the wrong amount [angry] fix it now [exhales sharply] i'm in a noisy cafe"
+      "start_time": 11.04428962500242,
+      "end_time": 18.409817249994376,
+      "duration": 7.365527624991955,
+      "transcript": "[shouting] you charged me the wrong amount [angry] fix it now [frustrated] i'm at a noisy cafe hurry up"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-41734ms.wav",
+      "file": "segments/02-agent-18410ms.wav",
       "role": "agent",
-      "start_time": 41.734610334002355,
-      "end_time": 42.34881300000416,
-      "duration": 0.6142026660018018,
-      "transcript": "No problem, I'll keep it simple. What can I help you with today? Billing, account access, or our hours?"
+      "start_time": 18.410057832996245,
+      "end_time": 19.01243216599687,
+      "duration": 0.6023743330006255,
+      "transcript": "I'm really sorry about that. Let's get it fixed. Can you tell me the date of the charge and the amount you were charged versus the amount you expected?"
     }
   ],
   "events": [
     {
-      "time": 1.4827431669982616,
+      "time": 1.829398832996958,
       "type": "agent_start_speaking"
     },
     {
-      "time": 2.090200874998118,
+      "time": 2.4435947079909965,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 15.170355333997577,
+      "time": 11.04428962500242,
       "type": "user_start_speaking"
     },
     {
-      "time": 22.33333975000278,
+      "time": 18.409817249994376,
       "type": "user_stop_speaking"
     },
     {
-      "time": 41.734610334002355,
+      "time": 18.410057832996245,
       "type": "agent_start_speaking",
-      "latency": 19.401270583999576
+      "latency": 0.00024058300186879933
     },
     {
-      "time": 42.34881300000416,
+      "time": 19.01243216599687,
       "type": "agent_stop_speaking"
     }
   ]
