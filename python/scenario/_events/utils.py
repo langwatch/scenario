@@ -1,4 +1,3 @@
-import json
 import warnings
 
 from ..types import ChatCompletionMessageParamWithTrace
@@ -11,25 +10,8 @@ from .messages import (
     ToolCall,
     FunctionCall,
 )
-from typing import Any, List
+from typing import List
 from pksuid import PKSUID
-
-
-def _serialize_content(content: Any) -> str:
-    """Coerce message content to the string shape the API client expects.
-
-    Plain strings pass through unchanged. Structured content (a list of
-    OpenAI-style content parts, or a dict) is JSON-encoded so downstream
-    consumers can parse it. Previously this used ``str(content)``, which
-    on a list of dicts produces Python repr with single quotes, breaking
-    JSON-based receivers and forcing brittle apostrophe-aware recovery
-    in the langwatch backend.
-    """
-    if isinstance(content, str):
-        return content
-    if content is None:
-        return ""
-    return json.dumps(content)
 
 
 def convert_messages_to_api_client_messages(
@@ -72,7 +54,7 @@ def convert_messages_to_api_client_messages(
             message_ = UserMessage(
                 id=message_id,
                 role="user",
-                content=_serialize_content(content),
+                content=content,
             )
             message_.additional_properties = trace_props
             converted_messages.append(message_)
@@ -99,7 +81,7 @@ def convert_messages_to_api_client_messages(
             message_ = AssistantMessage(
                 id=message_id,
                 role="assistant",
-                content=_serialize_content(content),
+                content=content,
                 tool_calls=api_tool_calls,
             )
             message_.additional_properties = trace_props
@@ -109,9 +91,7 @@ def convert_messages_to_api_client_messages(
                 raise ValueError(
                     f"System message at index {i} missing required content"
                 )
-            message_ = SystemMessage(
-                id=message_id, role="system", content=_serialize_content(content)
-            )
+            message_ = SystemMessage(id=message_id, role="system", content=content)
             message_.additional_properties = trace_props
             converted_messages.append(message_)
         elif role == "tool":
@@ -130,7 +110,7 @@ def convert_messages_to_api_client_messages(
             message_ = ToolMessage(
                 id=message_id,
                 role="tool",
-                content=_serialize_content(content),
+                content=content,
                 tool_call_id=tool_call_id,
             )
             message_.additional_properties = trace_props
