@@ -38,6 +38,21 @@ import _bot.bot as bot_module  # type: ignore[import]
 
 MULAW_FRAME_BYTES = 160  # 20ms of µ-law 8kHz mono
 
+# DO NOT REDUCE: this opens the cancel-during-STT race window the regression
+# test depends on. With it, the executor-bound STT stub is still pending when
+# the trailing speech frames arrive, so _maybe_barge_in fires against an
+# in-flight response_task — exactly the production failure mode. Drop it and
+# the executor returns before the trailing frames hit the main loop; the
+# race window closes and the test passes for the wrong reason (no cancel
+# attempt at all). 50ms is comfortably above the ~10ms event-loop tick we
+# also wait on below, with margin for slow CI hosts.
+_STT_RACE_WINDOW_S = 0.05
+
+# DO NOT REDUCE: lets the bot's main loop enter the executor await for the
+# first flush before the trailing-speech frames land. Pair with
+# _STT_RACE_WINDOW_S — together they pin the race window the bug lives in.
+_PRE_TAIL_YIELD_S = 0.01
+
 
 class _ScriptedVad:
     """Deterministic VAD. Returns the next boolean from a script; defaults to
@@ -110,11 +125,10 @@ def stubbed_bot(monkeypatch: pytest.MonkeyPatch) -> dict:
         # ~3000 bytes µ-law @ 8kHz = ~375ms of audio. A real STT will
         # return useful text only for buffers above the rough fragment
         # threshold; below that, Whisper returns "" in practice.
-        # Slow the call slightly so the test deterministically exposes
-        # the cancel-during-STT window — without a small delay the
-        # executor thread can finish before the next frame hits the
-        # main loop and barge-in would race against done().
-        time.sleep(0.05)
+        # The sleep opens the cancel-during-STT window — see the
+        # _STT_RACE_WINDOW_S constant for why removing it would silently
+        # break the regression contract.
+        time.sleep(_STT_RACE_WINDOW_S)
         if len(mulaw_bytes) >= 3000:
             return "transcribed user utterance"
         return ""
@@ -185,9 +199,10 @@ async def _drive_angry_customer_pattern(
         ws.feed(_media_frame(stream_sid, speech_payload))
     for _ in range(16):
         ws.feed(_media_frame(stream_sid, silence_payload))
-    # Yield to give the bot a chance to enter STT in the executor before
-    # the trailing speech frames arrive.
-    await asyncio.sleep(0.01)
+    # Yield so the bot's main loop enters the STT executor await before
+    # the trailing speech frames arrive — paired with _STT_RACE_WINDOW_S
+    # in stub_stt, this is what pins the cancel-during-STT race window.
+    await asyncio.sleep(_PRE_TAIL_YIELD_S)
     for _ in range(10):
         ws.feed(_media_frame(stream_sid, speech_payload))
     ws.feed(
@@ -246,13 +261,22 @@ async def test_barge_in_still_cancels_while_bot_is_tts_ing(
     the condition; it doesn't remove the feature."""
     # Replace _send_tts with a slow one that sets bot_speaking via the
     # callback and then sleeps long enough for the user to barge in.
+    speaking_observations: list[bool] = []
+
     async def slow_send_tts(
         websocket, stream_sid, text, history, on_speaking=None
     ):
-        # Mark the bot as speaking, then linger so the test's barge-in
-        # frames can arrive while we're "talking".
-        if on_speaking is not None:
-            on_speaking(True)
+        # Spy on the speaking flag so the assertion below can prove the
+        # test reached the bot_speaking=True state — otherwise an empty
+        # ws.sent could also mean "_maybe_barge_in noop'd every time
+        # because on_speaking was never invoked," which would pass for
+        # the wrong reason.
+        def _spy(value: bool) -> None:
+            speaking_observations.append(value)
+            if on_speaking is not None:
+                on_speaking(value)
+
+        _spy(True)
         try:
             await asyncio.sleep(2.0)
             # Pretend we sent one frame so the test sees outbound media.
@@ -266,8 +290,7 @@ async def test_barge_in_still_cancels_while_bot_is_tts_ing(
                 )
             )
         finally:
-            if on_speaking is not None:
-                on_speaking(False)
+            _spy(False)
 
     monkeypatch.setattr(bot_module, "_send_tts", slow_send_tts)
 
@@ -309,6 +332,15 @@ async def test_barge_in_still_cancels_while_bot_is_tts_ing(
 
     ws.close()
     await asyncio.wait_for(handler, timeout=3.0)
+
+    # Sanity: the slow_send_tts actually ran and flipped bot_speaking=True
+    # at some point. Without this, an empty ws.sent could be vacuously
+    # true if _maybe_barge_in noop'd every call because on_speaking was
+    # never invoked — the test would then "pass" for the wrong reason.
+    assert True in speaking_observations, (
+        "Expected slow_send_tts to mark the bot as speaking before barge-in; "
+        f"speaking_observations={speaking_observations}"
+    )
 
     # If barge-in fired correctly, the slow_send_tts task was cancelled
     # before its asyncio.sleep(2.0) finished — so its post-sleep

@@ -326,6 +326,9 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     # wrong (the bot hasn't said anything yet, there is nothing to barge in
     # on) and used to drop the user's first transcribed utterance on the
     # floor whenever paced trailing audio arrived after a VAD-driven flush.
+    # Note that this stays False during the executor-bound TTS synthesis call
+    # (the OpenAI TTS HTTP request) — the wire is still silent at that point,
+    # so suppressing barge-in there is also the correct semantic.
     bot_speaking = False
     greeted = False
     # Idle re-prompt: if the caller goes quiet for IDLE_REPROMPT_MS after a
