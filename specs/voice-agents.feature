@@ -751,7 +751,7 @@ Feature: Voice agent testing in Scenario SDK
   Scenario: Every adapter publishes a capabilities attribute
     Given any concrete VoiceAgentAdapter subclass
     Then adapter.capabilities is an AdapterCapabilities instance
-    And it declares: streaming_transcripts, native_vad, dtmf, input_formats, output_formats
+    And it declares: streaming_transcripts, native_vad, dtmf, interruption, input_formats, output_formats
 
   @unit
   Scenario: dtmf() raises UnsupportedCapabilityError on non-telephony adapters

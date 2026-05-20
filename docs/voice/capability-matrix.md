@@ -23,7 +23,7 @@ adapter converts at its send/recv boundary.
 | `TwilioAgentAdapter` | ❌ | ❌ | ✅ | ✅ Twilio Media Streams `clear` | WebSocket (Media Streams) | ✅ |
 | `OpenAIRealtimeAgentAdapter` | ✅ | ✅ | ❌ | ✅ `response.cancel` | WebSocket | ✅ |
 | `ElevenLabsAgentAdapter` | ✅ | ✅ | ❌ | ❌ — server-side VAD barge-in only | WebSocket | ✅ |
-| `GeminiLiveAgentAdapter` | ✅ | ✅ | ❌ | ❌ — server-side VAD barge-in only | WebSocket | ✅ |
+| `GeminiLiveAgentAdapter` | ✅ | ✅ | ❌ | ✅ Activity marker cancel | WebSocket | ✅ |
 | `LiveKitAgentAdapter` | ✅ | ✅ | ❌ | ❌ | WebRTC (planned) | ❌ stub raises `PendingTransportError` |
 | `VapiAgentAdapter` | ✅ | ✅ | ❌ | ❌ | WebSocket (planned) | ❌ stub raises `PendingTransportError` |
 | `WebRTCAgentAdapter` | ❌ | ❌ | ❌ | ❌ | WebRTC | ❌ stub raises `PendingTransportError` |
@@ -188,14 +188,16 @@ class MyCustomAdapter(scenario.VoiceAgentAdapter):
 
 ## Deferred / follow-up items
 
-- **Native interrupt for ElevenLabs and Gemini Live**. Investigated; both
-  providers run server-side VAD and have no client-initiated cancel frame
-  in their public protocols. Setting `interruption=True` on these adapters
-  is incorrect — `interrupt()` would have nothing to send. Barge-in
-  works the moment the executor's next user audio chunk hits the wire;
-  no SDK change required. EL emits a server→client `interruption` event
-  when its VAD fires; surfacing that into the voice timeline is a
-  separate enhancement.
+- **Native interrupt for ElevenLabs**. Investigated; the provider runs
+  server-side VAD and has no client-initiated cancel frame in its public
+  protocol. Setting `interruption=True` would be incorrect — `interrupt()`
+  would have nothing to send. Barge-in works the moment the executor's
+  next user audio chunk hits the wire; no SDK change required. EL emits a
+  server→client `interruption` event when its VAD fires; surfacing that
+  into the voice timeline is a separate enhancement. (Gemini Live also
+  runs server-side VAD but additionally exposes Activity markers — the
+  Gemini Live adapter uses those for explicit cancel, so it does publish
+  `interruption=True`.)
 - **Transport implementations for LiveKit, Vapi, WebRTC**. Stubs raise
   `PendingTransportError` at `send_audio` / `recv_audio`. The capability
   declarations describe what they *will* support.

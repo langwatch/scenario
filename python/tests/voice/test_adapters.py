@@ -203,7 +203,12 @@ ALL_ADAPTER_CLASSES = [
 def test_every_adapter_publishes_capabilities(cls):
     caps = cls.capabilities
     assert isinstance(caps, AdapterCapabilities)
-    # Every adapter must declare its formats.
+    # Every adapter must declare each capability flag so the capability
+    # matrix doc and feature file stay in lock-step with the runtime.
+    assert isinstance(caps.streaming_transcripts, bool)
+    assert isinstance(caps.native_vad, bool)
+    assert isinstance(caps.dtmf, bool)
+    assert isinstance(caps.interruption, bool)
     assert isinstance(caps.input_formats, list)
     assert isinstance(caps.output_formats, list)
 
