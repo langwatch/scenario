@@ -1,5 +1,8 @@
 from collections.abc import Mapping
-from typing import Any, Literal, TypeVar, cast
+# DEVIATION FROM GENERATED CODE (issue #494): `content` widened from `str` to `Union[str, list[Any]]`
+# to allow multimodal (e.g. voice input_audio) content to pass through as a real JSON array.
+# Reapply after `make generate-openapi-client` until OpenAPI spec is updated upstream.
+from typing import Any, Literal, TypeVar, Union, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -12,13 +15,13 @@ class PostApiScenarioEventsBodyType2MessagesItemType4:
     """
     Attributes:
         id (str):
-        content (str):
+        content (Union[str, list[Any]]):
         role (Literal['tool']):
         tool_call_id (str):
     """
 
     id: str
-    content: str
+    content: Union[str, list[Any]]
     role: Literal["tool"]
     tool_call_id: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
