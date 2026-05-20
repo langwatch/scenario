@@ -757,14 +757,21 @@ class ScenarioExecutor:
                 continue
             try:
                 await agent.disconnect()
-            except Exception:  # pragma: no cover — defensive cleanup
-                pass
+            except Exception:
+                logger.warning(
+                    "voice adapter %s disconnect failed",
+                    type(agent).__name__,
+                    exc_info=True,
+                )
 
         if self._ffmpeg_playback is not None:
             try:
                 await asyncio.to_thread(self._ffmpeg_playback.stop)
-            except Exception:  # pragma: no cover — best-effort cleanup
-                pass
+            except Exception:
+                logger.warning(
+                    "ffmpeg playback stop failed during voice disconnect",
+                    exc_info=True,
+                )
             self._ffmpeg_playback = None
 
     async def _call_agent(
