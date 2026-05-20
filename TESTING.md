@@ -64,3 +64,37 @@ Edge cases not covered upfront are handled via regression tests. When a bug is f
 3. Fix and verify green
 
 This keeps the suite lean while ensuring real failures never recur.
+
+## Voice `@e2e` suite — isolation requirement
+
+The voice `@e2e` demos under `python/tests/voice/test_*_e2e.py` are auto-marked
+`integration` by `python/tests/voice/conftest.py:pytest_collection_modifyitems`
+and the default `python-ci` job deselects them with `-m "not integration"`.
+They only run via the nightly `voice-integration.yml` dispatch.
+
+Several multi-turn demos additionally carry a `@pytest.mark.skip` marker
+(reason: *"Hangs in full suite (not in isolation) — multi-turn max_turns demos
+wedge pytest process"*). The wedge is reproducible only when the full voice
+e2e suite is run in a single pytest process. Likely contributors (not yet
+isolated):
+
+- Background tasks (`asyncio.create_task`) spawned by adapters
+  (Gemini Live `_session_lifetime`, Twilio webhook server, Cloudflare tunnel
+  subprocess) that aren't fully reaped between function-scoped event loops.
+- The `ffmpeg` playback subprocess in `python/scenario/voice/playback.py`
+  not always exiting cleanly when `.stop()` runs.
+- `max_turns` runaway in demos that should converge in 2-3 turns but spin
+  against a quota when judged in batch.
+
+Until the wedge is diagnosed (tracked in issue #491), run the multi-turn
+demos with one process per cluster:
+
+```bash
+# OK — fresh process per demo cluster.
+pytest -p no:cacheprovider -x python/tests/voice/test_long_hold_e2e.py
+pytest -p no:cacheprovider -x python/tests/voice/test_emotional_escalation_e2e.py
+# …etc.
+
+# NOT OK — runs the whole suite in one process, will wedge.
+pytest -m integration python/tests/voice/
+```
