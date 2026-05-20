@@ -246,8 +246,6 @@ async def test_barge_in_still_cancels_while_bot_is_tts_ing(
     the condition; it doesn't remove the feature."""
     # Replace _send_tts with a slow one that sets bot_speaking via the
     # callback and then sleeps long enough for the user to barge in.
-    real_send_tts = bot_module._send_tts
-
     async def slow_send_tts(
         websocket, stream_sid, text, history, on_speaking=None
     ):
