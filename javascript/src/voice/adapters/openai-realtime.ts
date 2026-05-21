@@ -29,6 +29,19 @@ import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
 const REALTIME_URL_TEMPLATE = "wss://api.openai.com/v1/realtime?model={model}";
 
+/**
+ * Realtime tool definition — structural shape passed through to the
+ * `session.update` payload. Tightened from `unknown[]` so call-site typos
+ * surface at compile time; extra fields are still allowed via the
+ * intersection index signature.
+ */
+export type RealtimeToolDef = {
+  type: "function";
+  name: string;
+  description?: string;
+  parameters?: unknown;
+} & Record<string, unknown>;
+
 export interface OpenAIRealtimeAgentAdapterInit {
   /** Realtime model id. Defaults to {@link OPENAI_REALTIME_MODEL}. */
   model?: string;
@@ -37,7 +50,7 @@ export interface OpenAIRealtimeAgentAdapterInit {
   /** System instructions passed via `session.update`. */
   instructions?: string;
   /** Tool definitions passed straight through to the Realtime session. */
-  tools?: unknown[];
+  tools?: RealtimeToolDef[];
   /** Explicit API key; falls back to `process.env.OPENAI_API_KEY`. */
   apiKey?: string;
   /**
@@ -46,6 +59,12 @@ export interface OpenAIRealtimeAgentAdapterInit {
    * steps route through `sendText` and bypass the TTS pipeline.
    */
   role?: AgentRole;
+  /**
+   * Override the Realtime endpoint URL. Defaults to
+   * `wss://api.openai.com/v1/realtime?model=<model>`. Lets tests point at
+   * a loopback WS server without subclassing the adapter.
+   */
+  url?: string;
 }
 
 /**
@@ -77,7 +96,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   readonly model: string;
   readonly voice: string;
   readonly instructions: string;
-  readonly tools: unknown[];
+  readonly tools: RealtimeToolDef[];
   override role: AgentRole;
 
   /** Most recent user-side transcript from the Whisper input pipeline. */
@@ -86,6 +105,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   lastAgentTranscript: string | null = null;
 
   private readonly _apiKey: string;
+  private readonly _urlOverride: string | null;
   private _ws: WebSocket | null = null;
   // Streaming agent transcript buffer — accumulates deltas, flushed on done.
   private _agentTranscriptBuf = "";
@@ -107,10 +127,13 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this.tools = init.tools ?? [];
     this.role = init.role ?? AgentRole.AGENT;
     this._apiKey = init.apiKey ?? process.env.OPENAI_API_KEY ?? "";
+    this._urlOverride = init.url ?? null;
   }
 
   get url(): string {
-    return REALTIME_URL_TEMPLATE.replace("{model}", this.model);
+    return (
+      this._urlOverride ?? REALTIME_URL_TEMPLATE.replace("{model}", this.model)
+    );
   }
 
   /** Hide the API key when this object lands in error messages or logs. */
@@ -135,6 +158,12 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
   /** Open the Realtime WebSocket and send the initial `session.update`. */
   async connect(): Promise<void> {
+    if (!this._apiKey) {
+      throw new Error(
+        "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
+          "pass `{ apiKey }` to the constructor.",
+      );
+    }
     const ws = new WebSocket(this.url, {
       headers: {
         Authorization: `Bearer ${this._apiKey}`,
@@ -199,6 +228,19 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     const ws = this._ws;
     if (!ws) return;
     this._ws = null;
+    // Synchronously fail any in-flight receiveAudio waiter so callers
+    // unblock immediately on disconnect — don't rely on the async close
+    // handler firing first. Also drain queued events: a partially-
+    // delivered response is no longer reachable across a closed socket.
+    const closeErr = new Error("OpenAIRealtimeAgentAdapter: disconnected");
+    this._closeReason = closeErr;
+    this._eventQueue.length = 0;
+    if (this._waitReject) {
+      const reject = this._waitReject;
+      this._waitResolve = null;
+      this._waitReject = null;
+      reject(closeErr);
+    }
     try {
       ws.close();
     } catch {
@@ -262,21 +304,21 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     }
 
     const deadline = Date.now() + timeout * 1000;
+    // Single source of truth for the timeout: `_nextEvent` arms a timer
+    // against `remaining` and rejects with the timeout error when it
+    // fires. The outer-loop guard is redundant — the inner timer always
+    // wins the race.
     while (true) {
       const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        throw new Error("OpenAIRealtimeAgentAdapter: receiveAudio timed out");
-      }
-
       const event = await this._nextEvent(remaining);
       const etype = (event as { type?: string }).type ?? "";
 
       if (etype === "response.audio.delta") {
         const delta = (event as { delta?: string }).delta ?? "";
-        let pcm = Buffer.from(delta, "base64");
-        // Enforce PCM16 invariant: even byte count.
-        if (pcm.length % 2 === 1) pcm = pcm.subarray(0, pcm.length - 1);
-        return new AudioChunk({ data: new Uint8Array(pcm) });
+        // PCM16 invariant: even byte count. The AudioChunk constructor
+        // throws on odd-byte buffers — surface the upstream codec bug
+        // there rather than silently truncating here.
+        return new AudioChunk({ data: new Uint8Array(Buffer.from(delta, "base64")) });
       }
 
       if (etype === "response.audio_transcript.delta") {

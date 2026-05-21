@@ -25,6 +25,7 @@ import {
   AudioChunk,
   OPENAI_REALTIME_MODEL,
   OpenAIRealtimeAgentAdapter,
+  type OpenAIRealtimeAgentAdapterInit,
   silentChunk,
 } from "../../index";
 
@@ -123,20 +124,17 @@ function newHandle(): MockHandle {
 }
 
 /**
- * Build an adapter pre-wired to the in-process WS server. Overrides
- * `url` via a subclass so the adapter still owns its own `connect()`
- * implementation — we just point it at the loopback port.
+ * Build an adapter pre-wired to the in-process WS server via the public
+ * `url` init knob. No subclassing — keeps tests against the real surface.
  */
 function buildAdapter(
   port: number,
-  init: Parameters<typeof OpenAIRealtimeAgentAdapter.prototype.constructor>[0],
+  init: Omit<OpenAIRealtimeAgentAdapterInit, "url">,
 ): OpenAIRealtimeAgentAdapter {
-  class TestAdapter extends OpenAIRealtimeAgentAdapter {
-    override get url(): string {
-      return `ws://127.0.0.1:${port}/realtime?model=${this.model}`;
-    }
-  }
-  return new TestAdapter(init);
+  return new OpenAIRealtimeAgentAdapter({
+    ...init,
+    url: `ws://127.0.0.1:${port}/realtime?model=${init.model ?? OPENAI_REALTIME_MODEL}`,
+  });
 }
 
 const feature = await loadFeature(FEATURE_PATH);

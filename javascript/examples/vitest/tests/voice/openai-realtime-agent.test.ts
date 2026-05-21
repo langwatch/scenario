@@ -50,6 +50,7 @@ describeFeature(
       "Demo — OpenAI Realtime as the agent under test",
       ({ Given, When, Then }) => {
         let adapter: OpenAIRealtimeAgentAdapter;
+        let chunk: AudioChunk | null = null;
 
         Given(
           "an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY",
@@ -66,17 +67,15 @@ describeFeature(
         );
 
         When("the demo script runs via scenario.run()", async () => {
+          // PR8 ships the adapter wire protocol; the full `scenario.run()`
+          // executor wiring lands in PR3. The agent-role demo exercises
+          // the live round-trip we own at the adapter layer: sendAudio →
+          // commit → response.create → first AudioChunk back from the
+          // live OpenAI Realtime endpoint.
           await adapter.connect();
           try {
-            // PR8 ships the adapter wire protocol; the full scenario.run()
-            // executor wiring lands in PR3 (voice adapter runtime). For
-            // the agent-role demo we exercise the live round-trip we own:
-            // sendAudio → commit → response.create → first AudioChunk
-            // back from the live OpenAI Realtime endpoint.
             await adapter.sendAudio(silentChunk(0.5));
-            const chunk = await adapter.receiveAudio(20);
-            expect(chunk).toBeInstanceOf(AudioChunk);
-            expect(chunk.data.length).toBeGreaterThan(0);
+            chunk = await adapter.receiveAudio(20);
           } finally {
             await adapter.disconnect();
           }
@@ -85,12 +84,11 @@ describeFeature(
         Then(
           "the model plays the agent role and result.success is True",
           () => {
-            // Surrogate for ScenarioResult while PR3 lands the executor:
-            // any non-empty agent transcript + a returned audio chunk is
-            // the success signal for this demo. The full result object
-            // becomes available once the runtime is wired.
-            // No further assertion — the When block already threw if the
-            // live session failed to produce audio.
+            // Live signal: the realtime endpoint produced PCM16 audio for
+            // our turn. Stands in for `result.success === true` until PR3
+            // wires the full ScenarioResult.
+            expect(chunk).toBeInstanceOf(AudioChunk);
+            expect(chunk?.data.length ?? 0).toBeGreaterThan(0);
           },
         );
       },
