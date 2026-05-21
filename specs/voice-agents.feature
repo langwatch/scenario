@@ -176,7 +176,7 @@ Feature: Voice agent testing in Scenario SDK
     Then the provider prefix selects the TTS client
     And the remainder is used as the voice id
 
-  @unit
+  @unit @ts-tts
   Scenario: TTS cache key is (text, voice) only and effects apply after cache hit
     # Locked decision: TTS cache key; Source §7.2 L1158 deterministic caching claim
     Given the same text and voice are used twice with different audio_effects
@@ -716,27 +716,27 @@ Feature: Voice agent testing in Scenario SDK
   # Pluggable STT (provider-agnostic by design)
   # ======================================================================
 
-  @unit
+  @unit @ts-stt
   Scenario: Default STT provider is OpenAI gpt-4o-transcribe
     Given no scenario.configure(stt=...) has been called
     And a conversation contains an audio turn
     When the judge requests a transcript
     Then the SDK uses openai.audio.transcriptions with model "gpt-4o-transcribe"
 
-  @unit
+  @unit @ts-stt
   Scenario: Users swap STT providers via scenario.configure
     Given a custom STTProvider implementation
     When scenario.configure(stt=CustomProvider()) is called
     And the judge requests a transcript
     Then the custom provider's transcribe() is invoked instead of the default
 
-  @unit
+  @unit @ts-stt
   Scenario: STT provider interface is minimal and provider-agnostic
     Given the STTProvider abstract base class
     Then it defines async transcribe(audio: AudioChunk) -> str
     And no OpenAI-specific types leak into the interface
 
-  @unit
+  @unit @ts-stt
   Scenario: Transcription chunks audio longer than 25 minutes
     # OpenAI gpt-4o-transcribe has a 25-minute per-request limit
     Given an audio turn exceeding 25 minutes in the default STT provider
@@ -853,7 +853,7 @@ Feature: Voice agent testing in Scenario SDK
   # Auto-transcribe agent audio for non-multimodal judges
   # ======================================================================
 
-  @unit
+  @unit @ts-transcribe
   Scenario: transcribe_segments fills missing transcripts in place
     Given a VoiceRecording with two agent segments lacking transcripts
     When transcribe_segments is called with a configured STT provider
@@ -868,7 +868,7 @@ Feature: Voice agent testing in Scenario SDK
     Then transcribe_segments is invoked over result.audio
     And the judge's transcript view contains the agent's spoken text
 
-  @unit
+  @unit @ts-transcribe
   Scenario: missing STT provider degrades gracefully
     Given transcribe_segments is called with no configured STT provider
     Then it logs a warning and returns without raising
