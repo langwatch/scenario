@@ -44,16 +44,13 @@ scenario.UserSimulatorAgent(
 <Callout type="tip">
 Accents are handled via TTS voice selection (e.g. `voice="elevenlabs/raj_indian_english"`),
 not via post-processing. There is no `accent` effect by design — see the
-[effects module source](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/effects.py).
+[effects module source](https://github.com/langwatch/scenario/tree/main/python/scenario/voice/effects).
 </Callout>
 
 ### Per-step overrides
 
 The `audio_effects` list on `UserSimulatorAgent` applies to every user turn in the
-scenario. To apply effects only to a specific turn, use `scenario.user()` with an
-explicit `audio_effects` override (if supported by your script executor version).
-For finer control, inject audio directly with `scenario.audio(path)` on a pre-processed
-WAV file.
+scenario.
 
 <Callout type="warning">
 Per-step effect overrides via `scenario.user(audio_effects=[...])` are on the roadmap
