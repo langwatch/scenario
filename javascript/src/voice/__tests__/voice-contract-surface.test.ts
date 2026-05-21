@@ -1,9 +1,9 @@
 /**
  * Voice contract surface tests — PR1 of issue #372.
  *
- * Binds the five scenarios from `specs/voice-agents.feature` that the PR1
- * scope is responsible for; concrete adapters and runtime behavior land in
- * PR2+ and bring their own tests.
+ * Binds the five scenarios from `specs/voice-agents.feature` tagged
+ * `@ts-bound`; concrete adapters and runtime behavior land in subsequent
+ * PRs and bring their own tests.
  *
  * Loaded via @amiceli/vitest-cucumber which reads the feature file and fails
  * the suite if any bound scenario is missing a step binding.
@@ -284,5 +284,5 @@ describeFeature(
       },
     );
   },
-  { includeTags: ["pr1-binding"] },
+  { includeTags: ["ts-bound"] },
 );
