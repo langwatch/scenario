@@ -43,6 +43,13 @@ export interface FakeAdapterOptions {
    * the swallow-on-cleanup behaviour.
    */
   failOnDisconnect?: boolean;
+  /**
+   * If true, `call()` rejects on first invocation — used to verify the
+   * "disconnect fires even when the script throws" half of the
+   * lifecycle AC without needing a second AGENT-role agent that would
+   * compete for the `agent()` step.
+   */
+  failOnCall?: boolean;
 }
 
 export class FakeVoiceAdapter extends VoiceAgentAdapter {
@@ -68,6 +75,7 @@ export class FakeVoiceAdapter extends VoiceAgentAdapter {
   private nextResponseIndex = 0;
   private readonly failOnConnect: boolean;
   private readonly failOnDisconnect: boolean;
+  private readonly failOnCall: boolean;
 
   constructor(options: FakeAdapterOptions = {}) {
     super();
@@ -83,6 +91,7 @@ export class FakeVoiceAdapter extends VoiceAgentAdapter {
     this.responses = options.responses ?? [silentChunk(0.05)];
     this.failOnConnect = options.failOnConnect ?? false;
     this.failOnDisconnect = options.failOnDisconnect ?? false;
+    this.failOnCall = options.failOnCall ?? false;
   }
 
   async connect(): Promise<void> {
@@ -117,6 +126,9 @@ export class FakeVoiceAdapter extends VoiceAgentAdapter {
     if (this.callCount === 1) {
       this.wasConnectedAtFirstCall =
         this.connectCount === 1 && this.disconnectCount === 0;
+    }
+    if (this.failOnCall) {
+      throw new Error("FakeVoiceAdapter.call failure (test fixture)");
     }
     // Delegate to the default voice runtime so this fixture exercises
     // the adapter.runtime.ts code paths under test.
