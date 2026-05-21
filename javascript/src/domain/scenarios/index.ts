@@ -1,6 +1,8 @@
 import { ModelMessage } from "ai";
 import { AgentAdapter } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
+import type { AudioChunk } from "../../voice/audio-chunk";
+import type { VoiceEvent } from "../../voice/recording.types";
 
 export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
@@ -68,6 +70,24 @@ export interface ScenarioConfig {
    * The `langwatch` key is reserved for platform-internal use.
    */
   metadata?: Record<string, unknown>;
+
+  /**
+   * Optional callback invoked for every audio chunk that flows through
+   * a voice adapter (both user-side and agent-side).
+   *
+   * Mirrors Python `scenario.run(on_audio_chunk=...)`. Best-effort — if
+   * the hook throws, the scenario continues uninterrupted.
+   */
+  onAudioChunk?: (chunk: AudioChunk) => void;
+
+  /**
+   * Optional callback invoked for every {@link VoiceEvent} appended to
+   * the timeline (`user_start_speaking`, `agent_stop_speaking`, etc.).
+   *
+   * Mirrors Python `scenario.run(on_voice_event=...)`. Best-effort — if
+   * the hook throws, the scenario continues uninterrupted.
+   */
+  onVoiceEvent?: (event: VoiceEvent) => void;
 }
 
 /**
