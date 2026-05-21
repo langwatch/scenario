@@ -61,7 +61,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
         with:
-          version: latest
+          # Pinned to 10.21.0 — 10.22+ promotes ignored build scripts to a
+          # fatal error under --frozen-lockfile in CI, which breaks the
+          # docs install (esbuild postinstall). Until docs is moved to
+          # workspace mode where onlyBuiltDependencies is honored, pin.
+          version: 10.21.0
 
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -83,14 +87,14 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: "docs/pnpm-lock.yaml"
       - name: Install dependencies
-        # PNPM_CONFIG_ONLY_BUILT_DEPENDENCIES tells pnpm 10.22+ to permit
-        # esbuild's postinstall under --frozen-lockfile in CI mode, where
-        # ignored-build-scripts is otherwise fatal. The same field exists in
-        # docs/pnpm-workspace.yaml for local dev but is not honored in CI's
-        # single-project install context, so we set it explicitly here.
-        env:
-          PNPM_CONFIG_ONLY_BUILT_DEPENDENCIES: esbuild
-        run: pnpm install --frozen-lockfile
+        # pnpm 10.22+ treats ignored build scripts as a fatal error under
+        # --frozen-lockfile in CI. esbuild needs its postinstall to unpack
+        # its prebuilt binary. Writing the approval to a local .npmrc is
+        # picked up reliably across pnpm versions; the env-var equivalent
+        # has inconsistent array-value handling.
+        run: |
+          echo "only-built-dependencies[]=esbuild" >> .npmrc
+          pnpm install --frozen-lockfile
       - name: Build
         run: pnpm run build
       - name: Setup Pages
