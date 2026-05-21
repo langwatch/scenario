@@ -62,6 +62,7 @@ before any exchange). Always guard with `if result.audio is not None`.
 | Field | Description |
 |---|---|
 | `time_to_first_byte` | Wall-clock seconds from when the user turn ended to when the first byte of agent audio arrived. |
+| `avg_response_time` | Mean agent response time across all turns. |
 | `p50_response_time` | Median agent response time across all turns. |
 | `p95_response_time` | 95th-percentile agent response time across all turns. |
 | `interrupt_response_time` | Time from interrupt signal to agent resume (populated only when `scenario.interrupt()` was used). |
@@ -69,6 +70,7 @@ before any exchange). Always guard with `if result.audio is not None`.
 ```python
 if result.latency is not None:
     print(f"TTFB: {result.latency.time_to_first_byte:.3f}s")
+    print(f"avg:  {result.latency.avg_response_time:.3f}s")
     print(f"p50:  {result.latency.p50_response_time:.3f}s")
     print(f"p95:  {result.latency.p95_response_time:.3f}s")
 ```
