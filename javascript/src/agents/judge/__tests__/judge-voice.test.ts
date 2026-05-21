@@ -18,7 +18,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createAudioMessage } from "../../../voice/messages";
 import { AudioChunk } from "../../../voice/audio-chunk";
@@ -57,6 +57,105 @@ function audioMessage(
 function textMessage(role: "user" | "assistant", content: string): unknown {
   return { role, content };
 }
+
+// ---------------------------------------------------------------------------
+// Implementation-level model-substring coverage (not named spec scenarios)
+// Lifted out of bound Then blocks to keep Thens honest per /review FIX #4.
+// ---------------------------------------------------------------------------
+
+describe("modelSupportsAudio — model substring detection", () => {
+  it("gpt-4o is recognised as multimodal", () => {
+    expect(judgeAgent({ model: "openai/gpt-4o", criteria: [] }).modelSupportsAudio()).toBe(true);
+  });
+
+  it("gemini-2.5-pro is recognised as multimodal", () => {
+    expect(judgeAgent({ model: "gemini-2.5-pro", criteria: [] }).modelSupportsAudio()).toBe(true);
+  });
+
+  it("gemini-2.0-flash is recognised as multimodal", () => {
+    expect(judgeAgent({ model: "gemini-2.0-flash", criteria: [] }).modelSupportsAudio()).toBe(true);
+  });
+
+  it("openai/gpt-4 is NOT multimodal", () => {
+    expect(judgeAgent({ model: "openai/gpt-4", criteria: [] }).modelSupportsAudio()).toBe(false);
+  });
+
+  it("openai/gpt-3.5-turbo is NOT multimodal", () => {
+    expect(judgeAgent({ model: "openai/gpt-3.5-turbo", criteria: [] }).modelSupportsAudio()).toBe(false);
+  });
+
+  it("openai/gpt-4.1-mini is NOT multimodal", () => {
+    expect(judgeAgent({ model: "openai/gpt-4.1-mini", criteria: [] }).modelSupportsAudio()).toBe(false);
+  });
+});
+
+describe("effectiveIncludeTimeline — explicit overrides", () => {
+  it("explicit false wins over voice conversation", () => {
+    const judge = judgeAgent({
+      model: "openai/gpt-4o",
+      includeTimeline: false,
+      criteria: [],
+    });
+    expect(judge.effectiveIncludeTimeline(true)).toBe(false);
+  });
+
+  it("explicit true wins over text-only conversation", () => {
+    const judge = judgeAgent({
+      model: "openai/gpt-4.1-mini",
+      includeTimeline: true,
+      criteria: [],
+    });
+    expect(judge.effectiveIncludeTimeline(false)).toBe(true);
+  });
+
+  it("text-only conversation defaults to false", () => {
+    const judge = judgeAgent({ model: "openai/gpt-4o", criteria: [] });
+    expect(judge.effectiveIncludeTimeline(false)).toBe(false);
+  });
+});
+
+describe("effectiveIncludeTraces — explicit overrides", () => {
+  it("explicit true overrides when otelConfigured=false", () => {
+    const judge = judgeAgent({
+      model: "openai/gpt-4.1-mini",
+      includeTraces: true,
+      criteria: [],
+    });
+    expect(judge.effectiveIncludeTraces(false)).toBe(true);
+  });
+
+  it("explicit false overrides when otelConfigured=true", () => {
+    const judge = judgeAgent({
+      model: "openai/gpt-4.1-mini",
+      includeTraces: false,
+      criteria: [],
+    });
+    expect(judge.effectiveIncludeTraces(true)).toBe(false);
+  });
+
+  it("no OTel defaults to false", () => {
+    const judge = judgeAgent({ model: "openai/gpt-4.1-mini", criteria: [] });
+    expect(judge.effectiveIncludeTraces(false)).toBe(false);
+  });
+});
+
+describe("effectiveIncludeAudio — explicit override edge cases", () => {
+  it("explicit true on a non-multimodal model still requires audio in conversation", () => {
+    const judge = judgeAgent({
+      model: "openai/gpt-4.1-mini",
+      includeAudio: true,
+      criteria: [],
+    });
+    // conversationHasAudio=true AND explicit=true → true.
+    expect(judge.effectiveIncludeAudio(true)).toBe(true);
+    // conversationHasAudio=false AND explicit=true → false (no audio to include).
+    expect(judge.effectiveIncludeAudio(false)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bound feature-file scenarios
+// ---------------------------------------------------------------------------
 
 const feature = await loadFeature(FEATURE_PATH);
 
@@ -184,10 +283,6 @@ describeFeature(
         Then("the raw audio is passed to the model as multimodal input", () => {
           expect(includeAudio).toBe(true);
           expect(judge.modelSupportsAudio()).toBe(true);
-
-          // Confirm other known multimodal substrings.
-          expect(judgeAgent({ model: "gemini-2.5-pro" }).modelSupportsAudio()).toBe(true);
-          expect(judgeAgent({ model: "gemini-2.0-flash" }).modelSupportsAudio()).toBe(true);
         });
       }
     );
@@ -217,10 +312,6 @@ describeFeature(
         Then("audio is auto-transcribed and passed as text only", () => {
           expect(includeAudio).toBe(false);
           expect(judge.modelSupportsAudio()).toBe(false);
-
-          // Extra: confirm the model substring check works for other non-multimodal models.
-          expect(judgeAgent({ model: "openai/gpt-4" }).modelSupportsAudio()).toBe(false);
-          expect(judgeAgent({ model: "openai/gpt-3.5-turbo" }).modelSupportsAudio()).toBe(false);
         });
       }
     );
@@ -252,25 +343,6 @@ describeFeature(
           "include_timeline defaults to True and a structured timeline is present in AgentInput",
           () => {
             expect(includeTimeline).toBe(true);
-
-            // Text-only conversation → timeline defaults false.
-            expect(judge.effectiveIncludeTimeline(false)).toBe(false);
-
-            // Explicit false override wins even for voice.
-            const explicitFalse = judgeAgent({
-              model: "openai/gpt-4o",
-              includeTimeline: false,
-              criteria: [],
-            });
-            expect(explicitFalse.effectiveIncludeTimeline(true)).toBe(false);
-
-            // Explicit true override wins even for text-only.
-            const explicitTrue = judgeAgent({
-              model: "openai/gpt-4.1-mini",
-              includeTimeline: true,
-              criteria: [],
-            });
-            expect(explicitTrue.effectiveIncludeTimeline(false)).toBe(true);
           }
         );
       }
@@ -300,24 +372,6 @@ describeFeature(
 
         Then("include_traces defaults to True and traces are included", () => {
           expect(includeTraces).toBe(true);
-
-          // No OTel → traces default false.
-          expect(judge.effectiveIncludeTraces(false)).toBe(false);
-
-          // Explicit override works.
-          const explicitTrue = judgeAgent({
-            model: "openai/gpt-4.1-mini",
-            includeTraces: true,
-            criteria: [],
-          });
-          expect(explicitTrue.effectiveIncludeTraces(false)).toBe(true);
-
-          const explicitFalse = judgeAgent({
-            model: "openai/gpt-4.1-mini",
-            includeTraces: false,
-            criteria: [],
-          });
-          expect(explicitFalse.effectiveIncludeTraces(true)).toBe(false);
         });
       }
     );
@@ -354,17 +408,6 @@ describeFeature(
             // Explicit false wins over the model's multimodal capability.
             expect(includeAudio).toBe(false);
             expect(judge.modelSupportsAudio()).toBe(true);
-
-            // Explicit true on a non-multimodal model still requires audio in conversation.
-            const trueOnTextModel = judgeAgent({
-              model: "openai/gpt-4.1-mini",
-              includeAudio: true,
-              criteria: [],
-            });
-            // conversationHasAudio=true AND explicit=true → true.
-            expect(trueOnTextModel.effectiveIncludeAudio(true)).toBe(true);
-            // conversationHasAudio=false AND explicit=true → false (no audio to include).
-            expect(trueOnTextModel.effectiveIncludeAudio(false)).toBe(false);
           }
         );
       }

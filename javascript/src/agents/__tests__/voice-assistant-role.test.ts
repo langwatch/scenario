@@ -9,9 +9,9 @@
  * `createAudioMessage` / `extractAudio` helpers and through
  * `JudgeAgent.conversationHasAudio`.
  *
- * This is tagged `@integration` in the brief because it touches multiple
- * subsystems (messages.ts + judge voice helpers). The actual execution is
- * pure unit-level (no LLM, no network) but kept in a separate file per the
+ * This is tagged `@unit` in the feature file (specs/voice-agents.feature)
+ * because it touches multiple subsystems (messages.ts + judge voice helpers)
+ * at a pure unit level (no LLM, no network). Kept in a separate file per the
  * deliverables spec to maintain clear file-level scoping.
  *
  * Tag convention: `@ts-assistant-role` (per-subject) — see issue #523.
@@ -100,7 +100,10 @@ describeFeature(
         And(
           'no "forceUserRole" style workaround exists anywhere in the Python SDK',
           () => {
-            // The Python SDK note is a design constraint, not a runtime check.
+            // The TS SDK satisfies this constraint: no role coercion needed.
+            // (The step text references "Python SDK" to match the feature file;
+            // the intent is that the TS SDK also avoids the workaround — see
+            // the scenario comment in specs/voice-agents.feature line 820.)
             // We verify the TS SDK satisfies the spirit: audio in any role
             // (user, assistant, tool via "input_audio") passes through without
             // coercion. We test user and assistant here.
