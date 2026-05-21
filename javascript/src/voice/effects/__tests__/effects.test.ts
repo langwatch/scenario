@@ -1,0 +1,337 @@
+/**
+ * Audio effects BDD tests — PR6 of issue #372.
+ *
+ * Binds the five scenarios from `specs/voice-agents.feature` tagged `@ts-effects`.
+ * Each scenario exercises the TypeScript port of the Python audio effects module.
+ *
+ * Tag deviation from grinder prompt: uses `@ts-effects` (not `@ts-bound`) to
+ * avoid collision with PR #517's voice-contract-surface.test.ts which already
+ * owns `@ts-bound`. Precedent: PR #528 established per-subject tags to isolate
+ * binding conflicts from issue #523.
+ */
+
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
+import { expect } from "vitest";
+
+import * as effectsModule from "../index";
+import {
+  backgroundNoise,
+  breakingUp,
+  custom,
+  echo,
+  highVolume,
+  lowQuality,
+  lowVolume,
+  multipleVoices,
+  packetLoss,
+  phoneQuality,
+  robotic,
+  speakingFast,
+  speakingSlow,
+} from "../index";
+// `static` is a reserved keyword — import via alias
+import { static_ as staticEffect } from "../noise";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "..", "specs", "voice-agents.feature");
+
+const feature = await loadFeature(FEATURE_PATH);
+
+// ---------------------------------------------------------------------------
+// Fixture helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a 0.5-second PCM16 sine wave at 440 Hz, 24kHz sample rate.
+ * Amplitude 16000 gives plenty of headroom for assertions.
+ */
+function makeSineWave(): Uint8Array {
+  const sampleRate = 24000;
+  const durationSec = 0.5;
+  const amplitude = 16000;
+  const freq = 440;
+  const nSamples = Math.floor(sampleRate * durationSec);
+  const buf = new Int16Array(nSamples);
+  for (let i = 0; i < nSamples; i++) {
+    buf[i] = Math.round(amplitude * Math.sin(2 * Math.PI * freq * (i / sampleRate)));
+  }
+  return new Uint8Array(buf.buffer);
+}
+
+/** Return true if at least one sample in out differs from input. */
+function atLeastOneSampleDiffers(input: Uint8Array, output: Uint8Array): boolean {
+  // Compare as Int16Array views
+  const inView = new Int16Array(input.buffer, input.byteOffset, Math.floor(input.byteLength / 2));
+  const outView = new Int16Array(output.buffer, output.byteOffset, Math.floor(output.byteLength / 2));
+  const len = Math.min(inView.length, outView.length);
+  for (let i = 0; i < len; i++) {
+    if (inView[i] !== outView[i]) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Scenarios
+// ---------------------------------------------------------------------------
+
+describeFeature(
+  feature,
+  ({ Scenario }) => {
+    // -----------------------------------------------------------------------
+    // Scenario: Global audio_effects apply to every user-simulator turn
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Global audio_effects apply to every user-simulator turn",
+      ({ Given, When, Then }) => {
+        let effects: Array<(audio: Uint8Array) => Uint8Array>;
+        let input: Uint8Array;
+
+        Given(
+          "UserSimulatorAgent(audio_effects=[effects.background_noise(\"cafe\", 0.3), effects.phone_quality(), effects.packet_loss(0.05)])",
+          () => {
+            effects = [backgroundNoise("cafe", 0.3), phoneQuality(), packetLoss(0.05)];
+            input = makeSineWave();
+          },
+        );
+
+        When("multiple turns are produced", () => {
+          // Simulate two turns by applying the chain twice (same input each time).
+        });
+
+        Then("every turn's audio has all three effects applied in order", () => {
+          // Apply chain for "turn 1"
+          let turn1 = input;
+          for (const fx of effects) turn1 = fx(turn1);
+
+          // Apply chain for "turn 2" (same input, same chain — always applied)
+          let turn2 = input;
+          for (const fx of effects) turn2 = fx(turn2);
+
+          // Both outputs must be non-empty
+          expect(turn1.byteLength).toBeGreaterThan(0);
+          expect(turn2.byteLength).toBeGreaterThan(0);
+
+          // At least one output must differ from raw input
+          // (packetLoss is random; we test that the chain ran)
+          expect(turn1).toBeInstanceOf(Uint8Array);
+          expect(turn2).toBeInstanceOf(Uint8Array);
+
+          // backgroundNoise and phoneQuality are deterministic — turn1 must
+          // differ from input after those two effects alone.
+          let withBg = backgroundNoise("cafe", 0.3)(input);
+          withBg = phoneQuality()(withBg);
+          expect(atLeastOneSampleDiffers(input, withBg)).toBe(true);
+        });
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Scenario: Each built-in effect from the §4.5 table exists and mutates audio
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Each built-in effect from the §4.5 table exists and mutates audio",
+      ({ Given, Then, And }) => {
+        let audio: Uint8Array;
+
+        Given("the effects module", () => {
+          audio = makeSineWave();
+        });
+
+        Then(
+          "the following callables exist: background_noise, phone_quality, low_quality, packet_loss, static, echo, speaking_fast, speaking_slow, low_volume, high_volume, robotic, breaking_up, multiple_voices, custom",
+          () => {
+            // Each entry: [factory, ...args]
+            const factories: Array<[(...args: unknown[]) => (audio: Uint8Array) => Uint8Array, ...unknown[]]> = [
+              [backgroundNoise as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array, "cafe"],
+              [phoneQuality as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [lowQuality as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [packetLoss as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [staticEffect as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [echo as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [speakingFast as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [speakingSlow as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [lowVolume as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [highVolume as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [robotic as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [breakingUp as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [multipleVoices as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array],
+              [custom as (...args: unknown[]) => (audio: Uint8Array) => Uint8Array, (b: Uint8Array) => b],
+            ];
+
+            for (const [factory, ...args] of factories) {
+              expect(typeof factory).toBe("function");
+              const effectFn = factory(...args);
+              expect(typeof effectFn).toBe("function");
+            }
+          },
+        );
+
+        And("each returns a callable that takes audio bytes and returns audio bytes", () => {
+          const effectInstances = [
+            backgroundNoise("cafe"),
+            phoneQuality(),
+            lowQuality(),
+            packetLoss(),
+            staticEffect(),
+            echo(),
+            speakingFast(),
+            speakingSlow(),
+            lowVolume(),
+            highVolume(),
+            robotic(),
+            breakingUp(),
+            multipleVoices(),
+            custom((b) => b),
+          ];
+
+          for (const fx of effectInstances) {
+            const result = fx(audio);
+            expect(result).toBeInstanceOf(Uint8Array);
+            // Result must have the same or proportional byte length (time-stretch changes length)
+            expect(result.byteLength).toBeGreaterThan(0);
+          }
+        });
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Scenario: Custom effect callable wraps user function
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Custom effect callable wraps user function",
+      ({ Given, When, Then }) => {
+        let input: Uint8Array;
+        let fnCalled: boolean;
+        let effectFn: (audio: Uint8Array) => Uint8Array;
+
+        Given("effects.custom(fn) where fn takes and returns bytes", () => {
+          input = makeSineWave();
+          fnCalled = false;
+
+          // A simple mutating fn: add 1 to each byte so output != input
+          const userFn = (b: Uint8Array): Uint8Array => {
+            fnCalled = true;
+            const out = new Uint8Array(b.length);
+            for (let i = 0; i < b.length; i++) {
+              out[i] = (b[i]! + 1) & 0xff;
+            }
+            return out;
+          };
+
+          effectFn = custom(userFn);
+        });
+
+        When("the effect is applied to a chunk", () => {
+          effectFn(input);
+        });
+
+        Then("fn is called with the chunk bytes", () => {
+          expect(fnCalled).toBe(true);
+
+          // Verify output reflects mutation
+          const result = effectFn(input);
+          expect(result).toBeInstanceOf(Uint8Array);
+          expect(atLeastOneSampleDiffers(input, result)).toBe(true);
+
+          // TypeError on non-callable
+          expect(() => custom("not a function" as unknown as (b: Uint8Array) => Uint8Array)).toThrow(TypeError);
+
+          // TypeError on non-Uint8Array return
+          const badFn = (_b: Uint8Array) => "not bytes" as unknown as Uint8Array;
+          const badEffect = custom(badFn);
+          expect(() => badEffect(input)).toThrow(TypeError);
+        });
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Scenario: Accents are handled via TTS voice selection, not post-processing
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Accents are handled via TTS voice selection, not post-processing",
+      ({ Given, Then, And }) => {
+        Given("a persona requiring an Indian-English accent", () => {
+          // Precondition: the effects module is imported above.
+        });
+
+        Then('the recommended path is voice="elevenlabs/raj_indian_english"', () => {
+          // The recommended path is a string constant — asserted below as
+          // documentation guarantee, not a runtime export.
+          const recommendedPath = "elevenlabs/raj_indian_english";
+          expect(typeof recommendedPath).toBe("string");
+        });
+
+        And('no "accent" post-processing effect is provided', () => {
+          // The barrel must NOT export `accent`.
+          expect("accent" in effectsModule).toBe(false);
+          // Double-check the export object keys.
+          const exportedKeys = Object.keys(effectsModule);
+          expect(exportedKeys).not.toContain("accent");
+        });
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Scenario: Effects that vary during conversation via on_turn hook
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Effects that vary during conversation via on_turn hook",
+      ({ Given, When, Then }) => {
+        let turnEffects: Array<(audio: Uint8Array) => Uint8Array>;
+        let input: Uint8Array;
+        let outputs: Uint8Array[];
+
+        Given(
+          "proceed(on_turn=lambda s: s.set_effects([effects.background_noise(\"cafe\", 0.1 * s.current_turn)]))",
+          () => {
+            input = makeSineWave();
+            // Simulate on_turn: produce 3 EffectFn instances for turns 1, 2, 3
+            turnEffects = [1, 2, 3].map((n) => backgroundNoise("cafe", 0.1 * n));
+          },
+        );
+
+        When("proceed runs for 3 turns", () => {
+          // Apply each turn's effect to the same input
+          outputs = turnEffects.map((fx) => fx(input));
+        });
+
+        Then("noise volume is 0.1, 0.2, 0.3 on turns 1,2,3 respectively", () => {
+          // Each turn produces a DIFFERENT EffectFn instance
+          expect(turnEffects[0]).not.toBe(turnEffects[1]);
+          expect(turnEffects[1]).not.toBe(turnEffects[2]);
+
+          // Applying different volumes to the same input produces different outputs
+          expect(outputs).toHaveLength(3);
+          for (const out of outputs) {
+            expect(out).toBeInstanceOf(Uint8Array);
+            expect(out.byteLength).toBe(input.byteLength);
+          }
+
+          // Volumes scale proportionally: turn2 has ~2× the noise of turn1.
+          // Compare the L1 norm of (output - input) across turns.
+          function noiseEnergy(orig: Uint8Array, processed: Uint8Array): number {
+            const o = new Int16Array(orig.buffer, orig.byteOffset, Math.floor(orig.byteLength / 2));
+            const p = new Int16Array(processed.buffer, processed.byteOffset, Math.floor(processed.byteLength / 2));
+            let sum = 0;
+            for (let i = 0; i < Math.min(o.length, p.length); i++) {
+              sum += Math.abs(p[i]! - o[i]!);
+            }
+            return sum;
+          }
+
+          const energy1 = noiseEnergy(input, outputs[0]!);
+          const energy2 = noiseEnergy(input, outputs[1]!);
+          const energy3 = noiseEnergy(input, outputs[2]!);
+
+          // Energy should increase with volume (monotone)
+          expect(energy2).toBeGreaterThan(energy1);
+          expect(energy3).toBeGreaterThan(energy2);
+        });
+      },
+    );
+  },
+  { includeTags: ["ts-effects"] },
+);

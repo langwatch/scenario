@@ -358,35 +358,35 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.5 Audio Effects (Source L495-559)
   # ======================================================================
 
-  @unit
+  @unit @ts-effects
   Scenario: Global audio_effects apply to every user-simulator turn
     # Source §4.5, L499-510
     Given UserSimulatorAgent(audio_effects=[effects.background_noise("cafe", 0.3), effects.phone_quality(), effects.packet_loss(0.05)])
     When multiple turns are produced
     Then every turn's audio has all three effects applied in order
 
-  @unit
+  @unit @ts-effects
   Scenario: Each built-in effect from the §4.5 table exists and mutates audio
     # Source §4.5, L517-534 — enumeration contract
     Given the effects module
     Then the following callables exist: background_noise, phone_quality, low_quality, packet_loss, static, echo, speaking_fast, speaking_slow, low_volume, high_volume, robotic, breaking_up, multiple_voices, custom
     And each returns a callable that takes audio bytes and returns audio bytes
 
-  @unit
+  @unit @ts-effects
   Scenario: Custom effect callable wraps user function
     # Source §4.5, L534
     Given effects.custom(fn) where fn takes and returns bytes
     When the effect is applied to a chunk
     Then fn is called with the chunk bytes
 
-  @unit
+  @unit @ts-effects
   Scenario: Accents are handled via TTS voice selection, not post-processing
     # Source §4.5, L536-544 (explicit design note)
     Given a persona requiring an Indian-English accent
     Then the recommended path is voice="elevenlabs/raj_indian_english"
     And no "accent" post-processing effect is provided
 
-  @integration
+  @integration @ts-effects
   Scenario: Effects that vary during conversation via on_turn hook
     # Source §4.5, L548-557
     Given proceed(on_turn=lambda s: s.set_effects([effects.background_noise("cafe", 0.1 * s.current_turn)]))
