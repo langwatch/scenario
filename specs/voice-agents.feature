@@ -46,7 +46,7 @@ Feature: Voice agent testing in Scenario SDK
     When the scenario starts
     Then an outbound Twilio call is created and a Media Streams WebSocket is established
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: ElevenLabsAgentAdapter connects to conversational AI endpoint
     # Source §4.1, L171-174 and §5.4, L760-776
     # Hosted path: ElevenLabs runs the STT→LLM→TTS loop themselves.
@@ -55,7 +55,7 @@ Feature: Voice agent testing in Scenario SDK
     Then a WebSocket to wss://api.elevenlabs.io/v1/convai/conversation?agent_id=... is opened
     And PCM16 audio chunks are sent over the socket
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: Users can compose arbitrary STT + LLM + TTS providers into a voice agent
     # Locked decision #9: composable + branded voice agents
     # Capability AC — no implementation shape prescribed.
@@ -65,23 +65,23 @@ Feature: Voice agent testing in Scenario SDK
     And the STT, LLM, and TTS seams are independently swappable without changes to the other two
     And intermediate transcripts and LLM decisions are observable by the scenario harness
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: Provider-branded voice agents expose typed, provider-specific signatures with sensible defaults
     # Locked decision #9: branded wrappers — typing matters, defaults must be opinionated.
     Given a provider-branded voice agent (e.g. an ElevenLabs-branded voice agent)
     When a user instantiates it with only provider-specific required arguments
     Then the branded agent applies opinionated defaults for that provider's STT and TTS
-    And the public signature is typed with provider-specific parameter names (not **kwargs forwarding)
+    And the public signature is typed with provider-specific parameter names, not opaque kwargs forwarding
     And it implements the same VoiceAgentAdapter contract as the composable path
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: Branded voice agents accept overrides for any piece (STT, LLM, or TTS)
     # Locked decision #9: branded is a preset, not a cage — escape hatch is required.
     Given a provider-branded voice agent
     When a user overrides the LLM, STT, or TTS independently
     Then the override takes effect and the other pieces retain their branded defaults
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: ElevenLabsSTTProvider implements STTProvider and plugs into the composition path
     # Locked decision #9 + existing AC that STT is pluggable.
     Given an ElevenLabsSTTProvider
@@ -585,7 +585,7 @@ Feature: Voice agent testing in Scenario SDK
     Then result.success is True
     And the recording contains both user-sim and agent audio
 
-  @e2e
+  @e2e @ts-elevenlabs
   Scenario: Demo — ElevenLabs hosted Conversational AI
     # Covers: ElevenLabsAgentAdapter real WS transport (§5.4) + simulator + judge
     Given an ElevenLabsAgentAdapter with a live agent_id and ELEVENLABS_API_KEY
@@ -593,7 +593,7 @@ Feature: Voice agent testing in Scenario SDK
     Then the WS reaches wss://api.elevenlabs.io/v1/convai/conversation
     And result.success is True after one turn
 
-  @e2e
+  @e2e @ts-elevenlabs
   Scenario: Demo — ElevenLabs composable + branded agent
     # Covers: ComposableVoiceAgent + ElevenLabsVoiceAgent + ElevenLabsSTTProvider (locked decision #9)
     Given an ElevenLabsVoiceAgent with branded defaults (ElevenLabsSTTProvider, elevenlabs/rachel TTS)

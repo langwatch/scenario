@@ -48,3 +48,21 @@ export {
   OPENAI_STT_MODEL,
   OPENAI_TTS_MODEL,
 } from "./voice-models";
+
+export {
+  ComposableVoiceAgent,
+  ElevenLabsAgentAdapter,
+  ElevenLabsSTTProvider,
+  ElevenLabsVoiceAgent,
+  ELEVENLABS_CONVAI_URL_TEMPLATE,
+  ELEVENLABS_DEFAULT_VOICE_ID,
+  ELEVENLABS_TTS_MODEL,
+  ELEVENLABS_VOICE_AGENT_DEFAULT_LLM,
+  synthesize,
+  type ComposableVoiceAgentOptions,
+  type ElevenLabsAgentAdapterOptions,
+  type ElevenLabsVoiceAgentOptions,
+  type STTProvider,
+  type SynthesizeOptions,
+  type WebSocketLike,
+} from "./adapters";
