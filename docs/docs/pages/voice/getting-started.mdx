@@ -4,6 +4,7 @@ description: Run your first voice scenario with Scenario SDK's VoiceAgentAdapter
 ---
 
 import { Callout } from "vocs/components";
+import GettingStartedExample from "../_generated/examples/getting_started.mdx";
 
 # Voice Agents — Getting Started
 
@@ -31,56 +32,7 @@ The snippet below uses `OpenAIRealtimeAgentAdapter` — the OpenAI Realtime API 
 as both the Scenario adapter and the agent under test. It is the lowest-friction
 starting point: only `OPENAI_API_KEY` is required.
 
-```python
-import asyncio
-import os
-import sys
-
-if not os.environ.get("OPENAI_API_KEY"):
-    sys.exit("Error: OPENAI_API_KEY required.")
-
-import scenario
-from scenario.config.voice_models import OPENAI_REALTIME_MODEL
-from scenario.types import AgentRole
-
-scenario.configure(default_model="openai/gpt-4.1-mini")
-
-
-async def main():
-    result = await scenario.run(
-        name="voice_getting_started",
-        description=(
-            "A caller asks the agent a simple question. "
-            "The agent responds helpfully."
-        ),
-        agents=[
-            scenario.OpenAIRealtimeAgentAdapter(
-                model=OPENAI_REALTIME_MODEL,
-                voice="alloy",
-                instructions="You are a helpful assistant. Keep responses brief.",
-                role=AgentRole.AGENT,
-            ),
-            scenario.UserSimulatorAgent(voice="openai/nova"),
-            scenario.JudgeAgent(
-                criteria=[
-                    "The agent responded helpfully to the user's question",
-                    "The agent and user exchanged real audio turns",
-                ]
-            ),
-        ],
-        script=[
-            scenario.user("Hi, can you help me?"),
-            scenario.agent(),
-            scenario.judge(),
-        ],
-    )
-    print(f"success: {result.success}")
-    return result
-
-
-if __name__ == "__main__":
-    sys.exit(0 if asyncio.run(main()).success else 1)
-```
+<GettingStartedExample />
 
 Save this as `getting_started.py` and run it:
 
