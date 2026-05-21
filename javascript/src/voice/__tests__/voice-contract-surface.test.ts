@@ -292,5 +292,10 @@ describeFeature(
       },
     );
   },
-  { includeTags: ["ts-bound"] },
+  {
+    includeTags: ["ts-bound"],
+    // Other PR-N test files bind scenarios tagged @ts-<scope>; exclude
+    // them here so this file owns only the PR1 contract-surface set.
+    excludeTags: ["ts-script-step", "ts-interruption-cfg", "ts-result-ext"],
+  },
 );

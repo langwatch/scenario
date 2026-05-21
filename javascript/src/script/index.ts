@@ -9,6 +9,20 @@
 import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
 
+export {
+  sleep,
+  silence,
+  audio,
+  dtmf,
+  interrupt,
+  backgroundNoise,
+  agent as voiceAgent,
+  proceed as voiceProceed,
+  type InterruptOptions,
+  type VoiceAgentOptions,
+  type VoiceProceedOptions,
+} from "./voice-steps";
+
 /**
  * Add a specific message to the conversation.
  *

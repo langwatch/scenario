@@ -31,6 +31,20 @@ export type {
   VoiceRecording,
 } from "./recording.types";
 
+export {
+  VoiceRecordingRuntime,
+  computeLatencyMetrics,
+  type VoiceRecordingInit,
+} from "./recording.runtime";
+
+export {
+  CANNED_PHRASES,
+  CONTEXTUAL_PROMPT,
+  InterruptionConfig,
+  type InterruptionConfigInit,
+  type InterruptionStrategy,
+} from "./interruption";
+
 export type { VoiceExecutorState } from "./voice-executor-state";
 
 export type {
