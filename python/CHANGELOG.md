@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.7.27](https://github.com/langwatch/scenario/compare/python/v0.7.26...python/v0.7.27) (2026-05-21)
+
+
+### Features
+
+* **#350:** voice agents — first-class voice in scenario.run() ([#355](https://github.com/langwatch/scenario/issues/355)) ([128ac94](https://github.com/langwatch/scenario/commit/128ac947d7c3412b57acb6d15358e96b0af4a1ad))
+* **#452:** voice docs surface — legacy deprecation + new section scaffold ([#456](https://github.com/langwatch/scenario/issues/456)) ([1b07abb](https://github.com/langwatch/scenario/commit/1b07abbfaf503408368f4f82b8ab8319cbfd366a))
+* add GOAT strategy with dynamic technique selection for RedTeamAgent ([#346](https://github.com/langwatch/scenario/issues/346)) ([2896c97](https://github.com/langwatch/scenario/commit/2896c97e9a534a9ff1817904053a6af4f1ad06a4))
+* **ci/#364:** add pr-auto-approve.yml as passive observer (PR [#1](https://github.com/langwatch/scenario/issues/1) of 4) ([#485](https://github.com/langwatch/scenario/issues/485)) ([4d84597](https://github.com/langwatch/scenario/commit/4d8459710e566ac90ad731164a4506f6d81365eb))
+* **red-team:** zero-friction report dashboard — auto-save + `scenario redteam-report` CLI ([2896c97](https://github.com/langwatch/scenario/commit/2896c97e9a534a9ff1817904053a6af4f1ad06a4))
+
+
+### Bug Fixes
+
+* **deps:** bump filelock to &gt;=3.20.3 for TOCTOU/symlink CVEs ([#481](https://github.com/langwatch/scenario/issues/481)) ([479ec82](https://github.com/langwatch/scenario/commit/479ec8218afcc2f92632dbdce4b71e963fcf953b))
+* **deps:** bump pytest to &gt;=9.0.3 for CVE-2025-71176 ([#479](https://github.com/langwatch/scenario/issues/479)) ([4f4ffd4](https://github.com/langwatch/scenario/commit/4f4ffd4bdbe829dd06e534c69e1ee7be25164917))
+* **deps:** bump python-liquid to &gt;=2.2.0 for high severity CVE ([#459](https://github.com/langwatch/scenario/issues/459)) ([60bad76](https://github.com/langwatch/scenario/commit/60bad7633208bb72056408bf3b6c0b9824c21915))
+* **deps:** bump urllib3 to &gt;=2.7.0 for high severity CVEs ([#457](https://github.com/langwatch/scenario/issues/457)) ([50c3cea](https://github.com/langwatch/scenario/commit/50c3cea6acdefaf65b9b84a925db41a206b15cce))
+* **deps:** bump virtualenv to &gt;=20.36.1 for CVE-2026-22702 ([#483](https://github.com/langwatch/scenario/issues/483)) ([8f10690](https://github.com/langwatch/scenario/commit/8f1069002fa968e9ce17874bbb15b86e24714228))
+* **deps:** override minimatch to &gt;=9.0.6 (CVE-2026-26996) ([#395](https://github.com/langwatch/scenario/issues/395)) ([ceb0b59](https://github.com/langwatch/scenario/commit/ceb0b59e6a96fe27adf865f03aa1de8a9ea03357))
+* **deps:** resolve 4 high-severity Dependabot security alerts ([#393](https://github.com/langwatch/scenario/issues/393)) ([97f257d](https://github.com/langwatch/scenario/commit/97f257ddc30a6bd7a9cca65e2e62e0ed0c688085))
+* **docs:** exclude scenario.report.app from pdoc to unblock Publish Docs ([#388](https://github.com/langwatch/scenario/issues/388)) ([3736c87](https://github.com/langwatch/scenario/commit/3736c871d74bef4c81b696882786e84e23cf86e8))
+* **examples:** stabilize custom LLM judge criteria matching ([#396](https://github.com/langwatch/scenario/issues/396)) ([f4b536c](https://github.com/langwatch/scenario/commit/f4b536cf12a6d525b487c672f9451390e13957c7))
+* **examples:** stabilize vegetarian-agent parallel tests on python-ci ([#389](https://github.com/langwatch/scenario/issues/389)) ([e40eee3](https://github.com/langwatch/scenario/commit/e40eee3276bbe967ab4ac465b3cd9048f74c8421))
+* **examples:** strengthen vegetarian-agent prompt to stabilize parallel tests ([e40eee3](https://github.com/langwatch/scenario/commit/e40eee3276bbe967ab4ac465b3cd9048f74c8421))
+* **examples:** use positional index matching in custom judge examples ([f4b536c](https://github.com/langwatch/scenario/commit/f4b536cf12a6d525b487c672f9451390e13957c7))
+* **judge:** harden forceVerdict so discovery tools cannot leak (JS + Python) ([#377](https://github.com/langwatch/scenario/issues/377)) ([0e2859f](https://github.com/langwatch/scenario/commit/0e2859f5ec1c171fa3d3d6f89b7d59555be6b95b))
+* **red-team:** annotate H_attacker when post-hoc injection fires ([#326](https://github.com/langwatch/scenario/issues/326), [#334](https://github.com/langwatch/scenario/issues/334)) ([2896c97](https://github.com/langwatch/scenario/commit/2896c97e9a534a9ff1817904053a6af4f1ad06a4))
+* **security:** bump litellm to fix 4 high-severity CVEs ([#411](https://github.com/langwatch/scenario/issues/411)) ([f6ff8a3](https://github.com/langwatch/scenario/commit/f6ff8a3b4e4d34df6d9a6b72c0a69afa8daaea3b))
+* **security:** patch CVE-2026-27903 in minimatch ([#398](https://github.com/langwatch/scenario/issues/398)) ([b61cc60](https://github.com/langwatch/scenario/commit/b61cc6005645b7703788c02c6cb4d134559e339b))
+* **security:** patch flatted prototype pollution via parse() ([#421](https://github.com/langwatch/scenario/issues/421)) ([3a20e6c](https://github.com/langwatch/scenario/commit/3a20e6c57bb81583144cb643d3fcac390f66af3b))
+* **security:** patch glob CLI command injection in lovable_clone npm lockfile ([#413](https://github.com/langwatch/scenario/issues/413)) ([d1b3297](https://github.com/langwatch/scenario/commit/d1b3297c47e28dfac2b1940c24223a3e32ec89ba))
+* **security:** patch glob CLI command injection in lovable_clone template npm lockfile ([d1b3297](https://github.com/langwatch/scenario/commit/d1b3297c47e28dfac2b1940c24223a3e32ec89ba))
+* **security:** patch picomatch ReDoS in lovable_clone npm lockfile ([#409](https://github.com/langwatch/scenario/issues/409)) ([70a5ff9](https://github.com/langwatch/scenario/commit/70a5ff9e5ecfddc7c20eeb62cab7e8fa77240017))
+* **security:** patch react-router XSS and open redirect CVEs ([#418](https://github.com/langwatch/scenario/issues/418)) ([2b6797a](https://github.com/langwatch/scenario/commit/2b6797acd9063adb71b6d6ea80070aaf17431bb6))
+* **security:** patch rollup arbitrary file write via path traversal ([#399](https://github.com/langwatch/scenario/issues/399)) ([55a0259](https://github.com/langwatch/scenario/commit/55a02598ad8d245dfac159357b17c8d89192b824))
+* **security:** patch rollup path traversal CVE (&gt;= 4.0.0, &lt; 4.59.0) ([55a0259](https://github.com/langwatch/scenario/commit/55a02598ad8d245dfac159357b17c8d89192b824))
+* **security:** upgrade aiohttp to fix zip bomb and other CVEs ([#417](https://github.com/langwatch/scenario/issues/417)) ([a747624](https://github.com/langwatch/scenario/commit/a747624520eb9e6370a3e596baadba2610ef08f6))
+* **security:** upgrade black to fix arbitrary file write CVE ([#403](https://github.com/langwatch/scenario/issues/403)) ([6583942](https://github.com/langwatch/scenario/commit/65839421f3bc2aa1162c9c122f3015caa4794331))
+* **security:** upgrade black to fix arbitrary file write via cache file name ([6583942](https://github.com/langwatch/scenario/commit/65839421f3bc2aa1162c9c122f3015caa4794331))
+* **security:** upgrade mcp Python SDK to fix DoS and DNS rebinding CVEs ([#406](https://github.com/langwatch/scenario/issues/406)) ([25e2e1c](https://github.com/langwatch/scenario/commit/25e2e1ca56fb860f1ec4b436f95b44f4b6ba51ac))
+* **security:** upgrade pyasn1 to fix DoS via unbounded recursion ([2880a73](https://github.com/langwatch/scenario/commit/2880a73233d0fd5d7c6445d5bfaa5bb84048e8d9))
+* **security:** upgrade pyasn1 to fix DoS vulnerabilities ([#401](https://github.com/langwatch/scenario/issues/401)) ([2880a73](https://github.com/langwatch/scenario/commit/2880a73233d0fd5d7c6445d5bfaa5bb84048e8d9))
+* **security:** upgrade pydantic-ai to fix SSRF vulnerability ([#405](https://github.com/langwatch/scenario/issues/405)) ([f7ec414](https://github.com/langwatch/scenario/commit/f7ec414375ca165c62bf231f6aa0e988b3140d84))
+* **security:** upgrade python-multipart to fix arbitrary file write CVE ([#407](https://github.com/langwatch/scenario/issues/407)) ([1f2bb80](https://github.com/langwatch/scenario/commit/1f2bb80e4fdf70fa600f09c23f30fed01995f3d1))
+* **security:** upgrade starlette to fix DoS via Range header merging ([#402](https://github.com/langwatch/scenario/issues/402)) ([11135a7](https://github.com/langwatch/scenario/commit/11135a780521fc169211665102d1bf3e6766706e))
+* **security:** upgrade urllib3 to fix decompression bomb CVEs ([#404](https://github.com/langwatch/scenario/issues/404)) ([1b00ea2](https://github.com/langwatch/scenario/commit/1b00ea2bbafc387eeda7cd9f04e3c7274ac27772))
+* **voice:** render audio messages cleanly in the terminal ([#497](https://github.com/langwatch/scenario/issues/497)) ([bb4ff9b](https://github.com/langwatch/scenario/commit/bb4ff9bb13c041050a87ff4618a2f8476ee219dd))
+* **voice:** stub bot barge-in cancelled STT mid-pipeline, dropping user transcripts ([#499](https://github.com/langwatch/scenario/issues/499)) ([5cb3596](https://github.com/langwatch/scenario/commit/5cb35960cd294c8b1e3c867dbccadf86205af891))
+
+
+### Miscellaneous
+
+* **deps-dev:** bump vite, @vitejs/plugin-react-swc and lovable-tagger ([e43f938](https://github.com/langwatch/scenario/commit/e43f9386b8122de9f0c077b473083bdb3c9f9478))
+* **deps-dev:** bump vite, @vitejs/plugin-react-swc and lovable-tagger in /python/examples/lovable_clone/template ([#429](https://github.com/langwatch/scenario/issues/429)) ([e43f938](https://github.com/langwatch/scenario/commit/e43f9386b8122de9f0c077b473083bdb3c9f9478))
+* **deps:** bump black from 25.1.0 to 26.3.1 in /python ([#431](https://github.com/langwatch/scenario/issues/431)) ([07db40a](https://github.com/langwatch/scenario/commit/07db40a07cd53c5b6aa15c4bb0c36b9fa06db164))
+* **deps:** bump gitpython from 3.1.49 to 3.1.50 in /python ([#447](https://github.com/langwatch/scenario/issues/447)) ([3fcd1fa](https://github.com/langwatch/scenario/commit/3fcd1fa5eadb77b9dad5c055cdd6047f3639647a))
+* **deps:** bump mako from 1.3.10 to 1.3.12 in /python ([#448](https://github.com/langwatch/scenario/issues/448)) ([ab4d576](https://github.com/langwatch/scenario/commit/ab4d5764aaadb87b73182287d4232750ca4fbebb))
+* **deps:** bump protobuf from 5.29.5 to 5.29.6 in /python ([#433](https://github.com/langwatch/scenario/issues/433)) ([6ea6ed7](https://github.com/langwatch/scenario/commit/6ea6ed79e175df6458943a22e66976315fa2f720))
+* **deps:** bump pyasn1 from 0.6.1 to 0.6.3 in /python ([#432](https://github.com/langwatch/scenario/issues/432)) ([ee837e7](https://github.com/langwatch/scenario/commit/ee837e7ac87ddc6ecada5651db5a5caf53cd0236))
+* **deps:** bump python-multipart from 0.0.20 to 0.0.26 in /python ([#430](https://github.com/langwatch/scenario/issues/430)) ([0b29bbb](https://github.com/langwatch/scenario/commit/0b29bbbb18b833d3fe5bee8de3d80de8b9ebe69c))
+* **deps:** bump python-multipart from 0.0.26 to 0.0.27 in /python ([#449](https://github.com/langwatch/scenario/issues/449)) ([e5467b3](https://github.com/langwatch/scenario/commit/e5467b366870bb6d368ec093dd910292477e2934))
+* **deps:** bump starlette from 0.47.0 to 0.49.1 in /python ([#434](https://github.com/langwatch/scenario/issues/434)) ([5263fed](https://github.com/langwatch/scenario/commit/5263fed39b4a8c8404ca1f6581352d6f7921f682))
+* **deps:** bump urllib3 from 1.26.20 to 2.6.3 in /python ([#435](https://github.com/langwatch/scenario/issues/435)) ([1793d64](https://github.com/langwatch/scenario/commit/1793d6463cf6298d45aaba082171cd900bb49037))
+
 ## [0.7.26](https://github.com/langwatch/scenario/compare/python/v0.7.25...python/v0.7.26) (2026-04-28)
 
 
