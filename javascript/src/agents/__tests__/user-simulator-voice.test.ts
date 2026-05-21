@@ -1,13 +1,18 @@
 /**
  * User simulator voice-path tests — PR4 of issue #372.
  *
- * Binds 5 scenarios from `specs/voice-agents.feature` tagged `@ts-simulator`.
+ * Binds 4 scenarios from `specs/voice-agents.feature` tagged `@ts-simulator`.
  * Each scenario exercises the voice path of {@link UserSimulatorAgent} without
  * making real LLM or TTS calls — all external I/O is replaced by vitest spies.
  *
  * Tag convention: `@ts-simulator` (per-subject, not `@ts-bound`) to avoid
  * over-matching PR1's voice-contract-surface.test.ts which uses
  * `includeTags: ["ts-bound"]`. See issue #523 for the tag-convention decision.
+ *
+ * Note: `Per-step voice override applies to only that step` scenario in
+ * specs/voice-agents.feature is currently tagged @todo because no TTS provider
+ * honors voiceStyle yet. Re-bind here when PR2 / #513 (or later) wires
+ * voiceStyle through _synthesize.
  */
 
 import { dirname, resolve } from "node:path";
@@ -177,54 +182,6 @@ describeFeature(
             const chunk = extractAudio(msg);
             expect(chunk).not.toBeNull();
             expect(chunk!.transcript).toBe("I need help with my account");
-          }
-        );
-      }
-    );
-
-    // -----------------------------------------------------------------------
-    // Scenario: Per-step voice override applies to only that step (line 188)
-    // -----------------------------------------------------------------------
-    Scenario(
-      "Per-step voice override applies to only that step",
-      ({ Given, When, Then, And }) => {
-        let sim: ReturnType<typeof userSimulatorAgent>;
-        let capturedStyle: string | null;
-        let capturedStyleAfter: string | null;
-
-        Given(
-          'scenario.user("I\'m really upset about this!", voice_style="angry")',
-          () => {
-            sim = userSimulatorAgent({ voice: "openai/nova" } as UserSimulatorAgentConfig);
-            stubLlm(sim, "I'm really upset about this!");
-            stubSynth(sim);
-            capturedStyle = null;
-            capturedStyleAfter = null;
-
-            // Install the per-step override as the executor would.
-            const restore = sim.setOneShotOverride({ voiceStyle: "angry" });
-
-            // Capture the active override, then restore it.
-            capturedStyle = sim._voiceStyleOverride;
-            restore();
-            capturedStyleAfter = sim._voiceStyleOverride;
-          }
-        );
-
-        When("the step runs", async () => {
-          // During the step the override is active; it was already captured
-          // in Given for assertion. Nothing more to trigger here.
-        });
-
-        Then('the style "angry" is applied only to that turn', () => {
-          expect(capturedStyle).toBe("angry");
-        });
-
-        And(
-          "the simulator's default voice/effects resume on subsequent turns",
-          () => {
-            // After restore() the override must be null (default resumed).
-            expect(capturedStyleAfter).toBeNull();
           }
         );
       }
