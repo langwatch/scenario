@@ -39,3 +39,18 @@ export function int16ToPcm16(arr: Int16Array | Float32Array): Uint8Array {
 export function rate(): number {
   return PCM16_SAMPLE_RATE;
 }
+
+/**
+ * Linear-index resample of an Int16Array to a new length.
+ * Matches Python's `np.linspace(0, len-1, newLen).astype(int64)` index gather.
+ */
+export function linearResample(arr: Int16Array, newLen: number): Int16Array {
+  if (newLen <= 0 || arr.length === 0) return new Int16Array(0);
+  const out = new Int16Array(newLen);
+  const denom = newLen - 1 || 1;
+  for (let i = 0; i < newLen; i++) {
+    const idx = Math.min(arr.length - 1, Math.floor((i * (arr.length - 1)) / denom));
+    out[i] = arr[idx]!;
+  }
+  return out;
+}

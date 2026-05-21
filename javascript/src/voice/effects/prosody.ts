@@ -4,7 +4,7 @@
  * TS equivalent of `python/scenario/voice/effects/prosody.py`.
  */
 
-import { EffectFn, int16ToPcm16, pcm16ToInt16 } from "./common";
+import { EffectFn, int16ToPcm16, linearResample, pcm16ToInt16 } from "./common";
 
 /**
  * Scale amplitude down by `factor` (0 < factor <= 1).
@@ -61,11 +61,6 @@ function _resampleFactor(factor: number): EffectFn {
     if (arr.length === 0) return audio;
 
     const newLen = Math.max(1, Math.round(arr.length / factor));
-    const out = new Int16Array(newLen);
-    for (let i = 0; i < newLen; i++) {
-      const idx = Math.min(arr.length - 1, Math.floor((i * (arr.length - 1)) / (newLen - 1 || 1)));
-      out[i] = arr[idx]!;
-    }
-    return new Uint8Array(out.buffer);
+    return int16ToPcm16(linearResample(arr, newLen));
   };
 }
