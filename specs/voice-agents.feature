@@ -265,7 +265,7 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.4 Script Extensions (Source L365-494)
   # ======================================================================
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: agent(wait=False) returns immediately and the agent speaks in background
     # Source §4.4, L369-382
     Given a script with scenario.agent(wait=False) followed by scenario.sleep(2.0)
@@ -273,7 +273,7 @@ Feature: Voice agent testing in Scenario SDK
     Then control returns before the agent finishes speaking
     And the agent's audio continues streaming during the sleep
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.sleep(seconds) pauses the script without touching the transport
     # Source §4.4, L394-406
     Given scenario.sleep(2.0) in a script
@@ -281,21 +281,21 @@ Feature: Voice agent testing in Scenario SDK
     Then the script pauses 2.0 real seconds
     And no audio is sent on the transport during the pause
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.silence(duration) sends silent audio to the transport
     # Source §4.4, L408-417
     Given scenario.silence(5.0) in a script
     When the step runs
     Then 5.0 seconds of PCM16 zero-audio is sent to the agent under test
 
-  @integration
+  @integration @ts-bound @ts-script-step
   Scenario: scenario.dtmf(tones) emits DTMF tones
     # Source §4.4, L419-432 and §5.3
     Given a TwilioAgentAdapter and scenario.dtmf("1") in a script
     When the step runs
     Then the DTMF tone "1" is transmitted through the telephony channel
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.audio() injects a WAV file
     # Source §4.4, L434-448
     Given scenario.audio("fixtures/angry_customer_rant.wav") in a script
@@ -303,35 +303,35 @@ Feature: Voice agent testing in Scenario SDK
     Then the file is loaded, converted to the transport format, and sent as user input
     And the user simulator is bypassed for that turn
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.audio() accepts raw bytes
     # Source §4.4, L448
     Given scenario.audio(b"...raw audio bytes...") in a script
     When the step runs
     Then the bytes are converted to the transport format and sent as user input
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.audio() supports WAV, MP3, OGG, FLAC
     # Source §4.4, L448
     Given scenario.audio() called with each of .wav, .mp3, .ogg, .flac fixtures
     When each step runs
     Then the file is auto-converted to the transport's format via ffmpeg (bundled)
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.interrupt(after=T, content="...") composes wait=False + sleep + user
     # Source §4.4, L450-467
     Given scenario.interrupt(after=2.0, content="Wait, that's wrong!")
     When the step runs
     Then it is equivalent to agent(wait=False) then sleep(2.0) then user("Wait, that's wrong!")
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.interrupt(after_words=N) uses streaming transcript when available
     # Source §4.4, L469-476; Locked decision: after_words UnsupportedCapabilityError
     Given the adapter exposes a streaming transcript and after_words=5 is used
     When the agent emits the 5th word
     Then the interrupt content is immediately sent
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.interrupt(after_words=N) raises a clear error when adapter lacks streaming transcripts
     # Locked decision: after_words UnsupportedCapabilityError (do not ship built-in STT; document capability matrix)
     Given the adapter does NOT expose a streaming transcript
@@ -339,7 +339,7 @@ Feature: Voice agent testing in Scenario SDK
     Then a clear UnsupportedCapabilityError is raised naming the adapter and the missing capability
     And the error message points to the capability matrix in the docs
 
-  @integration
+  @integration @ts-bound @ts-script-step
   Scenario: proceed(interruptions=InterruptionConfig(...)) injects random interruptions
     # Source §4.4, L478-492
     Given proceed(turns=5, interruptions=InterruptionConfig(probability=0.3, delay_range=(0.5,3.0), strategy="contextual"))
@@ -347,7 +347,7 @@ Feature: Voice agent testing in Scenario SDK
     Then ~30% of agent turns are interrupted with contextual LLM-generated phrases
     And delay before each interrupt is sampled uniformly in [0.5, 3.0]
 
-  @integration
+  @integration @ts-bound @ts-interruption-cfg
   Scenario: InterruptionConfig strategy="random_phrase" picks from a canned phrase list
     # Source §4.4, L491
     Given proceed(interruptions=InterruptionConfig(strategy="random_phrase"))
@@ -397,39 +397,39 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.6 Results & Output (Source L560-627)
   # ======================================================================
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: ScenarioResult preserves existing fields
     # Source §4.6, L567-574
     Given a voice scenario completes
     Then result has: success, passed_criteria, failed_criteria, reasoning, messages, total_time, agent_time
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.audio.save() writes a WAV file of the full conversation
     # Source §4.6, L583-598
     Given a voice scenario result
     When result.audio.save("out.wav") is called
     Then a WAV file containing both speakers' audio is written
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.audio.save() with format="mp3" writes MP3 via ffmpeg
     # Source §4.6, L586
     Given a voice scenario result
     When result.audio.save("out.mp3", format="mp3") is called
     Then an MP3 file is written using the bundled ffmpeg binary
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.audio.segments expose per-speaker AudioSegment objects
     # Source §4.6, L588-595
     Given a two-turn voice scenario result
     Then each segment has speaker, start_time, end_time, audio (bytes), transcript
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.timeline lists VoiceEvent objects in order
     # Source §4.6, L600-615
     Given a voice scenario with interruptions and a tool call
     Then timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, tool_call, tool_result, user_interrupt, agent_stop_speaking in time order
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.latency exposes response-time statistics
     # Source §4.6, L617-625
     Given a voice scenario with multiple agent responses
