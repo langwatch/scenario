@@ -17,13 +17,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { expect } from "vitest";
-
 import {
   AudioChunk,
   GEMINI_LIVE_MODEL,
   GeminiLiveAgentAdapter,
 } from "@langwatch/scenario";
+import { expect } from "vitest";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(
