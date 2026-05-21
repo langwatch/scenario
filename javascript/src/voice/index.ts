@@ -48,3 +48,9 @@ export {
   OPENAI_STT_MODEL,
   OPENAI_TTS_MODEL,
 } from "./voice-models";
+
+export {
+  createAudioMessage,
+  extractAudio,
+  messageHasAudio,
+} from "./messages";
