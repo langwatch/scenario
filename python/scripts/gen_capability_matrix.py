@@ -54,8 +54,13 @@ END_MARKER = "<!-- END: auto-generated -->"
 # included in the matrix unless they are explicitly first-party adapters.
 # Sorted by class name for a stable, deterministic table order.
 # ---------------------------------------------------------------------------
+import importlib  # noqa: E402
+
 from scenario.voice.adapter import VoiceAgentAdapter  # noqa: E402
-import scenario.voice.adapters as _adapters_pkg  # noqa: E402, F401 — side-effect import
+
+# Side-effect import: instantiating the adapters package registers all
+# concrete VoiceAgentAdapter subclasses. We do not need a name binding.
+importlib.import_module("scenario.voice.adapters")
 
 ADAPTERS = sorted(
     VoiceAgentAdapter.__subclasses__(),
