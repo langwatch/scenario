@@ -18,6 +18,8 @@ import respx
 from scenario._events.event_reporter import EventReporter
 from scenario._events.events import ScenarioMessageSnapshotEvent
 from scenario._events.utils import convert_messages_to_api_client_messages
+from scenario.voice.audio_chunk import AudioChunk
+from scenario.voice.messages import create_audio_message
 
 _ENDPOINT = "https://app.langwatch.ai"
 _API_KEY = "test-api-key"
@@ -42,10 +44,21 @@ def _make_snapshot_event(messages: list) -> ScenarioMessageSnapshotEvent:
 
 
 @pytest.mark.asyncio
-async def test_voice_input_audio_round_trips_as_json_array() -> None:
+@pytest.mark.parametrize(
+    "role,extra",
+    [
+        ("user", {}),
+        ("assistant", {}),
+        ("system", {}),
+        ("tool", {"tool_call_id": "tc-1"}),
+    ],
+)
+async def test_voice_input_audio_round_trips_as_json_array_for_role(
+    role: str, extra: dict
+) -> None:
     """
     AC1 — voice input_audio content must arrive at the wire as a JSON array, not
-    a Python-repr string.  The current str() call mangles
+    a Python-repr string, for every supported role.  The previous str() call mangled
       [{"type": "input_audio", "input_audio": {"data": "QUJD", "format": "wav"}}]
     into the literal string
       "[{'type': 'input_audio', 'input_audio': {'data': 'QUJD', 'format': 'wav'}}]"
@@ -57,25 +70,27 @@ async def test_voice_input_audio_round_trips_as_json_array() -> None:
             "input_audio": {"data": "QUJD", "format": "wav"},
         }
     ]
-    user_msg = {
-        "role": "user",
+    msg = {
+        "role": role,
         "id": "msg-1",
         "content": audio_content,
+        **extra,
     }
-    event = _make_snapshot_event([user_msg])
+    event = _make_snapshot_event([msg])
     reporter = EventReporter(endpoint=_ENDPOINT, api_key=_API_KEY)
 
     with respx.mock as mock:
         route = mock.post(_EVENTS_URL).respond(200, json={"ok": True})
         await reporter.post_event(event)
 
-    assert route.called, "Expected POST to be sent"
+    assert route.called, f"Expected POST to be sent for role={role!r}"
     body = json.loads(route.calls[0].request.content)
 
     msg_content = body["messages"][0]["content"]
     # Must be a JSON array (Python list), not a string
     assert isinstance(msg_content, list), (
-        f"Expected content to be a list but got {type(msg_content).__name__!r}: {msg_content!r}"
+        f"role={role!r}: expected content to be a list but got "
+        f"{type(msg_content).__name__!r}: {msg_content!r}"
     )
     assert msg_content[0]["type"] == "input_audio"
     assert msg_content[0]["input_audio"]["data"] == "QUJD"
@@ -84,7 +99,8 @@ async def test_voice_input_audio_round_trips_as_json_array() -> None:
     # The raw bytes must NOT contain single-quoted Python repr keys
     raw_bytes = route.calls[0].request.content
     assert b"'type':" not in raw_bytes, (
-        "Wire payload contains Python-repr single-quoted keys — str() was applied to content"
+        f"role={role!r}: wire payload contains Python-repr single-quoted keys — "
+        "str() was applied to content"
     )
 
 
@@ -191,4 +207,56 @@ def test_all_four_role_branches_preserve_list_content(
     assert actual_content == list_content, (
         f"role={role!r}: content was mutated. "
         f"Expected {list_content!r}, got {actual_content!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_audio_message_round_trips_through_wire() -> None:
+    """
+    Exercise the actual voice/messages.create_audio_message path end-to-end through
+    the SDK boundary so this suite catches drift between voice's audio shape and
+    _events/utils.py's expectations.
+
+    Uses a minimal valid PCM16 AudioChunk (2 bytes = 1 sample) to keep the test
+    fast without sacrificing fidelity of the content-structure assertion.
+    """
+    # b"\x00\x00" is 2 bytes = 1 PCM16 sample, satisfying AudioChunk's even-length guard
+    chunk = AudioChunk(data=b"\x00\x00")
+    audio_msg = create_audio_message(chunk, role="user")
+
+    event = _make_snapshot_event([audio_msg])
+    reporter = EventReporter(endpoint=_ENDPOINT, api_key=_API_KEY)
+
+    with respx.mock as mock:
+        route = mock.post(_EVENTS_URL).respond(200, json={"ok": True})
+        await reporter.post_event(event)
+
+    assert route.called, "Expected POST to be sent"
+    body = json.loads(route.calls[0].request.content)
+
+    msg_content = body["messages"][0]["content"]
+    assert isinstance(msg_content, list), (
+        f"Expected content to be a list but got {type(msg_content).__name__!r}: {msg_content!r}"
+    )
+
+    # Locate the input_audio part (create_audio_message puts it first unless there's a transcript)
+    audio_part = next(
+        (p for p in msg_content if p.get("type") == "input_audio"),
+        None,
+    )
+    assert audio_part is not None, (
+        f"No input_audio part found in content: {msg_content!r}"
+    )
+    assert audio_part["input_audio"]["format"] == "wav"
+    assert isinstance(audio_part["input_audio"]["data"], str), (
+        "input_audio.data must be a base64 string"
+    )
+    assert len(audio_part["input_audio"]["data"]) > 0, (
+        "input_audio.data must be non-empty"
+    )
+
+    # The raw bytes must NOT contain single-quoted Python repr keys
+    raw_bytes = route.calls[0].request.content
+    assert b"'type':" not in raw_bytes, (
+        "Wire payload contains Python-repr single-quoted keys — str() was applied to content"
     )
