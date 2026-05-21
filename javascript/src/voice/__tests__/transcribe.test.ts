@@ -70,7 +70,7 @@ describeFeature(
           await transcribeSegments(recording, { provider: { transcribe: spy } });
         });
 
-        Then("both segments have non-null transcript", () => {
+        Then("both segments have non-null transcript", async () => {
           expect(recording.segments[0].transcript).toBe("filled");
           expect(recording.segments[1].transcript).toBe("filled");
 
@@ -78,14 +78,13 @@ describeFeature(
           const singleRecording = makeRecording([{ speaker: "agent" }]);
           const segmentRef = singleRecording.segments[0];
           expect(segmentRef.transcript).toBeUndefined();
-          void transcribeSegments(singleRecording, {
+          await transcribeSegments(singleRecording, {
             provider: {
               transcribe: async () => "in-place",
             },
-          }).then(() => {
-            expect(segmentRef.transcript).toBe("in-place");
-            expect(singleRecording.segments[0]).toBe(segmentRef);
           });
+          expect(segmentRef.transcript).toBe("in-place");
+          expect(singleRecording.segments[0]).toBe(segmentRef);
         });
 
         And("segments that already had a transcript are not re-transcribed", () => {

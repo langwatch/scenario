@@ -1,7 +1,7 @@
 /**
  * TTS plumbing tests — PR2 of issue #372.
  *
- * Binds the `specs/voice-agents.feature` scenario tagged `@ts-bound` that
+ * Binds the `specs/voice-agents.feature` scenario tagged `@ts-tts` that
  * exercises the TTS cache key / effects-after-cache invariants.
  *
  * Loaded via @amiceli/vitest-cucumber which reads the feature file and fails
