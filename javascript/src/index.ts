@@ -11,6 +11,11 @@ export * from "./execution";
 export * from "./runner";
 export * from "./script";
 
+// Voice subsystem — type contract surface (PR1 of N for issue #372).
+// Runtime (TTS / STT / VAD / transports) lands in subsequent PRs behind
+// this same contract.
+export * as voice from "./voice";
+
 // Tracing public API
 export { setupScenarioTracing } from "./tracing/setup";
 export { scenarioOnly, withCustomScopes } from "./tracing/filters";
