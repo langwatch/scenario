@@ -1,7 +1,7 @@
 /**
  * STT plumbing tests — PR2 of issue #372.
  *
- * Binds the `specs/voice-agents.feature` scenarios tagged `@ts-bound` for:
+ * Binds the `specs/voice-agents.feature` scenarios tagged `@ts-stt` for:
  * default STT model, provider swap, interface minimality, and >25-minute
  * audio chunking.
  *
