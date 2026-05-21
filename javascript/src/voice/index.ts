@@ -23,6 +23,11 @@ export {
 
 export { VoiceAgentAdapter, type AgentSpeakingEvent } from "./adapter";
 
+export {
+  OpenAIRealtimeAgentAdapter,
+  type OpenAIRealtimeAgentAdapterInit,
+} from "./adapters/openai-realtime";
+
 export type {
   AudioSegment,
   LatencyMetrics,
