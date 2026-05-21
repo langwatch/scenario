@@ -15,8 +15,8 @@
  */
 
 export { custom } from "./custom";
-export { backgroundNoise, multipleVoices, static_ } from "./noise";
-// Re-export static_ as `static` to match Python public API name.
+export { backgroundNoise, multipleVoices } from "./noise";
+// Re-export static_ as `static` to match Python public API name (static is a reserved keyword).
 export { static_ as static } from "./noise";
 export { highVolume, lowVolume, speakingFast, speakingSlow } from "./prosody";
 export { breakingUp, echo, lowQuality, packetLoss, phoneQuality, robotic } from "./quality";
