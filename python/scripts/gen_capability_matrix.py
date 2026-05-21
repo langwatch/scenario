@@ -12,6 +12,14 @@ not have network side-effects at module-load time.
 
 Output is idempotent: re-running with no source change produces no diff.
 The file lives in _generated/ and is fully regenerated each run.
+
+Adapter discovery is dynamic: all direct concrete subclasses of
+``VoiceAgentAdapter`` are discovered after importing
+``scenario.voice.adapters`` (which triggers every adapter module).
+Sorted by class name for a stable, deterministic table. If a developer
+adds a new adapter file under ``scenario/voice/adapters/`` and imports it
+in ``__init__.py``, the matrix picks it up automatically — no manual list
+to update.
 """
 
 from __future__ import annotations
@@ -36,32 +44,23 @@ BEGIN_MARKER = "<!-- BEGIN: auto-generated -->"
 END_MARKER = "<!-- END: auto-generated -->"
 
 # ---------------------------------------------------------------------------
-# Adapter registry — ordered by name for a stable, readable table.
-# We import each class directly to avoid depending on the __init__ order.
+# Adapter registry — discovered dynamically from VoiceAgentAdapter subclasses.
+#
+# Importing ``scenario.voice.adapters`` triggers every adapter module's
+# import, registering all concrete adapter classes as subclasses of
+# VoiceAgentAdapter. We then take only *direct* subclasses (depth=1) so
+# that user-composable helpers like ElevenLabsVoiceAgent (which inherits
+# from ComposableVoiceAgent, not VoiceAgentAdapter directly) are not
+# included in the matrix unless they are explicitly first-party adapters.
+# Sorted by class name for a stable, deterministic table order.
 # ---------------------------------------------------------------------------
-from scenario.voice.adapters.composable import ComposableVoiceAgent  # noqa: E402
-from scenario.voice.adapters.elevenlabs import ElevenLabsAgentAdapter  # noqa: E402
-from scenario.voice.adapters.gemini_live import GeminiLiveAgentAdapter  # noqa: E402
-from scenario.voice.adapters.livekit import LiveKitAgentAdapter  # noqa: E402
-from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter  # noqa: E402
-from scenario.voice.adapters.pipecat import PipecatAgentAdapter  # noqa: E402
-from scenario.voice.adapters.twilio import TwilioAgentAdapter  # noqa: E402
-from scenario.voice.adapters.vapi import VapiAgentAdapter  # noqa: E402
-from scenario.voice.adapters.webrtc import WebRTCAgentAdapter  # noqa: E402
-from scenario.voice.adapters.websocket import WebSocketAgentAdapter  # noqa: E402
+from scenario.voice.adapter import VoiceAgentAdapter  # noqa: E402
+import scenario.voice.adapters as _adapters_pkg  # noqa: E402, F401 — side-effect import
 
-ADAPTERS = [
-    ComposableVoiceAgent,
-    ElevenLabsAgentAdapter,
-    GeminiLiveAgentAdapter,
-    LiveKitAgentAdapter,
-    OpenAIRealtimeAgentAdapter,
-    PipecatAgentAdapter,
-    TwilioAgentAdapter,
-    VapiAgentAdapter,
-    WebRTCAgentAdapter,
-    WebSocketAgentAdapter,
-]
+ADAPTERS = sorted(
+    VoiceAgentAdapter.__subclasses__(),
+    key=lambda cls: cls.__name__,
+)
 
 # Columns in order — matches AdapterCapabilities field order.
 COLUMNS = [
