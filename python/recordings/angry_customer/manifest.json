@@ -1,60 +1,60 @@
 {
-  "generated_at": "2026-05-11T16:25:33.843856+00:00",
-  "duration": 34.55243087499912,
+  "generated_at": "2026-05-20T15:46:37.286936+00:00",
+  "duration": 19.01243216599687,
   "segment_count": 3,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-agent-3818ms.wav",
+      "file": "segments/00-agent-1829ms.wav",
       "role": "agent",
-      "start_time": 3.8187994159998198,
-      "end_time": 4.433622458000173,
-      "duration": 0.6148230420003529,
-      "transcript": "Hello, thank you for calling. How can I help you today?"
+      "start_time": 1.829398832996958,
+      "end_time": 2.4435947079909965,
+      "duration": 0.6141958749940386,
+      "transcript": "Hello, thank you for calling! How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-14812ms.wav",
+      "file": "segments/01-user-11044ms.wav",
       "role": "user",
-      "start_time": 14.812213790999522,
-      "end_time": 25.20841866599949,
-      "duration": 10.396204874999967,
-      "transcript": "you charged me the wrong amount fix it now i'm in a noisy cafe and i'm furious refund the $42 charge from today"
+      "start_time": 11.04428962500242,
+      "end_time": 18.409817249994376,
+      "duration": 7.365527624991955,
+      "transcript": "[shouting] you charged me the wrong amount [angry] fix it now [frustrated] i'm at a noisy cafe hurry up"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-33922ms.wav",
+      "file": "segments/02-agent-18410ms.wav",
       "role": "agent",
-      "start_time": 33.92260399999941,
-      "end_time": 34.55243087499912,
-      "duration": 0.6298268749997078,
-      "transcript": "I'm sorry about that. I'd be happy to help with a refund. Can you confirm the date and the merchant name or last four digits of the card for the $42 charge so I can get it started?"
+      "start_time": 18.410057832996245,
+      "end_time": 19.01243216599687,
+      "duration": 0.6023743330006255,
+      "transcript": "I'm really sorry about that. Let's get it fixed. Can you tell me the date of the charge and the amount you were charged versus the amount you expected?"
     }
   ],
   "events": [
     {
-      "time": 3.8187994159998198,
+      "time": 1.829398832996958,
       "type": "agent_start_speaking"
     },
     {
-      "time": 4.433622458000173,
+      "time": 2.4435947079909965,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 14.812213790999522,
+      "time": 11.04428962500242,
       "type": "user_start_speaking"
     },
     {
-      "time": 25.20841866599949,
+      "time": 18.409817249994376,
       "type": "user_stop_speaking"
     },
     {
-      "time": 33.92260399999941,
+      "time": 18.410057832996245,
       "type": "agent_start_speaking",
-      "latency": 8.714185333999922
+      "latency": 0.00024058300186879933
     },
     {
-      "time": 34.55243087499912,
+      "time": 19.01243216599687,
       "type": "agent_stop_speaking"
     }
   ]

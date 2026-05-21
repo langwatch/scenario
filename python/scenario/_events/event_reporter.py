@@ -1,9 +1,53 @@
 import logging
+import re
 import httpx
 from typing import ClassVar, Optional, Dict, Any
 from .events import ScenarioEvent
 from .event_alert_message_logger import EventAlertMessageLogger
 from scenario.config import LangWatchSettings, ScenarioConfig
+
+
+def _redacted_event_repr(event: Any) -> str:
+    """
+    Repr-style summary of an event with base64 audio payloads stripped.
+
+    Failure logs include the full event for debuggability, but multimodal
+    voice messages carry base64-encoded WAVs that dwarf everything else and
+    flood the terminal. Replace audio payloads with ``<audio:N b64 chars
+    elided>`` placeholders so the log stays readable while preserving message
+    order and metadata. The redaction is applied to ``event.to_dict()`` when
+    available, falling back to scrubbing the raw ``repr(event)`` string —
+    that fallback matters because logging often runs in the exception path,
+    where ``to_dict()`` itself may have failed.
+
+    The dict-walker scrubs both real ``input_audio.data`` keys and any long
+    base64 runs that appear inside string values, since upstream sometimes
+    serialises content lists to ``repr()`` strings before they reach us.
+    """
+    try:
+        payload = event.to_dict()
+        return repr(_redact_audio(payload))
+    except Exception:
+        return _redact_b64_runs_in_text(repr(event))
+
+
+def _redact_audio(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {key: _redact_audio(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_redact_audio(item) for item in node]
+    if isinstance(node, str):
+        return _redact_b64_runs_in_text(node)
+    return node
+
+
+_B64_RUN = re.compile(r"[A-Za-z0-9+/]{200,}={0,2}")
+
+
+def _redact_b64_runs_in_text(text: str) -> str:
+    return _B64_RUN.sub(
+        lambda m: f"<audio:{len(m.group(0))} b64 chars elided>", text
+    )
 
 
 def _resolve_langwatch_client_api_key() -> str:
@@ -153,11 +197,11 @@ class EventReporter:
                     self.logger.error(
                         f"[{event_type}] Event POST failed: status={response.status_code}, "
                         f"reason={response.reason_phrase}, error={error_text}, "
-                        f"event={event}"
+                        f"event={_redacted_event_repr(event)}"
                     )
         except Exception as error:
             self.logger.error(
-                f"[{event_type}] Event POST error: {repr(error)}, event={event}, endpoint={self.endpoint}"
+                f"[{event_type}] Event POST error: {repr(error)}, event={_redacted_event_repr(event)}, endpoint={self.endpoint}"
             )
 
         return result

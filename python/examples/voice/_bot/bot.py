@@ -54,7 +54,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -317,9 +317,19 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
     MIN_BYTES_TO_PROCESS = 1600  # ~200ms µ-law; reject obvious fragments
     inactivity_task: Optional[asyncio.Task] = None
     # Tracks the in-flight STT/LLM/TTS pipeline. When VAD detects fresh user
-    # speech while this is non-None, we cancel it — that's barge-in: the user
-    # interrupts the bot mid-utterance, the bot stops talking and listens.
+    # speech while this is non-None AND the bot is actively TTS-ing, we
+    # cancel it — that's barge-in: the user interrupts the bot mid-utterance,
+    # the bot stops talking and listens.
     response_task: Optional[asyncio.Task] = None
+    # True only while _send_tts is actively writing media frames to the wire.
+    # Gates barge-in: cancelling response_task during the STT/LLM phase is
+    # wrong (the bot hasn't said anything yet, there is nothing to barge in
+    # on) and used to drop the user's first transcribed utterance on the
+    # floor whenever paced trailing audio arrived after a VAD-driven flush.
+    # Note that this stays False during the executor-bound TTS synthesis call
+    # (the OpenAI TTS HTTP request) — the wire is still silent at that point,
+    # so suppressing barge-in there is also the correct semantic.
+    bot_speaking = False
     greeted = False
     # Idle re-prompt: if the caller goes quiet for IDLE_REPROMPT_MS after a
     # turn has completed, ask "Are you still there?" once. Resets when the
@@ -334,6 +344,12 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         """µ-law @ 8k -> PCM16 @ 8k (no resample, just decode)."""
         import audioop  # type: ignore[import]
         return audioop.ulaw2lin(mulaw, 2)
+
+    def _set_speaking(value: bool) -> None:
+        """Update ``bot_speaking`` from the TTS-send loop. Gates barge-in
+        so cancellation can only fire while audio is actually on the wire."""
+        nonlocal bot_speaking
+        bot_speaking = value
 
     async def _flush_user_turn() -> None:
         """Send accumulated µ-law to STT/LLM/TTS pipeline, reset buffers.
@@ -381,6 +397,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                 stream_sid,
                 audio_to_process,
                 conversation_history,
+                on_speaking=_set_speaking,
             )
         )
         response_task.add_done_callback(_track_response_completion)
@@ -419,9 +436,21 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
         """If the bot is currently TTS-ing and the user just started talking,
         cancel the in-flight response so the bot stops mid-sentence and the
         new turn can be processed once it ends. Called once per turn at the
-        first VAD-detected speech frame."""
+        first VAD-detected speech frame.
+
+        Gated on ``bot_speaking``: we only cancel during the active TTS-send
+        phase. During STT or LLM the bot has not emitted any audio yet, so
+        there is nothing for the user to barge in on — cancelling there
+        just discards the user's transcribed utterance and leaves the bot
+        silent.
+        """
         nonlocal response_task
         if response_task is None or response_task.done():
+            return
+        if not bot_speaking:
+            logger.debug(
+                "barge-in suppressed: response_task is in STT/LLM phase, not speaking"
+            )
             return
         logger.info("barge-in: cancelling in-flight response task")
         response_task.cancel()
@@ -470,6 +499,7 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                 stream_sid,
                 IDLE_REPROMPT_TEXT,
                 conversation_history,
+                on_speaking=_set_speaking,
             )
         )
         response_task.add_done_callback(_track_response_completion)
@@ -544,7 +574,13 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     greeting_text = "Hello! Thank you for calling. How can I help you today?"
                     logger.info("sending greeting: %r", greeting_text)
                     response_task = asyncio.create_task(
-                        _greet(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
+                        _greet(
+                            websocket,
+                            stream_sid or "MZ_unknown",
+                            greeting_text,
+                            conversation_history,
+                            on_speaking=_set_speaking,
+                        )
                     )
                     response_task.add_done_callback(_track_response_completion)
                     _mark_activity()
@@ -564,7 +600,13 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                     greeting_text = "Hello! Thank you for calling. How can I help you today?"
                     logger.info("sending greeting (post-start): %r", greeting_text)
                     response_task = asyncio.create_task(
-                        _greet(websocket, stream_sid or "MZ_unknown", greeting_text, conversation_history)
+                        _greet(
+                            websocket,
+                            stream_sid or "MZ_unknown",
+                            greeting_text,
+                            conversation_history,
+                            on_speaking=_set_speaking,
+                        )
                     )
                     response_task.add_done_callback(_track_response_completion)
                     _mark_activity()
@@ -615,7 +657,13 @@ async def _handle_connection(websocket) -> None:  # type: ignore[no-untyped-def]
                 digit = dtmf.get("digit", "")
                 logger.info("DTMF digit: %r", digit)
                 reply = f"You pressed {digit}. I'll route you there now."
-                await _send_tts(websocket, stream_sid or "MZ_unknown", reply, conversation_history)
+                await _send_tts(
+                    websocket,
+                    stream_sid or "MZ_unknown",
+                    reply,
+                    conversation_history,
+                    on_speaking=_set_speaking,
+                )
                 conversation_history.append({"role": "assistant", "content": reply})
 
     except Exception as exc:
@@ -629,13 +677,14 @@ async def _greet(
     stream_sid: str,
     text: str,
     history: list[dict],
+    on_speaking: Optional[Callable[[bool], None]] = None,
 ) -> None:
     """TTS-only path used at session start. Wrapped as a task so a fast user
     barge-in (rare, but possible if the user starts speaking before the
     greeting finishes) cancels it cleanly. ``CancelledError`` is suppressed —
     we want barge-in to silently stop the bot, not crash the connection."""
     try:
-        await _send_tts(websocket, stream_sid, text, history)
+        await _send_tts(websocket, stream_sid, text, history, on_speaking=on_speaking)
         history.append({"role": "assistant", "content": text})
     except asyncio.CancelledError:
         logger.info("greeting cancelled (barge-in)")
@@ -647,6 +696,7 @@ async def _process_user_audio(
     stream_sid: str,
     mulaw_bytes: bytes,
     history: list[dict],
+    on_speaking: Optional[Callable[[bool], None]] = None,
 ) -> None:
     """STT → LLM → TTS pipeline for one user turn.
 
@@ -670,7 +720,7 @@ async def _process_user_audio(
         history.append({"role": "assistant", "content": reply})
 
         # TTS → send.
-        await _send_tts(websocket, stream_sid, reply, history)
+        await _send_tts(websocket, stream_sid, reply, history, on_speaking=on_speaking)
     except asyncio.CancelledError:
         logger.info("response cancelled (barge-in) after %d bytes user audio", len(mulaw_bytes))
         raise
@@ -681,31 +731,44 @@ async def _send_tts(
     stream_sid: str,
     text: str,
     history: list[dict],
+    on_speaking: Optional[Callable[[bool], None]] = None,
 ) -> None:
     """
     Synthesise ``text`` as speech and stream it back as ``media`` frames.
 
     Uses OpenAI TTS → PCM16 24 kHz → µ-law 8 kHz → base64 Twilio media frames.
+
+    ``on_speaking`` is invoked with ``True`` immediately before the first
+    outbound media frame and ``False`` once the loop exits (including via
+    cancellation or peer error). The caller uses it to gate barge-in:
+    cancelling the response_task is only legitimate while the bot is
+    actively emitting audio.
     """
     loop = asyncio.get_event_loop()
     pcm16_bytes = await loop.run_in_executor(None, _openai_tts_pcm16, text)
     mulaw_bytes = _pcm16_to_mulaw8k(pcm16_bytes)
 
-    for frame in _chunk_mulaw(mulaw_bytes):
-        if not frame:
-            continue
-        msg = json.dumps(
-            {
-                "event": "media",
-                "streamSid": stream_sid,
-                "media": {"payload": base64.b64encode(frame).decode("ascii")},
-            }
-        )
-        try:
-            await websocket.send(msg)
-        except Exception as exc:
-            logger.warning("send error: %s", exc)
-            return
+    if on_speaking is not None:
+        on_speaking(True)
+    try:
+        for frame in _chunk_mulaw(mulaw_bytes):
+            if not frame:
+                continue
+            msg = json.dumps(
+                {
+                    "event": "media",
+                    "streamSid": stream_sid,
+                    "media": {"payload": base64.b64encode(frame).decode("ascii")},
+                }
+            )
+            try:
+                await websocket.send(msg)
+            except Exception as exc:
+                logger.warning("send error: %s", exc)
+                return
+    finally:
+        if on_speaking is not None:
+            on_speaking(False)
 
 
 # ---------------------------------------------------------------------------
