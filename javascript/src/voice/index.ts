@@ -60,6 +60,10 @@ export type {
 } from "./messages.types";
 
 export {
+  COMPOSABLE_VOICE_LLM_MODEL,
+  ELEVENLABS_DEFAULT_VOICE_ID,
+  ELEVENLABS_STT_MODEL,
+  ELEVENLABS_TTS_MODEL,
   GEMINI_LIVE_MODEL,
   OPENAI_REALTIME_MODEL,
   OPENAI_STT_MODEL,
@@ -124,9 +128,6 @@ export {
   ElevenLabsAgentAdapter,
   ElevenLabsVoiceAgent,
   ELEVENLABS_CONVAI_URL_TEMPLATE,
-  ELEVENLABS_DEFAULT_VOICE_ID,
-  ELEVENLABS_TTS_MODEL,
-  ELEVENLABS_VOICE_AGENT_DEFAULT_LLM,
   type ComposableVoiceAgentOptions,
   type ElevenLabsAgentAdapterOptions,
   type ElevenLabsVoiceAgentOptions,
