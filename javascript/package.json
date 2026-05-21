@@ -67,6 +67,7 @@
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^6.5.0",
     "@eslint/js": "^9.39.1",
+    "@google/genai": "^2.5.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
     "@typescript-eslint/parser": "^8.48.0",
@@ -115,7 +116,13 @@
   },
   "peerDependencies": {
     "ai": ">=6.0.0",
-    "vitest": ">=3.2.4"
+    "vitest": ">=3.2.4",
+    "@google/genai": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@google/genai": {
+      "optional": true
+    }
   },
   "pnpm": {
     "overrides": {

@@ -23,6 +23,11 @@ export {
 
 export { VoiceAgentAdapter } from "./adapter";
 
+export {
+  GeminiLiveAgentAdapter,
+  type GeminiLiveAgentAdapterInit,
+} from "./adapters/gemini-live";
+
 export type {
   AudioSegment,
   LatencyMetrics,

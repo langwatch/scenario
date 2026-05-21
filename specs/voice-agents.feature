@@ -112,12 +112,22 @@ Feature: Voice agent testing in Scenario SDK
     Then the realtime model drives the user side of the conversation with natural prosody
     And text TTS is bypassed for the user simulator
 
-  @unit
+  @unit @ts-gemini-live
   Scenario: GeminiLiveAgentAdapter connects via native-audio endpoint
     # Source §4.1, L193-197 and §5.6, L815-826
     Given a GeminiLiveAgentAdapter with model "gemini-2.5-flash-native-audio", voice "Algieba"
     When the scenario starts
     Then a Gemini Live session is established with the given system_instruction
+
+  @unit @ts-gemini-live
+  Scenario: GeminiLiveAgentAdapter advertises native-audio capabilities matrix
+    # Source §5.6, L815-826 — capability matrix invariants
+    Given a GeminiLiveAgentAdapter
+    Then capabilities.streaming_transcripts is True
+    And capabilities.native_vad is True
+    And capabilities.interruption is True
+    And capabilities.input_formats include "pcm16/16000"
+    And capabilities.output_formats include "pcm16/24000"
 
   @unit
   Scenario: WebSocketAgentAdapter uses a user-supplied protocol
@@ -601,7 +611,7 @@ Feature: Voice agent testing in Scenario SDK
     Then the STT, LLM, and TTS seams each fire at least once
     And result.success is True
 
-  @e2e
+  @e2e @ts-gemini-live-e2e
   Scenario: Demo — Gemini Live native audio
     # Covers: GeminiLiveAgentAdapter real transport + simulator + judge
     Given a GeminiLiveAgentAdapter with model "gemini-2.5-flash-native-audio" and GEMINI_API_KEY
