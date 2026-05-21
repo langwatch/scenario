@@ -18,16 +18,16 @@ import { fileURLToPath } from "node:url";
 
 import type { LanguageModel } from "ai";
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
-import { expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
-import { AudioChunk } from "../../audio-chunk";
+import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { VoiceAgentAdapter } from "../../adapter";
+import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
 import {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,
   ElevenLabsSTTProvider,
   ElevenLabsVoiceAgent,
-  ELEVENLABS_DEFAULT_VOICE_ID,
   type STTProvider,
   type WebSocketLike,
 } from "../index";
@@ -455,3 +455,193 @@ function makeFakeElevenClient(recordedText: string[]): never {
   };
   return fake as never;
 }
+
+// -----------------------------------------------------------------------------
+// Wire-protocol unit tests for `ElevenLabsAgentAdapter.onMessage` branches.
+//
+// These exercise each event type the EL ConvAI socket emits — kept separate
+// from the cucumber-bound scenarios because the AC ("ElevenLabsAgentAdapter
+// connects ...") covers connect+send, while the recv path branches deserve
+// their own assertions. Driven by emitting fake frames on the FakeWebSocket
+// after `connect()` resolves.
+// -----------------------------------------------------------------------------
+describe("ElevenLabsAgentAdapter wire-protocol (onMessage branches)", () => {
+  async function makeConnected(): Promise<{
+    adapter: ElevenLabsAgentAdapter;
+    socket: FakeWebSocket;
+  }> {
+    const fake = makeFakeSocketFactory();
+    const adapter = new ElevenLabsAgentAdapter({
+      agentId: "agt",
+      apiKey: "sk",
+      webSocketFactory: fake.factory,
+    });
+    await adapter.connect();
+    return { adapter, socket: fake.socket.current! };
+  }
+
+  function emit(socket: FakeWebSocket, event: Record<string, unknown>): void {
+    socket.emit("message", Buffer.from(JSON.stringify(event), "utf-8"));
+  }
+
+  it("decodes base64 PCM16 from an `audio` event and resolves the next receiver", async () => {
+    const { adapter, socket } = await makeConnected();
+    const pcm = new Uint8Array([0xff, 0x00, 0x10, 0x20]);
+    const recv = adapter.receiveAudio(1);
+    emit(socket, {
+      type: "audio",
+      audio_event: { audio_base_64: Buffer.from(pcm).toString("base64") },
+    });
+    const chunk = await recv;
+    expect(chunk).toBeInstanceOf(AudioChunk);
+    expect(Array.from(chunk.data)).toEqual([0xff, 0x00, 0x10, 0x20]);
+    await adapter.disconnect();
+  });
+
+  it("trims an odd-byte PCM16 payload so AudioChunk doesn't throw on the invariant", async () => {
+    const { adapter, socket } = await makeConnected();
+    const oddPcm = new Uint8Array([0xff, 0x00, 0x10, 0x20, 0xab]); // 5 bytes
+    const recv = adapter.receiveAudio(1);
+    emit(socket, {
+      type: "audio",
+      audio_event: { audio_base_64: Buffer.from(oddPcm).toString("base64") },
+    });
+    const chunk = await recv;
+    expect(chunk.data.length).toBe(4); // last byte trimmed
+    await adapter.disconnect();
+  });
+
+  it("queues audio events that arrive before any receiver is waiting", async () => {
+    const { adapter, socket } = await makeConnected();
+    const pcm = new Uint8Array([0x01, 0x02]);
+    emit(socket, {
+      type: "audio",
+      audio_event: { audio_base_64: Buffer.from(pcm).toString("base64") },
+    });
+    // Now ask — should return the queued chunk immediately.
+    const chunk = await adapter.receiveAudio(0.1);
+    expect(Array.from(chunk.data)).toEqual([0x01, 0x02]);
+    await adapter.disconnect();
+  });
+
+  it("replies to a ping event with a pong carrying the event_id", async () => {
+    const { adapter, socket } = await makeConnected();
+    // Discard the init frame so our pong is at a known index.
+    socket.sent.length = 0;
+    emit(socket, { type: "ping", ping_event: { event_id: 42, ping_ms: 100 } });
+    expect(socket.sent[0]).toEqual({ type: "pong", event_id: 42 });
+    await adapter.disconnect();
+  });
+
+  it("skips pong when ping has no event_id (defensive)", async () => {
+    const { adapter, socket } = await makeConnected();
+    socket.sent.length = 0;
+    emit(socket, { type: "ping" });
+    expect(socket.sent).toHaveLength(0);
+    await adapter.disconnect();
+  });
+
+  it("captures user_transcript onto lastUserTranscript", async () => {
+    const { adapter, socket } = await makeConnected();
+    emit(socket, {
+      type: "user_transcript",
+      user_transcription_event: { user_transcript: "hello world" },
+    });
+    expect(adapter.lastUserTranscript).toBe("hello world");
+    await adapter.disconnect();
+  });
+
+  it("captures agent_response onto lastAgentTranscript", async () => {
+    const { adapter, socket } = await makeConnected();
+    emit(socket, {
+      type: "agent_response",
+      agent_response_event: { agent_response: "I'm here" },
+    });
+    expect(adapter.lastAgentTranscript).toBe("I'm here");
+    await adapter.disconnect();
+  });
+
+  it("agent_response_correction overrides lastAgentTranscript with the corrected text", async () => {
+    const { adapter, socket } = await makeConnected();
+    emit(socket, {
+      type: "agent_response",
+      agent_response_event: { agent_response: "draft text" },
+    });
+    emit(socket, {
+      type: "agent_response_correction",
+      agent_response_correction_event: {
+        original_agent_response: "draft text",
+        corrected_agent_response: "post-correction text",
+      },
+    });
+    expect(adapter.lastAgentTranscript).toBe("post-correction text");
+    await adapter.disconnect();
+  });
+
+  it("warns on conversation_initiation_metadata format drift", async () => {
+    const { adapter, socket } = await makeConnected();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    emit(socket, {
+      type: "conversation_initiation_metadata",
+      conversation_initiation_metadata_event: {
+        agent_output_audio_format: "mulaw_8000",
+        user_input_audio_format: "pcm_24000",
+      },
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/agent_output_audio_format=mulaw_8000/);
+    warn.mockRestore();
+    await adapter.disconnect();
+  });
+
+  it("swallows interruption and unknown events without error", async () => {
+    const { adapter, socket } = await makeConnected();
+    emit(socket, { type: "interruption" });
+    emit(socket, { type: "vad_score", vad_event: { score: 0.5 } });
+    emit(socket, { type: "client_tool_call", payload: {} });
+    // No throw, no mutation visible to callers.
+    expect(adapter.lastAgentTranscript).toBeNull();
+    expect(adapter.lastUserTranscript).toBeNull();
+    await adapter.disconnect();
+  });
+
+  it("ignores non-JSON frames cleanly", async () => {
+    const { adapter, socket } = await makeConnected();
+    socket.emit("message", Buffer.from("not-json", "utf-8"));
+    // Adapter remains usable; next valid event still processes.
+    emit(socket, {
+      type: "user_transcript",
+      user_transcription_event: { user_transcript: "after junk" },
+    });
+    expect(adapter.lastUserTranscript).toBe("after junk");
+    await adapter.disconnect();
+  });
+
+  it("post-open socket error nulls this.ws and unblocks pending receivers", async () => {
+    const { adapter, socket } = await makeConnected();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const recv = adapter.receiveAudio(2);
+    socket.emit("error", new Error("connection lost"));
+    const chunk = await recv;
+    // Pending waiter resolves with an empty chunk so the executor unwinds
+    // rather than hanging. The ws reference is cleared so subsequent
+    // sendAudio fails fast instead of writing to a dead socket.
+    expect(chunk.data.length).toBe(0);
+    await expect(adapter.sendAudio(silentChunk(0.01))).rejects.toThrow(/not connected/);
+    warn.mockRestore();
+  });
+
+  it("socket close event drains pending waiters", async () => {
+    const { adapter, socket } = await makeConnected();
+    const recv = adapter.receiveAudio(2);
+    socket.emit("close");
+    const chunk = await recv;
+    expect(chunk.data.length).toBe(0);
+  });
+
+  it("receiveAudio rejects with timeout when no audio arrives in time", async () => {
+    const { adapter } = await makeConnected();
+    await expect(adapter.receiveAudio(0.05)).rejects.toThrow(/timed out/);
+    await adapter.disconnect();
+  });
+});

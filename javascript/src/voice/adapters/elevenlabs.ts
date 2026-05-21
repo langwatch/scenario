@@ -151,18 +151,22 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     const ws = this.webSocketFactory(this.url, { "xi-api-key": this.apiKey });
     this.ws = ws;
 
-    // Hook listeners BEFORE the open completes — the server can race a
-    // `conversation_initiation_metadata` immediately after the upgrade.
-    ws.on("message", (data) => this.onMessage(data));
-
     await new Promise<void>((resolve, reject) => {
       const onOpen = () => {
         ws.removeAllListeners();
+        // Re-attach the post-open listeners atomically. `error` + `close` are
+        // load-bearing: an unhandled `error` on a Node EventEmitter crashes
+        // the process. The `error` handler null's `this.ws` so subsequent
+        // `sendAudio`/`receiveAudio` calls fail fast with a clear message
+        // instead of writing to a dead socket.
         ws.on("message", (data) => this.onMessage(data));
+        ws.on("error", (err: Error) => this.onSocketError(err));
+        ws.on("close", () => this.onSocketClose());
         resolve();
       };
       const onError = (err: Error) => {
         ws.removeAllListeners();
+        this.ws = null;
         reject(err);
       };
       ws.once("open", onOpen);
@@ -185,6 +189,29 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     );
   }
 
+  /** Called when the post-open socket emits an `error`. */
+  private onSocketError(err: Error): void {
+    // eslint-disable-next-line no-console
+    console.warn(`ElevenLabsAgentAdapter: socket error after open: ${err.message}`);
+    // Resolve pending waiters with an empty chunk so the executor unwinds
+    // rather than hanging on a dead socket.
+    this.drainPendingWaiters();
+    this.ws = null;
+  }
+
+  /** Called when the socket closes. */
+  private onSocketClose(): void {
+    this.drainPendingWaiters();
+    this.ws = null;
+  }
+
+  private drainPendingWaiters(): void {
+    while (this.waiters.length > 0) {
+      const waiter = this.waiters.shift();
+      waiter?.(new AudioChunk({ data: new Uint8Array(0) }));
+    }
+  }
+
   async disconnect(): Promise<void> {
     if (!this.ws) return;
     try {
@@ -194,12 +221,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // down regardless — swallowing here matches the Python behavior.
     }
     this.ws = null;
-    // Drop any pending waiters with empty silence so the executor unwinds
-    // rather than hanging on a closed socket.
-    while (this.waiters.length > 0) {
-      const waiter = this.waiters.shift();
-      waiter?.(new AudioChunk({ data: new Uint8Array(0) }));
-    }
+    this.drainPendingWaiters();
   }
 
   // ---------------------------------------------------------------- I/O
@@ -227,16 +249,17 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (queued) return queued;
 
     return await new Promise<AudioChunk>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const idx = this.waiters.indexOf(waiter);
-        if (idx >= 0) this.waiters.splice(idx, 1);
-        reject(new Error("ElevenLabsAgentAdapter: receiveAudio timed out"));
-      }, timeout * 1000);
-
+      // Forward-declared so both the timer and the waiter can close over it.
+      let timer: ReturnType<typeof setTimeout>;
       const waiter = (chunk: AudioChunk) => {
         clearTimeout(timer);
         resolve(chunk);
       };
+      timer = setTimeout(() => {
+        const idx = this.waiters.indexOf(waiter);
+        if (idx >= 0) this.waiters.splice(idx, 1);
+        reject(new Error("ElevenLabsAgentAdapter: receiveAudio timed out"));
+      }, timeout * 1000);
       this.waiters.push(waiter);
     });
   }
