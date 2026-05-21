@@ -397,12 +397,10 @@ describeFeature(
       ({ Given, When, Then }) => {
         const adapter = new TestVoiceAdapter({ interruption: true });
         // Pretend speech has already started so the bounded wait resolves fast.
-        Object.assign(adapter, {
-          _agentSpeakingEvent: {
-            isSet: () => true,
-            wait: () => Promise.resolve(),
-          },
-        });
+        adapter.agentSpeakingEvent = {
+          isSet: () => true,
+          wait: () => Promise.resolve(),
+        };
         const ctx = makeExecutor(adapter);
         let step: ReturnType<typeof interrupt>;
 
@@ -535,8 +533,8 @@ describeFeature(
             // PR5 wires the config onto the executor; the actual injection
             // is exercised in the InterruptionConfig unit tests.
             expect(
-              (ctx.executor as unknown as { _voiceInterruptions?: InterruptionConfig })
-                ._voiceInterruptions,
+              (ctx.executor as { voiceInterruptions?: InterruptionConfig })
+                .voiceInterruptions,
             ).toBe(cfg);
             // Sanity: probability check still respects the configured ratio
             // over a large sample (binomial spread tolerated).

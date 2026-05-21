@@ -33,19 +33,22 @@ import {
   VoiceAgentAdapter,
 } from "../voice";
 import type { InterruptionConfig } from "../voice/interruption";
+import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
 const URL_LIKE = /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//;
 const AUDIO_EXTS = [".wav", ".mp3", ".ogg", ".flac"] as const;
 
 /**
- * Minimal shape `voice-steps` reaches for on the executor. We use a
- * structural type instead of importing the concrete executor class so the
- * step DSL stays decoupled from runtime wiring (PR6+).
+ * Minimal shape `voice-steps` reaches for on the executor. Structural so
+ * the step DSL stays decoupled from runtime wiring (PR6+). Voice config
+ * fields live on `VoiceExecutorState` — this interface merges them in via
+ * intersection so callers see one typed surface.
  */
-interface VoiceAwareExecutor extends ScenarioExecutionLike {
-  /** Concrete executors expose the list of agents for adapter lookup. */
-  readonly agents?: readonly { role?: unknown }[];
-}
+type VoiceAwareExecutor = ScenarioExecutionLike &
+  Partial<VoiceExecutorState> & {
+    /** Concrete executors expose the list of agents for adapter lookup. */
+    readonly agents?: readonly { role?: unknown }[];
+  };
 
 /**
  * Pause the script for `seconds` wall-clock seconds.
@@ -101,22 +104,19 @@ export const audio = (pathOrBytes: string | Uint8Array): ScriptStep => {
 
 /**
  * Emit DTMF tones (telephony-only). Raises {@link UnsupportedCapabilityError}
- * when the active adapter does not advertise `capabilities.dtmf`.
+ * when the active adapter does not advertise `capabilities.dtmf`. The
+ * adapter's `sendDtmf()` is invoked directly — adapters that claim the
+ * capability without implementing the method get a loud failure from the
+ * base-class default rather than a silent PCM fallback.
  */
 export const dtmf = (tones: string): ScriptStep => {
   return async (_state, executor) => {
     const adapter = voiceAdapter(executor);
     const name = adapter ? adapter.constructor.name : "<no voice adapter>";
     if (adapter === null || !adapter.capabilities.dtmf) {
-      throw new UnsupportedCapabilityError(name, "dtmf", "Use a telephony adapter such as TwilioAgentAdapter.");
+      throw new UnsupportedCapabilityError(name, "dtmf");
     }
-    const sendDtmf = (adapter as unknown as { sendDtmf?: (tones: string) => Promise<void> }).sendDtmf;
-    if (typeof sendDtmf === "function") {
-      await sendDtmf.call(adapter, tones);
-      return;
-    }
-    // Fallback: synth DTMF as PCM16 and send via sendAudio.
-    await adapter.sendAudio(dtmfToPcm(tones));
+    await adapter.sendDtmf(tones);
   };
 };
 
@@ -160,7 +160,7 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
     });
 
     if (afterWords !== undefined) {
-      await waitForStreamingWords(executor, afterWords);
+      await waitForStreamingWords(executor, afterWords, waitForSpeechTimeout);
     } else {
       await waitForAgentSpeaking(executor, waitForSpeechTimeout);
     }
@@ -221,13 +221,12 @@ export interface VoiceProceedOptions {
  */
 export const proceed = (options: VoiceProceedOptions = {}): ScriptStep => {
   return async (_state, executor) => {
-    const ex = executor as VoiceAwareExecutor & {
-      _voiceInterruptions?: InterruptionConfig;
-    };
     if (options.interruptions !== undefined) {
-      // Stash on the executor for downstream wiring. PR6+ will read this
-      // from inside the proceed loop and inject interruptions.
-      ex._voiceInterruptions = options.interruptions;
+      // Write through the typed VoiceExecutorState surface (Decision 1(b)
+      // — see voice-executor-state.ts) rather than reaching for a private
+      // attribute. PR6+ reads this inside the proceed loop and injects
+      // interruptions per the configured probability/strategy.
+      (executor as VoiceAwareExecutor).voiceInterruptions = options.interruptions;
     }
     await executor.proceed(options.turns, options.onTurn, options.onStep);
   };
@@ -251,10 +250,10 @@ export const backgroundNoise = (
     );
   }
   return (_state, executor) => {
-    const ex = executor as VoiceAwareExecutor & {
-      _voiceBackgroundNoise?: { source: string; volume: number };
-    };
-    ex._voiceBackgroundNoise = { source, volume };
+    // Write through the typed VoiceExecutorState surface — the audio-effects
+    // subsystem (PR6+) reads `voiceBackgroundNoise` when mixing simulator
+    // turns.
+    (executor as VoiceAwareExecutor).voiceBackgroundNoise = { source, volume };
   };
 };
 
@@ -286,19 +285,15 @@ async function waitForAgentSpeaking(
 ): Promise<void> {
   const adapter = voiceAdapter(executor);
   if (adapter === null) return;
-  const speaking = (adapter as unknown as {
-    _agentSpeakingEvent?: { wait: () => Promise<void>; isSet: () => boolean };
-  })._agentSpeakingEvent;
+  const speaking = adapter.agentSpeakingEvent;
   if (!speaking || speaking.isSet()) return;
-  await Promise.race([
-    speaking.wait(),
-    delay(timeoutSeconds * 1000),
-  ]);
+  await Promise.race([speaking.wait(), delay(timeoutSeconds * 1000)]);
 }
 
 async function waitForStreamingWords(
   executor: ScenarioExecutionLike,
   targetWords: number,
+  timeoutSeconds: number,
 ): Promise<void> {
   const adapter = voiceAdapter(executor);
   const name = adapter ? adapter.constructor.name : "<no voice adapter>";
@@ -311,9 +306,11 @@ async function waitForStreamingWords(
         "the executor fires barge-in at the agent's first audio chunk.",
     );
   }
-  for (;;) {
-    const transcript =
-      (adapter as unknown as { streamingTranscript?: string }).streamingTranscript ?? "";
+  // Bounded polling — a wedged adapter that never advances its transcript
+  // would otherwise lock the script forever. Mirrors waitForAgentSpeaking.
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  while (Date.now() < deadline) {
+    const transcript = adapter.streamingTranscript ?? "";
     if (transcript.trim().split(/\s+/).filter(Boolean).length >= targetWords) {
       return;
     }
@@ -345,8 +342,10 @@ async function loadAudioToChunk(
     const pathStr = String(pathOrBytes);
     if (URL_LIKE.test(pathStr)) {
       throw new Error(
-        `audio() refuses URL-like input ${JSON.stringify(pathStr)}; ` +
-          "download the asset locally and pass a path instead.",
+        `audio() refuses URL-like input ${JSON.stringify(pathStr)}. ` +
+          "Pass a filesystem path (no scheme) or pre-load the audio as raw " +
+          "bytes — the SDK never issues outbound requests for audio assets " +
+          "on the caller's behalf, even for file:// URIs.",
       );
     }
     const resolved = resolvePath(pathStr);
@@ -390,68 +389,3 @@ async function loadAudioToChunk(
   return new AudioChunk({ data: new Uint8Array(result.stdout) });
 }
 
-// ------------------------- DTMF tone fallback (kept tiny on purpose) ----
-
-const DTMF_ROW_HZ: Record<string, number> = {
-  "1": 697,
-  "2": 697,
-  "3": 697,
-  "4": 770,
-  "5": 770,
-  "6": 770,
-  "7": 852,
-  "8": 852,
-  "9": 852,
-  "*": 941,
-  "0": 941,
-  "#": 941,
-};
-const DTMF_COL_HZ: Record<string, number> = {
-  "1": 1209,
-  "2": 1336,
-  "3": 1477,
-  "4": 1209,
-  "5": 1336,
-  "6": 1477,
-  "7": 1209,
-  "8": 1336,
-  "9": 1477,
-  "*": 1209,
-  "0": 1336,
-  "#": 1477,
-};
-
-function dtmfToPcm(
-  tones: string,
-  sr = 24000,
-  durSec = 0.1,
-  gapSec = 0.05,
-): AudioChunk {
-  const nTone = Math.floor(sr * durSec);
-  const nGap = Math.floor(sr * gapSec);
-  const parts: Int16Array[] = [];
-  for (const ch of tones) {
-    const row = DTMF_ROW_HZ[ch];
-    const col = DTMF_COL_HZ[ch];
-    if (row === undefined || col === undefined) continue;
-    const samples = new Int16Array(nTone);
-    for (let i = 0; i < nTone; i++) {
-      const t = i / sr;
-      const wave =
-        0.5 *
-        (Math.sin(2 * Math.PI * row * t) + Math.sin(2 * Math.PI * col * t));
-      samples[i] = Math.max(-32768, Math.min(32767, Math.round(wave * 32767)));
-    }
-    parts.push(samples);
-    parts.push(new Int16Array(nGap));
-  }
-  if (parts.length === 0) return new AudioChunk({ data: new Uint8Array(0) });
-  const total = parts.reduce((sum, p) => sum + p.length, 0);
-  const out = new Int16Array(total);
-  let off = 0;
-  for (const p of parts) {
-    out.set(p, off);
-    off += p.length;
-  }
-  return new AudioChunk({ data: new Uint8Array(out.buffer) });
-}

@@ -13,11 +13,17 @@
  */
 
 import type { AudioChunk } from "./audio-chunk";
+import type { InterruptionConfig } from "./interruption";
 import type {
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
 } from "./recording.types";
+
+export interface VoiceBackgroundNoise {
+  source: string;
+  volume: number;
+}
 
 export interface VoiceExecutorState {
   voiceRecording: VoiceRecording | null;
@@ -25,6 +31,17 @@ export interface VoiceExecutorState {
   voiceLatency: LatencyMetrics | null;
   /** `performance.now()` (or equivalent monotonic clock) anchor in seconds. */
   voiceRecordingStartedAt: number | null;
+  /**
+   * Interruption configuration declared by `voiceProceed({ interruptions })`.
+   * The executor reads this at the top of each turn during `proceed()` and
+   * decides whether to fire a barge-in.
+   */
+  voiceInterruptions?: InterruptionConfig;
+  /**
+   * Background ambience declared by `backgroundNoise(source, volume)`. The
+   * audio-effects subsystem reads this when mixing user-simulator audio.
+   */
+  voiceBackgroundNoise?: VoiceBackgroundNoise;
   onVoiceEvent?: (event: VoiceEvent) => void;
   onAudioChunk?: (chunk: AudioChunk) => void;
 }
