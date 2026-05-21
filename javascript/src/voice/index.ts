@@ -21,7 +21,7 @@ export {
   type AdapterCapabilitiesInit,
 } from "./capabilities";
 
-export { VoiceAgentAdapter } from "./adapter";
+export { VoiceAgentAdapter, type AgentSpeakingEvent } from "./adapter";
 
 export type {
   AudioSegment,
@@ -45,7 +45,10 @@ export {
   type InterruptionStrategy,
 } from "./interruption";
 
-export type { VoiceExecutorState } from "./voice-executor-state";
+export type {
+  VoiceBackgroundNoise,
+  VoiceExecutorState,
+} from "./voice-executor-state";
 
 export type {
   AudioContentPart,
