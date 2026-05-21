@@ -61,6 +61,7 @@ function _resampleFactor(factor: number): EffectFn {
     if (arr.length === 0) return audio;
 
     const newLen = Math.max(1, Math.round(arr.length / factor));
-    return int16ToPcm16(linearResample(arr, newLen));
+    const resampled = linearResample(arr, newLen);
+    return new Uint8Array(resampled.buffer, resampled.byteOffset, resampled.byteLength);
   };
 }
