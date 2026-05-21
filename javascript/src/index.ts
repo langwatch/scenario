@@ -1,4 +1,5 @@
 import * as agents from "./agents";
+import { configure } from "./config/configure";
 import * as domain from "./domain";
 import * as execution from "./execution";
 import * as runner from "./runner";
@@ -11,10 +12,14 @@ export * from "./execution";
 export * from "./runner";
 export * from "./script";
 
-// Voice subsystem — type contract surface (PR1 of N for issue #372).
-// Runtime (TTS / STT / VAD / transports) lands in subsequent PRs behind
-// this same contract.
+// Voice subsystem — type contract surface (PR1) + TTS / STT plumbing (PR2)
+// for issue #372. Adapter runtime / transports land in subsequent PRs
+// behind this same contract.
 export * as voice from "./voice";
+
+// Global SDK configuration (`scenario.configure({ stt })`).
+export { configure } from "./config/configure";
+export type { ScenarioConfigureOptions } from "./config/configure";
 
 // Tracing public API
 export { setupScenarioTracing } from "./tracing/setup";
@@ -29,7 +34,9 @@ type ScenarioApi = typeof agents &
   typeof domain &
   typeof execution &
   typeof runner &
-  typeof script;
+  typeof script & {
+    configure: typeof configure;
+  };
 
 export const scenario: ScenarioApi = {
   ...agents,
@@ -37,6 +44,7 @@ export const scenario: ScenarioApi = {
   ...execution,
   ...runner,
   ...script,
+  configure,
 };
 
 export default scenario;

@@ -56,6 +56,9 @@ importers:
       open:
         specifier: 11.0.0
         version: 11.0.0
+      openai:
+        specifier: ^6.9.1
+        version: 6.35.0(ws@8.20.0)(zod@3.25.76)
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2

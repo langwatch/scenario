@@ -48,3 +48,32 @@ export {
   OPENAI_STT_MODEL,
   OPENAI_TTS_MODEL,
 } from "./voice-models";
+
+export {
+  clearTtsCache,
+  listTtsProviders,
+  registerTtsProvider,
+  synthesize,
+  type TTSCallable,
+  type TtsEffectFn,
+  type TtsProvider,
+} from "./tts";
+
+export {
+  ELEVENLABS_STT_ENDPOINT,
+  ELEVENLABS_STT_MODEL,
+  ElevenLabsSTTProvider,
+  OPENAI_TRANSCRIBE_LIMIT_SECONDS,
+  OpenAISTTProvider,
+  getSttProvider,
+  pcm16ToWav,
+  setSttProvider,
+  type ElevenLabsSTTProviderOptions,
+  type OpenAISTTProviderOptions,
+  type STTProvider,
+} from "./stt";
+
+export {
+  transcribeSegments,
+  type TranscribeSegmentsOptions,
+} from "./transcribe";
