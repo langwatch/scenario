@@ -4,17 +4,9 @@
  * TS equivalent of `python/scenario/voice/effects/quality.py`.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const FFT = require("fft.js") as new (size: number) => {
-  size: number;
-  createComplexArray(): number[];
-  realTransform(out: number[], data: number[]): void;
-  inverseTransform(out: number[], data: number[]): void;
-  fromComplexArray(complex: number[], storage?: number[]): number[];
-  toComplexArray(input: number[], storage?: number[]): number[];
-};
+import FFT from "fft.js";
 
-import { EffectFn, int16ToPcm16, pcm16ToInt16, rate } from "./common";
+import { EffectFn, int16ToPcm16, linearResample, pcm16ToInt16, rate } from "./common";
 
 /** Returns the next power of two >= n. */
 function nextPow2(n: number): number {
@@ -49,13 +41,7 @@ export function phoneQuality(): EffectFn {
 
     // Fill the negative frequencies (realTransform only fills [0..fftSize/2])
     // by conjugate symmetry so inverseTransform works correctly.
-    for (let i = 2; i < fftSize; i += 2) {
-      const mirrorI = fftSize * 2 - i;
-      if (mirrorI < spectrum.length) {
-        spectrum[mirrorI] = spectrum[i]!;
-        spectrum[mirrorI + 1] = -(spectrum[i + 1]!);
-      }
-    }
+    fft.completeSpectrum(spectrum);
 
     // Bandpass mask: keep bins whose frequency falls in [300, 3400] Hz
     const nyquist = rate() / 2;
@@ -100,17 +86,8 @@ export function lowQuality(bitrate = 8000): EffectFn {
     if (arr.length === 0 || bitrate >= rate()) return audio;
 
     const downLen = Math.max(1, Math.floor((arr.length * bitrate) / rate()));
-    const down = new Int16Array(downLen);
-    for (let i = 0; i < downLen; i++) {
-      const idx = Math.min(arr.length - 1, Math.floor((i * (arr.length - 1)) / (downLen - 1 || 1)));
-      down[i] = arr[idx]!;
-    }
-
-    const up = new Int16Array(arr.length);
-    for (let i = 0; i < arr.length; i++) {
-      const idx = Math.min(downLen - 1, Math.floor((i * (downLen - 1)) / (arr.length - 1 || 1)));
-      up[i] = down[idx]!;
-    }
+    const down = linearResample(arr, downLen);
+    const up = linearResample(down, arr.length);
 
     return new Uint8Array(up.buffer);
   };

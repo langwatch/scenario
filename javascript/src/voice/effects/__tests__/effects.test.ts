@@ -14,7 +14,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { expect } from "vitest";
+import { describe, expect, it } from "vitest";
+
+import * as voiceNs from "../..";
 
 import * as effectsModule from "../index";
 import {
@@ -72,6 +74,18 @@ function atLeastOneSampleDiffers(input: Uint8Array, output: Uint8Array): boolean
   }
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Public-API surface regression
+// ---------------------------------------------------------------------------
+
+describe("public-API surface", () => {
+  it("exposes effects via the voice namespace", () => {
+    expect(typeof voiceNs.effects.backgroundNoise).toBe("function");
+    expect(typeof voiceNs.effects.phoneQuality).toBe("function");
+    expect(typeof voiceNs.effects.custom).toBe("function");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Scenarios
@@ -277,6 +291,15 @@ describeFeature(
     // -----------------------------------------------------------------------
     // Scenario: Effects that vary during conversation via on_turn hook
     // -----------------------------------------------------------------------
+    /**
+     * Unit-level proxy for the on_turn runtime binding.
+     *
+     * PR6 (this PR) ships the effects callables only. The runtime
+     * `proceed / on_turn / set_effects` plumbing lands in PR3 (#515).
+     * This binding asserts that `backgroundNoise("cafe", 0.1 * n)` for
+     * varying `n` produces volume-scaled outputs — the necessary precondition
+     * for the on_turn hook to vary effects at runtime.
+     */
     Scenario(
       "Effects that vary during conversation via on_turn hook",
       ({ Given, When, Then }) => {

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EffectFn, int16ToPcm16, pcm16ToInt16, rate } from "./common";
+import { EffectFn, int16ToPcm16, linearResample, pcm16ToInt16, rate } from "./common";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = resolve(HERE, "..", "assets", "noise");
@@ -101,12 +101,7 @@ function wavToInt16(buf: Uint8Array): Int16Array {
   if (sampleRate === targetRate) return mono;
 
   const newLen = Math.max(1, Math.round((mono.length * targetRate) / sampleRate));
-  const resampled = new Int16Array(newLen);
-  for (let i = 0; i < newLen; i++) {
-    const idx = Math.min(mono.length - 1, Math.floor((i * (mono.length - 1)) / (newLen - 1 || 1)));
-    resampled[i] = mono[idx]!;
-  }
-  return resampled;
+  return linearResample(mono, newLen);
 }
 
 /**
@@ -148,7 +143,7 @@ export function backgroundNoise(presetOrPath: string, volume = 0.3): EffectFn {
     if (!looksLikePath) {
       throw new Error(
         `backgroundNoise: preset ${JSON.stringify(presetOrPath)} is not one of ` +
-          `${JSON.stringify([...BACKGROUND_PRESETS].sort())}. To load a custom WAV pass a ` +
+          `${JSON.stringify(Array.from(BACKGROUND_PRESETS).sort())}. To load a custom WAV pass a ` +
           "path containing a separator or ending with .wav.",
       );
     }
