@@ -142,7 +142,7 @@ Feature: Voice agent testing in Scenario SDK
     Then connect() was awaited exactly once before the first script step
     And disconnect() was awaited exactly once regardless of pass/fail/exception
 
-  @unit
+  @unit @pr1-binding
   Scenario: AudioChunk internal format is PCM16 at 24kHz mono
     # Locked decision: AudioChunk normalization
     Given any adapter receives or sends audio
@@ -694,7 +694,7 @@ Feature: Voice agent testing in Scenario SDK
     Then no TTS, STT, ffmpeg, or transport code is invoked
     And behavior is identical to pre-voice SDK
 
-  @unit
+  @unit @pr1-binding
   Scenario: VoiceAgentAdapter base class is public for custom implementations
     # Source §7.3 L1186, §5.7 L830-854
     Given a user subclass of VoiceAgentAdapter implementing connect/send_audio/recv_audio/disconnect
@@ -747,19 +747,19 @@ Feature: Voice agent testing in Scenario SDK
   # Adapter Capability Matrix — new requirement
   # ======================================================================
 
-  @unit
+  @unit @pr1-binding
   Scenario: Every adapter publishes a capabilities attribute
     Given any concrete VoiceAgentAdapter subclass
     Then adapter.capabilities is an AdapterCapabilities instance
     And it declares: streaming_transcripts, native_vad, dtmf, input_formats, output_formats
 
-  @unit
+  @unit @pr1-binding
   Scenario: dtmf() raises UnsupportedCapabilityError on non-telephony adapters
     Given an adapter with capabilities.dtmf == False
     When scenario.dtmf("1") runs
     Then UnsupportedCapabilityError is raised naming the adapter and the "dtmf" capability
 
-  @unit
+  @unit @pr1-binding
   Scenario: Capability matrix is rendered into adapter docs
     Given the voice-agents documentation
     Then a capability matrix table lists every built-in adapter
