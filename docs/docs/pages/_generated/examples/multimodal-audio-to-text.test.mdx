@@ -17,6 +17,11 @@ import {
 } from "./helpers";
 import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
+// Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
+// returns 404 model_not_found as of 2026-05-19. Tracked separately — the
+// voice work PR will unskip these tests once model access is restored.
+const skipInCi = process.env.CI === "true";
+
 class AudioAgent extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
   private openai = new OpenAI();
@@ -59,7 +64,7 @@ const setId = "multimodal-audio-test";
  * This example shows how to test an agent that can take audio input
  * and respond with text output.
  */
-describe("Multimodal Audio to Text Tests", () => {
+describe.skipIf(skipInCi)("Multimodal Audio to Text Tests", () => {
   it("should handle audio input", async () => {
     const data = encodeAudioToBase64(
       getFixturePath("male_or_female_voice.wav"),
