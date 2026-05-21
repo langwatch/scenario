@@ -7,8 +7,49 @@ import { getProjectConfig } from "../config";
 import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
+import { AudioChunk } from "../voice/audio-chunk";
+import { createAudioMessage } from "../voice/messages";
 
-function buildSystemPrompt(description: string): string {
+/**
+ * Configuration for the voice path of the user simulator (§4.2).
+ *
+ * When `voice` is set, the simulator runs TTS on each generated text turn and
+ * emits an {@link AudioMessageParam} instead of a plain text message.
+ */
+export interface UserSimulatorVoiceConfig {
+  /**
+   * TTS voice identifier in `provider/voice_name` format, e.g. `"openai/nova"`.
+   * When present, each simulator turn is synthesized to audio via this voice.
+   */
+  voice?: string;
+
+  /**
+   * Optional persona description appended to the system prompt.
+   * Shapes the text content of the simulated user.
+   */
+  persona?: string;
+
+  /**
+   * Optional array of audio effect functions applied to each synthesized audio
+   * turn AFTER the TTS cache hit (effects are never baked into the cache key).
+   * Each function receives the raw PCM16 bytes and returns transformed bytes.
+   */
+  audioEffects?: Array<(audio: Uint8Array) => Uint8Array>;
+}
+
+/**
+ * Combined configuration for the user simulator agent, merging LLM config
+ * with optional voice configuration.
+ */
+export interface UserSimulatorAgentConfig
+  extends TestingAgentConfig,
+    UserSimulatorVoiceConfig {}
+
+function buildSystemPrompt(description: string, persona?: string): string {
+  const personaBlock = persona
+    ? `\n\n<persona>\n${persona}\n</persona>\n`
+    : "";
+
   return `
 <role>
 You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
@@ -26,7 +67,34 @@ ${description}
 <rules>
 - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user
 </rules>
-`.trim();
+${personaBlock}`.trim();
+}
+
+/**
+ * Remove audio content blocks from messages before sending to a text-only LLM.
+ *
+ * Voice turns use `input_audio` content parts (multimodal) which text-only
+ * models like `gpt-4.1-mini` reject. This helper keeps `text` parts as-is and
+ * replaces audio-only messages with an `[audio message]` placeholder so the
+ * LLM still has a structural turn in the right position.
+ *
+ * Port of `python/scenario/user_simulator_agent.py:_strip_audio_content`.
+ */
+function stripAudioContent(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((msg) => {
+    const content = msg.content;
+    if (!Array.isArray(content)) return msg;
+
+    const parts = content as Array<Record<string, unknown>>;
+    const textParts = parts
+      .filter((p) => p?.type === "text" && typeof p["text"] === "string")
+      .map((p) => p["text"] as string);
+
+    if (textParts.length > 0) {
+      return { ...msg, content: textParts.join(" ") } as ModelMessage;
+    }
+    return { ...msg, content: "[audio message]" } as ModelMessage;
+  });
 }
 
 class UserSimulatorAgent extends UserSimulatorAgentAdapter {
@@ -35,22 +103,145 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
    */
-  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> = createLLMInvoker(this.logger);
+  invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
+    createLLMInvoker(this.logger);
 
-  constructor(private readonly cfg?: TestingAgentConfig) {
+  /**
+   * Synthesize TTS audio. Exposed as a property so tests can replace it with
+   * a stub without subclassing.
+   *
+   * Signature mirrors `python/scenario/voice/tts.py:synthesize(text, voice)`.
+   * Returns an {@link AudioChunk} with the synthesized PCM16 data.
+   *
+   * Default implementation is a stub that throws — callers that configure
+   * `voice` must inject a real synthesize function via `_synthesize` OR the
+   * voice SDK will be wired by PR2's TTS module.
+   */
+  _synthesize: (
+    text: string,
+    voice: string
+  ) => Promise<AudioChunk> = async () => {
+    throw new Error(
+      "UserSimulatorAgent: TTS synthesize is not wired. " +
+        "This will be provided by the TTS module in PR2 of issue #372. " +
+        "Inject a _synthesize stub in tests."
+    );
+  };
+
+  // ---------------------------------------------- per-step overrides (§4.2)
+  // Mirror of python/scenario/user_simulator_agent.py _one_shot_override.
+  // The executor installs a single-turn override (voice_style or audio_effects)
+  // that is cleared after the turn so subsequent turns revert to defaults.
+
+  _voiceStyleOverride: string | null = null;
+  _audioEffectsOverride: Array<(audio: Uint8Array) => Uint8Array> | null = null;
+
+  /** Class-level one-shot warning flag (mirrors Python's class attribute). */
+  private static _voiceStyleWarningEmitted = false;
+
+  constructor(private readonly cfg?: UserSimulatorAgentConfig) {
     super();
   }
 
-  call = async (input: AgentInput) => {
+  /**
+   * Returns the effective audio effects for this turn:
+   * per-step override if set, otherwise the configured defaults.
+   */
+  private effectiveAudioEffects(): Array<(audio: Uint8Array) => Uint8Array> {
+    if (this._audioEffectsOverride !== null) {
+      return [...this._audioEffectsOverride];
+    }
+    return [...(this.cfg?.audioEffects ?? [])];
+  }
+
+  /**
+   * Emit a one-shot UserWarning if voice_style was passed (not yet wired).
+   */
+  private warnVoiceStyleOnce(): void {
+    if (UserSimulatorAgent._voiceStyleWarningEmitted) return;
+    UserSimulatorAgent._voiceStyleWarningEmitted = true;
+    // Node doesn't have a process.emitWarning parity issue — warn to console.
+    console.warn(
+      "UserSimulatorAgent: voice_style=... is accepted for forward " +
+        "compatibility but no TTS provider currently honours it. The " +
+        "simulator will synthesise without style modification. This will land " +
+        "as a per-provider instructions channel in a follow-up."
+    );
+  }
+
+  /**
+   * Set a per-step override for voice_style and/or audio_effects.
+   * Returns a cleanup function that restores the previous overrides.
+   *
+   * Usage:
+   * ```ts
+   * const restore = sim.setOneShotOverride({ voiceStyle: "angry" });
+   * try { await sim.call(input); } finally { restore(); }
+   * ```
+   */
+  setOneShotOverride(opts: {
+    voiceStyle?: string;
+    audioEffects?: Array<(audio: Uint8Array) => Uint8Array>;
+  }): () => void {
+    const prevStyle = this._voiceStyleOverride;
+    const prevEffects = this._audioEffectsOverride;
+    this._voiceStyleOverride =
+      opts.voiceStyle !== undefined ? opts.voiceStyle : null;
+    this._audioEffectsOverride =
+      opts.audioEffects !== undefined ? opts.audioEffects : null;
+
+    return () => {
+      this._voiceStyleOverride = prevStyle;
+      this._audioEffectsOverride = prevEffects;
+    };
+  }
+
+  /**
+   * Convert a text user message into an audio message via TTS + effects.
+   * Port of `python/scenario/user_simulator_agent.py:_voiceify`.
+   */
+  private async voiceify(
+    textMessage: ModelMessage
+  ): Promise<ModelMessage> {
+    const voice = this.cfg?.voice;
+    if (!voice) return textMessage;
+
+    const content =
+      typeof textMessage.content === "string" ? textMessage.content : "";
+    if (!content) return textMessage;
+
+    if (this._voiceStyleOverride !== null) {
+      this.warnVoiceStyleOnce();
+    }
+
+    const chunk = await this._synthesize(content, voice);
+
+    let audioBytes = chunk.data;
+    const effects = this.effectiveAudioEffects();
+    for (const effect of effects) {
+      audioBytes = effect(audioBytes);
+    }
+
+    const finalChunk = new AudioChunk({ data: audioBytes, transcript: content });
+    // createAudioMessage returns AudioMessageParam which is structurally a ModelMessage.
+    return createAudioMessage(finalChunk, "user") as unknown as ModelMessage;
+  }
+
+  call = async (input: AgentInput): Promise<ModelMessage> => {
     const config = this.cfg;
+    const persona = config?.persona;
 
     const systemPrompt =
-      config?.systemPrompt ??
-      buildSystemPrompt(input.scenarioConfig.description);
+      config?.systemPrompt ?? buildSystemPrompt(input.scenarioConfig.description, persona);
+
+    // Strip audio content from messages before sending to text LLM (§4.2 — the
+    // LLM that generates text is always text-only; audio is synthesized separately).
+    const strippedMessages = stripAudioContent(input.messages);
+
     const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "assistant", content: "Hello, how can I help you today" },
-      ...input.messages,
+      ...strippedMessages,
     ];
 
     const projectConfig = await getProjectConfig();
@@ -60,10 +251,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       ...config,
     });
 
-    // User to assistant role reversal
-    // LLM models are biased to always be the assistant not the user, so we need to do
-    // this reversal otherwise models like GPT 4.5 is super confused, and Claude 3.7
-    // even starts throwing exceptions.
+    // User to assistant role reversal (mirrors Python's role reversal to avoid LLM bias).
     const reversedMessages = messageRoleReversal(messages);
 
     const completion = await this.invokeLLM({
@@ -78,7 +266,17 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       throw new Error("No response content from LLM");
     }
 
-    return { role: "user", content: messageContent } satisfies ModelMessage;
+    const textMessage = {
+      role: "user",
+      content: messageContent,
+    } satisfies ModelMessage;
+
+    // If voice is configured, run TTS and return audio message.
+    if (config?.voice) {
+      return this.voiceify(textMessage);
+    }
+
+    return textMessage;
   };
 }
 
@@ -101,6 +299,10 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * @param config.name The name of the agent.
  * @param config.systemPrompt Custom system prompt to override default user simulation behavior.
  *                           Use this to create specialized user personas or behaviors.
+ * @param config.voice TTS voice identifier in `provider/voice_name` format (e.g. `"openai/nova"`).
+ *                    When set, each simulator turn is synthesized to audio.
+ * @param config.persona Optional persona description appended to the system prompt.
+ * @param config.audioEffects Optional audio effect functions applied after TTS synthesis.
  *
  * @throws {Error} If no model is configured either in parameters or global config.
  *
@@ -127,42 +329,19 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  *     ],
  *   });
  *
- *   // Customized user simulator
- *   const customResult = await run({
- *     name: "Expert User Test",
- *     description: "User seeks help with TypeScript programming",
+ *   // Voice-enabled user simulator
+ *   const voiceResult = await run({
+ *     name: "Voice User Simulator Test",
+ *     description: "Test voice user simulation",
  *     agents: [
  *       myAgent,
  *       userSimulatorAgent({
- *         model: openai("gpt-4"),
- *         temperature: 0.3,
- *         systemPrompt: "You are a technical user who asks detailed questions"
+ *         voice: "openai/nova",
+ *         persona: "An elderly customer confused by technology",
+ *         audioEffects: [],
  *       })
  *     ],
- *     script: [
- *       user(),
- *       agent(),
- *     ],
- *   });
- *
- *   // User simulator with custom persona
- *   const expertResult = await run({
- *     name: "Expert Developer Test",
- *     description: "Testing with a technical expert user persona.",
- *     agents: [
- *       myAgent,
- *       userSimulatorAgent({
- *         systemPrompt: `
- *           You are an expert software developer testing an AI coding assistant.
- *           Ask challenging, technical questions and be demanding about code quality.
- *           Use technical jargon and expect detailed, accurate responses.
- *         `
- *       })
- *     ],
- *     script: [
- *       user(),
- *       agent(),
- *     ],
+ *     script: [user(), agent()],
  *   });
  * }
  * main();
@@ -170,7 +349,12 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  *
  * **Implementation Notes:**
  * - Uses role reversal internally to work around LLM biases toward assistant roles
+ * - Audio content is stripped from messages sent to the text LLM
+ * - TTS synthesis is applied AFTER the LLM generates text (cache key = (text, voice))
+ * - Audio effects are applied AFTER any TTS cache hit (effects never enter the cache)
  */
-export const userSimulatorAgent = (config?: TestingAgentConfig) => {
+export const userSimulatorAgent = (config?: UserSimulatorAgentConfig) => {
   return new UserSimulatorAgent(config);
 };
+
+export type { UserSimulatorAgent };

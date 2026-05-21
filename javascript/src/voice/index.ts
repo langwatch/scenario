@@ -93,3 +93,9 @@ export {
   WebRTCVadFallback,
   type WebRTCVadFallbackOptions,
 } from "./vad";
+
+export {
+  createAudioMessage,
+  extractAudio,
+  messageHasAudio,
+} from "./messages";
