@@ -8,6 +8,7 @@ import {
   stepCountIs,
   hasToolCall,
 } from "ai";
+import { z } from "zod/v4";
 
 const DISCOVERY_TOOL_NAMES = new Set(["expand_trace", "grep_trace"]);
 
@@ -123,7 +124,6 @@ function collapseDiscoveryHistory(
 
   return out;
 }
-import { z } from "zod/v4";
 
 import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
