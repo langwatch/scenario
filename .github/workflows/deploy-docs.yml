@@ -83,6 +83,13 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: "docs/pnpm-lock.yaml"
       - name: Install dependencies
+        # PNPM_CONFIG_ONLY_BUILT_DEPENDENCIES tells pnpm 10.22+ to permit
+        # esbuild's postinstall under --frozen-lockfile in CI mode, where
+        # ignored-build-scripts is otherwise fatal. The same field exists in
+        # docs/pnpm-workspace.yaml for local dev but is not honored in CI's
+        # single-project install context, so we set it explicitly here.
+        env:
+          PNPM_CONFIG_ONLY_BUILT_DEPENDENCIES: esbuild
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm run build
