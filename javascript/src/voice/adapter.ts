@@ -20,6 +20,17 @@ import { AdapterCapabilities, UnsupportedCapabilityError } from "./capabilities"
 import { defaultVoiceCall } from "./adapter.runtime";
 
 /**
+ * Minimal one-shot event the adapter sets when its first agent audio
+ * chunk arrives for the current turn. {@link scenario.interrupt} waits on
+ * `wait()` (with a bounded timeout) before firing the barge-in so the
+ * server-VAD has real audio to detect against.
+ */
+export interface AgentSpeakingEvent {
+  isSet(): boolean;
+  wait(): Promise<void>;
+}
+
+/**
  * Abstract base for voice agents that exchange audio with the agent under
  * test.
  *
@@ -84,6 +95,39 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
 
   /** Receive the next {@link AudioChunk} from the agent. */
   abstract receiveAudio(timeout: number): Promise<AudioChunk>;
+
+  /**
+   * Set when the adapter has emitted its first agent audio chunk for the
+   * current turn — gates timing-based barge-in. Concrete adapters expose
+   * this so {@link scenario.interrupt} can wait for real speech before
+   * firing the interruption. Optional: adapters without server-VAD-style
+   * interrupt sequencing can leave it `undefined`.
+   */
+  agentSpeakingEvent?: AgentSpeakingEvent;
+
+  /**
+   * Incremental transcript text emitted while the agent speaks. Populated
+   * by adapters that advertise `capabilities.streamingTranscripts`. Read
+   * by {@link scenario.interrupt} when `afterWords: N` is set.
+   */
+  streamingTranscript?: string;
+
+  /**
+   * Transmit DTMF tones to the telephony peer. Adapters that advertise
+   * `capabilities.dtmf` MUST implement this; the default raises
+   * {@link UnsupportedCapabilityError} so an adapter that forgot to ship
+   * `sendDtmf` while claiming the capability fails loudly instead of
+   * silently routing through a PCM fallback.
+   */
+  sendDtmf(_tones: string): Promise<void> {
+    throw new UnsupportedCapabilityError(
+      this.constructor.name,
+      "dtmf",
+      "This adapter declares capabilities.dtmf = true but did not " +
+        "implement sendDtmf(). Override sendDtmf on the concrete adapter " +
+        "or flip capabilities.dtmf to false.",
+    );
+  }
 
   /**
    * Send a first-class interrupt signal to the agent under test.

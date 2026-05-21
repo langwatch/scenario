@@ -6,11 +6,22 @@
  * directory layout, and JSON manifest schema.
  */
 
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+
+/** Skip ffmpeg-dependent assertions when the binary is not on PATH. */
+const HAS_FFMPEG = (() => {
+  try {
+    return spawnSync("ffmpeg", ["-version"]).status === 0;
+  } catch {
+    return false;
+  }
+})();
+const itIfFfmpeg = HAS_FFMPEG ? it : it.skip;
 
 import {
   computeLatencyMetrics,
@@ -61,7 +72,7 @@ describe("VoiceRecordingRuntime.save", () => {
     expect(bytes.readUInt16LE(34)).toBe(16); // 16-bit
   });
 
-  it("transcodes to MP3 via the system ffmpeg subprocess", () => {
+  itIfFfmpeg("transcodes to MP3 via the system ffmpeg subprocess", () => {
     const rec = new VoiceRecordingRuntime({
       segments: [pcmSegment("user", 0, 0.3, "test")],
     });
