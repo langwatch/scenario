@@ -80,10 +80,30 @@ function atLeastOneSampleDiffers(input: Uint8Array, output: Uint8Array): boolean
 // ---------------------------------------------------------------------------
 
 describe("public-API surface", () => {
-  it("exposes effects via the voice namespace", () => {
-    expect(typeof voiceNs.effects.backgroundNoise).toBe("function");
-    expect(typeof voiceNs.effects.phoneQuality).toBe("function");
-    expect(typeof voiceNs.effects.custom).toBe("function");
+  it("exposes every §4.5 effect via the voice namespace", () => {
+    // Mirrors the §4.5 enumeration so a missing barrel re-export fails fast.
+    const expectedNames = [
+      "backgroundNoise",
+      "phoneQuality",
+      "lowQuality",
+      "packetLoss",
+      "static",
+      "echo",
+      "speakingFast",
+      "speakingSlow",
+      "lowVolume",
+      "highVolume",
+      "robotic",
+      "breakingUp",
+      "multipleVoices",
+      "custom",
+    ] as const;
+
+    for (const name of expectedNames) {
+      expect(typeof (voiceNs.effects as Record<string, unknown>)[name]).toBe(
+        "function",
+      );
+    }
   });
 });
 
