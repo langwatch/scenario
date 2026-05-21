@@ -15,7 +15,6 @@ export {
 export {
   ComposableVoiceAgent,
   ElevenLabsSTTProvider,
-  ELEVENLABS_TTS_MODEL,
   synthesize,
   type ComposableVoiceAgentOptions,
   type STTProvider,
@@ -24,7 +23,5 @@ export {
 
 export {
   ElevenLabsVoiceAgent,
-  ELEVENLABS_DEFAULT_VOICE_ID,
-  ELEVENLABS_VOICE_AGENT_DEFAULT_LLM,
   type ElevenLabsVoiceAgentOptions,
 } from "./eleven-labs-voice-agent";

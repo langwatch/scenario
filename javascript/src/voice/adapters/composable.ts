@@ -33,6 +33,7 @@ import { AgentRole } from "../../domain/agents";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { VoiceAgentAdapter } from "../adapter";
+import { ELEVENLABS_STT_MODEL, ELEVENLABS_TTS_MODEL } from "../voice-models";
 
 /**
  * Speech-to-text provider — the only contract that crosses the composable
@@ -46,8 +47,6 @@ import { VoiceAgentAdapter } from "../adapter";
 export interface STTProvider {
   transcribe(audio: AudioChunk): Promise<string>;
 }
-
-const ELEVENLABS_STT_MODEL = "scribe_v1";
 
 /**
  * ElevenLabs STT backed by the `elevenlabs` SDK's `speechToText.convert`.
@@ -100,14 +99,6 @@ export interface SynthesizeOptions {
   /** Test seam — ElevenLabs client factory. */
   elevenLabsClientFactory?: (apiKey: string) => ElevenLabsClient;
 }
-
-/**
- * Default ElevenLabs TTS model. `eleven_v3` is the only model that honors
- * inline paralinguistic markers like `[shouting]`, `[laughs]`. The SDK's
- * default (`eleven_multilingual_v2`) reads them as text — see Python's
- * `tts.py` for the angry-customer regression that drove the hardcode.
- */
-export const ELEVENLABS_TTS_MODEL = "eleven_v3";
 
 export async function synthesize(
   text: string,

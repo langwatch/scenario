@@ -21,23 +21,15 @@ import { openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
 import {
+  COMPOSABLE_VOICE_LLM_MODEL,
+  ELEVENLABS_DEFAULT_VOICE_ID,
+} from "../voice-models";
+import {
   ComposableVoiceAgent,
   ElevenLabsSTTProvider,
   type STTProvider,
   type SynthesizeOptions,
 } from "./composable";
-
-/** Default LLM identifier mirrors `COMPOSABLE_VOICE_LLM_MODEL` in Python. */
-export const ELEVENLABS_VOICE_AGENT_DEFAULT_LLM = "gpt-5.4-mini";
-
-/**
- * Sarah — premade voice, accessible on the ElevenLabs free tier as of
- * 2026-05. Other premade voices (e.g. Rachel `21m00Tcm4TlvDq8ikWAM`)
- * returned 402 paid_plan_required from the EL TTS API — gating differs per
- * voice. Override via `ELEVENLABS_VOICE_ID` env or the `voice` constructor
- * argument.
- */
-export const ELEVENLABS_DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 
 /**
  * Provider-specific signatures — `api_key` is required, every other knob is
@@ -83,7 +75,7 @@ export class ElevenLabsVoiceAgent extends ComposableVoiceAgent {
   constructor(options: ElevenLabsVoiceAgentOptions) {
     const voice = options.voice ?? resolveDefaultVoice();
     const stt = options.stt ?? new ElevenLabsSTTProvider({ apiKey: options.apiKey });
-    const llm = options.llm ?? openai(ELEVENLABS_VOICE_AGENT_DEFAULT_LLM);
+    const llm = options.llm ?? openai(COMPOSABLE_VOICE_LLM_MODEL);
     const ttsOptions: SynthesizeOptions = {
       apiKey: options.apiKey,
       ...options.ttsOptions,
