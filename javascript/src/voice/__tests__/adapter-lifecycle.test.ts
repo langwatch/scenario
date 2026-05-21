@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   AgentRole,
-  AgentAdapter,
   type AgentInput,
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
@@ -86,33 +85,22 @@ describe("specs/voice-agents.feature lines 138-145 — Executor calls connect() 
   });
 
   it("disconnect() is awaited even when a script step throws", async () => {
-    // The AC says "regardless of pass/fail/exception". Throwing AGENT
-    // simulates an adapter raising mid-call — the executor must still
-    // unwind through the finally and disconnect.
-    class ThrowingAgent extends AgentAdapter {
-      role = AgentRole.AGENT;
-      async call(_input: AgentInput): Promise<AgentReturnTypes> {
-        throw new Error("simulated agent failure");
-      }
-    }
-
-    const adapter = new FakeVoiceAdapter();
+    // The AC says "regardless of pass/fail/exception". `failOnCall`
+    // causes the FakeVoiceAdapter's `call()` to throw — the executor
+    // must unwind through the finally and still disconnect.
+    const adapter = new FakeVoiceAdapter({ failOnCall: true });
     const execution = new ScenarioExecution(
       {
         name: "lifecycle / exception",
         description: "verifies disconnect runs after thrown error",
-        agents: [adapter, new ThrowingAgent(), new TextUserSimulator()],
+        agents: [adapter, new TextUserSimulator()],
       },
-      // The executor picks the AGENT-role agent for `agent()` — the
-      // ThrowingAgent will run before the FakeVoiceAdapter; the test
-      // only cares that disconnect runs on the voice adapter when the
-      // execution loop blows up.
       [user("hello"), agent(), succeed("never reached")],
       "test-batch-id",
     );
 
     await expect(execution.execute()).rejects.toThrow(
-      /simulated agent failure/,
+      /FakeVoiceAdapter\.call failure/,
     );
     expect(adapter.connectCount).toBe(1);
     expect(adapter.disconnectCount).toBe(1);

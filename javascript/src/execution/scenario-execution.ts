@@ -1262,6 +1262,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     }
 
     this.state = new ScenarioExecutionState(this.config);
+    // Re-establish the voice runtime's back-reference — the new state
+    // object loses the linkage from the constructor's setExecutor call,
+    // so adapters reaching `input.scenarioState._executor` would see
+    // `null` for the rest of the run otherwise.
+    this.state.setExecutor(this);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
     // Initialize turn state without creating a span yet. execute() calls
