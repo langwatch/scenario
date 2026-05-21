@@ -12,19 +12,12 @@
  *
  * Loaded via @amiceli/vitest-cucumber which reads the feature file and fails
  * the suite if any bound scenario is missing a step binding.
- *
- * NOTE ON SPY ISOLATION: vitest-cucumber v6 runs each Given/When/Then step as
- * a separate vitest `it()`. Module-level `beforeEach`/`afterEach` hooks fire
- * around EACH step, not around the whole scenario. To capture console.warn
- * calls across step boundaries, each scenario stores captured warns in a
- * closure-scoped variable inside `Given`/`When` and asserts in `Then`/`And`
- * without relying on a spy that may be reset between steps.
  */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { beforeEach, expect, vi } from "vitest";
+import { beforeEach, expect, vi, type MockInstance } from "vitest";
 
 import {
   AgentRole,
@@ -99,30 +92,38 @@ const feature = await loadFeature(FEATURE_PATH);
 
 describeFeature(
   feature,
-  ({ Scenario }) => {
+  ({ Scenario, BeforeEachScenario, AfterEachScenario }) => {
+    // Shared spy state — installed once per scenario via BeforeEachScenario,
+    // torn down via AfterEachScenario. Steps read capturedWarnCalls directly.
+    let warnSpy: MockInstance;
+    let capturedWarnCalls: string[] = [];
+
+    BeforeEachScenario(() => {
+      capturedWarnCalls = [];
+      warnSpy = vi.spyOn(console, "warn").mockImplementation((...args) => {
+        capturedWarnCalls.push(String(args[0]));
+      });
+    });
+
+    AfterEachScenario(() => {
+      warnSpy.mockRestore();
+    });
+
     // -----------------------------------------------------------------------
     // Scenario: SDK-side VAD fallback activates on adapters without native VAD
     // (lines 773-777)
-    //
-    // SPY STRATEGY: Because vitest-cucumber runs each step as a separate it(),
-    // we must spy on console.warn INSIDE the When step (where the action
-    // happens) and carry the captured calls to the Then/And assertions via
-    // closure-scoped variables.
     // -----------------------------------------------------------------------
     Scenario(
       "SDK-side VAD fallback activates on adapters without native VAD",
       ({ Given, When, Then, And }) => {
         let events: VoiceEvent[];
         let execution: ScenarioExecution;
-        // Captured across the When step — persists into Then/And via closure.
-        let capturedWarnCalls: string[] = [];
 
         Given("an adapter with capabilities.native_vad == False", () => {
           const adapter = new FakeVoiceAdapter({
             capabilities: { nativeVad: false },
           });
           events = [];
-          capturedWarnCalls = [];
           execution = new ScenarioExecution(
             {
               name: "vad / fallback emits speaking events",
@@ -136,16 +137,7 @@ describeFeature(
         });
 
         When("a voice scenario runs and audio flows", async () => {
-          // Install the spy locally for this step and collect calls into a
-          // closure variable so they survive into Then/And.
-          const spy = vi.spyOn(console, "warn").mockImplementation((...args) => {
-            capturedWarnCalls.push(String(args[0]));
-          });
-          try {
-            await execution.execute();
-          } finally {
-            spy.mockRestore();
-          }
+          await execution.execute();
         });
 
         Then(
@@ -181,7 +173,8 @@ describeFeature(
     Scenario(
       "VAD fallback emits a one-shot UserWarning on first activation",
       ({ Given, When, Then, And }) => {
-        // Closure-scoped captures — written in When, read in Then/And.
+        // fakeAdapterWarns / otherWarns are filtered views of capturedWarnCalls
+        // populated after the When step executes.
         let fakeAdapterWarns: string[] = [];
         let otherWarns: string[] = [];
 
@@ -192,22 +185,20 @@ describeFeature(
         });
 
         When("the scenario starts and VAD fallback is used", () => {
-          // Install spy locally so we don't conflict with module-level resets.
-          const spy = vi.spyOn(console, "warn").mockImplementation((...args) => {
-            const msg = String(args[0]);
-            if (msg.includes("FakeVoiceAdapter")) fakeAdapterWarns.push(msg);
-            if (msg.includes("AnotherFakeAdapter")) otherWarns.push(msg);
-          });
-          try {
-            // Each adapter class generates ONE warning — the second adapter of
-            // the same name does not re-warn (matches Python `_warned_adapters`
-            // memoisation at vad.py:39-55).
-            new WebRTCVadFallback("FakeVoiceAdapter");
-            new WebRTCVadFallback("FakeVoiceAdapter");
-            new WebRTCVadFallback("AnotherFakeAdapter");
-          } finally {
-            spy.mockRestore();
-          }
+          // Each adapter class generates ONE warning — the second adapter of
+          // the same name does not re-warn (matches Python `_warned_adapters`
+          // memoisation at vad.py:39-55).
+          new WebRTCVadFallback("FakeVoiceAdapter");
+          new WebRTCVadFallback("FakeVoiceAdapter");
+          new WebRTCVadFallback("AnotherFakeAdapter");
+
+          // Partition captured warns by adapter name.
+          fakeAdapterWarns = capturedWarnCalls.filter((msg) =>
+            msg.includes("FakeVoiceAdapter"),
+          );
+          otherWarns = capturedWarnCalls.filter((msg) =>
+            msg.includes("AnotherFakeAdapter"),
+          );
         });
 
         Then(
@@ -237,14 +228,11 @@ describeFeature(
       "Adapters with native VAD do not trigger the fallback",
       ({ Given, When, Then, And }) => {
         let execution: ScenarioExecution;
-        // Closure-scoped capture — written in When, read in Then/And.
-        let noNativeVadWarns: string[] = [];
 
         Given("an adapter with capabilities.native_vad == True", () => {
           const adapter = new FakeVoiceAdapter({
             capabilities: { nativeVad: true },
           });
-          noNativeVadWarns = [];
           execution = new ScenarioExecution(
             {
               name: "vad / native VAD bypasses fallback",
@@ -257,23 +245,16 @@ describeFeature(
         });
 
         When("the scenario runs", async () => {
-          // Spy locally and capture any "no native VAD" warns into the
-          // closure variable so Then/And can assert their absence.
-          const spy = vi.spyOn(console, "warn").mockImplementation((...args) => {
-            const msg = String(args[0]);
-            if (msg.includes("no native VAD")) noNativeVadWarns.push(msg);
-          });
-          try {
-            await execution.execute();
-          } finally {
-            spy.mockRestore();
-          }
+          await execution.execute();
         });
 
         Then("webrtcvad is not invoked", () => {
           // We assert by absence-of-warning: the fallback's one-shot warning
           // is the only side-effect that fires on instantiation, so its
           // absence proves no fallback was created.
+          const noNativeVadWarns = capturedWarnCalls.filter((msg) =>
+            msg.includes("no native VAD"),
+          );
           expect(noNativeVadWarns).toHaveLength(0);
         });
 
@@ -282,6 +263,9 @@ describeFeature(
           // the fallback is never instantiated. The absence of a warning
           // in Then already confirms this; this And step records the spec
           // intent explicitly.
+          const noNativeVadWarns = capturedWarnCalls.filter((msg) =>
+            msg.includes("no native VAD"),
+          );
           expect(noNativeVadWarns).toHaveLength(0);
         });
       },

@@ -10,12 +10,16 @@
  *
  * Loaded via @amiceli/vitest-cucumber which reads the feature file and fails
  * the suite if any bound scenario is missing a step binding.
+ *
+ * The "throwing hook doesn't break scenario" behavior is tested as a plain
+ * it() below — it is an implementation-level guarantee, not a named feature
+ * scenario. Option (a) chosen: no spec scenario exists for this behavior.
  */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { expect } from "vitest";
+import { expect, it } from "vitest";
 
 import {
   AgentRole,
@@ -83,6 +87,37 @@ class AudioUserSimulator extends UserSimulatorAgentAdapter {
     } as unknown as AgentReturnTypes;
   }
 }
+
+// -------------------------------------------------------------------------
+// Plain unit test: a throwing on_voice_event hook does not break the scenario.
+//
+// This is an implementation-level guarantee (the runtime swallows hook errors
+// so a buggy observability callback can never break a scenario run). It is NOT
+// a named scenario in specs/voice-agents.feature, so it lives here as a plain
+// it() rather than inside a describeFeature binding. Option (a) chosen.
+// -------------------------------------------------------------------------
+it("throwing on_voice_event hook does not break the scenario", async () => {
+  const adapter = new FakeVoiceAdapter({
+    responses: [pcm16Chunk(0.05)],
+  });
+  let voiceEventCalls = 0;
+  const throwingExecution = new ScenarioExecution(
+    {
+      name: "hooks / throwing hook does not break scenario",
+      description: "binds the swallow-on-hook-error contract",
+      agents: [adapter, new AudioUserSimulator(silentChunk(0.05))],
+      onVoiceEvent: () => {
+        voiceEventCalls += 1;
+        throw new Error("simulated observability bug");
+      },
+    },
+    [user(), agent(), succeed("done")],
+    "test-batch-id",
+  );
+  const result = await throwingExecution.execute();
+  expect(result.success).toBe(true);
+  expect(voiceEventCalls).toBeGreaterThan(0);
+});
 
 const feature = await loadFeature(FEATURE_PATH);
 
@@ -163,30 +198,6 @@ describeFeature(
 
         When("VAD/interrupt/tool events occur", async () => {
           await execution.execute();
-
-          // Also verify: hook errors don't break the scenario. A throwing
-          // hook must not interrupt the run — the runtime swallows hook errors
-          // so a buggy observability callback can never break the scenario.
-          const adapterB = new FakeVoiceAdapter({
-            responses: [pcm16Chunk(0.05)],
-          });
-          let voiceEventCalls = 0;
-          const throwingExecution = new ScenarioExecution(
-            {
-              name: "hooks / throwing hook does not break scenario",
-              description: "binds the swallow-on-hook-error contract",
-              agents: [adapterB, new AudioUserSimulator(silentChunk(0.05))],
-              onVoiceEvent: () => {
-                voiceEventCalls += 1;
-                throw new Error("simulated observability bug");
-              },
-            },
-            [user(), agent(), succeed("done")],
-            "test-batch-id",
-          );
-          const result = await throwingExecution.execute();
-          expect(result.success).toBe(true);
-          expect(voiceEventCalls).toBeGreaterThan(0);
         });
 
         Then("cb is invoked with each VoiceEvent", () => {
