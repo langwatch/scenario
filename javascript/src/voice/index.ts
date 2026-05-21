@@ -28,6 +28,11 @@ export {
   type OpenAIRealtimeAgentAdapterInit,
 } from "./adapters/openai-realtime";
 
+export {
+  GeminiLiveAgentAdapter,
+  type GeminiLiveAgentAdapterInit,
+} from "./adapters/gemini-live";
+
 export type {
   AudioSegment,
   LatencyMetrics,
