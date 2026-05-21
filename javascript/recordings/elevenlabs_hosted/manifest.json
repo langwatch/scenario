@@ -1,0 +1,11 @@
+{
+  "demo": "elevenlabs_hosted",
+  "ts_demo_test": "javascript/examples/vitest/tests/voice/elevenlabs-hosted.test.ts",
+  "python_demo": "python/examples/voice/elevenlabs_hosted.py",
+  "feature": "specs/voice-agents.feature",
+  "scenario": "Demo — ElevenLabs hosted Conversational AI",
+  "scenario_tag": "@e2e @ts-elevenlabs",
+  "status": "env-gated",
+  "note": "Empty placeholder. Populated by a live demo run with ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID. The TS demo test mirrors the Python demo; both connect to wss://api.elevenlabs.io/v1/convai/conversation.",
+  "captured": null
+}
