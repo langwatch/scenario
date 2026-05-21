@@ -118,3 +118,18 @@ export {
 } from "./messages";
 
 export * as effects from "./effects";
+
+export {
+  ComposableVoiceAgent,
+  ElevenLabsAgentAdapter,
+  ElevenLabsVoiceAgent,
+  ELEVENLABS_CONVAI_URL_TEMPLATE,
+  ELEVENLABS_DEFAULT_VOICE_ID,
+  ELEVENLABS_TTS_MODEL,
+  ELEVENLABS_VOICE_AGENT_DEFAULT_LLM,
+  type ComposableVoiceAgentOptions,
+  type ElevenLabsAgentAdapterOptions,
+  type ElevenLabsVoiceAgentOptions,
+  type SynthesizeOptions,
+  type WebSocketLike,
+} from "./adapters";
