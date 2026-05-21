@@ -97,14 +97,14 @@ Feature: Voice agent testing in Scenario SDK
     Then a call is created via the Vapi REST API
     And the returned websocketCallUrl is connected for bidirectional audio
 
-  @unit
+  @unit @ts-openai-realtime
   Scenario: OpenAIRealtimeAgentAdapter connects as the agent under test
     # Source §4.1, L185-190 and §5.6, L800-813
     Given an OpenAIRealtimeAgentAdapter with model, voice, instructions, tools
     When the scenario starts
     Then a realtime session is established and the model IS the agent
 
-  @unit
+  @unit @ts-openai-realtime
   Scenario: OpenAIRealtimeAgentAdapter with role=AgentRole.USER acts as the user simulator
     # Source §7.2, L1164-1171 (CHOSEN alternative — NOT rejected)
     Given an OpenAIRealtimeAgentAdapter configured with role=AgentRole.USER, voice "nova", instructions "simulate a confused elderly customer"
@@ -610,14 +610,14 @@ Feature: Voice agent testing in Scenario SDK
     When the demo script runs via scenario.run()
     Then a live session is established and result.success is True
 
-  @e2e
+  @e2e @ts-openai-realtime-agent-demo
   Scenario: Demo — OpenAI Realtime as the agent under test
     # Covers: OpenAIRealtimeAgentAdapter (role=AGENT) end-to-end
     Given an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY
     When the demo script runs via scenario.run()
     Then the model plays the agent role and result.success is True
 
-  @e2e
+  @e2e @ts-openai-realtime-user-demo
   Scenario: Demo — OpenAI Realtime as the user simulator
     # Covers: OpenAIRealtimeAgentAdapter(role=AgentRole.USER) natural-prosody simulator
     Given an OpenAIRealtimeAgentAdapter with role=AgentRole.USER and a confused-elderly-customer persona
