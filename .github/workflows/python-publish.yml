@@ -40,10 +40,14 @@ jobs:
         run: uv run python -m build
         working-directory: python
 
-      # Sanity check
+      # Sanity check.
+      # `-m "not integration"` deselects voice e2e tests (auto-marked by
+      # tests/voice/conftest.py). Those hit live providers, require API
+      # key secrets we don't expose to the publish workflow, and run
+      # nightly via voice-integration.yml. Mirrors python-ci.yml.
       - name: Run tests
         run: |
-          uv run pytest tests
+          uv run pytest tests -m "not integration"
         working-directory: python
 
       - name: Publish package
