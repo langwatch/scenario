@@ -14,13 +14,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import {
-  AgentRole,
-  AudioChunk,
-  OPENAI_REALTIME_MODEL,
-  OpenAIRealtimeAgentAdapter,
-} from "@langwatch/scenario";
+import { AgentRole, voice } from "@langwatch/scenario";
 import { expect } from "vitest";
+
+const { AudioChunk, OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter } = voice;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(
@@ -46,8 +43,8 @@ describeFeature(
     Bind(
       "Demo — OpenAI Realtime as the user simulator",
       ({ Given, When, Then, And }) => {
-        let adapter: OpenAIRealtimeAgentAdapter;
-        let firstChunk: AudioChunk;
+        let adapter: voice.OpenAIRealtimeAgentAdapter;
+        let firstChunk: voice.AudioChunk;
 
         Given(
           "an OpenAIRealtimeAgentAdapter with role=AgentRole.USER and a confused-elderly-customer persona",
