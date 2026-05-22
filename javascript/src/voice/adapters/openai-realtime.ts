@@ -9,7 +9,8 @@
  *
  * Wire protocol:
  * - Endpoint: `wss://api.openai.com/v1/realtime?model=<model>`
- * - Headers: `Authorization: Bearer <api_key>`, `OpenAI-Beta: realtime=v1`
+ * - Headers: `Authorization: Bearer <api_key>` (the GA endpoint rejects
+ *   the deprecated `OpenAI-Beta: realtime=v1` opt-in)
  * - On connect: emit `session.update` to configure audio formats, voice,
  *   instructions, and tools.
  * - Send audio: `input_audio_buffer.append` with base64-encoded PCM16.
@@ -164,10 +165,14 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
           "pass `{ apiKey }` to the constructor.",
       );
     }
+    // No `OpenAI-Beta: realtime=v1` header — that opt-in is the deprecated
+    // Beta. The GA endpoint at `/v1/realtime` rejects the header outright
+    // with "The Realtime Beta API is no longer supported." (observed in
+    // CI 2026-05-22). Python parity is intentionally broken here; track
+    // for back-port.
     const ws = new WebSocket(this.url, {
       headers: {
         Authorization: `Bearer ${this._apiKey}`,
-        "OpenAI-Beta": "realtime=v1",
       },
     });
 
