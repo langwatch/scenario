@@ -51,7 +51,12 @@ describeFeature(
           () => {
             adapter = new OpenAIRealtimeAgentAdapter({
               model: OPENAI_REALTIME_MODEL,
-              voice: "nova",
+              // GA Realtime voices: alloy, ash, ballad, coral, echo, sage,
+              // shimmer, verse, marin, cedar. `nova` (Beta-era) is gone;
+              // the BDD scenario still names "nova" as documentation of
+              // the Python parity intent — `marin` is OpenAI's recommended
+              // current voice with the closest persona fit.
+              voice: "marin",
               instructions:
                 "You are a confused elderly customer trying to reset your password. " +
                 "Speak slowly with hesitation.",
