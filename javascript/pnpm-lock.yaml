@@ -68,7 +68,7 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       ws:
-        specifier: 8.20.1
+        specifier: ^8.20.1
         version: 8.20.1
       xksuid:
         specifier: ^0.0.4
@@ -93,7 +93,7 @@ importers:
         specifier: ^24.10.1
         version: 24.12.2
       '@types/ws':
-        specifier: 8.18.1
+        specifier: ^8.18.1
         version: 8.18.1
       '@typescript-eslint/parser':
         specifier: ^8.48.0
