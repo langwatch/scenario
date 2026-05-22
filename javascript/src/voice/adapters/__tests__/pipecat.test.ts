@@ -22,7 +22,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { afterEach, beforeEach, expect } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   AudioChunk,
@@ -336,3 +336,73 @@ function buildPcm16At8k(numBytes: number): Uint8Array {
   }
   return out;
 }
+
+// ---------------------------------------------------------------- plain unit tests
+// Receive-side coalescing edge cases — sub-batch buffers must still flush
+// when the socket closes or sends an explicit `stop`. Plain vitest (not
+// bound to a feature scenario) because these are protocol-leaf guarantees
+// the AC list doesn't enumerate but the Python parity does cover.
+
+async function connectWithFake(): Promise<{
+  adapter: PipecatAgentAdapter;
+  socket: FakeWebSocket;
+}> {
+  let captured!: FakeWebSocket;
+  const adapter = new PipecatAgentAdapter({
+    url: "ws://localhost:8765/ws",
+    streamSid: "MZedge",
+    realTimePacing: false,
+    webSocketFactory: () => {
+      captured = nextSocket();
+      return captured;
+    },
+  });
+  await adapter.connect();
+  return { adapter, socket: captured };
+}
+
+describe("PipecatAgentAdapter receive-side coalescing", () => {
+  it("flushes a partial buffer when the bot sends a `stop` event", async () => {
+    const { adapter, socket } = await connectWithFake();
+    // Send 160 µ-law bytes — well under the 800-byte flush threshold.
+    const partial = pcm16ToMulaw(buildPcm16At8k(320));
+    socket.emit(
+      "message",
+      JSON.stringify({
+        event: "media",
+        streamSid: "MZedge",
+        media: { payload: Buffer.from(partial).toString("base64") },
+      }),
+    );
+    socket.emit(
+      "message",
+      JSON.stringify({ event: "stop", streamSid: "MZedge" }),
+    );
+    const chunk = await adapter.receiveAudio(1.0);
+    expect(chunk).toBeInstanceOf(AudioChunk);
+    // 160 µ-law bytes → 160 PCM samples @ 8k → resampled to 24k = 480 samples = 960 bytes (±4).
+    expect(chunk.data.length).toBeGreaterThanOrEqual(956);
+    expect(chunk.data.length).toBeLessThanOrEqual(964);
+    await adapter.disconnect();
+  });
+
+  it("flushes a partial buffer when the WebSocket closes", async () => {
+    const { adapter, socket } = await connectWithFake();
+    const partial = pcm16ToMulaw(buildPcm16At8k(320));
+    socket.emit(
+      "message",
+      JSON.stringify({
+        event: "media",
+        streamSid: "MZedge",
+        media: { payload: Buffer.from(partial).toString("base64") },
+      }),
+    );
+    // Close the socket — partial buffer should drain before close completes.
+    socket.emit("close", undefined);
+    const chunk = await adapter.receiveAudio(1.0);
+    expect(chunk).toBeInstanceOf(AudioChunk);
+    expect(chunk.data.length).toBeGreaterThan(0);
+    // Adapter is closed at this point — disconnect is a no-op.
+    await adapter.disconnect();
+  });
+});
