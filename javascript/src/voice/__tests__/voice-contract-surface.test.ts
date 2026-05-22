@@ -284,5 +284,5 @@ describeFeature(
       },
     );
   },
-  { includeTags: ["ts-bound"] },
+  { includeTags: [["ts-bound", "ts-contract-surface"]] },
 );

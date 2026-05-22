@@ -46,6 +46,57 @@ Feature: Voice agent testing in Scenario SDK
     When the scenario starts
     Then an outbound Twilio call is created and a Media Streams WebSocket is established
 
+  @integration @ts-bound @ts-twilio-proto
+  Scenario: TwilioAgentAdapter publishes mulaw/8000 capabilities and clear-buffer interruption
+    # PR11 — capability declaration for the Twilio Media Streams transport
+    Given a TwilioAgentAdapter constructed with valid credentials and an E.164 phone_number
+    Then capabilities.inputFormats and outputFormats both equal ["mulaw/8000"]
+    And capabilities.interruption is true (Twilio clear-buffer event)
+    And capabilities.dtmf is true
+
+  @integration @ts-bound @ts-twilio-proto
+  Scenario: Twilio Media Streams JSON protocol parses start, media, and stop events
+    # PR11 — wire-protocol parser bound at unit/integration level
+    Given a stream of Twilio Media Streams JSON frames containing "start", "media", and "stop"
+    When parseMediaStreamFrame is invoked on each frame
+    Then the start frame yields streamSid and callSid
+    And the media frame yields decoded mulaw payload bytes
+    And the stop frame yields an event with no payload
+
+  @integration @ts-bound @ts-twilio-proto
+  Scenario: Twilio interrupt() sends a clear-buffer frame on the live stream
+    # PR11 — interrupt path: capabilities.interruption true → send Twilio "clear" event
+    Given a TwilioAgentAdapter with a live media stream and a known streamSid
+    When interrupt() is awaited
+    Then a JSON frame with event "clear" and the streamSid is written to the WebSocket
+
+  @integration @ts-bound @ts-twilio-server
+  Scenario: TwiML voice endpoint serves Connect+Stream with an XML-escaped WSS URL
+    # PR11 — TwiML response shape, served by the local webhook server
+    Given the TwilioWebhookServer is bound on an OS-assigned port
+    And the parent adapter has a publicBaseUrl configured
+    When a Twilio webhook POSTs valid form data to /twilio/voice
+    Then the response Content-Type is application/xml
+    And the body contains <Connect><Stream url="wss://..."/></Connect>
+    And the stream URL is XML-escaped (no unescaped &, <, >, or quotes)
+
+  @integration @ts-bound @ts-twilio-server
+  Scenario: TwiML voice endpoint rejects webhooks with a missing X-Twilio-Signature
+    # PR11 — signature gate fails closed for forged or unsigned webhooks
+    Given a TwilioWebhookServer with validateSignature true
+    When a POST to /twilio/voice arrives without an X-Twilio-Signature header
+    Then the response status is 403
+    And the adapter records the rejection without opening a media stream
+
+  @e2e @ts-bound @ts-twilio-tunnel
+  Scenario: Tunnel exposes the local Twilio server over a public URL
+    # PR11 — env-gated e2e: opens an ngrok or localtunnel tunnel and confirms it routes back
+    Given NGROK_AUTHTOKEN is set in the environment (otherwise skip)
+    And the local TwilioWebhookServer is running on an ephemeral port
+    When a TwilioTunnel is opened against the bound port
+    Then the tunnel reports an HTTPS URL
+    And the URL proxies a GET request through to the local server
+
   @unit
   Scenario: ElevenLabsAgentAdapter connects to conversational AI endpoint
     # Source §4.1, L171-174 and §5.4, L760-776
@@ -142,7 +193,7 @@ Feature: Voice agent testing in Scenario SDK
     Then connect() was awaited exactly once before the first script step
     And disconnect() was awaited exactly once regardless of pass/fail/exception
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: AudioChunk internal format is PCM16 at 24kHz mono
     # Locked decision: AudioChunk normalization
     Given any adapter receives or sends audio
@@ -694,7 +745,7 @@ Feature: Voice agent testing in Scenario SDK
     Then no TTS, STT, ffmpeg, or transport code is invoked
     And behavior is identical to pre-voice SDK
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: VoiceAgentAdapter base class is public for custom implementations
     # Source §7.3 L1186, §5.7 L830-854
     Given a user subclass of VoiceAgentAdapter implementing connect/send_audio/recv_audio/disconnect
@@ -747,19 +798,19 @@ Feature: Voice agent testing in Scenario SDK
   # Adapter Capability Matrix — new requirement
   # ======================================================================
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: Every adapter publishes a capabilities attribute
     Given any concrete VoiceAgentAdapter subclass
     Then adapter.capabilities is an AdapterCapabilities instance
     And it declares: streaming_transcripts, native_vad, dtmf, input_formats, output_formats
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: dtmf() raises UnsupportedCapabilityError on non-telephony adapters
     Given an adapter with capabilities.dtmf == False
     When scenario.dtmf("1") runs
     Then UnsupportedCapabilityError is raised naming the adapter and the "dtmf" capability
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: Capability matrix is rendered into adapter docs
     Given the voice-agents documentation
     Then a capability matrix table lists every built-in adapter
