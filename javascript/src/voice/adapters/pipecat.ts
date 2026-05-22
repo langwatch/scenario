@@ -159,7 +159,15 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
    * sendLock`, do work, install a new tail.
    */
   private sendLock: Promise<void> = Promise.resolve();
-  private mulawBuffer: number[] = [];
+  /**
+   * Receive-side coalescing buffer. Inbound µ-law arrives one 20-ms frame
+   * at a time; we batch ~100 ms before resampling to 24 kHz PCM16 so the
+   * downstream chunk granularity is useful, not per-frame. Stored as an
+   * array of Uint8Array slices rather than a `number[]` so each
+   * `bufferMulaw` call is O(1) instead of O(n) per byte.
+   */
+  private mulawChunks: Uint8Array[] = [];
+  private mulawChunksByteLength = 0;
 
   constructor(init: PipecatAgentAdapterInit = {}) {
     super();
@@ -219,7 +227,8 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     const ws = factory(this.url);
     this.ws = ws;
     this.inbox = { queue: [], waiter: null, closed: false };
-    this.mulawBuffer = [];
+    this.mulawChunks = [];
+    this.mulawChunksByteLength = 0;
 
     await new Promise<void>((resolve, reject) => {
       const onOpen = (): void => {
@@ -391,14 +400,22 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
   }
 
   private bufferMulaw(bytes: Uint8Array): void {
-    for (const b of bytes) this.mulawBuffer.push(b);
-    if (this.mulawBuffer.length >= RECV_BATCH_MULAW_BYTES) this.flushBufferedMulaw();
+    if (bytes.length === 0) return;
+    this.mulawChunks.push(bytes);
+    this.mulawChunksByteLength += bytes.length;
+    if (this.mulawChunksByteLength >= RECV_BATCH_MULAW_BYTES) this.flushBufferedMulaw();
   }
 
   private flushBufferedMulaw(): void {
-    if (this.mulawBuffer.length === 0 || !this.inbox) return;
-    const mulaw = Uint8Array.from(this.mulawBuffer);
-    this.mulawBuffer = [];
+    if (this.mulawChunksByteLength === 0 || !this.inbox) return;
+    const mulaw = new Uint8Array(this.mulawChunksByteLength);
+    let offset = 0;
+    for (const part of this.mulawChunks) {
+      mulaw.set(part, offset);
+      offset += part.length;
+    }
+    this.mulawChunks = [];
+    this.mulawChunksByteLength = 0;
     const pcm = mulaw8kToPcm16At24k(mulaw);
     const chunk = new AudioChunk({ data: pcm });
     const waiter = this.inbox.waiter;
@@ -440,13 +457,23 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
   }
 }
 
-/** Resolve incoming WS frame data to a UTF-8 string, or null if it's binary. */
+/**
+ * Resolve incoming WS frame data to a UTF-8 string, or null if it's binary.
+ *
+ * The `ws` library hands the `message` handler a `Buffer` for both binary
+ * and text frames; the distinction is in the `isBinary` second argument
+ * the adapter would have to surface separately. We don't (the WebSocketLike
+ * surface keeps the handler single-arg for test-injection simplicity), so
+ * we fall back to peeking the first byte: JSON-shaped frames must start
+ * with `{` (0x7b) or `[` (0x5b). Binary µ-law frames whose first byte
+ * happens to equal 0x7b/0x5b will be mis-routed to the JSON parser and
+ * silently dropped (parser returns null for non-JSON). That's a known
+ * rare-but-possible collision — accepted because real Pipecat bots emit
+ * audio only as JSON `media` frames, never as standalone binary.
+ */
 function coerceFrameToText(data: unknown): string | null {
   if (typeof data === "string") return data;
   if (Buffer.isBuffer(data)) {
-    // A Buffer here can be either a JSON text frame (string in disguise)
-    // or an actual binary frame. Probe the first byte: JSON starts with
-    // `{` (0x7b) or `[` (0x5b); anything else we treat as binary.
     const head = data.length > 0 ? data[0] : 0;
     if (head === 0x7b || head === 0x5b) return data.toString("utf8");
     return null;
