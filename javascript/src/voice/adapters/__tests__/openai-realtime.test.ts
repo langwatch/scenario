@@ -199,14 +199,21 @@ describeFeature(
               string,
               unknown
             >;
-            expect(session.input_audio_format).toBe("pcm16");
-            expect(session.output_audio_format).toBe("pcm16");
-            expect(session.voice).toBe("alloy");
+            // GA spec — `session.type === "realtime"`, formats live under
+            // `audio.input.format` / `audio.output.format`, voice under
+            // `audio.output.voice`, transcription/turn_detection nested
+            // under `audio.input`.
+            expect(session.type).toBe("realtime");
+            expect(session.model).toBe(OPENAI_REALTIME_MODEL);
+            const audio = session.audio as Record<string, Record<string, unknown>>;
+            expect(audio.input.format).toEqual({ type: "audio/pcm", rate: 24000 });
+            expect(audio.output.format).toEqual({ type: "audio/pcm", rate: 24000 });
+            expect(audio.output.voice).toBe("alloy");
             expect(session.instructions).toBe("You are a helpful assistant.");
             expect(session.tools).toEqual([{ type: "function", name: "noop" }]);
             // Server-side VAD off — we own turn boundaries via commit +
             // response.create after each sendAudio.
-            expect(session.turn_detection).toBeNull();
+            expect(audio.input.turn_detection).toBeNull();
 
             // Drive the audio loop: send a chunk, push an audio delta
             // back, and assert the model's frame becomes an AudioChunk.
