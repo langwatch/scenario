@@ -16,8 +16,10 @@
  *   `session.audio.output.voice`, transcription/turn_detection nested
  *   under `session.audio.input`.
  * - Send audio: `input_audio_buffer.append` with base64-encoded PCM16.
- * - Receive audio: loop over server events until `response.audio.delta`;
- *   return decoded PCM16. Transcript events update instance attributes.
+ * - Receive audio: loop over server events until
+ *   `response.output_audio.delta` (Beta-era `response.audio.delta` is
+ *   also accepted); return decoded PCM16. Transcript events update
+ *   instance attributes.
  * - Send text (role=USER): `conversation.item.create` (input_text) then
  *   `response.create`.
  */
@@ -306,9 +308,14 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
    * Commit any pending audio, request a response, and return the first
    * audio chunk the model produces.
    *
-   * Loops over incoming events until a `response.audio.delta` event
-   * arrives, then returns decoded PCM16. Transcript events update
+   * Loops over incoming events until a `response.output_audio.delta`
+   * event arrives, then returns decoded PCM16. Transcript events update
    * `lastUserTranscript` / `lastAgentTranscript`. An `error` event throws.
+   *
+   * GA event names are `response.output_audio[_transcript].{delta,done}`
+   * (the Beta `response.audio[_transcript].*` names are dead). We accept
+   * both so back-port to a Beta endpoint stays trivial; production hits
+   * the GA path.
    */
   async receiveAudio(timeout: number): Promise<AudioChunk> {
     if (!this._ws) {
@@ -331,7 +338,10 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       const event = await this._nextEvent(remaining);
       const etype = (event as { type?: string }).type ?? "";
 
-      if (etype === "response.audio.delta") {
+      if (
+        etype === "response.output_audio.delta" ||
+        etype === "response.audio.delta"
+      ) {
         const delta = (event as { delta?: string }).delta ?? "";
         // PCM16 invariant: even byte count. The AudioChunk constructor
         // throws on odd-byte buffers — surface the upstream codec bug
@@ -339,9 +349,15 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         return new AudioChunk({ data: new Uint8Array(Buffer.from(delta, "base64")) });
       }
 
-      if (etype === "response.audio_transcript.delta") {
+      if (
+        etype === "response.output_audio_transcript.delta" ||
+        etype === "response.audio_transcript.delta"
+      ) {
         this._agentTranscriptBuf += (event as { delta?: string }).delta ?? "";
-      } else if (etype === "response.audio_transcript.done") {
+      } else if (
+        etype === "response.output_audio_transcript.done" ||
+        etype === "response.audio_transcript.done"
+      ) {
         const transcript =
           (event as { transcript?: string }).transcript ?? "";
         if (transcript) {
