@@ -896,7 +896,8 @@ class ScenarioExecutor:
                 return messages
         except Exception as e:
             agent_name = agent.__class__.__name__
-            raise RuntimeError(f"[{agent_name}] {e}") from e
+            msg = str(e) if str(e) else f"<{e.__class__.__name__}: no message>"
+            raise RuntimeError(f"[{agent_name}] {msg}") from e
 
     def _scenario_name(self):
         if self.config.verbose == 2:
