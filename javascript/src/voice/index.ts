@@ -144,3 +144,11 @@ export {
   type SynthesizeOptions,
   type WebSocketLike,
 } from "./adapters";
+  PipecatAgentAdapter,
+  type PipecatAgentAdapterInit,
+  type PipecatTransport,
+  type PipecatWebSocketFactory,
+  type PipecatWebSocketLike,
+} from "./adapters/pipecat";
+
+export { PendingTransportError } from "./adapters/pending-transport-error";

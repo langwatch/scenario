@@ -17,20 +17,62 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.1 Voice Agent Adapters (Source L130-243)
   # ======================================================================
 
-  @unit
-  Scenario: PipecatAgentAdapter connects over WebSocket with Twilio audio format
+  @integration @ts-pipecat
+  Scenario: PipecatAgentAdapter exchanges audio with a Pipecat bot over WebSocket
     # Source §4.1, L137-142 and §5.1, L664-682
-    Given a PipecatAgentAdapter configured with url "ws://localhost:8765/ws", audio_format "mulaw", sample_rate 8000
-    When the scenario executor starts
-    Then connect() is called automatically before any script step
+    # PR10 of N: TS Pipecat adapter binds this scenario against a mock Twilio
+    # Media Streams WS server (no real bot). The "successful round-trip"
+    # asserts: synthetic start handshake, outbound µ-law frames over the
+    # wire, inbound µ-law decoded into a PCM16/24k AudioChunk.
+    Given a PipecatAgentAdapter configured with url, audio_format "mulaw", sample_rate 8000
+    When connect() is called and the SDK sends user audio
+    Then a synthetic Twilio Media Streams handshake is performed
+    And outbound audio is paced as 20 ms µ-law frames
+    And inbound µ-law from the bot is decoded into a PCM16/24kHz AudioChunk
     And the adapter advertises mulaw/8000 as its transport format
 
-  @unit
-  Scenario: PipecatAgentAdapter connects over WebRTC
+  @unit @ts-pipecat
+  Scenario: PipecatAgentAdapter raises PendingTransportError on transport="webrtc"
     # Source §4.1, L144-148 and §5.1, L684-700
+    # WebRTC (SmallWebRTC) is deferred; calling connect() with transport="webrtc"
+    # must raise PendingTransportError immediately so users hit a clear failure
+    # mode instead of a silent hang.
     Given a PipecatAgentAdapter configured with signaling_url and transport "webrtc"
-    When the scenario executor starts
-    Then a WebRTC peer connection is negotiated via the signaling endpoint
+    When the scenario executor calls connect()
+    Then PendingTransportError is raised naming the adapter and the deferred transport
+
+  @unit @ts-codec
+  Scenario: g711 µ-law encode/decode round-trip preserves audio fidelity
+    # The g711 codec is the load-bearing math behind every Twilio-protocol
+    # adapter (Pipecat over Twilio transport, the upcoming TS Twilio adapter).
+    # A known sine wave round-tripped through encode→decode→encode at the same
+    # sample rate must preserve amplitude within the per-segment µ-law step.
+    Given a PCM16 8 kHz sine wave at known amplitude
+    When the buffer is encoded to µ-law and decoded back to PCM16
+    Then the round-tripped samples match the input within G.711 quantisation error
+    And amplitude is preserved within the per-segment µ-law step
+
+  @unit @ts-codec
+  Scenario: g711 sample rate conversion is correct in both directions
+    # Pipecat transports run at 8 kHz µ-law; scenario's internal canonical
+    # format is PCM16 24 kHz. The 3:1 / 1:3 resampling must round-trip a known
+    # signal without large amplitude or DC drift — otherwise inbound audio
+    # decays each turn.
+    Given a PCM16 24 kHz buffer carrying a known low-frequency tone
+    When the buffer is converted 24 kHz → 8 kHz → 24 kHz
+    Then the result is approximately 3× shorter then 3× longer
+    And no large amplitude or DC offset is introduced
+
+  @unit @ts-pipecat
+  Scenario: PipecatAgentAdapter emits a Twilio clear-buffer frame on interrupt
+    # Pipecat over the Twilio WS transport speaks Media Streams; the `clear`
+    # event drops all buffered outbound audio on the bot side. This is the
+    # adapter's first-class interrupt path — preferred over timing-based
+    # barge-in because it's deterministic, no VAD detection race.
+    Given a connected PipecatAgentAdapter
+    When scenario.interrupt() is called on the adapter
+    Then a Twilio Media Streams "clear" frame is sent on the WebSocket
+    And the frame carries the active streamSid
 
   @unit
   Scenario: LiveKitAgentAdapter joins a room as a participant
