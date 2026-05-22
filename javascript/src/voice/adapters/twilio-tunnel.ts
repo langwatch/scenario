@@ -117,17 +117,16 @@ async function openLocaltunnelTunnel(port: number): Promise<OpenedTunnel> {
 
 /**
  * Try to dynamic-import a module name. Returns the module on success, `null`
- * on resolution failure. Lets callers degrade gracefully when an optional
- * peer dep isn't installed.
+ * on resolution failure (the optional peer dep isn't installed). Bundlers
+ * see this as a runtime dynamic import; consumers that don't take the tunnel
+ * path never pull the dep.
  */
 async function loadOptional<T>(name: string): Promise<T | null> {
   try {
-    // Indirect to avoid bundler resolution at build time.
-    const dynImport = (0, eval)("(name) => import(name)") as (
-      n: string,
-    ) => Promise<T>;
-    return await dynImport(name);
-  } catch {
-    return null;
+    return (await import(/* @vite-ignore */ name)) as T;
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") return null;
+    throw err;
   }
 }

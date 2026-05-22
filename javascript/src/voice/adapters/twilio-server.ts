@@ -25,6 +25,7 @@ import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
 import { AudioChunk } from "../audio-chunk";
 
 import type { TwilioAgentAdapter } from "./twilio";
+import { twilioLogger } from "./twilio-logger";
 import {
   escapeXmlAttr,
   mulaw8kToPcm16_24k,
@@ -32,6 +33,14 @@ import {
   redactE164,
   verifyTwilioSignature,
 } from "./twilio-shared";
+
+/**
+ * Maximum request body the webhook reader will accept. Twilio's voice
+ * webhook bodies are ~1 KB form-encoded; this is generous head-room.
+ * Rejecting larger bodies guards against OOM from an attacker who probes
+ * the publicly-tunneled endpoint with a multi-GB POST.
+ */
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
 /**
  * Minimal WS interface used by the media-stream loop. The full `ws.WebSocket`
@@ -163,7 +172,17 @@ export class TwilioWebhookServer {
     url: URL,
   ): Promise<void> {
     const adapter = this._adapter;
-    const body = await readBody(req);
+    let body: string;
+    try {
+      body = await readBody(req, MAX_BODY_BYTES);
+    } catch (err) {
+      twilioLogger.warn("webhook body rejected", {
+        reason: err instanceof Error ? err.message : "unknown",
+      });
+      res.statusCode = 413;
+      res.end("payload too large");
+      return;
+    }
     const params = parseFormUrlEncoded(body);
 
     if (adapter.validateSignature) {
@@ -176,6 +195,9 @@ export class TwilioWebhookServer {
       });
       if (!valid) {
         adapter._onWebhookRejected();
+        twilioLogger.warn("rejecting voice webhook — missing or invalid X-Twilio-Signature", {
+          from: redactE164(params.From),
+        });
         res.statusCode = 403;
         res.end("forbidden");
         return;
@@ -185,10 +207,11 @@ export class TwilioWebhookServer {
     const fromNumber = params.From ?? "";
     if (adapter.allowedCallers && !adapter.allowedCallers.has(fromNumber)) {
       adapter._onWebhookRejected();
+      twilioLogger.info("rejecting call from disallowed caller", {
+        from: redactE164(fromNumber),
+      });
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/xml");
-      // Redacted log line — caller sees a Reject response.
-      void redactE164(fromNumber);
       res.end("<Response><Reject/></Response>");
       return;
     }
@@ -256,12 +279,16 @@ export class TwilioWebhookServer {
         for (const byte of frame.payloadMulaw) buffered.push(byte);
         if (buffered.length >= flushThresholdBytes) flush();
       } else if (frame.event === "dtmf" && frame.dtmfDigit) {
+        twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
         if (adapter.onDtmf) {
           try {
             adapter.onDtmf(frame.dtmfDigit);
-          } catch {
+          } catch (err) {
             // Callback errors are swallowed — adapter contract says they don't
-            // tear down the stream.
+            // tear down the stream — but they ARE worth logging.
+            twilioLogger.warn("onDtmf callback raised; continuing", {
+              error: err instanceof Error ? err.message : String(err),
+            });
           }
         }
       } else if (frame.event === "stop") {
@@ -274,10 +301,19 @@ export class TwilioWebhookServer {
 
 // ---------------------------------------------------------------- helpers
 
-async function readBody(req: IncomingMessage): Promise<string> {
+async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let received = 0;
+    req.on("data", (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > maxBytes) {
+        req.destroy();
+        reject(new Error(`request body exceeded ${maxBytes} bytes`));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", reject);
   });
