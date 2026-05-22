@@ -48,3 +48,13 @@ export {
   OPENAI_STT_MODEL,
   OPENAI_TTS_MODEL,
 } from "./voice-models";
+
+export {
+  PipecatAgentAdapter,
+  type PipecatAgentAdapterInit,
+  type PipecatTransport,
+  type PipecatWebSocketFactory,
+  type PipecatWebSocketLike,
+} from "./adapters/pipecat";
+
+export { PendingTransportError } from "./adapters/pending-transport-error";
