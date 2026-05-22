@@ -7,12 +7,14 @@
  * and §7.2 L1164-1171). Unlike the wrapper adapters (Pipecat, Twilio,
  * etc.), this adapter speaks the OpenAI Realtime wire protocol itself.
  *
- * Wire protocol:
+ * Wire protocol (GA, post-2026-05-22 — the Beta surface is gone):
  * - Endpoint: `wss://api.openai.com/v1/realtime?model=<model>`
- * - Headers: `Authorization: Bearer <api_key>` (the GA endpoint rejects
- *   the deprecated `OpenAI-Beta: realtime=v1` opt-in)
- * - On connect: emit `session.update` to configure audio formats, voice,
- *   instructions, and tools.
+ * - Headers: `Authorization: Bearer <api_key>` (the `OpenAI-Beta: realtime=v1`
+ *   opt-in is rejected outright by the GA endpoint).
+ * - On connect: emit `session.update` with `session.type: "realtime"`,
+ *   audio formats under `session.audio.{input,output}.format`, voice under
+ *   `session.audio.output.voice`, transcription/turn_detection nested
+ *   under `session.audio.input`.
  * - Send audio: `input_audio_buffer.append` with base64-encoded PCM16.
  * - Receive audio: loop over server events until `response.audio.delta`;
  *   return decoded PCM16. Transcript events update instance attributes.
@@ -212,15 +214,26 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
     this._ws = ws;
 
-    // Configure session: audio formats, voice, instructions, tools.
-    // Disable server-side VAD so we own turn boundaries explicitly via
-    // input_audio_buffer.commit + response.create after each sendAudio.
+    // Configure session per the GA Realtime spec (RealtimeSessionCreateRequest
+    // in openai-node `realtime.ts`): `session.type` discriminates the
+    // session kind; audio formats live under `session.audio.{input,output}`;
+    // turn detection sits under `session.audio.input` so it can be `null`
+    // (which puts us in control of turn boundaries — we call commit +
+    // response.create after each sendAudio).
     const sessionConfig: Record<string, unknown> = {
-      input_audio_format: "pcm16",
-      output_audio_format: "pcm16",
-      voice: this.voice,
-      input_audio_transcription: { model: OPENAI_STT_MODEL },
-      turn_detection: null,
+      type: "realtime",
+      model: this.model,
+      audio: {
+        input: {
+          format: { type: "audio/pcm", rate: 24000 },
+          transcription: { model: OPENAI_STT_MODEL },
+          turn_detection: null,
+        },
+        output: {
+          format: { type: "audio/pcm", rate: 24000 },
+          voice: this.voice,
+        },
+      },
     };
     if (this.instructions) sessionConfig.instructions = this.instructions;
     if (this.tools.length > 0) sessionConfig.tools = this.tools;
