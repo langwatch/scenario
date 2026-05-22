@@ -12,11 +12,21 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
-import { expect } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AudioChunk } from "../../audio-chunk";
 import { TwilioAgentAdapter } from "../twilio";
 import type { MediaStreamWebSocket } from "../twilio-server";
-import { TwilioRESTHelper, buildMediaFrame, parseMediaStreamFrame } from "../twilio-shared";
+import {
+  TwilioRESTHelper,
+  buildMediaFrame,
+  mulaw8kToPcm16_24k,
+  parseMediaStreamFrame,
+  pcm16_24kToMulaw8k,
+  validateDtmf,
+  validateE164,
+  verifyTwilioSignature,
+} from "../twilio-shared";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "..", "specs", "voice-agents.feature");
@@ -237,3 +247,203 @@ async function waitUntil(pred: () => boolean, timeoutMs = 1000): Promise<void> {
     await new Promise<void>((r) => setTimeout(r, 5));
   }
 }
+
+// ----------------------------------------------------------------------------
+// Wire-level coverage for hot paths the cucumber scenarios above don't reach.
+// Plain `it()` blocks because the corresponding behaviors aren't @ts-bound
+// scenarios — they're internal contracts the adapter must hold.
+// ----------------------------------------------------------------------------
+
+describe("twilio-shared codec round-trip", () => {
+  it("pcm16/24k → mulaw/8k → pcm16/24k preserves a sine wave within tolerance", () => {
+    // 100 ms of 440 Hz tone at 24 kHz.
+    const samples = 2400;
+    const original = new Uint8Array(samples * 2);
+    const view = new DataView(original.buffer);
+    for (let i = 0; i < samples; i++) {
+      const v = Math.round(Math.sin((2 * Math.PI * 440 * i) / 24000) * 20000);
+      view.setInt16(i * 2, v, true);
+    }
+    const mulaw = pcm16_24kToMulaw8k(original);
+    expect(mulaw.length).toBeGreaterThan(0);
+    expect(mulaw.length).toBe(samples / 3); // 24 kHz → 8 kHz = 3:1 decimation
+
+    const restored = mulaw8kToPcm16_24k(mulaw);
+    expect(restored.length).toBeGreaterThan(0);
+    // Lossy round-trip — the average sample diff must stay small for a clean
+    // tone. Threshold picked empirically; G.711 µ-law adds modest quantization
+    // noise but doesn't shred the waveform.
+    const restoredView = new DataView(restored.buffer);
+    let totalAbsDiff = 0;
+    const compareSamples = Math.min(samples, restored.length / 2);
+    for (let i = 0; i < compareSamples; i++) {
+      const a = view.getInt16(i * 2, true);
+      const b = restoredView.getInt16(i * 2, true);
+      totalAbsDiff += Math.abs(a - b);
+    }
+    const avgAbsDiff = totalAbsDiff / compareSamples;
+    expect(avgAbsDiff).toBeLessThan(2000); // <10% of peak amplitude (20000)
+  });
+
+  it("empty input produces empty output for both directions", () => {
+    expect(pcm16_24kToMulaw8k(new Uint8Array(0))).toHaveLength(0);
+    expect(mulaw8kToPcm16_24k(new Uint8Array(0))).toHaveLength(0);
+  });
+});
+
+describe("validateE164 / validateDtmf", () => {
+  it("validateE164 accepts canonical numbers and rejects junk", () => {
+    expect(() => validateE164("+14155551234")).not.toThrow();
+    expect(() => validateE164("+447911123456")).not.toThrow();
+    expect(() => validateE164("14155551234")).toThrow(/E.164/); // missing +
+    expect(() => validateE164("+0155551234")).toThrow(/E.164/); // leading 0
+    expect(() => validateE164("+1234")).toThrow(/E.164/); // too short
+    expect(() => validateE164("")).toThrow(/E.164/);
+  });
+
+  it("validateDtmf accepts the DTMF charset and rejects everything else", () => {
+    expect(() => validateDtmf("123")).not.toThrow();
+    expect(() => validateDtmf("*0#")).not.toThrow();
+    expect(() => validateDtmf("1wW2")).not.toThrow();
+    expect(() => validateDtmf("")).toThrow(/DTMF/);
+    expect(() => validateDtmf("12a")).toThrow(/DTMF/);
+    // The injection payload the validator's docstring warns about.
+    expect(() => validateDtmf('1"/><Say>x</Say><Play digits="')).toThrow(/DTMF/);
+  });
+});
+
+describe("verifyTwilioSignature", () => {
+  // Twilio signs HMAC-SHA1(authToken, url + sortedParamsConcat) and base64s
+  // the digest. Build a known-good signature manually and verify both branches.
+  async function signFixture(args: {
+    authToken: string;
+    url: string;
+    params: Record<string, string>;
+  }): Promise<string> {
+    const { createHmac } = await import("node:crypto");
+    const sortedKeys = Object.keys(args.params).sort();
+    let data = args.url;
+    for (const key of sortedKeys) data += key + args.params[key];
+    return createHmac("sha1", args.authToken).update(data).digest("base64");
+  }
+
+  it("accepts a signature computed against the same inputs", async () => {
+    const authToken = "test-token-xyz";
+    const url = "https://example.test/twilio/voice";
+    const params = { From: "+14155557777", CallSid: "CA1" };
+    const signature = await signFixture({ authToken, url, params });
+    expect(await verifyTwilioSignature({ authToken, url, params, signature })).toBe(true);
+  });
+
+  it("rejects a signature signed with a different auth token", async () => {
+    const url = "https://example.test/twilio/voice";
+    const params = { From: "+14155557777" };
+    const signature = await signFixture({ authToken: "wrong", url, params });
+    expect(
+      await verifyTwilioSignature({ authToken: "real", url, params, signature }),
+    ).toBe(false);
+  });
+
+  it("rejects a signature signed against a different URL", async () => {
+    const authToken = "shared";
+    const params = { From: "+14155557777" };
+    const signature = await signFixture({
+      authToken,
+      url: "https://attacker.test/twilio/voice",
+      params,
+    });
+    expect(
+      await verifyTwilioSignature({
+        authToken,
+        url: "https://example.test/twilio/voice",
+        params,
+        signature,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects when the signature is missing", async () => {
+    expect(
+      await verifyTwilioSignature({
+        authToken: "x",
+        url: "https://example.test",
+        params: {},
+        signature: undefined,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("TwilioAgentAdapter integration paths", () => {
+  let openAdapter: TwilioAgentAdapter | null = null;
+
+  afterEach(async () => {
+    if (openAdapter) {
+      await openAdapter.disconnect();
+      openAdapter = null;
+    }
+  });
+
+  it("fires onDtmf when a DTMF media-stream frame arrives", async () => {
+    const onDtmf = vi.fn();
+    const adapter = makeAdapter({ onDtmf });
+    await adapter.connect();
+    openAdapter = adapter;
+    const socket = mockSocket();
+    const loop = adapter._driveMediaStream(socket);
+    socket.emit(
+      JSON.stringify({ event: "start", start: { streamSid: "MZdtmf", callSid: "CAdtmf" } }),
+    );
+    socket.emit(JSON.stringify({ event: "dtmf", streamSid: "MZdtmf", dtmf: { digit: "5" } }));
+    await waitUntil(() => onDtmf.mock.calls.length > 0);
+    expect(onDtmf).toHaveBeenCalledWith("5");
+    socket.closeNow();
+    await loop;
+  });
+
+  it("rejects POSTs from callers not in allowedCallers and records the rejection", async () => {
+    const adapter = new TwilioAgentAdapter({
+      accountSid: "ACtest",
+      authToken: "secret",
+      phoneNumber: "+14155551234",
+      publicBaseUrl: "https://example.test",
+      validateSignature: false,
+      allowedCallers: ["+14155557777"],
+      rest: stubRest("PNallow"),
+    });
+    await adapter.connect();
+    openAdapter = adapter;
+    expect(adapter.rejectedCount).toBe(0);
+
+    const form = new URLSearchParams({ From: "+14155550000", CallSid: "CAblocked" });
+    const response = await fetch(`${adapter.localBaseUrl}/twilio/voice`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(body).toContain("<Reject/>");
+    expect(adapter.rejectedCount).toBe(1);
+  });
+
+  it("flushes buffered µ-law on a stop frame and exits the loop", async () => {
+    const adapter = makeAdapter();
+    await adapter.connect();
+    openAdapter = adapter;
+    const socket = mockSocket();
+    const loop = adapter._driveMediaStream(socket);
+    socket.emit(
+      JSON.stringify({ event: "start", start: { streamSid: "MZstop", callSid: "CAstop" } }),
+    );
+    // 50 ms of µ-law payload (50 * 8 = 400 bytes) — below the 100 ms flush
+    // threshold, so the loop holds it in the buffer until the stop frame.
+    const payload = new Uint8Array(400).fill(0xff);
+    socket.emit(buildMediaFrame("MZstop", payload));
+    socket.emit(JSON.stringify({ event: "stop", streamSid: "MZstop" }));
+    await loop; // loop exits when it sees `stop`
+    const chunk = await adapter.receiveAudio(0.5);
+    expect(chunk).toBeInstanceOf(AudioChunk);
+    expect(chunk.data.length).toBeGreaterThan(0);
+  });
+});

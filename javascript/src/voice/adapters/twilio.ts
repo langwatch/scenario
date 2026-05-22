@@ -23,7 +23,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
-import { AdapterCapabilities, UnsupportedCapabilityError } from "../capabilities";
+import { AdapterCapabilities } from "../capabilities";
 
 import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
 import {
@@ -459,5 +459,3 @@ class InboundQueue {
   }
 }
 
-// Suppress an unused-symbol lint without affecting runtime.
-export type { UnsupportedCapabilityError };

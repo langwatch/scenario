@@ -17,11 +17,10 @@
 
 import { Buffer } from "node:buffer";
 
-import { PCM16_SAMPLE_RATE } from "../audio-chunk";
+import { PCM16_SAMPLE_RATE, PCM16_SAMPLE_WIDTH_BYTES } from "../audio-chunk";
 
 // Twilio Media Streams always uses µ-law 8 kHz mono.
 export const TWILIO_SAMPLE_RATE = 8000;
-export const PCM16_SAMPLE_WIDTH = 2;
 // 20 ms frames at 8 kHz µ-law → 160 bytes per frame.
 export const TWILIO_FRAME_MS = 20;
 export const TWILIO_FRAME_BYTES =
@@ -100,22 +99,22 @@ function resamplePcm16(
   toRate: number,
 ): Uint8Array {
   if (pcm.length === 0 || fromRate === toRate) return pcm;
-  const inputSamples = pcm.length / PCM16_SAMPLE_WIDTH;
+  const inputSamples = pcm.length / PCM16_SAMPLE_WIDTH_BYTES;
   const outputSamples = Math.floor((inputSamples * toRate) / fromRate);
   if (outputSamples <= 0) return new Uint8Array(0);
   const inView = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-  const out = new Uint8Array(outputSamples * PCM16_SAMPLE_WIDTH);
+  const out = new Uint8Array(outputSamples * PCM16_SAMPLE_WIDTH_BYTES);
   const outView = new DataView(out.buffer);
   const ratio = (inputSamples - 1) / Math.max(outputSamples - 1, 1);
   for (let i = 0; i < outputSamples; i++) {
     const pos = i * ratio;
     const idx = Math.floor(pos);
     const frac = pos - idx;
-    const s0 = inView.getInt16(idx * PCM16_SAMPLE_WIDTH, true);
+    const s0 = inView.getInt16(idx * PCM16_SAMPLE_WIDTH_BYTES, true);
     const next = Math.min(idx + 1, inputSamples - 1);
-    const s1 = inView.getInt16(next * PCM16_SAMPLE_WIDTH, true);
+    const s1 = inView.getInt16(next * PCM16_SAMPLE_WIDTH_BYTES, true);
     const interp = Math.round(s0 + (s1 - s0) * frac);
-    outView.setInt16(i * PCM16_SAMPLE_WIDTH, interp, true);
+    outView.setInt16(i * PCM16_SAMPLE_WIDTH_BYTES, interp, true);
   }
   return out;
 }
@@ -123,10 +122,10 @@ function resamplePcm16(
 /** Decode µ-law 8 kHz mono → PCM16 24 kHz mono. */
 export function mulaw8kToPcm16_24k(mulawBytes: Uint8Array): Uint8Array {
   if (mulawBytes.length === 0) return new Uint8Array(0);
-  const pcm8k = new Uint8Array(mulawBytes.length * PCM16_SAMPLE_WIDTH);
+  const pcm8k = new Uint8Array(mulawBytes.length * PCM16_SAMPLE_WIDTH_BYTES);
   const view = new DataView(pcm8k.buffer);
   for (let i = 0; i < mulawBytes.length; i++) {
-    view.setInt16(i * PCM16_SAMPLE_WIDTH, mulawByteToPcmSample(mulawBytes[i]!), true);
+    view.setInt16(i * PCM16_SAMPLE_WIDTH_BYTES, mulawByteToPcmSample(mulawBytes[i]!), true);
   }
   return resamplePcm16(pcm8k, TWILIO_SAMPLE_RATE, PCM16_SAMPLE_RATE);
 }
@@ -135,11 +134,11 @@ export function mulaw8kToPcm16_24k(mulawBytes: Uint8Array): Uint8Array {
 export function pcm16_24kToMulaw8k(pcm16Bytes: Uint8Array): Uint8Array {
   if (pcm16Bytes.length === 0) return new Uint8Array(0);
   const pcm8k = resamplePcm16(pcm16Bytes, PCM16_SAMPLE_RATE, TWILIO_SAMPLE_RATE);
-  const sampleCount = pcm8k.length / PCM16_SAMPLE_WIDTH;
+  const sampleCount = pcm8k.length / PCM16_SAMPLE_WIDTH_BYTES;
   const view = new DataView(pcm8k.buffer, pcm8k.byteOffset, pcm8k.byteLength);
   const out = new Uint8Array(sampleCount);
   for (let i = 0; i < sampleCount; i++) {
-    out[i] = pcmSampleToMulaw(view.getInt16(i * PCM16_SAMPLE_WIDTH, true));
+    out[i] = pcmSampleToMulaw(view.getInt16(i * PCM16_SAMPLE_WIDTH_BYTES, true));
   }
   return out;
 }
@@ -425,15 +424,13 @@ export async function verifyTwilioSignature(args: {
     const sortedKeys = Object.keys(args.params).sort();
     let data = args.url;
     for (const key of sortedKeys) data += key + args.params[key];
-    const { createHmac } = await import("node:crypto");
-    const expected = createHmac("sha1", args.authToken).update(data).digest("base64");
-    // Length-independent compare to avoid leaking timing on hash mismatch.
-    if (expected.length !== args.signature.length) return false;
-    let diff = 0;
-    for (let i = 0; i < expected.length; i++) {
-      diff |= expected.charCodeAt(i) ^ args.signature.charCodeAt(i);
-    }
-    return diff === 0;
+    const { createHmac, timingSafeEqual } = await import("node:crypto");
+    const expected = createHmac("sha1", args.authToken).update(data).digest();
+    const received = Buffer.from(args.signature, "base64");
+    // `timingSafeEqual` requires equal-length inputs. Mismatched lengths are
+    // by definition unequal — return false without measuring further.
+    if (expected.length !== received.length) return false;
+    return timingSafeEqual(expected, received);
   } catch {
     return false;
   }

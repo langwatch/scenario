@@ -12,7 +12,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
-import { afterAll, expect } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import { TwilioAgentAdapter } from "../twilio";
 import { TwilioRESTHelper } from "../twilio-shared";
@@ -55,64 +55,66 @@ afterAll(async () => {
   }
 });
 
-describeFeature(
-  feature,
-  ({ Scenario }) => {
-    Scenario(
-      "Tunnel exposes the local Twilio server over a public URL",
-      ({ Given, And, When, Then }) => {
-        let adapter: TwilioAgentAdapter;
-        let tunnel: OpenedTunnel;
-        let probedBody: string;
+if (TUNNEL_ENABLED) {
+  describeFeature(
+    feature,
+    ({ Scenario }) => {
+      Scenario(
+        "Tunnel exposes the local Twilio server over a public URL",
+        ({ Given, And, When, Then }) => {
+          let adapter: TwilioAgentAdapter;
+          let tunnel: OpenedTunnel;
+          let probedBody: string;
 
-        Given("NGROK_AUTHTOKEN is set in the environment (otherwise skip)", () => {
-          if (!TUNNEL_ENABLED) {
-            // Mark the scenario as skipped — assertions following short-circuit.
-            return;
-          }
-          expect(process.env.NGROK_AUTHTOKEN).toBeTruthy();
-        });
-
-        And("the local TwilioWebhookServer is running on an ephemeral port", async () => {
-          if (!TUNNEL_ENABLED) return;
-          adapter = new TwilioAgentAdapter({
-            accountSid: "ACtest",
-            authToken: "secret",
-            phoneNumber: "+14155551234",
-            publicBaseUrl: "https://placeholder.example",
-            validateSignature: false,
-            rest: stubRest("PNxxxx"),
+          Given("NGROK_AUTHTOKEN is set in the environment (otherwise skip)", () => {
+            expect(process.env.NGROK_AUTHTOKEN).toBeTruthy();
           });
-          await adapter.connect();
-          openedAdapter = adapter;
-        });
 
-        When("a TwilioTunnel is opened against the bound port", async () => {
-          if (!TUNNEL_ENABLED) return;
-          const port = Number(new URL(adapter.localBaseUrl).port);
-          tunnel = await openTwilioTunnel({ port });
-          openedTunnel = tunnel;
-          // Rebind the adapter's publicBaseUrl so the TwiML response points
-          // to the live URL — a sanity check that the wiring is end-to-end.
-          adapter.publicBaseUrl = tunnel.url;
-        });
+          And("the local TwilioWebhookServer is running on an ephemeral port", async () => {
+            adapter = new TwilioAgentAdapter({
+              accountSid: "ACtest",
+              authToken: "secret",
+              phoneNumber: "+14155551234",
+              publicBaseUrl: "https://placeholder.example",
+              validateSignature: false,
+              rest: stubRest("PNxxxx"),
+            });
+            await adapter.connect();
+            openedAdapter = adapter;
+          });
 
-        Then("the tunnel reports an HTTPS URL", () => {
-          if (!TUNNEL_ENABLED) return;
-          expect(tunnel.url).toMatch(/^https:\/\//);
-        });
+          When("a TwilioTunnel is opened against the bound port", async () => {
+            const port = Number(new URL(adapter.localBaseUrl).port);
+            tunnel = await openTwilioTunnel({ port });
+            openedTunnel = tunnel;
+            // Rebind the adapter's publicBaseUrl so the TwiML response points
+            // to the live URL — a sanity check that the wiring is end-to-end.
+            adapter.publicBaseUrl = tunnel.url;
+          });
 
-        And("the URL proxies a GET request through to the local server", async () => {
-          if (!TUNNEL_ENABLED) return;
-          // The local server returns 404 for GET / — that's enough proof that
-          // the proxy reaches it (vs. a tunnel-side 502/timeout).
-          const probed = await fetch(tunnel.url + "/this-path-404s");
-          probedBody = await probed.text();
-          expect(probed.status).toBe(404);
-          expect(probedBody).toContain("not found");
-        });
-      },
-    );
-  },
-  { includeTags: [["e2e", "ts-twilio-tunnel"]] },
-);
+          Then("the tunnel reports an HTTPS URL", () => {
+            expect(tunnel.url).toMatch(/^https:\/\//);
+          });
+
+          And("the URL proxies a GET request through to the local server", async () => {
+            // The local server returns 404 for GET / — that's enough proof that
+            // the proxy reaches it (vs. a tunnel-side 502/timeout).
+            const probed = await fetch(tunnel.url + "/this-path-404s");
+            probedBody = await probed.text();
+            expect(probed.status).toBe(404);
+            expect(probedBody).toContain("not found");
+          });
+        },
+      );
+    },
+    { includeTags: [["e2e", "ts-twilio-tunnel"]] },
+  );
+} else {
+  describe.skip("Twilio tunnel scenario (set NGROK_AUTHTOKEN to enable)", () => {
+    it("env-gated — not exercised in CI", () => {
+      // Placeholder so the runner reports a single skipped block instead of
+      // five vacuous green steps. The cucumber binding above only registers
+      // when NGROK_AUTHTOKEN is set.
+    });
+  });
+}
