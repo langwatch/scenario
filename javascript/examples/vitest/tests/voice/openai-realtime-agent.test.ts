@@ -12,14 +12,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import {
-  AgentRole,
-  AudioChunk,
-  OPENAI_REALTIME_MODEL,
-  OpenAIRealtimeAgentAdapter,
-  silentChunk,
-} from "@langwatch/scenario";
+import { AgentRole, voice } from "@langwatch/scenario";
 import { expect } from "vitest";
+
+const { AudioChunk, OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter, silentChunk } = voice;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // examples/vitest/tests/voice → repo root is six segments up.
@@ -49,8 +45,8 @@ describeFeature(
     Bind(
       "Demo — OpenAI Realtime as the agent under test",
       ({ Given, When, Then }) => {
-        let adapter: OpenAIRealtimeAgentAdapter;
-        let chunk: AudioChunk | null = null;
+        let adapter: voice.OpenAIRealtimeAgentAdapter;
+        let chunk: voice.AudioChunk | null = null;
 
         Given(
           "an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY",
