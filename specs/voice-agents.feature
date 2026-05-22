@@ -17,11 +17,13 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.1 Voice Agent Adapters (Source L130-243)
   # ======================================================================
 
-  @integration @ts-pipecat
+  @unit @ts-pipecat
   Scenario: PipecatAgentAdapter exchanges audio with a Pipecat bot over WebSocket
     # Source §4.1, L137-142 and §5.1, L664-682
-    # PR10 of N: TS Pipecat adapter binds this scenario against a mock Twilio
-    # Media Streams WS server (no real bot). The "successful round-trip"
+    # PR10 of N: TS Pipecat adapter binds this scenario against a fake Twilio
+    # Media Streams WS (FakeWebSocket — no network). The real-WSS @integration
+    # demo against a live Pipecat bot ships separately once we have an
+    # env-gated bot endpoint (see /browser-qa note). The "successful round-trip"
     # asserts: synthetic start handshake, outbound µ-law frames over the
     # wire, inbound µ-law decoded into a PCM16/24k AudioChunk.
     Given a PipecatAgentAdapter configured with url, audio_format "mulaw", sample_rate 8000
