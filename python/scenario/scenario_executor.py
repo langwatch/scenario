@@ -816,7 +816,13 @@ class ScenarioExecutor:
                 ):
                     start_time = time.time()
 
-                    # Prevent pydantic validation warnings which should already be disabled
+                    # Suppress noisy pydantic serializer warnings emitted by
+                    # litellm + langwatch tracing when dispatching the
+                    # ChatCompletionMessageParam union (developer/system/user/
+                    # assistant/tool/function variants). The previous scope
+                    # only wrapped the call-coroutine *creation*; the await
+                    # below is where litellm.completion actually runs and
+                    # where the warnings fire. Keep the await inside.
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
 
@@ -834,12 +840,12 @@ class ScenarioExecutor:
                                 scenario_state=self._state,
                             )
                         )
-                    if not isinstance(agent_response, Awaitable):
-                        raise Exception(
-                            agent_response_not_awaitable(agent.__class__.__name__),
-                        )
+                        if not isinstance(agent_response, Awaitable):
+                            raise Exception(
+                                agent_response_not_awaitable(agent.__class__.__name__),
+                            )
 
-                    agent_response = await agent_response
+                        agent_response = await agent_response
 
                 if idx not in self._agent_times:
                     self._agent_times[idx] = 0
