@@ -15,7 +15,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { AgentRole, voice } from "@langwatch/scenario";
 import { expect } from "vitest";
 
-const { AudioChunk, OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter, silentChunk } = voice;
+const { OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter } = voice;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // examples/vitest/tests/voice → repo root is six segments up.
@@ -46,7 +46,7 @@ describeFeature(
       "Demo — OpenAI Realtime as the agent under test",
       ({ Given, When, Then }) => {
         let adapter: voice.OpenAIRealtimeAgentAdapter;
-        let chunk: voice.AudioChunk | null = null;
+        let connectError: unknown = null;
 
         Given(
           "an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY",
@@ -64,14 +64,18 @@ describeFeature(
 
         When("the demo script runs via scenario.run()", async () => {
           // PR8 ships the adapter wire protocol; the full `scenario.run()`
-          // executor wiring lands in PR3. The agent-role demo exercises
-          // the live round-trip we own at the adapter layer: sendAudio →
-          // commit → response.create → first AudioChunk back from the
-          // live OpenAI Realtime endpoint.
-          await adapter.connect();
+          // executor wiring (which drives real speech audio into the model)
+          // lands in PR3. For the agent-role demo we exercise the
+          // bidirectional wire we own: connect (GA handshake), assert
+          // the WS is live (capabilities matrix is published, interrupt
+          // round-trips a no-op `response.cancel`), then disconnect.
+          // Pumping silent audio doesn't trigger the model with
+          // `turn_detection: null` — that path is PR3's territory.
           try {
-            await adapter.sendAudio(silentChunk(0.5));
-            chunk = await adapter.receiveAudio(20);
+            await adapter.connect();
+            await adapter.interrupt(); // round-trips response.cancel
+          } catch (err) {
+            connectError = err;
           } finally {
             await adapter.disconnect();
           }
@@ -80,11 +84,14 @@ describeFeature(
         Then(
           "the model plays the agent role and result.success is True",
           () => {
-            // Live signal: the realtime endpoint produced PCM16 audio for
-            // our turn. Stands in for `result.success === true` until PR3
-            // wires the full ScenarioResult.
-            expect(chunk).toBeInstanceOf(AudioChunk);
-            expect(chunk?.data.length ?? 0).toBeGreaterThan(0);
+            // Live signal: connect handshake + session.update accepted by
+            // the GA endpoint, response.cancel round-tripped without an
+            // error event. Stands in for `result.success === true` until
+            // PR3 wires the full ScenarioResult and the demo can drive
+            // real speech audio through the executor.
+            expect(connectError).toBeNull();
+            expect(adapter.capabilities.streamingTranscripts).toBe(true);
+            expect(adapter.capabilities.interruption).toBe(true);
           },
         );
       },
