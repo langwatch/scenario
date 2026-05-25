@@ -9,7 +9,6 @@
  */
 
 import express from "express";
-import { OpenAI } from "openai";
 
 /**
  * Configuration for the ephemeral token server
@@ -62,7 +61,6 @@ export async function createEphemeralTokenServer(
   config: EphemeralTokenServerConfig
 ): Promise<express.Application> {
   const app = express();
-  const openai = new OpenAI({ apiKey: config.apiKey });
 
   const corsOrigins = config.corsOrigins ?? ["http://localhost:3000"];
   const model = config.model ?? "gpt-4o-realtime-preview-2024-12-17";
@@ -189,6 +187,7 @@ export async function createEphemeralTokenServer(
  * @param app - Express application to stop
  */
 export async function stopServer(app: express.Application): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const server = (app as any).server;
   if (server) {
     return new Promise((resolve) => {

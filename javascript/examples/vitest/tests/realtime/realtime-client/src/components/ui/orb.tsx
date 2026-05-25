@@ -128,6 +128,7 @@ function Scene({
   }, [manualOutput, outputVolumeRef, getOutputVolume])
 
   const random = useMemo(
+    // eslint-disable-next-line react-hooks/purity
     () => splitmix32(seed ?? Math.floor(Math.random() * 2 ** 32)),
     [seed]
   )
@@ -168,9 +169,11 @@ function Scene({
       if (live[1]) targetColor2Ref.current.set(live[1])
     }
     const u = mat.uniforms
+    // eslint-disable-next-line react-hooks/immutability
     u.uTime.value += delta * 0.5
 
     if (u.uOpacity.value < 1) {
+      // eslint-disable-next-line react-hooks/immutability
       u.uOpacity.value = Math.min(1, u.uOpacity.value + delta * 2)
     }
 
@@ -229,7 +232,9 @@ function Scene({
   }, [gl])
 
   const uniforms = useMemo(() => {
+    // eslint-disable-next-line react-hooks/immutability
     perlinNoiseTexture.wrapS = THREE.RepeatWrapping
+    // eslint-disable-next-line react-hooks/immutability
     perlinNoiseTexture.wrapT = THREE.RepeatWrapping
     const isDark =
       typeof document !== "undefined" &&
