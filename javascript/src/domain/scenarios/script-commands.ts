@@ -1,5 +1,5 @@
 import { CoreMessage } from "ai";
-import { ScenarioExecutionStateLike, ScenarioExecutionLike } from "../index";
+import { ScenarioExecutionStateLike } from "../index";
 
 /**
  * Represents a typed script command that describes a specific action to take
