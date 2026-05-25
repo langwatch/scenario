@@ -14,6 +14,8 @@ export default defineConfig([
       "**/build/**",
       "**/api-reference-docs/**",
       "**/docs/**",
+      // realtime-client is a standalone Vite/React sub-project with its own eslint config
+      "**/tests/realtime/realtime-client/**",
     ],
   },
   {

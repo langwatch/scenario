@@ -4,6 +4,7 @@
  * Uses the SAME agent configuration as the Scenario tests.
  * TypeScript works seamlessly thanks to Vite!
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { RealtimeSession } from "@openai/agents/realtime";
 import {

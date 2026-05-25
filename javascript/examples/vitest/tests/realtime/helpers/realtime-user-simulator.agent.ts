@@ -1,6 +1,7 @@
-import { AgentRole, type AgentInput } from "@langwatch/scenario";
-import { RealtimeAgentAdapter } from "./realtime-agent-adapter";
+import { AgentRole } from "@langwatch/scenario";
 import { RealtimeAgent } from "@openai/agents/realtime";
+
+import { RealtimeAgentAdapter } from "./realtime-agent-adapter";
 
 /**
  * Realtime User Simulator for testing Realtime agents

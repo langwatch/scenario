@@ -6,6 +6,9 @@
  *
  * This ensures we test the REAL agent, not a mock.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { EventEmitter } from "events";
 
 import {
   AgentAdapter,
@@ -13,12 +16,11 @@ import {
   AgentRole,
   type AgentReturnTypes,
 } from "@langwatch/scenario";
-import type { AssistantModelMessage } from "ai";
 import { RealtimeSession } from "@openai/agents/realtime";
 import type { RealtimeAgent } from "@openai/agents/realtime";
+import type { AssistantModelMessage } from "ai";
+
 import { AGENT_CONFIG } from "../agents/vegetarian-recipe-agent.js";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
-import { EventEmitter } from "events";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -143,7 +145,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    */
   async disconnect(): Promise<void> {
     if (this.session) {
-      // @ts-ignore - close method exists in 0.3.0
+      // @ts-expect-error - close method exists in 0.3.0
       await this.session.close();
       this.session = null;
       console.log("👋 RealtimeAgentAdapter disconnected");
@@ -280,7 +282,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
 
     // In SDK 0.3.0, use sendMessage method
     try {
-      // @ts-ignore - sendMessage exists but might not be in types yet
+      // @ts-expect-error - sendMessage exists but might not be in types yet
       await this.session.sendMessage(text);
     } catch (sendError) {
       console.error("❌ Failed to send message:", sendError);
