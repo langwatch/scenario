@@ -312,18 +312,21 @@ class ScenarioExecutor:
                 self._pending_messages[idx] = []
             self._pending_messages[idx].append(message)
 
-        # Update trace with input/output
+        # Update trace with input/output.
+        # Pass structured content (list) directly; only coerce to str for plain text.
         if message["role"] == "user":
-            self._trace.update(input={"type": "text", "value": str(message["content"])})
+            content = message["content"]
+            self._trace.update(input={"type": "text", "value": content if isinstance(content, list) else str(content)})
         elif message["role"] == "assistant":
+            content = (
+                message["content"]
+                if "content" in message
+                else json.dumps(message, cls=SerializableWithStringFallback)
+            )
             self._trace.update(
                 output={
                     "type": "text",
-                    "value": str(
-                        message["content"]
-                        if "content" in message
-                        else json.dumps(message, cls=SerializableWithStringFallback)
-                    ),
+                    "value": content if isinstance(content, list) else str(content),
                 }
             )
 

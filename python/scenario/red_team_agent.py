@@ -672,12 +672,31 @@ class RedTeamAgent(AgentAdapter):
     ]
 
     @staticmethod
+    def _extract_text(content: object) -> str:
+        """Return the textual representation of a message content value.
+
+        For plain strings, returns the string directly.  For multimodal
+        content (list of part dicts), concatenates the ``text`` fields of all
+        text parts so that refusal-pattern matching works correctly against
+        voice/multimodal assistant replies.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return " ".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        return str(content)
+
+    @staticmethod
     def _get_last_assistant_content(messages: list) -> str:
         for msg in reversed(messages):
             role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
             content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
             if role == "assistant" and content:
-                return str(content)
+                return RedTeamAgent._extract_text(content)
         return ""
 
     @staticmethod
@@ -687,7 +706,7 @@ class RedTeamAgent(AgentAdapter):
             role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
             content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
             if role == "user" and content:
-                return str(content)
+                return RedTeamAgent._extract_text(content)
         return ""
 
     def _detect_refusal(self, content: str) -> Literal["hard", "soft", "none"]:

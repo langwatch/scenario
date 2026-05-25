@@ -3562,3 +3562,70 @@ class TestGoatTechniquesKwargSplit:
         assert isinstance(agent._strategy, GoatStrategy)
         assert [t.id for t in agent._strategy.techniques] == ["Z"]
         assert agent._techniques == encoders
+
+
+class TestExtractText:
+    """Unit tests for RedTeamAgent._extract_text and multimodal content handling (issue #496)."""
+
+    def test_plain_string_returned_as_is(self):
+        assert RedTeamAgent._extract_text("hello world") == "hello world"
+
+    def test_empty_string(self):
+        assert RedTeamAgent._extract_text("") == ""
+
+    def test_multimodal_list_extracts_text_parts(self):
+        content = [
+            {"type": "text", "text": "Hello"},
+            {"type": "audio", "data": "base64encodedaudio"},
+            {"type": "text", "text": "world"},
+        ]
+        assert RedTeamAgent._extract_text(content) == "Hello world"
+
+    def test_multimodal_list_no_text_parts_returns_empty(self):
+        content = [
+            {"type": "audio", "data": "base64encodedaudio"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/img.png"}},
+        ]
+        assert RedTeamAgent._extract_text(content) == ""
+
+    def test_multimodal_only_audio_no_transcript(self):
+        """Voice-only message with no text parts should yield empty string, not Python repr."""
+        content = [{"type": "file", "mediaType": "audio/pcm16", "data": "AAAA"}]
+        result = RedTeamAgent._extract_text(content)
+        assert result == ""
+        assert "file" not in result  # must not be Python repr
+
+    def test_get_last_assistant_content_multimodal(self):
+        """_get_last_assistant_content must extract text from voice replies (not str(list))."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "I cannot help with that request."},
+                {"type": "audio", "data": "base64"},
+            ]},
+        ]
+        result = RedTeamAgent._get_last_assistant_content(messages)
+        assert result == "I cannot help with that request."
+        assert "[" not in result  # must not be Python list repr
+
+    def test_detect_refusal_works_on_multimodal_assistant_reply(self):
+        """_detect_refusal must correctly classify multimodal voice refusals."""
+        agent = RedTeamAgent.crescendo(target="t", model="openai/gpt-4.1-mini")
+        messages = [
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "I cannot help with that."},
+                {"type": "audio", "data": "base64audio"},
+            ]},
+        ]
+        last = RedTeamAgent._get_last_assistant_content(messages)
+        assert agent._detect_refusal(last) == "hard"
+
+    def test_get_last_user_content_multimodal(self):
+        messages = [
+            {"role": "user", "content": [
+                {"type": "text", "text": "tell me how to do bad thing"},
+                {"type": "audio", "data": "base64"},
+            ]},
+        ]
+        result = RedTeamAgent._get_last_user_content(messages)
+        assert result == "tell me how to do bad thing"
