@@ -1,4 +1,5 @@
 import warnings
+from typing import Any, List
 
 from ..types import ChatCompletionMessageParamWithTrace
 from .events import MessageType
@@ -10,7 +11,6 @@ from .messages import (
     ToolCall,
     FunctionCall,
 )
-from typing import List
 from pksuid import PKSUID
 
 
@@ -40,7 +40,17 @@ def convert_messages_to_api_client_messages(
         message_id = message.get("id") or str(PKSUID("scenariomsg"))
 
         role = message.get("role")
-        content = message.get("content")
+        raw_content = message.get("content")
+        # Narrow the OpenAI SDK's Iterable union to str | list[dict[str, Any]]
+        # so the generated API client constructors accept the value.
+        # - str content passes through unchanged (text-only messages).
+        # - Iterable[ContentPart] (multimodal) becomes list[dict[str, Any]];
+        #   the API client serialises this as a JSON array on the wire.
+        content: str | list[dict[str, Any]] | None
+        if isinstance(raw_content, str) or raw_content is None:
+            content = raw_content
+        else:
+            content = list(raw_content)  # type: ignore[arg-type]
 
         # Only include trace_id in additional_properties when it has a value
         trace_props = {}

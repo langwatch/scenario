@@ -11,6 +11,7 @@ See: https://github.com/langwatch/langwatch/issues/494
 """
 import json
 import time
+from typing import cast
 
 import pytest
 import respx
@@ -18,8 +19,14 @@ import respx
 from scenario._events.event_reporter import EventReporter
 from scenario._events.events import ScenarioMessageSnapshotEvent
 from scenario._events.utils import convert_messages_to_api_client_messages
+from scenario.types import ChatCompletionMessageParamWithTrace
 from scenario.voice.audio_chunk import AudioChunk
 from scenario.voice.messages import create_audio_message
+
+
+def _cast_messages(*entries: dict) -> list[ChatCompletionMessageParamWithTrace]:
+    """Cast dict literals to ChatCompletionMessageParamWithTrace for pyright."""
+    return cast("list[ChatCompletionMessageParamWithTrace]", list(entries))
 
 _ENDPOINT = "https://app.langwatch.ai"
 _API_KEY = "test-api-key"
@@ -196,7 +203,7 @@ def test_all_four_role_branches_preserve_list_content(
     list_content = [{"type": "text", "text": "x"}]
     msg = {"role": role, "id": "msg-4", "content": list_content, **extra}
 
-    result = convert_messages_to_api_client_messages([msg])
+    result = convert_messages_to_api_client_messages(_cast_messages(msg))
 
     assert len(result) == 1, f"Expected 1 converted message for role={role!r}"
     actual_content = result[0].content
