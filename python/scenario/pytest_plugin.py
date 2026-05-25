@@ -247,6 +247,16 @@ original_run = ScenarioExecutor.run
 
 def pytest_addoption(parser):
     parser.addoption("--headless", action="store_true")
+    parser.addoption(
+        "--scenario-debug",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable step-by-step Scenario debug mode. "
+            "Use --scenario-debug instead of --debug to avoid conflicting "
+            "with pytest's built-in --debug flag."
+        ),
+    )
 
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
@@ -267,13 +277,17 @@ def pytest_configure(config):
         Users don't need to call it directly.
 
     Debug Mode:
-        When --debug is passed to pytest, enables step-by-step scenario
-        execution with user intervention capabilities.
+        When --scenario-debug is passed to pytest, enables step-by-step
+        scenario execution with user intervention capabilities.
+
+        Note: do NOT use ``--debug`` — that is a built-in pytest flag that
+        writes internal debug info to a file path, which can silently
+        overwrite test files (issue #191).
 
     Example:
         ```bash
         # Enable debug mode for all scenarios
-        pytest tests/ --debug -s
+        pytest tests/ --scenario-debug -s
 
         # Run normally
         pytest tests/
@@ -284,8 +298,8 @@ def pytest_configure(config):
         "markers", "agent_test: mark test as an agent scenario test"
     )
 
-    if config.getoption("--debug"):
-        print(colored("\nScenario debug mode enabled (--debug).", "yellow"))
+    if config.getoption("--scenario-debug"):
+        print(colored("\nScenario debug mode enabled (--scenario-debug).", "yellow"))
         ScenarioConfig.configure(verbose=True, debug=True)
 
     if config.getoption("--headless"):
