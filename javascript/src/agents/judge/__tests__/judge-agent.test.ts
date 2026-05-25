@@ -811,11 +811,11 @@ describe("JudgeAgent", () => {
       const userMessage = capturedParams!.messages.find(
         (m) => m.role === "user"
       );
-      expect(userMessage).toBeDefined();
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
       const userContent =
-        typeof userMessage!.content === "string"
-          ? userMessage!.content
-          : JSON.stringify(userMessage!.content);
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
       expect(userContent).toContain("<additional_context>");
       expect(userContent).toContain("npm install -g git-orchard");
       expect(userContent).toContain("</additional_context>");
@@ -847,11 +847,11 @@ describe("JudgeAgent", () => {
       const userMessage = capturedParams!.messages.find(
         (m) => m.role === "user"
       );
-      expect(userMessage).toBeDefined();
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
       const userContent =
-        typeof userMessage!.content === "string"
-          ? userMessage!.content
-          : JSON.stringify(userMessage!.content);
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
       expect(userContent).not.toContain("<additional_context>");
     });
   });
