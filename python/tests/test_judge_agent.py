@@ -1,5 +1,5 @@
 import pytest
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch, MagicMock
 from openai import OpenAI
 from scenario import JudgeAgent
@@ -259,7 +259,7 @@ async def test_judge_result_messages_is_conversation_not_judge_context():
 
     agent_input = AgentInput(
         thread_id="test",
-        messages=real_conversation,
+        messages=cast(Any, real_conversation),
         new_messages=[],
         judgment_request=JudgmentRequest(),
         scenario_state=mock_scenario_state,

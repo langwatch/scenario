@@ -737,7 +737,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         tool_choice: Any,
         spans: Sequence[Any],
         effective_criteria: List[str],
-        input_messages: List[dict],
+        input_messages: Sequence[Any],
     ) -> AgentReturnTypes:
         """
         Runs the multi-step discovery loop for large traces.
@@ -842,7 +842,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         messages: List[dict],
         tools: List[dict],
         effective_criteria: List[str],
-        input_messages: List[dict],
+        input_messages: Sequence[Any],
     ) -> AgentReturnTypes:
         """
         Makes one final LLM call with tool_choice forced to finish_test.
@@ -925,7 +925,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         effective_criteria: List[str],
         messages: List[dict],
         *,
-        input_messages: List[dict],
+        input_messages: Sequence[Any],
     ) -> AgentReturnTypes:
         """
         Parses a litellm response into the appropriate return type.
