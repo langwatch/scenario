@@ -896,7 +896,10 @@ class ScenarioExecutor:
                 return messages
         except Exception as e:
             agent_name = agent.__class__.__name__
-            raise RuntimeError(f"[{agent_name}] {e}") from e
+            # str(e) is empty for no-args exceptions like asyncio.TimeoutError().
+            # Fall back to the exception type name so the error body is never blank.
+            error_detail = str(e) or type(e).__name__
+            raise RuntimeError(f"[{agent_name}] {error_detail}") from e
 
     def _scenario_name(self):
         if self.config.verbose == 2:
