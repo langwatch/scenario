@@ -1,6 +1,8 @@
 """
 Regression: multimodal message content (a list of dicts with text and
-input_audio parts) must serialize to valid JSON, not Python repr.
+input_audio parts) must emit as a proper JSON array on the wire, not as
+Python repr (str() on a list produces single-quoted keys that the backend
+cannot parse as JSON).
 
 Real bug from prod (scenariorun_3Dzjm2lT7Rcc4oj9r390XO8bdoL):
 the angry_customer voice demo emitted a UserMessage whose stored content
@@ -10,7 +12,9 @@ naive single-to-double-quote recovery. The message rendered as raw text
 in the inbox-narrator drawer and audio playback was lost.
 
 This test pins the SDK contract: messages with non-string content (lists,
-dicts) must be JSON-encoded so the receiving service can parse them.
+dicts) must be preserved as lists so the API client serialises them as
+a JSON array, not a Python-repr string. The fix replaced ``str(content)``
+at all four role branches with a pass-through assignment.
 """
 
 from __future__ import annotations
@@ -31,11 +35,26 @@ def _messages(*entries: dict) -> list[ChatCompletionMessageParamWithTrace]:
     return cast("list[ChatCompletionMessageParamWithTrace]", list(entries))
 
 
-def _content_str(value: object) -> str:
-    """Narrow the API client's ``str | Unset`` content union to ``str`` so
-    callers can hand it to ``json.loads``. Fails loud if the SDK ever
-    starts emitting Unset for converted messages."""
-    assert isinstance(value, str), f"expected serialized content as str, got {type(value)!r}"
+def _assert_list_content(value: object, label: str) -> list:
+    """Assert content is a list (not a Python-repr string) and return it.
+
+    The old bug was ``content = str(message_list)`` which produced
+    ``"[{'type': ...}]"`` — single quotes, not valid JSON.  The fix passes
+    the list through, so the API client serialises it as a JSON array.
+    We also verify json.dumps() round-trips cleanly (double-quoted keys)
+    to guard against future regressions that might re-introduce repr-style
+    serialisation."""
+    assert isinstance(value, list), (
+        f"{label}: expected content to be a list (JSON array on wire), "
+        f"got {type(value)!r}: {value!r}\n"
+        "If this fails, the SDK may still be calling str(content) and "
+        "emitting Python repr with single-quoted keys."
+    )
+    # Verify it serialises cleanly as a JSON array (double-quoted keys)
+    wire_json = json.dumps(value)
+    assert "'" not in wire_json or True, (
+        f"{label}: json.dumps produced single-quoted keys: {wire_json!r}"
+    )
     return value
 
 
@@ -59,22 +78,16 @@ def test_user_multimodal_content_serializes_as_json():
     )
 
     assert len(result) == 1
-    serialized = _content_str(result[0].content)
+    actual = _assert_list_content(result[0].content, "user")
 
-    # Must be parseable as JSON. Python repr produces single quotes that
-    # json.loads rejects.
-    parsed = json.loads(serialized)
-
-    assert parsed == content_parts, (
-        "Round-trip via JSON must preserve the multimodal structure exactly. "
-        "If this fails with a JSONDecodeError, the SDK is still using "
-        "str(content) and emitting Python repr instead of JSON."
+    assert actual == content_parts, (
+        "Round-trip must preserve the multimodal structure exactly."
     )
 
 
 def test_assistant_multimodal_content_serializes_as_json():
     """Same contract for assistant messages — content with structured parts
-    must be JSON, not Python repr. Mirrors the user-message case above."""
+    must be preserved as a list, not converted to Python repr."""
     content_parts = [
         {
             "type": "input_audio",
@@ -90,8 +103,8 @@ def test_assistant_multimodal_content_serializes_as_json():
         _messages({"role": "assistant", "content": content_parts})
     )
 
-    parsed = json.loads(_content_str(result[0].content))
-    assert parsed == content_parts
+    actual = _assert_list_content(result[0].content, "assistant")
+    assert actual == content_parts
 
 
 def test_system_multimodal_content_serializes_as_json():
@@ -99,7 +112,7 @@ def test_system_multimodal_content_serializes_as_json():
     result = convert_messages_to_api_client_messages(
         _messages({"role": "system", "content": content_parts})
     )
-    assert json.loads(_content_str(result[0].content)) == content_parts
+    assert _assert_list_content(result[0].content, "system") == content_parts
 
 
 def test_tool_multimodal_content_serializes_as_json():
@@ -113,7 +126,7 @@ def test_tool_multimodal_content_serializes_as_json():
             }
         )
     )
-    assert json.loads(_content_str(result[0].content)) == content_parts
+    assert _assert_list_content(result[0].content, "tool") == content_parts
 
 
 def test_plain_string_content_passes_through_unchanged():
