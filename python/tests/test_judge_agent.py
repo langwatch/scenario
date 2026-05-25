@@ -403,3 +403,55 @@ async def test_judge_omits_additional_context_when_none():
     finally:
         context_scenario.reset(token)
         ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_judge_agent_handles_criteria_as_json_string():
+    """JudgeAgent must not raise AttributeError when LLM returns criteria as a JSON string.
+
+    Some LLMs serialise nested objects as a quoted JSON string instead of an
+    inline dict (issue #161).  The agent must re-parse the string so that
+    .values() doesn't blow up with AttributeError: 'str' object has no
+    attribute 'values'.
+    """
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+
+    judge = JudgeAgent(criteria=["Test criterion"])
+
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Test scenario"
+    mock_scenario_state.current_turn = 1
+    mock_scenario_state.config.max_turns = 10
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[{"role": "user", "content": "Hello"}],
+        new_messages=[],
+        judgment_request=JudgmentRequest(),
+        scenario_state=mock_scenario_state,
+    )
+
+    # LLM returns criteria as a *stringified* JSON dict — the bug trigger.
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.tool_calls = [MagicMock()]
+    mock_response.choices[0].message.tool_calls[0].function.name = "finish_test"
+    mock_response.choices[0].message.tool_calls[
+        0
+    ].function.arguments = '{"verdict": "success", "reasoning": "all good", "criteria": "{\\"test_criterion\\": true}"}'
+
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion", return_value=mock_response
+        ):
+            # Must not raise AttributeError: 'str' object has no attribute 'values'
+            result = await judge.call(agent_input)
+            assert result is not None
+    finally:
+        context_scenario.reset(token)
+        ScenarioConfig.default_config = None

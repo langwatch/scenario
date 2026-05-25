@@ -981,6 +981,14 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 verdict = args.get("verdict", "inconclusive")
                 reasoning = args.get("reasoning", "No reasoning provided")
                 criteria_verdicts = args.get("criteria", {})
+                # LLMs sometimes serialise nested objects as a JSON string
+                # instead of an inline dict, especially with complex dynamic
+                # schemas. Re-parse if that happens (issue #161).
+                if isinstance(criteria_verdicts, str):
+                    try:
+                        criteria_verdicts = json.loads(criteria_verdicts)
+                    except (json.JSONDecodeError, ValueError):
+                        criteria_verdicts = {}
 
                 passed_criteria = [
                     effective_criteria[idx]
