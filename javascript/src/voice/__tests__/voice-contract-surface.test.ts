@@ -131,9 +131,8 @@ describeFeature(
         Given(
           "a user subclass of VoiceAgentAdapter implementing connect/send_audio/recv_audio/disconnect",
           () => {
+            // Arrange only — no assertions in Given.
             adapter = new StubVoiceAdapter();
-            expect(adapter).toBeInstanceOf(VoiceAgentAdapter);
-            expect(adapter).toBeInstanceOf(AgentAdapter);
           },
         );
 
@@ -145,6 +144,10 @@ describeFeature(
         });
 
         Then("it works identically to built-in adapters", async () => {
+          // Type-hierarchy assertions: the subclass IS a VoiceAgentAdapter / AgentAdapter.
+          expect(adapter).toBeInstanceOf(VoiceAgentAdapter);
+          expect(adapter).toBeInstanceOf(AgentAdapter);
+          // Behavioural assertions: connect/send/recv/disconnect all exercised.
           const received = await adapter.receiveAudio(1);
           expect(adapter.connectCount).toBe(1);
           expect(adapter.disconnectCount).toBe(1);
