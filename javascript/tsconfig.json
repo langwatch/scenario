@@ -2,6 +2,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "module": "ESNext",
+    "target": "ES2022",
     "lib": ["ES2023"],
     "moduleResolution": "bundler",
     "declaration": true,
