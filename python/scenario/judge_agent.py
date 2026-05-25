@@ -465,13 +465,24 @@ class JudgeAgent(AgentAdapter):
 
         logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
+        extra_context = (
+            input.judgment_request.context
+            if input.judgment_request and input.judgment_request.context
+            else None
+        )
+        extra_context_section = (
+            f"\n<additional_context>\n{extra_context}\n</additional_context>"
+            if extra_context
+            else ""
+        )
+
         content_for_judge = f"""
 <transcript>
 {transcript}
 </transcript>
 <opentelemetry_traces>
 {digest}
-</opentelemetry_traces>
+</opentelemetry_traces>{extra_context_section}
 """
 
         criteria_str = "\n".join(

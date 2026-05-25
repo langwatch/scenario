@@ -49,10 +49,13 @@ export const agent = (content?: string | ModelMessage): ScriptStep => {
  * When no criteria are provided, the judge uses its own configured criteria
  * and returns a final verdict (success or failure), ending the scenario.
  *
- * @param options Optional options object with inline criteria to evaluate.
+ * @param options Optional options object with inline criteria and/or context to evaluate.
+ *   - `criteria`: Criteria to evaluate (overrides judge's configured criteria).
+ *   - `context`: Additional context for the judge, e.g. filesystem state or command output.
+ *     Included in the judge's prompt under `<additional_context>`.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const judge = (options?: { criteria: string[] }): ScriptStep => {
+export const judge = (options?: { criteria?: string[]; context?: string }): ScriptStep => {
   return async (_state, executor) => {
     await executor.judge(options);
   };

@@ -868,13 +868,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * // Evaluate inline criteria as a checkpoint
    * const result = await execution.judge({ criteria: ["Agent responded helpfully"] });
+   *
+   * // Provide additional context for tool-call-heavy conversations
+   * const result = await execution.judge({
+   *   criteria: ["Agent installed the dependency"],
+   *   context: "The agent ran `npm install -g git-orchard` which exited 0.",
+   * });
    * ```
    */
-  async judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null> {
+  async judge(options?: { criteria?: string[]; context?: string }): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(
       AgentRole.JUDGE,
       undefined,
-      { criteria: options?.criteria }
+      { criteria: options?.criteria, context: options?.context }
     );
   }
 

@@ -326,13 +326,18 @@ class JudgeAgent extends JudgeAgentAdapter {
 
     const transcript = JudgeUtils.buildTranscriptFromMessages(input.messages);
 
+    const extraContext = input.judgmentRequest?.context;
+    const additionalContextSection = extraContext
+      ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
+      : "";
+
     const contentForJudge = `
     <transcript>
     ${transcript}
     </transcript>
     <opentelemetry_traces>
     ${digest}
-    </opentelemetry_traces>
+    </opentelemetry_traces>${additionalContextSection}
     `;
 
     const cfg = this.cfg;
