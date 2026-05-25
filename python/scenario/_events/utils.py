@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, List
+from typing import Any, List, Union
 
 from ..types import ChatCompletionMessageParamWithTrace
 from .events import MessageType
@@ -11,6 +11,7 @@ from .messages import (
     ToolCall,
     FunctionCall,
 )
+from scenario._generated.langwatch_api_client.lang_watch_api_client.types import UNSET, Unset
 from pksuid import PKSUID
 
 
@@ -41,13 +42,17 @@ def convert_messages_to_api_client_messages(
 
         role = message.get("role")
         raw_content = message.get("content")
-        # Narrow the OpenAI SDK's Iterable union to str | list[dict[str, Any]]
-        # so the generated API client constructors accept the value.
-        # - str content passes through unchanged (text-only messages).
-        # - Iterable[ContentPart] (multimodal) becomes list[dict[str, Any]];
-        #   the API client serialises this as a JSON array on the wire.
-        content: str | list[dict[str, Any]] | None
-        if isinstance(raw_content, str) or raw_content is None:
+        # Narrow the OpenAI SDK's Iterable union to the generated client's
+        # expected type (Unset | str | list[dict[str, Any]]) so pyright
+        # accepts the value at all four constructor call-sites.
+        # - str passes through unchanged (text-only messages).
+        # - Iterable[ContentPart] (multimodal) is coerced to list so the API
+        #   client serialises it as a JSON array on the wire (not Python repr).
+        # - None becomes UNSET — the generated models use a sentinel, not None.
+        content: Union[Unset, str, list[dict[str, Any]]]
+        if raw_content is None:
+            content = UNSET
+        elif isinstance(raw_content, str):
             content = raw_content
         else:
             content = list(raw_content)  # type: ignore[arg-type]
