@@ -232,3 +232,67 @@ async def test_judge_is_last_message_on_final_turn(
     finally:
         context_scenario.reset(token)
         ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_judge_result_messages_is_conversation_not_judge_context():
+    """ScenarioResult.messages must contain the actual conversation, not the judge's internal context.
+
+    Regression for #221: in 0.7.15 ScenarioResult.messages was set to the
+    judge's internal LLM messages (system prompt + transcript text) instead of
+    input.messages (the actual conversation between user-sim and agent under test).
+    """
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    judge = JudgeAgent(criteria=["Agent replies helpfully"])
+
+    # This is the "real" conversation the judge is evaluating.
+    real_conversation = [
+        {"role": "user", "content": "Hello, what is the weather?"},
+        {"role": "assistant", "content": "It is sunny today!"},
+        {"role": "user", "content": "Thanks!"},
+    ]
+
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Weather query scenario"
+    mock_scenario_state.current_turn = 1
+    mock_scenario_state.config.max_turns = 10
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=real_conversation,
+        new_messages=[],
+        judgment_request=JudgmentRequest(),
+        scenario_state=mock_scenario_state,
+    )
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.tool_calls = [MagicMock()]
+    mock_response.choices[0].message.tool_calls[0].function.name = "finish_test"
+    mock_response.choices[0].message.tool_calls[
+        0
+    ].function.arguments = '{"verdict": "success", "reasoning": "Agent replied helpfully", "criteria": {"agent_replies_helpfully": "true"}}'
+
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion", return_value=mock_response
+        ):
+            result = await judge.call(agent_input)
+
+            from scenario.types import ScenarioResult
+            assert isinstance(result, ScenarioResult), "JudgeAgent should return ScenarioResult on finish_test"
+            # The returned messages must be the actual conversation, NOT the
+            # judge's internal context (system prompt + transcript text).
+            assert result.messages == real_conversation, (
+                "ScenarioResult.messages should be the actual conversation "
+                f"(3 messages), got {len(result.messages)} messages: "
+                f"{[m.get('role') for m in result.messages]}"
+            )
+    finally:
+        context_scenario.reset(token)
+        ScenarioConfig.default_config = None

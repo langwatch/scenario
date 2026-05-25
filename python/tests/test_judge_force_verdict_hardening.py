@@ -168,6 +168,7 @@ class TestForceVerdictHardening:
                 messages=messages,
                 tools=tools,
                 effective_criteria=["Agent works"],
+                input_messages=[],
             )
 
         assert isinstance(result, ScenarioResult)
@@ -210,7 +211,7 @@ class TestParseResponseSafetyNet:
             "expand_trace", {"span_ids": ["xx"]}, call_id="tc-leak"
         )
 
-        result = agent._parse_response(leaked, ["A", "B"], messages=[])
+        result = agent._parse_response(leaked, ["A", "B"], messages=[], input_messages=[])
 
         assert isinstance(result, ScenarioResult)
         assert result.success is False
