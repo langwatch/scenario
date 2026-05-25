@@ -808,9 +808,8 @@ describe("JudgeAgent", () => {
       await agent.call(inputWithContext);
 
       expect(capturedParams).toBeDefined();
-      const userMessage = capturedParams!.messages.find(
-        (m) => m.role === "user"
-      );
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
       if (!userMessage) throw new Error("Expected a user message in LLM call");
       const userContent =
         typeof userMessage.content === "string"
@@ -844,9 +843,8 @@ describe("JudgeAgent", () => {
       await agent.call(createBaseInput());
 
       expect(capturedParams).toBeDefined();
-      const userMessage = capturedParams!.messages.find(
-        (m) => m.role === "user"
-      );
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
       if (!userMessage) throw new Error("Expected a user message in LLM call");
       const userContent =
         typeof userMessage.content === "string"
