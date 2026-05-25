@@ -3629,3 +3629,40 @@ class TestExtractText:
         ]
         result = RedTeamAgent._get_last_user_content(messages)
         assert result == "tell me how to do bad thing"
+
+
+class TestExtractTextContent:
+    """Unit tests for the module-level _extract_text_content helper in scenario_executor (issue #496, Site A)."""
+
+    def _fn(self):
+        from scenario.scenario_executor import _extract_text_content
+        return _extract_text_content
+
+    def test_plain_string_returned_as_is(self):
+        fn = self._fn()
+        assert fn("hello world") == "hello world"
+
+    def test_multimodal_list_extracts_text_parts(self):
+        fn = self._fn()
+        content = [
+            {"type": "text", "text": "Hello"},
+            {"type": "audio", "data": "base64encodedaudio"},
+            {"type": "text", "text": "world"},
+        ]
+        assert fn(content) == "Hello world"
+
+    def test_audio_only_no_text_parts_returns_empty(self):
+        """Voice-only list with no text parts must return empty string, not Python repr."""
+        fn = self._fn()
+        content = [
+            {"type": "audio", "data": "base64encodedaudio"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/img.png"}},
+        ]
+        result = fn(content)
+        assert result == ""
+        assert "[{" not in result  # must not be Python list repr
+
+    def test_fallback_non_list_non_string(self):
+        """Non-string, non-list input falls back to str()."""
+        fn = self._fn()
+        assert fn(42) == str(42)
