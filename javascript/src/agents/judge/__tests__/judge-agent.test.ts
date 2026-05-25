@@ -853,4 +853,80 @@ describe("JudgeAgent", () => {
       expect(userContent).not.toContain("<additional_context>");
     });
   });
+
+  describe("when no criteria provided and judgment requested", () => {
+    it("returns failure with 'No criteria' reasoning without calling the LLM", async () => {
+      // Reproduces issue #184: judge must short-circuit and not call the LLM
+      // when enforcement is requested (judgmentRequest != null) but the agent
+      // has no criteria to evaluate against.
+      const collector = createMockSpanCollector([]);
+
+      const config: JudgeAgentConfig = {
+        criteria: [],
+        spanCollector: collector,
+      };
+
+      const agent = judgeAgent(config);
+
+      let llmCalled = false;
+      agent.invokeLLM = async () => {
+        llmCalled = true;
+        return mockLLMResult("finish_test", {
+          criteria: {},
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const result = await agent.call(
+        createBaseInput({ judgmentRequest: {} })
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.reasoning).toContain("No criteria");
+      expect(result!.metCriteria).toEqual([]);
+      expect(result!.unmetCriteria).toEqual([]);
+      // Must not have called the LLM — this is a fast early return.
+      expect(llmCalled).toBe(false);
+    });
+
+    it("uses inline criteria from judgmentRequest when provided", async () => {
+      // If judgmentRequest carries its own criteria, the judge should use those
+      // instead of its own (empty) list and NOT short-circuit.
+      const smallTrace = createSmallTrace();
+      const collector = createMockSpanCollector(smallTrace);
+      for (const span of smallTrace) {
+        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] = "test-thread";
+      }
+
+      const config: JudgeAgentConfig = {
+        criteria: [],          // agent has no criteria of its own
+        spanCollector: collector,
+      };
+
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { inline_criterion: "true" },
+          reasoning: "passed",
+          verdict: "success",
+        });
+      };
+
+      const result = await agent.call(
+        createBaseInput({
+          judgmentRequest: { criteria: ["Inline criterion"] },
+        })
+      );
+
+      expect(capturedParams).toBeDefined();   // LLM was called
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(true);
+      expect(result!.metCriteria).toContain("Inline criterion");
+    });
+  });
 });
