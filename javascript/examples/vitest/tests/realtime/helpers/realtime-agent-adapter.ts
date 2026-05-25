@@ -336,7 +336,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     });
 
     // Listen for response completion
-    transport.on("response.done", (event: any) => {
+    transport.on("response.done", (_event: any) => {
       console.log(`✅ Response complete: transcript="${this.currentResponse}"`);
 
       const fullAudio = this.currentAudioChunks.join("");

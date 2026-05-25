@@ -10,8 +10,8 @@
  * 3. SAME agent, accurate testing!
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import scenario from "@langwatch/scenario";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createVegetarianRecipeAgent } from "./realtime/agents/vegetarian-recipe-agent.js";
 import {
   RealtimeAgentAdapter,

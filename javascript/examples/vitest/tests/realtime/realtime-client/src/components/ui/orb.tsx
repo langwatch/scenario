@@ -173,7 +173,6 @@ function Scene({
     u.uTime.value += delta * 0.5
 
     if (u.uOpacity.value < 1) {
-      // eslint-disable-next-line react-hooks/immutability
       u.uOpacity.value = Math.min(1, u.uOpacity.value + delta * 2)
     }
 
