@@ -231,6 +231,50 @@ describe("run", () => {
         apiKey: "custom-api-key",
       });
     });
+
+    it("uses cfg.langwatch when provided in ScenarioConfig (no options)", async () => {
+      const { EventBus } = await import("../../events/event-bus");
+
+      const cfg: ScenarioConfig = {
+        ...createScenarioConfig(),
+        langwatch: {
+          endpoint: "https://cfg.endpoint.com",
+          apiKey: "cfg-api-key",
+        },
+      };
+
+      await run(cfg);
+
+      expect(EventBus).toHaveBeenCalledWith({
+        endpoint: "https://cfg.endpoint.com",
+        apiKey: "cfg-api-key",
+      });
+    });
+
+    it("options.langwatch takes priority over cfg.langwatch", async () => {
+      const { EventBus } = await import("../../events/event-bus");
+
+      const cfg: ScenarioConfig = {
+        ...createScenarioConfig(),
+        langwatch: {
+          endpoint: "https://cfg.endpoint.com",
+          apiKey: "cfg-api-key",
+        },
+      };
+      const options: RunOptions = {
+        langwatch: {
+          endpoint: "https://options.endpoint.com",
+          apiKey: "options-api-key",
+        },
+      };
+
+      await run(cfg, options);
+
+      expect(EventBus).toHaveBeenCalledWith({
+        endpoint: "https://options.endpoint.com",
+        apiKey: "options-api-key",
+      });
+    });
   });
 
   describe("tracing initialization", () => {

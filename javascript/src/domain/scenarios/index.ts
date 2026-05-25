@@ -9,6 +9,17 @@ export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
 
 /**
+ * Configuration for LangWatch event reporting.
+ * All fields are optional — any omitted fields fall back to environment variables.
+ */
+export interface LangwatchConfig {
+  /** The endpoint URL to send events to. Falls back to LANGWATCH_ENDPOINT env var. */
+  endpoint?: string;
+  /** The API key for authentication. Falls back to LANGWATCH_API_KEY env var. */
+  apiKey?: string;
+}
+
+/**
  * Configuration for a scenario.
  */
 export interface ScenarioConfig {
@@ -100,6 +111,27 @@ export interface ScenarioConfig {
    * always read off `cfg.voice`. See `voice/config.ts#resolveVoiceConfig`.
    */
   voice?: VoiceConfig;
+
+  /**
+   * LangWatch reporting configuration.
+   * Takes precedence over LANGWATCH_API_KEY and LANGWATCH_ENDPOINT environment variables.
+   *
+   * Use this when running multiple scenarios concurrently for different projects
+   * to avoid race conditions from mutating process.env.
+   *
+   * @example
+   * ```typescript
+   * await run({
+   *   name: 'My scenario',
+   *   langwatch: {
+   *     apiKey: project.apiKey,
+   *     endpoint: 'https://app.langwatch.ai',
+   *   },
+   *   agents: [...],
+   * });
+   * ```
+   */
+  langwatch?: LangwatchConfig;
 }
 
 /**
