@@ -446,3 +446,63 @@ brings up the Pipecat stub bot, runs the JS @e2e voice demos, uploads
 - **@ts-e2e round-trip gate re-PASSES with real keys** (see fixture re-run below).
 - **All 9 manifests byte-accurate; elevenlabs_branded carries real agent audio.**
 - Working tree clean (only the gitignored `.env` files untracked).
+
+## PR-readiness — user-facing docs + full local CI
+
+**Docs (Task 1).** Added the user-facing TypeScript voice guide and reconciled the
+TS capability matrix against the *shipped* surface (not the placeholder):
+
+- **NEW** `docs/voice/typescript.md` — the comprehensive TS voice guide: the real
+  public API (`scenario.pipecatAgent({...})` + `openAIRealtimeAgent` /
+  `geminiLiveAgent` / `elevenLabsAgent` / `twilioAgent` / `composableAgent`; the
+  `voice.*` class forms; `userSimulatorAgent({ voice })`; `judgeAgent`; script steps
+  `sleep`/`silence`/`audio`/`dtmf`/`interrupt`/`voiceAgent`/`voiceProceed`;
+  `voice.effects`; `result.audio`/`timeline`/`latency`; per-run `run({ voice })`),
+  mirroring the PRD §6 worked examples in TS idiom.
+- **REWROTE** `javascript/docs/voice/capability-matrix.md` — the prior file was a PR1
+  placeholder ("no concrete adapters land yet"). Now renders the 6 shipped TS
+  adapters with capability values read straight from
+  `src/voice/adapters/*.ts`, plus a "not yet ported to TS" table (LiveKit / Vapi /
+  generic WebRTC / generic WebSocket are Python-only) and the Pipecat-WebRTC
+  `PendingTransportError` note.
+- **LINKS:** `javascript/README.md` gains a *Voice Agents* section (TS-first) linking
+  the guide, the TS capability matrix, and `javascript/recordings/README.md`; the
+  root `README.md` voice section adds the `docs/voice/typescript.md` link alongside
+  the existing happy-path / capability-matrix links.
+
+**API fidelity — VERIFIED, no fabricated APIs.** Every symbol in the guide was
+checked by typechecking a throwaway probe against `src/index.ts` (probe → tsc exit
+0, then deleted). The probe caught and forced four corrections to the original
+draft, all fixed in the DOC (never the code):
+1. adapter **classes are `voice.*`-namespaced** (not top-level) — factories
+   `scenario.pipecatAgent(...)` are the top-level idiom;
+2. **effects are camelCase + positional** (`voice.effects.backgroundNoise("cafe",
+   0.3)`, `phoneQuality()`, `packetLoss(0.05)`) — not snake_case `{ volume }`;
+3. **`composableAgent({ stt, llm, tts })`** (STTProvider + AI-SDK LanguageModel +
+   `"provider/voiceId"`) — not `{ url, protocol }`;
+4. the non-blocking turn is **`scenario.voiceAgent({ wait: false })`** (the plain
+   `scenario.agent(...)` is the text form), `voice.effects.custom(fn)` takes one
+   arg, result fields are **`metCriteria`/`unmetCriteria`** (not passed/failed), and
+   a plain step reads **`state.hasToolCall(name)`** (the `timeline` is on `result`,
+   not the per-step state). The draft's "not yet wired" caveats for
+   `interruptProbability`, per-step `voiceStyle`, and `interrupt({ after })` were
+   dropped — all three ARE wired (Gap #8 / Tier C).
+
+**Lint fix (Task 2).** `pnpm lint:all` (the javascript-ci "Lint" step) was RED on
+HEAD: 3 `import/order` errors + 9 dead `eslint-disable no-console` directives in the
+`@e2e` voice example tests (`examples/vitest/tests/voice/*`). Fixed via the package's
+own `eslint . --fix` + removal of the whitespace residue. Commit `e5d0ca4`.
+
+**Full local CI-equivalent (exact `javascript-ci.yml` steps, run from `javascript/`):**
+
+| Step | Command | Result |
+|------|---------|--------|
+| Install | `pnpm install --frozen-lockfile` | ✅ exit 0 |
+| Build (covers DTS) | `pnpm build:all` | ✅ exit 0 |
+| Lint | `pnpm lint:all` | ✅ exit 0 (was RED at HEAD; fixed) |
+| Type check | `pnpm typecheck:all` | ✅ exit 0 |
+| Tests | `pnpm run test:ci` | ✅ exit 0 — **747 passed / 1 skipped** |
+| Test (Examples) | `pnpm -F vitest-examples test` | ⏸ NOT run locally — needs live `LANGWATCH_API_KEY` + `OPENAI_API_KEY` (real-provider `@e2e` demos). Gated `if: github.actor != 'dependabot[bot]'`; not faked. |
+
+Docs are markdown → not covered by `eslint .` (`**/*.{js,mjs,cjs,ts}` only), so the
+doc additions do not affect lint/build/tsc/test. Working tree clean after commits.
