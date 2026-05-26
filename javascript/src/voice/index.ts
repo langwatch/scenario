@@ -158,11 +158,13 @@ export {
   AgentSpeakingEvent,
   AdapterRecorder,
   defaultVoiceCall,
+  startVoiceTurn,
   initVoiceExecutorState,
   pickVoiceAdapters,
   startVoiceAdapters,
   stopVoiceAdapters,
   writeUserSegment,
+  type VoiceTurnHandle,
 } from "./adapter.runtime";
 
 export {

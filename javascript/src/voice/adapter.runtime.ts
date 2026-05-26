@@ -261,6 +261,89 @@ export async function defaultVoiceCall(
 }
 
 /**
+ * Handle for a non-blocking voice turn started by {@link startVoiceTurn} — the
+ * bridge that lets `agent({ wait: false })` begin receiving the agent's audio
+ * without awaiting it, so the script can inject a mid-turn interruption (PRD
+ * §4.4) before {@link finish} merges and records the response.
+ */
+export interface VoiceTurnHandle {
+  /**
+   * Send audio to the adapter mid-turn — the barge-in. The user-simulator's
+   * interruption audio is transmitted while the agent is still speaking; the
+   * server's VAD detects it and the agent stops. Records a user segment when
+   * a recorder is attached.
+   */
+  injectAudio(audio: AudioChunk): Promise<void>;
+  /**
+   * Await the in-flight agent response, record the agent segment, and return
+   * the merged assistant audio {@link AgentReturnTypes}. Idempotent — calling
+   * twice returns the same settled result.
+   */
+  finish(): Promise<AgentReturnTypes>;
+}
+
+/**
+ * Start a {@link VoiceAgentAdapter} turn WITHOUT blocking on the response — the
+ * non-blocking primitive behind `agent({ wait: false })` (PRD §4.4 L330-350).
+ *
+ * Sends the incoming user audio (if any), begins draining the agent response
+ * in the background, and returns a {@link VoiceTurnHandle}. The caller can
+ * {@link VoiceTurnHandle.injectAudio} a barge-in while the agent speaks, then
+ * {@link VoiceTurnHandle.finish} to merge + record. Mirrors the default
+ * {@link defaultVoiceCall} flow but splits send from drain so an interruption
+ * can land in between.
+ */
+export function startVoiceTurn(
+  adapter: VoiceAgentAdapter,
+  input: AgentInput,
+): VoiceTurnHandle {
+  const speakingEvent = getAgentSpeakingEvent(adapter);
+  speakingEvent.clear();
+
+  const state = readVoiceState(input);
+  const recorder = new AdapterRecorder(state);
+
+  // Send the incoming user audio, then kick off the drain immediately so the
+  // agent is already speaking by the time the caller injects an interruption.
+  const sendThenDrain = (async (): Promise<AudioChunk> => {
+    const incoming = extractIncomingAudio(input.newMessages);
+    if (incoming) {
+      recorder.markUserStart();
+      await adapter.sendAudio(incoming);
+      feedVad(adapter, incoming);
+      recorder.recordUser(incoming);
+    }
+    return drainAgentResponse(adapter, speakingEvent, () => {
+      recorder.markAgentStart();
+    });
+  })();
+
+  let finished: Promise<AgentReturnTypes> | null = null;
+
+  return {
+    async injectAudio(audio: AudioChunk): Promise<void> {
+      // The barge-in: transmit user audio while the agent is still speaking.
+      recorder.markUserStart();
+      await adapter.sendAudio(audio);
+      feedVad(adapter, audio);
+      recorder.recordUser(audio);
+    },
+    finish(): Promise<AgentReturnTypes> {
+      if (!finished) {
+        finished = sendThenDrain.then((merged) => {
+          recorder.recordAgent(merged);
+          return createAudioMessage(
+            merged,
+            "assistant",
+          ) as unknown as AgentReturnTypes;
+        });
+      }
+      return finished;
+    },
+  };
+}
+
+/**
  * Pull the audio chunk from the most-recent inbound message via the shared
  * {@link extractAudio} gateway. An odd-byte (non-PCM16) payload makes the
  * {@link AudioChunk} constructor throw; we drop it rather than crashing the
