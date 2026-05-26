@@ -177,7 +177,7 @@ describe("JudgeAgent.call() wires the STT pre-pass (EDR §3.3)", () => {
     let userContent = "";
     agent.invokeLLM = async (params) => {
       // The judge embeds the transcript in the second (user) message.
-      const userMsg = params.messages.find((m) => m.role === "user");
+      const userMsg = (params.messages ?? []).find((m) => m.role === "user");
       userContent =
         typeof userMsg?.content === "string"
           ? userMsg.content

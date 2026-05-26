@@ -9,6 +9,7 @@ import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 import { AudioChunk } from "../voice/audio-chunk";
 import { createAudioMessage } from "../voice/messages";
+import { synthesize } from "../voice/tts";
 
 /**
  * Configuration for the voice path of the user simulator (§4.2).
@@ -113,20 +114,16 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
    * Signature mirrors `python/scenario/voice/tts.py:synthesize(text, voice)`.
    * Returns an {@link AudioChunk} with the synthesized PCM16 data.
    *
-   * Default implementation is a stub that throws — callers that configure
-   * `voice` must inject a real synthesize function via `_synthesize` OR the
-   * voice SDK will be wired by PR2's TTS module.
+   * Default: routes through the per-run TTS module (`voice/tts#synthesize`),
+   * whose `"provider/voice"` router resolves the backend and whose LRU cache
+   * is keyed on `(sha256(text), voice)` — effects apply AFTER the cache read
+   * (in {@link voiceify}), never baked into the key. Per-run, not a module
+   * global. Tests inject a stub via `_synthesize`.
    */
-  _synthesize: (
-    text: string,
-    voice: string
-  ) => Promise<AudioChunk> = async () => {
-    throw new Error(
-      "UserSimulatorAgent: TTS synthesize is not wired. " +
-        "This will be provided by the TTS module in PR2 of issue #372. " +
-        "Inject a _synthesize stub in tests."
-    );
-  };
+  _synthesize: (text: string, voice: string) => Promise<AudioChunk> = (
+    text,
+    voice,
+  ) => synthesize(text, voice);
 
   // ---------------------------------------------- per-step overrides (§4.2)
   // Mirror of python/scenario/user_simulator_agent.py _one_shot_override.
@@ -197,13 +194,26 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   }
 
   /**
+   * Resolve the effective TTS voice for this turn (per-run).
+   *
+   * Priority: the simulator's own `voice` (PRD §4.2,
+   * `userSimulatorAgent({ voice })`) wins; otherwise the per-run
+   * `cfg.voice.tts.voice` carried on `ScenarioConfig.voice` (`run({ voice:
+   * { tts: { voice } } })`). Both are per-run sources — no module global.
+   */
+  private effectiveVoice(input: AgentInput): string | undefined {
+    return this.cfg?.voice ?? input.scenarioConfig.voice?.tts?.voice;
+  }
+
+  /**
    * Convert a text user message into an audio message via TTS + effects.
    * Port of `python/scenario/user_simulator_agent.py:_voiceify`.
    */
   private async voiceify(
-    textMessage: ModelMessage
+    textMessage: ModelMessage,
+    input: AgentInput,
   ): Promise<ModelMessage> {
-    const voice = this.cfg?.voice;
+    const voice = this.effectiveVoice(input);
     if (!voice) return textMessage;
 
     const content =
@@ -271,9 +281,10 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       content: messageContent,
     } satisfies ModelMessage;
 
-    // If voice is configured, run TTS and return audio message.
-    if (config?.voice) {
-      return this.voiceify(textMessage);
+    // If voice is configured — either on the simulator (PRD §4.2 `voice`) or
+    // per-run via `cfg.voice.tts` — run TTS and return an audio message.
+    if (this.effectiveVoice(input)) {
+      return this.voiceify(textMessage, input);
     }
 
     return textMessage;
