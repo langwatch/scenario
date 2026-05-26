@@ -320,3 +320,74 @@ across leaves (none exists) and no test requires it → left for Tier C, noted b
 - Per-step `voiceStyle` is wired as PLUMBING (one-shot install/revert) but the AUDIBLE effect is
   pending a TTS backend that honors style (the simulator emits a one-shot warning today; spec scenario
   stays `@todo`).
+
+---
+
+# E2E + AUDIO-PROOF stage — real-key demos + the @ts-e2e gate (DONE)
+
+**Branch:** `voice/372-refactor`, atop Tier C `2dcff36`. Real provider keys (OpenAI /
+ElevenLabs + live agent_id / Gemini), NO mocks. Recordings committed under
+`javascript/recordings/<demo>/` (full.wav + manifest.json [+ segments for core demos];
+all files <1MB; `.gitignore` JS-recordings policy + `javascript/recordings/README.md`
+mirror `python/recordings/`).
+
+## The @ts-e2e ROUND-TRIP GATE (EDR §8) — PASSES with real keys
+`examples/vitest/tests/voice/ts-e2e-roundtrip.test.ts` + the new `@e2e @ts-e2e`
+scenario. Drives a known utterance through user-sim TTS → message bus
+(`createAudioMessage`, canonical AI-SDK `file` part) → judge STT (`OpenAISTTProvider`)
+and asserts the far-side transcript matches within a word-level tolerance (≥0.8). The
+Gap #3 LIVE-BUG regression guard. **Verified:** far-side transcript byte-identical to
+input ("The quick brown fox jumps over the lazy dog."), 3.95s PCM16 round-trip.
+
+## Per-demo status (audio produced?)
+| Demo | Path | Result | Audio |
+|---|---|---|---|
+| `openai_realtime_agent` | OpenAI Realtime (role=AGENT), BASELINE | ✅ success=true | full.wav 204KB + segments |
+| `openai_realtime_user` | OpenAI Realtime (role=USER), §7.2 | ✅ spoken audio captured | full.wav 465KB + segment |
+| `elevenlabs_hosted` | live ConvAI WS | ✅ success=true | full.wav 328KB + segments |
+| `elevenlabs_branded` | EL STT+LLM+TTS in-process | ✅ STT/LLM/TTS fired | full.wav 327KB + segments |
+| `gemini_live` | Gemini Live native audio | ✅ success=true | full.wav 224KB + segments |
+| `composable_stt_swap` | `run({ voice: { stt } })` | ✅ EL STT calls=1 | full.wav + manifest |
+| `recording_playback` | `save()` WAV + MP3 | ✅ WAV 244KB + MP3 20KB | full.wav + manifest |
+| `voice_text_parity` | same entrypoint voice vs text | ✅ both success=true | full.wav + manifest |
+| `pipecat_ws` | live bot, Twilio Media Streams (mulaw/8000) | ✅ success=true | full.wav 343KB + manifest |
+| `twilio_inbound/outbound` | real phone + tunnel | ⏸ MANUAL (skipped) | — |
+
+Full e2e suite: **8 files / 33 tests pass** (real keys); pipecat skips when the bot is
+down (passes when up). Twilio: `NGROK_AUTHTOKEN` + ngrok absent → `⏸ manual`, NOT
+run (matches capability-matrix `⏸ real phone`); does not gate CI.
+
+## Executor parity bugs FIXED while wiring the demos (TS src, no python edits)
+Three real gaps the demos surfaced — each was masking a non-functional documented path:
+1. **`user("text")` voice routing** (`scenario-execution.ts`): scripted explicit content
+   reached a voice agent under test as TEXT (no audio) → its `call()` timed out draining
+   an un-prompted response. Now mirrors `scenario_executor.py:user`: realtime USER →
+   `sendText`; voice user-sim → `voiceifyText` (TTS) → audio message; else text. Added
+   `UserSimulatorAgent.voice` getter + `voiceifyText()` (mirror Python `voice` + `_voiceify`).
+2. **`ComposableVoiceAgent.call()` stub** (`adapters/composable.ts`): returned a bare
+   string, shadowing `defaultVoiceCall` → STT/LLM/TTS seams never fired under
+   `scenario.run()`. Removed the override so it inherits `defaultVoiceCall` (like Python's
+   `ComposableVoiceAgent(VoiceAgentAdapter)`).
+3. **`run({ voice })` dropped** (`scenario-execution.ts` ctor): `this.config` omitted
+   `voice`/`onAudioChunk`/`onVoiceEvent` → `run({ voice: { stt } })` never reached the
+   judge STT pre-pass (fell back to default STT). Now copied onto `this.config`. Verified:
+   swapped EL STT 0 → 1 transcribe() calls.
+
+New unit coverage: `src/execution/__tests__/user-explicit-content-voice.test.ts` (3) locks
+fix #1 offline. Unit suite: **743 passed / 1 skipped** (740 baseline + 3) — no regression.
+
+## Recording helper (Task 1)
+`examples/vitest/tests/voice/helpers/save-demo-recording.ts` — `saveDemoRecording(audio,
+name)` → `javascript/recordings/<name>/` via `audio.saveSegments(dir,{manifest:true})`.
+TS mirror of `python/examples/voice/_recording_helper.py`. Returns null when no segments.
+
+## What remains (next stages)
+- `/prove-it` + `/review` + docs pass + PR (no push/PR done here, per scope).
+- Twilio inbound/outbound: real-phone manual run once `NGROK_AUTHTOKEN` + a second number
+  are provisioned (currently `⏸`).
+- CI: add a JS e2e job (load secrets → `make voice-pipecat-up` → run env-gated demos →
+  upload `javascript/recordings/**` artifact), mirroring the Python job.
+- Per-step `voiceStyle` audible effect still pending a style-honoring TTS (unchanged; the
+  three fixes above did not touch it).
+- Follow-up issue: `make voice-pipecat-down` leaves :8765 bound (kills the uv wrapper, not
+  the .venv child) — teardown needs `pkill -f examples/voice/_bot/bot.py`.
