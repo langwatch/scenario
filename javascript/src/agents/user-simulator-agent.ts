@@ -82,7 +82,8 @@ ${personaBlock}`.trim();
 /**
  * Remove audio content blocks from messages before sending to a text-only LLM.
  *
- * Voice turns use `input_audio` content parts (multimodal) which text-only
+ * Voice turns carry the canonical AI-SDK audio `file` part (`{ type: "file",
+ * mediaType: "audio/pcm16", … }`, see `voice/messages.ts`) which text-only
  * models like `gpt-4.1-mini` reject. This helper keeps `text` parts as-is and
  * replaces audio-only messages with an `[audio message]` placeholder so the
  * LLM still has a structural turn in the right position.
@@ -256,19 +257,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     const voice = this.cfg?.voice ?? runVoiceConfig?.tts?.voice;
     const textMessage: ModelMessage = { role: "user", content: text };
     if (!voice || !text) return textMessage;
-
-    if (this._voiceStyleOverride !== null) {
-      this.warnVoiceStyleOnce();
-    }
-
-    const chunk = await this._synthesize(text, voice);
-    let audioBytes = chunk.data;
-    const effects = this.effectiveAudioEffects();
-    for (const effect of effects) {
-      audioBytes = effect(audioBytes);
-    }
-    const finalChunk = new AudioChunk({ data: audioBytes, transcript: text });
-    return createAudioMessage(finalChunk, "user") as unknown as ModelMessage;
+    return this.synthesizeToAudioMessage(text, voice);
   }
 
   /**
@@ -286,21 +275,34 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       typeof textMessage.content === "string" ? textMessage.content : "";
     if (!content) return textMessage;
 
+    return this.synthesizeToAudioMessage(content, voice);
+  }
+
+  /**
+   * Shared TTS pipeline behind {@link voiceifyText} (scripted content) and
+   * {@link voiceify} (auto-generated turns): synthesize `text` with `voice`,
+   * apply any active one-shot warning + audio effects, and wrap the result in
+   * the canonical audio {@link ModelMessage}. Callers own the
+   * "should this turn be voiced?" decision (voice/empty-content guards) so
+   * this stays a pure text→audio-message transform.
+   */
+  private async synthesizeToAudioMessage(
+    text: string,
+    voice: string,
+  ): Promise<ModelMessage> {
     if (this._voiceStyleOverride !== null) {
       this.warnVoiceStyleOnce();
     }
 
-    const chunk = await this._synthesize(content, voice);
-
+    const chunk = await this._synthesize(text, voice);
     let audioBytes = chunk.data;
     const effects = this.effectiveAudioEffects();
     for (const effect of effects) {
       audioBytes = effect(audioBytes);
     }
-
-    const finalChunk = new AudioChunk({ data: audioBytes, transcript: content });
-    // createAudioMessage returns AudioMessageParam which is structurally a ModelMessage.
-    return createAudioMessage(finalChunk, "user") as unknown as ModelMessage;
+    const finalChunk = new AudioChunk({ data: audioBytes, transcript: text });
+    // createAudioMessage already returns AudioMessage (= ModelMessage); no cast.
+    return createAudioMessage(finalChunk, "user");
   }
 
   call = async (input: AgentInput): Promise<ModelMessage> => {

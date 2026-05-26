@@ -81,10 +81,11 @@ export class InterruptionConfig {
   }
 
   pickRandomPhrase(rng: () => number = Math.random): string {
+    if (this.phrases.length === 0) return "";
     const idx = Math.min(
       this.phrases.length - 1,
       Math.floor(rng() * this.phrases.length),
     );
-    return this.phrases[idx];
+    return this.phrases[idx]!;
   }
 }

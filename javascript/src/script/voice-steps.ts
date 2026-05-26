@@ -10,8 +10,10 @@
  * behalf; `dtmf()` raises {@link UnsupportedCapabilityError} unless the
  * active adapter advertises `capabilities.dtmf`.
  *
- * PR5 of the TS voice parity slice (#372) — pure SDK orchestration. The
- * underlying executor/adapter wiring lands in PR6+.
+ * Part of the TS voice parity slice (#372). The interruption / barge-in path
+ * (`interrupt`, `proceed({ interruptions })`) is wired end-to-end through the
+ * executor; the `backgroundNoise` mixing sink is still deferred (the step
+ * records its config on the executor state for that future consumer).
  */
 
 import { spawnSync } from "node:child_process";
@@ -40,7 +42,7 @@ const AUDIO_EXTS = [".wav", ".mp3", ".ogg", ".flac"] as const;
 
 /**
  * Minimal shape `voice-steps` reaches for on the executor. Structural so
- * the step DSL stays decoupled from runtime wiring (PR6+). Voice config
+ * the step DSL stays decoupled from the concrete executor class. Voice config
  * fields live on `VoiceExecutorState` — this interface merges them in via
  * intersection so callers see one typed surface.
  */
@@ -94,8 +96,8 @@ export const audio = (pathOrBytes: string | Uint8Array): ScriptStep => {
     const chunk = await loadAudioToChunk(pathOrBytes);
     const adapter = voiceAdapter(executor);
     if (adapter === null) {
-      // No voice adapter — leave the chunk dangling. PR6+ will wire this
-      // into the message history when the executor learns audio messages.
+      // No voice adapter under test — nothing to transmit to, so the decoded
+      // chunk is a no-op for this step (the file still validated/decoded).
       return;
     }
     await adapter.sendAudio(chunk);
@@ -313,17 +315,17 @@ export interface VoiceProceedOptions {
 /**
  * Voice variant of {@link import("./index.js").proceed}. Adds the
  * `interruptions` option for injecting random user interruptions during
- * the proceed loop. The interruption-injection wiring lives on the
- * executor (PR6+); this script step records the config on the executor
- * state where downstream PRs pick it up.
+ * the proceed loop. The injection itself runs in the executor's
+ * `maybeInjectInterruption` (Gap #8); this script step records the config on
+ * the executor state, which that loop consumes per turn.
  */
 export const proceed = (options: VoiceProceedOptions = {}): ScriptStep => {
   return async (_state, executor) => {
     if (options.interruptions !== undefined) {
       // Write through the typed VoiceExecutorState surface (Decision 1(b)
       // — see voice-executor-state.ts) rather than reaching for a private
-      // attribute. PR6+ reads this inside the proceed loop and injects
-      // interruptions per the configured probability/strategy.
+      // attribute. The executor reads this inside the proceed loop and
+      // injects interruptions per the configured probability/strategy.
       (executor as VoiceAwareExecutor).voiceInterruptions = options.interruptions;
     }
     await executor.proceed(options.turns, options.onTurn, options.onStep);

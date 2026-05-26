@@ -8,7 +8,7 @@
  * no network, no real keys.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   AgentRole,
@@ -142,5 +142,39 @@ describe("proceed() voice interruptions (Gap #8)", () => {
     expect(
       (sim as unknown as { interruptProbability: number }).interruptProbability,
     ).toBe(0.4);
+  });
+
+  it("samples the configured delayRange before barging in (m2)", async () => {
+    const sim = new RecordingUserSim();
+    // A short, deterministic delay range so the injected wait stays sub-ms.
+    const config = new InterruptionConfig({
+      probability: 1,
+      strategy: "random_phrase",
+      delayRange: [0, 0],
+    });
+    const sampleSpy = vi.spyOn(config, "sampleDelay");
+    const exec = new ScenarioExecution(
+      {
+        name: "proceed interruptions / delayRange consumed",
+        description: "delayRange must be sampled before injection",
+        agents: [new MockAgent(), sim],
+      },
+      [
+        (_state, executor) => {
+          (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
+            config;
+        },
+        (_state, executor) => executor.proceed(1),
+      ],
+      "test-batch-id",
+    );
+    (exec as unknown as { _interruptRng: () => number })._interruptRng = () => 0;
+
+    await exec.execute();
+
+    // The delayRange surface is now consumed by the proceed-loop injector —
+    // sampleDelay() fires with the executor's seeded RNG (was dead before m2).
+    expect(sampleSpy).toHaveBeenCalled();
+    expect(sampleSpy).toHaveBeenCalledWith(expect.any(Function));
   });
 });

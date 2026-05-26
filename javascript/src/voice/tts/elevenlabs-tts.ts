@@ -1,7 +1,7 @@
 /**
  * ElevenLabs TTS leaf — the `elevenlabs/<voiceId>` backend (Gap #10).
  *
- * Symmetric with {@link OpenAISttProvider}/`elevenlabs-stt.ts`: a single home
+ * Symmetric with {@link OpenAISTTProvider}/`elevenlabs-stt.ts`: a single home
  * for ElevenLabs synthesis so `voice="elevenlabs/..."` resolves through the
  * TTS registry instead of being buried in `adapters/composable.ts`. The
  * composable agent consumes this leaf for its EL path (de-dup, Gap #5).

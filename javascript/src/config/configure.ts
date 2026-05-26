@@ -5,6 +5,12 @@
  * settings only** (PRD §4.7) — e.g. `audioPlayback` (stream conversation
  * audio to local speakers during a run). It does NOT configure providers.
  *
+ * NOTE: `audioPlayback` is currently a stored-but-not-yet-consumed toggle.
+ * Live local-speaker playback is a device-bound concern (the Python parity
+ * runs it through `ffplay`/PyAudio); the TS runner does not read this setting
+ * yet. The store + getter exist so the surface is stable for when the
+ * playback sink lands — see the follow-up tracked in REFACTOR-PROGRESS.md.
+ *
  * STT/TTS providers are per-run, not global: pass them via
  * `run({ voice: { stt, tts } })` (ADR-002). The invented
  * `configure({ stt })` knob — present in no other PR and not in Python —
@@ -39,7 +45,10 @@ export function configure(options: ScenarioConfigureOptions): void {
   }
 }
 
-/** Read the current global execution settings (consumed by the runner). */
+/**
+ * Read the current global execution settings. Intended for the runner to read
+ * once a live-playback sink is wired; not yet consumed (see {@link configure}).
+ */
 export function getGlobalSettings(): Readonly<ScenarioConfigureOptions> {
   return globalSettings;
 }
