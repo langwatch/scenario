@@ -51,6 +51,7 @@ import {
   startVoiceAdapters,
   stopVoiceAdapters,
 } from "../voice/adapter.runtime";
+import { computeLatencyMetrics } from "../voice/recording.runtime";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -360,6 +361,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       messages: this.state.messages,
       totalTime: this.totalTime,
       agentTime: totalAgentTime,
+      ...this.buildVoiceResultFields(),
     };
 
     this.logger.debug(`[${this.config.id}] Result set`, {
@@ -371,6 +373,43 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     });
 
     return this._result;
+  }
+
+  /**
+   * Build the voice-only `audio` / `timeline` / `latency` result fields
+   * (issue #372, EDR §4.3 — "Gap A"). Returns an empty object for text-only
+   * runs so {@link setResult} stays a pure spread and the existing fields are
+   * untouched (back-compat).
+   *
+   * The per-run recording is a {@link VoiceRecordingRuntime} (see
+   * `adapter.runtime.ts#emptyRecording`, "Gap B") so the attached
+   * `result.audio` carries `save()` / `saveSegments()`. Latency is finalized
+   * here from the running measurements (avg / p50 / p95 computed once at
+   * end-of-run rather than re-derived each turn), and `audio.timeline`
+   * aliases `result.timeline` (the runtime appends to both during the run).
+   */
+  private buildVoiceResultFields(): Pick<
+    ScenarioResult,
+    "audio" | "timeline" | "latency"
+  > {
+    const recording = this.voiceRecording;
+    if (!recording) {
+      return {};
+    }
+
+    const latency = this.voiceLatency
+      ? computeLatencyMetrics({
+          measurements: this.voiceLatency.measurements,
+          timeToFirstByte: this.voiceLatency.timeToFirstByte,
+          interruptResponseTime: this.voiceLatency.interruptResponseTime,
+        })
+      : undefined;
+
+    return {
+      audio: recording,
+      timeline: this.voiceTimeline ?? recording.timeline,
+      latency,
+    };
   }
 
   /**
