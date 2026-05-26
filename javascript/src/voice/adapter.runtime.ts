@@ -24,10 +24,7 @@
 import type { AgentInput, AgentReturnTypes } from "../domain/agents";
 import { AudioChunk, silentChunk } from "./audio-chunk";
 import type { VoiceAgentAdapter } from "./adapter";
-import type {
-  AudioMessageContentPart,
-  AudioMessageParam,
-} from "./messages.types";
+import { createAudioMessage, extractAudio } from "./messages";
 import type {
   AudioSegment,
   LatencyMetrics,
@@ -236,7 +233,7 @@ export async function defaultVoiceCall(
   const state = readVoiceState(input);
   const recorder = new AdapterRecorder(state);
 
-  const incoming = extractAudioFromLastMessage(input.newMessages);
+  const incoming = extractIncomingAudio(input.newMessages);
   if (incoming) {
     recorder.markUserStart();
     await adapter.sendAudio(incoming);
@@ -248,13 +245,29 @@ export async function defaultVoiceCall(
     recorder.markAgentStart();
   });
   recorder.recordAgent(merged);
-  // AudioMessageParam is structurally a superset of OpenAI's
-  // ChatCompletionMessageParam (Decision 2(b) at issue #372). Cast
-  // through `unknown` because the executor's `AgentReturnTypes` union
-  // is rooted in `ai` SDK's `ModelMessage`, which restricts tool-role
-  // content shape — the audio body survives intact at runtime and the
-  // executor's AG-UI converter JSON-stringifies the content parts.
+  // Single shared encoder (messages.ts) — the canonical AI-SDK `file` audio
+  // part (EDR §4.2). Cast to AgentReturnTypes (rooted in `ai`'s ModelMessage)
+  // because createAudioMessage's role/content array is broader than the
+  // per-role unions; the body is a valid ModelMessage at runtime.
   return createAudioMessage(merged, "assistant") as unknown as AgentReturnTypes;
+}
+
+/**
+ * Pull the audio chunk from the most-recent inbound message via the shared
+ * {@link extractAudio} gateway. An odd-byte (non-PCM16) payload makes the
+ * {@link AudioChunk} constructor throw; we drop it rather than crashing the
+ * `call()` flow — the adapter is expected to fix at its transport boundary.
+ */
+function extractIncomingAudio(
+  newMessages: AgentInput["newMessages"],
+): AudioChunk | null {
+  if (newMessages.length === 0) return null;
+  const last = newMessages[newMessages.length - 1];
+  try {
+    return extractAudio(last);
+  } catch {
+    return null;
+  }
 }
 
 function feedVad(adapter: VoiceAgentAdapter, chunk: AudioChunk): void {
@@ -496,97 +509,6 @@ function getAgentSpeakingEvent(adapter: VoiceAgentAdapter): AgentSpeakingEvent {
     speakingEventRegistry.set(adapter, event);
   }
   return event;
-}
-
-/**
- * Build an {@link AudioMessageParam} that satisfies the locally-defined
- * audio-content shape (Decision 2(b) from issue #372). The OpenAI
- * `input_audio` content convention is used for the wire payload; the
- * transcript (when present) rides alongside as a text part.
- */
-function createAudioMessage(
-  chunk: AudioChunk,
-  role: AudioMessageParam["role"],
-): AudioMessageParam {
-  const base64 = toBase64(chunk.data);
-  const content: AudioMessageContentPart[] = [
-    {
-      type: "input_audio",
-      input_audio: { data: base64, format: "pcm16" },
-    },
-  ];
-  if (chunk.transcript) {
-    content.unshift({ type: "text", text: chunk.transcript });
-  }
-  return { role, content };
-}
-
-function toBase64(data: Uint8Array): string {
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(data).toString("base64");
-  }
-  let binary = "";
-  for (let i = 0; i < data.length; i++) {
-    binary += String.fromCharCode(data[i]!);
-  }
-  return btoa(binary);
-}
-
-/**
- * Pull the first audio content part out of the most-recent inbound
- * message, if any. Accepts both the OpenAI `input_audio` convention and
- * the alternate `audio` convention defined by `messages.types.ts`.
- */
-function extractAudioFromLastMessage(
-  newMessages: AgentInput["newMessages"],
-): AudioChunk | null {
-  if (newMessages.length === 0) return null;
-  const last = newMessages[newMessages.length - 1] as unknown as {
-    content?: unknown;
-  };
-  if (!Array.isArray(last.content)) {
-    return null;
-  }
-  for (const part of last.content as Array<{ type?: string; [k: string]: unknown }>) {
-    if (part.type === "input_audio" && typeof part.input_audio === "object") {
-      const payload = part.input_audio as { data?: string; format?: string };
-      if (typeof payload.data === "string") {
-        const data = fromBase64(payload.data);
-        if (data.length % 2 !== 0) {
-          // odd-byte payload: not valid PCM16 — drop instead of crashing
-          // the call() flow. The adapter is expected to fix at its
-          // transport boundary.
-          continue;
-        }
-        return new AudioChunk({ data });
-      }
-    }
-    if (part.type === "audio" && typeof part.audio === "object") {
-      const payload = part.audio as {
-        data?: string;
-        format?: string;
-        transcript?: string;
-      };
-      if (typeof payload.data === "string") {
-        const data = fromBase64(payload.data);
-        if (data.length % 2 !== 0) continue;
-        return new AudioChunk({ data, transcript: payload.transcript });
-      }
-    }
-  }
-  return null;
-}
-
-function fromBase64(s: string): Uint8Array {
-  if (typeof Buffer !== "undefined") {
-    return new Uint8Array(Buffer.from(s, "base64"));
-  }
-  const binary = atob(s);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    out[i] = binary.charCodeAt(i);
-  }
-  return out;
 }
 
 /** Re-export so tests importing the runtime get a silent chunk helper too. */
