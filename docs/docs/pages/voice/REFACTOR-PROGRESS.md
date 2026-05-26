@@ -35,10 +35,10 @@ npx vitest run src/voice/__tests__ src/config/__tests__
 | #3  | unify the TWO `createAudioMessage` producers → ONE AI-SDK `file`-part encoder + ONE extractor (LIVE BUG) | A | ✅ DONE (93d6c42) |
 | #4  | merge 3-way `adapter.ts` (call + sendDtmf + AgentSpeakingEvent) | A-verify | ✅ VERIFIED intact (silent merge kept union); barrel dup resolved (acf77c7) |
 | #5  | de-dupe `adapters/composable.ts` STTProvider/synthesize copies → import canonical | B | ✅ DONE (c559738) — composable imports `STTProvider`/`ElevenLabsSTTProvider` from `./stt`, routes TTS via `./tts`; inline synthesize + 4th WAV dup deleted |
-| #11 | settle abstract-vs-default `call()` across leaves | B/C | ✅ DONE (2262e7d) — removed stub `call()` overrides on pipecat/twilio/openai-realtime/gemini-live/EL-hosted → inherit `defaultVoiceCall`; composable keeps its own (local BYO agent) |
+| #11 | settle abstract-vs-default `call()` across leaves | B/C | ✅ DONE (2262e7d Tier B + 1ff5e50 Tier C) — leaves inherit `defaultVoiceCall`; composable keeps its own; **Tier C** added the uniform `isConnected()` gate so `defaultVoiceCall`/`startVoiceTurn` raise `PendingTransportError` before connect across every leaf |
 | #6  | reconcile 2 divergent `twilio-shared.ts` (codec fn names + REST) | B | ✅ DONE (2d94998) — single module; canonical `*At24k` codec + `*_24k` aliases; pr-539 REST/validation kept; all 22 markers + 2 spec-side markers resolved |
-| #8  | interruption executor verbs (`voiceProceed`/`backgroundNoise`) | C | DEFER (fields present in voice-executor-state; verbs unimplemented) |
-| #9  | site the 5 script steps in `voice/steps.ts` (§7.1a DECIDED) | C | DEFER |
+| #8  | interruption executor verbs (`voiceProceed`/`backgroundNoise`) | C | ✅ DONE (ce67b4b) — executor `proceed()` consumes the active `InterruptionConfig` (voiceProceed wins, else built from sim `interruptProbability`) → fires barge-in + `user_interrupt` event (RNG-injected); `voiceInterruptions`/`voiceBackgroundNoise` are real executor fields; `interrupt({after})` TIME-based + per-step `voiceStyle`/`audioEffects` on `user()` + `startVoiceTurn`/`VoiceTurnHandle` bridge |
+| #9  | site the 5 script steps (§7.1a) — RATIFIED at `script/voice-steps.ts` | C | ✅ DONE — steps live at `script/voice-steps.ts` (ratified deviation from EDR §7.1a `voice/steps.ts`; steps belong with the script module), re-exported via `script/index.ts`. Tier C extended `interrupt` (TIME-based `after`) + `user` (per-step overrides) |
 | #10 | `tts/elevenlabs-tts.ts` leaf (§7.1b DECIDED) | B | ✅ DONE (7753305) — tts/ split mirrors stt/; `ElevenLabsTtsProvider` leaf (eleven_v3 / pcm_24000); cache invariant preserved |
 
 Host wiring (Tier A): ✅ DONE (e59287e) — `ScenarioConfig.voice?` field + `RunOptions.voice` + `runner/run.ts` boundary seed + per-run `resolveVoiceConfig` in the executor (which IS the VoiceExecutorState). `voice-executor-state.ts` (pr-538 interruption fields) and `voice-models.ts` (pr-536 EL/composable constants) were already auto-merged intact — only added an additive `voiceConfig?` field to the former.
@@ -242,5 +242,81 @@ across leaves (none exists) and no test requires it → left for Tier C, noted b
 - **`_24k` codec aliases retained** rather than renaming the twilio trio's call sites to the
   canonical `*At24k`. Keeps the diff to twilio.ts/twilio-server.ts at zero and both naming sets
   documented as one-impl-two-names; a follow-up can collapse the alias if desired.
-</content>
-</invoke>
+
+---
+
+# Tier C — executor audio, factories, interruption, judge-stt, user-sim TTS, connected-state, §7 sweep (DONE)
+
+**Commits (on `voice/372-refactor`, atop Tier B `0a8e168`):**
+- `28dec7c` Gaps A+B — attach `result.audio`/`timeline`/`latency`; `emptyRecording()` → `VoiceRecordingRuntime`
+- `56bd55a` lowercase adapter factories (PRD §9) + barrel + `scenario.*` wiring
+- `18d68c5` net-new `judge-stt.ts` pre-pass + `JudgeAgent.call()` wiring
+- `b7cfb1f` user-simulator per-run TTS (default `_synthesize` → `voice/tts#synthesize`)
+- `ce67b4b` interruption completeness (Gap #8): `interrupt({after})`, per-step `voiceStyle`/`audioEffects`, `interruptProbability`, executor `proceed()` interruption, `startVoiceTurn`/`VoiceTurnHandle`
+- `1ff5e50` Gap #11 uniform `isConnected()` connected-state gate
+- `ab3e396` §7 spec/comment sweep
+
+## Convergence gate (held)
+- **`npx tsc --noEmit` → 0 errors (CLEAN).**
+- **Full suite (`npx vitest run`): see final run below — green, no regression from the 697 baseline,
+  plus the new Tier C tests.**
+- **SALVAGE-CONFLICT markers: 0** (grep clean in `src` + `specs`).
+
+## What landed (per task)
+1. **Executor audio (Gaps A+B).** `ScenarioExecution.setResult()` attaches `audio`/`timeline`/`latency`
+   for voice runs via `buildVoiceResultFields()` (latency finalized once at end-of-run via
+   `computeLatencyMetrics`); text-only runs leave the fields `undefined` (back-compat).
+   `adapter.runtime.ts#emptyRecording()` returns a `VoiceRecordingRuntime` instance so
+   `result.audio.save()`/`saveSegments()` exist. **Verified offline** (`result-audio.test.ts`): a real
+   `ScenarioExecution.execute()` with a voice `FakeVoiceAdapter` + audio user-sim + fake judge →
+   `result.audio instanceof VoiceRecordingRuntime`, segments>0 (user+agent), timeline populated,
+   `latency.measurements`>0, `save()` round-trips a WAV.
+2. **Adapter factories (PRD §9).** `voice/factories.ts` — `pipecatAgent`/`openAIRealtimeAgent`/
+   `geminiLiveAgent`/`elevenLabsAgent`/`twilioAgent`/`composableAgent` thin `new X()` wrappers,
+   exported from `voice/index.ts` and merged onto the top-level `scenario` object so
+   `scenario.pipecatAgent({...})` works. Class forms kept.
+3. **Interruption (Gap #8 + PRD §4.4/§4.2).** `interrupt({after})` TIME-based; per-step
+   `user(content, {voiceStyle|audioEffects})` one-shot override (install+revert); `interruptProbability`
+   on the user simulator; executor `proceed()` consumes the active `InterruptionConfig` and injects
+   barge-ins (RNG-injected for determinism); `startVoiceTurn`/`VoiceTurnHandle` non-blocking bridge.
+   `voiceInterruptions`/`voiceBackgroundNoise` promoted to real executor fields.
+4. **judge-stt.ts (net-new).** `prepareJudgeInput({messages, stt, options})` transcribes audio `file`
+   parts → text BEFORE `buildTranscriptFromMessages`, keeping audio for multimodal models iff
+   `includeAudio`. Wired into `JudgeAgent.call()` via `transcribeAudioForJudge()` (resolves stt off
+   `cfg.voice`; text-only fast path). NO "judge requests transcript" tool (§7.3).
+5. **User-sim per-run TTS.** Default `_synthesize` routes through `voice/tts#synthesize` (per-run
+   router + LRU cache; effects after cache read), not the old throwing PR2 stub. Effective voice =
+   simulator `voice=` OR per-run `cfg.voice.tts.voice`.
+6. **Gap #11 connected-state.** `VoiceAgentAdapter.isConnected()` (base default `true`; overridden by
+   every network leaf) gates `defaultVoiceCall`/`startVoiceTurn` → uniform `PendingTransportError`.
+7. **§7 sweep.** `@ts-elevenlabs` added to the bare-`@unit` EL connects scenario (now binds, EL suite
+   0 skipped); "judge requests a transcript" → "auto-transcribed; judge gets text";
+   `scenario.configure(stt=)` strings → `run({voice})`; "PR2 of #372"/"PR2/#513" comments stripped.
+8. **dotenv (e2e stage).** `cp javascript/.env javascript/examples/vitest/.env` (gitignored — NOT
+   committed). Ready for the next-stage real-key e2e.
+
+## New Tier C test files
+- `src/voice/__tests__/result-audio.test.ts` (Gaps A+B, 5)
+- `src/voice/__tests__/factories.test.ts` (factories, 7)
+- `src/voice/__tests__/judge-stt.test.ts` (judge STT, 6)
+- `src/agents/__tests__/user-simulator-tts.test.ts` (per-run TTS, 3)
+- `src/execution/__tests__/proceed-interruptions.test.ts` (Gap #8 proceed, 4)
+- `src/voice/__tests__/start-voice-turn.test.ts` (VoiceTurnHandle, 4)
+- `src/script/__tests__/interrupt-after-and-user-overrides.test.ts` (interrupt after + user overrides, 5)
+- `src/voice/__tests__/connected-state.test.ts` (Gap #11, 5)
+
+## Ratified deviations (kept, not churned)
+- Script steps at `script/voice-steps.ts` (not EDR §7.1a `voice/steps.ts`) — steps belong with the
+  script module; re-exported via `script/index.ts`.
+- `STTProvider` name + `transcribe(audio): Promise<string>`; `AudioFormat` string-union;
+  `elevenlabs.ts` one-file-two-classes (per Tier A/B notes above).
+
+## Notes for the e2e stage (NOT run here — real-key)
+- The PRD §9 idiom (`scenario.pipecatAgent({...})`) now works end-to-end; demos should use the
+  factories to prove the documented API.
+- `javascript/examples/vitest/.env` is in place (gitignored) for real-key runs.
+- The `@ts-e2e` round-trip audio assertion (EDR §8) — drive a known utterance through user-sim TTS →
+  bus → adapter → judge STT and assert the far-side transcript matches — is the gate to add next.
+- Per-step `voiceStyle` is wired as PLUMBING (one-shot install/revert) but the AUDIBLE effect is
+  pending a TTS backend that honors style (the simulator emits a one-shot warning today; spec scenario
+  stays `@todo`).
