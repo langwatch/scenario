@@ -1,20 +1,20 @@
 /**
- * Text-to-speech router and cache.
+ * Text-to-speech router and cache (the core; provider leaves live alongside).
  *
- * Python parity: `python/scenario/voice/tts.py`. Litellm-style routing —
- * voice strings are `provider/name` (e.g. `openai/nova`,
- * `elevenlabs/rachel`). The TTS cache key is `(sha256(text), voice)` so
- * raw user-supplied text never reaches the cache payload; audio effects
- * apply AFTER cache hit and are never baked into stored audio.
+ * Python parity: `python/scenario/voice/tts.py`. Litellm-style routing — voice
+ * strings are `provider/name` (e.g. `openai/nova`, `elevenlabs/rachel`). The
+ * TTS cache key is `(sha256(text), voice)` so raw user-supplied text never
+ * reaches the cache payload; audio effects apply AFTER cache hit and are never
+ * baked into stored audio.
  *
- * Users may register custom providers via {@link registerTtsProvider}.
- * The default registry installs `openai` (hard dep); other providers ship
- * registration helpers that lazy-load their SDK.
+ * Concrete providers (OpenAI, ElevenLabs) are one-file-per-provider leaves that
+ * self-register via `tts/index.ts` (mirrors the `stt/` subtree, EDR §5.3). This
+ * module owns the interface, the registry router, `synthesize()`, and the LRU
+ * cache only — no provider SDK imports.
  */
 import { createHash } from "node:crypto";
 
-import { AudioChunk } from "./audio-chunk";
-import { OPENAI_TTS_MODEL } from "./voice-models";
+import { AudioChunk } from "../audio-chunk";
 
 /** A TTS backend: takes (text, voiceName) and returns PCM16/24kHz mono bytes. */
 export type TTSCallable = (text: string, voiceName: string) => Promise<Uint8Array>;
@@ -37,10 +37,10 @@ export type TtsEffectFn = (chunk: AudioChunk) => AudioChunk | Promise<AudioChunk
 const PROVIDERS = new Map<string, TTSCallable>();
 
 /**
- * In-process LRU cache keyed on (sha256(text), voice) → PCM16 bytes. Bounded
- * to prevent unbounded memory growth — a 5-minute clip is ~14 MB, so 64
- * entries caps the cache at ~900 MB even for long utterances. (Mirrors the
- * Python tuning.)
+ * In-process LRU cache keyed on (sha256(text), voice) → PCM16 bytes. Bounded to
+ * prevent unbounded memory growth — a 5-minute clip is ~14 MB, so 64 entries
+ * caps the cache at ~900 MB even for long utterances. (Mirrors the Python
+ * tuning.)
  */
 const CACHE_MAX_ENTRIES = 64;
 const CACHE = new Map<string, Uint8Array>();
@@ -79,8 +79,8 @@ function hashText(text: string): string {
 }
 
 function cacheKey(textHash: string, voice: string): string {
-  // Composite key — text hash and voice are both load-bearing; "voice" is
-  // the full provider/name string so two providers can't collide.
+  // Composite key — text hash and voice are both load-bearing; "voice" is the
+  // full provider/name string so two providers can't collide.
   return `${textHash}:${voice}`;
 }
 
@@ -99,9 +99,9 @@ async function synthesizeRaw(text: string, voice: string): Promise<Uint8Array> {
  * Synthesize `text` into an {@link AudioChunk} using the voice provider.
  *
  * Cache key is `(sha256(text), voice)` — equivalent determinism to
- * `(text, voice)` without pinning raw text in the cache payload. Effects
- * pass through `effectFn` AFTER a cache hit and are never part of the key,
- * matching the locked-decision invariant from the Python port.
+ * `(text, voice)` without pinning raw text in the cache payload. Effects pass
+ * through `effectFn` AFTER a cache hit and are never part of the key, matching
+ * the locked-decision invariant from the Python port.
  */
 export async function synthesize(
   text: string,
@@ -129,28 +129,3 @@ export async function synthesize(
   }
   return chunk;
 }
-
-/**
- * Default OpenAI TTS provider. Uses {@link OPENAI_TTS_MODEL} and asks for
- * `pcm` response format — documented as raw PCM16 @ 24kHz mono, matching our
- * canonical AudioChunk. Trims a trailing odd byte so a single transport
- * glitch can't poison the cache via the PCM16 byte-pair invariant.
- */
-const openaiTts: TTSCallable = async (text, voiceName) => {
-  const { default: OpenAI } = await import("openai");
-  const client = new OpenAI();
-  const response = await client.audio.speech.create({
-    model: OPENAI_TTS_MODEL,
-    voice: voiceName,
-    input: text,
-    response_format: "pcm",
-  });
-  const arrayBuffer = await response.arrayBuffer();
-  let bytes = new Uint8Array(arrayBuffer);
-  if (bytes.length % 2 === 1) {
-    bytes = bytes.subarray(0, bytes.length - 1);
-  }
-  return bytes;
-};
-
-registerTtsProvider({ prefix: "openai", synth: openaiTts });

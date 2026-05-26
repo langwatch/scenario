@@ -107,6 +107,8 @@ export {
   OPENAI_TTS_MODEL,
 } from "./voice-models";
 
+// TTS subtree (split from the flat tts.ts; one file per provider — EDR §5.3).
+// LRU cache invariant preserved (key = sha256(text)+voice; effects after read).
 export {
   clearTtsCache,
   listTtsProviders,
