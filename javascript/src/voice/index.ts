@@ -21,7 +21,22 @@ export {
   type AdapterCapabilitiesInit,
 } from "./capabilities";
 
-export { VoiceAgentAdapter, type AgentSpeakingEvent } from "./adapter";
+// Gap #4: `AgentSpeakingEvent` is exported once — as the concrete class from
+// ./adapter.runtime (below). The structurally-identical interface in
+// ./adapter stays internal (the adapter's `agentSpeakingEvent?` field type).
+export { VoiceAgentAdapter } from "./adapter";
+
+// Per-run voice config (Gap #7) — replaces the removed STT global + configure({stt}).
+export {
+  resolveVoiceConfig,
+  DEFAULT_STT_MODEL,
+  DEFAULT_AUDIO_FORMAT,
+  type VoiceConfig,
+  type SttConfig,
+  type TtsConfig,
+  type ResolvedVoiceConfig,
+  type AudioFormat,
+} from "./config";
 
 export {
   OpenAIRealtimeAgentAdapter,
@@ -74,12 +89,11 @@ export type {
 } from "./voice-executor-state";
 
 export type {
-  AudioContentPart,
-  AudioMessageContentPart,
-  AudioMessageParam,
+  AudioFilePart,
+  AudioMessage,
+  AudioMessageParts,
   AudioMessageRole,
-  InputAudioContentPart,
-  TextContentPart,
+  AudioTextPart,
 } from "./messages.types";
 
 export {
@@ -103,18 +117,25 @@ export {
   type TtsProvider,
 } from "./tts";
 
+// STT subtree (Gap #1 — split from the flat stt.ts; one file per provider).
+// The PR2 global (getSttProvider/setSttProvider) is removed — provider state
+// is per-run on ScenarioConfig.voice (ADR-002). Gap #5 (composable.ts's
+// divergent ElevenLabsSTTProvider/synthesize copies) is deferred to Tier B:
+// composable still defines its own copies; the canonical one is exported here.
 export {
   ELEVENLABS_STT_ENDPOINT,
   ELEVENLABS_STT_MODEL,
   ElevenLabsSTTProvider,
   OPENAI_TRANSCRIBE_LIMIT_SECONDS,
   OpenAISTTProvider,
-  getSttProvider,
   pcm16ToWav,
-  setSttProvider,
+  resolveSttProvider,
+  registerSttProvider,
+  listSttProviders,
   type ElevenLabsSTTProviderOptions,
   type OpenAISTTProviderOptions,
   type STTProvider,
+  type SttProviderFactory,
 } from "./stt";
 
 export {
@@ -138,10 +159,16 @@ export {
   type WebRTCVadFallbackOptions,
 } from "./vad";
 
+// Gap #3 (RESOLVED — LIVE BUG fixed): one encoder + one extractor for the
+// canonical AI-SDK `file` audio part (EDR §4.2). The WAV-vs-PCM16 producer
+// split is gone; adapter.runtime.ts now imports these instead of its own copy.
 export {
   createAudioMessage,
   extractAudio,
   messageHasAudio,
+  hasAudio,
+  extractTranscript,
+  AUDIO_PCM16_MEDIA_TYPE,
 } from "./messages";
 
 export * as effects from "./effects";
@@ -157,6 +184,8 @@ export {
   type SynthesizeOptions,
   type WebSocketLike,
 } from "./adapters";
+
+export {
   PipecatAgentAdapter,
   type PipecatAgentAdapterInit,
   type PipecatTransport,
