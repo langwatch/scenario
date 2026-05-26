@@ -9,6 +9,8 @@
 import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
 
+import { withUserStepOverride, type VoiceUserOptions } from "./voice-steps";
+
 export {
   sleep,
   silence,
@@ -21,6 +23,7 @@ export {
   type InterruptOptions,
   type VoiceAgentOptions,
   type VoiceProceedOptions,
+  type VoiceUserOptions,
 } from "./voice-steps";
 
 /**
@@ -82,12 +85,22 @@ export const judge = (options?: { criteria?: string[]; context?: string }): Scri
  * is provided, the user simulator agent will automatically generate an
  * appropriate message based on the scenario context.
  *
+ * Voice (PRD §4.2): pass `{ voiceStyle }` and/or `{ audioEffects }` to apply
+ * a per-step override to ONLY this turn's synthesized audio
+ * (`scenario.user("I'm upset!", { voiceStyle: "angry" })`). The simulator's
+ * default voice/effects resume on subsequent turns.
+ *
  * @param content Optional user message content. Can be a string or full message object.
  *                If undefined, the user simulator will generate content automatically.
+ * @param options Optional per-step voice overrides (`voiceStyle`, `audioEffects`).
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const user = (content?: string | ModelMessage): ScriptStep => {
-  return (_state, executor) => executor.user(content);
+export const user = (
+  content?: string | ModelMessage,
+  options?: VoiceUserOptions,
+): ScriptStep => {
+  return (_state, executor) =>
+    withUserStepOverride(executor, options, () => executor.user(content));
 };
 
 /**

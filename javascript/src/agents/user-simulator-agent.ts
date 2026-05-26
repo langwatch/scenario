@@ -36,6 +36,14 @@ export interface UserSimulatorVoiceConfig {
    * Each function receives the raw PCM16 bytes and returns transformed bytes.
    */
   audioEffects?: Array<(audio: Uint8Array) => Uint8Array>;
+
+  /**
+   * Probability in [0, 1] that the simulator interrupts each agent turn during
+   * `proceed()` (PRD §4.2 `interrupt_probability=0.3`). The executor reads this
+   * inside the proceed loop and fires a barge-in per the configured chance.
+   * Unset/0 = never interrupt.
+   */
+  interruptProbability?: number;
 }
 
 /**
@@ -138,6 +146,15 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
 
   constructor(private readonly cfg?: UserSimulatorAgentConfig) {
     super();
+  }
+
+  /**
+   * Per-sim interruption probability (PRD §4.2 `interrupt_probability`). The
+   * executor reads this during `proceed()` to decide whether to barge in on a
+   * given agent turn. Defaults to 0 (never).
+   */
+  get interruptProbability(): number {
+    return this.cfg?.interruptProbability ?? 0;
   }
 
   /**

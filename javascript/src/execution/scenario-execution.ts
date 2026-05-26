@@ -52,6 +52,7 @@ import {
   stopVoiceAdapters,
 } from "../voice/adapter.runtime";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
+import { InterruptionConfig } from "../voice/interruption";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -172,6 +173,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * the provider/knobs here instead of a module global.
    */
   voiceConfig: ResolvedVoiceConfig | null = null;
+  /**
+   * Interruption config recorded by `voiceProceed({ interruptions })`. Read
+   * at the top of each `proceed()` iteration to decide barge-ins (Gap #8).
+   */
+  voiceInterruptions?: InterruptionConfig;
+  /**
+   * Background ambience recorded by `backgroundNoise(source, volume)` — read
+   * by the user-simulator audio path when mixing turns (Gap #8).
+   */
+  voiceBackgroundNoise?: { source: string; volume: number };
   /** Per-event hook from {@link ScenarioConfig.onVoiceEvent}. */
   onVoiceEvent?: (event: VoiceEvent) => void;
   /** Per-chunk hook from {@link ScenarioConfig.onAudioChunk}. */
@@ -1076,9 +1087,98 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
       if (onStep) await onStep(this.state);
 
+      // Voice interruptions (PRD §4.4 / §4.2 — Gap #8): after each agent
+      // turn, consult the resolved interruption config and fire a barge-in
+      // per the configured probability/strategy. No-op for text-only runs.
+      await this.maybeInjectInterruption();
+      if (this.result) {
+        return this.result;
+      }
+
       if (!goToNextTurn) {
         return null;
       }
+    }
+  }
+
+  /**
+   * RNG seam for interruption decisions — injectable so tests can drive the
+   * probability deterministically. Defaults to `Math.random`.
+   */
+  _interruptRng: () => number = Math.random;
+
+  /**
+   * Resolve the active {@link InterruptionConfig} for the run:
+   * - `voiceProceed({ interruptions })` config (on the executor state) wins.
+   * - else, when a user simulator declares `interruptProbability > 0`, build
+   *   a default config from it.
+   * - else `null` (no interruptions).
+   */
+  private resolveInterruptionConfig(): InterruptionConfig | null {
+    if (this.voiceInterruptions instanceof InterruptionConfig) {
+      return this.voiceInterruptions;
+    }
+    if (this.voiceInterruptions) {
+      // A plain InterruptionConfigInit-shaped object was recorded — wrap it.
+      return new InterruptionConfig(this.voiceInterruptions);
+    }
+    const prob = this.userSimulatorInterruptProbability();
+    if (prob > 0) {
+      return new InterruptionConfig({ probability: prob });
+    }
+    return null;
+  }
+
+  /** Read `interruptProbability` off a user-simulator agent, if any declares it. */
+  private userSimulatorInterruptProbability(): number {
+    for (const agent of this.agents) {
+      const p = (agent as { interruptProbability?: unknown })
+        .interruptProbability;
+      if (typeof p === "number" && p > 0) return p;
+    }
+    return 0;
+  }
+
+  /**
+   * Voice interruption seam (Gap #8). When an interruption config is active
+   * and `shouldInterrupt()` fires for this turn, record a `user_interrupt`
+   * timeline event and inject a user turn carrying the interruption phrase
+   * (`random_phrase` strategy) or a generated user turn (`contextual`).
+   *
+   * Deterministic with the injected `_interruptRng`. Returns immediately for
+   * text-only runs or when the config declines the interrupt.
+   */
+  private async maybeInjectInterruption(): Promise<void> {
+    const config = this.resolveInterruptionConfig();
+    if (!config) return;
+    if (!config.shouldInterrupt(this._interruptRng)) return;
+
+    // Record the interruption on the voice timeline when a recording exists.
+    if (this.voiceRecording) {
+      const time =
+        this.voiceRecordingStartedAt != null
+          ? performance.now() / 1000 - this.voiceRecordingStartedAt
+          : 0;
+      const event: VoiceEvent = {
+        time,
+        type: "user_interrupt",
+        metadata: { source: "proceed-interruption", strategy: config.strategy },
+      };
+      this.voiceRecording.timeline.push(event);
+      this.voiceTimeline?.push(event);
+      try {
+        this.onVoiceEvent?.(event);
+      } catch {
+        // Hooks are best-effort — never break the scenario.
+      }
+    }
+
+    // Inject the interruption turn. `random_phrase` sends a canned phrase as
+    // explicit content; `contextual` lets the user simulator generate one.
+    if (config.strategy === "random_phrase") {
+      await this.user(config.pickRandomPhrase(this._interruptRng));
+    } else {
+      await this.user();
     }
   }
 

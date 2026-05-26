@@ -123,6 +123,13 @@ export const dtmf = (tones: string): ScriptStep => {
 export interface InterruptOptions {
   /** Optional content to send as the interruption (string text or audio bytes/path). */
   content?: string | Uint8Array;
+  /**
+   * TIME-based trigger (PRD §4.4 `interrupt(after=2.0, …)`): wait this many
+   * seconds after the agent starts speaking before injecting the
+   * interruption. Equivalent to `agent({wait:false}) + sleep(after) + user`.
+   * Mutually exclusive with `afterWords` (which takes precedence if both set).
+   */
+  after?: number;
   /** Fire the interrupt only after the adapter's streaming transcript has emitted N words. */
   afterWords?: number;
   /** Bounded wait for the agent to start speaking before firing the interrupt. */
@@ -132,18 +139,22 @@ export interface InterruptOptions {
 /**
  * Declarative interruption step. Equivalent to:
  *
- *     agent({ wait: false }) -> (bounded wait) -> user(content)
+ *     agent({ wait: false }) -> (wait) -> user(content)
  *
- * The bounded wait matters most on transports without a client-side cancel
- * signal: the interrupt must overlap real agent audio for the server's VAD
- * to fire. Without it, user TTS would finish generating in ~600ms while
- * the model still hasn't started speaking — the "interrupt" lands during
- * silence and transports nothing for the bot to barge against.
+ * Three trigger modes (PRD §4.4, layered):
+ * - `after: <seconds>` — TIME-based. Let the agent speak for N seconds, then
+ *   interrupt. The exact `interrupt(after=2.0, content)` form.
+ * - `afterWords: N` — wait until the agent's streaming transcript has emitted
+ *   N words. Requires `capabilities.streamingTranscripts`; raises
+ *   {@link UnsupportedCapabilityError} otherwise.
+ * - neither — a bounded wait for the agent to *start* speaking, then
+ *   interrupt at the first chunk.
  *
- * `afterWords`: instead of interrupting at first chunk, wait until the
- * agent's streaming transcript has emitted N words. Requires
- * `capabilities.streamingTranscripts`; raises {@link UnsupportedCapabilityError}
- * otherwise.
+ * The wait matters most on transports without a client-side cancel signal:
+ * the interrupt must overlap real agent audio for the server's VAD to fire.
+ * Without it, user TTS would finish generating in ~600ms while the model
+ * still hasn't started speaking — the "interrupt" lands during silence and
+ * transports nothing for the bot to barge against.
  *
  * `content` routing:
  * - `string` that does NOT end with an audio extension → user text (TTS).
@@ -151,7 +162,7 @@ export interface InterruptOptions {
  * - `Uint8Array` → raw audio bytes (routed through {@link audio}).
  */
 export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
-  const { content, afterWords, waitForSpeechTimeout = 8.0 } = options;
+  const { content, after, afterWords, waitForSpeechTimeout = 8.0 } = options;
   return async (state, executor) => {
     // Start the agent turn in the background. Errors surface on the
     // executor state; the script step intentionally does not await.
@@ -161,6 +172,11 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
 
     if (afterWords !== undefined) {
       await waitForStreamingWords(executor, afterWords, waitForSpeechTimeout);
+    } else if (after !== undefined) {
+      // TIME-based: let the agent speak (best-effort wait for it to start so
+      // the sleep overlaps real audio), then sleep the requested seconds.
+      await waitForAgentSpeaking(executor, waitForSpeechTimeout);
+      await delay(after * 1000);
     } else {
       await waitForAgentSpeaking(executor, waitForSpeechTimeout);
     }
@@ -174,6 +190,88 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
     }
   };
 };
+
+/** Per-step voice overrides for {@link user} (PRD §4.2). */
+export interface VoiceUserOptions {
+  /**
+   * Apply a voice style (e.g. `"angry"`) to ONLY this turn's TTS. Reverts to
+   * the simulator's default voice on subsequent turns. (PRD §4.2 L290.)
+   */
+  voiceStyle?: string;
+  /**
+   * Audio effects applied to ONLY this turn's synthesized audio, overriding
+   * the simulator's default effects for the turn. (PRD §4.2 L293.)
+   */
+  audioEffects?: Array<(audio: Uint8Array) => Uint8Array>;
+}
+
+/**
+ * The duck-typed slice of the concrete user simulator a per-step override
+ * touches. Detected structurally so the script step stays decoupled from the
+ * concrete `UserSimulatorAgent` class.
+ */
+interface OneShotOverridable {
+  setOneShotOverride(opts: {
+    voiceStyle?: string;
+    audioEffects?: Array<(audio: Uint8Array) => Uint8Array>;
+  }): () => void;
+}
+
+function isOneShotOverridable(agent: unknown): agent is OneShotOverridable {
+  return (
+    typeof agent === "object" &&
+    agent !== null &&
+    typeof (agent as { setOneShotOverride?: unknown }).setOneShotOverride ===
+      "function"
+  );
+}
+
+/**
+ * Run `body` with a one-shot voice-style / audio-effects override installed on
+ * the scenario's user-simulator agent, restoring the prior state afterwards
+ * (PRD §4.2 per-step overrides). When no override is requested, or no
+ * overridable user simulator is present, `body` runs untouched.
+ *
+ * Exposed so the canonical `user()` script step (script/index.ts) can apply
+ * `{ voiceStyle, audioEffects }` for a single turn without coupling to the
+ * concrete simulator class.
+ */
+export async function withUserStepOverride(
+  executor: ScenarioExecutionLike,
+  options: VoiceUserOptions | undefined,
+  body: () => Promise<void>,
+): Promise<void> {
+  if (!options || (options.voiceStyle === undefined && options.audioEffects === undefined)) {
+    await body();
+    return;
+  }
+  const sim = findUserSimulator(executor);
+  if (!sim) {
+    // No overridable simulator — the override is a no-op (e.g. a custom
+    // user agent or a text-only run). Run the turn unchanged.
+    await body();
+    return;
+  }
+  const restore = sim.setOneShotOverride({
+    voiceStyle: options.voiceStyle,
+    audioEffects: options.audioEffects,
+  });
+  try {
+    await body();
+  } finally {
+    restore();
+  }
+}
+
+function findUserSimulator(
+  executor: ScenarioExecutionLike,
+): OneShotOverridable | null {
+  const agents = (executor as VoiceAwareExecutor).agents ?? [];
+  for (const agent of agents) {
+    if (isOneShotOverridable(agent)) return agent;
+  }
+  return null;
+}
 
 export interface VoiceAgentOptions {
   /** Optional message content; passed through to `executor.agent()`. */
