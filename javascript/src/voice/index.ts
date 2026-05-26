@@ -34,6 +34,19 @@ export {
   type GeminiLiveAgentAdapterInit,
 } from "./adapters/gemini-live";
 
+export {
+  TwilioAgentAdapter,
+  type TwilioAdapterMode,
+  type TwilioAgentAdapterOptions,
+} from "./adapters/twilio";
+
+export {
+  openTwilioTunnel,
+  type OpenedTunnel,
+  type OpenTunnelOptions,
+  type TunnelProvider,
+} from "./adapters/twilio-tunnel";
+
 export type {
   AudioSegment,
   LatencyMetrics,

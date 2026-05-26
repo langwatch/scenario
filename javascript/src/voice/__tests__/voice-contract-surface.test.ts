@@ -287,10 +287,13 @@ describeFeature(
       },
     );
   },
+  // SALVAGE-CONFLICT [EDR Gap #?]: issue372/ts-voice-pipecat-g711 vs issue372/ts-voice-twilio test tag filter — both retained — reconcile in refactor
   {
     includeTags: ["ts-bound"],
     // Other PR-N test files bind scenarios tagged @ts-<scope>; exclude
     // them here so this file owns only the PR1 contract-surface set.
     excludeTags: ["ts-script-step", "ts-interruption-cfg", "ts-result-ext"],
   },
+  // SALVAGE-CONFLICT [EDR Gap #?]: incoming twilio tag filter follows — reconcile in refactor
+  //   { includeTags: [["ts-bound", "ts-contract-surface"]] },
 );
