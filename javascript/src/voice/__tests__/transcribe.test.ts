@@ -67,7 +67,9 @@ describeFeature(
         });
 
         When("transcribe_segments is called with a configured STT provider", async () => {
-          await transcribeSegments(recording, { provider: { transcribe: spy } });
+          await transcribeSegments(recording, {
+            provider: { transcribe: spy as unknown as STTProvider["transcribe"] },
+          });
         });
 
         Then("both segments have non-null transcript", async () => {

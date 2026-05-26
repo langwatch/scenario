@@ -20,6 +20,7 @@ import {
   listTtsProviders,
   registerTtsProvider,
   synthesize,
+  type TTSCallable,
 } from "../tts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -45,7 +46,7 @@ describeFeature(
           // Distinct PCM payload — 8 even bytes so AudioChunk accepts it.
           const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
           synthSpy = vi.fn().mockResolvedValue(payload);
-          registerTtsProvider({ prefix: TEST_PREFIX, synth: synthSpy });
+          registerTtsProvider({ prefix: TEST_PREFIX, synth: synthSpy as unknown as TTSCallable });
 
           // Also verify the registry itself is populated.
           expect(listTtsProviders()).toContain(TEST_PREFIX);

@@ -80,7 +80,7 @@ function makeInput(messages: unknown[] = []): AgentInput {
       lastToolCall() { throw new Error("not implemented"); },
       hasToolCall() { return false; },
       rollbackMessagesTo() { return []; },
-    } as AgentInput["scenarioState"],
+    } as unknown as AgentInput["scenarioState"],
   };
 }
 
