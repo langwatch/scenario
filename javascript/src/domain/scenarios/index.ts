@@ -2,6 +2,7 @@ import { ModelMessage } from "ai";
 import { AgentAdapter } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 import type { AudioChunk } from "../../voice/audio-chunk";
+import type { VoiceConfig } from "../../voice/config";
 import type { VoiceEvent } from "../../voice/recording.types";
 
 export const DEFAULT_MAX_TURNS = 10;
@@ -88,6 +89,17 @@ export interface ScenarioConfig {
    * the hook throws, the scenario continues uninterrupted.
    */
   onVoiceEvent?: (event: VoiceEvent) => void;
+
+  /**
+   * Per-run voice configuration (ADR-002). This is the carrier that reaches
+   * every `call()` via {@link AgentInput.scenarioConfig} — the STT/TTS
+   * providers the judge's transcription pass and the user-simulator's TTS
+   * pass read live here, NOT in a module global. An optional
+   * {@link RunOptions.voice} override seeds this at the `run()` boundary
+   * (`options?.voice ?? cfg.voice ?? default`); the resolved provider is
+   * always read off `cfg.voice`. See `voice/config.ts#resolveVoiceConfig`.
+   */
+  voice?: VoiceConfig;
 }
 
 /**

@@ -13,6 +13,7 @@
  */
 
 import type { AudioChunk } from "./audio-chunk";
+import type { ResolvedVoiceConfig } from "./config";
 import type { InterruptionConfig } from "./interruption";
 import type {
   LatencyMetrics,
@@ -31,6 +32,14 @@ export interface VoiceExecutorState {
   voiceLatency: LatencyMetrics | null;
   /** `performance.now()` (or equivalent monotonic clock) anchor in seconds. */
   voiceRecordingStartedAt: number | null;
+  /**
+   * The resolved per-run voice config (ADR-002, Gap #7). Populated at run
+   * start from `cfg.voice` via `resolveVoiceConfig` when at least one voice
+   * adapter is present. The judge's STT pass and the user-simulator's TTS
+   * pass read the resolved provider/knobs here — never a module global.
+   * `null` when the run has no voice config.
+   */
+  voiceConfig?: ResolvedVoiceConfig | null;
   /**
    * Interruption configuration declared by `voiceProceed({ interruptions })`.
    * The executor reads this at the top of each turn during `proceed()` and

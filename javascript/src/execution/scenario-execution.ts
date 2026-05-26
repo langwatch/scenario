@@ -42,6 +42,10 @@ import type {
 import type { VoiceAgentAdapter } from "../voice/adapter";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
 import {
+  resolveVoiceConfig,
+  type ResolvedVoiceConfig,
+} from "../voice/config";
+import {
   initVoiceExecutorState,
   pickVoiceAdapters,
   startVoiceAdapters,
@@ -161,6 +165,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   voiceLatency: LatencyMetrics | null = null;
   /** Monotonic clock anchor (`performance.now() / 1000`) for offsets. */
   voiceRecordingStartedAt: number | null = null;
+  /**
+   * Resolved per-run voice config (ADR-002 / Gap #7). Set at run start from
+   * `cfg.voice` when voice adapters are present; the consumer agents read
+   * the provider/knobs here instead of a module global.
+   */
+  voiceConfig: ResolvedVoiceConfig | null = null;
   /** Per-event hook from {@link ScenarioConfig.onVoiceEvent}. */
   onVoiceEvent?: (event: VoiceEvent) => void;
   /** Per-chunk hook from {@link ScenarioConfig.onAudioChunk}. */
@@ -438,6 +448,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     try {
       if (this.voiceAdapters.length > 0) {
+        // Resolve the per-run voice config off cfg.voice (ADR-002, Gap #7).
+        // RunOptions.voice was already folded into cfg.voice at the run()
+        // boundary, so cfg.voice is the carrier. The resolved provider/knobs
+        // are read by the judge STT pass + simulator TTS pass (Tier C).
+        this.voiceConfig = resolveVoiceConfig(undefined, this.config.voice);
         initVoiceExecutorState(this);
         await startVoiceAdapters(this.voiceAdapters, this);
       }
