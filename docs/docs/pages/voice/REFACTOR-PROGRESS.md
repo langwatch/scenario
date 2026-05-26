@@ -385,9 +385,64 @@ TS mirror of `python/examples/voice/_recording_helper.py`. Returns null when no 
 - `/prove-it` + `/review` + docs pass + PR (no push/PR done here, per scope).
 - Twilio inbound/outbound: real-phone manual run once `NGROK_AUTHTOKEN` + a second number
   are provisioned (currently `⏸`).
-- CI: add a JS e2e job (load secrets → `make voice-pipecat-up` → run env-gated demos →
-  upload `javascript/recordings/**` artifact), mirroring the Python job.
 - Per-step `voiceStyle` audible effect still pending a style-honoring TTS (unchanged; the
   three fixes above did not touch it).
 - Follow-up issue: `make voice-pipecat-down` leaves :8765 bound (kills the uv wrapper, not
   the .venv child) — teardown needs `pkill -f examples/voice/_bot/bot.py`.
+- Follow-up: wire a live local-speaker playback sink so `configure({ audioPlayback })` /
+  `run({ voice: { audioPlayback } })` is consumed (the value is stored + resolved today
+  but nothing reads it — see `config/configure.ts` doc; Python parity uses ffplay/PyAudio).
+
+---
+
+# FIX PASS — /review M1 + minors/nits + recordings fidelity + JS CI (DONE)
+
+**Branch:** `voice/372-refactor`. Closes the /review findings (`/tmp/voice-spec/
+review-findings.md`) and the L975 CI gap (`/tmp/voice-spec/prove-it-results.md`).
+
+## M1 — byte-accurate recording durations (commit `b70888f`)
+Segment start/end were timestamped at the wall-clock instant `sendAudio`/`receiveAudio`
+resolved, so on fast/in-process transports a multi-second turn collapsed to ~1 ms and
+`manifest.duration` (+ the derived LatencyMetrics) under-reported real audio length even
+though the PCM bytes were correct. Segments are now laid end-to-end on a byte-accurate
+audio cursor (`voiceAudioCursor`): a segment's `endTime - startTime` equals its true PCM
+length and `recording.duration` equals the `full.wav` byte-duration, gapless. Latency is
+measured separately from preserved wall-clock marks. `markUserStart()` removed (vestigial).
+New production-path guard `duration-fidelity.test.ts` asserts `manifest.duration ==
+full.wav byte-duration` (verified it FAILS under a simulated wall-clock regression).
+
+## Recordings — all 9 manifests byte-accurate (commit `28b15a8`)
+The committed manifests pre-dated M1. 8 demos recomputed from the committed WAV
+byte-lengths (no re-run — bytes were already correct); segment files renamed to the
+byte-accurate offsets. **elevenlabs_branded RE-RAN** against the live EL key: its old
+manifest read agent duration 0.0s / transcript null (a wall-clock artefact that LOOKED
+like missing agent audio), but the agent WAV always held real speech — the fresh M1-native
+run records a 3.2s agent segment (RMS ~7500), `manifest.duration 6.25s == full.wav`,
+STT/LLM/TTS fired, success=true. **Verified all 9:** `manifest.duration == full.wav
+byte-duration`, every segment duration == its WAV byte-duration, segment-sum == full.wav;
+all WAVs <1MB.
+
+## Review minors + nits (commit `72f46f1`)
+m1 configure({audioPlayback}) doc downgraded (stored, not yet consumed). m2
+proceed({interruptions}) now honours `delayRange` (samples `sampleDelay` before barging
+in; was dead) + new spy test. m3 stale "PR6+" interruption comments in `voice-steps.ts`
+updated (interrupt + proceed are wired; backgroundNoise stays deferred). m4
+`stripAudioContent` doc → canonical `file`/`audio/pcm16`. m5 `voiceifyText`/`voiceify`
+deduped into private `synthesizeToAudioMessage`. n1 `pickRandomPhrase` empty-pool guard.
+n2 audio-message casts centralized (createAudioMessage returns ModelMessage; 4 redundant
+`as unknown as` re-casts removed, one genuine gateway cast kept). n3 `{@link}` casing fix.
+
+## L975 + n4 (commit `b9cd818`)
+New `.github/workflows/javascript-voice-integration.yml` — TS twin of
+`voice-integration.yml`: `workflow_dispatch` only, loads secrets, provisions the EL agent,
+brings up the Pipecat stub bot, runs the JS @e2e voice demos, uploads
+`javascript/recordings/**` (`if: always()`). Normal PR CI does NOT depend on it. n4 root
+`.gitignore` broadened to `.env*` + `!.env.example` (real envs ignored, templates tracked).
+
+## Convergence gate (held)
+- **`npx tsc --noEmit` → 0 errors (CLEAN).**
+- **Full unit suite (`npx vitest run`): 747 passed / 1 skipped** (746 baseline + the new
+  m2 delayRange test; the 1 skip is the env-gated `twilio-tunnel` @e2e — `NGROK_AUTHTOKEN`).
+- **@ts-e2e round-trip gate re-PASSES with real keys** (see fixture re-run below).
+- **All 9 manifests byte-accurate; elevenlabs_branded carries real agent audio.**
+- Working tree clean (only the gitignored `.env` files untracked).
