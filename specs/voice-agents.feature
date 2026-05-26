@@ -703,7 +703,7 @@ Feature: Voice agent testing in Scenario SDK
     When the utterance is synthesized by the user-sim TTS, carried on the message bus, and transcribed by the judge STT
     Then the far-side transcript matches the input utterance within tolerance
 
-  @e2e
+  @e2e @ts-pipecat-demo
   Scenario: Demo — Pipecat WebSocket adapter happy path
     # Covers: PipecatAgentAdapter real WS transport (shipped) + simulator + judge
     Given a local Pipecat bot on ws://localhost:8765/ws and a PipecatAgentAdapter
