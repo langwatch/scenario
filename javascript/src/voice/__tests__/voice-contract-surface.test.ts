@@ -292,5 +292,10 @@ describeFeature(
       },
     );
   },
+  // AND-match: this file owns exactly the scenarios tagged both @ts-bound and
+  // @ts-contract-surface. Other PR-N test files bind their own @ts-<scope>
+  // sets (script-step, interruption-cfg, result-ext, twilio-proto, …); the
+  // co-tag keeps those out without an exclude list that must track every new
+  // scope.
   { includeTags: [["ts-bound", "ts-contract-surface"]] },
 );
