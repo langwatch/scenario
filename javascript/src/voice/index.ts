@@ -1,9 +1,9 @@
 /**
- * Voice subsystem barrel — type contract surface for the TS voice port.
+ * Voice subsystem barrel — public surface for the TS voice port.
  *
- * PR1 ships types + the {@link UnsupportedCapabilityError} class only.
- * Runtime (TTS, STT, VAD, recording, transports) lands in PR2+ behind this
- * same contract.
+ * PR1 shipped the type contracts. PR3 (this commit) adds the adapter
+ * runtime + VAD fallback + executor lifecycle helpers. Real transports
+ * land in PR7+ behind this same contract.
  */
 
 export {
@@ -49,6 +49,7 @@ export {
   OPENAI_TTS_MODEL,
 } from "./voice-models";
 
+// SALVAGE-CONFLICT [EDR Gap #?]: issue372/ts-voice-tts-stt-plumbing vs issue372/ts-voice-adapter-runtime both retained — reconcile in refactor
 export {
   clearTtsCache,
   listTtsProviders,
@@ -77,3 +78,19 @@ export {
   transcribeSegments,
   type TranscribeSegmentsOptions,
 } from "./transcribe";
+
+export {
+  AgentSpeakingEvent,
+  AdapterRecorder,
+  defaultVoiceCall,
+  initVoiceExecutorState,
+  pickVoiceAdapters,
+  startVoiceAdapters,
+  stopVoiceAdapters,
+  writeUserSegment,
+} from "./adapter.runtime";
+
+export {
+  WebRTCVadFallback,
+  type WebRTCVadFallbackOptions,
+} from "./vad";

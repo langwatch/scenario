@@ -134,7 +134,7 @@ Feature: Voice agent testing in Scenario SDK
     When the scenario starts
     Then a WebRTC peer connection is negotiated
 
-  @unit
+  @unit @ts-adapter
   Scenario: Executor calls connect() before and disconnect() after every scenario
     # Source §4.1, L213-230
     Given any VoiceAgentAdapter subclass
@@ -446,14 +446,14 @@ Feature: Voice agent testing in Scenario SDK
     When the test runs
     Then audio is played through the local output device in real time
 
-  @unit
+  @unit @ts-hooks
   Scenario: on_audio_chunk hook fires for each chunk
     # Source §4.7, L647-653
     Given scenario.run(..., on_audio_chunk=cb)
     When audio flows
     Then cb is invoked with each AudioChunk
 
-  @unit
+  @unit @ts-hooks
   Scenario: on_voice_event hook fires for each VoiceEvent
     # Source §4.7, L647-653
     Given scenario.run(..., on_voice_event=cb)
@@ -769,21 +769,21 @@ Feature: Voice agent testing in Scenario SDK
   # VAD Fallback
   # ======================================================================
 
-  @unit
+  @unit @ts-vad
   Scenario: SDK-side VAD fallback activates on adapters without native VAD
     Given an adapter with capabilities.native_vad == False
     When a voice scenario runs and audio flows
     Then user_start_speaking and user_stop_speaking VoiceEvents are still emitted
     And webrtcvad-wheels is used to detect speaker boundaries
 
-  @unit
+  @unit @ts-vad
   Scenario: VAD fallback emits a one-shot UserWarning on first activation
     Given an adapter with capabilities.native_vad == False
     When the scenario starts and VAD fallback is used
     Then a UserWarning is issued exactly once per process naming the adapter
     And the warning text references accuracy differences vs native VAD
 
-  @unit
+  @unit @ts-vad
   Scenario: Adapters with native VAD do not trigger the fallback
     Given an adapter with capabilities.native_vad == True
     When the scenario runs

@@ -33,6 +33,20 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
+import type { AudioChunk } from "../voice/audio-chunk";
+import type {
+  LatencyMetrics,
+  VoiceEvent,
+  VoiceRecording,
+} from "../voice/recording.types";
+import type { VoiceAgentAdapter } from "../voice/adapter";
+import type { VoiceExecutorState } from "../voice/voice-executor-state";
+import {
+  initVoiceExecutorState,
+  pickVoiceAdapters,
+  startVoiceAdapters,
+  stopVoiceAdapters,
+} from "../voice/adapter.runtime";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -125,12 +139,39 @@ import { Logger } from "../utils/logger";
  * console.log("Scenario result:", result.success);
  * ```
  */
-export class ScenarioExecution implements ScenarioExecutionLike {
+export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorState {
   /** LangWatch tracer for scenario execution */
   private tracer = getLangWatchTracer("@langwatch/scenario");
 
   /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
+
+  // ----- VoiceExecutorState surface (issue #372 Decision 1(b)). ----------
+  // These are public fields rather than getters because the voice adapter
+  // runtime writes to them through the typed surface — see
+  // `voice/voice-executor-state.ts` for the contract. They default to
+  // `null` and only get populated when at least one VoiceAgentAdapter
+  // participates in the scenario.
+
+  /** PCM16 segments + timeline accumulated during the run. */
+  voiceRecording: VoiceRecording | null = null;
+  /** Mirror of `voiceRecording.timeline` for direct subscribers. */
+  voiceTimeline: VoiceEvent[] | null = null;
+  /** Response-time measurements from agent_start_speaking events. */
+  voiceLatency: LatencyMetrics | null = null;
+  /** Monotonic clock anchor (`performance.now() / 1000`) for offsets. */
+  voiceRecordingStartedAt: number | null = null;
+  /** Per-event hook from {@link ScenarioConfig.onVoiceEvent}. */
+  onVoiceEvent?: (event: VoiceEvent) => void;
+  /** Per-chunk hook from {@link ScenarioConfig.onAudioChunk}. */
+  onAudioChunk?: (chunk: AudioChunk) => void;
+
+  /**
+   * Snapshot of voice adapters for the in-flight execution. Captured at
+   * the top of {@link execute} so the matching `disconnect()` always
+   * fires in the finally block, even when the for-loop bails early.
+   */
+  private voiceAdapters: readonly VoiceAgentAdapter[] = [];
 
   /** The final result of the scenario execution, set when a conclusion is reached */
   private _result?: ScenarioResult;
@@ -224,7 +265,17 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
+    // The voice adapter runtime reaches into `state._executor` to read the
+    // VoiceExecutorState surface (Python parity: `ScenarioState._executor`).
+    // Set once here so adapters fetched via AgentInput.scenarioState can
+    // find their voice fields.
+    this.state.setExecutor(this);
     this.preAssignedRunId = runId;
+
+    // Pull voice-side hooks off the user-supplied config. They fan out
+    // through the VoiceExecutorState surface during the run.
+    this.onAudioChunk = config.onAudioChunk;
+    this.onVoiceEvent = config.onVoiceEvent;
 
     // Wire up rollback handler so the state can clean pending queues
     this.state.setOnRollback((removedSet: Set<object>) => {
@@ -375,9 +426,22 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.emitMessageSnapshot({ scenarioRunId });
       });
 
+    // Voice adapter lifecycle (issue #372 spec lines 138-145):
+    // `connect()` is awaited exactly once before the first script step;
+    // the matching `disconnect()` lives in the finally block so it fires
+    // regardless of pass / fail / exception. Connect runs inside the try
+    // so a partial connect still pairs with disconnect on the cleanup path
+    // — matches Python `scenario_executor.py:642-678`.
+    this.voiceAdapters = pickVoiceAdapters(this.agents);
+
     let checkFailure: Error | null = null;
 
     try {
+      if (this.voiceAdapters.length > 0) {
+        initVoiceExecutorState(this);
+        await startVoiceAdapters(this.voiceAdapters, this);
+      }
+
       // Execute script steps - pass the execution context (this), not just state
       for (let i = 0; i < this.config.script.length; i++) {
         const scriptStep = this.config.script[i];
@@ -490,6 +554,12 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       if (this.currentTurnSpan) {
         this.currentTurnSpan.end();
         this.currentTurnSpan = undefined;
+      }
+      // Voice adapter lifecycle close — matches the connect at the top of
+      // execute(). Errors swallowed inside stopVoiceAdapters so cleanup
+      // never masks the primary scenario result.
+      if (this.voiceAdapters.length > 0) {
+        await stopVoiceAdapters(this.voiceAdapters);
       }
       // Clean up the subscription when execution is done
       subscription.unsubscribe();
@@ -1186,6 +1256,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
 
     this.state = new ScenarioExecutionState(this.config);
+    // Re-establish the voice runtime's back-reference — the new state
+    // object loses the linkage from the constructor's setExecutor call,
+    // so adapters reaching `input.scenarioState._executor` would see
+    // `null` for the rest of the run otherwise.
+    this.state.setExecutor(this);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
     // Initialize turn state without creating a span yet. execute() calls
