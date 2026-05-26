@@ -70,8 +70,9 @@ is identical.
 
 **Changes:** voice agent adapter factories/classes; `userSimulatorAgent` gains a
 `voice` option; `judgeAgent` auto-detects audio; new script steps (`interrupt`,
-`dtmf`, `audio`, `silence`, `sleep`, plus a non-blocking `voiceAgent({ wait: false })`);
-`result` gains `audio`/`timeline`/`latency`; per-run config via `run({ voice })`.
+`dtmf`, `audio`, `silence`, `sleep`, plus the non-blocking `agent({ wait: false })`
+turn — also exported as the alias `voiceAgent({ wait: false })`); `result` gains
+`audio`/`timeline`/`latency`; per-run config via `run({ voice })`.
 
 **Stays the same:** the `scenario.run()` signature; the script step model;
 `scenario.user`, `scenario.agent`, `scenario.judge`, `scenario.proceed`,
@@ -319,7 +320,7 @@ model supports audio, pass it; otherwise auto-transcribe and pass text. Set
 The script DSL gains voice-specific steps that compose with the existing ones. They
 live on the `scenario` object alongside `user`/`agent`/`judge`.
 
-### `scenario.voiceAgent({ wait: false })` — non-blocking agent turn
+### `scenario.agent({ wait: false })` — non-blocking agent turn
 
 The foundational primitive for interruption testing: triggers the agent's response
 but continues the script immediately.
@@ -327,7 +328,7 @@ but continues the script immediately.
 ```ts
 script: [
   scenario.user("Cancel my flight from New York to LA"),
-  scenario.voiceAgent({ wait: false }), // agent starts responding, script continues
+  scenario.agent({ wait: false }), // agent starts responding, script continues
   scenario.sleep(2), // let the agent talk for 2 seconds
   scenario.user("Wait, I meant Chicago, not LA"), // interrupts!
   scenario.agent(), // wait for the agent's response to the correction
@@ -335,13 +336,15 @@ script: [
 ];
 ```
 
-> **Important naming.** The plain `scenario.agent(content?)` is the **text** form —
-> it takes an optional string/message and always awaits. The non-blocking
-> `{ wait: false }` form is exported separately as **`scenario.voiceAgent({ wait,
-> content })`** (a re-exported alias of the voice `agent` step). Use
-> `scenario.voiceAgent({ wait: false })` for the non-blocking turn; passing
-> `{ wait: false }` to plain `scenario.agent(...)` would be read as a message
-> object, not an option.
+> **One `agent` step, two call forms.** `scenario.agent` is the single agent step
+> for text and voice (PRD §9, §6.2). Called with content — `agent()`,
+> `agent("text")`, `agent(message)` — it behaves exactly as before and **awaits**
+> the turn. Called with an options object — `agent({ wait: false })` — it fires the
+> turn **without awaiting**, so the next steps run while the agent keeps speaking.
+> The forms are distinguished structurally (a message has a `role`; the options
+> object does not), so neither is mistaken for the other. `scenario.voiceAgent({
+> wait, content })` remains exported as a thin **alias** of the same step for code
+> that prefers a voice-named symbol — both resolve to identical behavior.
 
 ### `scenario.sleep(seconds)` — timed pause
 
@@ -402,7 +405,7 @@ script: [
 
 ### `scenario.interrupt(options)` — declarative interruption
 
-Sugar over `voiceAgent({ wait: false }) + wait + user`. Three trigger modes:
+Sugar over `agent({ wait: false }) + wait + user`. Three trigger modes:
 
 ```ts
 // TIME-based — let the agent speak ~2s, then interrupt (PRD `interrupt(after=2.0)`):
@@ -440,11 +443,12 @@ scenario.voiceProceed({
 
 > The text `scenario.proceed(turns, onTurn?, onStep?)` takes positional args and has
 > no `interruptions` knob. The voice variant is exported as `scenario.voiceProceed`
-> (object arg) and as `scenario.voiceAgent` for the non-blocking agent form — both
-> sit alongside the text steps on the `scenario` object.
+> (object arg); it sits alongside the text steps on the `scenario` object. (The
+> non-blocking agent form is just `scenario.agent({ wait: false })` — the same
+> `agent` step, no separate export needed.)
 
 > Three levels, from explicit to automatic: **primitive**
-> (`voiceAgent({ wait: false }) + sleep + user`), **sugar** (`interrupt({...})`),
+> (`agent({ wait: false }) + sleep + user`), **sugar** (`interrupt({...})`),
 > **automated** (`voiceProceed({ interruptions })`). Simple tests stay simple;
 > complex tests keep full control.
 
@@ -672,7 +676,7 @@ const result = await scenario.run({
   ],
   script: [
     scenario.user("I need to change my flight from New York to Los Angeles"),
-    scenario.voiceAgent({ wait: false }), // agent starts responding
+    scenario.agent({ wait: false }), // agent starts responding (non-blocking)
     scenario.sleep(2), // let it talk for 2 seconds
     scenario.user("Wait sorry, I meant Chicago, not LA"), // interrupt!
     scenario.agent(), // agent responds to the correction
