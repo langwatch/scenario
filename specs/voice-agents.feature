@@ -688,6 +688,21 @@ Feature: Voice agent testing in Scenario SDK
   # exercising the shipped real transport end-to-end.
   # ======================================================================
 
+  @e2e @ts-e2e
+  Scenario: Round-trip audio fidelity gate — utterance survives TTS → bus → STT
+    # Source: docs/voice/internal-design.md §8 — the runnable top-of-stack
+    # gate. The REGRESSION GUARD for the Gap #3 LIVE BUG: the two audio
+    # producers tag PCM differently (format:"wav" vs format:"pcm16") and
+    # their extractors decode by tag, so a format mismatch surfaces as a
+    # GARBLED transcript on the far side. Per-PR unit tests each exercise
+    # only their own producer/extractor pair and miss the seam; this drives
+    # a known utterance through the real seam end-to-end and asserts the
+    # far-side transcript matches the input within a word-level tolerance.
+    # Self-contained on OPENAI_API_KEY (user-sim TTS + judge STT both OpenAI).
+    Given a known user utterance and OPENAI_API_KEY
+    When the utterance is synthesized by the user-sim TTS, carried on the message bus, and transcribed by the judge STT
+    Then the far-side transcript matches the input utterance within tolerance
+
   @e2e
   Scenario: Demo — Pipecat WebSocket adapter happy path
     # Covers: PipecatAgentAdapter real WS transport (shipped) + simulator + judge
