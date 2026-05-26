@@ -206,3 +206,15 @@ export {
 } from "./adapters/pipecat";
 
 export { PendingTransportError } from "./adapters/pending-transport-error";
+
+// Lowercase adapter factories — the documented PRD §9 idiom
+// (`scenario.pipecatAgent({...})`). Thin `new XAgentAdapter(params)` wrappers
+// over the class forms above; both surfaces are public (EDR §0 barrel).
+export {
+  pipecatAgent,
+  openAIRealtimeAgent,
+  geminiLiveAgent,
+  elevenLabsAgent,
+  twilioAgent,
+  composableAgent,
+} from "./factories";
