@@ -24,6 +24,11 @@ export {
 // SALVAGE-CONFLICT [EDR Gap #4]: issue372/ts-voice-script-steps-result exports AgentSpeakingEvent from ./adapter while issue372/ts-voice-adapter-runtime exports it from ./adapter.runtime — both retained, reconcile duplicate in refactor
 export { VoiceAgentAdapter, type AgentSpeakingEvent } from "./adapter";
 
+export {
+  OpenAIRealtimeAgentAdapter,
+  type OpenAIRealtimeAgentAdapterInit,
+} from "./adapters/openai-realtime";
+
 export type {
   AudioSegment,
   LatencyMetrics,
