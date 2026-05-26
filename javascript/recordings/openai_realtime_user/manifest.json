@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-05-26T18:30:14.800Z",
+  "duration": 9.7,
+  "segment_count": 1,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 9.7,
+      "duration": 9.7,
+      "transcript": "Of course, I understand. Let's take it step by step. Could you tell me what site or service you're trying to reset the password for? That will help me guide you."
+    }
+  ],
+  "events": []
+}
