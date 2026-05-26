@@ -61,6 +61,10 @@ export type {
 } from "./messages.types";
 
 export {
+  COMPOSABLE_VOICE_LLM_MODEL,
+  ELEVENLABS_DEFAULT_VOICE_ID,
+  ELEVENLABS_STT_MODEL,
+  ELEVENLABS_TTS_MODEL,
   GEMINI_LIVE_MODEL,
   OPENAI_REALTIME_MODEL,
   OPENAI_STT_MODEL,
@@ -78,9 +82,9 @@ export {
   type TtsProvider,
 } from "./tts";
 
+// SALVAGE-CONFLICT [EDR Gap #5]: ElevenLabsSTTProvider exists in both ./stt and ./adapters/composable with divergent implementations — barrel exports ./stt version; ./adapters version retained in adapters sub-barrel — reconcile in refactor
 export {
   ELEVENLABS_STT_ENDPOINT,
-  ELEVENLABS_STT_MODEL,
   ElevenLabsSTTProvider,
   OPENAI_TRANSCRIBE_LIMIT_SECONDS,
   OpenAISTTProvider,
@@ -122,3 +126,18 @@ export {
 
 // SALVAGE-CONFLICT [EDR Gap #?]: issue372/ts-voice-effects barrel export appended — reconcile in refactor
 export * as effects from "./effects";
+
+// SALVAGE-CONFLICT [EDR Gap #5]: issue372/ts-voice-elevenlabs-adapter adds adapters exports including divergent STTProvider/synthesize copies — reconcile in refactor
+// ElevenLabsSTTProvider and synthesize intentionally NOT re-exported here: they are already exported above from ./stt and ./tts respectively;
+// ./adapters/composable.ts retains divergent copies of both (the Gap #5 duplication site) — reconcile in refactor
+export {
+  ComposableVoiceAgent,
+  ElevenLabsAgentAdapter,
+  ElevenLabsVoiceAgent,
+  ELEVENLABS_CONVAI_URL_TEMPLATE,
+  type ComposableVoiceAgentOptions,
+  type ElevenLabsAgentAdapterOptions,
+  type ElevenLabsVoiceAgentOptions,
+  type SynthesizeOptions,
+  type WebSocketLike,
+} from "./adapters";
