@@ -21,7 +21,8 @@ export {
   type AdapterCapabilitiesInit,
 } from "./capabilities";
 
-export { VoiceAgentAdapter } from "./adapter";
+// SALVAGE-CONFLICT [EDR Gap #4]: issue372/ts-voice-script-steps-result exports AgentSpeakingEvent from ./adapter while issue372/ts-voice-adapter-runtime exports it from ./adapter.runtime — both retained, reconcile duplicate in refactor
+export { VoiceAgentAdapter, type AgentSpeakingEvent } from "./adapter";
 
 export type {
   AudioSegment,
@@ -31,7 +32,24 @@ export type {
   VoiceRecording,
 } from "./recording.types";
 
-export type { VoiceExecutorState } from "./voice-executor-state";
+export {
+  VoiceRecordingRuntime,
+  computeLatencyMetrics,
+  type VoiceRecordingInit,
+} from "./recording.runtime";
+
+export {
+  CANNED_PHRASES,
+  CONTEXTUAL_PROMPT,
+  InterruptionConfig,
+  type InterruptionConfigInit,
+  type InterruptionStrategy,
+} from "./interruption";
+
+export type {
+  VoiceBackgroundNoise,
+  VoiceExecutorState,
+} from "./voice-executor-state";
 
 export type {
   AudioContentPart,
