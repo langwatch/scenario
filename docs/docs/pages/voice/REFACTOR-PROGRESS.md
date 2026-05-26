@@ -34,12 +34,12 @@ npx vitest run src/voice/__tests__ src/config/__tests__
 | #2  | delete invented `configure({stt})`; keep `configure()` for global exec (audioPlayback) | A | ✅ DONE (0b22e0c) |
 | #3  | unify the TWO `createAudioMessage` producers → ONE AI-SDK `file`-part encoder + ONE extractor (LIVE BUG) | A | ✅ DONE (93d6c42) |
 | #4  | merge 3-way `adapter.ts` (call + sendDtmf + AgentSpeakingEvent) | A-verify | ✅ VERIFIED intact (silent merge kept union); barrel dup resolved (acf77c7) |
-| #5  | de-dupe `adapters/composable.ts` STTProvider/synthesize copies → import canonical | B | DEFER — Tier A removed the stt global it must now import; composable still holds its own copies |
-| #11 | settle abstract-vs-default `call()` across leaves | B/C | DEFER |
-| #6  | reconcile 2 divergent `twilio-shared.ts` (codec fn names + REST) | B | DEFER (22 markers — blocks 18 test files transitively) |
+| #5  | de-dupe `adapters/composable.ts` STTProvider/synthesize copies → import canonical | B | ✅ DONE (c559738) — composable imports `STTProvider`/`ElevenLabsSTTProvider` from `./stt`, routes TTS via `./tts`; inline synthesize + 4th WAV dup deleted |
+| #11 | settle abstract-vs-default `call()` across leaves | B/C | ✅ DONE (2262e7d) — removed stub `call()` overrides on pipecat/twilio/openai-realtime/gemini-live/EL-hosted → inherit `defaultVoiceCall`; composable keeps its own (local BYO agent) |
+| #6  | reconcile 2 divergent `twilio-shared.ts` (codec fn names + REST) | B | ✅ DONE (2d94998) — single module; canonical `*At24k` codec + `*_24k` aliases; pr-539 REST/validation kept; all 22 markers + 2 spec-side markers resolved |
 | #8  | interruption executor verbs (`voiceProceed`/`backgroundNoise`) | C | DEFER (fields present in voice-executor-state; verbs unimplemented) |
 | #9  | site the 5 script steps in `voice/steps.ts` (§7.1a DECIDED) | C | DEFER |
-| #10 | `tts/elevenlabs-tts.ts` leaf (§7.1b DECIDED) | B/C | DEFER |
+| #10 | `tts/elevenlabs-tts.ts` leaf (§7.1b DECIDED) | B | ✅ DONE (7753305) — tts/ split mirrors stt/; `ElevenLabsTtsProvider` leaf (eleven_v3 / pcm_24000); cache invariant preserved |
 
 Host wiring (Tier A): ✅ DONE (e59287e) — `ScenarioConfig.voice?` field + `RunOptions.voice` + `runner/run.ts` boundary seed + per-run `resolveVoiceConfig` in the executor (which IS the VoiceExecutorState). `voice-executor-state.ts` (pr-538 interruption fields) and `voice-models.ts` (pr-536 EL/composable constants) were already auto-merged intact — only added an additive `voiceConfig?` field to the former.
 
@@ -134,5 +134,113 @@ Canonical target (EDR §4.2, already spoken by `realtime/response-formatter.ts:2
 - **`AudioFormat` is a string union** (`"pcm16"|"wav"|"mulaw"`) not the EDR's
   `{encoding;sampleRate;channels}` record — nothing in the core consumes the richer shape
   (`AudioChunk` fixes 24 kHz mono); the in-message tag is what matters.
+
+---
+
+# Tier B — adapter merges, twilio-shared, tts/ split (DONE)
+
+**Commits (on `voice/372-refactor`, atop Tier A `9235e43`):**
+- `2d94998` Gap #6 — reconcile the two divergent twilio-shared.ts into one
+- `7753305` Gap #10 — split flat tts.ts into tts/ subtree + ElevenLabs TTS leaf
+- `c559738` Gap #5 — de-dup composable.ts onto canonical stt/tts; collapse EL files
+- `2262e7d` Gap #11 — settle call() across leaves on the runtime default
+- `ba0b4de` clear the 3 pre-existing vitest Mock<> type nits → tsc clean
+
+**Final HEAD:** `ba0b4de`.
+
+## Convergence gate (held)
+- **`npx tsc --noEmit` → 0 errors (CLEAN).** The 3 pre-existing vitest-4 Mock<> nits
+  (transcribe.test:70, tts.test:48, user-simulator-voice.test:70) — documented in Tier A as
+  pre-existing and masked by the twilio parse error — are fixed with minimal `as unknown as`
+  casts (test-only; runtime unchanged).
+- **Full suite (`npx vitest run`): 44 files passed / 1 skipped; 697 tests passed / 5 skipped.
+  Zero failures.** The Tier A baseline's 18 twilio-cascade file failures are GONE. The 1 skipped
+  file (`twilio-tunnel.test` — env-gated `@e2e`, needs `NGROK_AUTHTOKEN`) and 5 skipped tests
+  (4 = the bare-`@unit` EL hosted-connect scenario the `[["unit","ts-elevenlabs"]]` filter
+  doesn't select — covered by that file's 14 wire-protocol unit tests; 1 = the tunnel e2e) are
+  all benign env/tag gates, not regressions.
+- Named gate cluster green: twilio, twilio-server, twilio-shared-codec, twilio-tunnel, pipecat,
+  openai-realtime, gemini-live, elevenlabs, composable (bound inside elevenlabs.test), tts.
+- **SALVAGE-CONFLICT markers: 29 → 0** in `javascript/src` + `specs` (grep clean).
+
+## Gap #6 — twilio-shared reconciliation (the critical-path blocker)
+The keep-both merge had physically **interleaved** pr-540's (pipecat, codec-only) and pr-539's
+(twilio, codec+REST+validation) function bodies — `resamplePcm16`'s signature spliced into
+`pcmSampleToMulaw`'s body → TS1390 (`if` as param) + TS1109 + TS1005 parse errors that masked
+full-program tsc and cascaded to 18 files importing the voice barrel. Rebuilt as ONE module:
+- **Canonical codec = pr-540 semantics.** Decisive: `twilio-shared-codec.test` asserts
+  `resamplePcm16(x,24000,24000) === x` (same-rate identity — only pr-540 early-returns the input)
+  and round()-based output lengths. Canonical fn names `mulaw8kToPcm16At24k`/`pcm16At24kToMulaw8k`;
+  pr-539's `mulaw8kToPcm16_24k`/`pcm16_24kToMulaw8k` kept as **re-exported aliases** so the Twilio
+  trio's call sites don't churn. One impl, two names.
+- **Kept pr-539's** `TwilioRESTHelper`, `validateE164`/`validateDtmf`, `redactE164`/`escapeXmlAttr`,
+  `verifyTwilioSignature` (X-Twilio-Signature, fail-closed), the `KNOWN_EVENTS`-guarded
+  `parseMediaStreamFrame` (full `MediaStreamEvent` return shape), and `TWILIO_FRAME_BYTES`/
+  `TWILIO_SAMPLE_RATE`/`TWILIO_FRAME_MS`.
+- **Two spec-side markers from the same merge, resolved here** (same root cause):
+  `specs/voice-agents.feature` had an orphaned `@unit @ts-elevenlabs` tag the merge stranded
+  above the Twilio `mulaw/8000` scenario → `elevenlabs.test` bound a Twilio scenario
+  (`ScenarioNotCalledError`); dropped it. `voice-contract-surface.test` switched to the AND-match
+  filter `includeTags:[["ts-bound","ts-contract-surface"]]` so it no longer sweeps in every
+  `@ts-bound` twilio scenario (dropped the brittle excludeTags list).
+
+## Gap #10 — tts/ split + ElevenLabs TTS leaf
+Mirrors the stt/ subtree. `tts/{tts,openai-tts,elevenlabs-tts,index}.ts`. Cache invariant
+preserved verbatim (key = sha256(text)+voice; effects after cache read). New
+`ElevenLabsTtsProvider` leaf (eleven_v3 / `output_format: pcm_24000`) registered under the
+`elevenlabs` prefix → `voice="elevenlabs/<id>"` resolves through the registry (PRD headline).
+`elevenLabsSynthesizeBytes` carries the `apiKey`+`clientFactory` test seam so composable de-dups
+onto it. Directory import keeps `./tts` / `../tts` resolving with zero path churn.
+
+## Gap #5 — composable de-dup + EL file collapse (Task 5)
+`adapters/composable.ts` no longer self-defines `STTProvider`, `ElevenLabsSTTProvider`,
+`synthesize`, or a 4th `pcm16ToWavBytes`. It imports `STTProvider`/`ElevenLabsSTTProvider` from
+`./stt` (re-exporting them for the EL preset + tests) and routes TTS through `./tts` (EL path →
+the tts/elevenlabs-tts leaf, honoring the `elevenLabsClientFactory` seam). The canonical
+`./stt/elevenlabs-stt.ts` leaf was switched from the fetch-based shape to the **SDK-based**
+shape (`{apiKey, clientFactory}` + `speechToText.convert`) — the only one with `transcribe()`
+test coverage (elevenlabs.test); `stt.test`'s instanceof check is agnostic.
+
+Task 5 (collapse the two EL files): folded `ElevenLabsVoiceAgent` (the **local** branded
+composable preset) into `adapters/elevenlabs.ts` next to the **hosted** `ElevenLabsAgentAdapter`,
+deleting `adapters/eleven-labs-voice-agent.ts` → one ElevenLabs file. **Review flag:** the brief/
+EDR §0.1 called these "one ConvAI transport adapter," but they are two genuinely distinct
+responsibilities (hosted ConvAI WS transport vs local STT+LLM+TTS preset). Collapsing into a
+single *file* (not merging the *classes*) honors the "single ElevenLabs file" intent without
+destroying the preset's behavior or its 5 bound scenarios. Layout matches EDR §0 (single
+`elevenlabs.ts`).
+
+## Gap #11 — call() across leaves
+PR3's `defaultVoiceCall` is the base `VoiceAgentAdapter.call()`. Removed the stub `call()`
+overrides (which threw / returned `""`) from pipecat, twilio, openai-realtime, gemini-live, and
+the hosted `ElevenLabsAgentAdapter` so they inherit the runtime default. `composable.ts` keeps
+its own `call()` — it is the local BYO agent that runs the full loop itself, not a thin
+transport; its tests drive sendAudio/receiveAudio directly.
+**Partial vs the brief:** the "not-yet-connected path raises PendingTransportError" piece is
+NOT fully realized — `defaultVoiceCall` drives sendAudio/receiveAudio which raise each adapter's
+own "not connected" error (pipecat does throw PendingTransportError at connect() for
+`webrtc`). A uniform connected-state gate inside `defaultVoiceCall` needs a common accessor
+across leaves (none exists) and no test requires it → left for Tier C, noted below.
+
+## Cascades to Tier C (unblocked by Tier B; NOT started)
+1. **§7 tag/spec fixes (Gap-adjacent).** The bare-`@unit` EL "connects to conversational AI
+   endpoint" scenario lacks `@ts-elevenlabs`, so the AND-filter skips it (4 skipped steps) — a
+   §7.4 tag-alignment item. Behavior is covered by the wire-protocol `describe` block. Align the
+   tag in Tier C's §7 sweep.
+2. **Gap #11 not-connected gate.** Add a uniform `isConnected()`/`PendingTransportError` path so
+   `defaultVoiceCall` raises the single pending-transport error before connect — needs a shared
+   accessor across leaves (executor refactor).
+3. **Gap #8 / #9** (interruption verbs `voiceProceed`/`backgroundNoise`; site the 5 script steps
+   in `voice/steps.ts`) — untouched, as scoped.
+4. **judge-stt.ts pre-pass + user-sim TTS wiring** — untouched (Tier C).
+
+## Deviations from the EDR (Tier B, for review)
+- **TTS provider shape kept as-built** (`{prefix; synth: TTSCallable}` registry, not the §0.1
+  aspirational `class …Provider implements TtsProvider { synthesize(req) }`). Same rationale as
+  Tier A's STT call: the as-built router has the test coverage; the EL leaf's class wraps the
+  same callable. Zero behavioral gain in churning it.
+- **`_24k` codec aliases retained** rather than renaming the twilio trio's call sites to the
+  canonical `*At24k`. Keeps the diff to twilio.ts/twilio-server.ts at zero and both naming sets
+  documented as one-impl-two-names; a follow-up can collapse the alias if desired.
 </content>
 </invoke>
