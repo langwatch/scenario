@@ -4,6 +4,14 @@ import * as domain from "./domain";
 import * as execution from "./execution";
 import * as runner from "./runner";
 import * as script from "./script";
+import {
+  pipecatAgent,
+  openAIRealtimeAgent,
+  geminiLiveAgent,
+  elevenLabsAgent,
+  twilioAgent,
+  composableAgent,
+} from "./voice/factories";
 
 // Re-export all types and other named exports
 export * from "./agents";
@@ -31,11 +39,24 @@ export { scenarioOnly, withCustomScopes } from "./tracing/filters";
 // scenarios outside the default runner).
 export { saveRedTeamReport, isRedTeamAgent } from "./red-team-report";
 
+// Voice adapter factories — the documented PRD §9 idiom on the `scenario`
+// object (`scenario.pipecatAgent({...})`). `voice` also stays available as a
+// namespace (above) for the full surface (effects, config types, etc.).
+const voiceAgentFactories = {
+  pipecatAgent,
+  openAIRealtimeAgent,
+  geminiLiveAgent,
+  elevenLabsAgent,
+  twilioAgent,
+  composableAgent,
+};
+
 type ScenarioApi = typeof agents &
   typeof domain &
   typeof execution &
   typeof runner &
-  typeof script & {
+  typeof script &
+  typeof voiceAgentFactories & {
     configure: typeof configure;
   };
 
@@ -45,6 +66,7 @@ export const scenario: ScenarioApi = {
   ...execution,
   ...runner,
   ...script,
+  ...voiceAgentFactories,
   configure,
 };
 
