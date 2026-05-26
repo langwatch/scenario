@@ -109,7 +109,6 @@ describeFeature(
           expect(speakers.has("user"), "no user-sim audio segment").toBe(true);
           expect(speakers.has("agent"), "no agent audio segment").toBe(true);
           expect(recordingDir, "recording was not written").not.toBeNull();
-          // eslint-disable-next-line no-console
           console.log(
             `[demo] pipecat_ws → ${recordingDir} ` +
               `(${result!.audio!.segments.length} segments, speakers=${[...speakers].join("+")})`,

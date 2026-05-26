@@ -14,10 +14,10 @@
  * Binds `@e2e @ts-recording-playback`. Env-gated on `OPENAI_API_KEY`.
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import scenario, { AgentRole, voice, type ScenarioResult } from "@langwatch/scenario";
@@ -109,7 +109,6 @@ describeFeature(
         Then("both files exist on disk with non-zero duration", () => {
           expect(wavBytes, "demo.wav was empty").toBeGreaterThan(44); // > WAV header
           expect(mp3Bytes, "demo.mp3 was empty (ffmpeg transcode failed?)").toBeGreaterThan(0);
-          // eslint-disable-next-line no-console
           console.log(
             `[demo] recording_playback → WAV ${wavBytes}B + MP3 ${mp3Bytes}B ` +
               `(success=${result!.success})`,

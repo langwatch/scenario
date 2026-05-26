@@ -19,8 +19,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
-import { describe, it, expect, type TestContext } from "vitest";
 import scenario, { voice, type ScenarioResult } from "@langwatch/scenario";
+import { describe, it, expect, type TestContext } from "vitest";
 
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
@@ -112,7 +112,6 @@ if (hasHostedKey || hasComposableKey) {
           And("result.success is True after one turn", () => {
             if (!hasHostedKey) return;
             expect(recordingDir, "recording was not written").not.toBeNull();
-            // eslint-disable-next-line no-console
             console.log(
               `[demo] elevenlabs_hosted → ${recordingDir} ` +
                 `(success=${result!.success}, ${result!.audio!.segments.length} segments)`,
@@ -188,7 +187,6 @@ if (hasHostedKey || hasComposableKey) {
           And("result.success is True", () => {
             if (!hasComposableKey) return;
             expect(recordingDir, "recording was not written").not.toBeNull();
-            // eslint-disable-next-line no-console
             console.log(
               `[demo] elevenlabs_branded → ${recordingDir} ` +
                 `(success=${result!.success}, userTranscript=${JSON.stringify(agent!.lastUserTranscript)})`,

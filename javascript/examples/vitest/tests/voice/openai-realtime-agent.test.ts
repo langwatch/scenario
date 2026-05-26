@@ -112,7 +112,6 @@ describeFeature(
             // Persist the listenable proof.
             const dir = saveDemoRecording(r.audio, "openai_realtime_agent");
             expect(dir, "recording was not written").not.toBeNull();
-            // eslint-disable-next-line no-console
             console.log(
               `[demo] openai_realtime_agent → ${dir} ` +
                 `(${r.audio!.segments.length} segments, ${r.audio!.duration?.toFixed(2)}s)`,
