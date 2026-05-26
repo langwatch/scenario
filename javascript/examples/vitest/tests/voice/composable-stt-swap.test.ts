@@ -128,7 +128,6 @@ describeFeature(
               "the swapped ElevenLabsSTTProvider.transcribe() never ran — " +
                 "the judge fell back to the default OpenAI STT",
             ).toBeGreaterThan(0);
-            // eslint-disable-next-line no-console
             console.log(
               `[demo] composable_stt_swap → ${recordingDir} ` +
                 `(EL STT transcribe() calls=${transcribeCalls}, success=${result!.success})`,

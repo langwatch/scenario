@@ -147,7 +147,6 @@ describeFeature(
           ).toBeUndefined();
           // The voice run DID produce audio — the contrast proves parity.
           expect(voiceResult!.audio?.segments.length ?? 0).toBeGreaterThan(0);
-          // eslint-disable-next-line no-console
           console.log(
             `[demo] voice_text_parity → text(audio=${textResult!.audio}) ` +
               `voice(segments=${voiceResult!.audio!.segments.length})`,

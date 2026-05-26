@@ -100,7 +100,6 @@ describeFeature(
             "no audio segments from the live Gemini session",
           ).toBeGreaterThan(0);
           expect(recordingDir, "recording was not written").not.toBeNull();
-          // eslint-disable-next-line no-console
           console.log(
             `[demo] gemini_live → ${recordingDir} ` +
               `(success=${result!.success}, ${result!.audio!.segments.length} segments)`,
