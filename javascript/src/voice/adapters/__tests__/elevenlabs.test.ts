@@ -411,7 +411,7 @@ describeFeature(
         });
 
         And(
-          "it can be used anywhere an STTProvider is accepted (scenario.configure, composable voice agents)",
+          "it can be used anywhere an STTProvider is accepted (run({ voice: { stt } }), composable voice agents)",
           () => {
             // Plug into ComposableVoiceAgent — the seam contract is `stt:
             // STTProvider`, so the EL provider must drop in.

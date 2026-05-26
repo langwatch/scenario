@@ -145,6 +145,8 @@ Feature: Voice agent testing in Scenario SDK
   Scenario: ElevenLabsAgentAdapter connects to conversational AI endpoint
     # Source §4.1, L171-174 and §5.4, L760-776
     # Hosted path: ElevenLabs runs the STT→LLM→TTS loop themselves.
+    # @ts-elevenlabs so the AND-filter in elevenlabs.test.ts binds this
+    # scenario (its connect() handshake unit assertions) — EDR §7.4.
     Given an ElevenLabsAgentAdapter with agent_id and api_key
     When the scenario starts
     Then a WebSocket to wss://api.elevenlabs.io/v1/convai/conversation?agent_id=... is opened
@@ -182,7 +184,7 @@ Feature: Voice agent testing in Scenario SDK
     Given an ElevenLabsSTTProvider
     Then it implements the STTProvider interface (async transcribe(audio: AudioChunk) -> str)
     And no ElevenLabs-specific types leak into the interface
-    And it can be used anywhere an STTProvider is accepted (scenario.configure, composable voice agents)
+    And it can be used anywhere an STTProvider is accepted (run({ voice: { stt } }), composable voice agents)
 
   @unit
   Scenario: VapiAgentAdapter creates a call and connects to websocketCallUrl
@@ -292,8 +294,10 @@ Feature: Voice agent testing in Scenario SDK
   @unit @todo
   Scenario: Per-step voice override applies to only that step
     # Source §4.2, L290-294
-    # TODO: no TTS provider currently honors voiceStyle. Re-bind test when PR2/#513
-    # wires voiceStyle through _synthesize. See judge-agent.ts and user-simulator-voice.test.ts.
+    # @todo for the AUDIBLE voiceStyle effect — no TTS backend changes timbre
+    # by style yet (the simulator emits a one-shot warning). The per-step
+    # override PLUMBING (one-turn install + revert) IS wired; covered by
+    # script/__tests__/interrupt-after-and-user-overrides.test.ts.
     Given scenario.user("I'm really upset about this!", voice_style="angry")
     When the step runs
     Then the style "angry" is applied only to that turn
@@ -768,10 +772,12 @@ Feature: Voice agent testing in Scenario SDK
     And result.latency exposes time_to_first_byte, p50, and p95
 
   @e2e
-  Scenario: Demo — STT provider swap via scenario.configure
+  Scenario: Demo — STT provider swap via run({ voice: { stt } })
     # Covers: pluggable STTProvider (default OpenAI → ElevenLabsSTTProvider in demo)
-    Given a voice scenario configured with scenario.configure(stt=ElevenLabsSTTProvider(...))
-    When the demo script runs and the judge transcribes an audio turn
+    # Per-run, not a global (ADR-002): run({ voice: { stt } }) replaces the
+    # removed scenario.configure(stt=...) API.
+    Given a voice scenario run with run({ voice: { stt: ElevenLabsSTTProvider(...) } })
+    When the demo script runs and the audio turn is auto-transcribed for the judge
     Then the ElevenLabsSTTProvider.transcribe() path was exercised (not the default)
     And result.success is True
 
@@ -825,16 +831,16 @@ Feature: Voice agent testing in Scenario SDK
 
   @unit @ts-stt
   Scenario: Default STT provider is OpenAI gpt-4o-transcribe
-    Given no scenario.configure(stt=...) has been called
+    Given no per-run STT override is set on run({ voice: { stt } })
     And a conversation contains an audio turn
-    When the judge requests a transcript
+    When the audio is auto-transcribed and the judge receives text
     Then the SDK uses openai.audio.transcriptions with model "gpt-4o-transcribe"
 
   @unit @ts-stt
-  Scenario: Users swap STT providers via scenario.configure
+  Scenario: Users swap STT providers via run({ voice: { stt } })
     Given a custom STTProvider implementation
-    When scenario.configure(stt=CustomProvider()) is called
-    And the judge requests a transcript
+    When run({ voice: { stt: CustomProvider() } }) is used
+    And the audio is auto-transcribed and the judge receives text
     Then the custom provider's transcribe() is invoked instead of the default
 
   @unit @ts-stt
