@@ -7,21 +7,27 @@
  * executor's voice recording, and any user-held reference in sync without
  * churn.
  *
- * Failure mode: if no STT provider is configured, log a warning and return
- * without raising. Per-segment failures are caught, logged, and leave
- * `transcript` undefined — callers (judge, save flows) treat null
- * transcripts as "best-effort not available" and proceed.
+ * Failure mode: if `provider: null` is passed (no STT provider), log a
+ * warning and return without raising. Per-segment failures are caught,
+ * logged, and leave `transcript` undefined — callers (judge, save flows)
+ * treat null transcripts as "best-effort not available" and proceed.
  *
  * (Bound to spec `missing STT provider degrades gracefully` and
  * `transcribe_segments fills missing transcripts in place`.)
  */
 import { AudioChunk } from "./audio-chunk";
 import type { AudioSegment, VoiceRecording } from "./recording.types";
-import { type STTProvider, getSttProvider } from "./stt";
+import { type STTProvider, OpenAISTTProvider } from "./stt";
 
 /** Options for {@link transcribeSegments}. */
 export interface TranscribeSegmentsOptions {
-  /** Override the configured provider for this call. */
+  /**
+   * The STT provider for this call. Omit to use the per-run default
+   * (`new OpenAISTTProvider()` — a pure default, not shared state). Pass
+   * `null` to declare "no provider" — segments are left untranscribed and a
+   * warning is logged (graceful degrade). In a scenario run the resolved
+   * `cfg.voice.stt` provider (`ResolvedVoiceConfig`) is threaded in here.
+   */
   provider?: STTProvider | null;
   /**
    * When true (default), skip segments whose transcript is already set.
@@ -50,13 +56,17 @@ export async function transcribeSegments(
   if (!recording.segments?.length) return;
 
   const warn = options.logWarn ?? ((m: string) => console.warn(m));
+  // No global: default to a per-run OpenAI provider when unspecified;
+  // explicit `null` means "no provider" → graceful degrade.
   const provider =
-    options.provider !== undefined ? options.provider : getSttProvider();
+    options.provider !== undefined
+      ? options.provider
+      : new OpenAISTTProvider();
   if (!provider) {
     warn(
       "scenario.voice.transcribe: no STT provider configured; agent " +
-        "transcripts will remain null. Configure with " +
-        "scenario.configure({ stt: ... }) to enable.",
+        "transcripts will remain null. Pass a provider, or set one per-run " +
+        "via run({ voice: { stt: ... } }), to enable.",
     );
     return;
   }

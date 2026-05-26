@@ -15,7 +15,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, vi } from "vitest";
 
 import type { AudioChunk } from "../audio-chunk";
-import { OpenAISTTProvider, setSttProvider, type STTProvider } from "../stt";
+import { type STTProvider } from "../stt";
 import { transcribeSegments } from "../transcribe";
 import type { AudioSegment, VoiceRecording } from "../recording.types";
 
@@ -109,20 +109,20 @@ describeFeature(
           warnings = [];
           recording = makeRecording([{ speaker: "agent" }, { speaker: "user" }]);
 
-          setSttProvider(null);
+          // No global provider exists anymore (ADR-002): "no provider" is
+          // expressed by passing `provider: null` explicitly.
           await expect(
             transcribeSegments(recording, {
+              provider: null,
               logWarn: (m) => warnings.push(m),
             }),
           ).resolves.toBeUndefined();
-          // Restore default provider.
-          setSttProvider(new OpenAISTTProvider());
         });
 
         Then("it logs a warning and returns without raising", () => {
           expect(warnings).toHaveLength(1);
           expect(warnings[0]).toMatch(/no STT provider configured/);
-          expect(warnings[0]).toMatch(/scenario\.configure/);
+          expect(warnings[0]).toMatch(/run\(\{ voice/);
         });
 
         And("segment transcripts remain null", async () => {
