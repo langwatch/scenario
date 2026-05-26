@@ -1,39 +1,42 @@
 /**
- * scenario.configure({ stt }) tests — PR2 of issue #372.
+ * scenario.configure() tests — global execution settings (PRD §4.7).
  *
- * Verifies that the `configure({ stt })` entry point round-trips a custom
- * provider through `setSttProvider` / `getSttProvider`. This is acceptance
- * check #4 of the PR.
+ * The invented `configure({ stt })` provider knob was removed (ADR-002):
+ * provider state is per-run via `run({ voice: { stt } })`, not a global.
+ * `configure()` now carries only global *execution* settings such as
+ * `audioPlayback`. These tests verify that surface.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { configure } from "../configure";
-import {
-  OpenAISTTProvider,
-  getSttProvider,
-  setSttProvider,
-  type STTProvider,
-} from "../../voice/stt";
+import { configure, getGlobalSettings } from "../configure";
 
-describe("scenario.configure({ stt }) round-trips a custom STT provider", () => {
+describe("scenario.configure() — global execution settings", () => {
   afterEach(() => {
-    setSttProvider(new OpenAISTTProvider());
+    // Reset the global toggle so tests stay isolated.
+    configure({ audioPlayback: false });
   });
 
-  it("installs the provided STT provider so getSttProvider() returns it", () => {
-    const custom: STTProvider = { transcribe: vi.fn().mockResolvedValue("") };
-    configure({ stt: custom });
-    expect(getSttProvider()).toBe(custom);
+  it("sets audioPlayback so getGlobalSettings() reflects it", () => {
+    configure({ audioPlayback: true });
+    expect(getGlobalSettings().audioPlayback).toBe(true);
   });
 
-  it("accepts null to clear the configured provider — getSttProvider returns null", () => {
-    configure({ stt: null });
-    expect(getSttProvider()).toBeNull();
+  it("leaves existing settings untouched when a field is omitted", () => {
+    configure({ audioPlayback: true });
+    configure({}); // no fields → no change
+    expect(getGlobalSettings().audioPlayback).toBe(true);
   });
 
-  it("leaves the provider untouched when `stt` is omitted", () => {
-    const before = getSttProvider();
-    configure({});
-    expect(getSttProvider()).toBe(before);
+  it("last write wins for audioPlayback", () => {
+    configure({ audioPlayback: true });
+    configure({ audioPlayback: false });
+    expect(getGlobalSettings().audioPlayback).toBe(false);
+  });
+
+  it("does NOT accept an stt provider knob (removed — per-run via run({ voice }))", () => {
+    // @ts-expect-error `stt` is not part of the global configure surface.
+    configure({ stt: { transcribe: async () => "" } });
+    // The call is a no-op for the unknown field; audioPlayback stays default.
+    expect(getGlobalSettings().audioPlayback).toBeFalsy();
   });
 });

@@ -17,7 +17,8 @@ export * from "./script";
 // behind this same contract.
 export * as voice from "./voice";
 
-// Global SDK configuration (`scenario.configure({ stt })`).
+// Global SDK execution settings (e.g. `scenario.configure({ audioPlayback })`).
+// Provider config is per-run via `run({ voice })`, not here (ADR-002).
 export { configure } from "./config/configure";
 export type { ScenarioConfigureOptions } from "./config/configure";
 
