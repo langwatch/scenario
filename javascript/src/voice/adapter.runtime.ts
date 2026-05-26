@@ -35,6 +35,7 @@ import type {
 import { VoiceRecordingRuntime } from "./recording.runtime";
 import type { VoiceExecutorState } from "./voice-executor-state";
 import { WebRTCVadFallback } from "./vad";
+import { PendingTransportError } from "./adapters/pending-transport-error";
 
 /**
  * `asyncio.Event` analogue: a `Promise<void>` + external resolve handle.
@@ -235,6 +236,13 @@ export async function defaultVoiceCall(
   adapter: VoiceAgentAdapter,
   input: AgentInput,
 ): Promise<AgentReturnTypes> {
+  // Gap #11 — uniform connected-state gate: a call() issued before the
+  // executor's connect() (or after a dropped transport) fails with one clear
+  // PendingTransportError across every leaf, not a transport-specific
+  // null-deref or silent hang.
+  if (!adapter.isConnected()) {
+    throw new PendingTransportError(adapter.constructor.name);
+  }
   const speakingEvent = getAgentSpeakingEvent(adapter);
   speakingEvent.clear();
 
@@ -297,6 +305,10 @@ export function startVoiceTurn(
   adapter: VoiceAgentAdapter,
   input: AgentInput,
 ): VoiceTurnHandle {
+  // Same connected-state gate as defaultVoiceCall (Gap #11).
+  if (!adapter.isConnected()) {
+    throw new PendingTransportError(adapter.constructor.name);
+  }
   const speakingEvent = getAgentSpeakingEvent(adapter);
   speakingEvent.clear();
 

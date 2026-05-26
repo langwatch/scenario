@@ -235,6 +235,11 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     this.connected = true;
   }
 
+  /** Whether the Gemini Live session is open (Gap #11). */
+  override isConnected(): boolean {
+    return this.connected;
+  }
+
   /**
    * Close the Gemini Live session and release the WebSocket.
    */

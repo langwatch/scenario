@@ -236,6 +236,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     ws.send(JSON.stringify({ type: "session.update", session: sessionConfig }));
   }
 
+  /** Whether the Realtime WebSocket is open (Gap #11). */
+  override isConnected(): boolean {
+    return this._ws !== null;
+  }
+
   /** Close the WebSocket if open. */
   async disconnect(): Promise<void> {
     const ws = this._ws;
