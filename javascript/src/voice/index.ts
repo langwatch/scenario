@@ -119,3 +119,6 @@ export {
   extractAudio,
   messageHasAudio,
 } from "./messages";
+
+// SALVAGE-CONFLICT [EDR Gap #?]: issue372/ts-voice-effects barrel export appended — reconcile in refactor
+export * as effects from "./effects";
