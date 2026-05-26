@@ -32,6 +32,7 @@ import type {
   VoiceEvent,
   VoiceRecording,
 } from "./recording.types";
+import { VoiceRecordingRuntime } from "./recording.runtime";
 import type { VoiceExecutorState } from "./voice-executor-state";
 import { WebRTCVadFallback } from "./vad";
 
@@ -180,8 +181,15 @@ export function initVoiceExecutorState(state: VoiceExecutorState): void {
   }
 }
 
+/**
+ * The per-run recording is a {@link VoiceRecordingRuntime} instance — NOT a
+ * bare object — so `result.audio.save()` / `result.audio.saveSegments()`
+ * exist on the value that {@link ScenarioExecution.setResult} attaches (Gap B).
+ * Its `segments` / `timeline` arrays are appended in place during the run by
+ * {@link appendSegment} / {@link appendEvent}.
+ */
 function emptyRecording(): VoiceRecording {
-  return { segments: [], timeline: [] };
+  return new VoiceRecordingRuntime();
 }
 
 function emptyLatencyMetrics(): LatencyMetrics {
