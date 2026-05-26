@@ -1,24 +1,33 @@
 /**
- * E2E demo — OpenAIRealtimeAgentAdapter as the agent under test
- * (`role=AgentRole.AGENT`). Binds the `@e2e @ts-openai-realtime-agent-demo`
- * scenario from `specs/voice-agents.feature` via vitest-cucumber.
+ * E2E demo — OpenAI Realtime as the agent under test (BASELINE).
  *
- * Env-gated on `OPENAI_API_KEY`: skipped when the key is unset (CI on
- * branches without secrets, local dev without an OpenAI account). The PR
- * gate enforces this — see /browser-qa-against-prod in the PR body.
+ * The model itself is the agent (`role=AgentRole.AGENT`): a voice
+ * `userSimulatorAgent` speaks a scripted line (TTS → audio), the Realtime
+ * model hears it and answers in audio, and a `judgeAgent` evaluates the
+ * exchange — all through the documented `scenario.run()` entrypoint and the
+ * `scenario.openAIRealtimeAgent({...})` factory (PRD §9). Mirrors
+ * `python/examples/voice/openai_realtime_agent.py`.
+ *
+ * On success the recording (full.wav + segments/ + manifest.json) lands in
+ * `javascript/recordings/openai_realtime_agent/` via {@link saveDemoRecording}.
+ *
+ * Binds `@e2e @ts-openai-realtime-agent-demo` from `specs/voice-agents.feature`.
+ * Env-gated on `OPENAI_API_KEY`: skipped when unset so CI without secrets
+ * stays green.
  */
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { AgentRole, voice } from "@langwatch/scenario";
+import scenario, { AgentRole, voice, type ScenarioResult } from "@langwatch/scenario";
 import { expect } from "vitest";
 
-const { OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter } = voice;
+import { saveDemoRecording } from "./helpers/save-demo-recording";
+
+const { OPENAI_REALTIME_MODEL } = voice;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// examples/vitest/tests/voice → repo root is six segments up.
 const FEATURE_PATH = resolve(
   HERE,
   "..",
@@ -37,61 +46,77 @@ const feature = await loadFeature(FEATURE_PATH);
 describeFeature(
   feature,
   ({ Scenario }) => {
-    // Env-gated skip: vitest-cucumber binds the scenario in both modes so
-    // `checkUncalledScenario` stays happy, but `Scenario.skip` short-
-    // circuits when `OPENAI_API_KEY` is unset.
     const Bind = RUN_E2E ? Scenario : Scenario.skip;
 
     Bind(
       "Demo — OpenAI Realtime as the agent under test",
       ({ Given, When, Then }) => {
-        let adapter: voice.OpenAIRealtimeAgentAdapter;
-        let connectError: unknown = null;
+        // Only the computed result crosses steps (When → Then).
+        let result: ScenarioResult | null = null;
 
         Given(
           "an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY",
           () => {
-            adapter = new OpenAIRealtimeAgentAdapter({
-              model: OPENAI_REALTIME_MODEL,
-              voice: "alloy",
-              instructions:
-                "You are a concise assistant. Answer in one short sentence.",
-              role: AgentRole.AGENT,
-            });
-            expect(adapter.role).toBe(AgentRole.AGENT);
+            expect(Boolean(process.env.OPENAI_API_KEY)).toBe(true);
           },
         );
 
         When("the demo script runs via scenario.run()", async () => {
-          // PR8 ships the adapter wire protocol; the full `scenario.run()`
-          // executor wiring (which drives real speech audio into the model)
-          // lands in PR3. For the agent-role demo we exercise the
-          // bidirectional wire we own: connect (GA handshake), assert
-          // the WS is live (capabilities matrix is published, interrupt
-          // round-trips a no-op `response.cancel`), then disconnect.
-          // Pumping silent audio doesn't trigger the model with
-          // `turn_detection: null` — that path is PR3's territory.
-          try {
-            await adapter.connect();
-            await adapter.interrupt(); // round-trips response.cancel
-          } catch (err) {
-            connectError = err;
-          } finally {
-            await adapter.disconnect();
-          }
+          result = await scenario.run({
+            name: "demo_openai_realtime_agent",
+            description:
+              "OpenAI Realtime model plays the agent role. The user greets it; " +
+              "the model responds in audio; the judge evaluates the exchange.",
+            agents: [
+              // The documented factory idiom (PRD §9). The model IS the agent.
+              scenario.openAIRealtimeAgent({
+                model: OPENAI_REALTIME_MODEL,
+                voice: "alloy",
+                instructions:
+                  "You are a helpful assistant. Keep responses brief — one short sentence.",
+                role: AgentRole.AGENT,
+              }),
+              // Voice user simulator: scripted text is TTS'd to audio and sent
+              // into the Realtime session as the user turn.
+              scenario.userSimulatorAgent({ voice: "openai/nova" }),
+              scenario.judgeAgent({
+                criteria: [
+                  "The agent responded naturally to the user's greeting",
+                  "The conversation is a coherent voice exchange",
+                ],
+              }),
+            ],
+            script: [
+              scenario.user("Hello, can you help me?"),
+              scenario.agent(),
+              scenario.judge(),
+            ],
+            maxTurns: 4,
+          });
         });
 
         Then(
           "the model plays the agent role and result.success is True",
           () => {
-            // Live signal: connect handshake + session.update accepted by
-            // the GA endpoint, response.cancel round-tripped without an
-            // error event. Stands in for `result.success === true` until
-            // PR3 wires the full ScenarioResult and the demo can drive
-            // real speech audio through the executor.
-            expect(connectError).toBeNull();
-            expect(adapter.capabilities.streamingTranscripts).toBe(true);
-            expect(adapter.capabilities.interruption).toBe(true);
+            expect(result, "scenario.run() returned no result").not.toBeNull();
+            const r = result!;
+            // The full pipeline ran: TTS → Realtime model → judge verdict.
+            expect(r.success, `judge verdict: ${r.reasoning}`).toBe(true);
+            // result.audio is the populated VoiceRecordingRuntime (Gap A/B):
+            // both user-sim and agent segments captured.
+            expect(r.audio, "result.audio missing").toBeDefined();
+            expect(
+              r.audio!.segments.length,
+              "no audio segments captured",
+            ).toBeGreaterThan(0);
+            // Persist the listenable proof.
+            const dir = saveDemoRecording(r.audio, "openai_realtime_agent");
+            expect(dir, "recording was not written").not.toBeNull();
+            // eslint-disable-next-line no-console
+            console.log(
+              `[demo] openai_realtime_agent → ${dir} ` +
+                `(${r.audio!.segments.length} segments, ${r.audio!.duration?.toFixed(2)}s)`,
+            );
           },
         );
       },

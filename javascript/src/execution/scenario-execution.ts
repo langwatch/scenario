@@ -44,6 +44,7 @@ import type { VoiceExecutorState } from "../voice/voice-executor-state";
 import {
   resolveVoiceConfig,
   type ResolvedVoiceConfig,
+  type VoiceConfig,
 } from "../voice/config";
 import {
   initVoiceExecutorState,
@@ -947,7 +948,81 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * ```
    */
   async user(content?: string | ModelMessage): Promise<void> {
+    // Voice routing for an explicit, scripted user line (parity with
+    // python/scenario/scenario_executor.py:user). Without this, a voice agent
+    // under test (OpenAI Realtime, ElevenLabs hosted, Pipecat, …) sees a
+    // text-only message when the script emits `scenario.user("...")` and never
+    // receives audio — its `call()` then drains a response that was never
+    // prompted and times out. Only applies to a plain string; a pre-built
+    // ModelMessage (already audio, or a deliberate text turn) passes straight
+    // through.
+    if (typeof content === "string") {
+      // (1) Realtime USER agent → route text through the realtime session's
+      //     text-input channel; the model generates audio natively (§7.2).
+      const realtimeUser = this.findRealtimeUserAgent();
+      if (realtimeUser) {
+        await realtimeUser.sendText(content);
+        this.state.addMessage({ role: "user", content });
+        return;
+      }
+      // (2) Voice-capable user simulator → TTS the scripted text so the agent
+      //     under test receives AUDIO. Route the resulting audio ModelMessage
+      //     through the normal scriptCallAgent path (add + broadcast).
+      const sim = this.findVoiceUserSim();
+      if (sim) {
+        const audioMessage = await sim.voiceifyText(content, this.config.voice);
+        await this.scriptCallAgent(AgentRole.USER, audioMessage);
+        return;
+      }
+    }
+    // (3) Default: text path (or a pre-built ModelMessage / generated turn).
     await this.scriptCallAgent(AgentRole.USER, content);
+  }
+
+  /**
+   * Find a USER-role agent that speaks text into a realtime session (has a
+   * `sendText` method) — the OpenAI Realtime user-simulator path. Duck-typed
+   * to avoid coupling the executor to the concrete adapter class.
+   */
+  private findRealtimeUserAgent():
+    | { sendText: (text: string) => Promise<void> }
+    | null {
+    for (const agent of this.agents) {
+      if (
+        agent.role === AgentRole.USER &&
+        typeof (agent as { sendText?: unknown }).sendText === "function"
+      ) {
+        return agent as unknown as { sendText: (t: string) => Promise<void> };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find a voice-capable user simulator (has a non-empty `voice` and a
+   * `voiceifyText` method). Mirrors Python's `_find_user_sim` + the
+   * `getattr(sim, "voice", None)` guard. Duck-typed for the same reason.
+   */
+  private findVoiceUserSim():
+    | { voiceifyText: (text: string, cfg?: VoiceConfig) => Promise<ModelMessage> }
+    | null {
+    for (const agent of this.agents) {
+      if (agent.role !== AgentRole.USER) continue;
+      const candidate = agent as {
+        voice?: unknown;
+        voiceifyText?: unknown;
+      };
+      if (
+        typeof candidate.voiceifyText === "function" &&
+        typeof candidate.voice === "string" &&
+        candidate.voice.length > 0
+      ) {
+        return agent as unknown as {
+          voiceifyText: (t: string, cfg?: VoiceConfig) => Promise<ModelMessage>;
+        };
+      }
+    }
+    return null;
   }
 
   /**
