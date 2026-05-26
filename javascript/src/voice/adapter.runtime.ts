@@ -180,6 +180,9 @@ export function initVoiceExecutorState(state: VoiceExecutorState): void {
   if (state.voiceRecordingStartedAt == null) {
     state.voiceRecordingStartedAt = nowSeconds();
   }
+  if (state.voiceAudioCursor == null) {
+    state.voiceAudioCursor = 0;
+  }
 }
 
 /**
@@ -251,7 +254,6 @@ export async function defaultVoiceCall(
 
   const incoming = extractIncomingAudio(input.newMessages);
   if (incoming) {
-    recorder.markUserStart();
     await adapter.sendAudio(incoming);
     feedVad(adapter, incoming);
     recorder.recordUser(incoming);
@@ -320,7 +322,6 @@ export function startVoiceTurn(
   const sendThenDrain = (async (): Promise<AudioChunk> => {
     const incoming = extractIncomingAudio(input.newMessages);
     if (incoming) {
-      recorder.markUserStart();
       await adapter.sendAudio(incoming);
       feedVad(adapter, incoming);
       recorder.recordUser(incoming);
@@ -335,7 +336,6 @@ export function startVoiceTurn(
   return {
     async injectAudio(audio: AudioChunk): Promise<void> {
       // The barge-in: transmit user audio while the agent is still speaking.
-      recorder.markUserStart();
       await adapter.sendAudio(audio);
       feedVad(adapter, audio);
       recorder.recordUser(audio);
@@ -435,50 +435,56 @@ function mergeChunks(chunks: AudioChunk[]): AudioChunk {
  * state. Kept private (one-call-per-instance) so subclasses can opt out
  * by overriding `call()` and the default flow stays short.
  *
- * Timing model: every segment's start/end is captured at a real audio
- * flow point (when transmission begins, when it ends, when the first
- * chunk arrives). Nothing is back-computed from chunk byte length, so
- * user and agent segments share a single timeline and never overlap.
+ * Timing model (review M1): segment start/end are laid on a byte-accurate
+ * AUDIO cursor — each segment occupies `[cursor, cursor + chunk.durationSeconds]`
+ * and advances the cursor by its PCM byte-duration. A segment's
+ * `endTime - startTime` therefore equals its true audio length, and
+ * `recording.duration` (= max endTime) equals the `full.wav` byte-duration,
+ * regardless of how fast an in-process transport flushed the bytes. The OLD
+ * model timestamped each segment at the wall-clock instant `sendAudio` /
+ * `receiveAudio` resolved, which on fast transports collapsed multi-second
+ * turns to ~1 ms and made `manifest.duration` unreliable as audio-length proof.
+ *
+ * Latency is NOT derived from these audio offsets (consecutive turns are
+ * gapless on the cursor, so an offset gap would always be ~0). It is measured
+ * from the wall-clock marks {@link recordUser} / {@link markAgentStart} keep —
+ * the genuine response time between the user finishing on the wire and the
+ * agent's first chunk arriving.
  */
 export class AdapterRecorder {
-  private userStart: number | null = null;
-  private userEnd: number | null = null;
-  private agentStart: number | null = null;
+  /** Wall-clock offset (seconds) when user transmission finished — latency only. */
+  private userEndWall: number | null = null;
+  /** Wall-clock offset (seconds) when the agent's first chunk arrived. */
+  private agentStartWall: number | null = null;
   constructor(private readonly state: VoiceExecutorState | null) {}
-
-  markUserStart(): void {
-    if (!this.state) return;
-    this.userStart = nowOffset(this.state);
-  }
 
   recordUser(chunk: AudioChunk): void {
     if (!this.state || chunk.data.length === 0) return;
-    const end = nowOffset(this.state);
-    const start =
-      this.userStart ?? Math.max(0, end - chunk.durationSeconds);
-    this.userEnd = end;
-    writeUserSegment(this.state, chunk, start, end);
+    // Wall-clock end of the user turn — kept for the latency measurement, NOT
+    // for the segment timestamps (those are byte-accurate, see below).
+    this.userEndWall = nowOffset(this.state);
+    writeUserSegment(this.state, chunk);
   }
 
   markAgentStart(): void {
     if (!this.state) return;
-    this.agentStart = nowOffset(this.state);
+    this.agentStartWall = nowOffset(this.state);
   }
 
   recordAgent(chunk: AudioChunk): void {
     if (!this.state || chunk.data.length === 0) return;
     fireAudioChunk(this.state, chunk);
-    const end = nowOffset(this.state);
-    const start =
-      this.agentStart ?? Math.max(0, end - chunk.durationSeconds);
-    appendSegment(this.state, "agent", start, end, chunk);
+    // Byte-accurate placement on the shared audio cursor (M1).
+    const { start, end } = layNextSegment(this.state, "agent", chunk);
     let latency: number | undefined;
-    if (this.userEnd !== null) {
-      const candidate = start - this.userEnd;
-      // Negative latency means the agent started before the user
-      // finished sending — wire-model violation on serial adapters.
-      // Treat as a measurement artefact (no record) so percentiles
-      // aren't poisoned.
+    if (this.userEndWall !== null && this.agentStartWall !== null) {
+      // Real response time: wall-clock from the user finishing on the wire to
+      // the agent's first chunk. Derived from the preserved wall-clock marks,
+      // so the byte-accurate (gapless) audio timeline doesn't zero it out.
+      const candidate = this.agentStartWall - this.userEndWall;
+      // Negative latency means the agent started before the user finished
+      // sending — a wire-model violation on serial adapters. Treat as a
+      // measurement artefact (no record) so percentiles aren't poisoned.
       if (candidate >= 0) {
         latency = candidate;
         recordLatency(this.state, candidate);
@@ -494,22 +500,39 @@ export class AdapterRecorder {
 }
 
 /**
- * Append a finalised user segment and the matching start/stop timeline
- * events. Single entry point so the default `call()` flow and the
- * interruption / barge-in path (later PR) cannot drift apart on the
- * timing model.
+ * Append a finalised user segment (byte-accurate placement) and the matching
+ * start/stop timeline events. Single entry point so the default `call()` flow
+ * and the interruption / barge-in path cannot drift apart on the timing model.
  */
 export function writeUserSegment(
   state: VoiceExecutorState,
   chunk: AudioChunk,
-  start: number,
-  end: number,
 ): void {
   if (chunk.data.length === 0) return;
   fireAudioChunk(state, chunk);
-  appendSegment(state, "user", start, end, chunk);
+  const { start, end } = layNextSegment(state, "user", chunk);
   appendEvent(state, { time: start, type: "user_start_speaking" });
   appendEvent(state, { time: end, type: "user_stop_speaking" });
+}
+
+/**
+ * Lay one segment end-to-end on the executor's byte-accurate audio cursor:
+ * `start` = the cumulative byte-duration so far, `end` = `start + this chunk's
+ * byte-duration`, then advance the cursor by that duration. Gapless +
+ * byte-accurate by construction, so `recording.duration` tracks `full.wav`
+ * (review M1). Returns the `{ start, end }` it used so the caller can timestamp
+ * the corresponding timeline events.
+ */
+function layNextSegment(
+  state: VoiceExecutorState,
+  speaker: SpeakerRole,
+  chunk: AudioChunk,
+): { start: number; end: number } {
+  const start = state.voiceAudioCursor ?? 0;
+  const end = start + chunk.durationSeconds;
+  state.voiceAudioCursor = end;
+  appendSegment(state, speaker, start, end, chunk);
+  return { start, end };
 }
 
 function appendSegment(

@@ -33,6 +33,17 @@ export interface VoiceExecutorState {
   /** `performance.now()` (or equivalent monotonic clock) anchor in seconds. */
   voiceRecordingStartedAt: number | null;
   /**
+   * Byte-accurate audio cursor in seconds — the cumulative PCM byte-duration
+   * of every segment recorded so far. Segments are laid end-to-end on this
+   * cursor (not on wall-clock) so a segment's `endTime - startTime` equals its
+   * true audio length and `recording.duration` equals the `full.wav`
+   * byte-duration — independent of in-process send latency (review M1).
+   * Latency is measured separately from the wall-clock marks the recorder
+   * keeps, so the response-time signal is preserved. `undefined`/`null` before
+   * the first segment (treated as 0).
+   */
+  voiceAudioCursor?: number | null;
+  /**
    * The resolved per-run voice config (ADR-002, Gap #7). Populated at run
    * start from `cfg.voice` via `resolveVoiceConfig` when at least one voice
    * adapter is present. The judge's STT pass and the user-simulator's TTS

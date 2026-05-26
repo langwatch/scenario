@@ -169,6 +169,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   /** Monotonic clock anchor (`performance.now() / 1000`) for offsets. */
   voiceRecordingStartedAt: number | null = null;
   /**
+   * Byte-accurate audio cursor (seconds) — cumulative PCM byte-duration of all
+   * segments laid so far. Drives segment start/end so `voiceRecording.duration`
+   * tracks the `full.wav` byte-duration, not wall-clock send latency (M1).
+   */
+  voiceAudioCursor: number | null = null;
+  /**
    * Resolved per-run voice config (ADR-002 / Gap #7). Set at run start from
    * `cfg.voice` when voice adapters are present; the consumer agents read
    * the provider/knobs here instead of a module global.
