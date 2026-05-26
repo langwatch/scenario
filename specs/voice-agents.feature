@@ -154,14 +154,14 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.2 Voice-Enabled User Simulator (Source L244-306)
   # ======================================================================
 
-  @unit
+  @unit @ts-simulator
   Scenario: UserSimulatorAgent without voice is unchanged
     # Source §4.2, L249-250
     Given UserSimulatorAgent(model="openai/gpt-4.1-mini") with no voice parameter
     When the simulator produces a message
     Then the output is a text-only message (existing behavior preserved)
 
-  @unit
+  @unit @ts-simulator
   Scenario: UserSimulatorAgent with voice produces audio messages
     # Source §4.2, L252-256
     Given UserSimulatorAgent(voice="openai/nova")
@@ -184,22 +184,24 @@ Feature: Voice agent testing in Scenario SDK
     Then the TTS synthesis is cached on (text, voice) and only called once
     And effects are applied to the cached audio after retrieval, never baked in
 
-  @unit
+  @unit @todo
   Scenario: Per-step voice override applies to only that step
     # Source §4.2, L290-294
+    # TODO: no TTS provider currently honors voiceStyle. Re-bind test when PR2/#513
+    # wires voiceStyle through _synthesize. See judge-agent.ts and user-simulator-voice.test.ts.
     Given scenario.user("I'm really upset about this!", voice_style="angry")
     When the step runs
     Then the style "angry" is applied only to that turn
     And the simulator's default voice/effects resume on subsequent turns
 
-  @unit
+  @unit @ts-simulator
   Scenario: Per-step audio_effects override applies to only that step
     # Source §4.2, L293
     Given scenario.user("Hello?", audio_effects=[effects.low_volume(0.3)])
     When the step runs
     Then low_volume is applied to only that turn's audio
 
-  @unit
+  @unit @ts-simulator
   Scenario: Persona and audio_effects compose on user simulator
     # Source §4.2, L259-268
     Given UserSimulatorAgent with voice, persona, and audio_effects [background_noise("cafe", 0.2), phone_quality()]
@@ -211,7 +213,7 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.3 Voice-Enabled Judge (Source L307-364)
   # ======================================================================
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge auto-detects audio messages without configuration
     # Source §4.3, L309-318
     Given JudgeAgent(criteria=[...]) with no audio flags set
@@ -219,42 +221,42 @@ Feature: Voice agent testing in Scenario SDK
     When the judge evaluates
     Then it auto-enables audio handling
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge always includes transcripts of audio messages
     # Source §4.3, L324 ("Transcripts — automatic STT of all audio messages (always included)")
     Given the conversation has audio turns
     When the judge evaluates
     Then every audio turn has an STT transcript attached to the input
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge passes audio to multimodal models that support it
     # Source §4.3, L325, L362-363 (auto-detect model capability)
     Given JudgeAgent(model="openai/gpt-4o") with audio in the conversation
     When the judge evaluates
     Then the raw audio is passed to the model as multimodal input
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge falls back to transcript-only for non-multimodal models
     # Source §4.3, L362-363
     Given JudgeAgent(model="openai/gpt-4.1-mini") with audio in the conversation
     When the judge evaluates
     Then audio is auto-transcribed and passed as text only
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge receives a structured timeline for voice conversations
     # Source §4.3, L326-345
     Given a voice conversation with speaking/interrupt/tool-call events
     When the judge evaluates
     Then include_timeline defaults to True and a structured timeline is present in AgentInput
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge receives OTel traces when configured
     # Source §4.3, L347, L358
     Given LangWatch/OTel is configured and the conversation contains spans
     When the judge evaluates
     Then include_traces defaults to True and traces are included
 
-  @unit
+  @unit @ts-judge
   Scenario: Explicit include_audio=False forces text-only judge for cost
     # Source §4.3, L353-358
     Given JudgeAgent(include_audio=False) with audio in the conversation
@@ -815,7 +817,7 @@ Feature: Voice agent testing in Scenario SDK
   # Audio in any role — type-level fix (adaptability note)
   # ======================================================================
 
-  @unit
+  @unit @ts-assistant-role
   Scenario: Audio content works cleanly in assistant-role messages
     # Fixes the forceUserRole workaround in javascript/examples/vitest/tests/helpers/openai-voice-agent.ts
     Given a conversation with an assistant-role message containing audio content

@@ -8,6 +8,7 @@ import {
   stepCountIs,
   hasToolCall,
 } from "ai";
+import { z } from "zod/v4";
 
 const DISCOVERY_TOOL_NAMES = new Set(["expand_trace", "grep_trace"]);
 
@@ -123,7 +124,6 @@ function collapseDiscoveryHistory(
 
   return out;
 }
-import { z } from "zod/v4";
 
 import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
@@ -177,6 +177,35 @@ export interface JudgeAgentConfig extends TestingAgentConfig {
    * @default 10
    */
   maxDiscoverySteps?: number;
+
+  // ----------------------------------------------------------------- §4.3 voice
+  /**
+   * Whether to pass audio content to the judge model.
+   *
+   * - `true` / `false` — explicit; overrides auto-detection.
+   * - `null` (default) — auto-detect: `true` when the conversation has audio AND
+   *   the judge model is known to support multimodal input.
+   *
+   * Set `includeAudio: false` as a cost-reduction escape hatch on multimodal
+   * models when audio evaluation is not needed.
+   */
+  includeAudio?: boolean | null;
+
+  /**
+   * Whether to include a structured voice timeline in the judge input.
+   *
+   * - `true` / `false` — explicit.
+   * - `null` (default) — auto: `true` when the conversation has audio.
+   */
+  includeTimeline?: boolean | null;
+
+  /**
+   * Whether to include OTel / LangWatch trace spans in the judge input.
+   *
+   * - `true` / `false` — explicit.
+   * - `null` (default) — auto: `true` when LangWatch / OTel is configured.
+   */
+  includeTraces?: boolean | null;
 }
 
 function buildSystemPrompt(criteria: string[], description: string): string {
@@ -289,7 +318,7 @@ function buildProgressiveDiscoveryTools(spans: ReadableSpan[]): ToolSet {
  *
  * @param cfg {JudgeAgentConfig} Configuration for the judge agent.
  */
-class JudgeAgent extends JudgeAgentAdapter {
+export class JudgeAgent extends JudgeAgentAdapter {
   private logger = new Logger("JudgeAgent");
   private readonly spanCollector: JudgeSpanCollector;
   private readonly tokenThreshold: number;
@@ -309,6 +338,109 @@ class JudgeAgent extends JudgeAgentAdapter {
     this.spanCollector = cfg.spanCollector ?? judgeSpanCollector;
     this.tokenThreshold = cfg.tokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
     this.maxDiscoverySteps = cfg.maxDiscoverySteps ?? 10;
+  }
+
+  // ----------------------------------------------------------------- §4.3 voice
+
+  /**
+   * Model substrings that indicate multimodal (audio-capable) support.
+   * Mirrors `python/scenario/judge_agent.py:_AUDIO_CAPABLE_MODEL_SUBSTRINGS`.
+   */
+  static readonly AUDIO_CAPABLE_MODEL_SUBSTRINGS: readonly string[] = [
+    "gpt-4o",
+    "gemini-2.5",
+    "gemini-2.0-flash",
+  ];
+
+  /**
+   * Extract a string identifier from the configured model for substring matching.
+   *
+   * `LanguageModel` is `GlobalProviderModelId | LanguageModelV3 | LanguageModelV2`.
+   * `GlobalProviderModelId` resolves to a string literal; provider objects expose
+   * a `modelId` property. We handle both shapes.
+   */
+  private modelString(): string {
+    const model = this.cfg.model;
+    if (!model) return "";
+    if (typeof model === "string") return model.toLowerCase();
+    // LanguageModelV3 / LanguageModelV2 objects expose `modelId`.
+    const obj = model as { modelId?: string; provider?: string };
+    const parts = [obj.provider ?? "", obj.modelId ?? ""].filter(Boolean);
+    return parts.join("/").toLowerCase();
+  }
+
+  /**
+   * Whether the configured judge model can ingest raw audio.
+   * Determined by checking model name substrings.
+   */
+  modelSupportsAudio(): boolean {
+    const m = this.modelString();
+    return JudgeAgent.AUDIO_CAPABLE_MODEL_SUBSTRINGS.some((s) => m.includes(s));
+  }
+
+  /**
+   * Whether any message in `messages` contains an audio content part.
+   * Checks for both `input_audio` and `audio` type parts.
+   *
+   * Port of `python/scenario/judge_agent.py:_conversation_has_audio`.
+   */
+  static conversationHasAudio(messages: readonly unknown[]): boolean {
+    for (const msg of messages) {
+      if (!msg || typeof msg !== "object") continue;
+      const m = msg as Record<string, unknown>;
+      const content = m["content"];
+      if (!Array.isArray(content)) continue;
+      for (const part of content) {
+        if (!part || typeof part !== "object") continue;
+        const p = part as Record<string, unknown>;
+        if (p["type"] === "input_audio" || p["type"] === "audio") return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Resolves `include_audio` for this evaluation:
+   * - Explicit `true`/`false` wins.
+   * - `null` (default): `true` only when conversation has audio AND the judge
+   *   model is known to be multimodal.
+   *
+   * Port of `python/scenario/judge_agent.py:effective_include_audio`.
+   */
+  effectiveIncludeAudio(conversationHasAudio: boolean): boolean {
+    const explicit = this.cfg.includeAudio;
+    if (explicit !== null && explicit !== undefined) {
+      return explicit && conversationHasAudio;
+    }
+    return conversationHasAudio && this.modelSupportsAudio();
+  }
+
+  /**
+   * Resolves `include_timeline` for this evaluation.
+   * Defaults to `true` for voice conversations (auto-detect = conversation has audio).
+   *
+   * Port of `python/scenario/judge_agent.py:effective_include_timeline`.
+   */
+  effectiveIncludeTimeline(conversationHasAudio: boolean): boolean {
+    const explicit = this.cfg.includeTimeline;
+    if (explicit !== null && explicit !== undefined) {
+      return explicit;
+    }
+    return conversationHasAudio;
+  }
+
+  /**
+   * Resolves `include_traces` for this evaluation.
+   * Defaults to `true` when OTel / LangWatch is configured.
+   *
+   * Port of `python/scenario/judge_agent.py:effective_include_traces`.
+   */
+  effectiveIncludeTraces(otelConfigured: boolean): boolean {
+    const explicit = this.cfg.includeTraces;
+    if (explicit !== null && explicit !== undefined) {
+      return explicit;
+    }
+    return otelConfigured;
   }
 
   async call(input: AgentInput): Promise<JudgeResult | null> {

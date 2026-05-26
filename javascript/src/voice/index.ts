@@ -94,3 +94,10 @@ export {
   WebRTCVadFallback,
   type WebRTCVadFallbackOptions,
 } from "./vad";
+
+// SALVAGE-CONFLICT [EDR Gap #3]: issue372/ts-voice-adapter-runtime vs issue372/ts-voice-simulator-judge-messages both retained — reconcile in refactor (messages.ts WAV vs PCM16 format split)
+export {
+  createAudioMessage,
+  extractAudio,
+  messageHasAudio,
+} from "./messages";
