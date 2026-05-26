@@ -145,6 +145,15 @@ export {
   type TranscribeSegmentsOptions,
 } from "./transcribe";
 
+// Judge STT pre-pass (EDR §3.3 / §7.7) — automatic transcription of audio
+// `file` parts to text BEFORE the judge's buildTranscriptFromMessages. NOT a
+// "judge requests transcript" tool (no such tool, §7.3); STT is upstream.
+export {
+  prepareJudgeInput,
+  type JudgeAudioOptions,
+  type JudgePreparedInput,
+} from "./judge-stt";
+
 export {
   AgentSpeakingEvent,
   AdapterRecorder,

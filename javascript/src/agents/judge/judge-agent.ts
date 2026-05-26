@@ -133,6 +133,8 @@ import { AgentInput, JudgeAgentAdapter, AgentRole, DEFAULT_MAX_TURNS } from "../
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
 import { createLLMInvoker } from "../llm-invoker.factory";
+import { resolveVoiceConfig } from "../../voice/config";
+import { prepareJudgeInput } from "../../voice/judge-stt";
 import {
   TestingAgentConfig,
   FinishTestArgs,
@@ -455,6 +457,38 @@ export class JudgeAgent extends JudgeAgentAdapter {
     return otelConfigured;
   }
 
+  /**
+   * Run the automatic STT pre-pass over the judge's input messages (EDR §3.3).
+   *
+   * Returns the original messages unchanged when the conversation has no
+   * audio (the text-only fast path — no provider constructed, no async cost).
+   * When audio is present, resolves the per-run STT provider off
+   * `input.scenarioConfig.voice` (falling back to the per-run OpenAI default),
+   * computes `effectiveIncludeAudio` against the judge model's capability, and
+   * delegates to {@link prepareJudgeInput} — which transcribes audio parts to
+   * text (and keeps the audio for a multimodal model iff includeAudio).
+   */
+  private async transcribeAudioForJudge(
+    input: AgentInput,
+  ): Promise<ModelMessage[]> {
+    const hasAudio = JudgeAgent.conversationHasAudio(input.messages);
+    if (!hasAudio) {
+      return input.messages;
+    }
+    // The carrier that reaches call() is cfg.voice (ADR-002). Resolve the
+    // per-run provider; resolveVoiceConfig constructs the OpenAI default when
+    // cfg.voice.stt is unset (a pure per-run default, not a global).
+    const resolved = resolveVoiceConfig(undefined, input.scenarioConfig.voice);
+    const includeAudio = this.effectiveIncludeAudio(hasAudio);
+    const prepared = await prepareJudgeInput({
+      messages: input.messages,
+      stt: resolved.stt,
+      options: { includeAudio },
+      logWarn: (m) => this.logger.warn(m),
+    });
+    return prepared.messages;
+  }
+
   async call(input: AgentInput): Promise<JudgeResult | null> {
     const criteria = input.judgmentRequest?.criteria ?? this.criteria;
 
@@ -468,7 +502,15 @@ export class JudgeAgent extends JudgeAgentAdapter {
     const spans = this.spanCollector.getSpansForThread(input.threadId);
     const { digest, isLargeTrace } = this.buildTraceDigest(spans);
 
-    const transcript = JudgeUtils.buildTranscriptFromMessages(input.messages);
+    // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
+    // audio, transcribe audio `file` parts to text using the per-run resolved
+    // STT provider BEFORE building the transcript — so the judge reads spoken
+    // words, not a `[AUDIO: …]` byte-marker. The judge does NOT request a
+    // transcript (no such tool, §7.3); STT is automatic and upstream.
+    const messagesForTranscript = await this.transcribeAudioForJudge(input);
+    const transcript = JudgeUtils.buildTranscriptFromMessages(
+      messagesForTranscript,
+    );
 
     const extraContext = input.judgmentRequest?.context;
     const additionalContextSection = extraContext
