@@ -285,6 +285,15 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId || "default",
       metadata: config.metadata,
+      // Voice carriers (ADR-002): the per-run voice config + audio hooks must
+      // survive onto `this.config` so they reach every `call()` via
+      // `AgentInput.scenarioConfig`. `run({ voice })` seeds `cfg.voice`; the
+      // judge STT pre-pass + simulator TTS resolve their provider off
+      // `scenarioConfig.voice`. Dropping these here silently defeated
+      // `run({ voice: { stt } })` (the judge fell back to the default STT).
+      voice: config.voice,
+      onAudioChunk: config.onAudioChunk,
+      onVoiceEvent: config.onVoiceEvent,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
