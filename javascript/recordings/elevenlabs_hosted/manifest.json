@@ -1,60 +1,60 @@
 {
-  "generated_at": "2026-05-26T18:35:13.479Z",
-  "duration": 5.461187478,
+  "generated_at": "2026-05-26T19:19:42.011Z",
+  "duration": 6.6146666666666665,
   "segment_count": 3,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-agent-0609ms.wav",
+      "file": "segments/00-agent-0000ms.wav",
       "role": "agent",
-      "start_time": 0.609667298,
-      "end_time": 1.241568732,
-      "duration": 0.631901434,
+      "start_time": 0,
+      "end_time": 1.4336666666666666,
+      "duration": 1.4336666666666666,
       "transcript": null
     },
     {
       "idx": 1,
-      "file": "segments/01-user-2951ms.wav",
+      "file": "segments/01-user-1433ms.wav",
       "role": "user",
-      "start_time": 2.951940734000001,
-      "end_time": 2.9612400780000003,
-      "duration": 0.009299343999999543,
+      "start_time": 1.4336666666666666,
+      "end_time": 4.183666666666666,
+      "duration": 2.75,
       "transcript": "Hello, I have a question about my account."
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-4458ms.wav",
+      "file": "segments/02-agent-4183ms.wav",
       "role": "agent",
-      "start_time": 4.458638734,
-      "end_time": 5.461187478,
-      "duration": 1.0025487440000003,
+      "start_time": 4.183666666666666,
+      "end_time": 6.6146666666666665,
+      "duration": 2.431,
       "transcript": null
     }
   ],
   "events": [
     {
-      "time": 0.609667298,
+      "time": 0,
       "type": "agent_start_speaking"
     },
     {
-      "time": 1.241568732,
+      "time": 1.4336666666666666,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 2.951940734000001,
+      "time": 1.4336666666666666,
       "type": "user_start_speaking"
     },
     {
-      "time": 2.9612400780000003,
+      "time": 4.183666666666666,
       "type": "user_stop_speaking"
     },
     {
-      "time": 4.458638734,
+      "time": 4.183666666666666,
       "type": "agent_start_speaking",
       "latency": 1.4973986559999997
     },
     {
-      "time": 5.461187478,
+      "time": 6.6146666666666665,
       "type": "agent_stop_speaking"
     }
   ]

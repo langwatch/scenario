@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-26T18:30:14.800Z",
+  "generated_at": "2026-05-26T19:19:42.022Z",
   "duration": 9.7,
   "segment_count": 1,
   "segments": [
@@ -13,5 +13,14 @@
       "transcript": "Of course, I understand. Let's take it step by step. Could you tell me what site or service you're trying to reset the password for? That will help me guide you."
     }
   ],
-  "events": []
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.7,
+      "type": "user_stop_speaking"
+    }
+  ]
 }
