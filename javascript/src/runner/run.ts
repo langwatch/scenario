@@ -16,6 +16,7 @@ import {
   ScenarioConfig,
   ScenarioResult,
 } from "../domain";
+import type { VoiceConfig } from "../voice/config";
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
@@ -49,6 +50,16 @@ export interface RunOptions {
    * @internal Platform use only — not part of the public API.
    */
   runId?: string;
+
+  /**
+   * Per-invocation voice config override (ADR-002). Seeds `cfg.voice` at the
+   * `run()` boundary (`options?.voice ?? cfg.voice`) so the carrier that
+   * reaches every `call()` — `ScenarioConfig.voice` — reflects the override.
+   * Unlike `langwatch` (read once here), voice config must ride on
+   * `ScenarioConfig` because its consumers (judge STT / simulator TTS) run
+   * inside `call()`.
+   */
+  voice?: VoiceConfig;
 }
 
 /**
@@ -125,6 +136,15 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
 
   if (!cfg.threadId) {
     cfg.threadId = generateThreadId();
+  }
+
+  // Seed the per-run voice carrier (ADR-002): the optional RunOptions.voice
+  // override wins field-by-field over ScenarioConfig.voice, and the merged
+  // result lives on cfg.voice — the only per-run object that reaches every
+  // call() (via AgentInput.scenarioConfig). The provider/format/judge knobs
+  // are then resolved per-run by the executor via resolveVoiceConfig().
+  if (options?.voice || cfg.voice) {
+    cfg.voice = { ...cfg.voice, ...options?.voice };
   }
 
   const steps = cfg.script || [proceed()];
