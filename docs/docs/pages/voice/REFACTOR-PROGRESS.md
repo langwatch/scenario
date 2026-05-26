@@ -506,3 +506,60 @@ own `eslint . --fix` + removal of the whitespace residue. Commit `e5d0ca4`.
 
 Docs are markdown → not covered by `eslint .` (`**/*.{js,mjs,cjs,ts}` only), so the
 doc additions do not affect lint/build/tsc/test. Working tree clean after commits.
+
+---
+
+# API-CONFORMANCE FIX — unify `scenario.agent({ wait })` (PRD §9 / §6.2, EDR §0)
+
+**Branch:** `voice/372-refactor`, atop the docs commit `0ec042a`. One issue: the
+non-blocking turn diverged from spec. PRD §9 (`scenario.agent({ wait: false })`),
+PRD §6.2 (the flagship interruption example), and EDR §0's host-edit
+("`agent()` widens to `{ wait?: boolean }`") all require **`scenario.agent({ wait:
+false })`** to BE the non-blocking primitive. As-built it was a *separate* export —
+`scenario.voiceAgent({...})` — so a user copy-pasting the PRD interruption example
+hit a type error (a `{ wait: false }` object isn't a `string | ModelMessage`).
+
+## What changed
+- **`src/script/index.ts` — `agent` is now a single overloaded step** that owns both
+  forms:
+  - `agent(content?: string | ModelMessage): ScriptStep` — unchanged text behavior
+    (always awaits).
+  - `agent(options: VoiceAgentOptions): ScriptStep` — the non-blocking voice turn
+    (`{ wait: false }` fires-and-returns; the current `voiceAgent` behavior).
+
+  Disambiguation is **structural, not ambiguous**: a `ModelMessage` carries a
+  required `role` discriminant; `VoiceAgentOptions` (`{ wait?, content? }`) does not.
+  A tiny `isVoiceAgentOptions()` runtime guard routes a `role`-less plain object to
+  the voice branch and everything else (string / `undefined` / message) to content.
+  This was the HARD-STOP question (could `ModelMessage` structurally collide with the
+  options object?) — answer: **no**, verified by a tsc probe whose negative cases
+  (`{ wait: "false" }`, `{ bogus: true }`, `42`) all error as required.
+- **`voiceAgent` kept as a thin alias** of the unified step (re-exported from
+  `script/index.ts`). Every existing call site — demos, the interruption unit test,
+  docs — keeps working unchanged, so **no recordings need re-running**.
+- **`src/script/voice-steps.ts`** — the non-blocking engine is renamed `agent` →
+  `voiceAgentStep` (internal; `script/index.ts` wraps it as `agent`/`voiceAgent`).
+  `interrupt`/`proceed` are unaffected (they call `executor.agent()` directly).
+- **Interruption unit test** (`src/script/__tests__/voice-steps.test.ts`, the
+  `@ts-script-step` "agent(wait=False)…" binding) now drives the unified
+  `scenario.agent({ wait: false })` (matching the Gherkin step wording in
+  `specs/voice-agents.feature:380`) and asserts the `voiceAgent` alias yields the
+  identical non-blocking behavior.
+- **Docs lead with the PRD idiom** (`scenario.agent({ wait: false })`, alias noted):
+  `docs/voice/typescript.md` (§4 heading + example, §8.2 interruption flow, the
+  `interrupt`/`proceed` notes, and the rewritten "one `agent` step, two call forms"
+  callout that replaced the now-false "passing `{ wait: false }` to `agent` would be
+  read as a message" note) and `javascript/README.md` (worked example + surface list).
+
+## Convergence gate (held — exact `javascript-ci.yml` steps, from `javascript/`)
+| Step | Command | Result |
+|------|---------|--------|
+| Build (covers DTS) | `pnpm build:all` | ✅ exit 0 — emitted `dist/index.d.ts` carries both `agent` overloads + the `voiceAgent` alias |
+| Lint | `pnpm lint:all` | ✅ exit 0 |
+| Type check | `pnpm typecheck:all` | ✅ exit 0 (incl. `examples/vitest`) |
+| Tests | `pnpm run test:ci` | ✅ exit 0 — **747 passed / 1 skipped** (the env-gated `twilio-tunnel` @e2e) |
+| `agent({ wait:false })` probe | throwaway `tsc --noEmit` vs `src/index.ts` | ✅ exit 0 (4 call forms + alias + PRD §6.2 flow typecheck; 3 negative cases error); **probe deleted, not committed** |
+| @ts-e2e gate | `examples/vitest` → `ts-e2e-roundtrip.test.ts` (real `OPENAI_API_KEY`) | ✅ **3 passed** — utterance survives user-sim TTS → bus → judge STT |
+
+Working tree clean (only the gitignored `dist/`, `*.tgz`, and `.env` files untracked
+— no `.env`/secret/probe committed).

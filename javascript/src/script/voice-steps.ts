@@ -283,12 +283,17 @@ export interface VoiceAgentOptions {
 }
 
 /**
- * Voice variant of {@link import("./index.js").agent}. When `wait: false`,
- * fires the agent turn in the background and returns control immediately —
- * the agent's audio continues streaming during subsequent script steps
- * (e.g. {@link sleep}, {@link silence}).
+ * Engine behind the unified {@link import("./index.js").agent} step (and its
+ * {@link import("./index.js").voiceAgent} alias). When `wait: false`, fires the
+ * agent turn in the background and returns control immediately — the agent's
+ * audio continues streaming during subsequent script steps (e.g. {@link sleep},
+ * {@link silence}). With `wait` unset/true it awaits the turn, so the same
+ * function serves both the blocking text form and the non-blocking voice form.
+ *
+ * Not exported on the public `scenario` surface directly; `script/index.ts`
+ * wraps it as `agent(...)` / `voiceAgent(...)`.
  */
-export const agent = (options: VoiceAgentOptions = {}): ScriptStep => {
+export const voiceAgentStep = (options: VoiceAgentOptions = {}): ScriptStep => {
   return (_state, executor) => {
     const promise = executor.agent(options.content);
     if (options.wait === false) {

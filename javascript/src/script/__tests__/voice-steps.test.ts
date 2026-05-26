@@ -27,6 +27,7 @@ import {
   VoiceAgentAdapter,
 } from "../../voice";
 import {
+  agent,
   audio,
   dtmf,
   interrupt,
@@ -219,13 +220,15 @@ describeFeature(
         const ctx = makeExecutor(new TestVoiceAdapter(), { agentDelayMs: 200 });
         let startedAt = 0;
         let returnedAt = 0;
-        let agentStep: ReturnType<typeof voiceAgent>;
+        let agentStep: ReturnType<typeof agent>;
         let sleepStep: ReturnType<typeof sleep>;
 
         Given(
           "a script with scenario.agent(wait=False) followed by scenario.sleep(2.0)",
           () => {
-            agentStep = voiceAgent({ wait: false });
+            // PRD §9 / §6.2 primitive: the non-blocking turn IS `scenario.agent({
+            // wait: false })`. `scenario.voiceAgent({ wait: false })` is the alias.
+            agentStep = agent({ wait: false });
             sleepStep = sleep(0.05);
           },
         );
@@ -243,6 +246,18 @@ describeFeature(
         Then("control returns before the agent finishes speaking", () => {
           // agent() takes ~200ms; with wait=false we should return well below that.
           expect(returnedAt - startedAt).toBeLessThan(100);
+
+          // The `voiceAgent` alias resolves to the same non-blocking behavior:
+          // calling it returns synchronously (undefined, not a Promise) for
+          // `{ wait: false }`, exactly like `agent({ wait: false })`.
+          const aliasCtx = makeExecutor(new TestVoiceAdapter(), {
+            agentDelayMs: 200,
+          });
+          const aliasResult = voiceAgent({ wait: false })(
+            aliasCtx.state,
+            aliasCtx.executor,
+          );
+          expect(aliasResult).toBeUndefined();
         });
 
         And("the agent's audio continues streaming during the sleep", () => {
