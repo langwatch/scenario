@@ -1,43 +1,43 @@
 {
-  "generated_at": "2026-05-26T18:49:36.295Z",
-  "duration": 5.961407557,
+  "generated_at": "2026-05-26T19:19:42.025Z",
+  "duration": 7.15,
   "segment_count": 2,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-user-1711ms.wav",
+      "file": "segments/00-user-0000ms.wav",
       "role": "user",
-      "start_time": 1.7114165310000002,
-      "end_time": 5.3597734820000005,
-      "duration": 3.6483569510000002,
+      "start_time": 0,
+      "end_time": 3.55,
+      "duration": 3.55,
       "transcript": "Hi! Can you help me with a question about my account?"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-5360ms.wav",
+      "file": "segments/01-agent-3550ms.wav",
       "role": "agent",
-      "start_time": 5.360094523,
-      "end_time": 5.961407557,
-      "duration": 0.6013130340000004,
+      "start_time": 3.55,
+      "end_time": 7.15,
+      "duration": 3.6000000000000005,
       "transcript": null
     }
   ],
   "events": [
     {
-      "time": 1.7114165310000002,
+      "time": 0,
       "type": "user_start_speaking"
     },
     {
-      "time": 5.3597734820000005,
+      "time": 3.55,
       "type": "user_stop_speaking"
     },
     {
-      "time": 5.360094523,
+      "time": 3.55,
       "type": "agent_start_speaking",
       "latency": 0.00032104099999941127
     },
     {
-      "time": 5.961407557,
+      "time": 7.15,
       "type": "agent_stop_speaking"
     }
   ]

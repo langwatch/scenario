@@ -1,43 +1,43 @@
 {
-  "generated_at": "2026-05-26T18:37:39.543Z",
-  "duration": 6.515274473000001,
+  "generated_at": "2026-05-26T19:19:42.014Z",
+  "duration": 4.67,
   "segment_count": 2,
   "segments": [
     {
       "idx": 0,
-      "file": "segments/00-user-1585ms.wav",
+      "file": "segments/00-user-0000ms.wav",
       "role": "user",
-      "start_time": 1.585369617,
-      "end_time": 1.596638359,
-      "duration": 0.011268741999999943,
+      "start_time": 0,
+      "end_time": 3.35,
+      "duration": 3.35,
       "transcript": "Hello, I'm planning a trip to Japan next month."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-5900ms.wav",
+      "file": "segments/01-agent-3350ms.wav",
       "role": "agent",
-      "start_time": 5.900292269999999,
-      "end_time": 6.515274473000001,
-      "duration": 0.6149822030000021,
+      "start_time": 3.35,
+      "end_time": 4.67,
+      "duration": 1.3199999999999998,
       "transcript": "That sounds exciting!"
     }
   ],
   "events": [
     {
-      "time": 1.585369617,
+      "time": 0,
       "type": "user_start_speaking"
     },
     {
-      "time": 1.596638359,
+      "time": 3.35,
       "type": "user_stop_speaking"
     },
     {
-      "time": 5.900292269999999,
+      "time": 3.35,
       "type": "agent_start_speaking",
       "latency": 4.303653910999999
     },
     {
-      "time": 6.515274473000001,
+      "time": 4.67,
       "type": "agent_stop_speaking"
     }
   ]
