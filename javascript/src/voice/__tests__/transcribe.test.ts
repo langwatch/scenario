@@ -1,5 +1,5 @@
 /**
- * transcribeSegments tests — PR2 of issue #372.
+ * transcribeSegments tests (issue #372 voice port).
  *
  * Binds `specs/voice-agents.feature` scenarios tagged `@ts-transcribe`:
  *   - transcribe_segments fills missing transcripts in place

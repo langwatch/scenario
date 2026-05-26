@@ -1,5 +1,5 @@
 /**
- * TTS plumbing tests — PR2 of issue #372.
+ * TTS plumbing tests (issue #372 voice port).
  *
  * Binds the `specs/voice-agents.feature` scenario tagged `@ts-tts` that
  * exercises the TTS cache key / effects-after-cache invariants.
