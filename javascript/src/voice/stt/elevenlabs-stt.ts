@@ -2,16 +2,24 @@
  * ElevenLabs STT leaf — {@link ElevenLabsSTTProvider} (Scribe). Same
  * {@link STTProvider} contract as the OpenAI leaf, different backend.
  *
- * Uses the `scribe_v1` model. PCM16/24 kHz audio is wrapped in a minimal
- * WAV container before posting. Only `text` crosses the {@link STTProvider}
- * boundary — no ElevenLabs-specific types leak.
+ * Uses the `scribe_v1` model via the `elevenlabs` SDK's
+ * `speechToText.convert`. PCM16/24 kHz audio is wrapped in a minimal WAV
+ * container before posting (EL's endpoint expects a file payload, not raw
+ * PCM). Only `text` crosses the {@link STTProvider} boundary — no
+ * ElevenLabs-specific types leak.
+ *
+ * This is the single ElevenLabs STT implementation (Gap #5): the divergent
+ * copy that used to live in `adapters/composable.ts` is gone; composable and
+ * the branded preset import this leaf.
  */
+import { ElevenLabsClient } from "elevenlabs";
+
 import { AudioChunk } from "../audio-chunk";
 import { ELEVENLABS_STT_MODEL } from "../voice-models";
 import type { STTProvider } from "./stt-provider";
 import { pcm16ToWav } from "./wav";
 
-/** ElevenLabs STT endpoint. */
+/** ElevenLabs STT endpoint (documented for reference; the SDK targets it). */
 export const ELEVENLABS_STT_ENDPOINT =
   "https://api.elevenlabs.io/v1/speech-to-text";
 
@@ -19,44 +27,37 @@ export const ELEVENLABS_STT_ENDPOINT =
 export interface ElevenLabsSTTProviderOptions {
   /** API key; falls back to `process.env.ELEVENLABS_API_KEY`. */
   apiKey?: string;
-  /** Override fetch (test hook). */
-  fetchImpl?: typeof fetch;
+  /** Test seam — override the SDK client constructor. */
+  clientFactory?: (apiKey: string) => ElevenLabsClient;
 }
 
 /**
- * STT implementation backed by the ElevenLabs REST speech-to-text API.
+ * STT implementation backed by the ElevenLabs speech-to-text SDK.
  */
 export class ElevenLabsSTTProvider implements STTProvider {
   private readonly apiKey: string;
-  private readonly fetchImpl: typeof fetch;
+  private readonly clientFactory: (apiKey: string) => ElevenLabsClient;
 
   constructor(options: ElevenLabsSTTProviderOptions = {}) {
     this.apiKey = options.apiKey ?? process.env.ELEVENLABS_API_KEY ?? "";
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.clientFactory =
+      options.clientFactory ?? ((apiKey) => new ElevenLabsClient({ apiKey }));
+  }
+
+  toString(): string {
+    return "ElevenLabsSTTProvider(apiKey='***')";
   }
 
   async transcribe(audio: AudioChunk): Promise<string> {
+    const client = this.clientFactory(this.apiKey);
     const wav = pcm16ToWav(audio.data);
-    const form = new FormData();
-    form.append(
-      "file",
-      new Blob([new Uint8Array(wav)], { type: "audio/wav" }),
-      "audio.wav",
-    );
-    form.append("model_id", ELEVENLABS_STT_MODEL);
-    const response = await this.fetchImpl(ELEVENLABS_STT_ENDPOINT, {
-      method: "POST",
-      headers: { "xi-api-key": this.apiKey },
-      body: form,
+    // The SDK accepts Blob/File/ReadStream. Node 20+ supplies Blob globally so
+    // we don't need a polyfill.
+    const blob = new Blob([new Uint8Array(wav)], { type: "audio/wav" });
+    const response = await client.speechToText.convert({
+      file: blob,
+      model_id: ELEVENLABS_STT_MODEL,
     });
-    if (!response.ok) {
-      // Keep the message minimal — response body may contain key fragments
-      // or PII in some surfaces; leave detailed text out of the trace.
-      throw new Error(
-        `ElevenLabs STT HTTP ${response.status} (see provider logs for body)`,
-      );
-    }
-    const data = (await response.json()) as { text?: string };
-    return data.text ?? "";
+    return response.text ?? "";
   }
 }
