@@ -211,6 +211,20 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   }
 
   /**
+   * The simulator's own configured TTS voice (PRD §4.2,
+   * `userSimulatorAgent({ voice })`), or `undefined` when none was set.
+   *
+   * Exposed (mirrors Python's `UserSimulatorAgent.voice` attribute) so the
+   * executor can decide whether a scripted `user("text")` step should be
+   * voiceified for a voice agent under test — see
+   * `scenario_executor.py:_find_user_sim` + the `getattr(sim, "voice", None)`
+   * guard.
+   */
+  get voice(): string | undefined {
+    return this.cfg?.voice;
+  }
+
+  /**
    * Resolve the effective TTS voice for this turn (per-run).
    *
    * Priority: the simulator's own `voice` (PRD §4.2,
@@ -220,6 +234,41 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
    */
   private effectiveVoice(input: AgentInput): string | undefined {
     return this.cfg?.voice ?? input.scenarioConfig.voice?.tts?.voice;
+  }
+
+  /**
+   * Voiceify an explicit, scripted user line (`scenario.user("text")`) into an
+   * audio {@link ModelMessage} — TTS via the effective voice + any active
+   * per-step effects/overrides. Returns the original text message unchanged
+   * when no voice resolves or the content is empty.
+   *
+   * Port of the explicit-content branch of
+   * `python/scenario/scenario_executor.py:user` (`sim._voiceify({...})`). The
+   * auto-generated-turn path uses the private {@link voiceify} (which also
+   * reads the per-run `cfg.voice.tts.voice` off `AgentInput`); this entry
+   * point is for the executor's scripted-content path, where the simulator's
+   * OWN `voice` is authoritative and the per-run config is supplied directly.
+   */
+  async voiceifyText(
+    text: string,
+    runVoiceConfig?: { tts?: { voice?: string } },
+  ): Promise<ModelMessage> {
+    const voice = this.cfg?.voice ?? runVoiceConfig?.tts?.voice;
+    const textMessage: ModelMessage = { role: "user", content: text };
+    if (!voice || !text) return textMessage;
+
+    if (this._voiceStyleOverride !== null) {
+      this.warnVoiceStyleOnce();
+    }
+
+    const chunk = await this._synthesize(text, voice);
+    let audioBytes = chunk.data;
+    const effects = this.effectiveAudioEffects();
+    for (const effect of effects) {
+      audioBytes = effect(audioBytes);
+    }
+    const finalChunk = new AudioChunk({ data: audioBytes, transcript: text });
+    return createAudioMessage(finalChunk, "user") as unknown as ModelMessage;
   }
 
   /**
