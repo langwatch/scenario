@@ -264,10 +264,9 @@ export async function defaultVoiceCall(
   });
   recorder.recordAgent(merged);
   // Single shared encoder (messages.ts) — the canonical AI-SDK `file` audio
-  // part (EDR §4.2). Cast to AgentReturnTypes (rooted in `ai`'s ModelMessage)
-  // because createAudioMessage's role/content array is broader than the
-  // per-role unions; the body is a valid ModelMessage at runtime.
-  return createAudioMessage(merged, "assistant") as unknown as AgentReturnTypes;
+  // part (EDR §4.2). createAudioMessage returns AudioMessage (= ModelMessage),
+  // which is one of the AgentReturnTypes union members; no cast needed.
+  return createAudioMessage(merged, "assistant");
 }
 
 /**
@@ -344,10 +343,8 @@ export function startVoiceTurn(
       if (!finished) {
         finished = sendThenDrain.then((merged) => {
           recorder.recordAgent(merged);
-          return createAudioMessage(
-            merged,
-            "assistant",
-          ) as unknown as AgentReturnTypes;
+          // AudioMessage (= ModelMessage) is an AgentReturnTypes member.
+          return createAudioMessage(merged, "assistant");
         });
       }
       return finished;

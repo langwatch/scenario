@@ -1243,6 +1243,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (!config) return;
     if (!config.shouldInterrupt(this._interruptRng)) return;
 
+    // Honour the configured delayRange (PRD §4.4): wait a sampled delay before
+    // barging in, so the interruption lands partway into the agent's turn
+    // rather than instantly. Deterministic via the injected `_interruptRng`.
+    const delaySeconds = config.sampleDelay(this._interruptRng);
+    if (delaySeconds > 0) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, delaySeconds * 1000),
+      );
+    }
+
     // Record the interruption on the voice timeline when a recording exists.
     if (this.voiceRecording) {
       const time =
