@@ -32,8 +32,6 @@
 
 import { Buffer } from "node:buffer";
 
-import { AgentInput } from "../../domain/agents";
-import { AgentReturnTypes } from "../../domain/agents/types/agent-return.types";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
@@ -169,14 +167,8 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       init.apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? "";
   }
 
-  /**
-   * Stub `call()` — the runtime PR (#515) overrides this on the base class
-   * with the executor-aware audio-loop implementation. PR9 just satisfies the
-   * abstract surface so the adapter class is constructible standalone.
-   */
-  async call(_input: AgentInput): Promise<AgentReturnTypes> {
-    return "";
-  }
+  // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
+  // drives the native-audio loop (Gap #11). No leaf-level override.
 
   // ----------------------------------------------------------------- lifecycle
 

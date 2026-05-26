@@ -131,13 +131,8 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._rest = options.rest ?? null;
   }
 
-  override async call(): Promise<string> {
-    throw new Error(
-      "TwilioAgentAdapter.call is intentionally unimplemented at this layer — " +
-        "the adapter is driven by the voice executor in PR3+. Direct `call()` " +
-        "is not part of the public API.",
-    );
-  }
+  // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
+  // drives the Media Streams audio loop (Gap #11). No leaf-level override.
 
   // ------------------------------------------------------------------ lifecycle
 
