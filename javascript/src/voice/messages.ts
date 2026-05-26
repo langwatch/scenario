@@ -1,99 +1,84 @@
 /**
- * Audio message helpers — TS port of `python/scenario/voice/messages.py`.
+ * Audio message gateway — the SOLE runtime `AudioChunk ↔ ModelMessage`
+ * encoder/extractor. The ONE place the in-message audio format is built and
+ * parsed (EDR §4.2, Gap #3).
  *
- * Encodes {@link AudioChunk}s into locally-defined {@link AudioMessageParam}
- * messages (input_audio content parts for any role) and extracts them back out.
+ * Format: the canonical {@link AudioChunk} (raw PCM16 / 24 kHz / mono) is
+ * carried as an **AI-SDK `file` part** — `{ type: "file", mediaType:
+ * "audio/pcm16", data: <base64> }` — with the transcript (when present) as a
+ * preceding `{ type: "text" }` part so the judge's text-only path still
+ * reads the content. This matches what `realtime/response-formatter.ts`
+ * already emits and what `judge-utils.ts#buildTranscriptFromMessages`
+ * already truncates.
  *
- * Per Decision 2(b) from issue #372: this module does NOT import from `openai`.
- * It uses the local {@link AudioMessageParam} superset defined in
- * `./messages.types.ts`, which is structurally compatible with OpenAI's
- * `ChatCompletionMessageParam` for the cases the voice subsystem produces.
+ * Why one encoder/extractor: before this, two producers disagreed —
+ * `messages.ts` wrapped PCM16 in a WAV container tagged `format:"wav"`,
+ * while `adapter.runtime.ts` emitted raw PCM16 tagged `format:"pcm16"`, both
+ * under the OpenAI `input_audio` convention. Their paired extractors decoded
+ * by tag, so cross-feeding mis-decoded a WAV header as audio samples (the
+ * Gap #3 LIVE BUG). Now there is one raw-PCM16 `file`-part encoder and one
+ * extractor; OpenAI `input_audio`/`audio` shapes stay at the adapter edge.
  *
- * Audio travels cleanly in any role (user or assistant) — there is no
- * `forceUserRole` workaround (see feature spec line 819-824).
+ * No STT/TTS, no provider-native shapes, no state.
  */
 
-import { AudioChunk, PCM16_SAMPLE_RATE } from "./audio-chunk";
+import { AudioChunk } from "./audio-chunk";
 import type {
-  AudioMessageParam,
+  AudioFilePart,
+  AudioMessage,
   AudioMessageRole,
-  AudioMessageContentPart,
-  TextContentPart,
-  InputAudioContentPart,
 } from "./messages.types";
+import type { ModelMessage, TextPart } from "ai";
+
+/** Media type of the canonical in-message audio part (raw PCM16). */
+export const AUDIO_PCM16_MEDIA_TYPE = "audio/pcm16" as const;
 
 // ---------------------------------------------------------------------------
-// Internal WAV helpers (mirror of python/scenario/voice/messages.py)
+// base64 helpers (Node Buffer when available, browser btoa/atob fallback)
 // ---------------------------------------------------------------------------
 
-/**
- * Wrap raw PCM16 mono bytes at 24kHz in a minimal RIFF/WAV container.
- *
- * Why inline rather than a dep: the WAV header is ~44 bytes and we control
- * every field, so pulling in `wav` or `node-wav` would be over-engineering
- * for a fixed-format encode.
- */
-function pcm16ToWavBytes(pcm: Uint8Array): Uint8Array {
-  const numChannels = 1;
-  const sampleRate = PCM16_SAMPLE_RATE;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const dataSize = pcm.length;
-  const chunkSize = 36 + dataSize;
+function toBase64(data: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(data).toString("base64");
+  }
+  let binary = "";
+  for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]!);
+  return btoa(binary);
+}
 
-  const buf = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buf);
-  const uint8 = new Uint8Array(buf);
-
-  // RIFF chunk descriptor
-  uint8.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
-  view.setUint32(4, chunkSize, true); // ChunkSize
-  uint8.set([0x57, 0x41, 0x56, 0x45], 8); // "WAVE"
-
-  // fmt sub-chunk
-  uint8.set([0x66, 0x6d, 0x74, 0x20], 12); // "fmt "
-  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-  view.setUint16(20, 1, true); // AudioFormat (1 = PCM)
-  view.setUint16(22, numChannels, true); // NumChannels
-  view.setUint32(24, sampleRate, true); // SampleRate
-  view.setUint32(28, byteRate, true); // ByteRate
-  view.setUint16(32, blockAlign, true); // BlockAlign
-  view.setUint16(34, bitsPerSample, true); // BitsPerSample
-
-  // data sub-chunk
-  uint8.set([0x64, 0x61, 0x74, 0x61], 36); // "data"
-  view.setUint32(40, dataSize, true); // Subchunk2Size
-  uint8.set(pcm, 44);
-
-  return uint8;
+function fromBase64(s: string): Uint8Array {
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(s, "base64"));
+  }
+  const binary = atob(s);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
 }
 
 /**
- * Extract raw PCM16 frames from a WAV byte array.
- * Skips the 44-byte standard WAV header and returns the data payload.
- *
- * Note: This assumes a standard 44-byte PCM WAV header. For WAVs with
- * non-standard headers (e.g., 'LIST' chunks), this is a best-effort extraction.
- * For the voice SDK's own produced WAVs this is always correct.
+ * Strip a 44-byte standard PCM WAV header (scanning for the `data` chunk)
+ * so a legacy WAV-wrapped payload still decodes to raw PCM16. New payloads
+ * are raw PCM16 and skip this entirely (no RIFF magic).
  */
 function wavBytesToPcm16(wav: Uint8Array): Uint8Array {
-  // Scan for the "data" marker rather than assuming fixed 44-byte header.
   const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
   for (let i = 12; i < wav.length - 8; i++) {
-    if (
-      wav[i] === 0x64 && // 'd'
-      wav[i + 1] === 0x61 && // 'a'
-      wav[i + 2] === 0x74 && // 't'
-      wav[i + 3] === 0x61 // 'a'
-    ) {
+    if (wav[i] === 0x64 && wav[i + 1] === 0x61 && wav[i + 2] === 0x74 && wav[i + 3] === 0x61) {
       const dataSize = view.getUint32(i + 4, true);
       const start = i + 8;
       return wav.slice(start, start + dataSize);
     }
   }
-  // Fallback: assume 44-byte header if marker not found.
   return wav.slice(44);
+}
+
+/** Decode an audio payload to raw PCM16 — unwraps a WAV container if present. */
+function decodePcm16(b64: string): Uint8Array {
+  const raw = fromBase64(b64);
+  const isWav =
+    raw[0] === 0x52 && raw[1] === 0x49 && raw[2] === 0x46 && raw[3] === 0x46; // "RIFF"
+  return isWav ? wavBytesToPcm16(raw) : raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,99 +86,129 @@ function wavBytesToPcm16(wav: Uint8Array): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * Turn an {@link AudioChunk} into an {@link AudioMessageParam}.
+ * Build the canonical audio {@link ModelMessage} from an {@link AudioChunk}.
  *
- * The content is a list with an `input_audio` part carrying base64-encoded WAV.
- * If the chunk has a transcript, it is added as a `text` part BEFORE the audio —
- * this lets the judge's text-only path still read the content.
- *
- * Audio travels cleanly in any role (user or assistant) — no `forceUserRole`.
+ * The content is `[textPart?, fileAudioPart]`: a raw-PCM16 AI-SDK `file`
+ * part (`mediaType: "audio/pcm16"`), preceded by a transcript text part when
+ * the chunk carries one. Audio travels cleanly in any role — no
+ * `forceUserRole`.
  *
  * @param chunk - The audio chunk to wrap.
  * @param role  - The message role. Defaults to `"user"`.
- * @returns An {@link AudioMessageParam} ready for the conversation bus.
  */
 export function createAudioMessage(
   chunk: AudioChunk,
-  role: AudioMessageRole = "user"
-): AudioMessageParam {
-  const wavBytes = pcm16ToWavBytes(chunk.data);
-  // Convert Uint8Array to base64 via Buffer (Node.js environment assumed by voice SDK).
-  const b64 = Buffer.from(wavBytes).toString("base64");
-
-  const audioPart: InputAudioContentPart = {
-    type: "input_audio",
-    input_audio: { data: b64, format: "wav" },
+  role: AudioMessageRole = "user",
+): AudioMessage {
+  const audioPart: AudioFilePart = {
+    type: "file",
+    mediaType: AUDIO_PCM16_MEDIA_TYPE,
+    data: toBase64(chunk.data),
   };
 
-  const parts: AudioMessageContentPart[] = [];
-
+  const content: Array<TextPart | AudioFilePart> = [];
   if (chunk.transcript) {
-    const textPart: TextContentPart = { type: "text", text: chunk.transcript };
-    parts.push(textPart);
+    content.push({ type: "text", text: chunk.transcript });
   }
+  content.push(audioPart);
 
-  parts.push(audioPart);
+  // The AI-SDK ModelMessage role/content unions are stricter per-role than
+  // our "any role carries audio" model; the file+text part array is valid at
+  // runtime for user/assistant. Cast keeps the public return type ModelMessage.
+  return { role, content } as unknown as AudioMessage;
+}
 
-  return { role, content: parts };
+function getContentParts(message: unknown): Array<Record<string, unknown>> | null {
+  if (!message || typeof message !== "object") return null;
+  const content = (message as Record<string, unknown>)["content"];
+  if (!Array.isArray(content)) return null;
+  return content as Array<Record<string, unknown>>;
 }
 
 /**
- * Pull the first audio chunk out of an {@link AudioMessageParam}-shaped object.
+ * Pull the first audio chunk out of a {@link ModelMessage}-shaped object.
  *
- * Returns `null` if the message has no audio content part. Accepts both
- * `input_audio` (OpenAI API convention) and `audio` (alternate providers).
- *
- * @param message - Any message object. Accepts plain records so callers don't
- *                  need to cast to `AudioMessageParam` first.
- * @returns The first {@link AudioChunk} found, or `null`.
+ * Recognizes the canonical AI-SDK `file` part (`mediaType: "audio/*"`), and
+ * — for robustness at the transition / adapter edge — the legacy OpenAI
+ * `input_audio` and alternate `audio` conventions. Picks up a transcript
+ * from a sibling `text` part. Returns `null` if no audio part is present.
  */
 export function extractAudio(message: unknown): AudioChunk | null {
-  if (!message || typeof message !== "object") return null;
-  const msg = message as Record<string, unknown>;
-  const content = msg["content"];
-  if (!Array.isArray(content)) return null;
+  const content = getContentParts(message);
+  if (!content) return null;
 
   let transcript: string | undefined;
 
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    const p = part as Record<string, unknown>;
+  for (const p of content) {
+    if (!p || typeof p !== "object") continue;
 
     if (p["type"] === "text" && typeof p["text"] === "string") {
-      transcript = p["text"] || transcript;
+      transcript = (p["text"] as string) || transcript;
       continue;
     }
 
+    // Canonical: AI-SDK file part with an audio media type.
+    if (
+      p["type"] === "file" &&
+      typeof p["mediaType"] === "string" &&
+      (p["mediaType"] as string).startsWith("audio/")
+    ) {
+      const data = p["data"];
+      if (typeof data === "string") {
+        return new AudioChunk({ data: decodePcm16(data), transcript });
+      }
+      if (data instanceof Uint8Array) {
+        return new AudioChunk({ data, transcript });
+      }
+      continue;
+    }
+
+    // Legacy adapter-edge shapes (OpenAI input_audio / alternate audio).
     if (p["type"] === "input_audio" || p["type"] === "audio") {
       const dataObj =
         (p["input_audio"] as Record<string, unknown> | undefined) ??
         (p["audio"] as Record<string, unknown> | undefined) ??
         {};
-      const b64 = typeof dataObj["data"] === "string" ? dataObj["data"] : null;
+      const b64 = typeof dataObj["data"] === "string" ? (dataObj["data"] as string) : null;
       if (!b64) continue;
-
-      const raw = new Uint8Array(Buffer.from(b64, "base64"));
-      // Detect WAV by RIFF header magic bytes.
-      const isWav =
-        raw[0] === 0x52 && // 'R'
-        raw[1] === 0x49 && // 'I'
-        raw[2] === 0x46 && // 'F'
-        raw[3] === 0x46; // 'F'
-
-      const pcm = isWav ? wavBytesToPcm16(raw) : raw;
-      return new AudioChunk({ data: pcm, transcript });
+      const tx =
+        typeof dataObj["transcript"] === "string"
+          ? (dataObj["transcript"] as string)
+          : transcript;
+      return new AudioChunk({ data: decodePcm16(b64), transcript: tx });
     }
   }
 
   return null;
 }
 
-/**
- * Returns `true` if the message contains any audio content part.
- *
- * @param message - Any message-shaped object.
- */
+/** Returns `true` if the message contains any audio content part. */
 export function messageHasAudio(message: unknown): boolean {
   return extractAudio(message) !== null;
+}
+
+/** Returns `true` if the message carries the canonical audio `file` part. */
+export function hasAudio(message: unknown): boolean {
+  const content = getContentParts(message);
+  if (!content) return false;
+  return content.some(
+    (p) =>
+      p &&
+      typeof p === "object" &&
+      p["type"] === "file" &&
+      typeof p["mediaType"] === "string" &&
+      (p["mediaType"] as string).startsWith("audio/"),
+  );
+}
+
+/** Extract the transcript text from a message's leading text part, if any. */
+export function extractTranscript(message: unknown): string | undefined {
+  const content = getContentParts(message);
+  if (!content) return undefined;
+  for (const p of content) {
+    if (p && typeof p === "object" && p["type"] === "text" && typeof p["text"] === "string") {
+      return p["text"] as string;
+    }
+  }
+  return undefined;
 }

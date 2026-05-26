@@ -380,7 +380,12 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
   /**
    * Whether any message in `messages` contains an audio content part.
-   * Checks for both `input_audio` and `audio` type parts.
+   *
+   * Recognizes the canonical AI-SDK `file` audio part
+   * (`{ type: "file", mediaType: "audio/*" }`, EDR §4.2 — the single
+   * in-message format the voice subsystem now produces) and, for
+   * adapter-edge tolerance, the legacy OpenAI `input_audio` / `audio`
+   * conventions.
    *
    * Port of `python/scenario/judge_agent.py:_conversation_has_audio`.
    */
@@ -393,6 +398,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
       for (const part of content) {
         if (!part || typeof part !== "object") continue;
         const p = part as Record<string, unknown>;
+        if (
+          p["type"] === "file" &&
+          typeof p["mediaType"] === "string" &&
+          (p["mediaType"] as string).startsWith("audio/")
+        ) {
+          return true;
+        }
         if (p["type"] === "input_audio" || p["type"] === "audio") return true;
       }
     }
