@@ -151,3 +151,14 @@ export {
   type SynthesizeOptions,
   type WebSocketLike,
 } from "./adapters";
+
+// SALVAGE-CONFLICT [EDR Gap #6]: issue372/ts-voice-pipecat-g711 adds pipecat adapter and pending-transport-error; twilio-shared.ts first appears here (pr-540 codec-only version, Gap #6) — reconcile in refactor
+export {
+  PipecatAgentAdapter,
+  type PipecatAgentAdapterInit,
+  type PipecatTransport,
+  type PipecatWebSocketFactory,
+  type PipecatWebSocketLike,
+} from "./adapters/pipecat";
+
+export { PendingTransportError } from "./adapters/pending-transport-error";
