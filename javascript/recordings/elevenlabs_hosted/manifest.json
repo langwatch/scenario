@@ -1,11 +1,61 @@
 {
-  "demo": "elevenlabs_hosted",
-  "ts_demo_test": "javascript/examples/vitest/tests/voice/elevenlabs-hosted.test.ts",
-  "python_demo": "python/examples/voice/elevenlabs_hosted.py",
-  "feature": "specs/voice-agents.feature",
-  "scenario": "Demo — ElevenLabs hosted Conversational AI",
-  "scenario_tag": "@e2e @ts-elevenlabs",
-  "status": "env-gated",
-  "note": "Empty placeholder. Populated by a live demo run with ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID. The TS demo test mirrors the Python demo; both connect to wss://api.elevenlabs.io/v1/convai/conversation.",
-  "captured": null
+  "generated_at": "2026-05-26T18:35:13.479Z",
+  "duration": 5.461187478,
+  "segment_count": 3,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0609ms.wav",
+      "role": "agent",
+      "start_time": 0.609667298,
+      "end_time": 1.241568732,
+      "duration": 0.631901434,
+      "transcript": null
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-2951ms.wav",
+      "role": "user",
+      "start_time": 2.951940734000001,
+      "end_time": 2.9612400780000003,
+      "duration": 0.009299343999999543,
+      "transcript": "Hello, I have a question about my account."
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-4458ms.wav",
+      "role": "agent",
+      "start_time": 4.458638734,
+      "end_time": 5.461187478,
+      "duration": 1.0025487440000003,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 0.609667298,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 1.241568732,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 2.951940734000001,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.9612400780000003,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 4.458638734,
+      "type": "agent_start_speaking",
+      "latency": 1.4973986559999997
+    },
+    {
+      "time": 5.461187478,
+      "type": "agent_stop_speaking"
+    }
+  ]
 }

@@ -1,0 +1,100 @@
+{
+  "generated_at": "2026-05-26T18:35:31.503Z",
+  "duration": 5.3753062950000015,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-1061ms.wav",
+      "role": "user",
+      "start_time": 1.0610172220000003,
+      "end_time": 1.8726266500000008,
+      "duration": 0.8116094280000006,
+      "transcript": "Hi there, I have a quick question about my plan."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-5375ms.wav",
+      "role": "agent",
+      "start_time": 5.375267465,
+      "end_time": 5.3753062950000015,
+      "duration": 0.00003883000000115544,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 1.0610172220000003,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 1.8667546450000003,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8682453960000025,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8689686180000002,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.869888331000002,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8701065220000004,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8703102329999979,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8706066929999992,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8722622089999987,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 1.8726266500000008,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 5.375267465,
+      "type": "agent_start_speaking",
+      "latency": 3.5026408149999995
+    },
+    {
+      "time": 5.3753062950000015,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

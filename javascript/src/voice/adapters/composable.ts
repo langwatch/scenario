@@ -161,9 +161,14 @@ export class ComposableVoiceAgent extends VoiceAgentAdapter {
     return `ComposableVoiceAgent(llm=<LanguageModel>, tts='${this.tts}')`;
   }
 
-  async call(): Promise<string> {
-    return "ComposableVoiceAgent";
-  }
+  // NOTE: no `call()` override. The composable agent INHERITS the base
+  // `VoiceAgentAdapter.call()` (= `defaultVoiceCall`), exactly like Python's
+  // `ComposableVoiceAgent(VoiceAgentAdapter)`, which does not override `call`.
+  // `defaultVoiceCall` extracts the incoming user audio → `sendAudio` (STT) →
+  // drains `receiveAudio` (LLM + TTS, gated by `turnOutputEmitted`) → records
+  // the segments. A prior stub `call()` returning a bare string short-circuited
+  // this so the STT/LLM/TTS seams never fired under `scenario.run()` (the
+  // branded EL demo caught it: lastUserTranscript stayed null).
 
   async connect(): Promise<void> {
     // No external transport.
