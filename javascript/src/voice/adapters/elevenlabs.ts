@@ -220,6 +220,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     }
   }
 
+  /** Whether the ConvAI WebSocket is open (Gap #11). */
+  override isConnected(): boolean {
+    return this.ws !== null;
+  }
+
   async disconnect(): Promise<void> {
     if (!this.ws) return;
     try {

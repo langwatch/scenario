@@ -158,6 +158,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._connected = true;
   }
 
+  /** Whether the Media Stream transport is open (Gap #11). */
+  override isConnected(): boolean {
+    return this._connected;
+  }
+
   async disconnect(): Promise<void> {
     if (!this._connected) return;
 

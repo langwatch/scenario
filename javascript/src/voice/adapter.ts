@@ -90,6 +90,22 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
   /** Close the transport and release resources. */
   abstract disconnect(): Promise<void>;
 
+  /**
+   * Whether the transport is currently open and ready to exchange audio
+   * (Gap #11). The default {@link call} flow ({@link defaultVoiceCall})
+   * consults this BEFORE sending audio and raises {@link PendingTransportError}
+   * uniformly when it returns `false` — so a `call()` issued before the
+   * executor's `connect()` fails with one clear error across every transport
+   * instead of a transport-specific null-dereference or silent hang.
+   *
+   * Base default is `true`: adapters with no meaningful "not connected" state
+   * (in-process composable, test doubles) never trip the gate. Network
+   * transport leaves override this to report their real socket/session state.
+   */
+  isConnected(): boolean {
+    return true;
+  }
+
   /** Transmit an {@link AudioChunk} to the agent under test. */
   abstract sendAudio(chunk: AudioChunk): Promise<void>;
 

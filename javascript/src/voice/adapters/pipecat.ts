@@ -266,6 +266,11 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     );
   }
 
+  /** Whether the Media Streams WebSocket is open (Gap #11). */
+  override isConnected(): boolean {
+    return this.ws !== null;
+  }
+
   override async disconnect(): Promise<void> {
     const ws = this.ws;
     if (!ws) return;
