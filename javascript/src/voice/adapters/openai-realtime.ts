@@ -149,15 +149,8 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     );
   }
 
-  // VoiceAgentAdapter requires a concrete `call()`. PR3 wires the real
-  // implementation; until then this delegates upward so executor wiring
-  // can still drive this adapter once it ships.
-  async call(): Promise<string> {
-    throw new Error(
-      "OpenAIRealtimeAgentAdapter.call() is provided by the voice executor " +
-        "runtime (PR3). Use scenario.run() to exercise this adapter.",
-    );
-  }
+  // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
+  // runtime drives the audio loop (Gap #11). No leaf-level override.
 
   // ------------------------------------------------------------ lifecycle
 

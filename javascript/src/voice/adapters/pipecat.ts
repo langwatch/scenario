@@ -198,17 +198,9 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     return `${this.audioFormat}/${this.sampleRate}`;
   }
 
-  override async call(): Promise<string> {
-    // Voice adapters do not produce text completions; `call()` exists
-    // only because the parent AgentAdapter class declares it. The
-    // executor routes voice scenarios through sendAudio/receiveAudio
-    // and never invokes call() on a voice adapter.
-    throw new Error(
-      "PipecatAgentAdapter.call() should not be invoked — voice scenarios " +
-        "use sendAudio/receiveAudio. If you see this error, the executor " +
-        "is taking a text-only path on a voice adapter.",
-    );
-  }
+  // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
+  // drives the send → drain → record loop through sendAudio/receiveAudio
+  // (Gap #11). No leaf-level override.
 
   // ---------------------------------------------------------------- lifecycle
 

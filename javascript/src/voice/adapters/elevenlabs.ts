@@ -151,15 +151,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     return `ElevenLabsAgentAdapter(agentId='${this.agentId}', apiKey='***')`;
   }
 
-  // --------------------------------------------------------------- AgentAdapter
-  async call(): Promise<string> {
-    // PR1 contract surface — the executor-driven `call()` lands in PR3
-    // (#515). Keeping it as a stub so the adapter is constructible and the
-    // hosted demo's scenario.run() can wire connect/send/recv directly via
-    // the runtime once it lands. Returning a deterministic stub keeps unit
-    // tests focused on the adapter's I/O surface.
-    return "ElevenLabsAgentAdapter";
-  }
+  // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
+  // drives the hosted ConvAI audio loop (Gap #11). No leaf-level override.
 
   // ---------------------------------------------------------------- lifecycle
   async connect(): Promise<void> {

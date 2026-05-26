@@ -173,6 +173,7 @@ export {
   AUDIO_PCM16_MEDIA_TYPE,
 } from "./messages";
 
+// Audio effects namespace (PRD §4.5) — `scenario.effects.background_noise(...)`.
 export * as effects from "./effects";
 
 // Gap #5 (RESOLVED): composable.ts no longer defines its own STTProvider /
@@ -194,6 +195,8 @@ export {
   type WebSocketLike,
 } from "./adapters";
 
+// Pipecat adapter + the not-yet-connected transport error (Gap #6 resolved —
+// the codec it rides lives in the single reconciled ./adapters/twilio-shared).
 export {
   PipecatAgentAdapter,
   type PipecatAgentAdapterInit,
