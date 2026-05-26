@@ -770,7 +770,7 @@ Feature: Voice agent testing in Scenario SDK
   # first-class SDK features work via a runnable script, not just in isolation.
   # ======================================================================
 
-  @e2e
+  @e2e @ts-recording-playback
   Scenario: Demo — recording and playback
     # Covers: result.audio.save() (WAV + MP3 via ffmpeg) + audio_playback=True live stream
     Given a voice scenario run with audio_playback=True
@@ -786,7 +786,7 @@ Feature: Voice agent testing in Scenario SDK
     Then both callbacks fired at least once per turn
     And result.latency exposes time_to_first_byte, p50, and p95
 
-  @e2e
+  @e2e @ts-stt-swap
   Scenario: Demo — STT provider swap via run({ voice: { stt } })
     # Covers: pluggable STTProvider (default OpenAI → ElevenLabsSTTProvider in demo)
     # Per-run, not a global (ADR-002): run({ voice: { stt } }) replaces the
@@ -796,7 +796,7 @@ Feature: Voice agent testing in Scenario SDK
     Then the ElevenLabsSTTProvider.transcribe() path was exercised (not the default)
     And result.success is True
 
-  @e2e
+  @e2e @ts-voice-text-parity
   Scenario: Demo — same scenario.run() entrypoint for voice and text
     # Covers: text-only scenario still works; voice scenario same entrypoint/script shape
     Given two scenarios sharing an identical script and judge, differing only in agents
