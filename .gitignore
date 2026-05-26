@@ -163,10 +163,10 @@ dist
 .vscode
 .idea
 
-# Environment
-.env
-.env.local
-.env.*.local
+# Environment — ignore every .env* at any depth (defense-in-depth), but keep
+# the committed templates so contributors know which keys to set.
+.env*
+!.env.example
 
 # Testing
 coverage
