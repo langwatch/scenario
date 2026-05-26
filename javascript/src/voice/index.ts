@@ -175,6 +175,13 @@ export {
 
 export * as effects from "./effects";
 
+// Gap #5 (RESOLVED): composable.ts no longer defines its own STTProvider /
+// ElevenLabsSTTProvider / synthesize — it imports the canonical interface from
+// ./stt and routes TTS through ./tts (the EL path uses the tts/elevenlabs-tts
+// leaf, Gap #10). ElevenLabsSTTProvider/STTProvider are exported above from
+// ./stt; `synthesize` (the registry router) from ./tts. The composable-level
+// `synthesize` wrapper + SynthesizeOptions (test seam) are internal to the
+// adapter surface and re-exported below for the EL preset + tests.
 export {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,
