@@ -805,6 +805,83 @@ Feature: Voice agent testing in Scenario SDK
     And no voice imports are loaded in the text-only run
 
   # ======================================================================
+  # Interruption / barge-in demos — the flagship voice-only capability (§6.2,
+  # §6.7, §4.4). Each is a MULTI-TURN conversation that fires a real barge-in.
+  # Mirrors python/examples/voice/{interruption_recovery,random_interruptions,
+  # elevenlabs_interruption,gemini_live_interruption}.py.
+  # ======================================================================
+
+  @e2e @ts-interruption-recovery-demo
+  Scenario: Demo — interruption recovery (barge-in via agent({ wait: false }) + interrupt())
+    # Covers §6.2: user interrupts the agent mid-utterance twice (unrolled
+    # agent({wait:false})+user, then the interrupt() sugar); the agent recovers.
+    Given a local Pipecat bot on ws://localhost:8765/stream that supports barge-in
+    When the demo script interrupts the agent mid-utterance and the agent recovers
+    Then result.success is True
+    And result.latency.interruptResponseTime is recorded
+
+  @e2e @ts-random-interruptions-demo
+  Scenario: Demo — random interruptions via interruptProbability + voiceProceed
+    # Covers §6.7: UserSimulatorAgent({interruptProbability}) + voiceProceed({turns,
+    # interruptions: InterruptionConfig({...})}) injects barge-ins across the run.
+    Given a user simulator with interruptProbability and voiceProceed({ interruptions })
+    When the multi-turn demo script runs via scenario.run()
+    Then at least one user_interrupt event is recorded in the timeline
+    And the conversation involved multiple turns
+
+  @e2e @ts-elevenlabs-interruption-demo
+  Scenario: Demo — ElevenLabs interruption (server VAD barge-in)
+    # Covers: ElevenLabs ConvAI has no client cancel — server VAD detects the
+    # overlap and cuts the agent's reply when user audio arrives mid-utterance.
+    Given a hosted ElevenLabs ConvAI agent and a mid-utterance interrupt()
+    When the demo script runs via scenario.run()
+    Then a user_interrupt event is recorded and the recording has segments
+
+  @e2e @ts-gemini-live-interruption-demo
+  Scenario: Demo — Gemini Live interruption (server VAD barge-in)
+    # Covers: Gemini Live has no client cancel — server VAD detects the overlap
+    # and cuts the agent's reply when user audio arrives mid-utterance.
+    Given a Gemini Live agent and a mid-utterance interrupt()
+    When the demo script runs via scenario.run()
+    Then a user_interrupt event is recorded and the recording has segments
+
+  # ======================================================================
+  # Persona / pain-pattern + greeting + pipecat-scenario demos (§6.1, §6.3, §8).
+  # Mirrors python/examples/voice/{basic_greeting,angry_customer,
+  # background_handoff,pipecat_scenario}.py.
+  # ======================================================================
+
+  @e2e @ts-basic-greeting-demo
+  Scenario: Demo — basic greeting flow (multi-turn)
+    # Covers §6.1: greeting → user → agent → user → agent → judge over the bot.
+    Given a local Pipecat bot and a voice user simulator
+    When the multi-turn greeting demo runs via scenario.run()
+    Then result.success is True and the recording has both speakers
+
+  @e2e @ts-angry-customer-demo
+  Scenario: Demo — angry customer in a noisy cafe (multi-turn)
+    # Covers §6.3: persona + audioEffects (backgroundNoise + phoneQuality) over
+    # a multi-turn conversation; judge evaluates empathy + noise-robustness.
+    Given a very-angry user simulator with backgroundNoise + phoneQuality effects
+    When the multi-turn demo runs via scenario.run()
+    Then the agent stays calm and the recording has multiple turns
+
+  @e2e @ts-background-handoff-demo
+  Scenario: Demo — background handoff should not trigger agent response
+    # Covers §8 pain pattern: user says "hold on", goes silent, then returns;
+    # the agent should wait rather than respond to the gap.
+    Given a user simulator that hands off mid-call (silence) then returns
+    When the multi-turn demo runs via scenario.run()
+    Then result.success is True and the recording spans the handoff
+
+  @e2e @ts-pipecat-scenario-demo
+  Scenario: Demo — Pipecat scenario smoke (multi-turn)
+    # Covers: the pipecat_scenario.py twin — multi-turn smoke over the live bot.
+    Given a local Pipecat bot on ws://localhost:8765/stream
+    When the multi-turn smoke demo runs via scenario.run()
+    Then the recording contains both user-sim and agent audio across turns
+
+  # ======================================================================
   # Architectural Guarantees (Source §1 L9, §3 L107-124, §7 L1175-1186)
   # ======================================================================
 

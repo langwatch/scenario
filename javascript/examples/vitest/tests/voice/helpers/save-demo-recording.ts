@@ -16,11 +16,12 @@
  * Python helper's `Optional[Path]` return.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { voice } from "@langwatch/scenario";
+import { voice } from "@langwatch/scenario";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // helpers/ → tests/voice → tests → vitest → examples → javascript → recordings.
@@ -47,6 +48,19 @@ type SavableRecording = Pick<voice.VoiceRecording, "segments"> & {
   saveSegments(dir: string, options?: { manifest?: boolean }): string;
 };
 
+/** Options for {@link saveDemoRecording}. */
+export interface SaveDemoOptions {
+  /**
+   * Downsample the committed `full.wav` to this rate (Hz) AFTER writing — the
+   * Python-parity commit-cap policy. The recording is captured at 24kHz; a
+   * long multi-turn / interruption conversation's 24kHz `full.wav` can exceed
+   * the 1MB commit cap, so we re-encode it (e.g. to 8000) which cuts bytes ~3x
+   * while leaving the DURATION (and thus the M1 manifest invariant) unchanged.
+   * Per-segment WAVs and the manifest are untouched.
+   */
+  downsampleHz?: number;
+}
+
 /**
  * If `audio` is non-null and has segments, write per-segment WAVs + the full
  * mix + a manifest under `javascript/recordings/<demoName>/` and return the
@@ -58,6 +72,7 @@ type SavableRecording = Pick<voice.VoiceRecording, "segments"> & {
 export function saveDemoRecording(
   audio: SavableRecording | null | undefined,
   demoName: string,
+  options: SaveDemoOptions = {},
 ): string | null {
   if (!audio || !audio.segments || audio.segments.length === 0) {
     return null;
@@ -65,7 +80,45 @@ export function saveDemoRecording(
   const target = resolve(RECORDINGS_ROOT, demoName);
   audio.saveSegments(target, { manifest: true });
   pruneOrphanSegments(target);
+  if (options.downsampleHz) {
+    downsampleFullWav(join(target, "full.wav"), options.downsampleHz);
+  }
   return target;
+}
+
+/**
+ * Re-encode `full.wav` in place at `hz` (mono PCM16) via the bundled ffmpeg.
+ * Lowering the sample rate cuts the byte size proportionally without changing
+ * the playable DURATION, so `manifest.duration` (byte-duration at the new rate)
+ * stays equal to the file — the M1 invariant is preserved at the lower rate.
+ */
+function downsampleFullWav(fullWavPath: string, hz: number): void {
+  if (!existsSync(fullWavPath)) return;
+  const tmp = `${fullWavPath}.tmp.wav`;
+  const result = spawnSync(
+    voice.resolveFfmpegPath(),
+    [
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      fullWavPath,
+      "-ac",
+      "1",
+      "-ar",
+      String(hz),
+      "-c:a",
+      "pcm_s16le",
+      tmp,
+    ],
+    {},
+  );
+  if (result.status === 0 && existsSync(tmp)) {
+    rmSync(fullWavPath);
+    renameSync(tmp, fullWavPath);
+  } else if (existsSync(tmp)) {
+    rmSync(tmp);
+  }
 }
 
 /**

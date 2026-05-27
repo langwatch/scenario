@@ -168,11 +168,19 @@ export interface InterruptOptions {
 export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
   const { content, after, afterWords, waitForSpeechTimeout = 8.0 } = options;
   return async (state, executor) => {
-    // Start the agent turn in the background. Errors surface on the
-    // executor state; the script step intentionally does not await.
-    void executor.agent().catch(() => {
-      /* errors surface in executor state */
-    });
+    // Start the agent turn in the background, registering it as the pending
+    // non-blocking turn so the user() below fires a mid-stream barge-in. Falls
+    // back to fire-and-forget on executors without agentNonBlocking.
+    const ex = executor as ScenarioExecutionLike & {
+      agentNonBlocking?: (content?: string | ModelMessage) => void;
+    };
+    if (typeof ex.agentNonBlocking === "function") {
+      ex.agentNonBlocking();
+    } else {
+      void executor.agent().catch(() => {
+        /* errors surface in executor state */
+      });
+    }
 
     if (afterWords !== undefined) {
       await waitForStreamingWords(executor, afterWords, waitForSpeechTimeout);
@@ -297,14 +305,23 @@ export interface VoiceAgentOptions {
  */
 export const voiceAgentStep = (options: VoiceAgentOptions = {}): ScriptStep => {
   return (_state, executor) => {
-    const promise = executor.agent(options.content);
     if (options.wait === false) {
-      void promise.catch(() => {
+      // Non-blocking: register the in-flight turn on the executor so a
+      // subsequent user() lands as a mid-stream barge-in (interruption). Falls
+      // back to fire-and-forget when the executor predates agentNonBlocking.
+      const ex = executor as ScenarioExecutionLike & {
+        agentNonBlocking?: (content?: string | ModelMessage) => void;
+      };
+      if (typeof ex.agentNonBlocking === "function") {
+        ex.agentNonBlocking(options.content);
+        return;
+      }
+      void executor.agent(options.content).catch(() => {
         /* errors surface in executor state */
       });
       return;
     }
-    return promise;
+    return executor.agent(options.content);
   };
 };
 

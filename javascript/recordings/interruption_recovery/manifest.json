@@ -1,0 +1,165 @@
+{
+  "generated_at": "2026-05-27T11:28:25.074Z",
+  "duration": 56.11,
+  "segment_count": 8,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2.25,
+      "duration": 2.25,
+      "transcript": "Tell me about my billing options"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2250ms.wav",
+      "role": "agent",
+      "start_time": 2.25,
+      "end_time": 5.45,
+      "duration": 3.2,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-5450ms.wav",
+      "role": "user",
+      "start_time": 5.45,
+      "end_time": 8.85,
+      "duration": 3.3999999999999995,
+      "transcript": "Wait sorry, I meant account support, not billing"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-8850ms.wav",
+      "role": "agent",
+      "start_time": 8.85,
+      "end_time": 22.36,
+      "duration": 13.51,
+      "transcript": null
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-user-22360ms.wav",
+      "role": "user",
+      "start_time": 22.36,
+      "end_time": 25.16,
+      "duration": 2.8000000000000007,
+      "transcript": "Tell me about every feature you offer"
+    },
+    {
+      "idx": 5,
+      "file": "segments/05-agent-25160ms.wav",
+      "role": "agent",
+      "start_time": 25.16,
+      "end_time": 34.56,
+      "duration": 9.400000000000002,
+      "transcript": null
+    },
+    {
+      "idx": 6,
+      "file": "segments/06-user-34560ms.wav",
+      "role": "user",
+      "start_time": 34.56,
+      "end_time": 39.410000000000004,
+      "duration": 4.850000000000001,
+      "transcript": "Sorry, one more thing — can you keep it brief?"
+    },
+    {
+      "idx": 7,
+      "file": "segments/07-agent-39410ms.wav",
+      "role": "agent",
+      "start_time": 39.410000000000004,
+      "end_time": 56.11,
+      "duration": 16.699999999999996,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.25,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2.25,
+      "type": "agent_start_speaking",
+      "latency": 0.0008364329999999143
+    },
+    {
+      "time": 2.630415515,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_before_speech",
+        "native": true
+      }
+    },
+    {
+      "time": 5.45,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 5.45,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.85,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 8.85,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 11.625350889000002,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_before_speech",
+        "native": true
+      }
+    },
+    {
+      "time": 22.36,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 22.36,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 25.16,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 25.16,
+      "type": "agent_start_speaking",
+      "latency": 0.00007224999999877468
+    },
+    {
+      "time": 34.56,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 34.56,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 39.410000000000004,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 39.410000000000004,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 56.11,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
