@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-05-27T15:27:20.227Z",
-  "duration": 22.119999999999997,
-  "segment_count": 7,
+  "generated_at": "2026-05-27T17:42:13.272Z",
+  "duration": 44.63,
+  "segment_count": 9,
   "segments": [
     {
       "idx": 0,
@@ -17,55 +17,75 @@
       "file": "segments/01-user-3900ms.wav",
       "role": "user",
       "start_time": 3.9,
-      "end_time": 5.2,
-      "duration": 1.3000000000000003,
-      "transcript": "Hmm, wait—"
+      "end_time": 6.4,
+      "duration": 2.5000000000000004,
+      "transcript": "i can't sign in to my account"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-5200ms.wav",
+      "file": "segments/02-agent-6400ms.wav",
       "role": "agent",
-      "start_time": 5.2,
-      "end_time": 9.4,
-      "duration": 4.2,
-      "transcript": "Of course, take your time. What can I help you with when you're ready?"
+      "start_time": 6.4,
+      "end_time": 16.009999999999998,
+      "duration": 9.609999999999998,
+      "transcript": "I'm sorry you're having trouble signing in. Let's get you back in. Are you seeing an error message, and is it your email username or your password that's failing?",
+      "transcript_truncated": true
     },
     {
       "idx": 3,
-      "file": "segments/03-user-9400ms.wav",
+      "file": "segments/03-user-16009ms.wav",
       "role": "user",
-      "start_time": 9.4,
-      "end_time": 12.5,
-      "duration": 3.0999999999999996,
-      "transcript": "Oh, one more thing—"
+      "start_time": 16.009999999999998,
+      "end_time": 17.959999999999997,
+      "duration": 1.9499999999999993,
+      "transcript": "Sorry, real quick—"
     },
     {
       "idx": 4,
-      "file": "segments/04-agent-12500ms.wav",
+      "file": "segments/04-agent-17959ms.wav",
       "role": "agent",
-      "start_time": 12.5,
-      "end_time": 15.61,
-      "duration": 3.1099999999999994,
-      "transcript": "Sure, what's the one more thing you need help with?"
+      "start_time": 17.959999999999997,
+      "end_time": 28.97,
+      "duration": 11.010000000000002,
+      "transcript": "No worries at all. Tell me what you're seeing when you try to sign in, like incorrect password, account locked, or email not found, and I'll guide you to the right fix.",
+      "transcript_truncated": true
     },
     {
       "idx": 5,
-      "file": "segments/05-user-15610ms.wav",
+      "file": "segments/05-user-28970ms.wav",
       "role": "user",
-      "start_time": 15.61,
-      "end_time": 18.009999999999998,
-      "duration": 2.3999999999999986,
-      "transcript": "Wait, I forgot to mention—"
+      "start_time": 28.97,
+      "end_time": 30.32,
+      "duration": 1.3500000000000014,
+      "transcript": "Hmm, wait—"
     },
     {
       "idx": 6,
-      "file": "segments/06-agent-18009ms.wav",
+      "file": "segments/06-agent-30320ms.wav",
       "role": "agent",
-      "start_time": 18.009999999999998,
-      "end_time": 22.119999999999997,
-      "duration": 4.109999999999999,
-      "transcript": "No problem, I'm here. Tell me when you're ready.",
+      "start_time": 30.32,
+      "end_time": 34.93,
+      "duration": 4.609999999999999,
+      "transcript": "Of course, what's the exact error message you see on the sign-in screen?",
       "transcript_truncated": true
+    },
+    {
+      "idx": 7,
+      "file": "segments/07-user-34930ms.wav",
+      "role": "user",
+      "start_time": 34.93,
+      "end_time": 37.13,
+      "duration": 2.200000000000003,
+      "transcript": "No no, let me back up—"
+    },
+    {
+      "idx": 8,
+      "file": "segments/08-agent-37130ms.wav",
+      "role": "agent",
+      "start_time": 37.13,
+      "end_time": 44.63,
+      "duration": 7.5,
+      "transcript": "Take your time. When you're ready, tell me the exact wording of the error and whether you're signing in with your email address or a username."
     }
   ],
   "events": [
@@ -82,62 +102,70 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 5.2,
+      "time": 6.4,
       "type": "user_stop_speaking"
     },
     {
-      "time": 5.2,
+      "time": 6.4,
       "type": "agent_start_speaking",
-      "latency": 21.641700039
+      "latency": 2.5386716840000005
     },
     {
-      "time": 9.4,
+      "time": 16.009999999999998,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 9.4,
+      "time": 16.009999999999998,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "proceed-interruption",
+        "strategy": "random_phrase"
+      }
+    },
+    {
+      "time": 16.009999999999998,
       "type": "user_start_speaking"
     },
     {
-      "time": 12.5,
+      "time": 17.959999999999997,
       "type": "user_stop_speaking"
     },
     {
-      "time": 12.5,
+      "time": 17.959999999999997,
       "type": "agent_start_speaking",
-      "latency": 21.679086027999986
+      "latency": 3.5208449680000022
     },
     {
-      "time": 15.61,
+      "time": 28.97,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 15.61,
+      "time": 28.97,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "proceed-interruption",
+        "strategy": "random_phrase"
+      }
+    },
+    {
+      "time": 28.97,
       "type": "user_start_speaking"
     },
     {
-      "time": 18.009999999999998,
+      "time": 30.32,
       "type": "user_stop_speaking"
     },
     {
-      "time": 18.009999999999998,
+      "time": 30.32,
       "type": "agent_start_speaking",
-      "latency": 3.0754500500000006
+      "latency": 0.00010682000000272751
     },
     {
-      "time": 19.166235323,
-      "type": "user_interrupt",
-      "metadata": {
-        "source": "proceed-interruption",
-        "strategy": "random_phrase"
-      }
-    },
-    {
-      "time": 22.119999999999997,
+      "time": 34.93,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 44.718537348000005,
+      "time": 34.93,
       "type": "user_interrupt",
       "metadata": {
         "source": "proceed-interruption",
@@ -145,20 +173,21 @@
       }
     },
     {
-      "time": 72.81522747199999,
-      "type": "user_interrupt",
-      "metadata": {
-        "source": "proceed-interruption",
-        "strategy": "random_phrase"
-      }
+      "time": 34.93,
+      "type": "user_start_speaking"
     },
     {
-      "time": 81.178555604,
-      "type": "user_interrupt",
-      "metadata": {
-        "source": "proceed-interruption",
-        "strategy": "random_phrase"
-      }
+      "time": 37.13,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 37.13,
+      "type": "agent_start_speaking",
+      "latency": 0.9679213230000023
+    },
+    {
+      "time": 44.63,
+      "type": "agent_stop_speaking"
     }
   ]
 }
