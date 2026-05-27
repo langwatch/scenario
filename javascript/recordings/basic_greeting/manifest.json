@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-05-27T11:45:01.893Z",
+  "duration": 29.16,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0000ms.wav",
+      "role": "agent",
+      "start_time": 0,
+      "end_time": 3.7,
+      "duration": 3.7,
+      "transcript": null
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3700ms.wav",
+      "role": "user",
+      "start_time": 3.7,
+      "end_time": 7,
+      "duration": 3.3,
+      "transcript": "Hi, I need some help today."
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-7000ms.wav",
+      "role": "agent",
+      "start_time": 7,
+      "end_time": 14.3,
+      "duration": 7.300000000000001,
+      "transcript": null
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-14300ms.wav",
+      "role": "user",
+      "start_time": 14.3,
+      "end_time": 16.75,
+      "duration": 2.4499999999999993,
+      "transcript": "Thanks — can you point me in the right direction?"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-16750ms.wav",
+      "role": "agent",
+      "start_time": 16.75,
+      "end_time": 29.16,
+      "duration": 12.41,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.7,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.7,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 7,
+      "type": "agent_start_speaking",
+      "latency": 2.6135657429999988
+    },
+    {
+      "time": 14.3,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 14.3,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 16.75,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 16.75,
+      "type": "agent_start_speaking",
+      "latency": 5.2310724870000005
+    },
+    {
+      "time": 29.16,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

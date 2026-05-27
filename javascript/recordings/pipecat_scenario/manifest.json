@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T11:44:35.857Z",
+  "duration": 12.41,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2.35,
+      "duration": 2.35,
+      "transcript": "Hi! Can you help me with a question?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2350ms.wav",
+      "role": "agent",
+      "start_time": 2.35,
+      "end_time": 6.25,
+      "duration": 3.9,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6250ms.wav",
+      "role": "user",
+      "start_time": 6.25,
+      "end_time": 8.5,
+      "duration": 2.25,
+      "transcript": "Thanks — what else can you do?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-8500ms.wav",
+      "role": "agent",
+      "start_time": 8.5,
+      "end_time": 12.41,
+      "duration": 3.91,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.35,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2.35,
+      "type": "agent_start_speaking",
+      "latency": 0.000555680999999808
+    },
+    {
+      "time": 6.25,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.25,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.5,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 8.5,
+      "type": "agent_start_speaking",
+      "latency": 0.04188404299999959
+    },
+    {
+      "time": 12.41,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
