@@ -1,0 +1,112 @@
+{
+  "generated_at": "2026-05-27T11:32:56.559Z",
+  "duration": 14.86,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0000ms.wav",
+      "role": "agent",
+      "start_time": 0,
+      "end_time": 3.8,
+      "duration": 3.8,
+      "transcript": null
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3800ms.wav",
+      "role": "user",
+      "start_time": 3.8,
+      "end_time": 5.949999999999999,
+      "duration": 2.1499999999999995,
+      "transcript": "Sorry to cut you off"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-5949ms.wav",
+      "role": "agent",
+      "start_time": 5.949999999999999,
+      "end_time": 9.549999999999999,
+      "duration": 3.5999999999999996,
+      "transcript": null
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-9549ms.wav",
+      "role": "user",
+      "start_time": 9.549999999999999,
+      "end_time": 11.35,
+      "duration": 1.8000000000000007,
+      "transcript": "Wait I forgot to mention"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-11350ms.wav",
+      "role": "agent",
+      "start_time": 11.35,
+      "end_time": 14.86,
+      "duration": 3.51,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.8,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.8,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 5.949999999999999,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 5.949999999999999,
+      "type": "agent_start_speaking",
+      "latency": 1.9519876720000013
+    },
+    {
+      "time": 9.549999999999999,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 9.549999999999999,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 11.35,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 11.35,
+      "type": "agent_start_speaking",
+      "latency": 1.4918944920000001
+    },
+    {
+      "time": 13.349678751999999,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "proceed-interruption",
+        "strategy": "random_phrase"
+      }
+    },
+    {
+      "time": 14.86,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 19.990968852,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "proceed-interruption",
+        "strategy": "random_phrase"
+      }
+    }
+  ]
+}
