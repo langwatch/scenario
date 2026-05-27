@@ -27,10 +27,7 @@ import {
   JudgeAgentAdapter,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import {
-  ScenarioExecution,
-  markTruncatedAgentSegments,
-} from "../../execution/scenario-execution";
+import { ScenarioExecution } from "../../execution/scenario-execution";
 import { agent, interrupt, judge, user } from "../../script";
 import { VoiceAgentAdapter } from "../adapter";
 import { defaultVoiceCall } from "../adapter.runtime";
@@ -38,6 +35,7 @@ import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage } from "../messages";
 import type { AudioSegment, VoiceEvent } from "../recording.types";
+import { markTruncatedAgentSegments } from "../segment-utils";
 
 /** A non-silent PCM16 tone (mono, 24kHz) carrying a transcript. */
 function tone(durationSeconds: number, transcript: string): AudioChunk {
@@ -54,7 +52,16 @@ function tone(durationSeconds: number, transcript: string): AudioChunk {
 // 1. agentSpeakingEvent publication
 // ---------------------------------------------------------------------------
 
-/** Minimal connected adapter that yields one agent chunk then end-of-stream. */
+/**
+ * Minimal connected adapter where each supplied chunk is its OWN turn: every
+ * `receiveAudio` for a turn's audio chunk is followed by an empty end-of-stream
+ * marker on the next call, so `drainAgentResponse` (which breaks on the first
+ * empty chunk) consumes exactly one chunk per `call()`. `delayFirstChunkMs`
+ * defers each turn's audio chunk (the one whose arrival sets the speaking
+ * event), so a test can observe the cleared-but-not-yet-set window between
+ * turns. (A flat `[chunkA, chunkB]` array would otherwise collapse into a
+ * single turn — the drain is greedy until it hits an empty chunk.)
+ */
 class SpeakingAdapter extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
   readonly capabilities = new AdapterCapabilities({
@@ -62,16 +69,33 @@ class SpeakingAdapter extends VoiceAgentAdapter {
     outputFormats: ["pcm16/24000"],
   });
   private idx = 0;
+  private emitEos = false;
   private readonly chunks: AudioChunk[];
-  constructor(chunks: AudioChunk[]) {
+  private readonly delayFirstChunkMs: number;
+  constructor(chunks: AudioChunk[], delayFirstChunkMs = 0) {
     super();
     this.chunks = chunks;
+    this.delayFirstChunkMs = delayFirstChunkMs;
   }
   async connect(): Promise<void> {}
   async disconnect(): Promise<void> {}
   async sendAudio(_c: AudioChunk): Promise<void> {}
   async receiveAudio(_t: number): Promise<AudioChunk> {
-    return this.chunks[this.idx++] ?? new AudioChunk({ data: new Uint8Array(0) });
+    // Alternate: turn's audio chunk, then an empty EOS that ends the drain.
+    if (this.emitEos) {
+      this.emitEos = false;
+      return new AudioChunk({ data: new Uint8Array(0) });
+    }
+    const chunk =
+      this.chunks[this.idx++] ?? new AudioChunk({ data: new Uint8Array(0) });
+    if (chunk.data.length === 0) return chunk;
+    this.emitEos = true;
+    // This is a turn's FIRST chunk (its arrival sets the speaking event) — delay
+    // it so the cleared-but-not-yet-set window is observable across a yield.
+    if (this.delayFirstChunkMs > 0) {
+      await new Promise((r) => setTimeout(r, this.delayFirstChunkMs));
+    }
+    return chunk;
   }
 }
 
@@ -101,18 +125,27 @@ describe("defaultVoiceCall publishes the agent speaking event", () => {
   });
 
   it("clears the event at the start of the next turn (re-armed)", async () => {
-    const adapter = new SpeakingAdapter([tone(0.1, "one"), tone(0.1, "two")]);
+    // Turn-2's first chunk is delayed so the cleared-but-not-yet-set window is
+    // observable across a macrotask yield. Without it the immediate chunk would
+    // re-set the event before we could observe the clear.
+    const adapter = new SpeakingAdapter(
+      [tone(0.1, "one"), tone(0.1, "two")],
+      50,
+    );
     await defaultVoiceCall(adapter, bareInput);
     const ev = adapter.agentSpeakingEvent!;
     expect(ev.isSet()).toBe(true);
 
-    // A fresh turn must clear the event before draining (so a barge-in on turn
+    // A fresh turn must CLEAR the event before draining (so a barge-in on turn
     // 2 waits for turn-2 audio, not the stale turn-1 set). The same event
     // instance is reused, re-armed.
     void defaultVoiceCall(adapter, bareInput);
-    // Synchronously after the call starts, clear() has run but the new chunk
-    // hasn't been drained yet within this microtask.
+    // Yield a macrotask so any synchronous-ish drain would have run — yet the
+    // delayed turn-2 chunk has NOT arrived, so the event must read CLEARED. A
+    // no-op clear() (the bug this guards) would leave it set from turn 1.
+    await new Promise((r) => setTimeout(r, 0));
     expect(adapter.agentSpeakingEvent).toBe(ev);
+    expect(ev.isSet()).toBe(false);
   });
 });
 
@@ -132,10 +165,9 @@ class AudioUserSim extends UserSimulatorAgentAdapter {
   private turn = 0;
   async call(_input: AgentInput): Promise<AgentReturnTypes> {
     this.turn += 1;
-    return createAudioMessage(
-      tone(0.1, `user line ${this.turn}`),
-      "user",
-    ) as unknown as AgentReturnTypes;
+    // createAudioMessage returns AudioMessage (= ModelMessage), a member of
+    // the AgentReturnTypes union — no cast needed.
+    return createAudioMessage(tone(0.1, `user line ${this.turn}`), "user");
   }
   async voiceifyText(text: string): Promise<ReturnType<typeof createAudioMessage>> {
     return createAudioMessage(tone(0.1, text), "user");
@@ -218,19 +250,78 @@ describe("markTruncatedAgentSegments (the cut-off signal)", () => {
     markTruncatedAgentSegments(segments, [{ time: 1, type: "agent_start_speaking" }]);
     expect(segments.some((s) => s.transcriptTruncated)).toBe(false);
   });
+
+  // Boundary cases — load-bearing because the cursor-based interrupt time
+  // lands EXACTLY on a segment boundary (review NIT + the BLOCKER fix relies on
+  // inclusive containment).
+  it("flags an agent segment when the interrupt lands EXACTLY on its endTime", () => {
+    // Fast transport: the agent segment was already laid when the barge-in
+    // fired, so the cursor == its endTime.
+    const segments = [seg("agent", 2.25, 5.85), seg("user", 5.85, 9.3)];
+    markTruncatedAgentSegments(segments, [interruptAt(5.85)]);
+    expect(segments[0]!.transcriptTruncated).toBe(true);
+    expect(segments[1]!.transcriptTruncated).toBeUndefined();
+  });
+
+  it("flags an agent segment when the interrupt lands EXACTLY on its startTime", () => {
+    // Slow transport: the interrupted agent segment is recorded AFTER the
+    // barge-in cursor capture, so the cursor == its startTime.
+    const segments = [seg("user", 0, 2.25), seg("agent", 2.25, 5.85)];
+    markTruncatedAgentSegments(segments, [interruptAt(2.25)]);
+    expect(segments[1]!.transcriptTruncated).toBe(true);
+  });
+
+  // THE BLOCKER regression. The byte-accurate cursor and the wall clock
+  // diverge on fast transports (Gemini receives "faster than real-time"):
+  // the agent segment occupies the byte span [3.85, 10.33] on the cursor, but
+  // the barge-in's WALL-CLOCK offset was 11.865 (outside the byte span — see
+  // the committed gemini_live_interruption recording). Timestamping the
+  // interrupt on the cursor (== the segment boundary) marks it; the old
+  // wall-clock timestamp would NOT have (containment fails), which is exactly
+  // why the inline workaround was needed. With the cursor fix the post-hoc
+  // pass alone is correct.
+  it("marks truncation on the byte cursor even when the wall clock diverged", () => {
+    const segments = [
+      seg("user", 0, 3.85),
+      seg("agent", 3.85, 10.33),
+      seg("user", 10.33, 13.13),
+    ];
+    // What the OLD code recorded: a wall-clock-derived offset (11.865) that
+    // sits PAST the agent segment's byte endTime (10.33).
+    const wallClockInterrupt = interruptAt(11.865);
+    markTruncatedAgentSegments(structuredClone(segments), [wallClockInterrupt]);
+    // Sanity: the wall-clock time is genuinely outside the byte span, so the
+    // post-hoc pass alone could not have marked it (that's the bug).
+    expect(
+      segments[1]!.startTime <= wallClockInterrupt.time &&
+        wallClockInterrupt.time <= segments[1]!.endTime,
+    ).toBe(false);
+
+    // What the FIXED code records: the cursor at the barge-in instant — here
+    // the segment's endTime (the fast transport had already laid it).
+    const cursorInterrupt = interruptAt(10.33);
+    markTruncatedAgentSegments(segments, [cursorInterrupt]);
+    expect(
+      segments[1]!.transcriptTruncated,
+      "cursor-timestamped interrupt did not mark the agent segment it cut off",
+    ).toBe(true);
+  });
 });
 
 describe("the barge-in path fires a user_interrupt during a real run", () => {
-  it("agent({ wait: false }) + interrupt() records a user_interrupt event", async () => {
+  it("interrupt() mid-reply records a user_interrupt event AND truncates the cut-off reply", async () => {
     const exec = new ScenarioExecution(
       {
         name: "barge-in / event fires",
         description: "interrupt() mid-reply records a user_interrupt event",
         agents: [new VerboseVoiceAdapter(), new AudioUserSim(), new PassingJudge()],
       },
-      // agent({wait:false}) registers the in-flight turn; interrupt() fires the
-      // barge-in while the agent's (delayed) long reply is still draining.
-      [user(), agent({ wait: false }), interrupt({ content: "wait, stop" }), agent(), judge()],
+      // interrupt() itself fires the in-flight (non-blocking) agent turn, waits
+      // for it to start speaking, then barges in with the interrupting audio —
+      // so it must NOT be preceded by a separate agent({ wait: false }) (that
+      // would register a SECOND, empty turn and the barge-in would land on the
+      // empty one, leaving the real reply un-truncated).
+      [user(), interrupt({ content: "wait, stop" }), agent(), judge()],
       "test-batch-id",
     );
     const result = await exec.execute();
@@ -239,9 +330,23 @@ describe("the barge-in path fires a user_interrupt during a real run", () => {
       interrupts.length,
       "no user_interrupt event — barge-in never fired (the speaking-event wiring is the precondition)",
     ).toBeGreaterThan(0);
-    // The interrupt fired AFTER the agent began speaking (the speaking-event
-    // gate worked) — outcome is one of the "fired" variants, not pending_done.
+    // The interrupt fired AFTER the agent began speaking — the agent's long
+    // (1.5s) first chunk keeps the turn draining while interrupt() runs, so the
+    // speaking-event gate resolves and the barge-in lands mid-utterance. A
+    // `fired_before_speech` here would mean nothing was cut off (hollow).
     const outcome = interrupts[0]!.metadata?.outcome;
-    expect(["fired_after_speech", "fired_before_speech"]).toContain(outcome);
+    expect(
+      outcome,
+      "barge-in did not land mid-utterance — nothing was cut off",
+    ).toBe("fired_after_speech");
+    // And the cut-off agent reply is flagged truncated by the cursor-based
+    // post-hoc pass (the ONE truncation mechanism — no inline workaround).
+    const truncated = (result.audio?.segments ?? []).filter(
+      (s) => s.speaker === "agent" && s.transcriptTruncated,
+    );
+    expect(
+      truncated.length,
+      "no agent segment marked transcriptTruncated — the interrupt did not cut off a reply",
+    ).toBeGreaterThan(0);
   });
 });
