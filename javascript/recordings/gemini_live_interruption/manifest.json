@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T14:44:38.032Z",
-  "duration": 36.769999999999996,
+  "generated_at": "2026-05-27T17:37:42.183Z",
+  "duration": 7.34,
   "segment_count": 4,
   "segments": [
     {
@@ -8,37 +8,37 @@
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3.85,
-      "duration": 3.85,
+      "end_time": 3.7,
+      "duration": 3.7,
       "transcript": "Tell me everything you can about your platform, in detail."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3850ms.wav",
+      "file": "segments/01-agent-3700ms.wav",
       "role": "agent",
-      "start_time": 3.85,
-      "end_time": 10.33,
-      "duration": 6.48,
-      "transcript": "I am a large language model developed by Google. My platform is a complex",
+      "start_time": 3.7,
+      "end_time": 4.66,
+      "duration": 0.96,
+      "transcript": "My platform",
       "transcript_truncated": true
     },
     {
       "idx": 2,
-      "file": "segments/02-user-10330ms.wav",
+      "file": "segments/02-user-4660ms.wav",
       "role": "user",
-      "start_time": 10.33,
-      "end_time": 13.129999999999999,
-      "duration": 2.799999999999999,
+      "start_time": 4.66,
+      "end_time": 7.26,
+      "duration": 2.5999999999999996,
       "transcript": "Sorry — what are your business hours?"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-13129ms.wav",
+      "file": "segments/03-agent-7260ms.wav",
       "role": "agent",
-      "start_time": 13.129999999999999,
-      "end_time": 36.769999999999996,
-      "duration": 23.639999999999997,
-      "transcript": "As an AI,  I don't  have  traditional  \"business  audiences\"  in  the same  way a  commercial  product  does.  Instead,  my  capabilities  are leveraged  across  a very  diverse  spectrum  of users  and applications,  essentially  forming  my  effective  audience.  This  includes:  **Developers:**  who  integrate  my  underlying  technology  via  APIs  into  their  own  applications,"
+      "start_time": 7.26,
+      "end_time": 7.34,
+      "duration": 0.08000000000000007,
+      "transcript": null
     }
   ],
   "events": [
@@ -47,24 +47,16 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 3.85,
+      "time": 3.7,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3.85,
+      "time": 3.7,
       "type": "agent_start_speaking",
-      "latency": 9.109678174999999
+      "latency": 8.275443565
     },
     {
-      "time": 10.33,
-      "type": "agent_stop_speaking"
-    },
-    {
-      "time": 10.33,
-      "type": "user_start_speaking"
-    },
-    {
-      "time": 11.865276858,
+      "time": 3.7,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
@@ -73,15 +65,23 @@
       }
     },
     {
-      "time": 13.129999999999999,
+      "time": 4.66,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 4.66,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7.26,
       "type": "user_stop_speaking"
     },
     {
-      "time": 13.129999999999999,
+      "time": 7.26,
       "type": "agent_start_speaking"
     },
     {
-      "time": 36.769999999999996,
+      "time": 7.34,
       "type": "agent_stop_speaking"
     }
   ]
