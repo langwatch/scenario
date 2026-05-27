@@ -826,7 +826,7 @@ Feature: Voice agent testing in Scenario SDK
     # interruptions: InterruptionConfig({...})}) injects barge-ins across the run.
     Given a user simulator with interruptProbability and voiceProceed({ interruptions })
     When the multi-turn demo script runs via scenario.run()
-    Then at least one user_interrupt event is recorded in the timeline
+    Then at least one agent turn was actually interrupted (cut off)
     And the conversation involved multiple turns
 
   @e2e @ts-elevenlabs-interruption-demo
@@ -843,7 +843,7 @@ Feature: Voice agent testing in Scenario SDK
     # and cuts the agent's reply when user audio arrives mid-utterance.
     Given a Gemini Live agent and a mid-utterance interrupt()
     When the demo script runs via scenario.run()
-    Then a user_interrupt event is recorded and the recording has segments
+    Then the agent's first reply was cut off mid-utterance by the barge-in
 
   # ======================================================================
   # Persona / pain-pattern + greeting + pipecat-scenario demos (§6.1, §6.3, §8).
