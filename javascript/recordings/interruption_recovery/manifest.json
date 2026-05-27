@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T14:19:37.744Z",
-  "duration": 58.81,
+  "generated_at": "2026-05-27T14:45:51.729Z",
+  "duration": 54.57000000000001,
   "segment_count": 8,
   "segments": [
     {
@@ -8,73 +8,75 @@
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3,
-      "duration": 3,
+      "end_time": 2.25,
+      "duration": 2.25,
       "transcript": "Tell me about my billing options"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3000ms.wav",
+      "file": "segments/01-agent-2250ms.wav",
       "role": "agent",
-      "start_time": 3,
-      "end_time": 6.9,
-      "duration": 3.9000000000000004,
+      "start_time": 2.25,
+      "end_time": 5.85,
+      "duration": 3.5999999999999996,
       "transcript": "Hello, thank you for calling. How can I help you today?",
       "transcript_truncated": true
     },
     {
       "idx": 2,
-      "file": "segments/02-user-6900ms.wav",
+      "file": "segments/02-user-5850ms.wav",
       "role": "user",
-      "start_time": 6.9,
-      "end_time": 10,
-      "duration": 3.0999999999999996,
+      "start_time": 5.85,
+      "end_time": 9.3,
+      "duration": 3.450000000000001,
       "transcript": "Wait sorry, I meant account support, not billing"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-10000ms.wav",
+      "file": "segments/03-agent-9300ms.wav",
       "role": "agent",
-      "start_time": 10,
-      "end_time": 25.91,
-      "duration": 15.91,
-      "transcript": "Sure. We offer several billing options, including monthly billing, AutoPay with a saved payment method, and the option to pay by credit/debit card or bank transfer. If you tell me whether you're looking for monthly or AutoPay, I can recommend the best fit."
+      "start_time": 9.3,
+      "end_time": 24.51,
+      "duration": 15.21,
+      "transcript": "Sure! We offer several billing options, including monthly billing, auto-pay with a saved payment method, and one-time payments by card or bank transfer. If you tell me whether you're looking for monthly or auto-pay, I can guide you to the best setup.",
+      "transcript_truncated": true
     },
     {
       "idx": 4,
-      "file": "segments/04-user-25910ms.wav",
+      "file": "segments/04-user-24510ms.wav",
       "role": "user",
-      "start_time": 25.91,
-      "end_time": 28.81,
-      "duration": 2.8999999999999986,
+      "start_time": 24.51,
+      "end_time": 26.810000000000002,
+      "duration": 2.3000000000000007,
       "transcript": "Tell me about every feature you offer"
     },
     {
       "idx": 5,
-      "file": "segments/05-agent-28810ms.wav",
+      "file": "segments/05-agent-26810ms.wav",
       "role": "agent",
-      "start_time": 28.81,
-      "end_time": 38.71,
-      "duration": 9.900000000000002,
-      "transcript": "No problem at all, happy to help with account support. What do you need help with? Logging in, updating your profile, changing your payment method, or something else?"
+      "start_time": 26.810000000000002,
+      "end_time": 36.82,
+      "duration": 10.009999999999998,
+      "transcript": "No problem at all! I can help with account support. What do you need help with? Updating your profile, changing your password, managing your subscription, or something else?",
+      "transcript_truncated": true
     },
     {
       "idx": 6,
-      "file": "segments/06-user-38710ms.wav",
+      "file": "segments/06-user-36820ms.wav",
       "role": "user",
-      "start_time": 38.71,
-      "end_time": 42.01,
-      "duration": 3.299999999999997,
+      "start_time": 36.82,
+      "end_time": 40.27,
+      "duration": 3.450000000000003,
       "transcript": "Sorry, one more thing — can you keep it brief?"
     },
     {
       "idx": 7,
-      "file": "segments/07-agent-42010ms.wav",
+      "file": "segments/07-agent-40270ms.wav",
       "role": "agent",
-      "start_time": 42.01,
-      "end_time": 58.81,
-      "duration": 16.800000000000004,
-      "transcript": "I can definitely walk you through our main account features: secure sign-in, profile updates, viewing your account details, managing your payment method, and getting support help from our team. If you tell me what you're trying to do, like update info, fix an issue, or change."
+      "start_time": 40.27,
+      "end_time": 54.57000000000001,
+      "duration": 14.300000000000004,
+      "transcript": "I can definitely help! What kind of account are you using, personal or business? And are you asking about features in your app/portal, or account features like password and subscription management? If you tell me that, I'll list the relevant features clearly."
     }
   ],
   "events": [
@@ -83,16 +85,16 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 3,
+      "time": 2.25,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3,
+      "time": 2.25,
       "type": "agent_start_speaking",
-      "latency": 0.00045777100000066184
+      "latency": 0.00008186999998827105
     },
     {
-      "time": 4.295567872,
+      "time": 2.3270160330000067,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
@@ -101,57 +103,65 @@
       }
     },
     {
-      "time": 6.9,
+      "time": 5.85,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 6.9,
+      "time": 5.85,
       "type": "user_start_speaking"
     },
     {
-      "time": 10,
+      "time": 9.3,
       "type": "user_stop_speaking"
     },
     {
-      "time": 10,
+      "time": 9.3,
       "type": "agent_start_speaking"
     },
     {
-      "time": 25.91,
+      "time": 12.710444277000008,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_after_speech",
+        "native": true
+      }
+    },
+    {
+      "time": 24.51,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 25.91,
+      "time": 24.51,
       "type": "user_start_speaking"
     },
     {
-      "time": 28.81,
+      "time": 26.810000000000002,
       "type": "user_stop_speaking"
     },
     {
-      "time": 28.81,
+      "time": 26.810000000000002,
       "type": "agent_start_speaking",
-      "latency": 0.0001106810000006675
+      "latency": 1.1995383590000017
     },
     {
-      "time": 38.71,
+      "time": 36.82,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 38.71,
+      "time": 36.82,
       "type": "user_start_speaking"
     },
     {
-      "time": 42.01,
+      "time": 40.27,
       "type": "user_stop_speaking"
     },
     {
-      "time": 42.01,
-      "type": "agent_start_speaking",
-      "latency": 2.0408921530000015
+      "time": 40.27,
+      "type": "agent_start_speaking"
     },
     {
-      "time": 58.81,
+      "time": 54.57000000000001,
       "type": "agent_stop_speaking"
     }
   ]
