@@ -9,6 +9,12 @@ import { Callout } from "vocs/components";
 
 Designed to drive a Vapi outbound assistant.
 
+<Callout type="info">
+  **TypeScript: not yet available.** `VapiAgentAdapter` is Python-only today — it
+  is not exported from `@langwatch/scenario` (tracked in
+  [#563](https://github.com/langwatch/scenario/issues/563)).
+</Callout>
+
 <Callout type="warning">
   **Transport not yet implemented.** Calling `connect()` raises
   `PendingTransportError`. The capability declaration is final (it matches the
