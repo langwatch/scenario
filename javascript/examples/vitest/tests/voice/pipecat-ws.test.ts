@@ -104,7 +104,11 @@ describeFeature(
             ],
             maxTurns: 6,
           });
-          recordingDir = saveDemoRecording(result.audio, "pipecat_ws");
+          // 8kHz is the native phone-transport rate (mulaw/8000) and keeps the
+          // committed full.wav under the 1MB cap for a multi-turn conversation.
+          recordingDir = saveDemoRecording(result.audio, "pipecat_ws", {
+            downsampleHz: 8000,
+          });
         });
 
         Then("result.success is True", () => {
