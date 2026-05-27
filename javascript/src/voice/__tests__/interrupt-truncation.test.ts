@@ -27,15 +27,15 @@ import {
   JudgeAgentAdapter,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import { agent, interrupt, judge, user } from "../../script";
 import {
   ScenarioExecution,
   markTruncatedAgentSegments,
 } from "../../execution/scenario-execution";
-import { AudioChunk } from "../audio-chunk";
+import { agent, interrupt, judge, user } from "../../script";
 import { VoiceAgentAdapter } from "../adapter";
-import { AdapterCapabilities } from "../capabilities";
 import { defaultVoiceCall } from "../adapter.runtime";
+import { AudioChunk } from "../audio-chunk";
+import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage } from "../messages";
 import type { AudioSegment, VoiceEvent } from "../recording.types";
 
