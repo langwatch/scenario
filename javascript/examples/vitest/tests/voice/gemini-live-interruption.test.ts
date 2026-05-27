@@ -76,20 +76,24 @@ describeFeature(
               }),
               scenario.userSimulatorAgent({ voice: "openai/nova" }),
               scenario.judgeAgent({
+                // CONVERSATIONAL criteria (mirror the Python twin). The AUDIO
+                // proof that the first reply was CUT OFF (its segment is short +
+                // marked truncated) is asserted in code in the Then step — the
+                // judge can't measure audio-block length from a transcript.
                 criteria: [
-                  "The user simulator produced two distinct user turns, the second arriving while the agent was mid-reply",
+                  "The user simulator produced two distinct user turns, the second arriving while the agent was mid-reply (a mid-utterance interrupt, not a clean turn handoff)",
                   "The user and agent exchanged native-audio turns over a real Gemini Live session",
                   "The conversation is a coherent example of a mid-utterance interrupt landing on Gemini Live",
                 ],
               }),
             ],
-            // The agent's verbosity (systemInstruction above) gives Gemini a
-            // long reply to barge into; the user prompt stays SHORT so the
-            // user TTS segment + full.wav stay under the 1MB commit cap. The
+            // A VERBOSE first prompt (mirror the Python twin) so Gemini's reply
+            // is long — the barge-in then cuts a SHORT audio block out of a
+            // would-be-long reply, which is the measurable cut-off proof. The
             // 12s wait gives Gemini's first-audio latency room before the
-            // interrupt fires (mirrors the Python twin).
+            // interrupt fires.
             script: [
-              scenario.user("Tell me about your platform."),
+              scenario.user("Tell me everything you can about your platform, in detail."),
               scenario.interrupt({
                 content: "Sorry — what are your business hours?",
                 waitForSpeechTimeout: 12,
@@ -107,12 +111,13 @@ describeFeature(
         });
 
         Then(
-          "a user_interrupt event is recorded and the recording has segments",
+          "the agent's first reply was cut off mid-utterance by the barge-in",
           () => {
             expect(result, "scenario.run() returned no result").not.toBeNull();
             expect(result!.audio, "result.audio missing").toBeDefined();
+            const segments = result!.audio!.segments;
             expect(
-              result!.audio!.segments.length,
+              segments.length,
               "no audio segments from the live Gemini session",
             ).toBeGreaterThan(0);
             const interruptEvents = (result!.timeline ?? []).filter(
@@ -122,11 +127,25 @@ describeFeature(
               interruptEvents.length,
               "no user_interrupt event — the barge-in never fired on the Gemini socket",
             ).toBeGreaterThan(0);
+
+            // PROMISE (mirror the Python twin): the first reply was CUT OFF —
+            // its agent segment is flagged truncated (a user_interrupt landed in
+            // its span). Gemini has no client cancel, so this proves the server
+            // VAD detected the overlap and cut the in-flight audio. A hollow run
+            // (agent finishes its reply, interrupt fires into silence) cannot
+            // produce a truncated segment.
+            const truncated = segments.filter(
+              (s) => s.speaker === "agent" && s.transcriptTruncated,
+            );
+            expect(
+              truncated.length,
+              "no agent segment marked transcriptTruncated — Gemini's reply was not cut off",
+            ).toBeGreaterThan(0);
             expect(recordingDir, "recording was not written").not.toBeNull();
             console.log(
               `[demo] gemini_live_interruption → ${recordingDir} ` +
-                `(interrupts=${interruptEvents.length}, segments=${result!.audio!.segments.length}, ` +
-                `success=${result!.success})`,
+                `(interrupts=${interruptEvents.length}, truncated=${truncated.length}, ` +
+                `segments=${segments.length}, success=${result!.success})`,
             );
           },
         );

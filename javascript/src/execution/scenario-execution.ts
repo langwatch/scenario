@@ -1475,6 +1475,29 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         }
       }
 
+      // ROBUST cut-off marking: when we barge in AFTER the agent began
+      // speaking, the agent segment for the interrupted turn is the most-recent
+      // agent segment at THIS instant (its call() may have already recorded it
+      // if the transport drained fast — Gemini receives faster than real-time —
+      // or it may be recorded as the task settles below). Mark the current last
+      // agent segment now, AND snapshot the count so a still-in-flight segment
+      // recorded during settle is marked too. This is clock-agnostic, unlike the
+      // post-hoc time-containment fallback (markTruncatedAgentSegments), which
+      // misses it when byte-cursor segment times and wall-clock interrupt times
+      // diverge.
+      const rec = this.voiceRecording;
+      const markLastAgentTruncated = (): void => {
+        if (!rec) return;
+        for (let i = rec.segments.length - 1; i >= 0; i--) {
+          if (rec.segments[i]!.speaker === "agent") {
+            rec.segments[i]!.transcriptTruncated = true;
+            return;
+          }
+        }
+      };
+      if (agentWasSpeaking) markLastAgentTruncated();
+      const beforeSettle = rec ? rec.segments.length : 0;
+
       // 2. Push the user audio — the bot's VAD detects the overlap and cuts its
       //    reply, even without a native cancel (EL ConvAI, Gemini Live).
       const chunk = extractAudio(voicedMessage);
@@ -1503,6 +1526,15 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // 3. Let the in-flight agent task settle (JS promises aren't cancelable;
       //    the agent's call() finishes/errors naturally once we've barged in).
       await pending.promise;
+      // Any agent segment recorded DURING the settle (the cut-off reply, if the
+      // transport hadn't flushed it yet) is also truncated. Skip the user
+      // barge-in segment written just above (it's not an agent segment anyway).
+      if (agentWasSpeaking && rec) {
+        for (let i = beforeSettle; i < rec.segments.length; i++) {
+          const s = rec.segments[i]!;
+          if (s.speaker === "agent") s.transcriptTruncated = true;
+        }
+      }
       this.pendingAgentTask = null;
     }
 

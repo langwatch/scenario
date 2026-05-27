@@ -88,8 +88,13 @@ describeFeature(
                   "offer help yourself.",
               }),
               scenario.judgeAgent({
+                // CONVERSATIONAL criteria (mirror the Python twin); the AUDIO
+                // proof that turns were actually CUT OFF is asserted in code in
+                // the And step (truncated segments) — the judge can't see
+                // truncation from a back-filled transcript.
                 criteria: [
-                  "The agent continued the conversation after interruptions rather than stopping",
+                  "The agent continued the conversation after the interruptions rather than stopping or going silent",
+                  "The agent recovered context after being interrupted — it stayed on the user's account-help thread rather than restarting or ignoring it",
                   "The conversation involved multiple turns between user and agent",
                   "The conversation is a coherent example of probabilistic random interruptions",
                 ],
@@ -121,7 +126,7 @@ describeFeature(
           });
         });
 
-        Then("at least one user_interrupt event is recorded in the timeline", () => {
+        Then("at least one agent turn was actually interrupted (cut off)", () => {
           expect(result, "scenario.run() returned no result").not.toBeNull();
           const interruptEvents = (result!.timeline ?? []).filter(
             (e) => e.type === "user_interrupt",
@@ -130,10 +135,20 @@ describeFeature(
             interruptEvents.length,
             "no user_interrupt event — probabilistic barge-in never fired",
           ).toBeGreaterThan(0);
+          // The PROMISE: an agent turn was actually CUT OFF (not just an event
+          // emitted). At least one agent segment is marked truncated — a hollow
+          // run where the bot finished every reply cannot produce this.
+          const truncated = (result!.audio?.segments ?? []).filter(
+            (s) => s.speaker === "agent" && s.transcriptTruncated,
+          );
+          expect(
+            truncated.length,
+            "no agent segment marked transcriptTruncated — interruptions did not cut off any reply",
+          ).toBeGreaterThan(0);
           console.log(
             `[demo] random_interruptions → ${recordingDir} ` +
-              `(interrupts=${interruptEvents.length}, segments=${result!.audio?.segments.length}, ` +
-              `success=${result!.success})`,
+              `(interrupts=${interruptEvents.length}, truncated=${truncated.length}, ` +
+              `segments=${result!.audio?.segments.length}, success=${result!.success})`,
           );
         });
 

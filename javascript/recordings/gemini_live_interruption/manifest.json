@@ -1,34 +1,45 @@
 {
-  "generated_at": "2026-05-27T11:43:13.460Z",
-  "duration": 34.59,
-  "segment_count": 3,
+  "generated_at": "2026-05-27T14:18:29.543Z",
+  "duration": 31.19,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 1.85,
-      "duration": 1.85,
-      "transcript": "Tell me about your platform."
+      "end_time": 4.45,
+      "duration": 4.45,
+      "transcript": "Tell me everything you can about your platform, in detail."
     },
     {
       "idx": 1,
-      "file": "segments/01-user-1850ms.wav",
-      "role": "user",
-      "start_time": 1.85,
-      "end_time": 4.550000000000001,
-      "duration": 2.7000000000000006,
-      "transcript": "Sorry — what are your business hours?"
+      "file": "segments/01-agent-4450ms.wav",
+      "role": "agent",
+      "start_time": 4.45,
+      "end_time": 8.49,
+      "duration": 4.04,
+      "transcript": "I am a large language model developed by Google.",
+      "transcript_truncated": true
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-4550ms.wav",
+      "file": "segments/02-user-8490ms.wav",
+      "role": "user",
+      "start_time": 8.49,
+      "end_time": 12.39,
+      "duration": 3.9000000000000004,
+      "transcript": "Sorry — what are your business hours?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-12390ms.wav",
       "role": "agent",
-      "start_time": 4.550000000000001,
-      "end_time": 34.59,
-      "duration": 30.040000000000003,
-      "transcript": "That's quite alright!  It seems  you might  be thinking  of a  traditional  business,  but  I don't  have  defined  \"business  hours.\"  As  an  AI,  I  am  part  of a platform  that  operates  continuously,  24  hours  a day,  seven  days  a week.  There  are no  specific  times  when  I am  unavailable  or closed.  This means  you can  interact  with  me,  ask  questions,  or  utilize  my capabilities  whenever  it's  most  convenient  for you,  regardless  of the  time  of day  or  day  of the  week.  Is there  anything  specific"
+      "start_time": 12.39,
+      "end_time": 31.19,
+      "duration": 18.8,
+      "transcript": "As an AI, I don't have traditional business hours. My platform is available 24 hours a day, seven days a week, essentially all the time, barring any necessary maintenance or technical interruptions. You can interact with me whenever you need assistance or information.",
+      "transcript_truncated": true
     }
   ],
   "events": [
@@ -37,32 +48,41 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 1.85,
+      "time": 4.45,
       "type": "user_stop_speaking"
     },
     {
-      "time": 1.85,
+      "time": 4.45,
+      "type": "agent_start_speaking",
+      "latency": 11.913262915
+    },
+    {
+      "time": 8.49,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 8.49,
       "type": "user_start_speaking"
     },
     {
-      "time": 2.260722408,
+      "time": 12.39,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 12.39,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 14.535700291,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
-        "outcome": "fired_before_speech",
+        "outcome": "fired_after_speech",
         "native": true
       }
     },
     {
-      "time": 4.550000000000001,
-      "type": "user_stop_speaking"
-    },
-    {
-      "time": 4.550000000000001,
-      "type": "agent_start_speaking"
-    },
-    {
-      "time": 34.59,
+      "time": 31.19,
       "type": "agent_stop_speaking"
     }
   ]
