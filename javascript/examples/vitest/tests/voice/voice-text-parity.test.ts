@@ -54,11 +54,23 @@ const SHARED_CRITERIA = [
   "The agent's reply is coherent and conversational",
 ];
 
-/** Minimal text-only agent that echoes a polite reply. */
+/**
+ * Minimal text-only agent that replies politely and on-topic across turns.
+ * The first turn greets back; later turns acknowledge the question so a
+ * multi-turn conversation stays coherent for the shared judge criteria.
+ */
 class SimpleTextAgent extends AgentAdapter {
   role = AgentRole.AGENT;
+  private turn = 0;
   async call(_input: AgentInput): Promise<AgentReturnTypes> {
-    return "Hi there! I'm happy to help. What do you need?";
+    this.turn += 1;
+    if (this.turn === 1) {
+      return "Hi there! I'm happy to help. What do you need?";
+    }
+    return (
+      "Happy to help with that — I can answer questions, look things up, and " +
+      "walk you through next steps. What would you like to start with?"
+    );
   }
 }
 
@@ -92,12 +104,17 @@ describeFeature(
               scenario.userSimulatorAgent(), // no voice → text only
               scenario.judgeAgent({ criteria: SHARED_CRITERIA }),
             ],
+            // Multi-turn: two full user↔agent exchanges (same shape as the
+            // voice leg below) so the parity comparison is over a real
+            // conversation, not a single turn.
             script: [
               scenario.user("Hello, can you help me?"),
               scenario.agent(),
+              scenario.user("Great — what can you do?"),
+              scenario.agent(),
               scenario.judge(),
             ],
-            maxTurns: 4,
+            maxTurns: 6,
           });
 
           // Voice leg — SAME entrypoint, SAME script shape, voice agent swapped in.
@@ -115,12 +132,15 @@ describeFeature(
               scenario.userSimulatorAgent({ voice: "openai/nova" }),
               scenario.judgeAgent({ criteria: SHARED_CRITERIA }),
             ],
+            // Identical multi-turn script shape as the text leg above.
             script: [
               scenario.user("Hello, can you help me?"),
               scenario.agent(),
+              scenario.user("Great — what can you do?"),
+              scenario.agent(),
               scenario.judge(),
             ],
-            maxTurns: 4,
+            maxTurns: 6,
           });
           saveDemoRecording(voiceResult.audio, "voice_text_parity");
         });

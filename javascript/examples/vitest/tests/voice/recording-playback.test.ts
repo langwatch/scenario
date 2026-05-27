@@ -78,17 +78,21 @@ describeFeature(
                 scenario.userSimulatorAgent({ voice: "openai/nova" }),
                 scenario.judgeAgent({
                   criteria: [
-                    "The agent responded helpfully",
+                    "The agent responded helpfully across both turns",
                     "The agent and user produced enough audio to save a non-empty recording",
                   ],
                 }),
               ],
+              // Multi-turn: two full user↔agent exchanges so the saved WAV/MP3
+              // capture a real conversation, not a single turn.
               script: [
                 scenario.user("Hello, can you help me?"),
                 scenario.agent(),
+                scenario.user("Can you also tell me a fun fact?"),
+                scenario.agent(),
                 scenario.judge(),
               ],
-              maxTurns: 4,
+              maxTurns: 6,
             });
 
             expect(result.audio, "result.audio missing").toBeDefined();
