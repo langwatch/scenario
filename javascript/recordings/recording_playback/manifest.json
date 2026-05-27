@@ -1,24 +1,42 @@
 {
-  "generated_at": "2026-05-26T19:19:42.029Z",
-  "duration": 5.1,
-  "segment_count": 2,
+  "generated_at": "2026-05-27T10:55:13.224Z",
+  "duration": 18.05,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 1.8,
-      "duration": 1.8,
+      "end_time": 3.15,
+      "duration": 3.15,
       "transcript": "Hello, can you help me?"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-1800ms.wav",
+      "file": "segments/01-agent-3150ms.wav",
       "role": "agent",
-      "start_time": 1.8,
-      "end_time": 5.1,
-      "duration": 3.3,
+      "start_time": 3.15,
+      "end_time": 6.8,
+      "duration": 3.65,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6800ms.wav",
+      "role": "user",
+      "start_time": 6.8,
+      "end_time": 9.65,
+      "duration": 2.8500000000000005,
+      "transcript": "Can you also tell me a fun fact?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-9650ms.wav",
+      "role": "agent",
+      "start_time": 9.65,
+      "end_time": 18.05,
+      "duration": 8.4,
       "transcript": null
     }
   ],
@@ -28,16 +46,33 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 1.8,
+      "time": 3.15,
       "type": "user_stop_speaking"
     },
     {
-      "time": 1.8,
+      "time": 3.15,
       "type": "agent_start_speaking",
-      "latency": 0.974147377
+      "latency": 0.6677012370000002
     },
     {
-      "time": 5.1,
+      "time": 6.8,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.8,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.65,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 9.65,
+      "type": "agent_start_speaking",
+      "latency": 0.7321945750000012
+    },
+    {
+      "time": 18.05,
       "type": "agent_stop_speaking"
     }
   ]
