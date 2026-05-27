@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T10:55:13.224Z",
-  "duration": 18.05,
+  "generated_at": "2026-05-27T14:33:11.713Z",
+  "duration": 11.5,
   "segment_count": 4,
   "segments": [
     {
@@ -8,36 +8,36 @@
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3.15,
-      "duration": 3.15,
+      "end_time": 1.6,
+      "duration": 1.6,
       "transcript": "Hello, can you help me?"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3150ms.wav",
+      "file": "segments/01-agent-1600ms.wav",
       "role": "agent",
-      "start_time": 3.15,
-      "end_time": 6.8,
-      "duration": 3.65,
-      "transcript": null
+      "start_time": 1.6,
+      "end_time": 5.5,
+      "duration": 3.9,
+      "transcript": "Of course, I'm here to help. What do you need assistance with?"
     },
     {
       "idx": 2,
-      "file": "segments/02-user-6800ms.wav",
+      "file": "segments/02-user-5500ms.wav",
       "role": "user",
-      "start_time": 6.8,
-      "end_time": 9.65,
-      "duration": 2.8500000000000005,
+      "start_time": 5.5,
+      "end_time": 7.9,
+      "duration": 2.4000000000000004,
       "transcript": "Can you also tell me a fun fact?"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-9650ms.wav",
+      "file": "segments/03-agent-7900ms.wav",
       "role": "agent",
-      "start_time": 9.65,
-      "end_time": 18.05,
-      "duration": 8.4,
-      "transcript": null
+      "start_time": 7.9,
+      "end_time": 11.5,
+      "duration": 3.5999999999999996,
+      "transcript": "Absolutely. Did you know that octopuses have three hearts?"
     }
   ],
   "events": [
@@ -46,33 +46,33 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 3.15,
+      "time": 1.6,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3.15,
+      "time": 1.6,
       "type": "agent_start_speaking",
-      "latency": 0.6677012370000002
+      "latency": 0.7210692909999992
     },
     {
-      "time": 6.8,
+      "time": 5.5,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 6.8,
+      "time": 5.5,
       "type": "user_start_speaking"
     },
     {
-      "time": 9.65,
+      "time": 7.9,
       "type": "user_stop_speaking"
     },
     {
-      "time": 9.65,
+      "time": 7.9,
       "type": "agent_start_speaking",
-      "latency": 0.7321945750000012
+      "latency": 0.7644757779999996
     },
     {
-      "time": 18.05,
+      "time": 11.5,
       "type": "agent_stop_speaking"
     }
   ]
