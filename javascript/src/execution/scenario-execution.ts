@@ -33,30 +33,6 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
-import type { AudioChunk } from "../voice/audio-chunk";
-import type {
-  LatencyMetrics,
-  VoiceEvent,
-  VoiceRecording,
-} from "../voice/recording.types";
-import type { VoiceAgentAdapter } from "../voice/adapter";
-import type { VoiceExecutorState } from "../voice/voice-executor-state";
-import {
-  resolveVoiceConfig,
-  type ResolvedVoiceConfig,
-  type VoiceConfig,
-} from "../voice/config";
-import {
-  initVoiceExecutorState,
-  pickVoiceAdapters,
-  startVoiceAdapters,
-  stopVoiceAdapters,
-  writeUserSegment,
-} from "../voice/adapter.runtime";
-import { extractAudio } from "../voice/messages";
-import { VoiceAgentAdapter as VoiceAgentAdapterClass } from "../voice/adapter";
-import { computeLatencyMetrics } from "../voice/recording.runtime";
-import { InterruptionConfig } from "../voice/interruption";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -64,6 +40,30 @@ import {
   generateThreadId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
+import type { VoiceAgentAdapter } from "../voice/adapter";
+import { VoiceAgentAdapter as VoiceAgentAdapterClass } from "../voice/adapter";
+import {
+  initVoiceExecutorState,
+  pickVoiceAdapters,
+  startVoiceAdapters,
+  stopVoiceAdapters,
+  writeUserSegment,
+} from "../voice/adapter.runtime";
+import type { AudioChunk } from "../voice/audio-chunk";
+import {
+  resolveVoiceConfig,
+  type ResolvedVoiceConfig,
+  type VoiceConfig,
+} from "../voice/config";
+import { InterruptionConfig } from "../voice/interruption";
+import { extractAudio } from "../voice/messages";
+import { computeLatencyMetrics } from "../voice/recording.runtime";
+import type {
+  LatencyMetrics,
+  VoiceEvent,
+  VoiceRecording,
+} from "../voice/recording.types";
+import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
 /**
  * Manages the execution of a single scenario test.
@@ -575,7 +575,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
       if (checkFailure) {
         const cp = this.compiledCheckpoints;
-        let result = this.setResult({
+        const result = this.setResult({
           success: false,
           reasoning: `Scenario failed with error: ${checkFailure.message}`,
           metCriteria: cp.metCriteria,

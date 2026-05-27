@@ -563,3 +563,77 @@ hit a type error (a `{ wait: false }` object isn't a `string | ModelMessage`).
 
 Working tree clean (only the gitignored `dist/`, `*.tgz`, and `.env` files untracked
 — no `.env`/secret/probe committed).
+
+---
+
+# DEMO UPGRADE — multi-turn + interruption + persona-parity demos (DONE)
+
+**Branch:** `voice/372-refactor`. Closes three demo gaps: demos were
+single-turn; Python-parity demos were missing; there were NO interruption demos
+(interruption is the flagship voice capability). Real keys, real runs, NO mocks;
+committed incrementally per demo. No `python/` edits.
+
+## Executor src fix — `agent({ wait:false }) + user()` barge-in was non-functional
+The flagship interruption path was dead in the TS port: `agent({ wait:false })`
+fired the agent fire-and-forget with no executor handle, so a following `user()`
+ran as a SEPARATE turn — no barge-in, no `user_interrupt` event. Only
+`proceed({ interruptions })` recorded interrupts. (`startVoiceTurn`/
+`VoiceTurnHandle` existed but were dead code from the executor's view.) Mirrored
+Python's `scenario_executor._pending_agent_task` path in TS src:
+- `ScenarioExecution.agentNonBlocking()` registers the in-flight turn;
+  `user()` detects it (`maybeFireUserInterrupt`) → `fireUserInterrupt`: native
+  cancel (`capabilities.interruption`) + push barge-in audio (bot VAD cuts the
+  reply) + record `user_interrupt` event + user segment + clear the adapter's
+  pending queue (so the recovery turn doesn't re-send the audio).
+- `voiceAgentStep({ wait:false })` and `interrupt()` now call `agentNonBlocking`
+  (optional on `ScenarioExecutionLike`; fall back to fire-and-forget).
+- `interruptResponseTime` derived from the timeline (`user_interrupt` → next
+  `agent_stop_speaking`) when not explicitly set.
+- **Full unit suite: 747 passed / 1 skipped — IDENTICAL to baseline (no regression).**
+
+## Per-demo status (all real runs)
+| Demo | Turns | Barge-in | Audio | Notes |
+|---|---|---|---|---|
+| openai_realtime_agent | 2 exchanges | — | full.wav 737KB + segments | multi-turn |
+| openai_realtime_user | 2 spoken | — | full.wav 938KB + segments | two `sendText` turns |
+| elevenlabs_hosted | greeting + 1 | — | full.wav 332KB + segments | live ConvAI: 2nd scripted turn times out (documented) |
+| elevenlabs_branded | 2 exchanges | — | full.wav 557KB + segments | `systemPrompt` brief replies keep <1MB |
+| gemini_live | 2 exchanges | — | full.wav + segments | model replies twice; trailing agent audio drop documented |
+| composable_stt_swap | 2 exchanges | — | full.wav 859KB + manifest | EL STT transcribe() = 2 |
+| recording_playback | 2 exchanges | — | full.wav 866KB + manifest | WAV + MP3 saved |
+| voice_text_parity | 2 exchanges | — | full.wav 806KB + manifest | text leg audio undefined; voice leg 4 segs |
+| pipecat_ws | 2 exchanges | — | full.wav 826KB + manifest | live bot |
+| pipecat_scenario | 2 exchanges | — | full.wav 8kHz 199KB + manifest | second multi-turn smoke |
+| basic_greeting | greeting + 2 | — | full.wav 8kHz 467KB + manifest | §6.1 |
+| **interruption_recovery** | multi + 2 barge-ins | ✅ 2 real | full.wav 8kHz 898KB + manifest | §6.2 — `interruptResponseTime` recorded |
+| **random_interruptions** | multi | ✅ real | full.wav 8kHz 238KB + manifest | §6.7 — `voiceProceed({ interruptions })` |
+| **gemini_live_interruption** | 2 + interrupt | ✅ real | full.wav 8kHz 554KB + manifest | server-VAD barge-in on Gemini |
+| **elevenlabs_interruption** | — | ⏸ gated | — | live ConvAI scripted-interrupt times out (4 honest tries); NOT faked. `RUN_EL_INTERRUPTION=1` |
+| angry_customer | 2 exchanges | — | full.wav 8kHz 696KB + manifest | §6.3 persona + backgroundNoise + phoneQuality |
+| background_handoff | multi (handoff) | — | full.wav 8kHz 223KB + manifest | §8 — `silence()` handoff |
+| twilio_inbound/outbound | — | — | ⏸ MANUAL | needs 2nd number + tunnel (absent) |
+
+Every committed `full.wav` < 1MB (long conversations downsampled to 8kHz via the
+helper's new `downsampleHz`); every `manifest.duration` == `full.wav`
+byte-duration (M1). The barge-in capability fires real `user_interrupt` events on
+the Pipecat and Gemini transports; EL ConvAI's scripted-interrupt limitation is
+documented, not faked.
+
+## Convergence gate (held)
+- `npx tsc --noEmit` (src) → **0 errors**; `examples/vitest` tsc → **0 errors**.
+- Full unit suite (`npx vitest run`): **747 passed / 1 skipped** (= baseline; no
+  regression from the executor barge-in wiring + latency derivation + helper).
+- `@ts-e2e` round-trip gate (real `OPENAI_API_KEY`): **3 passed**.
+- All 18 voice demo `@e2e` test files pass with real keys / live bot (EL
+  interruption gated off; Twilio manual). Pipecat bot brought up via
+  `make voice-pipecat-up` and torn down with the `pkill -f .../bot.py` fallback
+  (:8765 verified free).
+
+## Feature + helper + gitignore
+- `specs/voice-agents.feature`: 8 new `@ts-*` Demo scenarios (interruption ×4,
+  persona/greeting/pipecat-scenario ×4) bound by the new demo test files.
+- `examples/vitest/tests/voice/helpers/save-demo-recording.ts`: auto-prunes
+  `segments/*.wav` not in the fresh manifest (re-runs renamed by byte-offset);
+  new `downsampleHz` option re-encodes `full.wav` for the 1MB cap.
+- `.gitignore`: un-ignores the new TS recording dirs (core = +segments;
+  additional = full.wav + manifest only).

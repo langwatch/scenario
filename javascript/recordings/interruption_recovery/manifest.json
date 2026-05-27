@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T11:28:25.074Z",
-  "duration": 56.11,
+  "generated_at": "2026-05-27T11:57:11.659Z",
+  "duration": 61.55,
   "segment_count": 8,
   "segments": [
     {
@@ -8,71 +8,71 @@
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 2.25,
-      "duration": 2.25,
+      "end_time": 2.3,
+      "duration": 2.3,
       "transcript": "Tell me about my billing options"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-2250ms.wav",
+      "file": "segments/01-agent-2300ms.wav",
       "role": "agent",
-      "start_time": 2.25,
-      "end_time": 5.45,
-      "duration": 3.2,
+      "start_time": 2.3,
+      "end_time": 6.1,
+      "duration": 3.8,
       "transcript": null
     },
     {
       "idx": 2,
-      "file": "segments/02-user-5450ms.wav",
+      "file": "segments/02-user-6100ms.wav",
       "role": "user",
-      "start_time": 5.45,
-      "end_time": 8.85,
-      "duration": 3.3999999999999995,
+      "start_time": 6.1,
+      "end_time": 9.899999999999999,
+      "duration": 3.799999999999999,
       "transcript": "Wait sorry, I meant account support, not billing"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-8850ms.wav",
+      "file": "segments/03-agent-9899ms.wav",
       "role": "agent",
-      "start_time": 8.85,
-      "end_time": 22.36,
-      "duration": 13.51,
+      "start_time": 9.899999999999999,
+      "end_time": 25.599999999999998,
+      "duration": 15.7,
       "transcript": null
     },
     {
       "idx": 4,
-      "file": "segments/04-user-22360ms.wav",
+      "file": "segments/04-user-25599ms.wav",
       "role": "user",
-      "start_time": 22.36,
-      "end_time": 25.16,
-      "duration": 2.8000000000000007,
+      "start_time": 25.599999999999998,
+      "end_time": 28.599999999999998,
+      "duration": 3,
       "transcript": "Tell me about every feature you offer"
     },
     {
       "idx": 5,
-      "file": "segments/05-agent-25160ms.wav",
+      "file": "segments/05-agent-28599ms.wav",
       "role": "agent",
-      "start_time": 25.16,
-      "end_time": 34.56,
-      "duration": 9.400000000000002,
+      "start_time": 28.599999999999998,
+      "end_time": 38.8,
+      "duration": 10.2,
       "transcript": null
     },
     {
       "idx": 6,
-      "file": "segments/06-user-34560ms.wav",
+      "file": "segments/06-user-38800ms.wav",
       "role": "user",
-      "start_time": 34.56,
-      "end_time": 39.410000000000004,
-      "duration": 4.850000000000001,
+      "start_time": 38.8,
+      "end_time": 41.75,
+      "duration": 2.950000000000003,
       "transcript": "Sorry, one more thing — can you keep it brief?"
     },
     {
       "idx": 7,
-      "file": "segments/07-agent-39410ms.wav",
+      "file": "segments/07-agent-41750ms.wav",
       "role": "agent",
-      "start_time": 39.410000000000004,
-      "end_time": 56.11,
-      "duration": 16.699999999999996,
+      "start_time": 41.75,
+      "end_time": 61.55,
+      "duration": 19.799999999999997,
       "transcript": null
     }
   ],
@@ -82,16 +82,16 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 2.25,
+      "time": 2.3,
       "type": "user_stop_speaking"
     },
     {
-      "time": 2.25,
+      "time": 2.3,
       "type": "agent_start_speaking",
-      "latency": 0.0008364329999999143
+      "latency": 0.00023265100000013916
     },
     {
-      "time": 2.630415515,
+      "time": 3.242001203,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
@@ -100,23 +100,23 @@
       }
     },
     {
-      "time": 5.45,
+      "time": 6.1,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 5.45,
+      "time": 6.1,
       "type": "user_start_speaking"
     },
     {
-      "time": 8.85,
+      "time": 9.899999999999999,
       "type": "user_stop_speaking"
     },
     {
-      "time": 8.85,
+      "time": 9.899999999999999,
       "type": "agent_start_speaking"
     },
     {
-      "time": 11.625350889000002,
+      "time": 12.424870475,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
@@ -125,40 +125,40 @@
       }
     },
     {
-      "time": 22.36,
+      "time": 25.599999999999998,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 22.36,
+      "time": 25.599999999999998,
       "type": "user_start_speaking"
     },
     {
-      "time": 25.16,
+      "time": 28.599999999999998,
       "type": "user_stop_speaking"
     },
     {
-      "time": 25.16,
+      "time": 28.599999999999998,
       "type": "agent_start_speaking",
-      "latency": 0.00007224999999877468
+      "latency": 0.0359480949999984
     },
     {
-      "time": 34.56,
+      "time": 38.8,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 34.56,
+      "time": 38.8,
       "type": "user_start_speaking"
     },
     {
-      "time": 39.410000000000004,
+      "time": 41.75,
       "type": "user_stop_speaking"
     },
     {
-      "time": 39.410000000000004,
+      "time": 41.75,
       "type": "agent_start_speaking"
     },
     {
-      "time": 56.11,
+      "time": 61.55,
       "type": "agent_stop_speaking"
     }
   ]
