@@ -14,18 +14,22 @@ If you want to compare specifics side-by-side, see the
 
 ## By use case
 
-| I want to… | Adapter |
-|---|---|
-| Test a Twilio IVR (phone, DTMF) | [Twilio](/voice/adapters/twilio) |
-| Test an OpenAI Realtime agent | [OpenAI Realtime](/voice/adapters/openai-realtime) |
-| Test a custom Pipecat bot | [Pipecat](/voice/adapters/pipecat) |
-| Use a branded ElevenLabs Convai agent | [ElevenLabs](/voice/adapters/elevenlabs) |
-| Test a Gemini Live agent | [Gemini Live](/voice/adapters/gemini-live) |
-| Test a LiveKit room agent (preview) | [LiveKit](/voice/adapters/livekit) [preview] |
-| Test a Vapi outbound dialer (preview) | [Vapi](/voice/adapters/vapi) [preview] |
-| Test a raw WebRTC datachannel agent (preview) | [WebRTC](/voice/adapters/webrtc) [preview] |
-| Plug in your own STT + LLM + TTS pipeline | [Composable](/voice/adapters/composable) |
-| Speak a custom WebSocket protocol | [WebSocket](/voice/adapters/websocket) |
+The **Languages** column shows which SDKs ship the adapter today. Adapters marked
+Python-only are not yet ported to TypeScript (tracked in
+[#563](https://github.com/langwatch/scenario/issues/563)).
+
+| I want to… | Adapter | Languages |
+|---|---|---|
+| Test a Twilio IVR (phone, DTMF) | [Twilio](/voice/adapters/twilio) | Python · TypeScript |
+| Test an OpenAI Realtime agent | [OpenAI Realtime](/voice/adapters/openai-realtime) | Python · TypeScript |
+| Test a custom Pipecat bot | [Pipecat](/voice/adapters/pipecat) | Python · TypeScript |
+| Use a branded ElevenLabs Convai agent | [ElevenLabs](/voice/adapters/elevenlabs) | Python · TypeScript |
+| Test a Gemini Live agent | [Gemini Live](/voice/adapters/gemini-live) | Python · TypeScript |
+| Test a LiveKit room agent (preview) | [LiveKit](/voice/adapters/livekit) [preview] | Python-only |
+| Test a Vapi outbound dialer (preview) | [Vapi](/voice/adapters/vapi) [preview] | Python-only |
+| Test a raw WebRTC datachannel agent (preview) | [WebRTC](/voice/adapters/webrtc) [preview] | Python-only |
+| Plug in your own STT + LLM + TTS pipeline | [Composable](/voice/adapters/composable) | Python · TypeScript |
+| Speak a custom WebSocket protocol | [WebSocket](/voice/adapters/websocket) | Python-only |
 
 ## What's next
 
