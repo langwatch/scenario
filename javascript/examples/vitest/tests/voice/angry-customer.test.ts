@@ -100,18 +100,30 @@ describeFeature(
                 // voice + the inline tonal markers in the persona below render
                 // AUDIBLE anger (mirror python/examples/voice/angry_customer.py).
                 voice: "elevenlabs/EXAVITQu4vr4xnSDxMaL",
+                // NOTE on brevity: we deliberately do NOT set a maxTokens cap here.
+                // The default model is gpt-5-mini, a REASONING model whose reasoning
+                // tokens count against maxOutputTokens — any cap tight enough to
+                // bound a 1–2 sentence turn (tried 64, then 300) starves the visible
+                // completion to empty ("No response content from LLM"). The brevity
+                // lever that actually works is the forceful persona below ("1–2 SHORT
+                // sentences MAX, NEVER a paragraph"); the < 12s code gate in the Then
+                // step is the hard enforcement of the audio side.
                 persona:
-                  "Very angry customer who was charged incorrectly. Speaking " +
-                  "loudly and impatiently from a cafe. Wants this fixed " +
-                  "immediately. Speak as a CUSTOMER would — complain, demand a " +
-                  "fix, never offer help yourself. Keep every reply SHORT and " +
-                  "heated (one or two sentences max). " +
+                  "You are the FURIOUS CUSTOMER who was charged twice and is " +
+                  "calling from a noisy cafe. You are NOT the support agent. " +
+                  "NEVER apologize, NEVER say sorry, NEVER offer help, NEVER offer " +
+                  "empathy, NEVER explain a refund process, NEVER mirror or echo " +
+                  "the agent's lines — that is THEIR job, not yours. You only " +
+                  "complain, demand the charge be fixed, and stay impatient. Reply " +
+                  "with 1–2 SHORT, heated sentences MAXIMUM per turn — never a " +
+                  "paragraph. " +
                   "IMPORTANT: format every reply with ElevenLabs tonal markers " +
                   "inline so the synthesised voice sounds audibly angry, not " +
                   "just textually. Use markers like [shouting], [angry], [sigh], " +
-                  "[exhales sharply], [frustrated]. Example: '[shouting] You " +
-                  "charged me the wrong amount! [angry] Fix it NOW.' Do not strip " +
-                  "the markers — the TTS reads them as performance cues.",
+                  "[exhales sharply], [frustrated], and keep at least one in EVERY " +
+                  "turn. Example: '[shouting] You charged me the wrong amount! " +
+                  "[angry] Fix it NOW.' Do not strip the markers — the TTS reads " +
+                  "them as performance cues.",
                 // Effects (§4.5): cafe ambience + phone-codec degradation
                 // layered on the synthesized user audio.
                 audioEffects: [
@@ -169,6 +181,25 @@ describeFeature(
             segments.length,
             "expected a multi-turn recording",
           ).toBeGreaterThanOrEqual(4);
+
+          // PROMISE-ENCODING gate (the "short heated turns" half a transcript-only
+          // judge can silently pass): an ANGRY customer fires 1–2 short sentences,
+          // never an agent-style empathy monologue. We saw role-reversal drift
+          // produce a 31s "I'm really sorry…" user turn that the criteria did not
+          // catch. Assert EVERY user segment is short. In-memory segment PCM is
+          // 24kHz mono PCM16 (see noiseFloorRms's 480-sample/20ms frame); duration
+          // = bytes / 2 / 24000. Bound 12s ≈ 1.7× the good turn-1 (~6.8s) — generous
+          // enough to survive run-to-run jitter, tight enough to fail a 31s monologue.
+          const userDurations = segments
+            .filter((s) => s.speaker === "user")
+            .map((s) => s.audio.length / 2 / 24000);
+          const maxUserSegDuration = Math.max(0, ...userDurations);
+          expect(
+            maxUserSegDuration,
+            `a user (angry-customer) turn ran ${maxUserSegDuration.toFixed(1)}s — ` +
+              `too long for a 1–2 sentence heated turn (role-reversal drift / no token cap?). ` +
+              `durations=[${userDurations.map((d) => d.toFixed(1)).join(", ")}]`,
+          ).toBeLessThan(12);
 
           // AUDIO-PROPERTY proof (the half the LLM judge cannot see): the cafe
           // ambience was actually MIXED onto the user's TTS — not a silent
