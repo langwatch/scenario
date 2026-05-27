@@ -1,26 +1,26 @@
 {
-  "generated_at": "2026-05-26T19:19:42.022Z",
-  "duration": 9.7,
-  "segment_count": 1,
+  "generated_at": "2026-05-27T11:10:35.903Z",
+  "duration": 19.55,
+  "segment_count": 2,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 9.7,
-      "duration": 9.7,
-      "transcript": "Of course, I understand. Let's take it step by step. Could you tell me what site or service you're trying to reset the password for? That will help me guide you."
-    }
-  ],
-  "events": [
-    {
-      "time": 0,
-      "type": "user_start_speaking"
+      "end_time": 9.25,
+      "duration": 9.25,
+      "transcript": "Of course, I understand. Let me help you with that. First, could you tell me which service or website you're trying to reset the password for? That way, I can guide you step by step."
     },
     {
-      "time": 9.7,
-      "type": "user_stop_speaking"
+      "idx": 1,
+      "file": "segments/01-user-9250ms.wav",
+      "role": "user",
+      "start_time": 9.25,
+      "end_time": 19.55,
+      "duration": 10.3,
+      "transcript": "That’s okay, we can figure this out together. Let's take it step by step. Do you remember the email address you used to sign up, or any part of it? That might help us look up your account."
     }
-  ]
+  ],
+  "events": []
 }
