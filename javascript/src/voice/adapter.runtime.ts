@@ -63,8 +63,14 @@ export class AgentSpeakingEvent {
     this.resolveFn();
   }
 
-  /** Snapshot the current state. */
-  get isSet(): boolean {
+  /**
+   * Snapshot the current state. A METHOD (not a getter) so the class
+   * structurally satisfies the {@link AgentSpeakingEvent} interface in
+   * `adapter.ts` (`isSet(): boolean`) and the interruption path's
+   * `speaking.isSet()` calls — the interface, the runtime, and every caller
+   * agree on the call form.
+   */
+  isSet(): boolean {
     return this.resolved;
   }
 
@@ -630,6 +636,15 @@ function getAgentSpeakingEvent(adapter: VoiceAgentAdapter): AgentSpeakingEvent {
   if (!event) {
     event = new AgentSpeakingEvent();
     speakingEventRegistry.set(adapter, event);
+  }
+  // Publish onto the adapter so the executor's barge-in path
+  // (`fireUserInterrupt` → `adapter.agentSpeakingEvent`) can WAIT for the
+  // agent to actually start speaking before firing the interrupt. Without
+  // this the field stayed `undefined` on every adapter and barge-ins fired
+  // "before speech" — nothing to cut off (issue #372 hollow-interrupt fix).
+  // Mirrors Python's base-adapter `_agent_speaking_event` (adapter.py:66).
+  if (adapter.agentSpeakingEvent !== event) {
+    adapter.agentSpeakingEvent = event;
   }
   return event;
 }
