@@ -187,19 +187,35 @@ describeFeature(
           const minTruncatedDur = Math.min(
             ...truncated.map((s) => s.endTime - s.startTime),
           );
+          // The cut-off reply must be MEANINGFULLY shorter than the full
+          // (uninterrupted) reply, not just any epsilon shorter — a ratio so a
+          // near-full segment that happens to be 1ms shorter does NOT pass as a
+          // "truncation" (review T4: `< maxAgentDur` alone is trivially true).
+          const TRUNCATION_RATIO_MAX = 0.8;
           expect(
-            minTruncatedDur,
-            "the 'truncated' reply is not shorter than the full reply — cut-off not demonstrated",
-          ).toBeLessThan(maxAgentDur);
+            minTruncatedDur / maxAgentDur,
+            `the 'truncated' reply (${minTruncatedDur.toFixed(2)}s) is not ` +
+              `meaningfully shorter than the full reply (${maxAgentDur.toFixed(2)}s) — ` +
+              `cut-off not demonstrated`,
+          ).toBeLessThan(TRUNCATION_RATIO_MAX);
 
-          // Agent audio AFTER the last interrupt = the recovery turn.
+          // Agent audio strictly AFTER the last interrupt = the recovery turn.
+          // Both the interrupt time and the segment start are now on the SAME
+          // byte-accurate audio cursor (review BLOCKER fix), so this is a
+          // like-for-like comparison rather than the cross-clock guess the old
+          // 10ms tolerance papered over (review T5). The comparison is STRICTLY
+          // `>`: the cut-off segment itself starts at/before the interrupt cursor
+          // (inclusive containment), so a non-strict check would let the
+          // truncated reply masquerade as recovery audio. The real recovery
+          // segment is laid after the barge-in user segment, so its start sits
+          // strictly past the interrupt cursor.
           const lastInterrupt = Math.max(...interruptEvents.map((e) => e.time));
           const recoveryAgentAudio = agentSegs.some(
-            (s) => s.startTime >= lastInterrupt - 0.01,
+            (s) => s.startTime > lastInterrupt,
           );
           expect(
             recoveryAgentAudio,
-            "no agent audio after the interrupt — the agent did not recover",
+            "no agent audio after the interrupt cursor — the agent did not recover",
           ).toBe(true);
           expect(recordingDir, "recording was not written").not.toBeNull();
           const irt = result!.latency?.interruptResponseTime;

@@ -129,11 +129,16 @@ describeFeature(
             ).toBeGreaterThan(0);
 
             // PROMISE (mirror the Python twin): the first reply was CUT OFF —
-            // its agent segment is flagged truncated (a user_interrupt landed in
-            // its span). Gemini has no client cancel, so this proves the server
-            // VAD detected the overlap and cut the in-flight audio. A hollow run
-            // (agent finishes its reply, interrupt fires into silence) cannot
-            // produce a truncated segment.
+            // its agent segment is flagged truncated. Truncation is marked by the
+            // SINGLE cursor-based post-hoc pass (`markTruncatedAgentSegments`):
+            // the `user_interrupt` is timestamped on the byte-accurate audio
+            // cursor (review BLOCKER fix) and lands within the cut-off agent
+            // segment's span. There is no inline last-segment workaround to lean
+            // on, so this assertion exercises the real mechanism rather than a
+            // Gemini-specific shortcut. The 12s wait-for-speech (above) ensures
+            // the agent has actually begun speaking before the barge-in, so the
+            // cursor lands inside a real reply — not in pre-reply silence (which
+            // would be a hollow run that legitimately fails this assertion).
             const truncated = segments.filter(
               (s) => s.speaker === "agent" && s.transcriptTruncated,
             );
