@@ -54,24 +54,38 @@ per-file commit cap (duration — and the M1 manifest invariant — is unchanged
 | `recording_playback/` | OpenAI Realtime, `save()` WAV+MP3 | full.wav + manifest | 2 exchanges | Multi-turn conversation saved as WAV + MP3. |
 | `voice_text_parity/` | same entrypoint, voice vs text | full.wav + manifest | 2 exchanges | Identical multi-turn script through `scenario.run()` for text and voice. |
 | `pipecat_ws/` | live Pipecat bot (mulaw/8000) | full.wav + manifest | 2 exchanges | Multi-turn over the live Pipecat WebSocket. |
-| `pipecat_scenario/` | live Pipecat bot | full.wav + manifest | 2 exchanges | Second multi-turn smoke (distinct conversation, same transport). |
-| `basic_greeting/` | live Pipecat bot | full.wav + manifest | greeting + 2 | §6.1 multi-turn greeting flow. |
+| `pipecat_scenario/` | live Pipecat bot | full.wav + manifest | 2 exchanges | The designated TRANSPORT SMOKE — proves the adapter round-trips audio both ways over the WS; makes NO conversation-quality / cut-off claim (those are the other demos'). |
+| `basic_greeting/` | live Pipecat bot | full.wav + manifest | greeting + 2 | §6.1. The caller asks for something SPECIFIC (order a pizza → delivery time); the judge requires the agent to ENGAGE the request, so a canned-greeting bot fails. The bundled bot is OpenAI-LLM-backed and answers about the order/delivery. |
 
 ### Interruption / barge-in demos (the flagship voice capability)
 
-| Demo | Path | Recorded | Barge-in | What it proves |
+These now prove a REAL cut-off, not just that a `user_interrupt` event fired.
+The executor (a) waits for the agent to actually start speaking before barging
+in (`agentSpeakingEvent`), so the interrupt lands mid-utterance, and (b) marks
+the interrupted agent segment `transcriptTruncated`. Each demo asserts in CODE
+that ≥1 agent segment was cut off (`transcriptTruncated`, shorter than a full
+reply); the judge criteria cover the conversational half (recovery, topic
+pivot) — the judge cannot see truncation from a transcript.
+
+| Demo | Path | Recorded | Cut-off captured | What it proves |
 |---|---|---|---|---|
-| `interruption_recovery/` | live Pipecat bot | full.wav + manifest | ✅ 2 real | §6.2. `agent({ wait: false }) + user()` AND `interrupt()` both fire real barge-ins (2 `user_interrupt` events + `interruptResponseTime`). |
-| `random_interruptions/` | live Pipecat bot | full.wav + manifest | ✅ real | §6.7. `userSimulatorAgent({ interruptProbability })` + `voiceProceed({ interruptions: InterruptionConfig })` inject barge-ins across the run. |
-| `gemini_live_interruption/` | live Gemini Live | full.wav + manifest | ✅ real | `interrupt()` fires a server-VAD barge-in on Gemini (no client cancel). |
-| `elevenlabs_interruption/` | live EL ConvAI | ⏸ gated off | — | The live ConvAI scripted-interrupt flow times out on the post-interrupt receive (`receiveAudio timed out`, 4 honest attempts) — documented, NOT faked. `RUN_EL_INTERRUPTION=1` to attempt. |
+| `interruption_recovery/` | live Pipecat bot | full.wav + manifest | ✅ truncated≥1 | §6.2. `agent({ wait: false }) + user()` and `interrupt()` fire real barge-ins (`fired_after_speech`); ≥1 agent reply truncated + recovery audio after. Judge: recovered + engaged the user's specific requests. |
+| `random_interruptions/` | live Pipecat bot | full.wav + manifest | ✅ truncated≥1 | §6.7. `interruptProbability` + `voiceProceed({ interruptions })` cut off agent turns across the run (e.g. interrupts=4, truncated=2). Judge: recovered context. |
+| `gemini_live_interruption/` | live Gemini Live | full.wav + manifest | ✅ truncated≥1 | Server-VAD barge-in on Gemini (NO client cancel). Verbose prompt → long reply cut short; the cut-off segment is flagged truncated (clock-agnostic marking, since Gemini receives faster than real-time). |
+| `elevenlabs_interruption/` | live EL ConvAI | ⏸ gated off | ✅ when it runs | After the barge-in fixes a successful run captures TWO truncated agent segments + a pivot to business hours. Stays gated (`RUN_EL_INTERRUPTION=1`) because the live socket is FLAKY for scripted interrupts (one attempt timed out, the next succeeded). NOT faked — when run, the code asserts a real truncated segment. Mechanism also proven non-flakily on Gemini (same server-VAD class). |
 
 ### Persona / pain-pattern demos
 
+The cafe noise is now REAL audio (the bundled assets are 3s of distinct,
+audible ambience, and the dist-bundle asset-path bug that made `backgroundNoise`
+a silent no-op is fixed). Each demo asserts in CODE that the ambience was
+actually MIXED onto the user audio (the user-segment noise FLOOR is well above
+digital silence — clean TTS is ~0).
+
 | Demo | Path | Recorded | What it proves |
 |---|---|---|---|
-| `angry_customer/` | live Pipecat bot | full.wav + manifest | §6.3. `persona` + `audioEffects: [backgroundNoise("cafe", 0.4), phoneQuality()]` over a multi-turn heated conversation. |
-| `background_handoff/` | live Pipecat bot | full.wav + manifest | §8. "hold on" → `silence()` → return, multi-turn span of the handoff. |
+| `angry_customer/` | live Pipecat bot | full.wav + manifest | §6.3. `voice="elevenlabs/EXAVITQu4vr4xnSDxMaL"` + persona with inline `[shouting]`/`[angry]` tonal markers → AUDIBLE anger (not a neutral voice reading angry text); `audioEffects: [backgroundNoise("cafe", 0.4), phoneQuality()]`. Judge: empathy + concrete resolution + heightened persona. CODE: user noise floor ≫ silence (mixed, not no-op). |
+| `background_handoff/` | live Pipecat bot | full.wav + manifest | §8. "hold on" → `silence()` → return; `backgroundNoise("cafe", 0.5)` overheard side-conversation. Judge: agent re-engaged the caller's specific return. CODE: cafe ambience audibly mixed (noise floor ≫ silence). |
 
 > `twilio_inbound` / `twilio_outbound` stay MANUAL (`⏸`) — they need a second
 > phone number + a public tunnel (`NGROK_AUTHTOKEN`), absent in this env.
