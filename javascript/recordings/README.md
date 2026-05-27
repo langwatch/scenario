@@ -34,11 +34,47 @@ npx vitest run tests/voice/openai-realtime-agent.test.ts
 
 ## What's committed
 
-| Demo | Provider path | Recorded | What it proves |
-|---|---|---|---|
-| `openai_realtime_agent/` | OpenAI Realtime (`role=AGENT`) | full.wav + segments | BASELINE. User-sim TTS → Realtime model (the agent under test) → judge verdict, all via `scenario.run()`. `result.audio` populated. |
+EVERY committed demo is a MULTI-TURN conversation (≥2 full user↔agent
+exchanges, except where a live transport limits it — noted below). "Core"
+demos commit `full.wav` + `manifest.json` + per-turn `segments/`; "additional"
+demos commit `full.wav` + `manifest.json` only (segments `.gitignore`d), and
+long conversations downsample `full.wav` to 8kHz to stay under the 1MB
+per-file commit cap (duration — and the M1 manifest invariant — is unchanged).
 
-> The committed set grows as each `@e2e` demo runs cleanly with real keys.
+### Multi-turn provider demos
+
+| Demo | Provider path | Recorded | Turns | What it proves |
+|---|---|---|---|---|
+| `openai_realtime_agent/` | OpenAI Realtime (`role=AGENT`) | full.wav + segments | 2 exchanges | BASELINE. Multi-turn user-sim TTS → Realtime model → judge, all via `scenario.run()`. |
+| `openai_realtime_user/` | OpenAI Realtime (`role=USER`) | full.wav + segments | 2 spoken | Two scripted `user("text")` lines → natural-prosody spoken audio (TTS bypassed). |
+| `elevenlabs_hosted/` | live ElevenLabs ConvAI WS | full.wav + segments | greeting + 1 | Live hosted ConvAI socket. Single scripted exchange — the server-VAD transport does not re-engage for a scripted 2nd turn (documented). |
+| `elevenlabs_branded/` | EL STT + LLM + EL TTS (in-process) | full.wav + segments | 2 exchanges | Multi-turn branded composable agent; STT/LLM/TTS seams each fire. |
+| `gemini_live/` | Gemini Live native audio | full.wav + segments | 2 exchanges | Multi-turn native-audio session (the model replies to both turns; the trailing agent audio segment can be dropped by Gemini's drain — documented). |
+| `composable_stt_swap/` | `run({ voice: { stt } })` | full.wav + manifest | 2 exchanges | Swapped EL STT transcribes BOTH agent turns (transcribe() calls = 2). |
+| `recording_playback/` | OpenAI Realtime, `save()` WAV+MP3 | full.wav + manifest | 2 exchanges | Multi-turn conversation saved as WAV + MP3. |
+| `voice_text_parity/` | same entrypoint, voice vs text | full.wav + manifest | 2 exchanges | Identical multi-turn script through `scenario.run()` for text and voice. |
+| `pipecat_ws/` | live Pipecat bot (mulaw/8000) | full.wav + manifest | 2 exchanges | Multi-turn over the live Pipecat WebSocket. |
+| `pipecat_scenario/` | live Pipecat bot | full.wav + manifest | 2 exchanges | Second multi-turn smoke (distinct conversation, same transport). |
+| `basic_greeting/` | live Pipecat bot | full.wav + manifest | greeting + 2 | §6.1 multi-turn greeting flow. |
+
+### Interruption / barge-in demos (the flagship voice capability)
+
+| Demo | Path | Recorded | Barge-in | What it proves |
+|---|---|---|---|---|
+| `interruption_recovery/` | live Pipecat bot | full.wav + manifest | ✅ 2 real | §6.2. `agent({ wait: false }) + user()` AND `interrupt()` both fire real barge-ins (2 `user_interrupt` events + `interruptResponseTime`). |
+| `random_interruptions/` | live Pipecat bot | full.wav + manifest | ✅ real | §6.7. `userSimulatorAgent({ interruptProbability })` + `voiceProceed({ interruptions: InterruptionConfig })` inject barge-ins across the run. |
+| `gemini_live_interruption/` | live Gemini Live | full.wav + manifest | ✅ real | `interrupt()` fires a server-VAD barge-in on Gemini (no client cancel). |
+| `elevenlabs_interruption/` | live EL ConvAI | ⏸ gated off | — | The live ConvAI scripted-interrupt flow times out on the post-interrupt receive (`receiveAudio timed out`, 4 honest attempts) — documented, NOT faked. `RUN_EL_INTERRUPTION=1` to attempt. |
+
+### Persona / pain-pattern demos
+
+| Demo | Path | Recorded | What it proves |
+|---|---|---|---|
+| `angry_customer/` | live Pipecat bot | full.wav + manifest | §6.3. `persona` + `audioEffects: [backgroundNoise("cafe", 0.4), phoneQuality()]` over a multi-turn heated conversation. |
+| `background_handoff/` | live Pipecat bot | full.wav + manifest | §8. "hold on" → `silence()` → return, multi-turn span of the handoff. |
+
+> `twilio_inbound` / `twilio_outbound` stay MANUAL (`⏸`) — they need a second
+> phone number + a public tunnel (`NGROK_AUTHTOKEN`), absent in this env.
 > Demos that fail on a transient (rate-limit / transport) are skipped and
 > noted in `docs/voice/REFACTOR-PROGRESS.md` rather than faked.
 

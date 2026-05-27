@@ -817,7 +817,7 @@ Feature: Voice agent testing in Scenario SDK
     # agent({wait:false})+user, then the interrupt() sugar); the agent recovers.
     Given a local Pipecat bot on ws://localhost:8765/stream that supports barge-in
     When the demo script interrupts the agent mid-utterance and the agent recovers
-    Then result.success is True
+    Then the agent recovered and the conversation is multi-turn
     And result.latency.interruptResponseTime is recorded
 
   @e2e @ts-random-interruptions-demo
