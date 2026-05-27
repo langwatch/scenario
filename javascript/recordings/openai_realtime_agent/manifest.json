@@ -1,24 +1,42 @@
 {
-  "generated_at": "2026-05-26T19:19:42.017Z",
-  "duration": 4.25,
-  "segment_count": 2,
+  "generated_at": "2026-05-27T10:48:09.979Z",
+  "duration": 15.35,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 1.9,
-      "duration": 1.9,
-      "transcript": "Hello, can you help me?"
+      "end_time": 3.7,
+      "duration": 3.7,
+      "transcript": "Hello, can you help me plan a weekend trip?"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-1900ms.wav",
+      "file": "segments/01-agent-3700ms.wav",
       "role": "agent",
-      "start_time": 1.9,
-      "end_time": 4.25,
-      "duration": 2.35,
+      "start_time": 3.7,
+      "end_time": 7.25,
+      "duration": 3.55,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-7250ms.wav",
+      "role": "user",
+      "start_time": 7.25,
+      "end_time": 10,
+      "duration": 2.75,
+      "transcript": "Great — what should I pack for cold weather?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-10000ms.wav",
+      "role": "agent",
+      "start_time": 10,
+      "end_time": 15.35,
+      "duration": 5.35,
       "transcript": null
     }
   ],
@@ -28,16 +46,33 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 1.9,
+      "time": 3.7,
       "type": "user_stop_speaking"
     },
     {
-      "time": 1.9,
+      "time": 3.7,
       "type": "agent_start_speaking",
-      "latency": 0.5486886880000004
+      "latency": 0.9315450889999997
     },
     {
-      "time": 4.25,
+      "time": 7.25,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 7.25,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 10,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 10,
+      "type": "agent_start_speaking",
+      "latency": 0.9031480869999999
+    },
+    {
+      "time": 15.35,
       "type": "agent_stop_speaking"
     }
   ]
