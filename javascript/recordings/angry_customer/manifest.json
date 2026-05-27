@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T11:51:17.544Z",
-  "duration": 43.52,
+  "generated_at": "2026-05-27T14:06:59.462Z",
+  "duration": 59.56999999999999,
   "segment_count": 5,
   "segments": [
     {
@@ -10,43 +10,43 @@
       "start_time": 0,
       "end_time": 3.5,
       "duration": 3.5,
-      "transcript": null
+      "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
       "file": "segments/01-user-3500ms.wav",
       "role": "user",
       "start_time": 3.5,
-      "end_time": 9.45,
-      "duration": 5.949999999999999,
-      "transcript": "you charged me twice on my card fix it now i'm in a noisy cafe and i want a refund"
+      "end_time": 8.059999999999999,
+      "duration": 4.559999999999999,
+      "transcript": "[shouting] You charged me twice for my coffee—fix this NOW! [angry]"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-9450ms.wav",
+      "file": "segments/02-agent-8059ms.wav",
       "role": "agent",
-      "start_time": 9.45,
-      "end_time": 21.75,
-      "duration": 12.3,
-      "transcript": null
+      "start_time": 8.059999999999999,
+      "end_time": 20.77,
+      "duration": 12.71,
+      "transcript": "I'm really sorry about that. I'll help get it corrected. Can you tell me the date and the amount of the two charges, or the last four digits of your card? And I'll arrange a refund for the duplicate charge."
     },
     {
       "idx": 3,
-      "file": "segments/03-user-21750ms.wav",
+      "file": "segments/03-user-20770ms.wav",
       "role": "user",
-      "start_time": 21.75,
-      "end_time": 30.6,
-      "duration": 8.850000000000001,
-      "transcript": "you charged my card twice fix it now refund the extra charge and email me proof i'm in a noisy cafe and i'm not waiting"
+      "start_time": 20.77,
+      "end_time": 46.849999999999994,
+      "duration": 26.079999999999995,
+      "transcript": "I’m really sorry about that — I can fix this right now. I hear you’re in a noisy cafe; quick Qs so I can locate the charge: can you give the last 4 digits of the card, the transaction date/time (or order number), and the exact amount charged twice? I’ll search your account and either reverse the duplicate or issue a refund immediately (refunds typically post in 3–5 business days); do you want me to proceed now?"
     },
     {
       "idx": 4,
-      "file": "segments/04-agent-30600ms.wav",
+      "file": "segments/04-agent-46849ms.wav",
       "role": "agent",
-      "start_time": 30.6,
-      "end_time": 43.52,
-      "duration": 12.920000000000002,
-      "transcript": null
+      "start_time": 46.849999999999994,
+      "end_time": 59.56999999999999,
+      "duration": 12.719999999999999,
+      "transcript": "I'm sorry, are you still there? No worries, I'm here to help. Please share the date of the double charge and the amount, or the last four digits of the card, and I'll get the duplicate charge refunded right away."
     }
   ],
   "events": [
@@ -63,33 +63,33 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 9.45,
+      "time": 8.059999999999999,
       "type": "user_stop_speaking"
     },
     {
-      "time": 9.45,
+      "time": 8.059999999999999,
       "type": "agent_start_speaking",
-      "latency": 4.157363125
+      "latency": 6.481792195000001
     },
     {
-      "time": 21.75,
+      "time": 20.77,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 21.75,
+      "time": 20.77,
       "type": "user_start_speaking"
     },
     {
-      "time": 30.6,
+      "time": 46.849999999999994,
       "type": "user_stop_speaking"
     },
     {
-      "time": 30.6,
+      "time": 46.849999999999994,
       "type": "agent_start_speaking",
-      "latency": 0.00019964100000180451
+      "latency": 0.0006557030000067243
     },
     {
-      "time": 43.52,
+      "time": 59.56999999999999,
       "type": "agent_stop_speaking"
     }
   ]

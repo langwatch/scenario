@@ -85,15 +85,23 @@ describeFeature(
                 }),
                 scenario.userSimulatorAgent({ voice: "openai/nova" }),
                 scenario.judgeAgent({
+                  // PROMISE-ENCODING criteria — the CONVERSATIONAL half of the
+                  // promise (what the judge can read from the transcript): a
+                  // hollow demo where the agent repeats a canned greeting or
+                  // ignores the user's correction FAILS these. The AUDIO half of
+                  // the promise — that a reply was actually CUT OFF (truncated
+                  // segment, shorter than the full reply, barge-in fired after
+                  // speech) — is asserted in CODE in the And step below, because
+                  // the back-filled STT transcript of a cut-off segment still
+                  // reads as a grammatical phrase (the judge cannot see the
+                  // truncation from text; the recording's transcriptTruncated
+                  // flag + segment durations can). The bundled bot is
+                  // OpenAI-LLM-backed (real replies to the user's request) and
+                  // honours barge-in, so a real run passes.
                   criteria: [
-                    // Scoped to what the bundled STUB bot delivers: it keeps the
-                    // conversation alive after each barge-in. The bot is
-                    // LLM-backed but has no domain knowledge, so we judge
-                    // recovery BEHAVIOR (kept responding, stayed conversational),
-                    // not whether it nailed a specific requested topic.
-                    "The agent kept responding after each interruption rather than going silent",
-                    "The agent stayed conversational and engaged across the whole exchange",
-                    "The conversation is a coherent multi-turn example of a barge-in/recovery flow",
+                    "The agent recovered gracefully from the interruption(s) — it kept responding rather than going silent",
+                    "The agent engaged with the user's SPECIFIC requests over the conversation (account support, and keeping it brief) — it did NOT just repeat a canned greeting or ignore what the user asked for",
+                    "The conversation is a coherent multi-turn example of the interruption-recovery flow",
                   ],
                 }),
               ],
@@ -140,11 +148,12 @@ describeFeature(
           ).toBeGreaterThanOrEqual(4);
         });
 
-        And("result.latency.interruptResponseTime is recorded", () => {
-          // The barge-in path records a user_interrupt event in the timeline and
-          // derives interruptResponseTime (how fast the agent stopped after the
-          // overlap). Prove at least one barge-in actually fired — THE flagship
-          // capability — and that the agent then recovered with more audio.
+        And("the agent reply was actually cut off and then recovered", () => {
+          // THE flagship capability, asserted in CODE (not just the judge): a
+          // barge-in fired, the in-flight agent segment was marked truncated
+          // (the reply was actually cut off — a hollow demo where the agent
+          // finished speaking cannot produce this), and the agent then recovered
+          // with more audio after the interrupt.
           const interruptEvents = (result!.timeline ?? []).filter(
             (e) => e.type === "user_interrupt",
           );
@@ -152,12 +161,41 @@ describeFeature(
             interruptEvents.length,
             "no user_interrupt event in the timeline — barge-in never fired",
           ).toBeGreaterThan(0);
-          // Agent audio AFTER the last interrupt = the recovery turn.
-          const lastInterrupt = Math.max(
-            ...interruptEvents.map((e) => e.time),
+
+          // At least one barge-in landed mid-utterance (after the agent began
+          // speaking), so the interrupt was real, not fired into silence.
+          const firedAfterSpeech = interruptEvents.some(
+            (e) => e.metadata?.outcome === "fired_after_speech",
           );
-          const recoveryAgentAudio = result!.audio!.segments.some(
-            (s) => s.speaker === "agent" && s.startTime >= lastInterrupt - 0.01,
+          expect(
+            firedAfterSpeech,
+            "every barge-in fired BEFORE the agent spoke — nothing was cut off (cosmetic interrupt)",
+          ).toBe(true);
+
+          // The cut-off agent segment is flagged truncated AND is markedly
+          // shorter than the longest (uninterrupted) agent reply — concrete
+          // evidence the reply was cut short, not delivered in full.
+          const agentSegs = result!.audio!.segments.filter((s) => s.speaker === "agent");
+          const truncated = agentSegs.filter((s) => s.transcriptTruncated);
+          expect(
+            truncated.length,
+            "no agent segment marked transcriptTruncated — the interrupt did not cut off a reply",
+          ).toBeGreaterThan(0);
+          const maxAgentDur = Math.max(
+            ...agentSegs.map((s) => s.endTime - s.startTime),
+          );
+          const minTruncatedDur = Math.min(
+            ...truncated.map((s) => s.endTime - s.startTime),
+          );
+          expect(
+            minTruncatedDur,
+            "the 'truncated' reply is not shorter than the full reply — cut-off not demonstrated",
+          ).toBeLessThan(maxAgentDur);
+
+          // Agent audio AFTER the last interrupt = the recovery turn.
+          const lastInterrupt = Math.max(...interruptEvents.map((e) => e.time));
+          const recoveryAgentAudio = agentSegs.some(
+            (s) => s.startTime >= lastInterrupt - 0.01,
           );
           expect(
             recoveryAgentAudio,
@@ -167,8 +205,9 @@ describeFeature(
           const irt = result!.latency?.interruptResponseTime;
           console.log(
             `[demo] interruption_recovery → ${recordingDir} ` +
-              `(interrupts=${interruptEvents.length}, interruptResponseTime=${irt}, ` +
-              `segments=${result!.audio?.segments.length}, success=${result!.success})`,
+              `(interrupts=${interruptEvents.length}, truncated=${truncated.length}, ` +
+              `interruptResponseTime=${irt}, segments=${result!.audio?.segments.length}, ` +
+              `success=${result!.success})`,
           );
         });
       },

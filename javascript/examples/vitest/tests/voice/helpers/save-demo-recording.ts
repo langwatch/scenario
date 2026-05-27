@@ -17,7 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -81,7 +81,18 @@ export function saveDemoRecording(
   audio.saveSegments(target, { manifest: true });
   pruneOrphanSegments(target);
   if (options.downsampleHz) {
-    downsampleFullWav(join(target, "full.wav"), options.downsampleHz);
+    const fullWav = join(target, "full.wav");
+    downsampleFullWav(fullWav, options.downsampleHz);
+    // Hard <1MB commit-cap guarantee: a long, non-deterministic conversation
+    // can still exceed 1MB at the requested rate, so step the sample rate down
+    // (8000 → 6000 → 4000) until the committed full.wav is under budget. The
+    // DURATION (and the M1 manifest invariant) is unchanged — only fidelity
+    // drops, and this is already a downsampled artefact.
+    const CAP_BYTES = 1_000_000;
+    for (const hz of [6000, 4000, 3000]) {
+      if (!existsSync(fullWav) || statSync(fullWav).size <= CAP_BYTES) break;
+      downsampleFullWav(fullWav, hz);
+    }
   }
   return target;
 }

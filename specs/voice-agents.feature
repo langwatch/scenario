@@ -818,7 +818,7 @@ Feature: Voice agent testing in Scenario SDK
     Given a local Pipecat bot on ws://localhost:8765/stream that supports barge-in
     When the demo script interrupts the agent mid-utterance and the agent recovers
     Then the agent recovered and the conversation is multi-turn
-    And result.latency.interruptResponseTime is recorded
+    And the agent reply was actually cut off and then recovered
 
   @e2e @ts-random-interruptions-demo
   Scenario: Demo — random interruptions via interruptProbability + voiceProceed
@@ -864,7 +864,7 @@ Feature: Voice agent testing in Scenario SDK
     # a multi-turn conversation; judge evaluates empathy + noise-robustness.
     Given a very-angry user simulator with backgroundNoise + phoneQuality effects
     When the multi-turn demo runs via scenario.run()
-    Then the agent stays calm and the recording has multiple turns
+    Then the agent stays calm, noise is audibly mixed, and the judge passes
 
   @e2e @ts-background-handoff-demo
   Scenario: Demo — background handoff should not trigger agent response

@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T11:57:11.659Z",
-  "duration": 61.55,
+  "generated_at": "2026-05-27T14:09:09.514Z",
+  "duration": 59.2,
   "segment_count": 8,
   "segments": [
     {
@@ -19,61 +19,62 @@
       "start_time": 2.3,
       "end_time": 6.1,
       "duration": 3.8,
-      "transcript": null
+      "transcript": "Hello, thank you for calling. How can I help you today?",
+      "transcript_truncated": true
     },
     {
       "idx": 2,
       "file": "segments/02-user-6100ms.wav",
       "role": "user",
       "start_time": 6.1,
-      "end_time": 9.899999999999999,
-      "duration": 3.799999999999999,
+      "end_time": 9.149999999999999,
+      "duration": 3.049999999999999,
       "transcript": "Wait sorry, I meant account support, not billing"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-9899ms.wav",
+      "file": "segments/03-agent-9149ms.wav",
       "role": "agent",
-      "start_time": 9.899999999999999,
-      "end_time": 25.599999999999998,
-      "duration": 15.7,
-      "transcript": null
+      "start_time": 9.149999999999999,
+      "end_time": 23.25,
+      "duration": 14.100000000000001,
+      "transcript": "Sure, we offer several billing options, including monthly billing, autopay with a saved payment method, and paperless e-billing by email. If you tell me whether you're looking for monthly versus autopay, I can point you to the best fit."
     },
     {
       "idx": 4,
-      "file": "segments/04-user-25599ms.wav",
+      "file": "segments/04-user-23250ms.wav",
       "role": "user",
-      "start_time": 25.599999999999998,
-      "end_time": 28.599999999999998,
-      "duration": 3,
+      "start_time": 23.25,
+      "end_time": 26.5,
+      "duration": 3.25,
       "transcript": "Tell me about every feature you offer"
     },
     {
       "idx": 5,
-      "file": "segments/05-agent-28599ms.wav",
+      "file": "segments/05-agent-26500ms.wav",
       "role": "agent",
-      "start_time": 28.599999999999998,
-      "end_time": 38.8,
-      "duration": 10.2,
-      "transcript": null
+      "start_time": 26.5,
+      "end_time": 37.1,
+      "duration": 10.600000000000001,
+      "transcript": "No problem at all! I can help with account support. What do you need help with? Updating your contact info, resetting your password, checking your account status, or something else?"
     },
     {
       "idx": 6,
-      "file": "segments/06-user-38800ms.wav",
+      "file": "segments/06-user-37100ms.wav",
       "role": "user",
-      "start_time": 38.8,
-      "end_time": 41.75,
-      "duration": 2.950000000000003,
+      "start_time": 37.1,
+      "end_time": 40.7,
+      "duration": 3.6000000000000014,
       "transcript": "Sorry, one more thing — can you keep it brief?"
     },
     {
       "idx": 7,
-      "file": "segments/07-agent-41750ms.wav",
+      "file": "segments/07-agent-40700ms.wav",
       "role": "agent",
-      "start_time": 41.75,
-      "end_time": 61.55,
-      "duration": 19.799999999999997,
-      "transcript": null
+      "start_time": 40.7,
+      "end_time": 59.2,
+      "duration": 18.5,
+      "transcript": "I can definitely walk you through the main account features we offer: profile and contact updates, secure login with password reset, viewing your account status and history, managing your payment methods, and receiving email notifications for important updates. If you tell me what you use the account for, payments"
     }
   ],
   "events": [
@@ -88,14 +89,14 @@
     {
       "time": 2.3,
       "type": "agent_start_speaking",
-      "latency": 0.00023265100000013916
+      "latency": 0.00024036100000301985
     },
     {
-      "time": 3.242001203,
+      "time": 2.370368672000005,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
-        "outcome": "fired_before_speech",
+        "outcome": "fired_after_speech",
         "native": true
       }
     },
@@ -108,57 +109,49 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 9.899999999999999,
+      "time": 9.149999999999999,
       "type": "user_stop_speaking"
     },
     {
-      "time": 9.899999999999999,
+      "time": 9.149999999999999,
       "type": "agent_start_speaking"
     },
     {
-      "time": 12.424870475,
-      "type": "user_interrupt",
-      "metadata": {
-        "source": "barge-in",
-        "outcome": "fired_before_speech",
-        "native": true
-      }
-    },
-    {
-      "time": 25.599999999999998,
+      "time": 23.25,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 25.599999999999998,
+      "time": 23.25,
       "type": "user_start_speaking"
     },
     {
-      "time": 28.599999999999998,
+      "time": 26.5,
       "type": "user_stop_speaking"
     },
     {
-      "time": 28.599999999999998,
+      "time": 26.5,
       "type": "agent_start_speaking",
-      "latency": 0.0359480949999984
+      "latency": 0.0001009899999999675
     },
     {
-      "time": 38.8,
+      "time": 37.1,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 38.8,
+      "time": 37.1,
       "type": "user_start_speaking"
     },
     {
-      "time": 41.75,
+      "time": 40.7,
       "type": "user_stop_speaking"
     },
     {
-      "time": 41.75,
-      "type": "agent_start_speaking"
+      "time": 40.7,
+      "type": "agent_start_speaking",
+      "latency": 18.932502377000006
     },
     {
-      "time": 61.55,
+      "time": 59.2,
       "type": "agent_stop_speaking"
     }
   ]
