@@ -1,24 +1,42 @@
 {
-  "generated_at": "2026-05-26T19:19:42.025Z",
-  "duration": 7.15,
-  "segment_count": 2,
+  "generated_at": "2026-05-27T11:12:50.574Z",
+  "duration": 17.2,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3.55,
-      "duration": 3.55,
-      "transcript": "Hi! Can you help me with a question about my account?"
+      "end_time": 2.6,
+      "duration": 2.6,
+      "transcript": "Hi! I'd love some help today."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3550ms.wav",
+      "file": "segments/01-agent-2600ms.wav",
       "role": "agent",
-      "start_time": 3.55,
-      "end_time": 7.15,
-      "duration": 3.6000000000000005,
+      "start_time": 2.6,
+      "end_time": 6.800000000000001,
+      "duration": 4.200000000000001,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6800ms.wav",
+      "role": "user",
+      "start_time": 6.800000000000001,
+      "end_time": 10,
+      "duration": 3.1999999999999993,
+      "transcript": "Great — can you tell me a little about what you can do?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-10000ms.wav",
+      "role": "agent",
+      "start_time": 10,
+      "end_time": 17.2,
+      "duration": 7.199999999999999,
       "transcript": null
     }
   ],
@@ -28,16 +46,33 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 3.55,
+      "time": 2.6,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3.55,
+      "time": 2.6,
       "type": "agent_start_speaking",
-      "latency": 0.00032104099999941127
+      "latency": 0.0010126929999998424
     },
     {
-      "time": 7.15,
+      "time": 6.800000000000001,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.800000000000001,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 10,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 10,
+      "type": "agent_start_speaking",
+      "latency": 0.00011705999999911398
+    },
+    {
+      "time": 17.2,
       "type": "agent_stop_speaking"
     }
   ]

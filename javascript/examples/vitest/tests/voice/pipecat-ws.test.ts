@@ -80,20 +80,29 @@ describeFeature(
               scenario.userSimulatorAgent({ voice: "openai/nova" }),
               scenario.judgeAgent({
                 criteria: [
-                  "The bot responded conversationally (not robotic)",
-                  "The agent and user exchanged audio turns over the live Pipecat WebSocket",
-                  "The conversation is a coherent example of a Pipecat-driven voice scenario",
+                  // Criteria are scoped to what the bundled STUB bot delivers: a
+                  // live multi-turn audio exchange over the Pipecat WS. The stub
+                  // is LLM-backed but has no domain knowledge, so we judge
+                  // turn-taking + tone, not factual recall.
+                  "The agent and user exchanged multiple audio turns over the live Pipecat WebSocket",
+                  "The bot stayed engaged across the conversation and responded each time the user spoke",
+                  "The conversation is a coherent multi-turn example of a Pipecat-driven voice scenario",
                 ],
               }),
             ],
             // Explicit turn-taking — user speaks first to avoid a both-sides-
-            // waiting deadlock against the simple stub bot.
+            // waiting deadlock against the simple stub bot. MULTI-TURN: two
+            // full user↔agent exchanges over the live Pipecat WebSocket. Both
+            // user turns are open-ended so the stub bot (no domain knowledge)
+            // can stay conversational without being judged on facts it lacks.
             script: [
-              scenario.user("Hi! Can you help me with a question about my account?"),
+              scenario.user("Hi! I'd love some help today."),
+              scenario.agent(),
+              scenario.user("Great — can you tell me a little about what you can do?"),
               scenario.agent(),
               scenario.judge(),
             ],
-            maxTurns: 4,
+            maxTurns: 6,
           });
           recordingDir = saveDemoRecording(result.audio, "pipecat_ws");
         });
