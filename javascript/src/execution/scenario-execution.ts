@@ -51,7 +51,10 @@ import {
   pickVoiceAdapters,
   startVoiceAdapters,
   stopVoiceAdapters,
+  writeUserSegment,
 } from "../voice/adapter.runtime";
+import { extractAudio } from "../voice/messages";
+import { VoiceAgentAdapter as VoiceAgentAdapterClass } from "../voice/adapter";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import { InterruptionConfig } from "../voice/interruption";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
@@ -194,6 +197,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   onVoiceEvent?: (event: VoiceEvent) => void;
   /** Per-chunk hook from {@link ScenarioConfig.onAudioChunk}. */
   onAudioChunk?: (chunk: AudioChunk) => void;
+
+  /**
+   * In-flight non-blocking agent turn started by `agent({ wait: false })` (or
+   * the `interrupt()` sugar). When set and not yet settled, a subsequent
+   * {@link user} call fires {@link fireUserInterrupt} — the new user audio
+   * lands as a mid-stream barge-in. Mirrors Python's `_pending_agent_task`.
+   * JS promises aren't cancelable; `done` records settlement so `user()` can
+   * tell "agent still speaking" from "already finished".
+   */
+  private pendingAgentTask: { promise: Promise<void>; done: boolean } | null =
+    null;
 
   /**
    * Snapshot of voice adapters for the in-flight execution. Captured at
@@ -424,17 +438,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       return {};
     }
 
+    const timeline = this.voiceTimeline ?? recording.timeline;
     const latency = this.voiceLatency
       ? computeLatencyMetrics({
           measurements: this.voiceLatency.measurements,
           timeToFirstByte: this.voiceLatency.timeToFirstByte,
-          interruptResponseTime: this.voiceLatency.interruptResponseTime,
+          // Prefer an explicitly-recorded value; otherwise derive it from the
+          // barge-in timeline (how fast the agent stopped after the interrupt).
+          interruptResponseTime:
+            this.voiceLatency.interruptResponseTime ??
+            deriveInterruptResponseTime(timeline),
         })
       : undefined;
 
     return {
       audio: recording,
-      timeline: this.voiceTimeline ?? recording.timeline,
+      timeline,
       latency,
     };
   }
@@ -986,12 +1005,34 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       const sim = this.findVoiceUserSim();
       if (sim) {
         const audioMessage = await sim.voiceifyText(content, this.config.voice);
+        // Interruption path: when an `agent({ wait: false })` turn is in flight,
+        // THIS user() call IS the barge-in. `agent({wait:false}) + user("...")`
+        // reads as "agent starts replying; user interrupts" — no sleep needed.
+        if (await this.maybeFireUserInterrupt(audioMessage)) return;
         await this.scriptCallAgent(AgentRole.USER, audioMessage);
         return;
       }
     }
     // (3) Default: text path (or a pre-built ModelMessage / generated turn).
     await this.scriptCallAgent(AgentRole.USER, content);
+  }
+
+  /**
+   * If a non-blocking agent turn is in flight ({@link pendingAgentTask} set and
+   * unsettled), fire the barge-in for `voicedMessage` and return `true`
+   * (the caller must NOT then run the normal user turn — the interrupt already
+   * delivered the audio). Returns `false` when there is nothing to interrupt.
+   *
+   * Mirrors the `_pending_agent_task` guard around Python's
+   * `_fire_user_interrupt`.
+   */
+  private async maybeFireUserInterrupt(
+    voicedMessage: ModelMessage,
+  ): Promise<boolean> {
+    const pending = this.pendingAgentTask;
+    if (!pending || pending.done) return false;
+    await this.fireUserInterrupt(voicedMessage);
+    return true;
   }
 
   /**
@@ -1069,6 +1110,32 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    */
   async agent(content?: string | ModelMessage): Promise<void> {
     await this.scriptCallAgent(AgentRole.AGENT, content);
+  }
+
+  /**
+   * Fire an agent turn WITHOUT awaiting it (PRD §4.4 `agent({ wait: false })`).
+   * The in-flight promise is recorded on {@link pendingAgentTask} so the next
+   * {@link user} call can detect it and fire a mid-stream barge-in. Mirrors
+   * Python's `agent(wait=False)` setting `_pending_agent_task`.
+   *
+   * Errors from the background turn are swallowed here (they surface via the
+   * recorded segments / the recovery turn) — exactly as the previous
+   * `void executor.agent().catch()` call sites did.
+   */
+  agentNonBlocking(content?: string | ModelMessage): void {
+    const entry: { promise: Promise<void>; done: boolean } = {
+      promise: Promise.resolve(),
+      done: false,
+    };
+    entry.promise = this.scriptCallAgent(AgentRole.AGENT, content)
+      .then(() => undefined)
+      .catch(() => {
+        /* errors surface via segments / recovery turn */
+      })
+      .finally(() => {
+        entry.done = true;
+      });
+    this.pendingAgentTask = entry;
   }
 
   /**
@@ -1280,6 +1347,132 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     } else {
       await this.user();
     }
+  }
+
+  /**
+   * Find the first AGENT-role {@link VoiceAgentAdapter} on the scenario, if any.
+   * Used by the barge-in path to push the interrupting user audio onto the wire
+   * directly. Mirrors Python's `_find_voice_adapter`.
+   */
+  private findVoiceAgentAdapter(): VoiceAgentAdapter | null {
+    for (const agent of this.agents) {
+      if (agent instanceof VoiceAgentAdapterClass) {
+        return agent as unknown as VoiceAgentAdapter;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Mid-stream interrupt: fire the transport-native cancel (if the adapter
+   * advertises `capabilities.interruption`), push the new user audio onto the
+   * wire so the bot's VAD detects the overlap, record a `user_interrupt`
+   * timeline event + a user segment for the interrupting turn, then let the
+   * in-flight agent task settle. Mirrors Python's `_fire_user_interrupt`
+   * (issue #466/#467): be PROMPT, not POLITE — push audio whether or not the
+   * agent has started speaking; the provider VADs handle the rest.
+   *
+   * Records `metadata.outcome`:
+   *  - `no_adapter` — text-only path, nothing to barge in on;
+   *  - `fired_after_speech` — the agent had started speaking (true mid-stream);
+   *  - `fired_before_speech` — barge-in landed in the bot's pre-reply window.
+   */
+  private async fireUserInterrupt(voicedMessage: ModelMessage): Promise<void> {
+    const anchor = this.voiceRecordingStartedAt;
+    const now = (): number =>
+      anchor != null ? performance.now() / 1000 - anchor : 0;
+    let interruptTime = now();
+
+    const pending = this.pendingAgentTask;
+    const adapter = this.findVoiceAgentAdapter();
+
+    let outcome: string;
+    let nativeFired = false;
+
+    if (!pending || pending.done) {
+      outcome = "pending_done";
+    } else if (adapter === null) {
+      outcome = "no_adapter";
+      await pending.promise;
+      this.pendingAgentTask = null;
+    } else {
+      // Best-effort wait for the agent to start speaking so the barge-in lands
+      // mid-utterance. Bounded so a hung bot can't stall the script.
+      const speaking = adapter.agentSpeakingEvent;
+      if (speaking && !speaking.isSet()) {
+        await Promise.race([
+          speaking.wait(),
+          new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+        ]);
+      }
+      const agentWasSpeaking = Boolean(speaking?.isSet());
+      outcome = agentWasSpeaking ? "fired_after_speech" : "fired_before_speech";
+      interruptTime = now();
+
+      // 1. Native cancel first (Twilio clear / OpenAI Realtime response.cancel).
+      if (adapter.capabilities.interruption) {
+        try {
+          await adapter.interrupt();
+          nativeFired = true;
+        } catch {
+          // Best-effort: step 2 (push audio) is the load-bearing barge-in.
+        }
+      }
+
+      // 2. Push the user audio — the bot's VAD detects the overlap and cuts its
+      //    reply, even without a native cancel (EL ConvAI, Gemini Live).
+      const chunk = extractAudio(voicedMessage);
+      let audioSent = false;
+      if (chunk) {
+        try {
+          await adapter.sendAudio(chunk);
+          audioSent = true;
+        } catch {
+          // Best-effort: the adapter may have torn down mid-flight.
+        }
+        if (audioSent) {
+          // Record the interrupting user turn on the byte-accurate cursor so
+          // the manifest shows it (issue #466 — Gemini emitted the event but
+          // no user segment without this).
+          if (this.voiceRecording) {
+            writeUserSegment(this, chunk);
+          }
+          // The audio went out of band (hand-delivered), so drop it from this
+          // adapter's pending queue — otherwise the recovery agent() re-sends
+          // it. Mirrors Python's `_clear_adapter_pending_messages`.
+          this.clearAdapterPendingMessages(adapter);
+        }
+      }
+
+      // 3. Let the in-flight agent task settle (JS promises aren't cancelable;
+      //    the agent's call() finishes/errors naturally once we've barged in).
+      await pending.promise;
+      this.pendingAgentTask = null;
+    }
+
+    const event: VoiceEvent = {
+      time: interruptTime,
+      type: "user_interrupt",
+      metadata: { source: "barge-in", outcome, native: nativeFired },
+    };
+    if (this.voiceRecording) this.voiceRecording.timeline.push(event);
+    this.voiceTimeline?.push(event);
+    try {
+      this.onVoiceEvent?.(event);
+    } catch {
+      // Hooks are best-effort — never break the scenario.
+    }
+  }
+
+  /**
+   * Drop all queued pending messages for the given adapter's index. Called
+   * after {@link fireUserInterrupt} hand-delivers the interrupting audio, so
+   * the recovery `agent()` turn does not re-send it. Mirrors Python's
+   * `_clear_adapter_pending_messages`.
+   */
+  private clearAdapterPendingMessages(adapter: VoiceAgentAdapter): void {
+    const idx = this.agents.indexOf(adapter as unknown as AgentAdapter);
+    if (idx >= 0) this.pendingMessages.set(idx, []);
   }
 
   /**
@@ -1946,4 +2139,29 @@ function extractErrorInfo(error: unknown): {
     name: typeof error,
     message: String(error),
   };
+}
+
+/**
+ * Derive `interruptResponseTime` from the voice timeline: the minimum gap
+ * between a `user_interrupt` event and the next `agent_stop_speaking` (how fast
+ * the agent stopped once the user barged in). Returns `undefined` when there is
+ * no interrupt with a following agent stop. Mirrors the §4.6 LatencyMetrics
+ * `interrupt_response_time` semantic.
+ */
+function deriveInterruptResponseTime(
+  timeline: readonly VoiceEvent[],
+): number | undefined {
+  let best: number | undefined;
+  for (let i = 0; i < timeline.length; i++) {
+    if (timeline[i].type !== "user_interrupt") continue;
+    const interruptTime = timeline[i].time;
+    for (let j = i + 1; j < timeline.length; j++) {
+      if (timeline[j].type === "agent_stop_speaking") {
+        const dt = timeline[j].time - interruptTime;
+        if (dt >= 0 && (best === undefined || dt < best)) best = dt;
+        break;
+      }
+    }
+  }
+  return best;
 }

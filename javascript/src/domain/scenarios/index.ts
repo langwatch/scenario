@@ -153,6 +153,15 @@ export interface ScenarioExecutionLike {
    */
   agent(content?: string | ModelMessage): Promise<void>;
   /**
+   * Voice-only: fire an agent turn WITHOUT awaiting it — the non-blocking
+   * primitive behind `agent({ wait: false })` (PRD §4.4). The executor tracks
+   * the in-flight turn so a subsequent {@link user} call lands as a mid-stream
+   * barge-in (interruption) rather than a separate turn. Optional: text-only
+   * executors may omit it, in which case the `{ wait: false }` step falls back
+   * to a fire-and-forget `agent()` with no barge-in coordination.
+   */
+  agentNonBlocking?(content?: string | ModelMessage): void;
+  /**
    * Invokes the judge agent to evaluate the current state.
    * @param options Optional options with inline criteria to evaluate as a checkpoint.
    * @returns The result of the scenario if the judge makes a final decision.
