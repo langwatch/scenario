@@ -16,7 +16,8 @@
  * Python helper's `Optional[Path]` return.
  */
 
-import { dirname, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { voice } from "@langwatch/scenario";
@@ -63,7 +64,35 @@ export function saveDemoRecording(
   }
   const target = resolve(RECORDINGS_ROOT, demoName);
   audio.saveSegments(target, { manifest: true });
+  pruneOrphanSegments(target);
   return target;
+}
+
+/**
+ * Remove `segments/*.wav` files NOT referenced by the freshly-written
+ * `manifest.json`. `saveSegments` names each segment by its byte-accurate
+ * cursor offset (`NN-<role>-<ms>ms.wav`); a re-run with different timing
+ * writes new names but never deletes the previous run's files, so without
+ * pruning a multi-turn re-run leaves stale orphans behind (which would then
+ * be committed as dead weight). Keeping the directory to exactly the manifest
+ * set is the M1 fidelity invariant on disk.
+ */
+function pruneOrphanSegments(dir: string): void {
+  const segDir = join(dir, "segments");
+  if (!existsSync(segDir)) return;
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as {
+    segments?: Array<{ file?: string }>;
+  };
+  const keep = new Set(
+    (manifest.segments ?? [])
+      .map((s) => s.file && basename(s.file))
+      .filter((f): f is string => Boolean(f)),
+  );
+  for (const entry of readdirSync(segDir)) {
+    if (entry.endsWith(".wav") && !keep.has(entry)) {
+      rmSync(join(segDir, entry));
+    }
+  }
 }
 
 /** Absolute path to `javascript/recordings/` — exported for demos that need it. */
