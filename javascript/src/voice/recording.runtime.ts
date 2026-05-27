@@ -9,8 +9,8 @@
  * Two output paths:
  * - `save(path)` writes a single conversation file. WAV is written from the
  *   internal PCM16 segments directly; `.mp3` / `.ogg` / `.flac` shell out
- *   to a system `ffmpeg` binary (must be on PATH) — see PR body for the
- *   distribution decision.
+ *   to the bundled `ffmpeg` binary (see {@link resolveFfmpegPath}; Python
+ *   parity with imageio-ffmpeg) — no system ffmpeg required.
  * - `saveSegments(dir)` writes one WAV per segment plus the full mix and a
  *   JSON manifest pairing files to transcripts/timestamps.
  */
@@ -24,6 +24,7 @@ import {
   PCM16_SAMPLE_RATE,
   PCM16_SAMPLE_WIDTH_BYTES,
 } from "./audio-chunk";
+import { resolveFfmpegPath } from "./ffmpeg";
 import type {
   AudioSegment,
   LatencyMetrics,
@@ -82,8 +83,8 @@ export class VoiceRecordingRuntime implements VoiceRecording {
    * Save the full conversation to a file.
    *
    * Format is inferred from the path suffix or overridden by `format`.
-   * `.wav` is written natively; non-WAV formats transcode via an
-   * ffmpeg subprocess (must be on PATH).
+   * `.wav` is written natively; non-WAV formats transcode via the bundled
+   * ffmpeg subprocess (see {@link resolveFfmpegPath}).
    *
    * `path` is resolved before writing; `format` is validated against an
    * allowlist so callers can't pass arbitrary ffmpeg muxer names.
@@ -105,7 +106,7 @@ export class VoiceRecordingRuntime implements VoiceRecording {
     }
 
     const result = spawnSync(
-      "ffmpeg",
+      resolveFfmpegPath(),
       [
         "-protocol_whitelist",
         "file,pipe",
@@ -124,8 +125,7 @@ export class VoiceRecordingRuntime implements VoiceRecording {
     );
     if (result.error) {
       throw new Error(
-        `ffmpeg subprocess failed (is ffmpeg installed and on PATH?): ` +
-          `${result.error.message}`,
+        `ffmpeg subprocess failed: ${result.error.message}`,
       );
     }
     if (result.status !== 0) {

@@ -13,10 +13,16 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-/** Skip ffmpeg-dependent assertions when the binary is not on PATH. */
+import { resolveFfmpegPath } from "../ffmpeg";
+
+/**
+ * Skip ffmpeg-dependent assertions only if the bundled binary is somehow
+ * unrunnable. With ffmpeg-static vendored (Python parity) this resolves to a
+ * real binary on every CI platform, so these tests run rather than skip.
+ */
 const HAS_FFMPEG = (() => {
   try {
-    return spawnSync("ffmpeg", ["-version"]).status === 0;
+    return spawnSync(resolveFfmpegPath(), ["-version"]).status === 0;
   } catch {
     return false;
   }
@@ -72,7 +78,7 @@ describe("VoiceRecordingRuntime.save", () => {
     expect(bytes.readUInt16LE(34)).toBe(16); // 16-bit
   });
 
-  itIfFfmpeg("transcodes to MP3 via the system ffmpeg subprocess", () => {
+  itIfFfmpeg("transcodes to MP3 via the bundled ffmpeg subprocess", () => {
     const rec = new VoiceRecordingRuntime({
       segments: [pcmSegment("user", 0, 0.3, "test")],
     });

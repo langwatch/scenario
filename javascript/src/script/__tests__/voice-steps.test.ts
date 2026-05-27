@@ -23,6 +23,7 @@ import {
   AdapterCapabilities,
   AudioChunk,
   InterruptionConfig,
+  resolveFfmpegPath,
   UnsupportedCapabilityError,
   VoiceAgentAdapter,
 } from "../../voice";
@@ -354,7 +355,7 @@ describeFeature(
             paths.push(wavPath);
             for (const fmt of expectedFormats.slice(1)) {
               const outPath = join(dir, `src.${fmt}`);
-              transcodeWith("ffmpeg", wavPath, outPath, fmt);
+              transcodeWith(resolveFfmpegPath(), wavPath, outPath, fmt);
               paths.push(outPath);
             }
           },
