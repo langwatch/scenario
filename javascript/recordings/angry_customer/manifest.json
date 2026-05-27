@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-05-27T11:51:17.544Z",
+  "duration": 43.52,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0000ms.wav",
+      "role": "agent",
+      "start_time": 0,
+      "end_time": 3.5,
+      "duration": 3.5,
+      "transcript": null
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3500ms.wav",
+      "role": "user",
+      "start_time": 3.5,
+      "end_time": 9.45,
+      "duration": 5.949999999999999,
+      "transcript": "you charged me twice on my card fix it now i'm in a noisy cafe and i want a refund"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-9450ms.wav",
+      "role": "agent",
+      "start_time": 9.45,
+      "end_time": 21.75,
+      "duration": 12.3,
+      "transcript": null
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-21750ms.wav",
+      "role": "user",
+      "start_time": 21.75,
+      "end_time": 30.6,
+      "duration": 8.850000000000001,
+      "transcript": "you charged my card twice fix it now refund the extra charge and email me proof i'm in a noisy cafe and i'm not waiting"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-30600ms.wav",
+      "role": "agent",
+      "start_time": 30.6,
+      "end_time": 43.52,
+      "duration": 12.920000000000002,
+      "transcript": null
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.5,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.5,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.45,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 9.45,
+      "type": "agent_start_speaking",
+      "latency": 4.157363125
+    },
+    {
+      "time": 21.75,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 21.75,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 30.6,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 30.6,
+      "type": "agent_start_speaking",
+      "latency": 0.00019964100000180451
+    },
+    {
+      "time": 43.52,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
