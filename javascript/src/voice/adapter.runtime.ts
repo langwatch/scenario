@@ -560,9 +560,9 @@ function getAgentSpeakingEvent(adapter: VoiceAgentAdapter): AgentSpeakingEvent {
   // this the field stayed `undefined` on every adapter and barge-ins fired
   // "before speech" — nothing to cut off (issue #372 hollow-interrupt fix).
   // Mirrors Python's base-adapter `_agent_speaking_event` (adapter.py:66).
-  if (adapter.agentSpeakingEvent !== event) {
-    adapter.agentSpeakingEvent = event;
-  }
+  // Unconditional assignment is idempotent (same reference on re-entry), so no
+  // identity guard is needed (review H8).
+  adapter.agentSpeakingEvent = event;
   return event;
 }
 

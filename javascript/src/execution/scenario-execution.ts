@@ -41,7 +41,6 @@ import {
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
 import type { VoiceAgentAdapter } from "../voice/adapter";
-import { VoiceAgentAdapter as VoiceAgentAdapterClass } from "../voice/adapter";
 import {
   initVoiceExecutorState,
   pickVoiceAdapters,
@@ -1191,17 +1190,20 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    */
   agentNonBlocking(content?: string | ModelMessage): void {
     const entry: { promise: Promise<void>; done: boolean } = {
-      promise: Promise.resolve(),
+      // Assigned in the same statement; the `.finally` below closes over
+      // `entry` and only runs after this turn settles, by which point the field
+      // holds the real promise (no dead Promise.resolve() placeholder — review
+      // H6).
+      promise: this.scriptCallAgent(AgentRole.AGENT, content)
+        .then(() => undefined)
+        .catch(() => {
+          /* errors surface via segments / recovery turn */
+        })
+        .finally(() => {
+          entry.done = true;
+        }),
       done: false,
     };
-    entry.promise = this.scriptCallAgent(AgentRole.AGENT, content)
-      .then(() => undefined)
-      .catch(() => {
-        /* errors surface via segments / recovery turn */
-      })
-      .finally(() => {
-        entry.done = true;
-      });
     this.pendingAgentTask = entry;
   }
 
@@ -1428,17 +1430,18 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * Find the first AGENT-role {@link VoiceAgentAdapter} on the scenario, if any.
-   * Used by the barge-in path to push the interrupting user audio onto the wire
-   * directly. Mirrors Python's `_find_voice_adapter`.
+   * Find the first {@link VoiceAgentAdapter} on the scenario, if any — by
+   * convention the agent-under-test. Used by the barge-in path to push the
+   * interrupting user audio onto the wire directly. Mirrors Python's
+   * `_find_voice_adapter`.
+   *
+   * Reuses {@link voiceAdapters} (populated by the duck-typed
+   * `pickVoiceAdapters` at scenario start) rather than re-deriving a third
+   * type-guard (review m1/H2) — `findVoiceAgentAdapter` only ever runs during
+   * the script loop, after that population.
    */
   private findVoiceAgentAdapter(): VoiceAgentAdapter | null {
-    for (const agent of this.agents) {
-      if (agent instanceof VoiceAgentAdapterClass) {
-        return agent as unknown as VoiceAgentAdapter;
-      }
-    }
-    return null;
+    return this.voiceAdapters[0] ?? null;
   }
 
   /**
