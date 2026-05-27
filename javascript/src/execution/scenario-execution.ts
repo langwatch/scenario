@@ -59,12 +59,23 @@ import { InterruptionConfig } from "../voice/interruption";
 import { extractAudio } from "../voice/messages";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
-  AudioSegment,
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
 } from "../voice/recording.types";
+import {
+  deriveInterruptResponseTime,
+  markTruncatedAgentSegments,
+} from "../voice/segment-utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
+
+/**
+ * Default bound (ms) on the barge-in wait for the agent to start speaking.
+ * Used by {@link ScenarioExecution.fireUserInterrupt} when the `interrupt()`
+ * step has not threaded its own `waitForSpeechTimeout`. A hung bot can't stall
+ * the script past this.
+ */
+const DEFAULT_WAIT_FOR_SPEECH_MS = 15_000;
 
 /**
  * Manages the execution of a single scenario test.
@@ -1321,6 +1332,15 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   _interruptRng: () => number = Math.random;
 
   /**
+   * Optional per-barge-in override (ms) for the wait in
+   * {@link fireUserInterrupt}, threaded by the `interrupt()` script step from
+   * its `waitForSpeechTimeout` so the step and the executor agree on ONE
+   * timeout instead of the divergent 8s/15s the two layers used before
+   * (review m2). Consumed (reset to `undefined`) on each barge-in.
+   */
+  _interruptWaitForSpeechMs?: number;
+
+  /**
    * Resolve the active {@link InterruptionConfig} for the run:
    * - `voiceProceed({ interruptions })` config (on the executor state) wins.
    * - else, when a user simulator declares `interruptProbability > 0`, build
@@ -1378,10 +1398,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     // Record the interruption on the voice timeline when a recording exists.
     if (this.voiceRecording) {
-      const time =
-        this.voiceRecordingStartedAt != null
-          ? performance.now() / 1000 - this.voiceRecordingStartedAt
-          : 0;
+      // Timestamp on the byte-accurate audio cursor — the SAME clock segments
+      // ride (adapter.runtime `layNextSegment`) — so `markTruncatedAgentSegments`
+      // compares like-for-like (review BLOCKER). The agent turn for this proceed
+      // iteration was just recorded, so the cursor sits at that segment's
+      // `endTime`; the inclusive containment check marks it as truncated.
+      const time = this.voiceAudioCursor ?? 0;
       const event: VoiceEvent = {
         time,
         type: "user_interrupt",
@@ -1428,42 +1450,66 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * (issue #466/#467): be PROMPT, not POLITE — push audio whether or not the
    * agent has started speaking; the provider VADs handle the rest.
    *
+   * PRECONDITION: only invoked by {@link maybeFireUserInterrupt}, which has
+   * already verified an in-flight, un-settled {@link pendingAgentTask} exists —
+   * so there is no `pending_done` outcome here (the guard lives at the single
+   * call site, not duplicated).
+   *
    * Records `metadata.outcome`:
    *  - `no_adapter` — text-only path, nothing to barge in on;
    *  - `fired_after_speech` — the agent had started speaking (true mid-stream);
    *  - `fired_before_speech` — barge-in landed in the bot's pre-reply window.
+   *
+   * The `user_interrupt` event is timestamped on the byte-accurate audio cursor
+   * (`voiceAudioCursor`) — the SAME clock segments ride — captured at the
+   * barge-in instant. The truncated agent segment is laid either just BEFORE
+   * (fast transport: already recorded → cursor == its `endTime`) or just AFTER
+   * (slow transport: recorded during settle → cursor == its `startTime`) this
+   * capture; either way the cursor lands on a segment boundary, and the
+   * inclusive containment in {@link markTruncatedAgentSegments} marks it. This
+   * is why we no longer carry a clock-agnostic last-segment workaround AND a
+   * cross-clock post-hoc pass (review BLOCKER): one cursor-based mechanism.
    */
   private async fireUserInterrupt(voicedMessage: ModelMessage): Promise<void> {
-    const anchor = this.voiceRecordingStartedAt;
-    const now = (): number =>
-      anchor != null ? performance.now() / 1000 - anchor : 0;
-    let interruptTime = now();
+    // Consume the per-barge-in wait override up front (cleared so a later
+    // raw `user()` barge-in can't inherit a stale `interrupt()` budget).
+    const waitMs = this._interruptWaitForSpeechMs ?? DEFAULT_WAIT_FOR_SPEECH_MS;
+    this._interruptWaitForSpeechMs = undefined;
 
     const pending = this.pendingAgentTask;
+    // Precondition (see jsdoc): the sole caller guarantees a live task. Guard
+    // defensively rather than emit a bogus event if that ever changes.
+    if (!pending || pending.done) return;
     const adapter = this.findVoiceAgentAdapter();
 
+    // Byte-cursor timestamp for the barge-in. Default for the proceed/raw path;
+    // refreshed at the actual barge-in instant in the adapter branch below.
+    let interruptTime = this.voiceAudioCursor ?? 0;
     let outcome: string;
     let nativeFired = false;
 
-    if (!pending || pending.done) {
-      outcome = "pending_done";
-    } else if (adapter === null) {
+    if (adapter === null) {
       outcome = "no_adapter";
       await pending.promise;
       this.pendingAgentTask = null;
     } else {
       // Best-effort wait for the agent to start speaking so the barge-in lands
-      // mid-utterance. Bounded so a hung bot can't stall the script.
+      // mid-utterance. Bounded so a hung bot can't stall the script — the bound
+      // is the step's `waitForSpeechTimeout` when threaded by `interrupt()`,
+      // else the module default.
       const speaking = adapter.agentSpeakingEvent;
       if (speaking && !speaking.isSet()) {
         await Promise.race([
           speaking.wait(),
-          new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+          new Promise<void>((resolve) => setTimeout(resolve, waitMs)),
         ]);
       }
       const agentWasSpeaking = Boolean(speaking?.isSet());
       outcome = agentWasSpeaking ? "fired_after_speech" : "fired_before_speech";
-      interruptTime = now();
+      // Capture the cursor at the barge-in instant. If the fast transport
+      // already recorded the agent segment, the cursor sits at its `endTime`;
+      // otherwise it sits where the about-to-be-recorded agent segment starts.
+      interruptTime = this.voiceAudioCursor ?? 0;
 
       // 1. Native cancel first (Twilio clear / OpenAI Realtime response.cancel).
       if (adapter.capabilities.interruption) {
@@ -1475,31 +1521,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         }
       }
 
-      // ROBUST cut-off marking: when we barge in AFTER the agent began
-      // speaking, the agent segment for the interrupted turn is the most-recent
-      // agent segment at THIS instant (its call() may have already recorded it
-      // if the transport drained fast — Gemini receives faster than real-time —
-      // or it may be recorded as the task settles below). Mark the current last
-      // agent segment now, AND snapshot the count so a still-in-flight segment
-      // recorded during settle is marked too. This is clock-agnostic, unlike the
-      // post-hoc time-containment fallback (markTruncatedAgentSegments), which
-      // misses it when byte-cursor segment times and wall-clock interrupt times
-      // diverge.
-      const rec = this.voiceRecording;
-      const markLastAgentTruncated = (): void => {
-        if (!rec) return;
-        for (let i = rec.segments.length - 1; i >= 0; i--) {
-          if (rec.segments[i]!.speaker === "agent") {
-            rec.segments[i]!.transcriptTruncated = true;
-            return;
-          }
-        }
-      };
-      if (agentWasSpeaking) markLastAgentTruncated();
-      const beforeSettle = rec ? rec.segments.length : 0;
-
       // 2. Push the user audio — the bot's VAD detects the overlap and cuts its
-      //    reply, even without a native cancel (EL ConvAI, Gemini Live).
+      //    reply, even without a native cancel (EL ConvAI, Gemini Live). The
+      //    wire send is PROMPT (now); recording the user segment is DEFERRED to
+      //    step 4 so the interrupted agent segment (laid during settle on a slow
+      //    transport) lands on the cursor BEFORE the barge-in user segment.
       const chunk = extractAudio(voicedMessage);
       let audioSent = false;
       if (chunk) {
@@ -1510,12 +1536,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           // Best-effort: the adapter may have torn down mid-flight.
         }
         if (audioSent) {
-          // Record the interrupting user turn on the byte-accurate cursor so
-          // the manifest shows it (issue #466 — Gemini emitted the event but
-          // no user segment without this).
-          if (this.voiceRecording) {
-            writeUserSegment(this, chunk);
-          }
           // The audio went out of band (hand-delivered), so drop it from this
           // adapter's pending queue — otherwise the recovery agent() re-sends
           // it. Mirrors Python's `_clear_adapter_pending_messages`.
@@ -1525,17 +1545,18 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
       // 3. Let the in-flight agent task settle (JS promises aren't cancelable;
       //    the agent's call() finishes/errors naturally once we've barged in).
+      //    The interrupted agent segment is recorded HERE on a slow transport.
       await pending.promise;
-      // Any agent segment recorded DURING the settle (the cut-off reply, if the
-      // transport hadn't flushed it yet) is also truncated. Skip the user
-      // barge-in segment written just above (it's not an agent segment anyway).
-      if (agentWasSpeaking && rec) {
-        for (let i = beforeSettle; i < rec.segments.length; i++) {
-          const s = rec.segments[i]!;
-          if (s.speaker === "agent") s.transcriptTruncated = true;
-        }
-      }
       this.pendingAgentTask = null;
+
+      // 4. Now record the interrupting user turn on the byte cursor — AFTER the
+      //    agent segment so the manifest reads agent-(truncated)→user-barge-in
+      //    (issue #466 — Gemini emitted the event but no user segment without
+      //    this). Truncation marking is the post-hoc cursor pass in
+      //    `markTruncatedAgentSegments`; no inline marking here.
+      if (audioSent && chunk && this.voiceRecording) {
+        writeUserSegment(this, chunk);
+      }
     }
 
     const event: VoiceEvent = {
@@ -2229,53 +2250,3 @@ function extractErrorInfo(error: unknown): {
   };
 }
 
-/**
- * Derive `interruptResponseTime` from the voice timeline: the minimum gap
- * between a `user_interrupt` event and the next `agent_stop_speaking` (how fast
- * the agent stopped once the user barged in). Returns `undefined` when there is
- * no interrupt with a following agent stop. Mirrors the §4.6 LatencyMetrics
- * `interrupt_response_time` semantic.
- */
-function deriveInterruptResponseTime(
-  timeline: readonly VoiceEvent[],
-): number | undefined {
-  let best: number | undefined;
-  for (let i = 0; i < timeline.length; i++) {
-    if (timeline[i].type !== "user_interrupt") continue;
-    const interruptTime = timeline[i].time;
-    for (let j = i + 1; j < timeline.length; j++) {
-      if (timeline[j].type === "agent_stop_speaking") {
-        const dt = timeline[j].time - interruptTime;
-        if (dt >= 0 && (best === undefined || dt < best)) best = dt;
-        break;
-      }
-    }
-  }
-  return best;
-}
-
-/**
- * Mark every agent segment whose `[startTime, endTime]` span contains a
- * `user_interrupt` event as {@link AudioSegment.transcriptTruncated}: the
- * chunk-level transcript reflects the agent's INTENDED reply, not what played
- * to the user before the barge-in cut the audio. Mutates `segments` in place
- * (the recording object is shared with `result.audio`). Pure + exported so the
- * marking is unit-testable without real-time playback alignment. Mirrors Python
- * `ScenarioExecutor._attach_voice_output` (scenario_executor.py:728-740).
- */
-export function markTruncatedAgentSegments(
-  segments: AudioSegment[],
-  timeline: readonly VoiceEvent[],
-): void {
-  const interrupts = timeline.filter((e) => e.type === "user_interrupt");
-  if (interrupts.length === 0) return;
-  for (const seg of segments) {
-    if (seg.speaker !== "agent") continue;
-    for (const evt of interrupts) {
-      if (seg.startTime <= evt.time && evt.time <= seg.endTime) {
-        seg.transcriptTruncated = true;
-        break;
-      }
-    }
-  }
-}

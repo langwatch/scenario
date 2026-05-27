@@ -173,6 +173,7 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
     // back to fire-and-forget on executors without agentNonBlocking.
     const ex = executor as ScenarioExecutionLike & {
       agentNonBlocking?: (content?: string | ModelMessage) => void;
+      _interruptWaitForSpeechMs?: number;
     };
     if (typeof ex.agentNonBlocking === "function") {
       ex.agentNonBlocking();
@@ -182,6 +183,11 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
       });
     }
 
+    // The text/empty content routes through executor.user() → fireUserInterrupt,
+    // which does its OWN bounded wait-for-speech. Audio content goes straight to
+    // adapter.sendAudio (audio()), bypassing that — so it must pre-wait here.
+    const routesThroughUser = !isAudioContent(content);
+
     if (afterWords !== undefined) {
       await waitForStreamingWords(executor, afterWords, waitForSpeechTimeout);
     } else if (after !== undefined) {
@@ -189,16 +195,26 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
       // the sleep overlaps real audio), then sleep the requested seconds.
       await waitForAgentSpeaking(executor, waitForSpeechTimeout);
       await delay(after * 1000);
-    } else {
+    } else if (!routesThroughUser) {
+      // Default mode, AUDIO content: this is the only wait before the barge-in
+      // (audio() doesn't coordinate with the pending turn), so keep it.
       await waitForAgentSpeaking(executor, waitForSpeechTimeout);
     }
+    // Default mode, TEXT content: no pre-wait — fireUserInterrupt does the
+    // single wait-for-speech using the budget threaded just below, so the agent
+    // isn't waited for twice (review m2: one timeout, not 8s here + 15s there).
 
-    if (isAudioContent(content)) {
-      await audio(content as string | Uint8Array)(state, executor);
-    } else if (content !== undefined && content !== "") {
-      await executor.user(content as string);
+    if (routesThroughUser) {
+      // Thread THIS step's wait budget into the barge-in so the executor's
+      // wait-for-speech uses the same knob as the step.
+      ex._interruptWaitForSpeechMs = waitForSpeechTimeout * 1000;
+      if (content !== undefined && content !== "") {
+        await executor.user(content as string);
+      } else {
+        await executor.user();
+      }
     } else {
-      await executor.user();
+      await audio(content as string | Uint8Array)(state, executor);
     }
   };
 };

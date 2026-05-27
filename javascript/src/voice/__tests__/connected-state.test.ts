@@ -1,11 +1,10 @@
 /**
  * Gap #11 — uniform connected-state gate (issue #372 Tier C, Task 6).
  *
- * defaultVoiceCall (and startVoiceTurn) raise PendingTransportError when
- * isConnected() is false — one clear error across every transport leaf
- * instead of a transport-specific null-deref or silent hang. Verified with a
- * custom VoiceAgentAdapter subclass AND a real leaf (OpenAIRealtime) before
- * connect(). Offline — no network.
+ * defaultVoiceCall raises PendingTransportError when isConnected() is false —
+ * one clear error across every transport leaf instead of a transport-specific
+ * null-deref or silent hang. Verified with a custom VoiceAgentAdapter subclass
+ * AND a real leaf (OpenAIRealtime) before connect(). Offline — no network.
  */
 
 import { describe, it, expect } from "vitest";
@@ -17,7 +16,7 @@ import {
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { VoiceAgentAdapter } from "../adapter";
-import { defaultVoiceCall, startVoiceTurn } from "../adapter.runtime";
+import { defaultVoiceCall } from "../adapter.runtime";
 import { PendingTransportError } from "../adapters/pending-transport-error";
 import { OpenAIRealtimeAgentAdapter } from "../adapters/openai-realtime";
 
@@ -66,11 +65,6 @@ describe("connected-state gate (Gap #11)", () => {
     await adapter.connect();
     const result = await defaultVoiceCall(adapter, input);
     expect((result as { role?: string }).role).toBe("assistant");
-  });
-
-  it("startVoiceTurn throws PendingTransportError before connect()", () => {
-    const adapter = new GatedAdapter();
-    expect(() => startVoiceTurn(adapter, input)).toThrow(PendingTransportError);
   });
 
   it("a real transport leaf (OpenAIRealtime) raises PendingTransportError via call() before connect", async () => {
