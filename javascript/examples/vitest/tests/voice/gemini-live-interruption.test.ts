@@ -1,13 +1,24 @@
 /**
  * E2E demo — Gemini Live interruption (server-VAD barge-in).
  *
- * `GeminiLiveAgentAdapter` advertises `capabilities.interruption=false` — the
- * Gemini Live protocol exposes no client-initiated cancel. Interruption relies
- * on Gemini's server VAD: when our user audio arrives mid-agent-utterance, the
- * server detects the overlap and the agent stops speaking. The executor's
- * `fireUserInterrupt` skips the native-cancel branch, pushes the new user audio,
- * and records a `user_interrupt` timeline event. Mirrors
- * `python/examples/voice/gemini_live_interruption.py`.
+ * `GeminiLiveAgentAdapter` advertises `capabilities.interruption=true`, but the
+ * Gemini Live protocol exposes no client-initiated cancel — its `interrupt()`
+ * only drains stale queued chunks. Interruption itself relies on Gemini's
+ * server VAD: when our user audio (a fresh `activityStart`) arrives
+ * mid-agent-utterance, the server cuts the in-flight reply. The executor's
+ * `fireUserInterrupt` pushes the new user audio and records a `user_interrupt`
+ * timeline event. Mirrors `python/examples/voice/gemini_live_interruption.py`.
+ *
+ * RECOVERY is captured with TWO post-interrupt agent() turns. On a server-VAD
+ * barge-in Gemini cuts the in-flight reply and emits a `turnComplete` for the
+ * CANCELLED turn, then ~3.5s later its REAL reply to the post-interrupt
+ * question. The cancelled-turn boundary lands a beat after our barge-in audio,
+ * too late for the native `interrupt()` drain — so the first recovery agent()
+ * swallows that stale boundary (empty/near-empty turn) and the second captures
+ * Gemini's genuine non-empty reply. Verified against the live API: one agent()
+ * left the recovery segment empty (transcript null); two make it real. The
+ * executor/adapter is untouched (the barge-in mechanism is proven); the demo
+ * drains the boundary at the script level.
  *
  * On success the recording (full.wav + segments + manifest) lands in
  * `javascript/recordings/gemini_live_interruption/`.
@@ -109,13 +120,30 @@ describeFeature(
             // comfortably clears the observed tail while still bounding a hung
             // socket. See `interruption_recovery`'s `waitForSpeechTimeout: 15`
             // for the same pattern on the (faster) Pipecat bot.
+            //
+            // TWO recovery agent() turns (not one). On a Gemini server-VAD
+            // barge-in the server cuts the in-flight reply AND emits a
+            // `turnComplete` for that CANCELLED turn — but that boundary only
+            // lands AFTER our barge-in audio's `activityStart` goes out, i.e.
+            // a beat too late for the executor's native `interrupt()` drain to
+            // swallow it. So the FIRST recovery agent() consumes that stale
+            // cancelled-turn boundary (yielding an empty/near-empty turn), and
+            // Gemini's REAL recovery reply to the post-interrupt question
+            // arrives ~3.5s later, captured by the SECOND agent(). This is
+            // verified against the live API: with one agent() the recovery
+            // segment is empty (transcript null); with two, the second turn
+            // captures Gemini's genuine non-empty reply. We do NOT touch the
+            // executor/adapter to swallow the stale boundary (the barge-in
+            // mechanism is proven) — the demo script drains it instead, which
+            // also honestly shows Gemini's two-phase cancelled-turn behaviour.
             script: [
               scenario.user("Tell me everything you can about your platform, in detail."),
               scenario.interrupt({
                 content: "Sorry — what are your business hours?",
                 waitForSpeechTimeout: 25,
               }),
-              scenario.agent(),
+              scenario.agent(), // drains the cancelled-turn boundary (empty/near-empty)
+              scenario.agent(), // captures Gemini's real recovery reply (non-empty)
               scenario.judge(),
             ],
             maxTurns: 8,
@@ -192,12 +220,67 @@ describeFeature(
                   "to mark the cut-off reply (this IS a regression, not a Gemini " +
                   "timing artefact)",
               ).toBeGreaterThan(0);
+
+              // RECOVERY captured (the FIX #2 fix): after the barge-in, Gemini
+              // emits a stale cancelled-turn boundary (drained by the first
+              // recovery agent()) and then its REAL reply to the post-interrupt
+              // question (~3.5s later, captured by the second). Assert the
+              // recovery is genuinely there: at least one agent segment AFTER
+              // the last interrupt that is NOT the cut-off one and carries real
+              // audio + a non-empty transcript. With a single recovery agent()
+              // this segment was empty (transcript null) — the bug this demo
+              // now fixes. Guarded by fired_after_speech for the same reason as
+              // the truncation assertion: only then is a recovery expected.
+              const lastInterrupt = Math.max(
+                ...interruptEvents.map((e) => e.time),
+              );
+              const truncatedSet = new Set(truncated);
+              const recoverySegs = segments.filter(
+                (s) =>
+                  s.speaker === "agent" &&
+                  s.startTime > lastInterrupt &&
+                  !truncatedSet.has(s),
+              );
+              const recoveryWithSpeech = recoverySegs.filter(
+                (s) =>
+                  s.audio.length > 0 &&
+                  Boolean(s.transcript && s.transcript.trim().length > 0),
+              );
+              expect(
+                recoveryWithSpeech.length,
+                "no NON-EMPTY agent recovery segment after the barge-in — " +
+                  "Gemini's recovery reply was not captured (a single recovery " +
+                  "agent() drains only the stale cancelled-turn boundary and " +
+                  "lands an empty segment; the second agent() must capture the " +
+                  "real reply). recoverySegs=" +
+                  JSON.stringify(
+                    recoverySegs.map((s) => ({
+                      dur: Number((s.endTime - s.startTime).toFixed(2)),
+                      transcript: s.transcript ?? null,
+                    })),
+                  ),
+              ).toBeGreaterThan(0);
             }
             expect(recordingDir, "recording was not written").not.toBeNull();
+            const lastInterruptT = interruptEvents.length
+              ? Math.max(...interruptEvents.map((e) => e.time))
+              : 0;
+            const recoveryTranscript = segments
+              .filter(
+                (s) =>
+                  s.speaker === "agent" &&
+                  s.startTime > lastInterruptT &&
+                  !truncated.includes(s) &&
+                  s.audio.length > 0 &&
+                  s.transcript,
+              )
+              .map((s) => s.transcript)
+              .join(" ");
             console.log(
               `[demo] gemini_live_interruption → ${recordingDir} ` +
                 `(interrupts=${interruptEvents.length}, firedAfterSpeech=${firedAfterSpeech}, ` +
                 `truncated=${truncated.length}, segments=${segments.length}, ` +
+                `recovery=${JSON.stringify(recoveryTranscript)}, ` +
                 `success=${result!.success})`,
             );
           },

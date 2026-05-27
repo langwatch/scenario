@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T17:37:42.183Z",
-  "duration": 7.34,
+  "generated_at": "2026-05-27T22:43:56.542Z",
+  "duration": 32.370000000000005,
   "segment_count": 4,
   "segments": [
     {
@@ -19,7 +19,7 @@
       "start_time": 3.7,
       "end_time": 4.66,
       "duration": 0.96,
-      "transcript": "My platform",
+      "transcript": "I am a",
       "transcript_truncated": true
     },
     {
@@ -27,18 +27,18 @@
       "file": "segments/02-user-4660ms.wav",
       "role": "user",
       "start_time": 4.66,
-      "end_time": 7.26,
-      "duration": 2.5999999999999996,
+      "end_time": 7.41,
+      "duration": 2.75,
       "transcript": "Sorry — what are your business hours?"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-7260ms.wav",
+      "file": "segments/03-agent-7410ms.wav",
       "role": "agent",
-      "start_time": 7.26,
-      "end_time": 7.34,
-      "duration": 0.08000000000000007,
-      "transcript": null
+      "start_time": 7.41,
+      "end_time": 32.370000000000005,
+      "duration": 24.960000000000004,
+      "transcript": "I don't have  traditional  \"business  hours,\"  as  I am  an artificial  intelligence  platform  developed  by Google.  This  means that  I am  available  to  assist  you  24  hours  a day,  seven  days  a week,  every  day  of the  year.  There  are no  time  constraints  or  holidays  that  affect  my  operational  capabilities,  ensuring  that  you can  access  my  services  whenever  you  need  them."
     }
   ],
   "events": [
@@ -53,7 +53,7 @@
     {
       "time": 3.7,
       "type": "agent_start_speaking",
-      "latency": 8.275443565
+      "latency": 7.9090066189999995
     },
     {
       "time": 3.7,
@@ -73,15 +73,15 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 7.26,
+      "time": 7.41,
       "type": "user_stop_speaking"
     },
     {
-      "time": 7.26,
+      "time": 7.41,
       "type": "agent_start_speaking"
     },
     {
-      "time": 7.34,
+      "time": 32.370000000000005,
       "type": "agent_stop_speaking"
     }
   ]
