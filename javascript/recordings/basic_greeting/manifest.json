@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T11:45:01.893Z",
-  "duration": 29.16,
+  "generated_at": "2026-05-27T14:25:17.690Z",
+  "duration": 29.31,
   "segment_count": 5,
   "segments": [
     {
@@ -8,45 +8,45 @@
       "file": "segments/00-agent-0000ms.wav",
       "role": "agent",
       "start_time": 0,
-      "end_time": 3.7,
-      "duration": 3.7,
-      "transcript": null
+      "end_time": 3.6,
+      "duration": 3.6,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-3700ms.wav",
+      "file": "segments/01-user-3600ms.wav",
       "role": "user",
-      "start_time": 3.7,
-      "end_time": 7,
-      "duration": 3.3,
-      "transcript": "Hi, I need some help today."
+      "start_time": 3.6,
+      "end_time": 7.9,
+      "duration": 4.300000000000001,
+      "transcript": "Hi, I'd like to order a large pepperoni pizza for delivery."
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-7000ms.wav",
+      "file": "segments/02-agent-7900ms.wav",
       "role": "agent",
-      "start_time": 7,
-      "end_time": 14.3,
-      "duration": 7.300000000000001,
-      "transcript": null
+      "start_time": 7.9,
+      "end_time": 15.9,
+      "duration": 8,
+      "transcript": "Sure, I can help with that. What's your delivery address and the phone number for the order? And would you like any sides or drinks with the large pepperoni pizza?"
     },
     {
       "idx": 3,
-      "file": "segments/03-user-14300ms.wav",
+      "file": "segments/03-user-15900ms.wav",
       "role": "user",
-      "start_time": 14.3,
-      "end_time": 16.75,
-      "duration": 2.4499999999999993,
-      "transcript": "Thanks — can you point me in the right direction?"
+      "start_time": 15.9,
+      "end_time": 18.9,
+      "duration": 2.9999999999999982,
+      "transcript": "Great — how long will delivery take?"
     },
     {
       "idx": 4,
-      "file": "segments/04-agent-16750ms.wav",
+      "file": "segments/04-agent-18900ms.wav",
       "role": "agent",
-      "start_time": 16.75,
-      "end_time": 29.16,
-      "duration": 12.41,
-      "transcript": null
+      "start_time": 18.9,
+      "end_time": 29.31,
+      "duration": 10.41,
+      "transcript": "Delivery typically takes about 30 to 45 minutes, depending on distance and current order volume. What's your delivery address so I can estimate more accurately?"
     }
   ],
   "events": [
@@ -55,41 +55,41 @@
       "type": "agent_start_speaking"
     },
     {
-      "time": 3.7,
+      "time": 3.6,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 3.7,
+      "time": 3.6,
       "type": "user_start_speaking"
     },
     {
-      "time": 7,
+      "time": 7.9,
       "type": "user_stop_speaking"
     },
     {
-      "time": 7,
+      "time": 7.9,
       "type": "agent_start_speaking",
-      "latency": 2.6135657429999988
+      "latency": 4.070010422000001
     },
     {
-      "time": 14.3,
+      "time": 15.9,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 14.3,
+      "time": 15.9,
       "type": "user_start_speaking"
     },
     {
-      "time": 16.75,
+      "time": 18.9,
       "type": "user_stop_speaking"
     },
     {
-      "time": 16.75,
+      "time": 18.9,
       "type": "agent_start_speaking",
-      "latency": 5.2310724870000005
+      "latency": 8.160023619
     },
     {
-      "time": 29.16,
+      "time": 29.31,
       "type": "agent_stop_speaking"
     }
   ]
