@@ -835,7 +835,7 @@ Feature: Voice agent testing in Scenario SDK
     # overlap and cuts the agent's reply when user audio arrives mid-utterance.
     Given a hosted ElevenLabs ConvAI agent and a mid-utterance interrupt()
     When the demo script runs via scenario.run()
-    Then a user_interrupt event is recorded and the recording has segments
+    Then the agent's reply was cut off and it pivoted to the new topic
 
   @e2e @ts-gemini-live-interruption-demo
   Scenario: Demo — Gemini Live interruption (server VAD barge-in)
