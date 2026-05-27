@@ -2,9 +2,10 @@
  * E2E demo — OpenAI Realtime as the agent under test (BASELINE).
  *
  * The model itself is the agent (`role=AgentRole.AGENT`): a voice
- * `userSimulatorAgent` speaks a scripted line (TTS → audio), the Realtime
- * model hears it and answers in audio, and a `judgeAgent` evaluates the
- * exchange — all through the documented `scenario.run()` entrypoint and the
+ * `userSimulatorAgent` speaks scripted lines (TTS → audio), the Realtime
+ * model hears them and answers in audio over a MULTI-TURN conversation (two
+ * full user↔agent exchanges), and a `judgeAgent` evaluates the exchange — all
+ * through the documented `scenario.run()` entrypoint and the
  * `scenario.openAIRealtimeAgent({...})` factory (PRD §9). Mirrors
  * `python/examples/voice/openai_realtime_agent.py`.
  *
@@ -82,16 +83,22 @@ describeFeature(
               scenario.judgeAgent({
                 criteria: [
                   "The agent responded naturally to the user's greeting",
-                  "The conversation is a coherent voice exchange",
+                  "The agent answered the follow-up question on topic",
+                  "The conversation is a coherent multi-turn voice exchange",
                 ],
               }),
             ],
+            // Multi-turn conversation: two full user↔agent exchanges before the
+            // judge (user → agent → user → agent → judge). The realtime model
+            // carries context across both turns over the same live session.
             script: [
-              scenario.user("Hello, can you help me?"),
+              scenario.user("Hello, can you help me plan a weekend trip?"),
+              scenario.agent(),
+              scenario.user("Great — what should I pack for cold weather?"),
               scenario.agent(),
               scenario.judge(),
             ],
-            maxTurns: 4,
+            maxTurns: 6,
           });
         });
 
@@ -103,12 +110,16 @@ describeFeature(
             // The full pipeline ran: TTS → Realtime model → judge verdict.
             expect(r.success, `judge verdict: ${r.reasoning}`).toBe(true);
             // result.audio is the populated VoiceRecordingRuntime (Gap A/B):
-            // both user-sim and agent segments captured.
+            // both user-sim and agent segments captured across BOTH exchanges.
+            // Two full user↔agent turns → ≥4 segments (2 user + 2 agent).
             expect(r.audio, "result.audio missing").toBeDefined();
             expect(
               r.audio!.segments.length,
-              "no audio segments captured",
-            ).toBeGreaterThan(0);
+              "expected a multi-turn recording (≥4 segments for 2 exchanges)",
+            ).toBeGreaterThanOrEqual(4);
+            const speakers = new Set(r.audio!.segments.map((s) => s.speaker));
+            expect(speakers.has("user"), "no user-sim audio").toBe(true);
+            expect(speakers.has("agent"), "no agent audio").toBe(true);
             // Persist the listenable proof.
             const dir = saveDemoRecording(r.audio, "openai_realtime_agent");
             expect(dir, "recording was not written").not.toBeNull();
