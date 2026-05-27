@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-26T19:19:42.011Z",
-  "duration": 6.6146666666666665,
+  "generated_at": "2026-05-27T11:08:59.591Z",
+  "duration": 6.908833333333334,
   "segment_count": 3,
   "segments": [
     {
@@ -8,26 +8,26 @@
       "file": "segments/00-agent-0000ms.wav",
       "role": "agent",
       "start_time": 0,
-      "end_time": 1.4336666666666666,
-      "duration": 1.4336666666666666,
+      "end_time": 1.4648333333333334,
+      "duration": 1.4648333333333334,
       "transcript": null
     },
     {
       "idx": 1,
-      "file": "segments/01-user-1433ms.wav",
+      "file": "segments/01-user-1464ms.wav",
       "role": "user",
-      "start_time": 1.4336666666666666,
-      "end_time": 4.183666666666666,
-      "duration": 2.75,
+      "start_time": 1.4648333333333334,
+      "end_time": 4.664833333333334,
+      "duration": 3.2000000000000006,
       "transcript": "Hello, I have a question about my account."
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-4183ms.wav",
+      "file": "segments/02-agent-4664ms.wav",
       "role": "agent",
-      "start_time": 4.183666666666666,
-      "end_time": 6.6146666666666665,
-      "duration": 2.431,
+      "start_time": 4.664833333333334,
+      "end_time": 6.908833333333334,
+      "duration": 2.2439999999999998,
       "transcript": null
     }
   ],
@@ -37,24 +37,24 @@
       "type": "agent_start_speaking"
     },
     {
-      "time": 1.4336666666666666,
+      "time": 1.4648333333333334,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 1.4336666666666666,
+      "time": 1.4648333333333334,
       "type": "user_start_speaking"
     },
     {
-      "time": 4.183666666666666,
+      "time": 4.664833333333334,
       "type": "user_stop_speaking"
     },
     {
-      "time": 4.183666666666666,
+      "time": 4.664833333333334,
       "type": "agent_start_speaking",
-      "latency": 1.4973986559999997
+      "latency": 1.6868653200000003
     },
     {
-      "time": 6.6146666666666665,
+      "time": 6.908833333333334,
       "type": "agent_stop_speaking"
     }
   ]

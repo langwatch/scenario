@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-05-26T20:00:43.691Z",
-  "duration": 6.25,
-  "segment_count": 2,
+  "generated_at": "2026-05-27T11:09:21.992Z",
+  "duration": 11.61,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
@@ -17,8 +17,26 @@
       "file": "segments/01-agent-3050ms.wav",
       "role": "agent",
       "start_time": 3.05,
-      "end_time": 6.25,
-      "duration": 3.2,
+      "end_time": 5.449999999999999,
+      "duration": 2.3999999999999995,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-5449ms.wav",
+      "role": "user",
+      "start_time": 5.449999999999999,
+      "end_time": 8.25,
+      "duration": 2.8000000000000007,
+      "transcript": "Got it — can I switch to an annual plan?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-8250ms.wav",
+      "role": "agent",
+      "start_time": 8.25,
+      "end_time": 11.61,
+      "duration": 3.3599999999999994,
       "transcript": null
     }
   ],
@@ -28,56 +46,28 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 2.8697855600000004,
+      "time": 2.253846635000002,
       "type": "user_start_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 2.870234591999999,
+      "time": 2.2548913880000008,
       "type": "user_stop_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 2.870461862,
+      "time": 2.2559748220000024,
       "type": "user_start_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 2.8706206730000003,
-      "type": "user_stop_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 2.870713803,
-      "type": "user_start_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 2.8707502629999997,
-      "type": "user_stop_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 2.8708984539999998,
-      "type": "user_start_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 2.8711972649999993,
+      "time": 2.257883778,
       "type": "user_stop_speaking",
       "metadata": {
         "source": "vad-fallback"
@@ -90,10 +80,55 @@
     {
       "time": 3.05,
       "type": "agent_start_speaking",
-      "latency": 3.2911134670000006
+      "latency": 1.796664915000001
     },
     {
-      "time": 6.25,
+      "time": 5.449999999999999,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 5.449999999999999,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 6.666464112000003,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 6.667229673999998,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 6.667939707000002,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 6.6701636040000025,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 8.25,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 8.25,
+      "type": "agent_start_speaking",
+      "latency": 1.943435995999998
+    },
+    {
+      "time": 11.61,
       "type": "agent_stop_speaking"
     }
   ]
