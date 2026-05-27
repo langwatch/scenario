@@ -1,24 +1,42 @@
 {
-  "generated_at": "2026-05-26T19:19:42.007Z",
-  "duration": 5.35,
-  "segment_count": 2,
+  "generated_at": "2026-05-27T10:53:58.876Z",
+  "duration": 17.9,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 1.85,
-      "duration": 1.85,
-      "transcript": "Hello, can you help me?"
+      "end_time": 2.85,
+      "duration": 2.85,
+      "transcript": "Hello, can you help me with a quick question?"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-1850ms.wav",
+      "file": "segments/01-agent-2850ms.wav",
       "role": "agent",
-      "start_time": 1.85,
-      "end_time": 5.35,
+      "start_time": 2.85,
+      "end_time": 6.35,
       "duration": 3.4999999999999996,
+      "transcript": null
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6350ms.wav",
+      "role": "user",
+      "start_time": 6.35,
+      "end_time": 9,
+      "duration": 2.6500000000000004,
+      "transcript": "Thanks — and what time zone are you in?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-9000ms.wav",
+      "role": "agent",
+      "start_time": 9,
+      "end_time": 17.9,
+      "duration": 8.899999999999999,
       "transcript": null
     }
   ],
@@ -28,16 +46,33 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 1.85,
+      "time": 2.85,
       "type": "user_stop_speaking"
     },
     {
-      "time": 1.85,
+      "time": 2.85,
       "type": "agent_start_speaking",
-      "latency": 0.6251662930000002
+      "latency": 0.9745442299999993
     },
     {
-      "time": 5.35,
+      "time": 6.35,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.35,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 9,
+      "type": "agent_start_speaking",
+      "latency": 0.9205678740000014
+    },
+    {
+      "time": 17.9,
       "type": "agent_stop_speaking"
     }
   ]
