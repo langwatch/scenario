@@ -10,6 +10,12 @@ import { Callout } from "vocs/components";
 Designed to join a LiveKit room as a participant and drive a voice agent over
 WebRTC.
 
+<Callout type="info">
+  **TypeScript: not yet available.** `LiveKitAgentAdapter` is Python-only today —
+  it is not exported from `@langwatch/scenario` (tracked in
+  [#563](https://github.com/langwatch/scenario/issues/563)).
+</Callout>
+
 <Callout type="warning">
   **Transport not yet implemented.** Calling `connect()` raises
   `PendingTransportError`. The capability declaration is final (it matches the

@@ -10,6 +10,15 @@ import { Callout } from "vocs/components";
 Designed to drive a raw WebRTC agent (datachannel + audio track) given a
 signaling URL.
 
+<Callout type="info">
+  **TypeScript: not yet available.** The generic `WebRTCAgentAdapter` is
+  Python-only today — it is not exported from `@langwatch/scenario` (tracked in
+  [#563](https://github.com/langwatch/scenario/issues/563)). For WebRTC in
+  TypeScript, the only present-but-pending path is WebRTC mode on
+  [Pipecat](/voice/adapters/pipecat), which raises `voice.PendingTransportError`
+  until the SmallWebRTC transport lands.
+</Callout>
+
 <Callout type="warning">
   **Transport not yet implemented.** Calling `connect()` raises
   `PendingTransportError`. The capability declaration is final (it matches the

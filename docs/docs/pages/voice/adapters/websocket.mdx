@@ -3,11 +3,23 @@ title: WebSocket Adapter
 description: Speak a custom WebSocket protocol with WebSocketAgentAdapter and a WebSocketProtocol implementation.
 ---
 
+import { Callout } from "vocs/components";
+
 # `WebSocketAgentAdapter`
 
 The bring-your-own primitive. Use when your bot speaks a custom WebSocket
 protocol that doesn't match any of the bundled adapters. You supply a
 `WebSocketProtocol` implementation that handles framing and audio encoding.
+
+<Callout type="info">
+  **TypeScript: no generic `WebSocketAgentAdapter` yet** (tracked in
+  [#563](https://github.com/langwatch/scenario/issues/563)). For a custom
+  WebSocket protocol in TypeScript today, **subclass `voice.VoiceAgentAdapter`**
+  directly — implement `connect()`, `disconnect()`, `sendAudio(chunk)`, and
+  `receiveAudio()`; the executor recognizes the lifecycle automatically. If your
+  bot speaks the Twilio Media Streams protocol, use
+  [`pipecatAgent`](/voice/adapters/pipecat) instead.
+</Callout>
 
 ## Constructor
 
