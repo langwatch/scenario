@@ -217,6 +217,90 @@ describe("backgroundNoise mixes real ambience over a dry signal", () => {
 });
 
 // ---------------------------------------------------------------------------
+// noiseFloorRms calibration — anchor the empirical "floor > 60" discriminator
+// the demos (angry-customer / background-handoff) use to PROVE ambience was
+// mixed onto the user's TTS. Those demos assert on real-provider audio with an
+// empirical threshold; this unit test calibrates that threshold on a SYNTHETIC
+// signal so the discriminator isn't just a magic number (review test NIT).
+// ---------------------------------------------------------------------------
+
+describe("noiseFloorRms calibration (clean vs mixed)", () => {
+  /**
+   * Local copy of the demos' noise-floor measure (10th-percentile 20ms-frame
+   * RMS) — the SDK unit package can't import the examples-package helper, and
+   * keeping the algorithm beside its calibration documents what the demos rely
+   * on. Mirrors `examples/.../helpers/audio-assertions.ts:noiseFloorRms`.
+   */
+  function noiseFloorRms(pcm: Uint8Array): number {
+    const view = new Int16Array(
+      pcm.buffer,
+      pcm.byteOffset,
+      Math.floor(pcm.byteLength / 2),
+    );
+    const frame = 480; // 20ms @ 24kHz
+    const rmsPerFrame: number[] = [];
+    for (let i = 0; i + frame <= view.length; i += frame) {
+      let sumsq = 0;
+      for (let j = 0; j < frame; j++) sumsq += view[i + j]! * view[i + j]!;
+      rmsPerFrame.push(Math.sqrt(sumsq / frame));
+    }
+    if (rmsPerFrame.length === 0) return 0;
+    rmsPerFrame.sort((a, b) => a - b);
+    return rmsPerFrame[Math.floor(rmsPerFrame.length * 0.1)]!;
+  }
+
+  /**
+   * A TTS-like signal: 100ms tone bursts separated by 100ms of digital silence
+   * (the quiet inter-word gaps clean TTS has). The 10th-percentile frame lands
+   * in a silent gap, so the clean noise floor is ~0 — exactly the property the
+   * demos lean on.
+   */
+  function makeBurstySpeech(): Uint8Array {
+    const sampleRate = 24000;
+    const totalSec = 2;
+    const amplitude = 16000;
+    const freq = 220;
+    const nSamples = sampleRate * totalSec;
+    const buf = new Int16Array(nSamples);
+    const burst = sampleRate * 0.1; // 100ms on / 100ms off
+    for (let i = 0; i < nSamples; i++) {
+      const speaking = Math.floor(i / burst) % 2 === 0;
+      buf[i] = speaking
+        ? Math.round(amplitude * Math.sin(2 * Math.PI * freq * (i / sampleRate)))
+        : 0;
+    }
+    return new Uint8Array(buf.buffer);
+  }
+
+  it("a clean bursty-speech signal has a near-silent noise floor", () => {
+    const clean = makeBurstySpeech();
+    // The quiet gaps are true digital silence, so the 10th-percentile frame RMS
+    // is ~0 — far below the demos' `> 60` discriminator.
+    expect(noiseFloorRms(clean)).toBeLessThan(1);
+  });
+
+  it("mixing backgroundNoise lifts the floor across the silent gaps above the demo threshold", () => {
+    const clean = makeBurstySpeech();
+    const cleanFloor = noiseFloorRms(clean);
+    const mixed = backgroundNoise("cafe", 0.4)(clean);
+    const mixedFloor = noiseFloorRms(mixed);
+    // The mix fills the previously-silent gaps with ambience, so the floor rises
+    // markedly — and clears the empirical `> 60` bar the demos assert against.
+    expect(mixedFloor).toBeGreaterThan(cleanFloor);
+    expect(
+      mixedFloor,
+      `mixed noise floor ${mixedFloor.toFixed(1)} did not clear the demos' >60 discriminator`,
+    ).toBeGreaterThan(60);
+  });
+
+  it("mixing multipleVoices (babble) likewise lifts the floor", () => {
+    const clean = makeBurstySpeech();
+    const mixed = multipleVoices(undefined, 0.4)(clean);
+    expect(noiseFloorRms(mixed)).toBeGreaterThan(noiseFloorRms(clean));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Scenarios
 // ---------------------------------------------------------------------------
 

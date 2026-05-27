@@ -230,8 +230,18 @@ export function static_(intensity = 0.05): EffectFn {
 /**
  * Mix with a babble speech sample to simulate background conversation.
  * Uses the bundled `babble.wav` by default, or reads from `backgroundAudio` path.
+ *
+ * `volume` scales the babble gain (default 0.3) — symmetric with
+ * {@link backgroundNoise} (review n1). NOTE: the Python twin
+ * (`python/scenario/voice/effects/noise.py:multiple_voices`) does not yet expose
+ * this param; the default preserves identical behaviour, and adding the same
+ * `volume` arg to Python is a tracked parity follow-up (out of scope for this
+ * JS-only pass).
  */
-export function multipleVoices(backgroundAudio?: string): EffectFn {
+export function multipleVoices(
+  backgroundAudio?: string,
+  volume = 0.3,
+): EffectFn {
   let sample: Int16Array;
   if (backgroundAudio == null) {
     sample = loadSample("babble");
@@ -247,7 +257,7 @@ export function multipleVoices(backgroundAudio?: string): EffectFn {
     const out = new Float32Array(signal.length);
     for (let i = 0; i < signal.length; i++) {
       const babbleIdx = i % sample.length;
-      out[i] = signal[i]! + sample[babbleIdx]! * 0.3;
+      out[i] = signal[i]! + sample[babbleIdx]! * volume;
     }
     return int16ToPcm16(out);
   };
