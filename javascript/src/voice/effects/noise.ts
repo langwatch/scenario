@@ -145,7 +145,6 @@ function loadSample(name: string): Int16Array {
   if (path === null) {
     if (!warnedMissing.has(name)) {
       warnedMissing.add(name);
-      // eslint-disable-next-line no-console
       console.warn(
         `[scenario.voice] noise asset ${JSON.stringify(name)}.wav not found ` +
           `(searched ${ASSETS_DIR_CANDIDATES.join(", ")}); this effect is a ` +
