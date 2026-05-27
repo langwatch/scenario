@@ -125,6 +125,13 @@ jobs:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          # The bundled Pipecat stub bot was brought up + readiness-polled above,
+          # so the bot-gated demos (angry_customer, basic_greeting,
+          # background_handoff, interruption_recovery, random_interruptions,
+          # pipecat_scenario) must NOT self-skip. Without this flag `botUp` is
+          # always false and all six silently skip even with the bot running
+          # (review P3 / T1).
+          SCENARIO_PIPECAT_BOT_UP: "1"
 
       # ---------------------------------------------------------------
       # Teardown: stop the bot regardless of pass/fail. (`make
