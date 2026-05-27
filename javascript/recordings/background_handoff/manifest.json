@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T11:51:59.209Z",
-  "duration": 13.92,
+  "generated_at": "2026-05-27T14:24:12.475Z",
+  "duration": 15.2,
   "segment_count": 5,
   "segments": [
     {
@@ -8,45 +8,45 @@
       "file": "segments/00-agent-0000ms.wav",
       "role": "agent",
       "start_time": 0,
-      "end_time": 3.5,
-      "duration": 3.5,
-      "transcript": null
+      "end_time": 4,
+      "duration": 4,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-3500ms.wav",
+      "file": "segments/01-user-4000ms.wav",
       "role": "user",
-      "start_time": 3.5,
-      "end_time": 5.05,
-      "duration": 1.5499999999999998,
+      "start_time": 4,
+      "end_time": 6,
+      "duration": 2,
       "transcript": "Hold on a second."
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-5050ms.wav",
+      "file": "segments/02-agent-6000ms.wav",
       "role": "agent",
-      "start_time": 5.05,
-      "end_time": 6.96,
-      "duration": 1.9100000000000001,
-      "transcript": null
+      "start_time": 6,
+      "end_time": 8.5,
+      "duration": 2.5,
+      "transcript": "I'm sorry, are you still there?"
     },
     {
       "idx": 3,
-      "file": "segments/03-user-6960ms.wav",
+      "file": "segments/03-user-8500ms.wav",
       "role": "user",
-      "start_time": 6.96,
-      "end_time": 9.41,
-      "duration": 2.45,
+      "start_time": 8.5,
+      "end_time": 12,
+      "duration": 3.5,
       "transcript": "Sorry, I'm back. Where were we?"
     },
     {
       "idx": 4,
-      "file": "segments/04-agent-9410ms.wav",
+      "file": "segments/04-agent-12000ms.wav",
       "role": "agent",
-      "start_time": 9.41,
-      "end_time": 13.92,
-      "duration": 4.51,
-      "transcript": null
+      "start_time": 12,
+      "end_time": 15.2,
+      "duration": 3.1999999999999993,
+      "transcript": "No problem, take your time. I'm here when you're ready."
     }
   ],
   "events": [
@@ -55,41 +55,41 @@
       "type": "agent_start_speaking"
     },
     {
-      "time": 3.5,
+      "time": 4,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 3.5,
+      "time": 4,
       "type": "user_start_speaking"
     },
     {
-      "time": 5.05,
+      "time": 6,
       "type": "user_stop_speaking"
     },
     {
-      "time": 5.05,
+      "time": 6,
       "type": "agent_start_speaking",
-      "latency": 0.0001544200000012097
+      "latency": 0.00012418099999678134
     },
     {
-      "time": 6.96,
+      "time": 8.5,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 6.96,
+      "time": 8.5,
       "type": "user_start_speaking"
     },
     {
-      "time": 9.41,
+      "time": 12,
       "type": "user_stop_speaking"
     },
     {
-      "time": 9.41,
+      "time": 12,
       "type": "agent_start_speaking",
-      "latency": 0.000051340000000621444
+      "latency": 0.8980305309999999
     },
     {
-      "time": 13.92,
+      "time": 15.2,
       "type": "agent_stop_speaking"
     }
   ]

@@ -40,6 +40,26 @@ const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
 const botUp = process.env.SCENARIO_PIPECAT_BOT_UP === "1";
 const RUN_E2E = hasOpenAI && botUp;
 
+/**
+ * Noise FLOOR of a PCM16 segment: RMS of its quietest frames (10th percentile
+ * of 20ms-frame RMS). Clean TTS has near-silent gaps (~0); the overheard cafe
+ * conversation mixed via backgroundNoise lifts the floor across the segment —
+ * a reference-free proof that ambience was really mixed onto the user audio.
+ */
+function noiseFloorRms(pcm: Uint8Array): number {
+  const view = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
+  const frame = 480; // 20ms @ 24kHz
+  const rmsPerFrame: number[] = [];
+  for (let i = 0; i + frame <= view.length; i += frame) {
+    let sumsq = 0;
+    for (let j = 0; j < frame; j++) sumsq += view[i + j]! * view[i + j]!;
+    rmsPerFrame.push(Math.sqrt(sumsq / frame));
+  }
+  if (rmsPerFrame.length === 0) return 0;
+  rmsPerFrame.sort((a, b) => a - b);
+  return rmsPerFrame[Math.floor(rmsPerFrame.length * 0.1)]!;
+}
+
 const feature = await loadFeature(FEATURE_PATH);
 
 describeFeature(
@@ -81,15 +101,14 @@ describeFeature(
                 audioEffects: [voice.effects.backgroundNoise("cafe", 0.5)],
               }),
               scenario.judgeAgent({
+                // CONVERSATIONAL criteria: the handoff SCRIPT (hold-on → silence
+                // → return) ran and the bot re-engaged on the caller's SPECIFIC
+                // "where were we" return — not a canned greeting. The AUDIO
+                // promise (overheard cafe conversation actually MIXED onto the
+                // line) is asserted in CODE in the Then step.
                 criteria: [
-                  // Scoped to what's observable with the bundled stub bot: the
-                  // handoff SCRIPT (hold-on → silence → return) ran and the bot
-                  // re-engaged when the caller came back. The stub bot does not
-                  // implement patient-waiting, so that is NOT a pass criterion
-                  // here (the demo proves the silence/handoff script + the
-                  // multi-turn recording spanning it).
-                  "The caller signaled a pause, went quiet, then returned",
-                  "The agent re-engaged once the caller came back",
+                  "The caller signaled a pause ('hold on'), went quiet, then returned",
+                  "When the caller returned ('sorry, I'm back, where were we'), the agent re-engaged and tried to resume — it did not just replay its opening greeting",
                   "The conversation is a coherent multi-turn handoff scenario",
                 ],
               }),
@@ -122,10 +141,26 @@ describeFeature(
             result!.audio!.segments.length,
             "expected a multi-turn recording spanning the handoff",
           ).toBeGreaterThanOrEqual(4);
+
+          // AUDIO-PROPERTY proof: the overheard cafe conversation
+          // (backgroundNoise("cafe", 0.5)) was actually MIXED onto the user
+          // audio — the user segments' quiet-frame noise floor is well above
+          // digital silence (clean TTS ~0). Guards the silent-no-op regression.
+          const userSegs = result!.audio!.segments
+            .filter((s) => s.speaker === "user" && s.audio.length > 4800)
+            .sort((a, b) => b.audio.length - a.audio.length);
+          expect(userSegs.length, "no substantial user segment to measure").toBeGreaterThan(0);
+          const floor = noiseFloorRms(userSegs[0]!.audio);
+          expect(
+            floor,
+            `user audio noise floor (${floor.toFixed(0)}) too low — cafe ambience was not mixed`,
+          ).toBeGreaterThan(60);
+
           expect(recordingDir, "recording was not written").not.toBeNull();
           console.log(
             `[demo] background_handoff → ${recordingDir} ` +
-              `(segments=${result!.audio!.segments.length}, success=${result!.success})`,
+              `(segments=${result!.audio!.segments.length}, userNoiseFloorRms=${floor.toFixed(0)}, ` +
+              `success=${result!.success})`,
           );
           expect(result!.success, `judge verdict: ${result!.reasoning}`).toBe(true);
         });

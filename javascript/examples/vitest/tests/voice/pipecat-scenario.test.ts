@@ -1,10 +1,14 @@
 /**
- * E2E demo — Pipecat scenario smoke (multi-turn).
+ * E2E demo — Pipecat TRANSPORT SMOKE (multi-turn).
  *
- * The `pipecat_scenario.py` twin: a multi-turn smoke run over the live Pipecat
- * bot (Twilio Media Streams, mulaw/8000) — user → agent → user → agent → judge.
- * Distinct from `pipecat_ws` (same transport, different scripted conversation),
- * mirroring the Python pair. Mirrors `python/examples/voice/pipecat_scenario.py`.
+ * This is the designated TRANSPORT-SMOKE demo (issue #372 demo set): it proves
+ * the PipecatAgentAdapter drives a real Twilio-Media-Streams (mulaw/8000)
+ * WebSocket exchange end-to-end — connect, send audio, receive audio, record.
+ * It deliberately makes NO real-conversation-quality or cut-off claim; the
+ * conversational + interruption promises live in the other demos
+ * (basic_greeting, interruption_recovery, random_interruptions). The bundled
+ * bot IS LLM-backed, but here we only assert the TRANSPORT round-trips audio
+ * both ways across multiple turns. Mirrors `python/examples/voice/pipecat_scenario.py`.
  *
  * On success the recording lands in `javascript/recordings/pipecat_scenario/`
  * (full.wav + manifest).
@@ -71,10 +75,14 @@ describeFeature(
               }),
               scenario.userSimulatorAgent({ voice: "openai/nova" }),
               scenario.judgeAgent({
+                // TRANSPORT-SMOKE criteria only: the WS round-tripped audio both
+                // ways across turns and the bot stayed responsive. NO claim about
+                // conversation quality / request-acknowledgement / cut-off — those
+                // are the other demos' job (see file docstring).
                 criteria: [
                   "The agent and user exchanged multiple audio turns over the live Pipecat WebSocket",
-                  "The bot responded conversationally each time the user spoke",
-                  "The conversation is a coherent multi-turn Pipecat-driven smoke scenario",
+                  "The bot stayed responsive (it produced a reply each time the user spoke, not silence)",
+                  "The conversation is a coherent multi-turn Pipecat transport smoke",
                 ],
               }),
             ],

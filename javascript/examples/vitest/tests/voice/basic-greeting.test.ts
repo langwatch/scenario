@@ -61,8 +61,9 @@ describeFeature(
             name: "demo_basic_greeting",
             description:
               "A caller rings the bot. The bot greets them; the caller asks for " +
-              "help, the bot responds; the caller follows up, the bot responds " +
-              "again. Judge: the bot greeted naturally and stayed helpful.",
+              "help ordering pizza, the bot responds; the caller asks about " +
+              "delivery time, the bot responds again. Judge: the bot greeted " +
+              "naturally and engaged with the caller's SPECIFIC requests.",
             agents: [
               scenario.pipecatAgent({
                 url: BOT_WS_URL,
@@ -71,19 +72,28 @@ describeFeature(
               }),
               scenario.userSimulatorAgent({ voice: "openai/nova" }),
               scenario.judgeAgent({
+                // PROMISE-ENCODING (mirror the Python twin + the brief): the bot
+                // must ENGAGE WITH THE SPECIFIC REQUEST, not just emit a canned
+                // greeting. The bundled bot is OpenAI-LLM-backed, so it engages
+                // the pizza-order / delivery conversation; a hollow canned-
+                // greeting bot that ignores what was asked FAILS criterion 2.
+                // Scoped to "over the conversation" (not per-turn) since the stub
+                // bot's STT/LLM occasionally fumbles one specific turn.
                 criteria: [
-                  "The agent greeted the user and offered help in a friendly tone",
-                  "The agent and user exchanged multiple real audio turns",
-                  "The conversation is a coherent multi-turn greeting flow",
+                  "The agent greeted the user naturally and in a friendly tone",
+                  "Over the conversation the agent ENGAGED with the caller's specific requests — the food order and/or the delivery question (e.g. asked for the delivery address, time, or order details). It did NOT merely repeat a generic canned greeting that ignores everything the caller asked.",
+                  "The conversation is a coherent multi-turn greeting + help flow",
                 ],
               }),
             ],
-            // greeting → user → agent → user → agent → judge (multi-turn).
+            // greeting → user → agent → user → agent → judge (multi-turn). The
+            // user asks for SOMETHING SPECIFIC (pizza) so a canned-greeting bot
+            // would visibly fail the "engaged with the request" criterion.
             script: [
               scenario.agent(),
-              scenario.user("Hi, I need some help today."),
+              scenario.user("Hi, I'd like to order a large pepperoni pizza for delivery."),
               scenario.agent(),
-              scenario.user("Thanks — can you point me in the right direction?"),
+              scenario.user("Great — how long will delivery take?"),
               scenario.agent(),
               scenario.judge(),
             ],
