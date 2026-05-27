@@ -185,12 +185,16 @@ if (RUN_E2E) {
     { includeTags: ["ts-elevenlabs-interruption-demo"] },
   );
 } else {
-  describe.skip("ElevenLabs interruption demo (gated off — live-transport limitation)", () => {
-    it("opt in with RUN_EL_INTERRUPTION=1 (+ EL/OpenAI keys); see file docstring", () => {
-      // Documented: the live ConvAI scripted-interrupt flow times out on the
-      // post-interrupt receive. The barge-in mechanism is proven over Pipecat
-      // by interruption_recovery + random_interruptions. NOT faked.
-      expect(true).toBe(true);
-    });
-  });
+  // Gated off — a live-transport limitation, NOT faked: the live ConvAI
+  // scripted-interrupt flow times out on the post-interrupt receive. The
+  // barge-in mechanism is proven over Pipecat by interruption_recovery +
+  // random_interruptions. Opt in with RUN_EL_INTERRUPTION=1 (+ EL/OpenAI keys);
+  // see the file docstring. A `describe.skip` with a hollow `expect(true)` body
+  // was removed (review NIT) — the skip + this note document the gate instead.
+  describe.skip(
+    "ElevenLabs interruption demo (gated off — live-transport limitation)",
+    () => {
+      it("opt in with RUN_EL_INTERRUPTION=1 (+ EL/OpenAI keys); see file docstring", () => {});
+    },
+  );
 }

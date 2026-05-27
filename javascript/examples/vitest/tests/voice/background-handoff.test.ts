@@ -21,6 +21,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import scenario, { voice, type ScenarioResult } from "@langwatch/scenario";
 import { expect } from "vitest";
 
+import { noiseFloorRms } from "./helpers/audio-assertions";
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -39,26 +40,6 @@ const BOT_WS_URL = process.env.PIPECAT_BOT_URL ?? "ws://localhost:8765/stream";
 const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
 const botUp = process.env.SCENARIO_PIPECAT_BOT_UP === "1";
 const RUN_E2E = hasOpenAI && botUp;
-
-/**
- * Noise FLOOR of a PCM16 segment: RMS of its quietest frames (10th percentile
- * of 20ms-frame RMS). Clean TTS has near-silent gaps (~0); the overheard cafe
- * conversation mixed via backgroundNoise lifts the floor across the segment —
- * a reference-free proof that ambience was really mixed onto the user audio.
- */
-function noiseFloorRms(pcm: Uint8Array): number {
-  const view = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
-  const frame = 480; // 20ms @ 24kHz
-  const rmsPerFrame: number[] = [];
-  for (let i = 0; i + frame <= view.length; i += frame) {
-    let sumsq = 0;
-    for (let j = 0; j < frame; j++) sumsq += view[i + j]! * view[i + j]!;
-    rmsPerFrame.push(Math.sqrt(sumsq / frame));
-  }
-  if (rmsPerFrame.length === 0) return 0;
-  rmsPerFrame.sort((a, b) => a - b);
-  return rmsPerFrame[Math.floor(rmsPerFrame.length * 0.1)]!;
-}
 
 const feature = await loadFeature(FEATURE_PATH);
 
