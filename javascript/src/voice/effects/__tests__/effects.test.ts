@@ -174,6 +174,30 @@ describe("backgroundNoise mixes real ambience over a dry signal", () => {
     }
   });
 
+  it("every bundled preset asset is actually located + loaded (non-empty)", () => {
+    // Guards the asset RESOLVER (resolveAssetPath candidate probing): a missing
+    // asset or a broken relative path silently degrades backgroundNoise to a
+    // no-op (the dist-bundle bug — `HERE` differs between src and bundled
+    // layouts). Mixing a SILENT dry signal proves the noise itself carried
+    // energy (a dry-only mix would be all-zero → mean|Δ| 0).
+    const SR = 24000;
+    const silent = new Uint8Array(SR * 2); // 1s of PCM16 silence
+    for (const preset of [...PRESETS, "babble"] as const) {
+      const fx =
+        preset === "babble"
+          ? multipleVoices()
+          : backgroundNoise(preset, 0.5);
+      const wet = fx(silent);
+      let energy = 0;
+      const w = new Int16Array(wet.buffer, wet.byteOffset, Math.floor(wet.byteLength / 2));
+      for (let i = 0; i < w.length; i++) energy += Math.abs(w[i]!);
+      expect(
+        energy,
+        `${preset}: mixing onto SILENCE produced no energy — the bundled asset failed to load`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
   it("the noise loops to cover a turn longer than the asset (no zero-fill tail)", () => {
     // The asset is 3s; a 5s turn must be covered end-to-end (tiled via modulo),
     // not zero-padded after 3s. Assert the final second carries added energy.

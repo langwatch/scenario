@@ -49,7 +49,7 @@ import {
   stopVoiceAdapters,
   writeUserSegment,
 } from "../voice/adapter.runtime";
-import type { AudioChunk } from "../voice/audio-chunk";
+import { AudioChunk } from "../voice/audio-chunk";
 import {
   resolveVoiceConfig,
   type ResolvedVoiceConfig,
@@ -59,6 +59,7 @@ import { InterruptionConfig } from "../voice/interruption";
 import { extractAudio } from "../voice/messages";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
+  AudioSegment,
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
@@ -439,6 +440,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     }
 
     const timeline = this.voiceTimeline ?? recording.timeline;
+
+    // Flag agent segments cut off by a barge-in so manifest readers + the judge
+    // know the reply was truncated mid-utterance (see helper docstring).
+    markTruncatedAgentSegments(recording.segments, timeline ?? []);
+
     const latency = this.voiceLatency
       ? computeLatencyMetrics({
           measurements: this.voiceLatency.measurements,
@@ -655,6 +661,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         this.currentTurnSpan.end();
         this.currentTurnSpan = undefined;
       }
+      // Back-fill transcripts on recording segments that the transport did not
+      // supply one for (e.g. Pipecat over Twilio Media Streams carries audio
+      // only, no transcript) so the committed manifest is READABLE — the same
+      // STT the judge pre-pass uses, run over the recorded bytes. The shared
+      // recording object is what `result.audio` points at, so the back-fill is
+      // visible to a later `saveSegments()`. Runs before disconnect so the
+      // resolved STT config is still live. (issue #372 — FIX #5.)
+      if (this.voiceAdapters.length > 0) {
+        await this.backfillSegmentTranscripts();
+      }
       // Voice adapter lifecycle close — matches the connect at the top of
       // execute(). Errors swallowed inside stopVoiceAdapters so cleanup
       // never masks the primary scenario result.
@@ -664,6 +680,46 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // Clean up the subscription when execution is done
       subscription.unsubscribe();
     }
+  }
+
+  /**
+   * Transcribe any recording segment that lacks a transcript, using the per-run
+   * resolved STT provider — so the committed manifest reads as a conversation
+   * even on transports that carry no transcript (Pipecat / Twilio Media
+   * Streams). The judge already gets transcribed text via its own STT pre-pass
+   * ({@link prepareJudgeInput}); this back-fills the SEGMENTS (the manifest).
+   *
+   * Best-effort and bounded: STT failures leave the segment transcript unset
+   * (manifest stays `null` for that turn) rather than failing the run — mirrors
+   * the judge pre-pass's degrade-gracefully contract. A segment whose transcript
+   * was marked {@link AudioSegment.transcriptTruncated} is RE-transcribed from
+   * the recorded bytes (what actually played), since the chunk-level transcript
+   * reflected the agent's intended — not cut-off — reply.
+   */
+  private async backfillSegmentTranscripts(): Promise<void> {
+    const recording = this.voiceRecording;
+    const stt = this.voiceConfig?.stt;
+    if (!recording || !stt) return;
+    const targets = recording.segments.filter(
+      (s) =>
+        s.audio.length > 0 &&
+        (s.transcriptTruncated || !s.transcript || s.transcript.trim() === ""),
+    );
+    if (targets.length === 0) return;
+    await Promise.all(
+      targets.map(async (seg) => {
+        try {
+          const chunk = new AudioChunk({ data: seg.audio });
+          const text = (await stt.transcribe(chunk)).trim();
+          if (text) seg.transcript = text;
+        } catch (err) {
+          this.logger.warn(
+            `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
+              `manifest transcript left unset (${(err as Error).message})`,
+          );
+        }
+      }),
+    );
   }
 
   /**
@@ -2164,4 +2220,30 @@ function deriveInterruptResponseTime(
     }
   }
   return best;
+}
+
+/**
+ * Mark every agent segment whose `[startTime, endTime]` span contains a
+ * `user_interrupt` event as {@link AudioSegment.transcriptTruncated}: the
+ * chunk-level transcript reflects the agent's INTENDED reply, not what played
+ * to the user before the barge-in cut the audio. Mutates `segments` in place
+ * (the recording object is shared with `result.audio`). Pure + exported so the
+ * marking is unit-testable without real-time playback alignment. Mirrors Python
+ * `ScenarioExecutor._attach_voice_output` (scenario_executor.py:728-740).
+ */
+export function markTruncatedAgentSegments(
+  segments: AudioSegment[],
+  timeline: readonly VoiceEvent[],
+): void {
+  const interrupts = timeline.filter((e) => e.type === "user_interrupt");
+  if (interrupts.length === 0) return;
+  for (const seg of segments) {
+    if (seg.speaker !== "agent") continue;
+    for (const evt of interrupts) {
+      if (seg.startTime <= evt.time && evt.time <= seg.endTime) {
+        seg.transcriptTruncated = true;
+        break;
+      }
+    }
+  }
 }

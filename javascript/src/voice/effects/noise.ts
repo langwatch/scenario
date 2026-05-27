@@ -4,14 +4,41 @@
  * TS equivalent of `python/scenario/voice/effects/noise.py`.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EffectFn, int16ToPcm16, linearResample, pcm16ToInt16, rate } from "./common";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ASSETS_DIR = resolve(HERE, "..", "assets", "noise");
+
+/**
+ * Candidate locations for the bundled noise assets, in priority order. The
+ * relative path from the COMPILED module to `voice/assets/noise` differs by
+ * layout — the unbundled source has this file at `src/voice/effects/` (so
+ * `../assets/noise` is correct), but tsup BUNDLES everything into `dist/
+ * index.mjs` (so `HERE` is `dist/` and the assets, copied by the build to
+ * `dist/voice/assets/noise`, are at `./voice/assets/noise`). Probing both —
+ * plus the published-package `src/voice/assets/noise` (shipped via `files`) —
+ * makes asset loading robust to all three layouts instead of silently
+ * returning empty audio (which made `backgroundNoise` a no-op in the bundled
+ * build — issue #372 demo fix).
+ */
+const ASSETS_DIR_CANDIDATES = [
+  resolve(HERE, "..", "assets", "noise"), // src layout: src/voice/effects/ → src/voice/assets/noise
+  resolve(HERE, "voice", "assets", "noise"), // bundled: dist/ → dist/voice/assets/noise
+  resolve(HERE, "..", "voice", "assets", "noise"), // dist/<sub>/ → dist/voice/assets/noise
+  resolve(HERE, "..", "..", "src", "voice", "assets", "noise"), // published pkg src/ copy
+];
+
+/** Resolve a bundled asset by probing the candidate dirs; first hit wins. */
+function resolveAssetPath(name: string): string | null {
+  for (const dir of ASSETS_DIR_CANDIDATES) {
+    const candidate = resolve(dir, `${name}.wav`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 // Built-in presets. "babble" is NOT a background_noise preset — it is the
 // sample used by multipleVoices only (see §4.5 source comment in Python).
@@ -104,13 +131,31 @@ function wavToInt16(buf: Uint8Array): Int16Array {
   return linearResample(mono, newLen);
 }
 
+/** One-time warning gate so a missing asset surfaces once, not per chunk. */
+const warnedMissing = new Set<string>();
+
 /**
- * Load a bundled WAV asset by name (without .wav extension).
- * Returns an empty Int16Array if loading fails.
+ * Load a bundled WAV asset by name (without .wav extension). Returns an empty
+ * Int16Array if the asset cannot be located/parsed — but emits a ONE-TIME
+ * warning for a known preset so a broken build/asset path is LOUD (it used to
+ * silently make `backgroundNoise` a no-op in the bundled dist — issue #372).
  */
 function loadSample(name: string): Int16Array {
+  const path = resolveAssetPath(name);
+  if (path === null) {
+    if (!warnedMissing.has(name)) {
+      warnedMissing.add(name);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[scenario.voice] noise asset ${JSON.stringify(name)}.wav not found ` +
+          `(searched ${ASSETS_DIR_CANDIDATES.join(", ")}); this effect is a ` +
+          "no-op. The bundled assets ship under dist/voice/assets/noise — check " +
+          "the build's asset-copy step.",
+      );
+    }
+    return new Int16Array(0);
+  }
   try {
-    const path = resolve(ASSETS_DIR, `${name}.wav`);
     const buf = readFileSync(path);
     return wavToInt16(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   } catch {
