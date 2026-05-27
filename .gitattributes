@@ -37,3 +37,9 @@ docs/docs/public/reference/ linguist-vendored=true
 *.zip binary
 *.tar.gz binary
 *.lockb binary
+# Audio — bundled noise assets + committed voice recordings must round-trip
+# byte-accurately (no eol / encoding conversion).
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.flac binary

@@ -108,6 +108,91 @@ describe("public-API surface", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Bundled noise assets — REAL, AUDIBLE, DISTINCT ambience (issue #372 demo fix)
+//
+// The bundled `src/voice/assets/noise/*.wav` are synthesised by
+// `scripts/generate-noise-samples.mjs` (3s, 24kHz, PCM16, seeded → byte-stable).
+// These deterministic asserts are the guard that the assets are not silent /
+// not all-identical placeholders: every preset must measurably perturb a dry
+// signal, and each preset must perturb it DIFFERENTLY (distinct ambience).
+// ---------------------------------------------------------------------------
+
+describe("backgroundNoise mixes real ambience over a dry signal", () => {
+  /** L1 energy of (processed - dry): the audible "how much noise was added". */
+  function mixEnergy(dry: Uint8Array, wet: Uint8Array): number {
+    const d = new Int16Array(dry.buffer, dry.byteOffset, Math.floor(dry.byteLength / 2));
+    const w = new Int16Array(wet.buffer, wet.byteOffset, Math.floor(wet.byteLength / 2));
+    let sum = 0;
+    for (let i = 0; i < Math.min(d.length, w.length); i++) sum += Math.abs(w[i]! - d[i]!);
+    return sum;
+  }
+
+  const PRESETS = ["cafe", "street", "office", "airport"] as const;
+
+  it("each preset measurably changes the dry audio (NOT a silent placeholder)", () => {
+    const dry = makeSineWave();
+    for (const preset of PRESETS) {
+      const wet = backgroundNoise(preset, 0.4)(dry);
+      // Same length (mixed in place), and the mix added real energy.
+      expect(wet.byteLength, `${preset}: length must be preserved`).toBe(dry.byteLength);
+      expect(
+        mixEnergy(dry, wet),
+        `${preset}: noise mix added no energy — asset is silent/missing`,
+      ).toBeGreaterThan(0);
+      expect(
+        atLeastOneSampleDiffers(dry, wet),
+        `${preset}: every sample identical — noise asset is silent`,
+      ).toBe(true);
+    }
+  });
+
+  it("noise energy scales with the volume argument (deterministic)", () => {
+    const dry = makeSineWave();
+    // backgroundNoise is deterministic (fixed asset, fixed loop) — louder
+    // volume must add strictly more energy.
+    const quiet = mixEnergy(dry, backgroundNoise("street", 0.2)(dry));
+    const loud = mixEnergy(dry, backgroundNoise("street", 0.6)(dry));
+    expect(loud).toBeGreaterThan(quiet);
+  });
+
+  it("the presets are DISTINCT ambiences, not the same placeholder", () => {
+    // Two different presets at the same volume must perturb the dry signal
+    // differently — proves the assets carry per-preset character (street's
+    // deep rumble vs office's HVAC hum vs cafe murmur vs airport crowd).
+    const dry = makeSineWave();
+    const wet: Record<string, Uint8Array> = {};
+    for (const preset of PRESETS) wet[preset] = backgroundNoise(preset, 0.4)(dry);
+    for (let i = 0; i < PRESETS.length; i++) {
+      for (let j = i + 1; j < PRESETS.length; j++) {
+        const a = wet[PRESETS[i]!]!;
+        const b = wet[PRESETS[j]!]!;
+        expect(
+          atLeastOneSampleDiffers(a, b),
+          `${PRESETS[i]} and ${PRESETS[j]} produced identical output — presets are not distinct`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("the noise loops to cover a turn longer than the asset (no zero-fill tail)", () => {
+    // The asset is 3s; a 5s turn must be covered end-to-end (tiled via modulo),
+    // not zero-padded after 3s. Assert the final second carries added energy.
+    const SR = 24000;
+    const fiveSec = new Int16Array(SR * 5).fill(6000); // steady DC-ish tone
+    const dry = new Uint8Array(fiveSec.buffer);
+    const wet = backgroundNoise("airport", 0.5)(dry);
+    const w = new Int16Array(wet.buffer, wet.byteOffset, Math.floor(wet.byteLength / 2));
+    const d = new Int16Array(dry.buffer, dry.byteOffset, Math.floor(dry.byteLength / 2));
+    let tailEnergy = 0;
+    for (let i = SR * 4; i < w.length; i++) tailEnergy += Math.abs(w[i]! - d[i]!);
+    expect(
+      tailEnergy,
+      "no noise energy in the 5th second — the asset did not loop to cover the turn",
+    ).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Scenarios
 // ---------------------------------------------------------------------------
 
