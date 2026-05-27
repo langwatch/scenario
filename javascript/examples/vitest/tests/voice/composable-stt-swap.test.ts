@@ -11,7 +11,9 @@
  *
  * The swap is verified MECHANICALLY: an instrumented EL STT counts its
  * `transcribe()` calls — the judge only ever sees text, so this is the only
- * observable proof the swapped provider (not the default) ran.
+ * observable proof the swapped provider (not the default) ran. The demo is a
+ * MULTI-TURN conversation (two full user↔agent exchanges), so the swapped STT
+ * transcribes more than one agent audio turn.
  *
  * Binds `@e2e @ts-stt-swap`. Env-gated on `OPENAI_API_KEY` (Realtime agent +
  * user-sim TTS + judge LLM) and `ELEVENLABS_API_KEY` (the swapped STT).
@@ -98,17 +100,22 @@ describeFeature(
                   scenario.userSimulatorAgent({ voice: "openai/nova" }),
                   scenario.judgeAgent({
                     criteria: [
-                      "The agent responded helpfully",
-                      "The conversation is a coherent voice exchange",
+                      "The agent responded helpfully across both turns",
+                      "The conversation is a coherent multi-turn voice exchange",
                     ],
                   }),
                 ],
+                // Multi-turn: two full user↔agent exchanges. Both agent audio
+                // turns get auto-transcribed by the swapped EL STT for the
+                // judge, so the swap fires more than once.
                 script: [
-                  scenario.user("Hello, can you help me?"),
+                  scenario.user("Hello, can you help me with a quick question?"),
+                  scenario.agent(),
+                  scenario.user("Thanks — and what time zone are you in?"),
                   scenario.agent(),
                   scenario.judge(),
                 ],
-                maxTurns: 4,
+                maxTurns: 6,
               },
               // The per-run STT swap (ADR-002): seeds cfg.voice.stt, which the
               // judge resolves via resolveVoiceConfig in its STT pre-pass.
