@@ -34,6 +34,7 @@ import {
   UnsupportedCapabilityError,
   VoiceAgentAdapter,
 } from "../voice";
+import { resolveFfmpegPath } from "../voice/ffmpeg";
 import type { InterruptionConfig } from "../voice/interruption";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
@@ -86,10 +87,11 @@ export const silence = (duration: number): ScriptStep => {
  * Inject a pre-recorded audio file (WAV/MP3/OGG/FLAC) or raw bytes as the
  * user's next turn. Bypasses the user simulator and TTS entirely.
  *
- * Files are auto-converted to PCM16 @ 24kHz mono by shelling out to
- * `ffmpeg` (must be on PATH). Remote URL-like strings (`http://`,
- * `rtmp://`, etc.) are rejected so ffmpeg never issues outbound network
- * requests on the caller's behalf.
+ * Files are auto-converted to PCM16 @ 24kHz mono by shelling out to the
+ * bundled `ffmpeg` binary (see {@link resolveFfmpegPath}; Python parity with
+ * imageio-ffmpeg — no system ffmpeg required). Remote URL-like strings
+ * (`http://`, `rtmp://`, etc.) are rejected so ffmpeg never issues outbound
+ * network requests on the caller's behalf.
  */
 export const audio = (pathOrBytes: string | Uint8Array): ScriptStep => {
   return async (_state, executor) => {
@@ -462,7 +464,7 @@ async function loadAudioToChunk(
   }
 
   const result = spawnSync(
-    "ffmpeg",
+    resolveFfmpegPath(),
     [
       "-protocol_whitelist",
       "file,pipe",
@@ -482,8 +484,7 @@ async function loadAudioToChunk(
   );
   if (result.error) {
     throw new Error(
-      `ffmpeg subprocess failed (is ffmpeg installed and on PATH?): ` +
-        `${result.error.message}`,
+      `ffmpeg subprocess failed: ${result.error.message}`,
     );
   }
   if (result.status !== 0) {

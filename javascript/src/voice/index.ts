@@ -75,6 +75,10 @@ export {
   type VoiceRecordingInit,
 } from "./recording.runtime";
 
+// Bundled ffmpeg binary resolution (Python parity: imageio-ffmpeg). Lets
+// audio decode/transcode shell out to a vendored binary, no system dep.
+export { resolveFfmpegPath } from "./ffmpeg";
+
 export {
   CANNED_PHRASES,
   CONTEXTUAL_PROMPT,
