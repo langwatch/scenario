@@ -6,13 +6,14 @@ description: Patterns for common voice scenario tasks — interruptions, multi-t
 # Voice Recipes
 
 Task-oriented patterns for common voice scenario authoring. Each recipe shows
-the minimal code and explains which adapter capabilities it depends on.
+the minimal code in **both Python and TypeScript** and explains which adapter
+capabilities it depends on.
 
 | Recipe | When to use |
 |---|---|
 | [Interruptions](/voice/recipes/interrupt) | Script a user barging in mid-reply; understand native barge-in vs VAD fallback. |
-| [Multi-Turn Conversations](/voice/recipes/multi-turn) | Script multi-turn exchanges and assert cross-turn continuity with `JudgeAgent`. |
-| [Audio Effects](/voice/recipes/effects) | Inject background noise, codec degradation, and other impairments via `scenario.effects`. |
+| [Multi-Turn Conversations](/voice/recipes/multi-turn) | Script multi-turn exchanges and assert cross-turn continuity with the judge. |
+| [Audio Effects](/voice/recipes/effects) | Inject background noise, codec degradation, and other impairments via `scenario.effects` / `voice.effects`. |
 | [Observability](/voice/recipes/observability) | Capture audio events, save conversation audio, and measure `LatencyMetrics` per turn. |
 
 ## See also
