@@ -83,6 +83,16 @@ if (hasHostedKey || hasComposableKey) {
               // Real-voice convention: EL sends first_message on connect. Lead
               // with agent() so the greeting drains before user audio hits the
               // wire (mirrors the Python twin's script).
+              //
+              // SINGLE scripted exchange (greeting → user → agent) — NOT extended
+              // to a second scripted user turn. The hosted ConvAI transport is
+              // server-VAD-driven: it segments turns from the *audio stream*, and
+              // a scripted second user turn after the agent has already replied
+              // does not reliably re-engage the server's turn-taking — the next
+              // `agent()` receive then times out (`receiveAudio timed out`,
+              // verified empirically). The MULTI-TURN ElevenLabs proof lives in
+              // the in-process `elevenlabs_branded` demo below, which has full
+              // turn control. This demo proves the live hosted-ConvAI WS path.
               script: [
                 scenario.agent(),
                 scenario.user("Hello, I have a question about my account."),
@@ -143,7 +153,16 @@ if (hasHostedKey || hasComposableKey) {
 
           When("the demo script runs via scenario.run()", async () => {
             if (!hasComposableKey) return;
-            agent = new ElevenLabsVoiceAgent({ apiKey: ELEVENLABS_API_KEY! });
+            // Keep replies short so a two-exchange conversation's full.wav stays
+            // under the 1MB commit cap at 24kHz (a verbose agent reply pushed it
+            // over; one-sentence replies keep the core demo committable WITH its
+            // per-turn segments, mirroring the Python branded recording).
+            agent = new ElevenLabsVoiceAgent({
+              apiKey: ELEVENLABS_API_KEY!,
+              systemPrompt:
+                "You are a friendly support agent. Keep every reply to ONE short " +
+                "sentence (under 15 words).",
+            });
             result = await scenario.run({
               name: "demo_elevenlabs_branded",
               description:
@@ -154,19 +173,22 @@ if (hasHostedKey || hasComposableKey) {
                 scenario.userSimulatorAgent({ voice: "openai/nova" }),
                 scenario.judgeAgent({
                   criteria: [
-                    "The agent responded naturally to the greeting",
+                    "The agent responded naturally across both turns",
                     "The user simulator delivered audio and the agent responded with audio",
-                    "The conversation is a coherent ElevenLabs composable + branded exchange",
+                    "The conversation is a coherent multi-turn ElevenLabs composable + branded exchange",
                   ],
                 }),
               ],
-              // Composable agent: no hosted greeting on connect — start with user().
+              // Composable agent: no hosted greeting on connect — start with
+              // user(). MULTI-TURN: two full user↔agent exchanges.
               script: [
                 scenario.user("Hi there, I have a quick question about my plan."),
                 scenario.agent(),
+                scenario.user("Got it — can I switch to an annual plan?"),
+                scenario.agent(),
                 scenario.judge(),
               ],
-              maxTurns: 6,
+              maxTurns: 8,
             });
             recordingDir = saveDemoRecording(result.audio, "elevenlabs_branded");
           });
