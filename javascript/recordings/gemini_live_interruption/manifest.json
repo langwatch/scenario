@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-05-27T11:43:13.460Z",
+  "duration": 34.59,
+  "segment_count": 3,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 1.85,
+      "duration": 1.85,
+      "transcript": "Tell me about your platform."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-1850ms.wav",
+      "role": "user",
+      "start_time": 1.85,
+      "end_time": 4.550000000000001,
+      "duration": 2.7000000000000006,
+      "transcript": "Sorry — what are your business hours?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-4550ms.wav",
+      "role": "agent",
+      "start_time": 4.550000000000001,
+      "end_time": 34.59,
+      "duration": 30.040000000000003,
+      "transcript": "That's quite alright!  It seems  you might  be thinking  of a  traditional  business,  but  I don't  have  defined  \"business  hours.\"  As  an  AI,  I  am  part  of a platform  that  operates  continuously,  24  hours  a day,  seven  days  a week.  There  are no  specific  times  when  I am  unavailable  or closed.  This means  you can  interact  with  me,  ask  questions,  or  utilize  my capabilities  whenever  it's  most  convenient  for you,  regardless  of the  time  of day  or  day  of the  week.  Is there  anything  specific"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 1.85,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 1.85,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.260722408,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_before_speech",
+        "native": true
+      }
+    },
+    {
+      "time": 4.550000000000001,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 4.550000000000001,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 34.59,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
