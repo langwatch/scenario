@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T10:52:59.968Z",
-  "duration": 7.81,
+  "generated_at": "2026-05-27T14:35:12.610Z",
+  "duration": 8.4,
   "segment_count": 3,
   "segments": [
     {
@@ -8,26 +8,26 @@
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3.3,
-      "duration": 3.3,
+      "end_time": 3.9,
+      "duration": 3.9,
       "transcript": "Hello, I'm planning a trip to Japan next month."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3300ms.wav",
+      "file": "segments/01-agent-3900ms.wav",
       "role": "agent",
-      "start_time": 3.3,
-      "end_time": 5.06,
-      "duration": 1.7599999999999998,
-      "transcript": "That sounds like an amazing  trip!"
+      "start_time": 3.9,
+      "end_time": 5.5,
+      "duration": 1.6,
+      "transcript": "That sounds like a great plan!"
     },
     {
       "idx": 2,
-      "file": "segments/02-user-5060ms.wav",
+      "file": "segments/02-user-5500ms.wav",
       "role": "user",
-      "start_time": 5.06,
-      "end_time": 7.81,
-      "duration": 2.75,
+      "start_time": 5.5,
+      "end_time": 8.4,
+      "duration": 2.9000000000000004,
       "transcript": "What's one thing I shouldn't miss in Kyoto?"
     }
   ],
@@ -37,24 +37,24 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 3.3,
+      "time": 3.9,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3.3,
+      "time": 3.9,
       "type": "agent_start_speaking",
-      "latency": 4.552116325
+      "latency": 7.037509108999998
     },
     {
-      "time": 5.06,
+      "time": 5.5,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 5.06,
+      "time": 5.5,
       "type": "user_start_speaking"
     },
     {
-      "time": 7.81,
+      "time": 8.4,
       "type": "user_stop_speaking"
     }
   ]
