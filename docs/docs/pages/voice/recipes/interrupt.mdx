@@ -17,27 +17,62 @@ Two equivalent forms produce identical runtime behaviour.
 
 ### Unrolled form
 
-```python
+:::code-group
+
+```python [python]
 scenario.user("Tell me about my billing"),
 scenario.agent(wait=False),          # start agent reply in background
 scenario.user("Wait — I meant account support"),  # interrupt when agent begins speaking
 scenario.agent(),                    # let the agent finish the recovery turn
 ```
 
-`agent(wait=False)` starts the adapter's reply in the background without blocking the script.
-The following `user()` call waits until the agent begins producing audio, then fires the
-interrupt signal and sends the replacement user turn.
+```typescript [typescript]
+scenario.user("Tell me about my billing"),
+scenario.agent({ wait: false }),     // start agent reply in background (non-blocking)
+scenario.sleep(2),                   // let it talk for ~2s
+scenario.user("Wait — I meant account support"),  // interrupt mid-reply
+scenario.agent(),                    // let the agent finish the recovery turn
+```
+
+:::
+
+`agent(wait=False)` / `agent({ wait: false })` starts the adapter's reply in the
+background without blocking the script. The following steps run while the agent
+keeps speaking; the next `user()` turn fires the interrupt and sends the
+replacement user audio. (In TypeScript, `scenario.voiceAgent({ wait: false })` is
+an exported alias of the same step.)
 
 ### Sugar form
 
-```python
+:::code-group
+
+```python [python]
 scenario.user("Tell me about every product feature you offer"),
 scenario.interrupt("Sorry — what are your business hours?"),
 scenario.agent(),
 ```
 
-`scenario.interrupt(text)` is shorthand for the unrolled form above. Prefer it when you
-only need to express a single interrupt.
+```typescript [typescript]
+scenario.user("Tell me about every product feature you offer"),
+// Time-based: let the agent speak ~2s, then interrupt.
+scenario.interrupt({ after: 2, content: "Sorry — what are your business hours?" }),
+scenario.agent(),
+```
+
+:::
+
+`scenario.interrupt(...)` is shorthand for the unrolled form above. Prefer it when
+you only need to express a single interrupt. In **TypeScript**, `interrupt` takes
+an options object with three trigger modes:
+
+```typescript
+scenario.interrupt({ after: 2, content: "Wait, that's wrong!" });        // time-based
+scenario.interrupt({ afterWords: 5, content: "No, that's not it" });     // word-count (needs streaming transcripts)
+scenario.interrupt({ content: "Hold on—" });                            // first-chunk barge-in
+```
+
+`afterWords` requires an adapter with streaming transcripts; otherwise it raises
+`voice.UnsupportedCapabilityError` suggesting `interrupt({ content })` instead.
 
 <Callout type="info">
 Both forms call into the same executor path. The sugar is purely syntactic — there is no
