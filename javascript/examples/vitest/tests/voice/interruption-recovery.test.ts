@@ -12,7 +12,18 @@
  *
  * The agent under test is the bundled Pipecat stub bot (OpenAI STT+LLM+TTS over
  * the Twilio Media Streams protocol), which supports barge-in (server-side VAD
- * gating). Mirrors `python/examples/voice/interruption_recovery.py`.
+ * gating).
+ *
+ * GREET-FIRST opener: the bundled bot emits a canned greeting the instant the
+ * socket connects (bot.py, `connected` event). The script therefore OPENS with
+ * `scenario.agent()` so that greeting is captured as its own turn — the same
+ * shape as the other connect-greeting demos (angry_customer / basic_greeting /
+ * random_interruptions). If the script led with the user instead, the greeting
+ * would collide with the user's opener: the first barge-in would cut off the
+ * GREETING (not a substantive reply) and the bot would answer a stale topic.
+ * This intentionally diverges from the (user-first) Python twin
+ * `python/examples/voice/interruption_recovery.py`, which is the way it should
+ * be for a bot that greets on connect.
  *
  * On success the recording lands in
  * `javascript/recordings/interruption_recovery/` (full.wav + manifest only).
@@ -74,9 +85,12 @@ describeFeature(
             result = await scenario.run({
               name: "demo_interruption_recovery",
               description:
-                "User interrupts the agent twice mid-utterance — first via the " +
-                "unrolled agent({ wait: false }) + user composition, then via the " +
-                "scenario.interrupt() sugar. The bot must recover both times.",
+                "The bot greets on connect; the user asks to set up two-factor " +
+                "auth, then interrupts the bot's walk-through mid-reply to switch " +
+                "to a password reset (barge-in #1, unrolled agent({ wait: false }) " +
+                "+ user), then interrupts again to ask for a brief answer (barge-in " +
+                "#2, scenario.interrupt() sugar). The bot must recover both times " +
+                "and follow the user's pivots rather than answering a stale topic.",
               agents: [
                 scenario.pipecatAgent({
                   url: BOT_WS_URL,
@@ -99,27 +113,39 @@ describeFeature(
                   // OpenAI-LLM-backed (real replies to the user's request) and
                   // honours barge-in, so a real run passes.
                   criteria: [
-                    "The agent recovered gracefully from the interruption(s) — it kept responding rather than going silent",
-                    "The agent engaged with the user's SPECIFIC requests over the conversation (account support, and keeping it brief) — it did NOT just repeat a canned greeting or ignore what the user asked for",
+                    "The agent OPENED with a greeting on connect, THEN engaged the user's SPECIFIC requests as the conversation evolved — first the two-factor-authentication setup, then the mid-reply switch to a password reset, then keeping the answer brief",
+                    "The agent did NOT ignore the user or answer a DIFFERENT question than the one asked — it followed the user's pivot from 2FA to the password reset rather than continuing on the abandoned topic",
+                    "The agent recovered gracefully from BOTH interruptions — it kept responding rather than going silent after each barge-in",
                     "The conversation is a coherent multi-turn example of the interruption-recovery flow",
                   ],
                 }),
               ],
-              // MULTI-TURN with TWO barge-ins (mirrors the Python twin):
-              //  Exchange 1 — unrolled: agent({wait:false}) starts the reply,
-              //  user() overlaps it (executor fires barge-in), agent() recovers.
-              //  Exchange 2 — sugar: interrupt() does the same in one step.
+              // GREET-FIRST, MULTI-TURN, with TWO barge-ins that each cut off a
+              // SUBSTANTIVE reply (NOT the connect greeting):
+              //  - The bundled bot emits a canned greeting the instant the
+              //    socket connects (bot.py sends it on the `connected` event).
+              //    So the conversation MUST open with scenario.agent() to
+              //    capture that greeting as its own turn — otherwise the
+              //    greeting collides with the user's opener and the first
+              //    barge-in lands on the GREETING instead of a real answer,
+              //    and the bot ends up answering a stale topic (issue caught
+              //    by listening to the recording). agent-first mirrors the
+              //    other connect-greeting demos (angry_customer / basic_greeting
+              //    / random_interruptions all start with scenario.agent()).
+              //  Barge-in #1 — unrolled: agent({wait:false}) starts a multi-step
+              //  2FA walk-through, user() overlaps it mid-reply (executor fires
+              //  the barge-in), agent() recovers onto the password-reset pivot.
+              //  Barge-in #2 — sugar: interrupt() cuts the reset reply mid-stream
+              //  in one step; agent() recovers brief.
               script: [
-                scenario.user("Tell me about my billing options"),
-                scenario.agent({ wait: false }),
-                scenario.user("Wait sorry, I meant account support, not billing"),
-                scenario.agent(),
-                scenario.user("Tell me about every feature you offer"),
-                scenario.interrupt({
-                  content: "Sorry, one more thing — can you keep it brief?",
-                  waitForSpeechTimeout: 15,
-                }),
-                scenario.agent(),
+                scenario.agent(),                                   // bot greets on connect
+                scenario.user("I'm trying to turn on two-factor authentication but I'm stuck — can you walk me through it?"),
+                scenario.agent({ wait: false }),                    // bot starts a multi-step reply
+                scenario.user("Actually — hold on, can you just reset my password instead?"),  // barge-in #1 mid-reply
+                scenario.agent(),                                   // recover → password reset
+                scenario.user("Perfect. How long does the reset email take?"),
+                scenario.interrupt({ content: "Sorry — keep it short, I'm in a rush", waitForSpeechTimeout: 25 }),  // barge-in #2 mid-reply
+                scenario.agent(),                                   // recover brief
                 scenario.judge(),
               ],
               maxTurns: 12,
