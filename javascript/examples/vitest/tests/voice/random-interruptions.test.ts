@@ -113,6 +113,22 @@ describeFeature(
                   probability: 0.8,
                   delayRange: [0.5, 2.0],
                   strategy: "random_phrase",
+                  // A demo-local pool of DISTINCT interjections. The default
+                  // CANNED_PHRASES pool collided across draws (the recording showed
+                  // "Wait I forgot to mention" twice), which reads as a stuck loop
+                  // rather than a realistic barge-in. These varied phrases keep each
+                  // interrupt audibly different. (Picks are random-with-replacement,
+                  // so we vary the POOL here and verify the regenerated turns are
+                  // distinct rather than hard-gating distinctness — a hard gate would
+                  // be flaky given random sampling.)
+                  phrases: [
+                    "Wait, I forgot to mention—",
+                    "Oh, one more thing—",
+                    "Actually, hold on—",
+                    "Sorry, real quick—",
+                    "Hmm, wait—",
+                    "No no, let me back up—",
+                  ],
                 }),
               }),
               scenario.judge(),
