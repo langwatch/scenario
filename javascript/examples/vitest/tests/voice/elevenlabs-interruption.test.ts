@@ -22,18 +22,19 @@
  * Binds `@e2e @ts-elevenlabs-interruption-demo`. Env-gated on `OPENAI_API_KEY`
  * (judge LLM + user-sim TTS), `ELEVENLABS_API_KEY`, and `ELEVENLABS_AGENT_ID`.
  *
- * STATUS — SKIPPED (documented live-transport limitation, NOT faked). Against
- * the live ConvAI socket the scripted interrupt flow times out on the final
- * `agent()` receive (`ElevenLabsAgentAdapter: receiveAudio timed out`),
- * verified across 4 honest attempts (3 retries + a direct probe). The hosted
- * ConvAI server-VAD turn-taking does not re-engage for a scripted
- * post-interrupt turn in the TS adapter — the same limitation that keeps the
- * `elevenlabs_hosted` demo to a single live exchange. The barge-in MECHANISM
- * itself is proven over the Pipecat transport by `interruption_recovery` (two
- * real `user_interrupt` events + `interruptResponseTime`) and
- * `random_interruptions`; this per-adapter EL variant is gated off via
- * `RUN_EL_INTERRUPTION` until the EL adapter's post-interrupt receive is
- * hardened (follow-up). Set `RUN_EL_INTERRUPTION=1` to attempt it locally.
+ * STATUS — GATED OFF by default (`RUN_EL_INTERRUPTION=1` to run), but it now
+ * CAPTURES a real cut-off when it does run. After the #372 barge-in fixes
+ * (agentSpeakingEvent wiring → the interrupt lands after the agent starts
+ * speaking; clock-agnostic transcriptTruncated marking) a successful run
+ * produces TWO truncated agent segments (the greeting + the verbose products
+ * reply) and the agent PIVOTS to business hours — verified live. It stays
+ * gated because the live ConvAI socket is FLAKY for scripted interrupts: one
+ * attempt timed out on the post-interrupt receive (`receiveAudio timed out`),
+ * the next succeeded. The barge-in MECHANISM is also proven NON-flakily on the
+ * other server-VAD transport (`gemini_live_interruption`, no client cancel) and
+ * on Pipecat (`interruption_recovery` / `random_interruptions`), so this
+ * per-adapter EL variant is opt-in rather than a CI gate. NOT faked — when run,
+ * the code asserts a real truncated segment.
  */
 
 import { dirname, resolve } from "node:path";
@@ -107,10 +108,15 @@ if (RUN_E2E) {
                 }),
                 scenario.userSimulatorAgent({ voice: "openai/nova" }),
                 scenario.judgeAgent({
+                  // CONVERSATIONAL criteria (mirror the Python twin): the load-
+                  // bearing PIVOT check — after the user interrupts to ask about
+                  // business hours, the agent's NEXT reply must address business
+                  // hours, not keep listing products. The AUDIO cut-off proof
+                  // (truncated segment) is asserted in code in the Then step.
                   criteria: [
                     "The user and agent exchanged audio over the live ElevenLabs ConvAI socket",
-                    "After the user's interrupting turn, the agent produced a further reply (it did not go silent)",
-                    "The conversation is a coherent example of a mid-utterance interrupt on ElevenLabs ConvAI",
+                    "After the user's interrupting turn (asking about business hours), the agent's reply PIVOTS to acknowledge the new topic — it does NOT just keep describing products/features as if uninterrupted",
+                    "The conversation is a coherent example of a mid-utterance interrupt landing on ElevenLabs ConvAI and the agent acknowledging the topic shift",
                   ],
                 }),
               ],
@@ -131,11 +137,15 @@ if (RUN_E2E) {
               ],
               maxTurns: 12,
             });
-            recordingDir = saveDemoRecording(result.audio, "elevenlabs_interruption");
+            // Downsample so a successful run's full.wav stays under the 1MB cap
+            // (the EL ConvAI conversation is long; at 24kHz it exceeds it).
+            recordingDir = saveDemoRecording(result.audio, "elevenlabs_interruption", {
+              downsampleHz: 8000,
+            });
           });
 
           Then(
-            "a user_interrupt event is recorded and the recording has segments",
+            "the agent's reply was cut off and it pivoted to the new topic",
             () => {
               expect(result, "scenario.run() returned no result").not.toBeNull();
               expect(result!.audio, "result.audio missing").toBeDefined();
@@ -150,11 +160,22 @@ if (RUN_E2E) {
                 interruptEvents.length,
                 "no user_interrupt event — the barge-in never fired on the EL socket",
               ).toBeGreaterThan(0);
+              // PROMISE: EL ConvAI has no client cancel — the server VAD must
+              // have cut the in-flight reply. At least one agent segment is
+              // flagged truncated (verified working: a real EL run produced 2
+              // truncated agent segments + a pivot to business hours).
+              const truncated = (result!.audio?.segments ?? []).filter(
+                (s) => s.speaker === "agent" && s.transcriptTruncated,
+              );
+              expect(
+                truncated.length,
+                "no agent segment marked transcriptTruncated — EL server-VAD did not cut the reply",
+              ).toBeGreaterThan(0);
               expect(recordingDir, "recording was not written").not.toBeNull();
               console.log(
                 `[demo] elevenlabs_interruption → ${recordingDir} ` +
-                  `(interrupts=${interruptEvents.length}, segments=${result!.audio!.segments.length}, ` +
-                  `success=${result!.success})`,
+                  `(interrupts=${interruptEvents.length}, truncated=${truncated.length}, ` +
+                  `segments=${result!.audio!.segments.length}, success=${result!.success})`,
               );
             },
           );
