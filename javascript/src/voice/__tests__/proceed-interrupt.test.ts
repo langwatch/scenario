@@ -9,11 +9,35 @@
  * Key assertions:
  * 1. A `user_interrupt` event is emitted with `outcome === "fired_after_speech"`.
  * 2. At least one agent segment is marked `transcriptTruncated`.
- * 3. `pendingAgentTask` was set (non-blocking agent dispatched) before the user
- *    sim ran — the structural guarantee that the barge-in path fired.
  *
- * Uses the same fake-adapter pattern as interrupt-truncation.test.ts; no
- * network, no real keys.
+ * ## Inline barge-in design (issue #496 — JUDGE-vs-AGENT race fix)
+ *
+ * The prior design injected USER into `pendingRolesOnTurn` so `_step` would
+ * run USER before JUDGE. That still lost the race: the full user-sim LLM+TTS
+ * chain (~1.5-3 s) was slower than the pipecat bot's audio reply, so
+ * `pendingAgentTask.done` was already `true` by the time USER ran.
+ *
+ * The current design fires the interrupt INLINE inside
+ * `maybeScheduleInterruptedAgentTurn`, right after AGENT is dispatched:
+ *
+ *   1. AGENT dispatched non-blocking (bot starts streaming)
+ *   2. `voiceifyText(phrase)` called immediately (TTS only, no LLM — ~instant
+ *      in tests, ~0.5 s in production)
+ *   3. `pendingAgentTask.done` check → false (AGENT still in-flight)
+ *   4. `fireUserInterrupt(voicedMessage)` waits for bot to speak (agentSpeakingEvent),
+ *      then fires the barge-in while AGENT is still draining
+ *   5. `user_interrupt` event recorded → assertion 1 passes
+ *   6. Truncated segment marked → assertion 2 passes
+ *
+ * Without this fix, a non-blocking AGENT dispatch followed by JUDGE (a
+ * synchronous-null fake or a fast LLM) would drain the agent task before any
+ * USER-path check runs — no interrupt fires.
+ *
+ * The race is now: does TTS alone finish before the bot's first audio chunk?
+ * In unit tests, both are instant/40 ms respectively — the race is
+ * deterministic. In production, TTS (~0.5 s) is reliably faster than a full
+ * bot reply, and `fireUserInterrupt` always waits for `agentSpeakingEvent`
+ * before firing, so timing is governed by the bot's speech start, not its end.
  *
  * NOTE: The "meaningfully shorter duration" assertion (ratio < 0.8) is only
  * verifiable with a live voice bot (E2E). In unit tests with fake adapters,
@@ -57,9 +81,16 @@ function tone(durationSeconds: number, transcript: string): AudioChunk {
 // ---------------------------------------------------------------------------
 
 /**
- * A voice agent adapter that emits a LONG first reply so the agent task is
- * still draining when the user-sim fires the barge-in check. The 40ms delay
- * on the first chunk ensures `pendingAgentTask.done === false` when USER runs.
+ * A voice agent adapter that emits a reply with a 40 ms delay on the first
+ * chunk. This ensures `pendingAgentTask.done === false` when
+ * `maybeScheduleInterruptedAgentTurn` fires the inline barge-in, and that
+ * `agentSpeakingEvent` is set 40 ms after dispatch — giving `fireUserInterrupt`
+ * a real speaking window to barge into.
+ *
+ * The 40 ms delay models the wall-clock gap between AGENT dispatch and the
+ * bot's first audio chunk on a real transport (~0.5-1 s for pipecat/OpenAI).
+ * In unit tests it keeps the race deterministic (instant `voiceifyText` +
+ * 40 ms speaking delay = always fires before the agent finishes).
  */
 class LongReplyAgent extends VoiceAgentAdapter {
   override role = AgentRole.AGENT;
@@ -83,7 +114,11 @@ class LongReplyAgent extends VoiceAgentAdapter {
     }
     if (!this.served) {
       this.served = true;
-      // Delay 40ms so the drain is still pending when USER fires the check.
+      // 40 ms delay: models the bot's time-to-first-byte. The inline barge-in
+      // in maybeScheduleInterruptedAgentTurn calls voiceifyText (instant here)
+      // then awaits agentSpeakingEvent, which fires at this 40 ms mark.
+      // Without the fix, a synchronous-null JUDGE would drain this task before
+      // any USER check ran and done would be true when the check arrived.
       await new Promise((r) => setTimeout(r, 40));
       this.eos = true;
       return tone(1.5, "a very long agent reply that keeps going and going");
@@ -94,8 +129,9 @@ class LongReplyAgent extends VoiceAgentAdapter {
 
 /**
  * Voice-capable user simulator: has `voice` + `voiceifyText` so the executor
- * recognises it and routes through the barge-in path. Also exposes
- * `interruptProbability` so `resolveInterruptionConfig` picks it up.
+ * recognises it and routes through the inline barge-in path in
+ * `maybeScheduleInterruptedAgentTurn`. Also exposes `interruptProbability` so
+ * `resolveInterruptionConfig` picks it up.
  */
 class VoiceUserSim extends UserSimulatorAgentAdapter {
   role = AgentRole.USER;
@@ -113,7 +149,14 @@ class VoiceUserSim extends UserSimulatorAgentAdapter {
   }
 }
 
-/** Judge that only resolves on an explicit judgment request (never in proceed). */
+/**
+ * Judge that only resolves on an explicit judgment request (never in proceed).
+ *
+ * NOTE: No artificial delay here. The inline barge-in fires BEFORE _step runs
+ * JUDGE, so JUDGE timing no longer affects the interrupt window. The prior
+ * design needed a 100 ms JUDGE delay to model the race; the new inline design
+ * does not depend on JUDGE latency at all.
+ */
 class PassingJudge extends JudgeAgentAdapter {
   criteria = ["ok"];
   async call(input: AgentInput) {
@@ -133,7 +176,7 @@ class PassingJudge extends JudgeAgentAdapter {
 
 describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () => {
   it(
-    "dispatches AGENT non-blocking pre-step and fires a real barge-in in callAgent",
+    "dispatches AGENT non-blocking pre-step and fires inline barge-in via voiceifyText",
     async () => {
       const voiceAgent = new LongReplyAgent();
       const userSim = new VoiceUserSim();
@@ -141,10 +184,10 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
 
       const exec = new ScenarioExecution(
         {
-          name: "proceed-interrupt / real barge-in unit",
+          name: "proceed-interrupt / inline barge-in unit",
           description:
-            "maybeScheduleInterruptedAgentTurn fires pre-step; user-sim turn " +
-            "triggers the callAgent barge-in check",
+            "maybeScheduleInterruptedAgentTurn fires pre-step; inline voiceifyText + " +
+            "fireUserInterrupt produces a real mid-stream barge-in without LLM call",
           agents: [voiceAgent, userSim, judge],
         },
         [
@@ -154,7 +197,7 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
               new InterruptionConfig({ probability: 1.0, strategy: "random_phrase" });
           },
           // Step 2: proceed for 2 turns (enough for the barge-in path to fire
-          // across a turn boundary — see timing analysis in test docstring).
+          // across a turn boundary).
           async (_state, executor) => {
             await executor.proceed(2);
           },
@@ -172,7 +215,7 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
       );
       expect(
         interrupts.length,
-        "no user_interrupt event — proceed-loop pre-step barge-in never fired",
+        "no user_interrupt event — proceed-loop pre-step inline barge-in never fired",
       ).toBeGreaterThan(0);
 
       // 2. The barge-in must have landed mid-utterance (agent was speaking).
@@ -180,8 +223,8 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
       const outcome = interrupts[0]!.metadata?.outcome;
       expect(
         outcome,
-        "barge-in did not land mid-utterance — the pre-step scheduling may not have fired " +
-          "or the agent task completed before USER ran",
+        "barge-in did not land mid-utterance — agentSpeakingEvent was not awaited " +
+          "or the agent task completed before fireUserInterrupt ran",
       ).toBe("fired_after_speech");
 
       // 3. At least one agent segment must be marked transcriptTruncated by the
@@ -195,7 +238,7 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
           "cut-off (interrupt may have landed outside all agent segments)",
       ).toBeGreaterThan(0);
     },
-    // Generous timeout: 40ms adapter delay + agent drain + barge-in settle.
-    15_000,
+    // Generous timeout: 40ms agent drain + barge-in settle + 2 turns.
+    30_000,
   );
 });
