@@ -206,7 +206,9 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
       await adapter.connect();
 
       // connect() must have registered the onmessage callback.
-      const onmessage = captured.last?.onmessage;
+      // Cast: TypeScript CFA narrowed captured.last to null after the explicit
+      // assignment on line above, but connect() mutates it inside the mock.
+      const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
       expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
 
       // Pre-load the internal queue with the full barge-in sequence:
@@ -260,7 +262,7 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
       await adapter.connect();
 
-      const onmessage = captured.last?.onmessage;
+      const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
       expect(onmessage).toBeDefined();
 
       // A real turn: audio first, then turnComplete (no interrupted flag).
@@ -293,7 +295,7 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
       await adapter.connect();
 
-      const onmessage = captured.last?.onmessage;
+      const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
       expect(onmessage).toBeDefined();
 
       // Spurious pair only — no recovery audio follows.
