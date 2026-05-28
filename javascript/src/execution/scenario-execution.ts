@@ -52,7 +52,6 @@ import { AudioChunk } from "../voice/audio-chunk";
 import {
   resolveVoiceConfig,
   type ResolvedVoiceConfig,
-  type VoiceConfig,
 } from "../voice/config";
 import { InterruptionConfig } from "../voice/interruption";
 import { extractAudio } from "../voice/messages";
