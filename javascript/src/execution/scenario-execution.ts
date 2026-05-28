@@ -1534,6 +1534,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       );
     } catch {
       // Best-effort: if TTS fails, skip the barge-in for this turn.
+      // Clear the sampled delay so a later successful barge-in does not
+      // inherit the stale value from this failed attempt (P2 fix).
+      this.interruptBargeInDelayMs = undefined;
       return true; // AGENT is still dispatched; proceed continues normally.
     }
 
