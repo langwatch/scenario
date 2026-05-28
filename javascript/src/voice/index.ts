@@ -66,8 +66,16 @@ export type {
   LatencyMetrics,
   SpeakerRole,
   VoiceEvent,
+  VoiceEventType,
   VoiceRecording,
 } from "./recording.types";
+
+export {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+} from "./agent-shapes";
 
 export {
   VoiceRecordingRuntime,
