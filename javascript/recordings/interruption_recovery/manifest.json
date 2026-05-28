@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-27T22:40:32.753Z",
-  "duration": 53.730000000000004,
+  "generated_at": "2026-05-28T11:26:31.734Z",
+  "duration": 56.87,
   "segment_count": 9,
   "segments": [
     {
@@ -8,83 +8,83 @@
       "file": "segments/00-agent-0000ms.wav",
       "role": "agent",
       "start_time": 0,
-      "end_time": 4,
-      "duration": 4,
+      "end_time": 3.4,
+      "duration": 3.4,
       "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-4000ms.wav",
+      "file": "segments/01-user-3400ms.wav",
       "role": "user",
-      "start_time": 4,
-      "end_time": 8.7,
-      "duration": 4.699999999999999,
+      "start_time": 3.4,
+      "end_time": 9.45,
+      "duration": 6.049999999999999,
       "transcript": "I'm trying to turn on two-factor authentication but I'm stuck — can you walk me through it?"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-8700ms.wav",
+      "file": "segments/02-agent-9450ms.wav",
       "role": "agent",
-      "start_time": 8.7,
-      "end_time": 21.41,
-      "duration": 12.71,
-      "transcript": "I'm sorry you're getting stuck. Let's get you set up. Are you using the mobile app or a web browser, and what step are you on when it fails (e.g., receiving the code, scanning the QR code, or entering the backup code)?",
+      "start_time": 9.45,
+      "end_time": 9.559999999999999,
+      "duration": 0.10999999999999943,
+      "transcript": "각각",
       "transcript_truncated": true
     },
     {
       "idx": 3,
-      "file": "segments/03-user-21410ms.wav",
+      "file": "segments/03-user-9559ms.wav",
       "role": "user",
-      "start_time": 21.41,
-      "end_time": 25.06,
-      "duration": 3.6499999999999986,
+      "start_time": 9.559999999999999,
+      "end_time": 14.86,
+      "duration": 5.300000000000001,
       "transcript": "Actually — hold on, can you just reset my password instead?"
     },
     {
       "idx": 4,
-      "file": "segments/04-agent-25060ms.wav",
+      "file": "segments/04-agent-14860ms.wav",
       "role": "agent",
-      "start_time": 25.06,
-      "end_time": 31.169999999999998,
-      "duration": 6.109999999999999,
-      "transcript": "Absolutely, happy to walk you through it. Are you turning it on in the mobile app or on the website?"
+      "start_time": 14.86,
+      "end_time": 35.47,
+      "duration": 20.61,
+      "transcript": "I'm sorry you're stuck. Let's get you set up. What device are you using, iPhone, Android, or computer? And are you seeing an error message or just not finding the 2FA option? Absolutely, I can walk you through it. Are you doing this on iPhone, Android, or a computer? And are you trying to enable 2FA in the app or on our website?"
     },
     {
       "idx": 5,
-      "file": "segments/05-user-31169ms.wav",
+      "file": "segments/05-user-35470ms.wav",
       "role": "user",
-      "start_time": 31.169999999999998,
-      "end_time": 34.17,
-      "duration": 3.0000000000000036,
+      "start_time": 35.47,
+      "end_time": 38.67,
+      "duration": 3.200000000000003,
       "transcript": "Perfect. How long does the reset email take?"
     },
     {
       "idx": 6,
-      "file": "segments/06-agent-34170ms.wav",
+      "file": "segments/06-agent-38670ms.wav",
       "role": "agent",
-      "start_time": 34.17,
-      "end_time": 39.67,
-      "duration": 5.5,
-      "transcript": "Of course, I can help with a password reset. What's the email or username on your account?",
+      "start_time": 38.67,
+      "end_time": 38.97,
+      "duration": 0.29999999999999716,
+      "transcript": "Of course",
       "transcript_truncated": true
     },
     {
       "idx": 7,
-      "file": "segments/07-user-39670ms.wav",
+      "file": "segments/07-user-38970ms.wav",
       "role": "user",
-      "start_time": 39.67,
-      "end_time": 42.32,
-      "duration": 2.6499999999999986,
+      "start_time": 38.97,
+      "end_time": 41.97,
+      "duration": 3,
       "transcript": "Sorry — keep it short, I'm in a rush"
     },
     {
       "idx": 8,
-      "file": "segments/08-agent-42320ms.wav",
+      "file": "segments/08-agent-41970ms.wav",
       "role": "agent",
-      "start_time": 42.32,
-      "end_time": 53.730000000000004,
-      "duration": 11.410000000000004,
-      "transcript": "Usually, the password reset email arrives within a few minutes. If you don't see it after 10-15 minutes, please check your spam/junk folder and confirm you entered the correct email address."
+      "start_time": 41.97,
+      "end_time": 56.87,
+      "duration": 14.899999999999999,
+      "transcript": "The password reset email usually arrives within one to five minutes, but it can take up to fifteen minutes sometimes. If you don't see it, please check your spam/junk folder and tell me what email provider you use (Gmail, Outlook, etc.)"
     }
   ],
   "events": [
@@ -93,24 +93,24 @@
       "type": "agent_start_speaking"
     },
     {
-      "time": 4,
+      "time": 3.4,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 4,
+      "time": 3.4,
       "type": "user_start_speaking"
     },
     {
-      "time": 8.7,
+      "time": 9.45,
       "type": "user_stop_speaking"
     },
     {
-      "time": 8.7,
+      "time": 9.45,
       "type": "agent_start_speaking",
-      "latency": 3.503106057000002
+      "latency": 1.9441758809999996
     },
     {
-      "time": 8.7,
+      "time": 9.45,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
@@ -119,40 +119,40 @@
       }
     },
     {
-      "time": 21.41,
+      "time": 9.559999999999999,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 21.41,
+      "time": 9.559999999999999,
       "type": "user_start_speaking"
     },
     {
-      "time": 25.06,
+      "time": 14.86,
       "type": "user_stop_speaking"
     },
     {
-      "time": 25.06,
+      "time": 14.86,
       "type": "agent_start_speaking"
     },
     {
-      "time": 31.169999999999998,
+      "time": 35.47,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 31.169999999999998,
+      "time": 35.47,
       "type": "user_start_speaking"
     },
     {
-      "time": 34.17,
+      "time": 38.67,
       "type": "user_stop_speaking"
     },
     {
-      "time": 34.17,
+      "time": 38.67,
       "type": "agent_start_speaking",
-      "latency": 0.000091709999999523
+      "latency": 0.0002003300000019692
     },
     {
-      "time": 34.17,
+      "time": 38.67,
       "type": "user_interrupt",
       "metadata": {
         "source": "barge-in",
@@ -161,23 +161,23 @@
       }
     },
     {
-      "time": 39.67,
+      "time": 38.97,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 39.67,
+      "time": 38.97,
       "type": "user_start_speaking"
     },
     {
-      "time": 42.32,
+      "time": 41.97,
       "type": "user_stop_speaking"
     },
     {
-      "time": 42.32,
+      "time": 41.97,
       "type": "agent_start_speaking"
     },
     {
-      "time": 53.730000000000004,
+      "time": 56.87,
       "type": "agent_stop_speaking"
     }
   ]
