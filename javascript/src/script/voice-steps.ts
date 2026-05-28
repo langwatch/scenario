@@ -173,7 +173,7 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
     // back to fire-and-forget on executors without agentNonBlocking.
     const ex = executor as ScenarioExecutionLike & {
       agentNonBlocking?: (content?: string | ModelMessage) => void;
-      _interruptWaitForSpeechMs?: number;
+      interruptWaitForSpeechMs?: number;
     };
     if (typeof ex.agentNonBlocking === "function") {
       ex.agentNonBlocking();
@@ -207,7 +207,7 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
     if (routesThroughUser) {
       // Thread THIS step's wait budget into the barge-in so the executor's
       // wait-for-speech uses the same knob as the step.
-      ex._interruptWaitForSpeechMs = waitForSpeechTimeout * 1000;
+      ex.interruptWaitForSpeechMs = waitForSpeechTimeout * 1000;
       if (content !== undefined && content !== "") {
         await executor.user(content as string);
       } else {

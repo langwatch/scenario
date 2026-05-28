@@ -67,6 +67,12 @@ import {
   markTruncatedAgentSegments,
 } from "../voice/segment-utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
+import {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+} from "../voice/agent-shapes";
 
 /**
  * Default bound (ms) on the barge-in wait for the agent to start speaking.
@@ -1119,15 +1125,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `sendText` method) — the OpenAI Realtime user-simulator path. Duck-typed
    * to avoid coupling the executor to the concrete adapter class.
    */
-  private findRealtimeUserAgent():
-    | { sendText: (text: string) => Promise<void> }
-    | null {
+  private findRealtimeUserAgent(): RealtimeUserAgent | null {
     for (const agent of this.agents) {
-      if (
-        agent.role === AgentRole.USER &&
-        typeof (agent as { sendText?: unknown }).sendText === "function"
-      ) {
-        return agent as unknown as { sendText: (t: string) => Promise<void> };
+      if (agent.role === AgentRole.USER && isRealtimeUserAgent(agent)) {
+        return agent;
       }
     }
     return null;
@@ -1138,24 +1139,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `voiceifyText` method). Mirrors Python's `_find_user_sim` + the
    * `getattr(sim, "voice", None)` guard. Duck-typed for the same reason.
    */
-  private findVoiceUserSim():
-    | { voiceifyText: (text: string, cfg?: VoiceConfig) => Promise<ModelMessage> }
-    | null {
+  private findVoiceUserSim(): VoiceUserSimulator | null {
     for (const agent of this.agents) {
       if (agent.role !== AgentRole.USER) continue;
-      const candidate = agent as {
-        voice?: unknown;
-        voiceifyText?: unknown;
-      };
-      if (
-        typeof candidate.voiceifyText === "function" &&
-        typeof candidate.voice === "string" &&
-        candidate.voice.length > 0
-      ) {
-        return agent as unknown as {
-          voiceifyText: (t: string, cfg?: VoiceConfig) => Promise<ModelMessage>;
-        };
-      }
+      if (isVoiceUserSim(agent)) return agent;
     }
     return null;
   }
@@ -1355,8 +1342,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   /**
    * RNG seam for interruption decisions — injectable so tests can drive the
    * probability deterministically. Defaults to `Math.random`.
+   *
+   * @internal Used by tests to inject deterministic RNG.
    */
-  _interruptRng: () => number = Math.random;
+  interruptRng: () => number = Math.random;
 
   /**
    * Optional per-barge-in override (ms) for the wait in
@@ -1364,23 +1353,27 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * its `waitForSpeechTimeout` so the step and the executor agree on ONE
    * timeout instead of the divergent 8s/15s the two layers used before
    * (review m2). Consumed (reset to `undefined`) on each barge-in.
+   *
+   * @internal Used by tests and the `interrupt()` script step to inject timing.
    */
-  _interruptWaitForSpeechMs?: number;
+  interruptWaitForSpeechMs?: number;
 
   /**
    * Optional delay (ms) to insert AFTER the agent starts speaking and BEFORE
    * the barge-in fires. Set by {@link maybeScheduleInterruptedAgentTurn} from
    * {@link InterruptionConfig.sampleDelay} so the agent gets to say something
    * substantive before being cut off. Consumed (reset to `undefined`) on each
-   * barge-in. Mirrors the _interruptWaitForSpeechMs pattern (review m2).
+   * barge-in. Mirrors the interruptWaitForSpeechMs pattern (review m2).
    *
    * The delay is applied inside {@link fireUserInterrupt} after
    * `agentSpeakingEvent` fires — NOT before `voiceifyText` — to avoid letting
    * the burst-TTS pipecat adapter drain its full audio queue before the
    * interrupt fires (which would leave `entry.done=true` and no interrupt
    * window).
+   *
+   * @internal Set by {@link maybeScheduleInterruptedAgentTurn}; consumed by {@link fireUserInterrupt}.
    */
-  _interruptBargeInDelayMs?: number;
+  interruptBargeInDelayMs?: number;
 
   /**
    * Pre-step voice interruption scheduling (issue #372 proceed-loop fix).
@@ -1409,7 +1402,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    *
    * After dispatching AGENT non-blocking, the method samples a delay from
    * {@link InterruptionConfig.delayRange} and stores it on
-   * {@link _interruptBargeInDelayMs}. {@link fireUserInterrupt} applies the
+   * {@link interruptBargeInDelayMs}. {@link fireUserInterrupt} applies the
    * sleep AFTER `agentSpeakingEvent` fires — NOT before `voiceifyText` — so:
    *   (a) the delay is measured from when the bot starts speaking (matching the
    *       spec "sleep between speech start and barge-in fire"); and
@@ -1463,7 +1456,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (existing && !existing.done) return false;
 
     // RNG gate: Python uses `if rng.random() >= prob: return False`.
-    if (this._interruptRng() >= config.probability) return false;
+    if (this.interruptRng() >= config.probability) return false;
 
     // Look up the agent that would run as AGENT.
     const { idx, agent } = this.nextAgentForRole(AgentRole.AGENT);
@@ -1509,17 +1502,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     //     before being cut off. Placing it here (before voiceifyText) would cause
     //     the burst-TTS pipecat drain to complete during the wait, leaving
     //     entry.done=true and no interrupt window. The per-call field pattern
-    //     mirrors _interruptWaitForSpeechMs (review m2 pattern).
-    const delaySeconds = config.sampleDelay(this._interruptRng);
+    //     mirrors interruptWaitForSpeechMs (review m2 pattern).
+    const delaySeconds = config.sampleDelay(this.interruptRng);
     if (delaySeconds > 0) {
-      this._interruptBargeInDelayMs = Math.floor(delaySeconds * 1000);
+      this.interruptBargeInDelayMs = Math.floor(delaySeconds * 1000);
     }
 
     // 4b. Pick an interrupt phrase and TTS it (no LLM call) so the barge-in
     //     fires while the bot is still streaming. TTS alone (~0.5 s) is reliably
     //     faster than the bot's full reply, whereas the full user-sim LLM+TTS
     //     chain (~1.5-3 s) races the bot non-deterministically.
-    const phrase = config.pickRandomPhrase(this._interruptRng);
+    const phrase = config.pickRandomPhrase(this.interruptRng);
     let voicedMessage: ModelMessage | null = null;
     try {
       voicedMessage = await voiceUserSim.voiceifyText(
@@ -1591,7 +1584,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * — it injects a canned user turn after the agent responds. Voice runs bail
    * immediately to avoid double injection.
    *
-   * Deterministic with the injected `_interruptRng`. Returns immediately for
+   * Deterministic with the injected `interruptRng`. Returns immediately for
    * voice runs (handled by pre-step path) or when the config declines.
    */
   private async maybeInjectInterruption(): Promise<void> {
@@ -1601,12 +1594,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     const config = this.resolveInterruptionConfig();
     if (!config) return;
-    if (!config.shouldInterrupt(this._interruptRng)) return;
+    if (!config.shouldInterrupt(this.interruptRng)) return;
 
     // Honour the configured delayRange (PRD §4.4): wait a sampled delay before
     // barging in, so the interruption lands partway into the agent's turn
-    // rather than instantly. Deterministic via the injected `_interruptRng`.
-    const delaySeconds = config.sampleDelay(this._interruptRng);
+    // rather than instantly. Deterministic via the injected `interruptRng`.
+    const delaySeconds = config.sampleDelay(this.interruptRng);
     if (delaySeconds > 0) {
       await new Promise<void>((resolve) =>
         setTimeout(resolve, delaySeconds * 1000),
@@ -1638,7 +1631,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Inject the interruption turn. `random_phrase` sends a canned phrase as
     // explicit content; `contextual` lets the user simulator generate one.
     if (config.strategy === "random_phrase") {
-      await this.user(config.pickRandomPhrase(this._interruptRng));
+      await this.user(config.pickRandomPhrase(this.interruptRng));
     } else {
       await this.user();
     }
@@ -1691,13 +1684,13 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private async fireUserInterrupt(voicedMessage: ModelMessage): Promise<void> {
     // Consume the per-barge-in wait override up front (cleared so a later
     // raw `user()` barge-in can't inherit a stale `interrupt()` budget).
-    const waitMs = this._interruptWaitForSpeechMs ?? DEFAULT_WAIT_FOR_SPEECH_MS;
-    this._interruptWaitForSpeechMs = undefined;
+    const waitMs = this.interruptWaitForSpeechMs ?? DEFAULT_WAIT_FOR_SPEECH_MS;
+    this.interruptWaitForSpeechMs = undefined;
     // Consume the post-speech delay (set by maybeScheduleInterruptedAgentTurn
     // from InterruptionConfig.sampleDelay). Applied AFTER agentSpeakingEvent
     // fires so the agent gets to say something substantive before the barge-in.
-    const bargeInDelayMs = this._interruptBargeInDelayMs;
-    this._interruptBargeInDelayMs = undefined;
+    const bargeInDelayMs = this.interruptBargeInDelayMs;
+    this.interruptBargeInDelayMs = undefined;
 
     const pending = this.pendingAgentTask;
     // Precondition (see jsdoc): the sole caller guarantees a live task. Guard
