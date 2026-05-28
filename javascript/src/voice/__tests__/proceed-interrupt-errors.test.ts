@@ -128,6 +128,161 @@ class NeverEndingJudge extends JudgeAgentAdapter {
 // Test
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// P2: stale interruptBargeInDelayMs cleared on TTS failure
+// ---------------------------------------------------------------------------
+
+/**
+ * A voice agent whose first `call()` triggers a TTS failure on the user sim,
+ * then proceeds normally on the second call.  We need the agent to stay
+ * in-flight long enough that `pendingAgentTask.done === false` when the
+ * barge-in check runs.
+ */
+class SlowSpeakingAgent extends VoiceAgentAdapter {
+  override role = AgentRole.AGENT;
+  readonly capabilities = new AdapterCapabilities({
+    interruption: true,
+    inputFormats: ["pcm16/24000"],
+    outputFormats: ["pcm16/24000"],
+  });
+
+  private eos = false;
+  private served = false;
+
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {}
+  async sendAudio(_c: AudioChunk): Promise<void> {}
+
+  async receiveAudio(_t: number): Promise<AudioChunk> {
+    if (this.eos) {
+      this.eos = false;
+      this.served = false;
+      return new AudioChunk({ data: new Uint8Array(0) });
+    }
+    if (!this.served) {
+      this.served = true;
+      // 40 ms delay: keeps pendingAgentTask.done === false when voiceifyText
+      // runs (voiceifyText is instant for TtsFailOnceUserSim). The runtime
+      // sets agentSpeakingEvent after this receiveAudio returns, so
+      // fireUserInterrupt will see it set immediately.
+      await new Promise((r) => setTimeout(r, 40));
+      this.eos = true;
+      return new AudioChunk({
+        data: new Uint8Array(48000 * 2), // 1 s at 24kHz
+        transcript: "agent reply",
+      });
+    }
+    return new AudioChunk({ data: new Uint8Array(0) });
+  }
+}
+
+/**
+ * User sim whose first `voiceifyText` call throws and whose second succeeds.
+ */
+class TtsFailOnceUserSim extends UserSimulatorAgentAdapter {
+  role = AgentRole.USER;
+  readonly voice = "openai/nova";
+  readonly interruptProbability = 1.0;
+
+  private voiceifyCallCount = 0;
+
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return createAudioMessage(
+      new AudioChunk({ data: new Uint8Array(2400), transcript: "user turn" }),
+      "user",
+    );
+  }
+
+  async voiceifyText(text: string): Promise<ReturnType<typeof createAudioMessage>> {
+    this.voiceifyCallCount++;
+    if (this.voiceifyCallCount === 1) {
+      // Simulate TTS failure on first barge-in attempt.
+      throw new Error("tts-failure-first-call");
+    }
+    return createAudioMessage(
+      new AudioChunk({ data: new Uint8Array(2400), transcript: text }),
+      "user",
+    );
+  }
+}
+
+describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cleared on TTS failure (P2 fix)", () => {
+  it(
+    "clears interruptBargeInDelayMs after voiceifyText throws so the next barge-in starts fresh",
+    async () => {
+      const voiceAgent = new SlowSpeakingAgent();
+      const userSim = new TtsFailOnceUserSim();
+      const judge = new NeverEndingJudge();
+
+      const exec = new ScenarioExecution(
+        {
+          name: "proceed-interrupt-errors / stale delay cleared on TTS failure",
+          description:
+            "When voiceifyText throws on a barge-in attempt, interruptBargeInDelayMs " +
+            "must be cleared so the next successful barge-in starts with a fresh delay.",
+          agents: [voiceAgent, userSim, judge],
+        },
+        [
+          async (_state, executor) => {
+            // Non-zero delayRange so interruptBargeInDelayMs is set (to 1000 ms
+            // with sampleDelay RNG=1) before voiceifyText is called on the barge-in turn.
+            (
+              executor as unknown as { voiceInterruptions: InterruptionConfig }
+            ).voiceInterruptions = new InterruptionConfig({
+              probability: 1.0,
+              strategy: "random_phrase",
+              delayRange: [0.5, 1.0],
+            });
+
+            // Run 2 turns.  The interruption fires on turn 2's AGENT step
+            // (after USER has been processed in turn 1).  voiceifyText throws
+            // on the first call → catch block runs → must clear
+            // interruptBargeInDelayMs to undefined.  Because RNG returns 0 for
+            // the first call (fires the barge-in) and 1 for subsequent calls
+            // (skips subsequent barge-ins), only ONE barge-in attempt runs.
+            // After proceed(2) returns, no successful fireUserInterrupt has
+            // consumed the field — so the field value reflects whether the
+            // catch block cleared it (fix) or left it stale (no fix).
+            await executor.proceed(2);
+          },
+        ],
+        "test-batch-id",
+      );
+
+      // RNG strategy:
+      //   call 0 (probability check): returns 0 → 0 < 1.0 → barge-in fires
+      //   call 1 (sampleDelay):       returns 1 → delay = 0.5 + 1*(1.0-0.5) = 1.0 s → 1000 ms
+      //   call 2 (pickRandomPhrase):  returns 1 → picks last phrase
+      //   call 3+ (next probability): returns 1 → 1 ≥ 1.0 → skips further barge-ins
+      // Net: exactly ONE barge-in attempt fires (and fails). No successful
+      // fireUserInterrupt runs to consume interruptBargeInDelayMs.
+      let rngCallCount = 0;
+      (exec as unknown as { interruptRng: () => number }).interruptRng = () => {
+        return rngCallCount++ === 0 ? 0 : 1;
+      };
+
+      await exec.execute();
+
+      // After the run, interruptBargeInDelayMs must be undefined.
+      // - With fix: the catch block cleared it to undefined.
+      // - Without fix: still 500ms (stale from the failed attempt).
+      // No successful fireUserInterrupt ran (second barge-in was skipped), so
+      // the field has NOT been consumed by a success path — it remains as-set
+      // by the catch (fix: undefined) or as-set by the sample (no fix: 500ms).
+      const remainingDelay = (
+        exec as unknown as { interruptBargeInDelayMs?: number }
+      ).interruptBargeInDelayMs;
+
+      expect(
+        remainingDelay,
+        "interruptBargeInDelayMs was not cleared after TTS failure — " +
+          "a stale 1000ms delay from the failed attempt would leak to the next barge-in",
+      ).toBeUndefined();
+    },
+    30_000,
+  );
+});
+
 describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)", () => {
   it(
     "rejects execute() when the background AGENT turn throws during voiceProceed({ interruptions })",
