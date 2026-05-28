@@ -26,7 +26,7 @@
  * be for a bot that greets on connect.
  *
  * On success the recording lands in
- * `javascript/recordings/interruption_recovery/` (full.wav + manifest only).
+ * `javascript/examples/vitest/recordings/interruption_recovery/` (full.wav + manifest only).
  *
  * Binds `@e2e @ts-interruption-recovery-demo`. Env-gated on `OPENAI_API_KEY`
  * AND a reachable bot socket (`SCENARIO_PIPECAT_BOT_UP=1`, set by the runner

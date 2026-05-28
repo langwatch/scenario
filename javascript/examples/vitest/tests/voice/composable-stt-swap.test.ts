@@ -17,7 +17,7 @@
  *
  * Binds `@e2e @ts-stt-swap`. Env-gated on `OPENAI_API_KEY` (Realtime agent +
  * user-sim TTS + judge LLM) and `ELEVENLABS_API_KEY` (the swapped STT).
- * Recording lands in `javascript/recordings/composable_stt_swap/`.
+ * Recording lands in `javascript/examples/vitest/recordings/composable_stt_swap/`.
  */
 
 import { dirname, resolve } from "node:path";

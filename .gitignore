@@ -238,3 +238,47 @@ python/outputs/recordings/angry_customer/segments/
 python/outputs/recordings/background_handoff/segments/
 !python/outputs/recordings/stt_swap/
 python/outputs/recordings/stt_swap/segments/
+
+# Regenerated per local run by the @e2e demo tests under
+# javascript/examples/vitest/tests/voice/; the committed subset below is the
+# canonical "prove it" audio evidence. See javascript/examples/vitest/recordings/README.md.
+javascript/examples/vitest/recordings/*
+!javascript/examples/vitest/recordings/README.md
+# Core demos — commit full.wav + manifest.json + per-turn segments/.
+!javascript/examples/vitest/recordings/openai_realtime_agent/
+!javascript/examples/vitest/recordings/openai_realtime_user/
+!javascript/examples/vitest/recordings/elevenlabs_hosted/
+!javascript/examples/vitest/recordings/elevenlabs_branded/
+!javascript/examples/vitest/recordings/gemini_live/
+# Additional demos — commit only full.wav + manifest.json (skip segments/
+# to keep the tree thin, mirroring the Python additional-demo policy).
+!javascript/examples/vitest/recordings/composable_stt_swap/
+javascript/examples/vitest/recordings/composable_stt_swap/segments/
+!javascript/examples/vitest/recordings/recording_playback/
+javascript/examples/vitest/recordings/recording_playback/segments/
+!javascript/examples/vitest/recordings/voice_text_parity/
+javascript/examples/vitest/recordings/voice_text_parity/segments/
+!javascript/examples/vitest/recordings/pipecat_ws/
+javascript/examples/vitest/recordings/pipecat_ws/segments/
+# Interruption demos — the flagship voice capability. Per-adapter interruption
+# demos (EL / Gemini) commit segments (match python/recordings); the
+# script-driven ones commit full.wav + manifest only.
+!javascript/examples/vitest/recordings/interruption_recovery/
+javascript/examples/vitest/recordings/interruption_recovery/segments/
+!javascript/examples/vitest/recordings/random_interruptions/
+javascript/examples/vitest/recordings/random_interruptions/segments/
+!javascript/examples/vitest/recordings/elevenlabs_interruption/
+# gemini_live_interruption: full.wav (8kHz) + manifest only — Gemini's detailed
+# replies make individual segment WAVs exceed the 1MB cap.
+!javascript/examples/vitest/recordings/gemini_live_interruption/
+javascript/examples/vitest/recordings/gemini_live_interruption/segments/
+# Persona / pain-pattern + greeting + pipecat-scenario demos — full.wav +
+# manifest only (additional-demo policy).
+!javascript/examples/vitest/recordings/basic_greeting/
+javascript/examples/vitest/recordings/basic_greeting/segments/
+!javascript/examples/vitest/recordings/angry_customer/
+javascript/examples/vitest/recordings/angry_customer/segments/
+!javascript/examples/vitest/recordings/background_handoff/
+javascript/examples/vitest/recordings/background_handoff/segments/
+!javascript/examples/vitest/recordings/pipecat_scenario/
+javascript/examples/vitest/recordings/pipecat_scenario/segments/
