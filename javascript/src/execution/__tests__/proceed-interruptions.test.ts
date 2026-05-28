@@ -4,7 +4,7 @@
  * Verifies the executor consumes an active InterruptionConfig during
  * proceed() and fires a barge-in per the configured probability/strategy —
  * both via `voiceProceed({ interruptions })` and via a user simulator's
- * `interruptProbability`. RNG is injected (`_interruptRng`) for determinism;
+ * `interruptProbability`. RNG is injected (`interruptRng`) for determinism;
  * no network, no real keys.
  */
 
@@ -65,7 +65,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       "test-batch-id",
     );
     // rng = 0 → always < probability=1 → always interrupt; and selects phrase[0].
-    (exec as unknown as { _interruptRng: () => number })._interruptRng = () => 0;
+    (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
 
     await exec.execute();
 
@@ -100,7 +100,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       "test-batch-id",
     );
     // rng = 0.99 → never < 0.3 → never interrupt.
-    (exec as unknown as { _interruptRng: () => number })._interruptRng = () =>
+    (exec as unknown as { interruptRng: () => number }).interruptRng = () =>
       0.99;
 
     await exec.execute();
@@ -123,7 +123,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       [async (_state, executor) => { await executor.proceed(1); }],
       "test-batch-id",
     );
-    (exec as unknown as { _interruptRng: () => number })._interruptRng = () => 0;
+    (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
 
     await exec.execute();
 
@@ -168,7 +168,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       ],
       "test-batch-id",
     );
-    (exec as unknown as { _interruptRng: () => number })._interruptRng = () => 0;
+    (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
 
     await exec.execute();
 
