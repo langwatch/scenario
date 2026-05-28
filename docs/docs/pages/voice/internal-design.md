@@ -1,6 +1,6 @@
 # Voice — Internal Design (#372)
 
-**Status:** Draft for review
+**Status:** Accepted
 **Date:** 2026-05-26
 **Companion docs:** [Voice Agents API Design Proposal (Notion PRD)](https://www.notion.so/langwatchdata/Claude-Opus-1-Proposal-3125e165d48280eca9dbe044884213c8) · [ADR-001 Concurrency](../adr/001-scenario-concurrency-model.md) · [ADR-002 Voice Provider State (proposed)](../adr/002-voice-provider-state.md)
 
