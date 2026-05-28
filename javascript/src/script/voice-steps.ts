@@ -363,14 +363,22 @@ export interface VoiceProceedOptions {
  */
 export const proceed = (options: VoiceProceedOptions = {}): ScriptStep => {
   return async (_state, executor) => {
+    const vex = executor as VoiceAwareExecutor;
+    const prev = vex.voiceInterruptions;
     if (options.interruptions !== undefined) {
       // Write through the typed VoiceExecutorState surface (Decision 1(b)
       // — see voice-executor-state.ts) rather than reaching for a private
       // attribute. The executor reads this inside the proceed loop and
       // injects interruptions per the configured probability/strategy.
-      (executor as VoiceAwareExecutor).voiceInterruptions = options.interruptions;
+      vex.voiceInterruptions = options.interruptions;
     }
-    await executor.proceed(options.turns, options.onTurn, options.onStep);
+    try {
+      return await executor.proceed(options.turns, options.onTurn, options.onStep);
+    } finally {
+      // Restore prior value so a subsequent voiceProceed (or plain proceed)
+      // does not inherit this call's interruption config (P2 config-leak fix).
+      vex.voiceInterruptions = prev;
+    }
   };
 };
 
@@ -529,4 +537,3 @@ async function loadAudioToChunk(
   }
   return new AudioChunk({ data: new Uint8Array(result.stdout) });
 }
-

@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { ModelMessage } from "ai";
-import { expect } from "vitest";
+import { describe, it, expect } from "vitest";
 
 import { AgentRole } from "../../domain/agents";
 import {
@@ -546,12 +546,14 @@ describeFeature(
         Then(
           "~30% of agent turns are interrupted with contextual LLM-generated phrases",
           () => {
-            // PR5 wires the config onto the executor; the actual injection
-            // is exercised in the InterruptionConfig unit tests.
+            // voiceProceed sets the config during proceed and restores it
+            // afterwards (save-set-restore pattern, P2 config-leak fix).
+            // The executor reads it inside the proceed loop (where it IS cfg);
+            // after proceed the field is restored to its prior value.
             expect(
               (ctx.executor as { voiceInterruptions?: InterruptionConfig })
                 .voiceInterruptions,
-            ).toBe(cfg);
+            ).toBeUndefined();
             // Sanity: probability check still respects the configured ratio
             // over a large sample (binomial spread tolerated).
             let hits = 0;
@@ -652,3 +654,61 @@ function makeSeededRng(seed: number): () => number {
   };
 }
 
+// ---------------------------------------------------------------- P2 config-leak fix
+
+/**
+ * Regression test for P2 (review #4382164555):
+ * `voiceProceed({ interruptions })` must NOT leak its config to subsequent
+ * voiceProceed calls that do not pass `interruptions`.
+ *
+ * Before the fix, the config was written to `executor.voiceInterruptions` and
+ * never restored.  A subsequent plain `proceed()` or `voiceProceed({ turns })`
+ * would find the stale config and apply interruptions unexpectedly.
+ */
+describe("voiceProceed — save/restore voiceInterruptions (P2 config-leak fix)", () => {
+  it("does not leak voiceInterruptions to a subsequent voiceProceed without interruptions", async () => {
+    const cfg = new InterruptionConfig({
+      probability: 0.5,
+      strategy: "random_phrase",
+    });
+
+    // Executor stub with a mutable voiceInterruptions field so we can observe
+    // the save-set-restore lifecycle across two voiceProceed calls.
+    const capturedDuring: Array<InterruptionConfig | undefined> = [];
+    const vex: {
+      voiceInterruptions?: InterruptionConfig;
+      proceed: (turns?: number) => Promise<null>;
+    } = {
+      voiceInterruptions: undefined,
+      async proceed(_turns?: number) {
+        // Capture what voiceInterruptions looks like DURING proceed.
+        capturedDuring.push(vex.voiceInterruptions);
+        return null;
+      },
+    };
+
+    const state = {} as never;
+
+    // First voiceProceed: passes interruptions.
+    const step1 = voiceProceed({ turns: 1, interruptions: cfg });
+    await step1(state, vex as never);
+
+    // voiceInterruptions must be RESTORED after the step (not leaked).
+    expect(
+      vex.voiceInterruptions,
+      "voiceInterruptions was not restored after first voiceProceed — config leaked",
+    ).toBeUndefined();
+    // During proceed the config must have been set.
+    expect(capturedDuring[0]).toBe(cfg);
+
+    // Second voiceProceed: no interruptions.
+    const step2 = voiceProceed({ turns: 1 });
+    await step2(state, vex as never);
+
+    // Must NOT see the first call's config.
+    expect(
+      capturedDuring[1],
+      "second voiceProceed saw the first call's interruption config — leak not fixed",
+    ).toBeUndefined();
+  });
+});
