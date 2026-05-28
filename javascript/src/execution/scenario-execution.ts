@@ -983,10 +983,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
             this.broadcastMessage(message, idx);
           }
 
-          // Voice path: if a pre-scheduled non-blocking agent turn is in flight
-          // when the user-sim produces its audio turn, fire the barge-in so the
-          // new audio lands mid-response. Mirrors Python's _call_agent lines
-          // 888-894 (issue #372 proceed-loop interruption fix).
+          // Voice path: if a non-blocking agent turn is in flight when the
+          // user-sim produces audio (e.g. via the script-level `agent({ wait:
+          // false }) + user()` barge-in pattern), fire the interrupt so the
+          // new audio lands mid-response. The proceed-loop path fires via
+          // maybeScheduleInterruptedAgentTurn (inline, before `_step`); this
+          // guard handles explicit `agent(wait:false)` script steps.
           if (role === AgentRole.USER && messages.length > 0) {
             const pendingTask = this.pendingAgentTask;
             if (pendingTask && !pendingTask.done) {
@@ -1371,15 +1373,28 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * Mirrors Python's `_maybe_schedule_interrupted_agent_turn`. If an
    * {@link InterruptionConfig} is active and the NEXT runnable role is AGENT,
    * samples the probability and — on a hit — dispatches the agent turn as a
-   * non-blocking background task (setting {@link pendingAgentTask}) then pops
-   * AGENT from {@link pendingRolesOnTurn} so the subsequent `_step` call
-   * advances to USER. The USER turn's audio is then routed through
-   * {@link fireUserInterrupt} in {@link callAgent}, producing a REAL mid-stream
-   * barge-in rather than a post-hoc label.
+   * non-blocking background task (setting {@link pendingAgentTask}) then fires
+   * the barge-in inline (without waiting for the user-sim's full LLM call).
    *
-   * Returns `true` if an interruption was scheduled (the proceed loop should
-   * let `_step` advance to the USER role). Returns `false` (no-op) for:
+   * ## Why inline rather than delegating to the USER role in `callAgent`
+   *
+   * Delegating to USER (`callAgent` line 990-994) requires the user-sim's
+   * full `call()` chain: LLM text generation (~1-2 s) + TTS synthesis (~0.5-1 s)
+   * ≈ 1.5-3 s. The pipecat bot's audio reply completes in ~1-3 s. The two
+   * windows overlap non-deterministically — in practice the bot often finishes
+   * before the user-sim, so `pendingAgentTask.done` is already `true` by the
+   * time the USER check fires, and the interrupt never happens.
+   *
+   * Inline firing bypasses the LLM step: pick a phrase → TTS only (~0.5-1 s) →
+   * `fireUserInterrupt` (which itself waits for the bot to start speaking before
+   * sending audio). TTS alone is reliably faster than the bot's full reply
+   * duration, so the interrupt lands while the bot is still streaming.
+   *
+   * Returns `true` if an interruption was scheduled and fired (the proceed loop
+   * should advance to JUDGE, which runs a non-final check). Returns `false`
+   * (no-op) for:
    * - text-only runs (no {@link VoiceAgentAdapter})
+   * - no voice-capable user simulator (no `voiceifyText`)
    * - when the next runnable role is not AGENT
    * - when a task is already in-flight
    * - when the RNG roll declines
@@ -1404,6 +1419,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Text-only path: no audio to barge in on.
     if (this.findVoiceAgentAdapter() === null) return false;
 
+    // Inline barge-in requires a voice-capable user simulator that can convert
+    // a text phrase to audio (voiceifyText). Without it, fall back to false.
+    const voiceUserSim = this.findVoiceUserSim();
+    if (!voiceUserSim) return false;
+
     // Already an in-flight agent task — don't stack another.
     const existing = this.pendingAgentTask;
     if (existing && !existing.done) return false;
@@ -1419,7 +1439,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     this.removePendingAgent(agent);
 
     // 2. Consume spent roles up to (and including) AGENT so the next _step
-    //    call advances to USER / JUDGE cleanly. Mirrors Python's while-loop.
+    //    call advances to JUDGE cleanly. Mirrors Python's while-loop.
     while (
       this.pendingRolesOnTurn.length > 0 &&
       this.pendingRolesOnTurn[0] !== AgentRole.AGENT
@@ -1448,6 +1468,38 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       done: false,
     };
     this.pendingAgentTask = entry;
+
+    // 4. Pick an interrupt phrase and TTS it IMMEDIATELY (no LLM call) so
+    //    the barge-in fires while the bot is still streaming. TTS alone (~0.5 s)
+    //    is reliably faster than the bot's full reply, whereas the full user-sim
+    //    LLM+TTS chain (~1.5-3 s) races the bot non-deterministically.
+    const phrase = config.pickRandomPhrase(this._interruptRng);
+    let voicedMessage: ModelMessage | null = null;
+    try {
+      voicedMessage = await voiceUserSim.voiceifyText(
+        phrase,
+        this.config.voice,
+      );
+    } catch {
+      // Best-effort: if TTS fails, skip the barge-in for this turn.
+      return true; // AGENT is still dispatched; proceed continues normally.
+    }
+
+    // 5. Fire the barge-in inline. `fireUserInterrupt` waits for the bot to
+    //    start speaking (agentSpeakingEvent) — bounded by DEFAULT_WAIT_FOR_SPEECH_MS
+    //    — then sends the interrupt audio on the wire and records the event.
+    //    After this returns, the bot has been interrupted and pendingAgentTask is null.
+    if (entry.done) {
+      // Bot finished before TTS completed — nothing to interrupt.
+      return true;
+    }
+    await this.fireUserInterrupt(voicedMessage);
+
+    // 6. Record the user interrupt message in the conversation so the judge
+    //    and subsequent turns see it in context. Broadcast to all agents
+    //    (mirrors scriptCallAgent's message recording path).
+    this.state.addMessage(voicedMessage);
+    this.broadcastMessage(voicedMessage);
 
     return true;
   }
