@@ -355,9 +355,11 @@ export interface VoiceProceedOptions {
 /**
  * Voice variant of {@link import("./index.js").proceed}. Adds the
  * `interruptions` option for injecting random user interruptions during
- * the proceed loop. The injection itself runs in the executor's
- * `maybeInjectInterruption` (Gap #8); this script step records the config on
- * the executor state, which that loop consumes per turn.
+ * the proceed loop. This script step records the config on the executor
+ * state; the loop consumes it via `maybeScheduleInterruptedAgentTurn`
+ * (Gap #8, voice path) which dispatches the agent non-blocking PRE-step so
+ * the next user-sim turn fires a real mid-stream barge-in. Text-only runs
+ * fall back to the post-step `maybeInjectInterruption`.
  */
 export const proceed = (options: VoiceProceedOptions = {}): ScriptStep => {
   return async (_state, executor) => {
