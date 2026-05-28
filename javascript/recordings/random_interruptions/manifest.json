@@ -1,91 +1,44 @@
 {
-  "generated_at": "2026-05-27T17:42:13.272Z",
-  "duration": 44.63,
-  "segment_count": 9,
+  "generated_at": "2026-05-28T09:50:40.649Z",
+  "duration": 10.209999999999999,
+  "segment_count": 4,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-agent-0000ms.wav",
       "role": "agent",
       "start_time": 0,
-      "end_time": 3.9,
-      "duration": 3.9,
-      "transcript": "Hello. Thank you for calling. How can I help you today?"
+      "end_time": 3.4,
+      "duration": 3.4,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
     },
     {
       "idx": 1,
-      "file": "segments/01-user-3900ms.wav",
+      "file": "segments/01-user-3400ms.wav",
       "role": "user",
-      "start_time": 3.9,
-      "end_time": 6.4,
-      "duration": 2.5000000000000004,
-      "transcript": "i can't sign in to my account"
+      "start_time": 3.4,
+      "end_time": 7.699999999999999,
+      "duration": 4.299999999999999,
+      "transcript": "can't log in says password incorrect even after reset"
     },
     {
       "idx": 2,
-      "file": "segments/02-agent-6400ms.wav",
+      "file": "segments/02-agent-7699ms.wav",
       "role": "agent",
-      "start_time": 6.4,
-      "end_time": 16.009999999999998,
-      "duration": 9.609999999999998,
-      "transcript": "I'm sorry you're having trouble signing in. Let's get you back in. Are you seeing an error message, and is it your email username or your password that's failing?",
+      "start_time": 7.699999999999999,
+      "end_time": 7.81,
+      "duration": 0.11000000000000032,
+      "transcript": "Ann.",
       "transcript_truncated": true
     },
     {
       "idx": 3,
-      "file": "segments/03-user-16009ms.wav",
+      "file": "segments/03-user-7810ms.wav",
       "role": "user",
-      "start_time": 16.009999999999998,
-      "end_time": 17.959999999999997,
-      "duration": 1.9499999999999993,
-      "transcript": "Sorry, real quick—"
-    },
-    {
-      "idx": 4,
-      "file": "segments/04-agent-17959ms.wav",
-      "role": "agent",
-      "start_time": 17.959999999999997,
-      "end_time": 28.97,
-      "duration": 11.010000000000002,
-      "transcript": "No worries at all. Tell me what you're seeing when you try to sign in, like incorrect password, account locked, or email not found, and I'll guide you to the right fix.",
-      "transcript_truncated": true
-    },
-    {
-      "idx": 5,
-      "file": "segments/05-user-28970ms.wav",
-      "role": "user",
-      "start_time": 28.97,
-      "end_time": 30.32,
-      "duration": 1.3500000000000014,
-      "transcript": "Hmm, wait—"
-    },
-    {
-      "idx": 6,
-      "file": "segments/06-agent-30320ms.wav",
-      "role": "agent",
-      "start_time": 30.32,
-      "end_time": 34.93,
-      "duration": 4.609999999999999,
-      "transcript": "Of course, what's the exact error message you see on the sign-in screen?",
-      "transcript_truncated": true
-    },
-    {
-      "idx": 7,
-      "file": "segments/07-user-34930ms.wav",
-      "role": "user",
-      "start_time": 34.93,
-      "end_time": 37.13,
-      "duration": 2.200000000000003,
-      "transcript": "No no, let me back up—"
-    },
-    {
-      "idx": 8,
-      "file": "segments/08-agent-37130ms.wav",
-      "role": "agent",
-      "start_time": 37.13,
-      "end_time": 44.63,
-      "duration": 7.5,
-      "transcript": "Take your time. When you're ready, tell me the exact wording of the error and whether you're signing in with your email address or a username."
+      "start_time": 7.81,
+      "end_time": 10.209999999999999,
+      "duration": 2.3999999999999995,
+      "transcript": "Oh, one more thing—"
     }
   ],
   "events": [
@@ -94,100 +47,42 @@
       "type": "agent_start_speaking"
     },
     {
-      "time": 3.9,
+      "time": 3.4,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 3.9,
+      "time": 3.4,
       "type": "user_start_speaking"
     },
     {
-      "time": 6.4,
+      "time": 7.699999999999999,
       "type": "user_stop_speaking"
     },
     {
-      "time": 6.4,
+      "time": 7.699999999999999,
       "type": "agent_start_speaking",
-      "latency": 2.5386716840000005
+      "latency": 4.086609699
     },
     {
-      "time": 16.009999999999998,
-      "type": "agent_stop_speaking"
-    },
-    {
-      "time": 16.009999999999998,
+      "time": 7.699999999999999,
       "type": "user_interrupt",
       "metadata": {
-        "source": "proceed-interruption",
-        "strategy": "random_phrase"
+        "source": "barge-in",
+        "outcome": "fired_after_speech",
+        "native": true
       }
     },
     {
-      "time": 16.009999999999998,
-      "type": "user_start_speaking"
-    },
-    {
-      "time": 17.959999999999997,
-      "type": "user_stop_speaking"
-    },
-    {
-      "time": 17.959999999999997,
-      "type": "agent_start_speaking",
-      "latency": 3.5208449680000022
-    },
-    {
-      "time": 28.97,
+      "time": 7.81,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 28.97,
-      "type": "user_interrupt",
-      "metadata": {
-        "source": "proceed-interruption",
-        "strategy": "random_phrase"
-      }
-    },
-    {
-      "time": 28.97,
+      "time": 7.81,
       "type": "user_start_speaking"
     },
     {
-      "time": 30.32,
+      "time": 10.209999999999999,
       "type": "user_stop_speaking"
-    },
-    {
-      "time": 30.32,
-      "type": "agent_start_speaking",
-      "latency": 0.00010682000000272751
-    },
-    {
-      "time": 34.93,
-      "type": "agent_stop_speaking"
-    },
-    {
-      "time": 34.93,
-      "type": "user_interrupt",
-      "metadata": {
-        "source": "proceed-interruption",
-        "strategy": "random_phrase"
-      }
-    },
-    {
-      "time": 34.93,
-      "type": "user_start_speaking"
-    },
-    {
-      "time": 37.13,
-      "type": "user_stop_speaking"
-    },
-    {
-      "time": 37.13,
-      "type": "agent_start_speaking",
-      "latency": 0.9679213230000023
-    },
-    {
-      "time": 44.63,
-      "type": "agent_stop_speaking"
     }
   ]
 }
