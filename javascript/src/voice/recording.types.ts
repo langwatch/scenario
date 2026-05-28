@@ -31,28 +31,100 @@ export interface AudioSegment {
 }
 
 /**
- * One timestamped event on the voice conversation timeline.
+ * All legal discriminant values for a {@link VoiceEvent}.
  *
- * Types include: `user_start_speaking`, `user_stop_speaking`,
- * `agent_start_speaking`, `agent_stop_speaking`, `tool_call`, `tool_result`,
- * `user_interrupt`.
- *
- * `latency` is populated for `agent_start_speaking` events and measures the
- * response time from the preceding `user_stop_speaking` event.
- *
- * `metadata` is a free-form dict for type-specific context. Examples:
- * - `user_interrupt`: `{ adapter: "PipecatAgentAdapter", native: true }`
- * - `tool_call`: `{ call_id: "..." }`
+ * - `user_start_speaking` / `user_stop_speaking` — VAD-detected user speech
+ *   boundaries.
+ * - `agent_start_speaking` / `agent_stop_speaking` — TTS/stream playback
+ *   boundaries for the agent.
+ * - `tool_call` / `tool_result` — function-call invocation and return.
+ * - `user_interrupt` — user barged in mid-agent-utterance.
  */
-export interface VoiceEvent {
+export type VoiceEventType =
+  | "user_start_speaking"
+  | "user_stop_speaking"
+  | "agent_start_speaking"
+  | "agent_stop_speaking"
+  | "tool_call"
+  | "tool_result"
+  | "user_interrupt";
+
+/** Base fields shared by every {@link VoiceEvent} variant. */
+interface VoiceEventBase {
+  /** Byte-accurate audio cursor position in seconds at the moment of the event. */
   time: number;
-  type: string;
-  name?: string;
-  args?: Record<string, unknown>;
-  result?: unknown;
-  latency?: number;
+  /** Optional free-form context; semantics are variant-specific. */
   metadata?: Record<string, unknown>;
 }
+
+/** User VAD start/stop — just a timestamp (+ optional metadata). */
+interface VoiceEventSpeakingBoundary extends VoiceEventBase {
+  type:
+    | "user_start_speaking"
+    | "user_stop_speaking"
+    | "agent_stop_speaking";
+}
+
+/**
+ * Agent speech start — carries the response-time latency measured from the
+ * preceding `user_stop_speaking` event on the same audio clock.
+ */
+interface VoiceEventAgentStart extends VoiceEventBase {
+  type: "agent_start_speaking";
+  /** Response latency in seconds from preceding user stop; undefined when unmeasurable. */
+  latency?: number;
+}
+
+/**
+ * Tool invocation event. `name` is the function name; `args` are the call
+ * arguments.
+ */
+interface VoiceEventToolCall extends VoiceEventBase {
+  type: "tool_call";
+  /** Name of the tool that was called. */
+  name?: string;
+  /** Arguments passed to the tool. */
+  args?: Record<string, unknown>;
+}
+
+/**
+ * Tool result event. `name` is the function name; `result` is the return
+ * value.
+ */
+interface VoiceEventToolResult extends VoiceEventBase {
+  type: "tool_result";
+  /** Name of the tool that returned. */
+  name?: string;
+  /** Return value from the tool. */
+  result?: unknown;
+}
+
+/**
+ * User barge-in. `metadata` typically carries `{ source, native, outcome }`.
+ * Example: `{ source: "barge-in", native: true, outcome: "fired_after_speech" }`.
+ */
+interface VoiceEventUserInterrupt extends VoiceEventBase {
+  type: "user_interrupt";
+}
+
+/**
+ * One timestamped event on the voice conversation timeline.
+ *
+ * This is a discriminated union — narrow on `event.type` to access
+ * variant-specific fields like `latency` (agent_start_speaking), `name` +
+ * `args` (tool_call), or `name` + `result` (tool_result).
+ *
+ * Common `metadata` fields by type:
+ * - `user_interrupt`: `{ adapter: "PipecatAgentAdapter", native: true }`
+ * - `user_start_speaking` / `user_stop_speaking` (VAD fallback): `{ source: "vad-fallback" }`
+ * - `tool_call`: `{ call_id: "..." }`
+ */
+export type VoiceEvent =
+  | VoiceEventSpeakingBoundary
+  | VoiceEventAgentStart
+  | VoiceEventToolCall
+  | VoiceEventToolResult
+  | VoiceEventUserInterrupt;
 
 /** Summary of agent response timing across the conversation. */
 export interface LatencyMetrics {

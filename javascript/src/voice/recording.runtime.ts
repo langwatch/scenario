@@ -194,11 +194,18 @@ export class VoiceRecordingRuntime implements VoiceRecording {
         .sort((a, b) => a.time - b.time)
         .map((evt) => {
           const e: Record<string, unknown> = { time: evt.time, type: evt.type };
-          if (evt.latency !== undefined) e.latency = evt.latency;
-          if (evt.name !== undefined) e.name = evt.name;
-          if (evt.args !== undefined) e.args = evt.args;
-          if (evt.result !== undefined) e.result = evt.result;
           if (evt.metadata !== undefined) e.metadata = evt.metadata;
+          if (evt.type === "agent_start_speaking" && evt.latency !== undefined) {
+            e.latency = evt.latency;
+          }
+          if (evt.type === "tool_call") {
+            if (evt.name !== undefined) e.name = evt.name;
+            if (evt.args !== undefined) e.args = evt.args;
+          }
+          if (evt.type === "tool_result") {
+            if (evt.name !== undefined) e.name = evt.name;
+            if (evt.result !== undefined) e.result = evt.result;
+          }
           return e;
         });
 
