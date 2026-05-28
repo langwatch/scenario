@@ -221,9 +221,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * lands as a mid-stream barge-in. Mirrors Python's `_pending_agent_task`.
    * JS promises aren't cancelable; `done` records settlement so `user()` can
    * tell "agent still speaking" from "already finished".
+   *
+   * `error` captures any rejection from the background turn so it can be
+   * re-thrown after the promise settles (rather than silently swallowed).
    */
-  private pendingAgentTask: { promise: Promise<void>; done: boolean } | null =
-    null;
+  private pendingAgentTask: {
+    promise: Promise<void>;
+    done: boolean;
+    /** Captured rejection, if any. Re-thrown by {@link fireUserInterrupt}. */
+    error: unknown | null;
+  } | null = null;
 
   /**
    * Snapshot of voice adapters for the in-flight execution. Captured at
@@ -1188,20 +1195,21 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `void executor.agent().catch()` call sites did.
    */
   agentNonBlocking(content?: string | ModelMessage): void {
-    const entry: { promise: Promise<void>; done: boolean } = {
+    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
       // Assigned in the same statement; the `.finally` below closes over
       // `entry` and only runs after this turn settles, by which point the field
       // holds the real promise (no dead Promise.resolve() placeholder — review
       // H6).
       promise: this.scriptCallAgent(AgentRole.AGENT, content)
         .then(() => undefined)
-        .catch(() => {
-          /* errors surface via segments / recovery turn */
+        .catch((err: unknown) => {
+          entry.error = err; // capture, don't swallow — re-thrown at drain/interrupt time
         })
         .finally(() => {
           entry.done = true;
         }),
       done: false,
+      error: null,
     };
     this.pendingAgentTask = entry;
   }
@@ -1483,15 +1491,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     //    agentNonBlocking/scriptCallAgent) because the role has already been
     //    popped from pendingRolesOnTurn; scriptCallAgent would try a new turn.
     //    Mirrors Python's `asyncio.create_task(self._call_agent(idx, role=AGENT))`.
-    const entry: { promise: Promise<void>; done: boolean } = {
+    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
       promise: this.callAgent(idx, AgentRole.AGENT)
-        .catch(() => {
-          /* errors surface via segments / recovery turn */
+        .catch((err: unknown) => {
+          entry.error = err; // capture, don't swallow — re-thrown at fireUserInterrupt/drain
         })
         .finally(() => {
           entry.done = true;
         }),
       done: false,
+      error: null,
     };
     this.pendingAgentTask = entry;
 
@@ -1707,6 +1716,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       outcome = "no_adapter";
       await pending.promise;
       this.pendingAgentTask = null;
+      if (pending.error) throw pending.error;
     } else {
       // Best-effort wait for the agent to start speaking so the barge-in lands
       // mid-utterance. Bounded so a hung bot can't stall the script — the bound
@@ -1778,6 +1788,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       //    The interrupted agent segment is recorded HERE on a slow transport.
       await pending.promise;
       this.pendingAgentTask = null;
+      if (pending.error) throw pending.error;
 
       // 4. Now record the interrupting user turn on the byte cursor — AFTER the
       //    agent segment so the manifest reads agent-(truncated)→user-barge-in
@@ -2479,4 +2490,3 @@ function extractErrorInfo(error: unknown): {
     message: String(error),
   };
 }
-
