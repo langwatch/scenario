@@ -373,7 +373,7 @@ export const proceed = (options: VoiceProceedOptions = {}): ScriptStep => {
       vex.voiceInterruptions = options.interruptions;
     }
     try {
-      return await executor.proceed(options.turns, options.onTurn, options.onStep);
+      await executor.proceed(options.turns, options.onTurn, options.onStep);
     } finally {
       // Restore prior value so a subsequent voiceProceed (or plain proceed)
       // does not inherit this call's interruption config (P2 config-leak fix).
