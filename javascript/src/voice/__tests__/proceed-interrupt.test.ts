@@ -59,7 +59,7 @@ import { InterruptionConfig } from "../interruption";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
-import { createAudioMessage } from "../messages";
+import { createAudioMessage, extractTranscript } from "../messages";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -174,6 +174,71 @@ class PassingJudge extends JudgeAgentAdapter {
 // Test
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Helpers for explicit barge-in test (P1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal voice agent adapter for the explicit barge-in test.
+ * Emits one audio chunk after a 40 ms delay (keeping the task in-flight long
+ * enough for the barge-in to fire), then signals EOS.  The runtime's
+ * defaultVoiceCall sets agentSpeakingEvent when receiveAudio returns its
+ * first chunk.
+ */
+class QuickReplyAgent extends VoiceAgentAdapter {
+  override role = AgentRole.AGENT;
+  readonly capabilities = new AdapterCapabilities({
+    interruption: true,
+    inputFormats: ["pcm16/24000"],
+    outputFormats: ["pcm16/24000"],
+  });
+  private eos = false;
+  private served = false;
+
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {}
+  async sendAudio(_c: AudioChunk): Promise<void> {}
+
+  async receiveAudio(_t: number): Promise<AudioChunk> {
+    if (this.eos) {
+      this.eos = false;
+      this.served = false;
+      return new AudioChunk({ data: new Uint8Array(0) });
+    }
+    if (!this.served) {
+      this.served = true;
+      await new Promise((r) => setTimeout(r, 40));
+      this.eos = true;
+      return tone(0.5, "agent reply");
+    }
+    return new AudioChunk({ data: new Uint8Array(0) });
+  }
+}
+
+/**
+ * Voice user sim for explicit barge-in test: can TTS any text (no LLM).
+ * Does NOT set interruptProbability — the explicit script user() call is the
+ * barge-in source here (not maybeScheduleInterruptedAgentTurn).
+ */
+class ExplicitBargeInUserSim extends UserSimulatorAgentAdapter {
+  role = AgentRole.USER;
+  readonly voice = "openai/nova";
+  // No interruptProbability: we don't want maybeScheduleInterruptedAgentTurn
+  // to fire automatically; the test drives the barge-in explicitly.
+
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    return createAudioMessage(tone(0.1, "user auto-turn"), "user");
+  }
+
+  async voiceifyText(text: string): Promise<ReturnType<typeof createAudioMessage>> {
+    return createAudioMessage(tone(0.1, text), "user");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () => {
   it(
     "dispatches AGENT non-blocking pre-step and fires inline barge-in via voiceifyText",
@@ -243,6 +308,68 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
       ).toBeGreaterThan(0);
     },
     // Generous timeout: 40ms agent drain + barge-in settle + 2 turns.
+    30_000,
+  );
+});
+
+/**
+ * P1 regression — explicit script barge-in via `user("barge-in text")` must
+ * appear in state.messages so the judge and downstream agents see it.
+ *
+ * Before the fix, `maybeFireUserInterrupt` returned immediately after firing
+ * the audio, skipping the `scriptCallAgent` path that appends + broadcasts
+ * the voiced message.  The result: `result.messages` contained no user turn
+ * for the barge-in, so the conversation history was incomplete.
+ *
+ * After the fix, `maybeFireUserInterrupt` itself calls `state.addMessage` +
+ * `broadcastMessage` before returning `true`, matching the bookkeeping done
+ * by `maybeScheduleInterruptedAgentTurn` for the proceed-loop path.
+ */
+describe("explicit user() barge-in recorded in state.messages (P1 fix)", () => {
+  it(
+    "appends and broadcasts the barge-in user message into result.messages",
+    async () => {
+      const voiceAgent = new QuickReplyAgent();
+      const userSim = new ExplicitBargeInUserSim();
+      const judge = new PassingJudge();
+
+      const exec = new ScenarioExecution(
+        {
+          name: "explicit barge-in / state.messages recording",
+          description:
+            "user('barge-in text') on an in-flight agentNonBlocking turn must " +
+            "appear in result.messages — maybeFireUserInterrupt must record it.",
+          agents: [voiceAgent, userSim, judge],
+        },
+        [
+          async (_state, executor) => {
+            // Fire the agent turn non-blocking (sets pendingAgentTask).
+            (executor as unknown as { agentNonBlocking(): void }).agentNonBlocking();
+            // Immediately call user() — this triggers the barge-in path via
+            // maybeFireUserInterrupt because pendingAgentTask is in-flight.
+            await executor.user("barge-in correction");
+            // Drain the pending task and end.
+            await executor.succeed("done");
+          },
+        ],
+        "test-batch-id",
+      );
+
+      const result = await exec.execute();
+
+      // The barge-in user message must be in result.messages.
+      const userMessages = result.messages.filter((m) => m.role === "user");
+      const bargeInMsg = userMessages.find((m) => {
+        const transcript = extractTranscript(m);
+        return transcript === "barge-in correction";
+      });
+
+      expect(
+        bargeInMsg,
+        "barge-in user message not found in result.messages — " +
+          "maybeFireUserInterrupt did not call state.addMessage before returning",
+      ).toBeDefined();
+    },
     30_000,
   );
 });

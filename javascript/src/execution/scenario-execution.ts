@@ -1123,6 +1123,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     const pending = this.pendingAgentTask;
     if (!pending || pending.done) return false;
     await this.fireUserInterrupt(voicedMessage);
+    // Record the barge-in user turn in conversation history so the judge
+    // and downstream agents see the correction. Mirrors the recording step in
+    // maybeScheduleInterruptedAgentTurn (lines 1539-1543 pattern).
+    this.state.addMessage(voicedMessage);
+    this.broadcastMessage(voicedMessage);
     return true;
   }
 
