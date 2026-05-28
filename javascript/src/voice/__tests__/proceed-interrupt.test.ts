@@ -192,9 +192,13 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
         },
         [
           // Step 1: arm the InterruptionConfig on the executor.
+          // delayRange:[0,0] keeps the unit test fast and deterministic —
+          // the sampleDelay sleep is now honoured in the voice barge-in path
+          // (maybeScheduleInterruptedAgentTurn). Production configs use the
+          // default [0.5, 3.0]; unit tests must opt out explicitly.
           (_state, executor) => {
             (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-              new InterruptionConfig({ probability: 1.0, strategy: "random_phrase" });
+              new InterruptionConfig({ probability: 1.0, strategy: "random_phrase", delayRange: [0, 0] });
           },
           // Step 2: proceed for 2 turns (enough for the barge-in path to fire
           // across a turn boundary).

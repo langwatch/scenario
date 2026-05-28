@@ -1368,6 +1368,21 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   _interruptWaitForSpeechMs?: number;
 
   /**
+   * Optional delay (ms) to insert AFTER the agent starts speaking and BEFORE
+   * the barge-in fires. Set by {@link maybeScheduleInterruptedAgentTurn} from
+   * {@link InterruptionConfig.sampleDelay} so the agent gets to say something
+   * substantive before being cut off. Consumed (reset to `undefined`) on each
+   * barge-in. Mirrors the _interruptWaitForSpeechMs pattern (review m2).
+   *
+   * The delay is applied inside {@link fireUserInterrupt} after
+   * `agentSpeakingEvent` fires — NOT before `voiceifyText` — to avoid letting
+   * the burst-TTS pipecat adapter drain its full audio queue before the
+   * interrupt fires (which would leave `entry.done=true` and no interrupt
+   * window).
+   */
+  _interruptBargeInDelayMs?: number;
+
+  /**
    * Pre-step voice interruption scheduling (issue #372 proceed-loop fix).
    *
    * Mirrors Python's `_maybe_schedule_interrupted_agent_turn`. If an
@@ -1389,6 +1404,25 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * `fireUserInterrupt` (which itself waits for the bot to start speaking before
    * sending audio). TTS alone is reliably faster than the bot's full reply
    * duration, so the interrupt lands while the bot is still streaming.
+   *
+   * ## delayRange sleep (issue #372 follow-up)
+   *
+   * After dispatching AGENT non-blocking, the method samples a delay from
+   * {@link InterruptionConfig.delayRange} and stores it on
+   * {@link _interruptBargeInDelayMs}. {@link fireUserInterrupt} applies the
+   * sleep AFTER `agentSpeakingEvent` fires — NOT before `voiceifyText` — so:
+   *   (a) the delay is measured from when the bot starts speaking (matching the
+   *       spec "sleep between speech start and barge-in fire"); and
+   *   (b) burst-TTS bots (e.g. pipecat stub) that drain their receive queue
+   *       instantly don't drain to completion before the interrupt window opens
+   *       (placing the sleep before `voiceifyText` causes `entry.done=true`
+   *       for those adapters, silently skipping the barge-in).
+   * Without this delay, `fireUserInterrupt` fires on the bot's very first audio
+   * chunk — truncating replies to ~110 ms and collapsing multi-turn demos to
+   * a 10 s recording. Mirrors the same sleep in the text-only fallback
+   * {@link maybeInjectInterruption}. Callers that need fast, deterministic
+   * unit tests should set `delayRange: [0, 0]` on their
+   * {@link InterruptionConfig}.
    *
    * Returns `true` if an interruption was scheduled and fired (the proceed loop
    * should advance to JUDGE, which runs a non-final check). Returns `false`
@@ -1469,10 +1503,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     };
     this.pendingAgentTask = entry;
 
-    // 4. Pick an interrupt phrase and TTS it IMMEDIATELY (no LLM call) so
-    //    the barge-in fires while the bot is still streaming. TTS alone (~0.5 s)
-    //    is reliably faster than the bot's full reply, whereas the full user-sim
-    //    LLM+TTS chain (~1.5-3 s) races the bot non-deterministically.
+    // 4a. Sample the delay from the configured delayRange and thread it to
+    //     fireUserInterrupt. The delay is applied AFTER agentSpeakingEvent fires
+    //     (bot has started speaking) so the agent gets to say something substantive
+    //     before being cut off. Placing it here (before voiceifyText) would cause
+    //     the burst-TTS pipecat drain to complete during the wait, leaving
+    //     entry.done=true and no interrupt window. The per-call field pattern
+    //     mirrors _interruptWaitForSpeechMs (review m2 pattern).
+    const delaySeconds = config.sampleDelay(this._interruptRng);
+    if (delaySeconds > 0) {
+      this._interruptBargeInDelayMs = Math.floor(delaySeconds * 1000);
+    }
+
+    // 4b. Pick an interrupt phrase and TTS it (no LLM call) so the barge-in
+    //     fires while the bot is still streaming. TTS alone (~0.5 s) is reliably
+    //     faster than the bot's full reply, whereas the full user-sim LLM+TTS
+    //     chain (~1.5-3 s) races the bot non-deterministically.
     const phrase = config.pickRandomPhrase(this._interruptRng);
     let voicedMessage: ModelMessage | null = null;
     try {
@@ -1647,6 +1693,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // raw `user()` barge-in can't inherit a stale `interrupt()` budget).
     const waitMs = this._interruptWaitForSpeechMs ?? DEFAULT_WAIT_FOR_SPEECH_MS;
     this._interruptWaitForSpeechMs = undefined;
+    // Consume the post-speech delay (set by maybeScheduleInterruptedAgentTurn
+    // from InterruptionConfig.sampleDelay). Applied AFTER agentSpeakingEvent
+    // fires so the agent gets to say something substantive before the barge-in.
+    const bargeInDelayMs = this._interruptBargeInDelayMs;
+    this._interruptBargeInDelayMs = undefined;
 
     const pending = this.pendingAgentTask;
     // Precondition (see jsdoc): the sole caller guarantees a live task. Guard
@@ -1678,6 +1729,21 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       }
       const agentWasSpeaking = Boolean(speaking?.isSet());
       outcome = agentWasSpeaking ? "fired_after_speech" : "fired_before_speech";
+
+      // Honour the configured delayRange: sleep between speech start and barge-in
+      // fire so the agent gets to say something substantive before being cut off.
+      // Applied here — AFTER agentSpeakingEvent fires — so that:
+      //   (a) the delay is measured from when the bot starts speaking, not from
+      //       when AGENT was dispatched (matching the spec "delayRange = sleep
+      //       between speech start and barge-in fire");
+      //   (b) burst-TTS bots (e.g. pipecat stub) don't drain their full audio
+      //       queue before the interrupt fires; placing the sleep before
+      //       voiceifyText causes entry.done=true for those adapters.
+      // Mirrors maybeInjectInterruption (scenario-execution.ts, text-only path).
+      if (bargeInDelayMs && bargeInDelayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, bargeInDelayMs));
+      }
+
       // Capture the cursor at the barge-in instant. If the fast transport
       // already recorded the agent segment, the cursor sits at its `endTime`;
       // otherwise it sits where the about-to-be-recorded agent segment starts.
