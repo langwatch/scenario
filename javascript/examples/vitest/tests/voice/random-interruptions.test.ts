@@ -161,11 +161,34 @@ describeFeature(
             truncated.length,
             "no agent segment marked transcriptTruncated — interruptions did not cut off any reply",
           ).toBeGreaterThan(0);
+
+          // Defense against the prior hollow-pass: the truncated segment's
+          // duration must be MEANINGFULLY shorter than the median agent
+          // segment, not just epsilon-shorter at an endTime boundary (the
+          // prior post-hoc label bug recorded the interrupt at the segment's
+          // endTime so the containment check fired on a fully-played reply).
+          const agentDurations = (result!.audio?.segments ?? [])
+            .filter((s) => s.speaker === "agent")
+            .map((s) => s.endTime - s.startTime)
+            .sort((a, b) => a - b);
+          const medianAgentDur =
+            agentDurations[Math.floor(agentDurations.length / 2)] ?? 0;
+          const minTruncatedDur = Math.min(
+            ...truncated.map((s) => s.endTime - s.startTime),
+          );
           console.log(
             `[demo] random_interruptions → ${recordingDir} ` +
               `(interrupts=${interruptEvents.length}, truncated=${truncated.length}, ` +
-              `segments=${result!.audio?.segments.length}, success=${result!.success})`,
+              `segments=${result!.audio?.segments.length}, success=${result!.success}, ` +
+              `minTruncated=${minTruncatedDur.toFixed(2)}s, medianAgent=${medianAgentDur.toFixed(2)}s, ` +
+              `ratio=${(minTruncatedDur / medianAgentDur).toFixed(2)})`,
           );
+          expect(
+            minTruncatedDur / medianAgentDur,
+            `truncated segment duration ${minTruncatedDur.toFixed(2)}s is not meaningfully shorter than ` +
+              `median agent reply ${medianAgentDur.toFixed(2)}s — ` +
+              `proceed-driven barge-in did not actually cut off audio (post-step label bug)`,
+          ).toBeLessThan(0.8);
         });
 
         And("the conversation involved multiple turns", () => {
