@@ -86,13 +86,19 @@ scenario.user("Hello?", { audioEffects: [voice.effects.lowVolume(0.3)] });
 scenario.user("I'm really upset!", { voiceStyle: "angry" });
 ```
 
-<Callout type="warning">
-In **Python**, per-step effect overrides via `scenario.user(audio_effects=[...])`
-are on the roadmap but not yet in the stable API. Use adapter-level
-`audio_effects` for global application, or pre-bake effects into WAV files and use
-`scenario.audio()` for per-step control. See
-[specs/voice-agents.feature §4.5](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature)
-for the full effects/degradation specification.
+Both SDKs support per-step overrides. Python's `scenario.user()` accepts
+`voice_style` and `audio_effects` with the same one-shot semantics as TypeScript:
+
+```python
+scenario.user("Hello?", audio_effects=[scenario.effects.low_volume(0.3)])
+scenario.user("I'm really upset!", voice_style="angry")
+```
+
+<Callout type="info">
+When `voice_style` is set, the SDK emits a warning if the active TTS backend
+does not yet wire prosody — the audio is still synthesized, but the style hint
+is not applied. `audio_effects` post-processing is always applied regardless of
+the backend.
 </Callout>
 
 ## Worked example
