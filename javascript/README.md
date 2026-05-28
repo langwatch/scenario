@@ -219,7 +219,7 @@ A `ScriptStep` is a function that receives the current `ScenarioExecutionState` 
 - `succeed(reasoning?)`: Ends the scenario with a success verdict.
 - `fail(reasoning?)`: Ends the scenario with a failure verdict.
 
-For voice tests, additional steps are available: `sleep(seconds)`, `silence(duration)`, `audio(pathOrBytes)`, `dtmf(tones)`, `interrupt(options)`, plus the non-blocking `agent({ wait: false })` and `voiceProceed({ interruptions })`. See the [TypeScript voice guide](../docs/voice/typescript.md).
+For voice tests, additional steps are available: `sleep(seconds)`, `silence(duration)`, `audio(pathOrBytes)`, `dtmf(tones)`, `interrupt(options)`, plus the non-blocking `agent({ wait: false })` and `voiceProceed({ interruptions })`. See the [TypeScript voice guide](https://scenario.langwatch.ai/voice/getting-started).
 
 You can also provide your own functions as script steps for making assertions:
 
@@ -269,7 +269,7 @@ expect(result.success).toBe(true);
 
 **Additional surface:** new script steps `scenario.sleep` / `scenario.silence` / `scenario.audio` / `scenario.dtmf` / `scenario.interrupt` (+ the non-blocking `scenario.agent({ wait: false })` turn, also exported as the alias `scenario.voiceAgent({ wait: false })`, and `scenario.voiceProceed({ interruptions })`); audio effects under `voice.effects` (`backgroundNoise`, `phoneQuality`, `packetLoss`, …); per-run provider config via `run({ voice: { stt, tts } })`; and `result.audio` / `result.timeline` / `result.latency` on the result.
 
-- **Full TypeScript voice guide:** [`docs/voice/typescript.md`](../docs/voice/typescript.md) — the real public API, mirroring the worked examples.
+- **Full TypeScript voice guide:** [scenario.langwatch.ai/voice/getting-started](https://scenario.langwatch.ai/voice/getting-started) — the real public API, mirroring the worked examples.
 - **Capability matrix (TS):** [`docs/voice/capability-matrix.md`](./docs/voice/capability-matrix.md) — per-adapter features, wire formats, and the errors that reference them.
 - **Recorded demos (audio evidence):** [`recordings/README.md`](./recordings/README.md) — `full.wav` + `manifest.json` per `@e2e` demo.
 
