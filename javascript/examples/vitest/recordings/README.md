@@ -103,7 +103,7 @@ User-facing docs that reference these recordings should link to the GitHub
 **blob** URL after merge to main, e.g.:
 
 ```
-https://github.com/langwatch/scenario/blob/main/javascript/recordings/openai_realtime_agent/full.wav
+https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/recordings/openai_realtime_agent/full.wav
 ```
 
 The blob page renders an inline `<audio>` player at the top of the file view;

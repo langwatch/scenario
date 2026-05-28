@@ -327,8 +327,8 @@ across leaves (none exists) and no test requires it → left for Tier C, noted b
 
 **Branch:** `voice/372-refactor`, atop Tier C `2dcff36`. Real provider keys (OpenAI /
 ElevenLabs + live agent_id / Gemini), NO mocks. Recordings committed under
-`javascript/recordings/<demo>/` (full.wav + manifest.json [+ segments for core demos];
-all files <1MB; `.gitignore` JS-recordings policy + `javascript/recordings/README.md`
+`javascript/examples/vitest/recordings/<demo>/` (full.wav + manifest.json [+ segments for core demos];
+all files <1MB; `.gitignore` JS-recordings policy + `javascript/examples/vitest/recordings/README.md`
 mirror `python/recordings/`).
 
 ## The @ts-e2e ROUND-TRIP GATE (EDR §8) — PASSES with real keys
@@ -378,7 +378,7 @@ fix #1 offline. Unit suite: **743 passed / 1 skipped** (740 baseline + 3) — no
 
 ## Recording helper (Task 1)
 `examples/vitest/tests/voice/helpers/save-demo-recording.ts` — `saveDemoRecording(audio,
-name)` → `javascript/recordings/<name>/` via `audio.saveSegments(dir,{manifest:true})`.
+name)` → `javascript/examples/vitest/recordings/<name>/` via `audio.saveSegments(dir,{manifest:true})`.
 TS mirror of `python/examples/voice/_recording_helper.py`. Returns null when no segments.
 
 ## What remains (next stages)
@@ -436,7 +436,7 @@ n2 audio-message casts centralized (createAudioMessage returns ModelMessage; 4 r
 New `.github/workflows/javascript-voice-integration.yml` — TS twin of
 `voice-integration.yml`: `workflow_dispatch` only, loads secrets, provisions the EL agent,
 brings up the Pipecat stub bot, runs the JS @e2e voice demos, uploads
-`javascript/recordings/**` (`if: always()`). Normal PR CI does NOT depend on it. n4 root
+`javascript/examples/vitest/recordings/**` (`if: always()`). Normal PR CI does NOT depend on it. n4 root
 `.gitignore` broadened to `.env*` + `!.env.example` (real envs ignored, templates tracked).
 
 ## Convergence gate (held)
@@ -466,7 +466,7 @@ TS capability matrix against the *shipped* surface (not the placeholder):
   generic WebRTC / generic WebSocket are Python-only) and the Pipecat-WebRTC
   `PendingTransportError` note.
 - **LINKS:** `javascript/README.md` gains a *Voice Agents* section (TS-first) linking
-  the guide, the TS capability matrix, and `javascript/recordings/README.md`; the
+  the guide, the TS capability matrix, and `javascript/examples/vitest/recordings/README.md`; the
   root `README.md` voice section adds the `docs/voice/typescript.md` link alongside
   the existing happy-path / capability-matrix links.
 

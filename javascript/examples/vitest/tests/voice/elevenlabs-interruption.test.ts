@@ -17,7 +17,7 @@
  * so the barge-in has audio to overlap, without mutating the shared test agent.
  *
  * On success the recording (full.wav + segments + manifest) lands in
- * `javascript/recordings/elevenlabs_interruption/`.
+ * `javascript/examples/vitest/recordings/elevenlabs_interruption/`.
  *
  * Binds `@e2e @ts-elevenlabs-interruption-demo`. Env-gated on `OPENAI_API_KEY`
  * (judge LLM + user-sim TTS), `ELEVENLABS_API_KEY`, and `ELEVENLABS_AGENT_ID`.

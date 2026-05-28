@@ -21,7 +21,7 @@
  * drains the boundary at the script level.
  *
  * On success the recording (full.wav + segments + manifest) lands in
- * `javascript/recordings/gemini_live_interruption/`.
+ * `javascript/examples/vitest/recordings/gemini_live_interruption/`.
  *
  * Binds `@e2e @ts-gemini-live-interruption-demo`. Env-gated on `GEMINI_API_KEY`
  * (Gemini Live + judge LLM) and `OPENAI_API_KEY` (user-sim TTS voice).
