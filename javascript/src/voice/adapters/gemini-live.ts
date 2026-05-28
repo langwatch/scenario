@@ -396,6 +396,26 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
         // real reply in a separate turn. Detect that pattern (saw
         // interrupted=true, no audio on THIS iterator, no transcript)
         // and continue the receive loop to read the actual reply.
+        //
+        // IN ISOLATION this `continue` correctly absorbs the spurious pair
+        // and reads the recovery audio in a single receiveAudio() call
+        // (unit-tested in src/voice/adapters/__tests__/gemini-live.test.ts).
+        //
+        // IN THE FULL EXECUTOR, the cancelled-turn boundary arrives AFTER
+        // the executor's interrupt() drain has already exited (timing race:
+        // interrupt() has a 2s bounded drain; the boundary lands a beat
+        // later). The executor concurrently runs the in-flight agent task
+        // which may still be awaiting in dequeue() — so the boundary message
+        // may be consumed by the wrong waiter, or sendAudio() may reset
+        // iterHadAudio mid-flight. Live API verification (probe: 1 agent()
+        // → recovery=""; 2 agent() → full non-empty reply) confirmed that
+        // the demo's TWO post-interrupt scenario.agent() calls are required:
+        // the first drains the stale cancelled-turn boundary and the second
+        // captures Gemini's genuine recovery reply. This is a known timing
+        // divergence from Python (which re-creates the session.receive()
+        // iterator, giving a clean per-turn boundary). A future fix would
+        // replicate Python's iterator-restart semantic at the TS level; for
+        // now the demo script compensates.
         if (sawInterrupted && !this.iterHadAudio && !pendingTranscript) {
           sawInterrupted = false;
           continue;
