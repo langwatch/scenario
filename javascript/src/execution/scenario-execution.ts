@@ -982,6 +982,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
             });
             this.broadcastMessage(message, idx);
           }
+
+          // Voice path: if a pre-scheduled non-blocking agent turn is in flight
+          // when the user-sim produces its audio turn, fire the barge-in so the
+          // new audio lands mid-response. Mirrors Python's _call_agent lines
+          // 888-894 (issue #372 proceed-loop interruption fix).
+          if (role === AgentRole.USER && messages.length > 0) {
+            const pendingTask = this.pendingAgentTask;
+            if (pendingTask && !pendingTask.done) {
+              await this.fireUserInterrupt(messages[messages.length - 1]!);
+            }
+          }
         }
         )
       );
@@ -1303,6 +1314,18 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         initialTurn === null ||
         (this.state.currentTurn != null &&
           this.state.currentTurn + 1 < initialTurn + turns);
+
+      // Voice path (PRD §4.4 / §4.2 — Gap #8): BEFORE _step, roll the
+      // interruption probability against the upcoming AGENT role. On a hit,
+      // the agent turn is dispatched non-blocking and AGENT is popped from
+      // pendingRolesOnTurn, so _step advances to USER. The USER turn's audio
+      // is then delivered as a real mid-stream barge-in via callAgent's
+      // pendingAgentTask check. Mirrors Python's proceed loop calling
+      // _maybe_schedule_interrupted_agent_turn() before _step().
+      // Text-only runs: maybeScheduleInterruptedAgentTurn bails; the
+      // post-step maybeInjectInterruption handles that path.
+      await this.maybeScheduleInterruptedAgentTurn();
+
       await this._step(goToNextTurn, onTurn);
 
       if (initialTurn === null) initialTurn = this.state.currentTurn;
@@ -1313,9 +1336,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
       if (onStep) await onStep(this.state);
 
-      // Voice interruptions (PRD §4.4 / §4.2 — Gap #8): after each agent
-      // turn, consult the resolved interruption config and fire a barge-in
-      // per the configured probability/strategy. No-op for text-only runs.
+      // Text-only fallback (Gap #8): for runs without a voice adapter, inject
+      // a canned-phrase turn post-step. Voice runs use the pre-step path above
+      // (maybeScheduleInterruptedAgentTurn) — this is a no-op for them.
       await this.maybeInjectInterruption();
       if (this.result) {
         return this.result;
@@ -1341,6 +1364,93 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * (review m2). Consumed (reset to `undefined`) on each barge-in.
    */
   _interruptWaitForSpeechMs?: number;
+
+  /**
+   * Pre-step voice interruption scheduling (issue #372 proceed-loop fix).
+   *
+   * Mirrors Python's `_maybe_schedule_interrupted_agent_turn`. If an
+   * {@link InterruptionConfig} is active and the NEXT runnable role is AGENT,
+   * samples the probability and — on a hit — dispatches the agent turn as a
+   * non-blocking background task (setting {@link pendingAgentTask}) then pops
+   * AGENT from {@link pendingRolesOnTurn} so the subsequent `_step` call
+   * advances to USER. The USER turn's audio is then routed through
+   * {@link fireUserInterrupt} in {@link callAgent}, producing a REAL mid-stream
+   * barge-in rather than a post-hoc label.
+   *
+   * Returns `true` if an interruption was scheduled (the proceed loop should
+   * let `_step` advance to the USER role). Returns `false` (no-op) for:
+   * - text-only runs (no {@link VoiceAgentAdapter})
+   * - when the next runnable role is not AGENT
+   * - when a task is already in-flight
+   * - when the RNG roll declines
+   */
+  private async maybeScheduleInterruptedAgentTurn(): Promise<boolean> {
+    const config = this.resolveInterruptionConfig();
+    if (!config) return false;
+
+    // Walk pendingRolesOnTurn to find the next role that will actually run
+    // (has a corresponding unconsumed agent in pendingAgentsOnTurn). Mirrors
+    // Python's walk of `_pending_roles_on_turn` via `_next_agent_for_role`.
+    let nextRole: AgentRole | null = null;
+    for (const r of this.pendingRolesOnTurn) {
+      const { agent } = this.nextAgentForRole(r);
+      if (agent !== null) {
+        nextRole = r;
+        break;
+      }
+    }
+    if (nextRole !== AgentRole.AGENT) return false;
+
+    // Text-only path: no audio to barge in on.
+    if (this.findVoiceAgentAdapter() === null) return false;
+
+    // Already an in-flight agent task — don't stack another.
+    const existing = this.pendingAgentTask;
+    if (existing && !existing.done) return false;
+
+    // RNG gate: Python uses `if rng.random() >= prob: return False`.
+    if (this._interruptRng() >= config.probability) return false;
+
+    // Look up the agent that would run as AGENT.
+    const { idx, agent } = this.nextAgentForRole(AgentRole.AGENT);
+    if (!agent) return false;
+
+    // 1. Remove the AGENT adapter from pendingAgentsOnTurn.
+    this.removePendingAgent(agent);
+
+    // 2. Consume spent roles up to (and including) AGENT so the next _step
+    //    call advances to USER / JUDGE cleanly. Mirrors Python's while-loop.
+    while (
+      this.pendingRolesOnTurn.length > 0 &&
+      this.pendingRolesOnTurn[0] !== AgentRole.AGENT
+    ) {
+      this.pendingRolesOnTurn.shift();
+    }
+    if (
+      this.pendingRolesOnTurn.length > 0 &&
+      this.pendingRolesOnTurn[0] === AgentRole.AGENT
+    ) {
+      this.pendingRolesOnTurn.shift();
+    }
+
+    // 3. Dispatch the agent turn non-blocking. Use callAgent directly (NOT
+    //    agentNonBlocking/scriptCallAgent) because the role has already been
+    //    popped from pendingRolesOnTurn; scriptCallAgent would try a new turn.
+    //    Mirrors Python's `asyncio.create_task(self._call_agent(idx, role=AGENT))`.
+    const entry: { promise: Promise<void>; done: boolean } = {
+      promise: this.callAgent(idx, AgentRole.AGENT)
+        .catch(() => {
+          /* errors surface via segments / recovery turn */
+        })
+        .finally(() => {
+          entry.done = true;
+        }),
+      done: false,
+    };
+    this.pendingAgentTask = entry;
+
+    return true;
+  }
 
   /**
    * Resolve the active {@link InterruptionConfig} for the run:
@@ -1375,15 +1485,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * Voice interruption seam (Gap #8). When an interruption config is active
-   * and `shouldInterrupt()` fires for this turn, record a `user_interrupt`
-   * timeline event and inject a user turn carrying the interruption phrase
-   * (`random_phrase` strategy) or a generated user turn (`contextual`).
+   * Text-only fallback for proceed-loop interruptions (Gap #8).
+   *
+   * For voice runs, {@link maybeScheduleInterruptedAgentTurn} handles the
+   * interruption PRE-step via the real barge-in path. This method is a
+   * POST-step fallback that handles text-only runs (no {@link VoiceAgentAdapter})
+   * — it injects a canned user turn after the agent responds. Voice runs bail
+   * immediately to avoid double injection.
    *
    * Deterministic with the injected `_interruptRng`. Returns immediately for
-   * text-only runs or when the config declines the interrupt.
+   * voice runs (handled by pre-step path) or when the config declines.
    */
   private async maybeInjectInterruption(): Promise<void> {
+    // Voice runs: the pre-step maybeScheduleInterruptedAgentTurn handles the
+    // real barge-in. This post-step injection would double-fire — skip it.
+    if (this.findVoiceAgentAdapter() !== null) return;
+
     const config = this.resolveInterruptionConfig();
     if (!config) return;
     if (!config.shouldInterrupt(this._interruptRng)) return;
