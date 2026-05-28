@@ -163,15 +163,20 @@ describeFeature(
         Then("the agent recovered and the conversation is multi-turn", () => {
           // The LOAD-BEARING proof is that the barge-in fired and the agent kept
           // going (it produced recovery audio after the interrupt) — asserted in
-          // the And step. The stub bot's exact recovery content varies run to
-          // run, so the judge verdict is informative, not a hard gate (matching
-          // the other pipecat-stub demos).
+          // the And step. The judge is a HARD GATE: an incoherent run (agent
+          // repeats a canned greeting, ignores the user's pivot, or answers a
+          // stale topic) must FAIL the test, not just look hollow. Mirror:
+          // angry_customer.test.ts line expect(result!.success).toBe(true).
           expect(result, "scenario.run() returned no result").not.toBeNull();
           expect(result!.audio, "result.audio missing").toBeDefined();
           expect(
             result!.audio!.segments.length,
             "expected a multi-turn recording",
           ).toBeGreaterThanOrEqual(4);
+          expect(
+            result!.success,
+            "judge returned success=false — the agent failed the conversational criteria (greet → 2FA → cut off → password reset → cut off → brief). Listen to the recording to see what went wrong.",
+          ).toBe(true);
         });
 
         And("the agent reply was actually cut off and then recovered", () => {
