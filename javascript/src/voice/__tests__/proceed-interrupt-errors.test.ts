@@ -155,7 +155,13 @@ describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)",
             });
           },
           async (_state, executor) => {
-            await executor.proceed(1);
+            // Use undefined turns so the proceed loop runs a second iteration
+            // (after USER finishes) where maybeScheduleInterruptedAgentTurn sees
+            // AGENT as the next role and fires the interruption. proceed(1) from
+            // currentTurn=0 with a pre-populated pendingRolesOnTurn=[USER,AGENT,JUDGE]
+            // computes goToNextTurn=false and exits after only USER runs — the
+            // interruption path never gets to dispatch AGENT.
+            await executor.proceed(undefined);
           },
         ],
         "test-batch-id",
