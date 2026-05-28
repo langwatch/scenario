@@ -5,7 +5,7 @@
  * library itself stays neutral — only the demo tests write to disk. A demo
  * calls {@link saveDemoRecording} with `result.audio` and a demo name; the
  * helper lands a `full.wav` + `segments/` + `manifest.json` under
- * `javascript/recordings/<demoName>/` via the runtime's
+ * `javascript/examples/vitest/recordings/<demoName>/` via the runtime's
  * {@link VoiceRecording.saveSegments} (the same on-disk shape the Python
  * demos produce — `generated_at` / `duration` / `segment_count` / `segments`
  * / `events`).
@@ -24,13 +24,12 @@ import { fileURLToPath } from "node:url";
 import { voice } from "@langwatch/scenario";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// helpers/ → tests/voice → tests → vitest → examples → javascript → recordings.
-// Resolves the same regardless of CWD inside the examples workspace, matching
-// the Python helper's `__file__`-anchored `_RECORDINGS_ROOT`.
+// helpers/ → tests/voice → tests → vitest → recordings.
+// Workspace-local: recordings live next to the vitest package that produces
+// them, not at the JS workspace root. Resolves the same regardless of CWD,
+// matching the Python helper's `__file__`-anchored `_RECORDINGS_ROOT`.
 const RECORDINGS_ROOT = resolve(
   HERE,
-  "..",
-  "..",
   "..",
   "..",
   "..",
@@ -63,7 +62,7 @@ export interface SaveDemoOptions {
 
 /**
  * If `audio` is non-null and has segments, write per-segment WAVs + the full
- * mix + a manifest under `javascript/recordings/<demoName>/` and return the
+ * mix + a manifest under `javascript/examples/vitest/recordings/<demoName>/` and return the
  * directory path. Returns `null` when `audio` is null/undefined or has no
  * segments (nothing was recorded — e.g. a transport that never spoke).
  *
@@ -159,5 +158,5 @@ function pruneOrphanSegments(dir: string): void {
   }
 }
 
-/** Absolute path to `javascript/recordings/` — exported for demos that need it. */
+/** Absolute path to `javascript/examples/vitest/recordings/` — exported for demos that need it. */
 export { RECORDINGS_ROOT };
