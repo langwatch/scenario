@@ -314,4 +314,63 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
       await adapter.disconnect();
     },
   );
+
+  it(
+    "extends the deadline after the spurious pair so delayed recovery audio " +
+      "is captured within the same receiveAudio() call (iterator-restart semantic)",
+    async () => {
+      // Models the live-executor timing race: the spurious pair arrives
+      // during receiveAudio(), but Gemini's actual recovery reply is delayed
+      // by 600 ms — intentionally longer than the 0.5 s original timeout.
+      // The pair is pre-loaded synchronously before receiveAudio() is called
+      // so it is absorbed in ~1 ms, leaving ~499 ms on the original deadline.
+      // The recovery audio arrives at ~600 ms — 101 ms past the original
+      // deadline. WITHOUT the deadline extension the dequeue would time out.
+      // WITH SPURIOUS_PAIR_RECOVERY_MS the deadline becomes now+10 s after
+      // the spurious pair fires, so 600 ms is well within budget.
+      captured.last = null;
+
+      const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
+      await adapter.connect();
+
+      const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
+      expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
+
+      const audioB64 = makeAudioB64();
+
+      // Push the spurious pair immediately (no delay).
+      onmessage!({ serverContent: { interrupted: true } });
+      onmessage!({ serverContent: { turnComplete: true } });
+
+      // Schedule the real recovery audio 600 ms later — LONGER than the
+      // original 0.5 s budget. Without the deadline extension the dequeue
+      // call would time out after 500 ms (before the recovery arrives).
+      // With SPURIOUS_PAIR_RECOVERY_MS the deadline becomes now+10 s, so
+      // the 600 ms delay is well within budget.
+      const DELAY_MS = 600;
+      setTimeout(() => {
+        onmessage!({
+          serverContent: {
+            modelTurn: {
+              parts: [{ inlineData: { mimeType: "audio/pcm", data: audioB64 } }],
+            },
+          },
+        });
+        onmessage!({ serverContent: { turnComplete: true } });
+      }, DELAY_MS);
+
+      // 0.5 s original budget — recovery arrives at 600 ms, which exceeds
+      // the original timeout but falls within the SPURIOUS_PAIR_RECOVERY_MS
+      // extended deadline.
+      const chunk = await adapter.receiveAudio(0.5);
+
+      expect(
+        chunk.data.length,
+        "receiveAudio() did not capture the delayed recovery audio — the " +
+          "deadline extension after the spurious pair is not working.",
+      ).toBeGreaterThan(0);
+
+      await adapter.disconnect();
+    },
+  );
 });
