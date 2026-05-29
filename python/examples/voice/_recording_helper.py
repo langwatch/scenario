@@ -7,10 +7,10 @@ from typing import Optional
 
 from scenario.voice.recording import VoiceRecording
 
-# Repo-relative outputs dir; resolves the same regardless of CWD inside python/.
-# (The directory is named ``outputs`` to describe purpose; the artifact written
-# inside is still a recording — see ``save_demo_recording`` below.)
-_RECORDINGS_ROOT = Path(__file__).resolve().parent.parent.parent / "outputs"
+# Repo-relative recordings dir; resolves the same regardless of CWD inside python/.
+# Recordings nest under ``outputs/`` alongside other future artifact types
+# (logs, traces, screenshots) — see ``python/outputs/README.md``.
+_RECORDINGS_ROOT = Path(__file__).resolve().parent.parent.parent / "outputs" / "recordings"
 
 
 def save_demo_recording(
@@ -19,12 +19,12 @@ def save_demo_recording(
 ) -> Optional[Path]:
     """
     If ``audio`` is non-None and has segments, write per-segment + full + manifest
-    under ``python/outputs/<demo_name>/`` and return the directory path.
+    under ``python/outputs/recordings/<demo_name>/`` and return the directory path.
     Returns None if audio is None or has no segments.
 
     When ``demo_name`` is omitted, it defaults to the calling module's filename
     stem — e.g. ``examples/voice/basic_greeting.py`` writes to
-    ``python/outputs/basic_greeting/``. Demos rarely need to override.
+    ``python/outputs/recordings/basic_greeting/``. Demos rarely need to override.
 
     The library itself stays neutral — only demos write to disk.
     """

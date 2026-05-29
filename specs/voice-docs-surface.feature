@@ -126,7 +126,7 @@ Feature: User-facing docs surface for the voice-agent adapter system
     And the page covers Gemini Live agent-reply ~60 bytes on turn 2+ with a reference to commit 80461e2
     And the page covers VAD-didn't-fire with threshold-tuning guidance and the webrtcvad-wheels fallback
     And the page covers ffmpeg-not-found with the imageio-ffmpeg install path
-    And the page covers empty demo recordings with the outputs/<demo>/manifest.json check
+    And the page covers empty demo recordings with the outputs/recordings/<demo>/manifest.json check
 
   # ============================================================
   # Group: Docs site integration
