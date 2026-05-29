@@ -7,7 +7,7 @@
  * judgeAgent evaluates empathy + noise-robustness + resolution. Mirrors
  * `python/examples/voice/angry_customer.py`.
  *
- * On success the recording lands in `javascript/examples/vitest/recordings/angry_customer/`
+ * On success the recording lands in `javascript/examples/vitest/outputs/angry_customer/`
  * (full.wav + manifest).
  *
  * Binds `@e2e @ts-angry-customer-demo`. Env-gated on `OPENAI_API_KEY` AND a

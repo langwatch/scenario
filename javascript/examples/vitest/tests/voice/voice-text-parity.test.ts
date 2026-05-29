@@ -8,7 +8,7 @@
  * Mirrors `python/examples/voice/voice_text_parity.py` (self-contained:
  * OpenAI Realtime for the voice leg, no Pipecat bot).
  *
- * The voice leg's recording lands in `javascript/examples/vitest/recordings/voice_text_parity/`.
+ * The voice leg's recording lands in `javascript/examples/vitest/outputs/voice_text_parity/`.
  *
  * Binds `@e2e @ts-voice-text-parity`. Env-gated on `OPENAI_API_KEY`.
  */

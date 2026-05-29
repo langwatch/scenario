@@ -1,9 +1,10 @@
-# Voice demo recordings (TypeScript)
+# Voice demo outputs (TypeScript)
 
-This directory holds the canonical audio evidence for the TypeScript voice
-port (issue #372) — the "prove it" artifacts. Each subdirectory corresponds
-to an `@e2e` demo test under
-`javascript/examples/vitest/tests/voice/*.test.ts` and contains:
+This directory holds the outputs produced by the TypeScript voice port's
+`@e2e` demo tests (issue #372) — the canonical audio recordings + per-turn
+manifests that serve as "prove it" artifacts. Each subdirectory corresponds
+to a demo test under `javascript/examples/vitest/tests/voice/*.test.ts` and
+contains:
 
 - `full.wav` — the entire conversation, single mixed-down WAV (PCM16, 24 kHz,
   mono).
@@ -97,13 +98,13 @@ The `@ts-e2e` round-trip **gate** (`tests/voice/ts-e2e-roundtrip.test.ts`,
 pass/fail fidelity assertion (utterance survives TTS → message bus → STT),
 the regression guard for the Gap #3 audio-format bug.
 
-## Referencing recordings from docs
+## Referencing demo outputs from docs
 
-User-facing docs that reference these recordings should link to the GitHub
-**blob** URL after merge to main, e.g.:
+User-facing docs that reference these demo recordings should link to the
+GitHub **blob** URL after merge to main, e.g.:
 
 ```
-https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/recordings/openai_realtime_agent/full.wav
+https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/outputs/openai_realtime_agent/full.wav
 ```
 
 The blob page renders an inline `<audio>` player at the top of the file view;
