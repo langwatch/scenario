@@ -279,9 +279,9 @@ jobs:
         id: path-check
         if: steps.pr-data.outputs.oversized == 'false'
         run: |
-          # docs/LOW_RISK_PULL_REQUESTS.md is the policy doc the LLM
+          # .github/LOW_RISK_PULL_REQUESTS.md is the policy doc the LLM
           # evaluator reads — changes to it are never themselves low-risk.
-          RESTRICTED_PATTERN='^(\.github/workflows/|docs/LOW_RISK_PULL_REQUESTS\.md$|(auth|security|migrations)/|.*/(auth|security|migrations)/)'
+          RESTRICTED_PATTERN='^(\.github/workflows/|\.github/LOW_RISK_PULL_REQUESTS\.md$|(auth|security|migrations)/|.*/(auth|security|migrations)/)'
           if grep -qE "$RESTRICTED_PATTERN" /tmp/pr_files.txt; then
             echo "Restricted paths detected:"
             grep -E "$RESTRICTED_PATTERN" /tmp/pr_files.txt
@@ -308,11 +308,11 @@ jobs:
         run: |
           # Fail closed if the policy doc is missing or empty — without it the
           # LLM evaluates against an empty rulebook and silently mislabels.
-          if [ ! -s docs/LOW_RISK_PULL_REQUESTS.md ]; then
-            echo "::error::Policy doc docs/LOW_RISK_PULL_REQUESTS.md is missing or empty on base SHA"
+          if [ ! -s .github/LOW_RISK_PULL_REQUESTS.md ]; then
+            echo "::error::Policy doc .github/LOW_RISK_PULL_REQUESTS.md is missing or empty on base SHA"
             exit 1
           fi
-          POLICY=$(cat docs/LOW_RISK_PULL_REQUESTS.md)
+          POLICY=$(cat .github/LOW_RISK_PULL_REQUESTS.md)
           PR_TITLE=$(cat /tmp/pr_title.txt)
           PR_BODY=$(cat /tmp/pr_body.txt)
           PR_DIFF=$(cat /tmp/pr_diff_truncated.txt)
@@ -446,7 +446,7 @@ jobs:
                 body: [
                   "**Automated low-risk assessment**",
                   "",
-                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/docs/LOW_RISK_PULL_REQUESTS.md) procedure.",
+                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/.github/LOW_RISK_PULL_REQUESTS.md) procedure.",
                   `- **Scope:** ${scope}`,
                   "- **Exclusions confirmed:** no changes to auth, security settings, database schema, business-critical logic, or external integrations.",
                   "- **Classification:** `low-risk-change` under the documented policy.",
@@ -485,7 +485,7 @@ jobs:
                 body: [
                   "**Automated low-risk assessment**",
                   "",
-                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/docs/LOW_RISK_PULL_REQUESTS.md) procedure and **does not qualify** as low risk.",
+                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/.github/LOW_RISK_PULL_REQUESTS.md) procedure and **does not qualify** as low risk.",
                   "",
                   `> ${reasoning}`,
                   "",

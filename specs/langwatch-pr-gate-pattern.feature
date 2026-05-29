@@ -37,9 +37,9 @@ Feature: Adopt langwatch/langwatch PR gate pattern
 
   @unit
   Scenario: Policy content is untouched across the sequence
-    Given the file `docs/LOW_RISK_PULL_REQUESTS.md`
+    Given the file `.github/LOW_RISK_PULL_REQUESTS.md`
     When the diffs of PRs #1, #2, #3, and #4 are inspected
-    Then none of them modify `docs/LOW_RISK_PULL_REQUESTS.md`
+    Then none of them modify `.github/LOW_RISK_PULL_REQUESTS.md`
 
   @integration
   Scenario: Each PR in the sequence is independently revertable
@@ -116,7 +116,7 @@ Feature: Adopt langwatch/langwatch PR gate pattern
   Scenario: Restricted-paths regex matches the scenario-tuned path set
     Given the `RESTRICTED_PATTERN` constant in `pr-auto-approve.yml`
     When its regex is inspected
-    Then it equals `^(\.github/workflows/|docs/LOW_RISK_PULL_REQUESTS\.md$|(auth|security|migrations)/|.*/(auth|security|migrations)/)`
+    Then it equals `^(\.github/workflows/|\.github/LOW_RISK_PULL_REQUESTS\.md$|(auth|security|migrations)/|.*/(auth|security|migrations)/)`
     And it does not contain the segment `prisma/`
 
   @unit
@@ -342,7 +342,7 @@ Feature: Adopt langwatch/langwatch PR gate pattern
   # AC-X1: "No re-actors/alls-green; inline jq aggregator" -> Scenario: No third-party alls-green action is introduced anywhere
   # AC-X2: "All actions pinned to commit SHAs" -> Scenario: All GitHub Action references in new or modified workflows are pinned to a full commit SHA
   # AC-X3: "Reuse LOW_RISK_OPENAI_API_KEY secret" -> Scenario: The existing OpenAI secret name is reused without rotation
-  # AC-X4: "No PR touches docs/LOW_RISK_PULL_REQUESTS.md" -> Scenario: Policy content is untouched across the sequence
+  # AC-X4: "No PR touches .github/LOW_RISK_PULL_REQUESTS.md" -> Scenario: Policy content is untouched across the sequence
   # AC-X5: "Each PR independently revertable" -> Scenario: Each PR in the sequence is independently revertable
   #
   # PR #1
