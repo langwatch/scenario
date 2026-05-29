@@ -89,8 +89,10 @@ audio. Two sub-causes:
   If somehow it's not installed, `pip install webrtcvad-wheels` will fix it. See
   [`scenario.voice.vad.WebRTCVadFallback`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/vad.py).
 
-- **TypeScript:** the WASM `webrtcvad` build ships with `@langwatch/scenario`
-  (`voice.WebRTCVadFallback`) — no extra install needed.
+- **TypeScript:** a pure-JS RMS-energy + hysteresis VAD ships with
+  `@langwatch/scenario` as `voice.WebRTCVadFallback` — no extra install
+  needed. Accuracy may differ from a native `webrtcvad` build; a WASM
+  `webrtcvad` backend is deferred (see `javascript/src/voice/vad.ts`).
 
 - Lowering aggressiveness is not yet exposed as an adapter constructor parameter
   in either SDK; track this in a follow-up issue.
