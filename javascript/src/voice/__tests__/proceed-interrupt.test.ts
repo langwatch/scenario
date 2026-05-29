@@ -274,7 +274,7 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
         "test-batch-id",
       );
       // RNG = 0 → always fires (0 < 1.0) and picks phrase[0].
-      (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
+      exec.interruptOverrides = { rng: () => 0 };
 
       const result = await exec.execute();
 

@@ -1354,38 +1354,62 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * RNG seam for interruption decisions — injectable so tests can drive the
-   * probability deterministically. Defaults to `Math.random`.
+   * Single override bag for all test-injectable interrupt seams.
    *
-   * @internal Used by tests to inject deterministic RNG.
+   * Consolidates the three formerly scattered `@internal` public fields into
+   * one named gateway (issue #575). Tests assign this directly — no
+   * `as unknown as` cast needed:
+   *
+   * ```ts
+   * exec.interruptOverrides = { rng: () => 0 };
+   * ```
+   *
+   * Fields:
+   * - `rng` — RNG for interruption decisions (defaults to `Math.random`).
+   * - `waitForSpeechMs` — per-barge-in wait bound in {@link fireUserInterrupt}
+   *   (overrides `DEFAULT_WAIT_FOR_SPEECH_MS`). Same value that the
+   *   `interrupt()` step threads through `waitForSpeechTimeout`.
+   * - `bargeInDelayMs` — post-speech delay in {@link fireUserInterrupt} (set
+   *   by {@link prepareAndFireBargeIn} from `InterruptionConfig.sampleDelay`).
+   *
+   * @internal
    */
-  interruptRng: () => number = Math.random;
+  interruptOverrides?: {
+    rng?: () => number;
+    waitForSpeechMs?: number;
+    bargeInDelayMs?: number;
+  };
 
   /**
-   * Optional per-barge-in override (ms) for the wait in
-   * {@link fireUserInterrupt}, threaded by the `interrupt()` script step from
-   * its `waitForSpeechTimeout` so the step and the executor agree on ONE
-   * timeout instead of the divergent 8s/15s the two layers used before
-   * (review m2). Consumed (reset to `undefined`) on each barge-in.
+   * Effective RNG for interruption decisions.
    *
-   * @internal Used by tests and the `interrupt()` script step to inject timing.
+   * Reads `interruptOverrides.rng` when set; otherwise defaults to
+   * `Math.random`. Internal call sites call `this.interruptRng()` — this
+   * getter makes the override transparent to those sites.
+   *
+   * @internal
+   */
+  private get interruptRng(): () => number {
+    return this.interruptOverrides?.rng ?? Math.random;
+  }
+
+  /**
+   * Optional per-barge-in wait override (ms) for {@link fireUserInterrupt}.
+   * Threaded by the `interrupt()` step from `waitForSpeechTimeout` so the
+   * step and the executor agree on ONE timeout. Consumed (reset to
+   * `undefined`) on each barge-in. See also `interruptOverrides.waitForSpeechMs`.
+   *
+   * @internal Set by the `interrupt()` script step; consumed by {@link fireUserInterrupt}.
    */
   interruptWaitForSpeechMs?: number;
 
   /**
-   * Optional delay (ms) to insert AFTER the agent starts speaking and BEFORE
-   * the barge-in fires. Set by {@link maybeScheduleInterruptedAgentTurn} from
-   * {@link InterruptionConfig.sampleDelay} so the agent gets to say something
-   * substantive before being cut off. Consumed (reset to `undefined`) on each
-   * barge-in. Mirrors the interruptWaitForSpeechMs pattern (review m2).
+   * Optional delay (ms) applied AFTER the agent starts speaking in
+   * {@link fireUserInterrupt}. Set by {@link prepareAndFireBargeIn} from
+   * `InterruptionConfig.sampleDelay`. Consumed (reset to `undefined`) on each
+   * barge-in. See also `interruptOverrides.bargeInDelayMs`.
    *
-   * The delay is applied inside {@link fireUserInterrupt} after
-   * `agentSpeakingEvent` fires — NOT before `voiceifyText` — to avoid letting
-   * the burst-TTS pipecat adapter drain its full audio queue before the
-   * interrupt fires (which would leave `entry.done=true` and no interrupt
-   * window).
-   *
-   * @internal Set by {@link maybeScheduleInterruptedAgentTurn}; consumed by {@link fireUserInterrupt}.
+   * @internal Set by {@link prepareAndFireBargeIn}; consumed by {@link fireUserInterrupt}.
    */
   interruptBargeInDelayMs?: number;
 
@@ -1736,12 +1760,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private async fireUserInterrupt(voicedMessage: ModelMessage): Promise<void> {
     // Consume the per-barge-in wait override up front (cleared so a later
     // raw `user()` barge-in can't inherit a stale `interrupt()` budget).
-    const waitMs = this.interruptWaitForSpeechMs ?? DEFAULT_WAIT_FOR_SPEECH_MS;
+    // Priority: per-barge-in field (set by interrupt() step) → override bag
+    // (set by tests via interruptOverrides.waitForSpeechMs) → module default.
+    const waitMs =
+      this.interruptWaitForSpeechMs ??
+      this.interruptOverrides?.waitForSpeechMs ??
+      DEFAULT_WAIT_FOR_SPEECH_MS;
     this.interruptWaitForSpeechMs = undefined;
-    // Consume the post-speech delay (set by maybeScheduleInterruptedAgentTurn
-    // from InterruptionConfig.sampleDelay). Applied AFTER agentSpeakingEvent
-    // fires so the agent gets to say something substantive before the barge-in.
-    const bargeInDelayMs = this.interruptBargeInDelayMs;
+    // Consume the post-speech delay (set by prepareAndFireBargeIn from
+    // InterruptionConfig.sampleDelay). Override bag provides a test seam.
+    const bargeInDelayMs =
+      this.interruptBargeInDelayMs ?? this.interruptOverrides?.bargeInDelayMs;
     this.interruptBargeInDelayMs = undefined;
 
     const pending = this.pendingAgentTask;
