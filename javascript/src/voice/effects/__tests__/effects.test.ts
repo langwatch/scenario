@@ -111,7 +111,7 @@ describe("public-API surface", () => {
 // Bundled noise assets — REAL, AUDIBLE, DISTINCT ambience (issue #372 demo fix)
 //
 // The bundled `src/voice/assets/noise/*.wav` are synthesised by
-// `scripts/generate-noise-samples.mjs` (3s, 24kHz, PCM16, seeded → byte-stable).
+// `javascript/scripts/generate-noise-samples.mjs` (3s, 24kHz, PCM16, seeded → byte-stable).
 // These deterministic asserts are the guard that the assets are not silent /
 // not all-identical placeholders: every preset must measurably perturb a dry
 // signal, and each preset must perturb it DIFFERENTLY (distinct ambience).

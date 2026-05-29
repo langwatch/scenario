@@ -1,7 +1,7 @@
 # Noise sample licenses
 
 These bundled noise samples are synthesised procedurally by
-`scripts/generate-noise-samples.mjs` at the repo root (deterministic — a seeded PRNG
+`javascript/scripts/generate-noise-samples.mjs` (deterministic — a seeded PRNG
 drives every draw, so re-running reproduces byte-identical WAVs) and dedicated
 to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
 
@@ -16,7 +16,7 @@ audible ambience (the generator is the source of truth for how):
   `multipleVoices` effect (NOT a `backgroundNoise` preset; see proposal §4.5
   L521 vs L533).
 
-To regenerate: `node scripts/generate-noise-samples.mjs` (from the repo root).
+To regenerate: `node scripts/generate-noise-samples.mjs` (run from `javascript/`).
 
 Replacing them with real-world recordings is possible: drop CC0-licensed WAV
 files (24 kHz mono, PCM16) at the matching filenames. If you replace a sample
