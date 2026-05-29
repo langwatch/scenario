@@ -54,8 +54,16 @@ interface VoiceEventBase {
   metadata?: Record<string, unknown>;
 }
 
-/** User VAD start/stop — just a timestamp (+ optional metadata). */
-interface VoiceEventSpeakingBoundary extends VoiceEventBase {
+/**
+ * Events that carry only `time` + optional `metadata` — no extra fields.
+ *
+ * Groups user VAD boundaries (`user_start_speaking`, `user_stop_speaking`)
+ * with `agent_stop_speaking` (agent-side), all of which share the same
+ * timestamp-only shape. Named for the shape rather than a single event kind
+ * to avoid the misleading "speaking boundary" label that previously mixed
+ * user-VAD and agent-side events under one concept.
+ */
+interface VoiceEventTimestampOnly extends VoiceEventBase {
   type:
     | "user_start_speaking"
     | "user_stop_speaking"
@@ -91,7 +99,7 @@ interface VoiceEventUserInterrupt extends VoiceEventBase {
  * - `user_start_speaking` / `user_stop_speaking` (VAD fallback): `{ source: "vad-fallback" }`
  */
 export type VoiceEvent =
-  | VoiceEventSpeakingBoundary
+  | VoiceEventTimestampOnly
   | VoiceEventAgentStart
   | VoiceEventUserInterrupt;
 
