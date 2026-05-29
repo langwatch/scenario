@@ -26,6 +26,7 @@ import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { sleep } from "../utils";
 import { PendingTransportError } from "./pending-transport-error";
 import {
   TWILIO_FRAME_MS,
@@ -544,11 +545,6 @@ function coerceFrameToBytes(data: unknown): Uint8Array | null {
   if (Buffer.isBuffer(data)) return new Uint8Array(data);
   if (data instanceof Uint8Array) return data;
   return null;
-}
-
-function sleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

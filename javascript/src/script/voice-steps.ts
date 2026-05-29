@@ -36,6 +36,7 @@ import {
 } from "../voice";
 import { resolveFfmpegPath } from "../voice/ffmpeg";
 import type { InterruptionConfig } from "../voice/interruption";
+import { sleep as sleepMs } from "../voice/utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
 const URL_LIKE = /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//;
@@ -61,7 +62,7 @@ type VoiceAwareExecutor = ScenarioExecutionLike &
  */
 export const sleep = (seconds: number): ScriptStep => {
   return async () => {
-    await delay(seconds * 1000);
+    await sleepMs(seconds * 1000);
   };
 };
 
@@ -76,7 +77,7 @@ export const silence = (duration: number): ScriptStep => {
   return async (_state, executor) => {
     const adapter = voiceAdapter(executor);
     if (adapter === null) {
-      await delay(duration * 1000);
+      await sleepMs(duration * 1000);
       return;
     }
     await adapter.sendAudio(silentChunk(duration));
@@ -194,7 +195,7 @@ export const interrupt = (options: InterruptOptions = {}): ScriptStep => {
       // TIME-based: let the agent speak (best-effort wait for it to start so
       // the sleep overlaps real audio), then sleep the requested seconds.
       await waitForAgentSpeaking(executor, waitForSpeechTimeout);
-      await delay(after * 1000);
+      await sleepMs(after * 1000);
     } else if (!routesThroughUser) {
       // Default mode, AUDIO content: this is the only wait before the barge-in
       // (audio() doesn't coordinate with the pending turn), so keep it.
@@ -437,7 +438,7 @@ async function waitForAgentSpeaking(
   if (adapter === null) return;
   const speaking = adapter.agentSpeakingEvent;
   if (!speaking || speaking.isSet()) return;
-  await Promise.race([speaking.wait(), delay(timeoutSeconds * 1000)]);
+  await Promise.race([speaking.wait(), sleepMs(timeoutSeconds * 1000)]);
 }
 
 async function waitForStreamingWords(
@@ -464,13 +465,10 @@ async function waitForStreamingWords(
     if (transcript.trim().split(/\s+/).filter(Boolean).length >= targetWords) {
       return;
     }
-    await delay(50);
+    await sleepMs(50);
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Load an audio file or raw bytes and normalise to PCM16 @ 24kHz mono.
