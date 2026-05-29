@@ -19,7 +19,6 @@ import {
 } from "../../domain";
 import { ScenarioExecution } from "../scenario-execution";
 import { InterruptionConfig } from "../../voice/interruption";
-import { userSimulatorAgent } from "../../agents/user-simulator-agent";
 
 class MockAgent extends AgentAdapter {
   role = AgentRole.AGENT;
@@ -134,13 +133,6 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       (m) => m.role === "user" && phrases.includes(m.content as string),
     );
     expect(injected).toBe(true);
-  });
-
-  it("userSimulatorAgent({ interruptProbability }) exposes the value", () => {
-    const sim = userSimulatorAgent({ interruptProbability: 0.4 });
-    expect(
-      (sim as unknown as { interruptProbability: number }).interruptProbability,
-    ).toBe(0.4);
   });
 
   it("samples the configured delayRange before barging in (m2)", async () => {

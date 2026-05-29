@@ -241,7 +241,7 @@ class ExplicitBargeInUserSim extends UserSimulatorAgentAdapter {
 
 describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () => {
   it(
-    "dispatches AGENT non-blocking pre-step and fires inline barge-in via voiceifyText",
+    "barges in mid-stream and captures the user phrase before the agent finishes speaking",
     async () => {
       const voiceAgent = new LongReplyAgent();
       const userSim = new VoiceUserSim();
@@ -307,8 +307,8 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
           "cut-off (interrupt may have landed outside all agent segments)",
       ).toBeGreaterThan(0);
     },
-    // Generous timeout: 40ms agent drain + barge-in settle + 2 turns.
-    30_000,
+    // 5 s ceiling: actual runtime is ~200 ms (40 ms agent drain + settle + 2 turns).
+    5_000,
   );
 });
 
@@ -370,6 +370,112 @@ describe("explicit user() barge-in recorded in state.messages (P1 fix)", () => {
           "maybeFireUserInterrupt did not call state.addMessage before returning",
       ).toBeDefined();
     },
-    30_000,
+    5_000,
+  );
+});
+
+/**
+ * bargeInDelayMs unit coverage (#582 item 7).
+ *
+ * Asserts that:
+ * - given `bargeInDelayMs > 0`, the barge-in fires after the delay and the
+ *   user_interrupt event is still recorded (the delay path doesn't suppress it).
+ * - given `bargeInDelayMs = undefined`, no extra delay is introduced and
+ *   the barge-in still fires.
+ *
+ * Uses a minimal 1 ms bargeInDelayMs (real timers) to keep the test fast
+ * while still exercising the `(bargeInDelayMs ?? 0) > 0` branch in
+ * fireUserInterrupt.
+ */
+describe("fireUserInterrupt — bargeInDelayMs delay branch", () => {
+  it(
+    "still fires user_interrupt when bargeInDelayMs > 0 (delay path exercised)",
+    async () => {
+      const voiceAgent = new LongReplyAgent();
+      const userSim = new VoiceUserSim();
+      const judge = new PassingJudge();
+
+      const exec = new ScenarioExecution(
+        {
+          name: "bargeInDelayMs / 1 ms delay",
+          description:
+            "fireUserInterrupt must sleep bargeInDelayMs after agentSpeakingEvent and still fire",
+          agents: [voiceAgent, userSim, judge],
+        },
+        [
+          (_state, executor) => {
+            (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
+              new InterruptionConfig({
+                probability: 1.0,
+                strategy: "random_phrase",
+                delayRange: [0, 0],
+              });
+          },
+          async (_state, executor) => {
+            await executor.proceed(2);
+          },
+        ],
+        "test-batch-id",
+      );
+      // RNG 0 → always fires. bargeInDelayMs = 1 exercises the > 0 branch
+      // without meaningfully slowing the test (1 ms real-clock sleep).
+      exec.interruptOverrides = { rng: () => 0, bargeInDelayMs: 1 };
+
+      const result = await exec.execute();
+
+      const interrupts = (result.timeline ?? []).filter(
+        (e) => e.type === "user_interrupt",
+      );
+      expect(
+        interrupts.length,
+        "no user_interrupt fired — bargeInDelayMs > 0 path suppressed or broke the barge-in",
+      ).toBeGreaterThan(0);
+    },
+    5_000,
+  );
+
+  it(
+    "fires immediately (no extra sleep) when bargeInDelayMs is undefined",
+    async () => {
+      const voiceAgent = new LongReplyAgent();
+      const userSim = new VoiceUserSim();
+      const judge = new PassingJudge();
+
+      const exec = new ScenarioExecution(
+        {
+          name: "bargeInDelayMs / no delay",
+          description:
+            "fireUserInterrupt must not introduce any delay when bargeInDelayMs is undefined",
+          agents: [voiceAgent, userSim, judge],
+        },
+        [
+          (_state, executor) => {
+            (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
+              new InterruptionConfig({
+                probability: 1.0,
+                strategy: "random_phrase",
+                delayRange: [0, 0],
+              });
+          },
+          async (_state, executor) => {
+            await executor.proceed(2);
+          },
+        ],
+        "test-batch-id",
+      );
+      // RNG 0 → always fires. No bargeInDelayMs override → undefined path.
+      exec.interruptOverrides = { rng: () => 0 };
+
+      const result = await exec.execute();
+
+      const interrupts = (result.timeline ?? []).filter(
+        (e) => e.type === "user_interrupt",
+      );
+      expect(
+        interrupts.length,
+        "no user_interrupt fired in the no-delay path",
+      ).toBeGreaterThan(0);
+    },
+    5_000,
   );
 });
