@@ -89,8 +89,8 @@ digital silence — clean TTS is ~0).
 
 > `twilio_inbound` / `twilio_outbound` stay MANUAL (`⏸`) — they need a second
 > phone number + a public tunnel (`NGROK_AUTHTOKEN`), absent in this env.
-> Demos that fail on a transient (rate-limit / transport) are skipped and
-> noted in `docs/voice/REFACTOR-PROGRESS.md` rather than faked.
+> Demos that fail on a transient (rate-limit / transport) are skipped, with a
+> `[demo] <name> → skipped (<reason>)` line in the test log — never faked.
 
 The `@ts-e2e` round-trip **gate** (`tests/voice/ts-e2e-roundtrip.test.ts`,
 `docs/voice/internal-design.md` §8) does not commit a recording — it is a

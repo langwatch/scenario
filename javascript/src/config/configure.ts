@@ -9,7 +9,7 @@
  * Live local-speaker playback is a device-bound concern (the Python parity
  * runs it through `ffplay`/PyAudio); the TS runner does not read this setting
  * yet. The store + getter exist so the surface is stable for when the
- * playback sink lands — see the follow-up tracked in REFACTOR-PROGRESS.md.
+ * playback sink lands — tracked at https://github.com/langwatch/scenario/issues/585.
  *
  * STT/TTS providers are per-run, not global: pass them via
  * `run({ voice: { stt, tts } })` (ADR-002). The invented
