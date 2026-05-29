@@ -95,6 +95,11 @@ import { it, expect } from "vitest";
 
 const { OPENAI_REALTIME_MODEL } = voice;
 
+// Note: TypeScript has no global `default_model` equivalent to Python's
+// `scenario.configure(default_model=...)`. Pass a `model` option directly
+// to `judgeAgent()` or `userSimulatorAgent()` when you need explicit model
+// selection; omitting it uses each agent's own built-in default.
+
 it("responds helpfully over voice", async () => {
   const result = await scenario.run({
     name: "voice_getting_started",
