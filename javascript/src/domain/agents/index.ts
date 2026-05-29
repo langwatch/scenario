@@ -3,6 +3,13 @@ import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
 export * from "./types/agent-return.types";
+export {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+  type UserSimulatorAgentWithVoice,
+} from "./agent-shapes";
 
 export enum AgentRole {
   USER = "User",

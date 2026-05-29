@@ -71,7 +71,7 @@ import {
   isVoiceUserSim,
   type RealtimeUserAgent,
   type VoiceUserSimulator,
-} from "../voice/agent-shapes";
+} from "../domain/agents/agent-shapes";
 
 /**
  * Default bound (ms) on the barge-in wait for the agent to start speaking.
