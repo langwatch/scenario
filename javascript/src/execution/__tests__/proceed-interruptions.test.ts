@@ -178,3 +178,122 @@ describe("proceed() voice interruptions (Gap #8)", () => {
     expect(sampleSpy).toHaveBeenCalledWith(expect.any(Function));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Substep unit tests (issue #578)
+// ---------------------------------------------------------------------------
+
+type ExecInternals = {
+  pendingRolesOnTurn: AgentRole[];
+  pendingAgentsOnTurn: Set<unknown>;
+  pendingAgentTask: { promise: Promise<void>; done: boolean; error: unknown | null } | null;
+  resolveNextAgentForInlineBarge(): { idx: number; agent: unknown } | null;
+  consumePendingRolesUntilAgent(agent: unknown): void;
+  dispatchAgentBackground(idx: number): { promise: Promise<void>; done: boolean; error: unknown | null };
+  voiceInterruptions?: InterruptionConfig;
+  interruptRng: () => number;
+};
+
+function makeExecWithAgents(agents: [MockAgent, RecordingUserSim]): ScenarioExecution & { _i: ExecInternals } {
+  const exec = new ScenarioExecution(
+    {
+      name: "substep test",
+      description: "substep unit tests",
+      agents,
+    },
+    [async (_state, executor) => { await executor.proceed(1); }],
+    "test-batch-id",
+  ) as unknown as ScenarioExecution & { _i: ExecInternals };
+  // expose internals via a typed alias
+  exec._i = exec as unknown as ExecInternals;
+  return exec;
+}
+
+describe("resolveNextAgentForInlineBarge (substep 1)", () => {
+  it("returns the AGENT idx+adapter when AGENT is the first runnable role", async () => {
+    const agent = new MockAgent();
+    const sim = new RecordingUserSim();
+    const exec = makeExecWithAgents([agent, sim]);
+    // Seed pendingRolesOnTurn so AGENT is the next runnable role.
+    exec._i.pendingRolesOnTurn = [AgentRole.AGENT, AgentRole.JUDGE];
+    exec._i.pendingAgentsOnTurn = new Set([agent]);
+    const result = exec._i.resolveNextAgentForInlineBarge();
+    expect(result).not.toBeNull();
+    expect(result?.agent).toBe(agent);
+  });
+
+  it("returns null when AGENT is not the next runnable role (USER first)", async () => {
+    const agent = new MockAgent();
+    const sim = new RecordingUserSim();
+    const exec = makeExecWithAgents([agent, sim]);
+    exec._i.pendingRolesOnTurn = [AgentRole.USER, AgentRole.AGENT];
+    exec._i.pendingAgentsOnTurn = new Set([sim, agent]);
+    const result = exec._i.resolveNextAgentForInlineBarge();
+    // USER comes first and is runnable → nextRole = USER → bail
+    expect(result).toBeNull();
+  });
+
+  it("returns null when pendingRolesOnTurn is empty", async () => {
+    const agent = new MockAgent();
+    const sim = new RecordingUserSim();
+    const exec = makeExecWithAgents([agent, sim]);
+    exec._i.pendingRolesOnTurn = [];
+    exec._i.pendingAgentsOnTurn = new Set([agent]);
+    const result = exec._i.resolveNextAgentForInlineBarge();
+    expect(result).toBeNull();
+  });
+});
+
+describe("consumePendingRolesUntilAgent (substep 2)", () => {
+  it("removes AGENT from pendingAgentsOnTurn and pops roles up to+including AGENT", async () => {
+    const agent = new MockAgent();
+    const sim = new RecordingUserSim();
+    const exec = makeExecWithAgents([agent, sim]);
+    exec._i.pendingRolesOnTurn = [AgentRole.USER, AgentRole.AGENT, AgentRole.JUDGE];
+    exec._i.pendingAgentsOnTurn = new Set([sim, agent]);
+
+    exec._i.consumePendingRolesUntilAgent(agent);
+
+    // AGENT removed from the adapter set.
+    expect(exec._i.pendingAgentsOnTurn.has(agent)).toBe(false);
+    // Roles up to and including AGENT consumed; JUDGE remains.
+    expect(exec._i.pendingRolesOnTurn).toEqual([AgentRole.JUDGE]);
+  });
+
+  it("handles the case where AGENT is the only role", async () => {
+    const agent = new MockAgent();
+    const sim = new RecordingUserSim();
+    const exec = makeExecWithAgents([agent, sim]);
+    exec._i.pendingRolesOnTurn = [AgentRole.AGENT];
+    exec._i.pendingAgentsOnTurn = new Set([agent]);
+
+    exec._i.consumePendingRolesUntilAgent(agent);
+
+    expect(exec._i.pendingAgentsOnTurn.has(agent)).toBe(false);
+    expect(exec._i.pendingRolesOnTurn).toEqual([]);
+  });
+});
+
+describe("dispatchAgentBackground (substep 3)", () => {
+  it("sets pendingAgentTask and marks entry.done=true after the call resolves", async () => {
+    const agent = new MockAgent();
+    const sim = new RecordingUserSim();
+    const exec = makeExecWithAgents([agent, sim]);
+    // Give exec enough state for callAgent to run without crashing.
+    exec._i.pendingRolesOnTurn = [AgentRole.AGENT];
+    exec._i.pendingAgentsOnTurn = new Set([agent]);
+
+    // callAgent at index 0 is the MockAgent; it needs a minimal messages array.
+    // Run the execute cycle so the internal state initialises (threadId etc).
+    // Instead: call dispatchAgentBackground directly — the task may reject, but
+    // the structural postconditions (pendingAgentTask set, done=false initially)
+    // are testable synchronously.
+    const entry = exec._i.dispatchAgentBackground(0);
+    expect(exec._i.pendingAgentTask).toBe(entry);
+    expect(entry.done).toBe(false);
+    // Wait for the promise (may reject in the test context; that's fine —
+    // the test only cares that done flips to true).
+    await entry.promise.catch(() => undefined);
+    expect(entry.done).toBe(true);
+  });
+});

@@ -1441,10 +1441,36 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   private async maybeScheduleInterruptedAgentTurn(): Promise<boolean> {
     const config = this.resolveInterruptionConfig();
     if (!config) return false;
+    if (this.findVoiceAgentAdapter() === null) return false;
+    const voiceUserSim = this.findVoiceUserSim();
+    if (!voiceUserSim) return false;
+    const existing = this.pendingAgentTask;
+    if (existing && !existing.done) return false;
+    if (this.interruptRng() >= config.probability) return false;
 
-    // Walk pendingRolesOnTurn to find the next role that will actually run
-    // (has a corresponding unconsumed agent in pendingAgentsOnTurn). Mirrors
-    // Python's walk of `_pending_roles_on_turn` via `_next_agent_for_role`.
+    const agentLookup = this.resolveNextAgentForInlineBarge();
+    if (!agentLookup) return false;
+
+    this.consumePendingRolesUntilAgent(agentLookup.agent);
+    const entry = this.dispatchAgentBackground(agentLookup.idx);
+    return this.prepareAndFireBargeIn(config, voiceUserSim, entry);
+  }
+
+  /**
+   * Verify the bail conditions for an inline barge-in and return the AGENT
+   * index + adapter when the pre-conditions are met.
+   *
+   * Walks `pendingRolesOnTurn` to confirm AGENT is the next runnable role
+   * (mirrors Python's `_pending_roles_on_turn` walk). Returns `null` to
+   * bail when AGENT is not next.
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private resolveNextAgentForInlineBarge(): {
+    idx: number;
+    agent: AgentAdapter;
+  } | null {
+    // Walk pendingRolesOnTurn to find the next role that will actually run.
     let nextRole: AgentRole | null = null;
     for (const r of this.pendingRolesOnTurn) {
       const { agent } = this.nextAgentForRole(r);
@@ -1453,32 +1479,23 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         break;
       }
     }
-    if (nextRole !== AgentRole.AGENT) return false;
+    if (nextRole !== AgentRole.AGENT) return null;
 
-    // Text-only path: no audio to barge in on.
-    if (this.findVoiceAgentAdapter() === null) return false;
-
-    // Inline barge-in requires a voice-capable user simulator that can convert
-    // a text phrase to audio (voiceifyText). Without it, fall back to false.
-    const voiceUserSim = this.findVoiceUserSim();
-    if (!voiceUserSim) return false;
-
-    // Already an in-flight agent task — don't stack another.
-    const existing = this.pendingAgentTask;
-    if (existing && !existing.done) return false;
-
-    // RNG gate: Python uses `if rng.random() >= prob: return False`.
-    if (this.interruptRng() >= config.probability) return false;
-
-    // Look up the agent that would run as AGENT.
     const { idx, agent } = this.nextAgentForRole(AgentRole.AGENT);
-    if (!agent) return false;
+    if (!agent) return null;
+    return { idx, agent };
+  }
 
-    // 1. Remove the AGENT adapter from pendingAgentsOnTurn.
+  /**
+   * Queue surgery: remove `agent` from `pendingAgentsOnTurn` and consume
+   * all roles from `pendingRolesOnTurn` up to and including AGENT so the
+   * next `_step` call advances to JUDGE cleanly. Mirrors Python's while-loop
+   * in `_maybe_schedule_interrupted_agent_turn`.
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private consumePendingRolesUntilAgent(agent: AgentAdapter): void {
     this.removePendingAgent(agent);
-
-    // 2. Consume spent roles up to (and including) AGENT so the next _step
-    //    call advances to JUDGE cleanly. Mirrors Python's while-loop.
     while (
       this.pendingRolesOnTurn.length > 0 &&
       this.pendingRolesOnTurn[0] !== AgentRole.AGENT
@@ -1491,15 +1508,31 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     ) {
       this.pendingRolesOnTurn.shift();
     }
+  }
 
-    // 3. Dispatch the agent turn non-blocking. Use callAgent directly (NOT
-    //    agentNonBlocking/scriptCallAgent) because the role has already been
-    //    popped from pendingRolesOnTurn; scriptCallAgent would try a new turn.
-    //    Mirrors Python's `asyncio.create_task(self._call_agent(idx, role=AGENT))`.
+  /**
+   * Dispatch the agent at `idx` as a non-blocking background task, record it
+   * on `pendingAgentTask`, and return the entry so the caller can poll
+   * `entry.done` before firing the barge-in.
+   *
+   * Uses `callAgent` directly (NOT `agentNonBlocking` / `scriptCallAgent`)
+   * because the role has already been popped from `pendingRolesOnTurn` by
+   * {@link consumePendingRolesUntilAgent}; `scriptCallAgent` would try a new
+   * turn. Mirrors Python's
+   * `asyncio.create_task(self._call_agent(idx, role=AGENT))`.
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private dispatchAgentBackground(idx: number): {
+    promise: Promise<void>;
+    done: boolean;
+    error: unknown | null;
+  } {
     const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
       promise: this.callAgent(idx, AgentRole.AGENT)
+        .then(() => undefined)
         .catch((err: unknown) => {
-          entry.error = err; // capture, don't swallow — re-thrown at fireUserInterrupt/drain
+          entry.error = err; // captured, re-thrown by fireUserInterrupt/drain
         })
         .finally(() => {
           entry.done = true;
@@ -1508,23 +1541,32 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       error: null,
     };
     this.pendingAgentTask = entry;
+    return entry;
+  }
 
-    // 4a. Sample the delay from the configured delayRange and thread it to
-    //     fireUserInterrupt. The delay is applied AFTER agentSpeakingEvent fires
-    //     (bot has started speaking) so the agent gets to say something substantive
-    //     before being cut off. Placing it here (before voiceifyText) would cause
-    //     the burst-TTS pipecat drain to complete during the wait, leaving
-    //     entry.done=true and no interrupt window. The per-call field pattern
-    //     mirrors interruptWaitForSpeechMs (review m2 pattern).
+  /**
+   * Sample the barge-in delay, TTS the interrupt phrase, fire the inline
+   * barge-in, and record the user message in the conversation.
+   *
+   * Returns `true` in all cases (AGENT was dispatched; barge-in either fired
+   * or was skipped because the bot finished first / TTS failed).
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private async prepareAndFireBargeIn(
+    config: InterruptionConfig,
+    voiceUserSim: VoiceUserSimulator,
+    entry: { promise: Promise<void>; done: boolean; error: unknown | null },
+  ): Promise<boolean> {
+    // Sample the delay BEFORE voiceifyText so it is applied AFTER
+    // agentSpeakingEvent fires (in fireUserInterrupt) — not before TTS.
+    // Placing the sleep before TTS causes burst-TTS bots (pipecat stub) to
+    // drain to entry.done=true and silently skip the barge-in window.
     const delaySeconds = config.sampleDelay(this.interruptRng);
     if (delaySeconds > 0) {
       this.interruptBargeInDelayMs = Math.floor(delaySeconds * 1000);
     }
 
-    // 4b. Pick an interrupt phrase and TTS it (no LLM call) so the barge-in
-    //     fires while the bot is still streaming. TTS alone (~0.5 s) is reliably
-    //     faster than the bot's full reply, whereas the full user-sim LLM+TTS
-    //     chain (~1.5-3 s) races the bot non-deterministically.
     const phrase = config.pickRandomPhrase(this.interruptRng);
     let voicedMessage: ModelMessage | null = null;
     try {
@@ -1540,19 +1582,15 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       return true; // AGENT is still dispatched; proceed continues normally.
     }
 
-    // 5. Fire the barge-in inline. `fireUserInterrupt` waits for the bot to
-    //    start speaking (agentSpeakingEvent) — bounded by DEFAULT_WAIT_FOR_SPEECH_MS
-    //    — then sends the interrupt audio on the wire and records the event.
-    //    After this returns, the bot has been interrupted and pendingAgentTask is null.
     if (entry.done) {
       // Bot finished before TTS completed — nothing to interrupt.
       return true;
     }
     await this.fireUserInterrupt(voicedMessage);
 
-    // 6. Record the user interrupt message in the conversation so the judge
-    //    and subsequent turns see it in context. Broadcast to all agents
-    //    (mirrors scriptCallAgent's message recording path).
+    // Record the user interrupt message in the conversation so the judge
+    // and subsequent turns see it in context. Mirrors scriptCallAgent's
+    // message recording path.
     this.state.addMessage(voicedMessage);
     this.broadcastMessage(voicedMessage);
 
