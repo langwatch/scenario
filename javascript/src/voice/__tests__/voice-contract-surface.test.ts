@@ -30,14 +30,19 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
+// Capability matrix is now sourced from the published docs page (single
+// source-of-truth across Python + TS). See docs/docs/pages/voice/capability-matrix.mdx.
 const MATRIX_DOC_PATH = resolve(
   HERE,
   "..",
   "..",
   "..",
+  "..",
   "docs",
+  "docs",
+  "pages",
   "voice",
-  "capability-matrix.md",
+  "capability-matrix.mdx",
 );
 
 /**
@@ -222,7 +227,7 @@ describeFeature(
             expect(err.capability).toBe("dtmf");
             expect(err.message).toContain("StubVoiceAdapter");
             expect(err.message).toContain("dtmf");
-            expect(err.message).toContain("docs/voice/capability-matrix.md");
+            expect(err.message).toContain("scenario-docs.langwatch.ai/voice/capability-matrix");
 
             // The base interrupt() throws UnsupportedCapabilityError on adapters
             // without an override — tests the raise-only contract from the spec.

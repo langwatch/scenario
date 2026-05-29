@@ -46,7 +46,7 @@ Feature: User-facing docs surface for the voice-agent adapter system
   @e2e
   Scenario: Capability matrix is published as a navigable reference page
     Given a developer comparing voice adapters
-    When they open docs/voice/capability-matrix on the published site
+    When they open the /voice/capability-matrix page on the published docs site
     Then the page renders a table with one row per shipped adapter and one row per stubbed adapter
     And stubbed adapters carry a PendingTransportError note
     And the table columns include streaming_transcripts, native_vad, dtmf, interruption, input_formats, and output_formats

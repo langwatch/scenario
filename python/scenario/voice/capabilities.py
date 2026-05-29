@@ -64,5 +64,5 @@ class UnsupportedCapabilityError(RuntimeError):
         suffix = f" {hint}" if hint else ""
         super().__init__(
             f"Adapter {adapter_name!r} does not support capability {capability!r}. "
-            f"See the adapter capability matrix at docs/voice/capability-matrix.md.{suffix}"
+            f"See the adapter capability matrix at https://scenario-docs.langwatch.ai/voice/capability-matrix.{suffix}"
         )
