@@ -23,7 +23,8 @@
  */
 
 import { spawn } from "node:child_process";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessByStdio } from "node:child_process";
+import type { Writable, Readable } from "node:stream";
 import { platform } from "node:os";
 
 import { resolveFfmpegPath } from "./ffmpeg";
@@ -59,7 +60,7 @@ function platformAudioOutputArgs(): string[] {
  * subsequent `sendChunk` calls are silently dropped.
  */
 export class AudioPlaybackSink {
-  private _proc: ChildProcessWithoutNullStreams | null = null;
+  private _proc: ChildProcessByStdio<Writable, null, Readable> | null = null;
   private _active = false;
   private _warnedOnce = false;
 
@@ -86,13 +87,14 @@ export class AudioPlaybackSink {
     ];
 
     try {
-      this._proc = spawn(ffmpeg, args, {
+      const proc = spawn(ffmpeg, args, {
         stdio: ["pipe", "ignore", "pipe"],
       });
+      this._proc = proc;
       this._active = true;
 
       // Treat any error event (binary not found, ENOENT) as a device failure.
-      this._proc.on("error", (err: Error) => {
+      proc.on("error", (err: Error) => {
         if (!this._warnedOnce) {
           this._warnedOnce = true;
           console.warn(
@@ -106,7 +108,7 @@ export class AudioPlaybackSink {
       });
 
       // If ffmpeg exits early (no audio device), deactivate.
-      this._proc.on("exit", (code: number | null) => {
+      proc.on("exit", (code: number | null) => {
         if (code !== 0 && code !== null) {
           if (!this._warnedOnce) {
             this._warnedOnce = true;
