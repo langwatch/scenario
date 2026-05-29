@@ -18,7 +18,7 @@
  * codec live in `./twilio-shared.ts`.
  */
 
-import { setTimeout as sleep } from "node:timers/promises";
+import { sleep } from "../utils";
 
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";

@@ -29,6 +29,7 @@ const { mockStdin, mockProc } = vi.hoisted(() => {
   const proc: {
     stdin: typeof stdin;
     on: Mock;
+    once: Mock;
     emit: (event: string, ...args: unknown[]) => boolean;
     _handlers: () => Record<string, ((...args: unknown[]) => void)[]>;
     _resetHandlers: () => void;
@@ -39,6 +40,22 @@ const { mockStdin, mockProc } = vi.hoisted(() => {
         procEventHandlers[event] = [];
       }
       procEventHandlers[event]!.push(handler);
+      return proc;
+    }),
+    once: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+      // Wrap the handler so it removes itself after the first invocation.
+      const wrapped = (...args: unknown[]): void => {
+        const handlers = procEventHandlers[event];
+        if (handlers) {
+          const idx = handlers.indexOf(wrapped);
+          if (idx >= 0) handlers.splice(idx, 1);
+        }
+        handler(...args);
+      };
+      if (!procEventHandlers[event]) {
+        procEventHandlers[event] = [];
+      }
+      procEventHandlers[event]!.push(wrapped);
       return proc;
     }),
     emit: (event: string, ...args: unknown[]): boolean => {
@@ -98,6 +115,24 @@ function restoreMockProcHandlers() {
         handlers[event] = [];
       }
       handlers[event]!.push(handler);
+      return mockProc;
+    },
+  );
+  mockProc.once.mockImplementation(
+    (event: string, handler: (...args: unknown[]) => void) => {
+      const wrapped = (...args: unknown[]): void => {
+        const handlers = mockProc._handlers()[event];
+        if (handlers) {
+          const idx = handlers.indexOf(wrapped);
+          if (idx >= 0) handlers.splice(idx, 1);
+        }
+        handler(...args);
+      };
+      const handlers = mockProc._handlers();
+      if (!handlers[event]) {
+        handlers[event] = [];
+      }
+      handlers[event]!.push(wrapped);
       return mockProc;
     },
   );
@@ -181,6 +216,29 @@ describe("AudioPlaybackSink", () => {
     const sink = new AudioPlaybackSink();
     // Not open — close should resolve without hanging.
     await expect(sink.close()).resolves.toBeUndefined();
+  });
+
+  it("close() resolves promptly when subprocess already exited early (regression: close hang fix)", async () => {
+    // Simulate the scenario where ffmpeg exits early (e.g. no audio device)
+    // BEFORE close() is called. Without the fix, _proc is left non-null after
+    // the exit handler fires, so close() registers proc.on("exit", resolve) on
+    // an already-exited subprocess → resolve never fires → close() hangs.
+    // With the fix: the exit handler sets _proc = null, so close() sees
+    // !this._proc and returns Promise.resolve() immediately.
+    const sink = new AudioPlaybackSink();
+    sink.open();
+
+    // Simulate early exit with non-zero code (e.g. no audio device).
+    mockProc.emit("exit", 1);
+
+    // _proc must be null after early non-zero exit (the fix).
+    // close() must resolve without hanging, well within 100 ms.
+    const start = Date.now();
+    await sink.close();
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeLessThan(100);
+    expect(sink.active).toBe(false);
   });
 });
 

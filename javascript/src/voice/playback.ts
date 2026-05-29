@@ -108,6 +108,9 @@ export class AudioPlaybackSink {
       });
 
       // If ffmpeg exits early (no audio device), deactivate.
+      // Mirror the error handler: also null out _proc so close() short-circuits
+      // via the existing `if (!this._proc)` guard instead of hanging waiting for
+      // an exit event that already fired.
       proc.on("exit", (code: number | null) => {
         if (code !== 0 && code !== null) {
           if (!this._warnedOnce) {
@@ -119,6 +122,7 @@ export class AudioPlaybackSink {
             );
           }
           this._active = false;
+          this._proc = null;
         }
       });
     } catch (err) {
@@ -172,8 +176,8 @@ export class AudioPlaybackSink {
       } catch {
         // Ignore — stdin may already be closed.
       }
-      proc.on("exit", () => resolve());
-      proc.on("error", () => resolve()); // Ensure we always resolve.
+      proc.once("exit", () => resolve());
+      proc.once("error", () => resolve()); // Ensure we always resolve.
     });
   }
 

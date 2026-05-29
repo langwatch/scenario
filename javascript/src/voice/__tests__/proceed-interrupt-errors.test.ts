@@ -14,6 +14,8 @@
 
 import { describe, it, expect } from "vitest";
 
+import { sleep } from "../utils";
+
 import {
   AgentRole,
   type AgentInput,
@@ -84,7 +86,7 @@ class FailingVoiceAgent extends VoiceAgentAdapter {
     this.agentSpeakingEvent = event;
     // 40 ms delay: ensures pendingAgentTask.done === false when voiceifyText
     // returns (voiceifyText is instant in tests).
-    await new Promise((r) => setTimeout(r, 40));
+    await sleep(40);
     throw new Error("agent-call-failure");
   }
 }
@@ -165,7 +167,7 @@ class SlowSpeakingAgent extends VoiceAgentAdapter {
       // runs (voiceifyText is instant for TtsFailOnceUserSim). The runtime
       // sets agentSpeakingEvent after this receiveAudio returns, so
       // fireUserInterrupt will see it set immediately.
-      await new Promise((r) => setTimeout(r, 40));
+      await sleep(40);
       this.eos = true;
       return new AudioChunk({
         data: new Uint8Array(48000 * 2), // 1 s at 24kHz
@@ -277,7 +279,7 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
           "a stale 1000ms delay from the failed attempt would leak to the next barge-in",
       ).toBeUndefined();
     },
-    30_000,
+    5_000,
   );
 });
 
@@ -324,6 +326,6 @@ describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)",
 
       await expect(exec.execute()).rejects.toThrow("agent-call-failure");
     },
-    30_000,
+    5_000,
   );
 });

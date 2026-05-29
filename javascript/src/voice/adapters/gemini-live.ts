@@ -397,7 +397,7 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
 
       if (msg.goAway) {
         throw new Error(
-          `GeminiLiveAgentAdapter: server sent goAway: ${JSON.stringify(msg.goAway)}`,
+          `GeminiLiveAgentAdapter: server sent goAway: ${JSON.stringify(msg.goAway).slice(0, 300)}`,
         );
       }
 

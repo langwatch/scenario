@@ -47,6 +47,8 @@
 
 import { describe, it, expect } from "vitest";
 
+import { sleep } from "../utils";
+
 import {
   AgentRole,
   type AgentInput,
@@ -119,7 +121,7 @@ class LongReplyAgent extends VoiceAgentAdapter {
       // then awaits agentSpeakingEvent, which fires at this 40 ms mark.
       // Without the fix, a synchronous-null JUDGE would drain this task before
       // any USER check ran and done would be true when the check arrived.
-      await new Promise((r) => setTimeout(r, 40));
+      await sleep(40);
       this.eos = true;
       return tone(1.5, "a very long agent reply that keeps going and going");
     }
@@ -207,7 +209,7 @@ class QuickReplyAgent extends VoiceAgentAdapter {
     }
     if (!this.served) {
       this.served = true;
-      await new Promise((r) => setTimeout(r, 40));
+      await sleep(40);
       this.eos = true;
       return tone(0.5, "agent reply");
     }
