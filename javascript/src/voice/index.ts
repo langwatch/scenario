@@ -138,7 +138,6 @@ export {
 // composable still defines its own copies; the canonical one is exported here.
 export {
   ELEVENLABS_STT_ENDPOINT,
-  ELEVENLABS_STT_MODEL,
   ElevenLabsSTTProvider,
   OPENAI_TRANSCRIBE_LIMIT_SECONDS,
   OpenAISTTProvider,

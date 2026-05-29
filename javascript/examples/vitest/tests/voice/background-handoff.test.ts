@@ -7,7 +7,7 @@
  * `silence()` script step to simulate the handoff. Mirrors
  * `python/examples/voice/background_handoff.py`.
  *
- * On success the recording lands in `javascript/examples/vitest/outputs/background_handoff/`
+ * On success the recording lands in `javascript/examples/vitest/outputs/recordings/background_handoff/`
  * (full.wav + manifest).
  *
  * Binds `@e2e @ts-background-handoff-demo`. Env-gated on `OPENAI_API_KEY` AND a

@@ -9,7 +9,7 @@
  * `python/examples/voice/random_interruptions.py`.
  *
  * The agent under test is the bundled Pipecat stub bot. On success the recording
- * lands in `javascript/examples/vitest/outputs/random_interruptions/` (full.wav + manifest).
+ * lands in `javascript/examples/vitest/outputs/recordings/random_interruptions/` (full.wav + manifest).
  *
  * ## What this demo proves
  * - Probabilistic barge-in fires correctly (user_interrupt event emitted)

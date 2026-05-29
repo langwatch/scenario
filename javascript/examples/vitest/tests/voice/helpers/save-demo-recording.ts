@@ -5,7 +5,7 @@
  * library itself stays neutral — only the demo tests write to disk. A demo
  * calls {@link saveDemoRecording} with `result.audio` and a demo name; the
  * helper lands a `full.wav` + `segments/` + `manifest.json` under
- * `javascript/examples/vitest/outputs/<demoName>/` via the runtime's
+ * `javascript/examples/vitest/outputs/recordings/<demoName>/` via the runtime's
  * {@link VoiceRecording.saveSegments} (the same on-disk shape the Python
  * demos produce — `generated_at` / `duration` / `segment_count` / `segments`
  * / `events`).
@@ -24,17 +24,19 @@ import { fileURLToPath } from "node:url";
 import { voice } from "@langwatch/scenario";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// helpers/ → tests/voice → tests → vitest → outputs.
+// helpers/ → tests/voice → tests → vitest → outputs/recordings.
 // Workspace-local: outputs (recordings + manifest) live next to the vitest
 // package that produces them, not at the JS workspace root. Resolves the same
 // regardless of CWD, matching the Python helper's `__file__`-anchored
-// `_RECORDINGS_ROOT`.
+// `_RECORDINGS_ROOT`. `outputs/` is the future-proof artifact parent (room
+// for traces/, logs/, screenshots/ later); `recordings/` is the audio subdir.
 const RECORDINGS_ROOT = resolve(
   HERE,
   "..",
   "..",
   "..",
   "outputs",
+  "recordings",
 );
 
 /**
@@ -63,9 +65,9 @@ export interface SaveDemoOptions {
 
 /**
  * If `audio` is non-null and has segments, write per-segment WAVs + the full
- * mix + a manifest under `javascript/examples/vitest/outputs/<demoName>/` and return the
- * directory path. Returns `null` when `audio` is null/undefined or has no
- * segments (nothing was recorded — e.g. a transport that never spoke).
+ * mix + a manifest under `javascript/examples/vitest/outputs/recordings/<demoName>/`
+ * and return the directory path. Returns `null` when `audio` is null/undefined
+ * or has no segments (nothing was recorded — e.g. a transport that never spoke).
  *
  * Mirrors `python/examples/voice/_recording_helper.py:save_demo_recording`.
  */
@@ -159,5 +161,5 @@ function pruneOrphanSegments(dir: string): void {
   }
 }
 
-/** Absolute path to `javascript/examples/vitest/outputs/` — exported for demos that need it. */
+/** Absolute path to `javascript/examples/vitest/outputs/recordings/` — exported for demos that need it. */
 export { RECORDINGS_ROOT };
