@@ -72,7 +72,7 @@ User-facing docs that reference these recordings should link to the
 GitHub **blob** URL after this PR merges to main, e.g.:
 
 ```
-https://github.com/langwatch/scenario/blob/main/python/recordings/elevenlabs_hosted/full.wav
+https://github.com/langwatch/scenario/blob/main/python/outputs/elevenlabs_hosted/full.wav
 ```
 
 The blob page renders an inline `<audio>` player at the top of the

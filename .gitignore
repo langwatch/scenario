@@ -193,37 +193,37 @@ docs/docs/public/reference/python/**/*
 # committed. But the subset listed below is checked in as PR
 # evidence: each demo's `full.wav`, `manifest.json`, and per-turn
 # `segments/` directory are the canonical "prove it" artifacts for
-# reviewers. See python/recordings/README.md.
-python/recordings/*
-!python/recordings/README.md
-!python/recordings/elevenlabs_hosted/
-!python/recordings/elevenlabs_branded/
-!python/recordings/elevenlabs_interruption/
-!python/recordings/twilio_inbound/
-!python/recordings/twilio_outbound/
-!python/recordings/gemini_live/
-!python/recordings/gemini_live_interruption/
+# reviewers. See python/outputs/README.md.
+python/outputs/*
+!python/outputs/README.md
+!python/outputs/elevenlabs_hosted/
+!python/outputs/elevenlabs_branded/
+!python/outputs/elevenlabs_interruption/
+!python/outputs/twilio_inbound/
+!python/outputs/twilio_outbound/
+!python/outputs/gemini_live/
+!python/outputs/gemini_live_interruption/
 # Additional demos — commit only full.wav + manifest.json (skip segments/
 # to avoid hundreds of tiny per-turn wavs in the tree).
-!python/recordings/openai_realtime_agent/
-python/recordings/openai_realtime_agent/segments/
-!python/recordings/pipecat_scenario/
-python/recordings/pipecat_scenario/segments/
-!python/recordings/pipecat_ws/
-python/recordings/pipecat_ws/segments/
-!python/recordings/basic_greeting/
-python/recordings/basic_greeting/segments/
-!python/recordings/voice_text_parity/
-python/recordings/voice_text_parity/segments/
-!python/recordings/recording_playback/
-python/recordings/recording_playback/segments/
-!python/recordings/interruption_recovery/
-python/recordings/interruption_recovery/segments/
-!python/recordings/random_interruptions/
-python/recordings/random_interruptions/segments/
-!python/recordings/angry_customer/
-python/recordings/angry_customer/segments/
-!python/recordings/background_handoff/
-python/recordings/background_handoff/segments/
-!python/recordings/stt_swap/
-python/recordings/stt_swap/segments/
+!python/outputs/openai_realtime_agent/
+python/outputs/openai_realtime_agent/segments/
+!python/outputs/pipecat_scenario/
+python/outputs/pipecat_scenario/segments/
+!python/outputs/pipecat_ws/
+python/outputs/pipecat_ws/segments/
+!python/outputs/basic_greeting/
+python/outputs/basic_greeting/segments/
+!python/outputs/voice_text_parity/
+python/outputs/voice_text_parity/segments/
+!python/outputs/recording_playback/
+python/outputs/recording_playback/segments/
+!python/outputs/interruption_recovery/
+python/outputs/interruption_recovery/segments/
+!python/outputs/random_interruptions/
+python/outputs/random_interruptions/segments/
+!python/outputs/angry_customer/
+python/outputs/angry_customer/segments/
+!python/outputs/background_handoff/
+python/outputs/background_handoff/segments/
+!python/outputs/stt_swap/
+python/outputs/stt_swap/segments/

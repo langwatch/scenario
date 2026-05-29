@@ -837,16 +837,16 @@ Feature: Voice agent testing in Scenario SDK
     And each manifest entry's file path resolves to a real WAV on disk
 
   @integration
-  Scenario: Demo opt-in writes recordings under python/recordings/<demo>/
+  Scenario: Demo opt-in writes recordings under python/outputs/<demo>/
     Given any voice_*.py demo runs to completion and produces result.audio
     When the demo's main() calls save_demo_recording(result.audio, "<demo_name>")
-    Then a directory python/recordings/<demo_name>/ is created
+    Then a directory python/outputs/<demo_name>/ is created
     And it contains segments/, full.wav, and manifest.json
 
   @integration
   Scenario: CI uploads recordings as a workflow artifact
     Given the voice-integration workflow runs
-    Then it uploads python/recordings/** as the "voice-demo-recordings" artifact
+    Then it uploads python/outputs/** as the "voice-demo-recordings" artifact
     And the upload step runs even when prior steps fail (if: always())
 
   # ======================================================================
