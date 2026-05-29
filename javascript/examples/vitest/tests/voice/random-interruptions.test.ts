@@ -8,13 +8,8 @@
  * events (sampling `delayRange` before barging in). Mirrors
  * `python/examples/voice/random_interruptions.py`.
  *
- * The agent under test is Gemini Live (`geminiLiveAgent`). Gemini Live streams
- * audio in realtime — when the executor fires `adapter.interrupt()` (via the
- * abort-sentinel fix in issue #583), Gemini's server-side cancel cuts the
- * in-flight audio stream before remaining frames are delivered. The recording
- * captures a MEANINGFULLY SHORTER truncated segment, not just a label.
- * On success the recording lands in
- * `javascript/examples/vitest/recordings/random_interruptions/` (full.wav + manifest).
+ * The agent under test is the bundled Pipecat stub bot. On success the recording
+ * lands in `javascript/examples/vitest/recordings/random_interruptions/` (full.wav + manifest).
  *
  * ## What this demo proves
  * - Probabilistic barge-in fires correctly (user_interrupt event emitted)
@@ -22,13 +17,23 @@
  *   not into silence — proves the schedule + fire timing is correct
  * - The canned-phrase strategy ran (user segment contains a phrase from the pool)
  * - The cut-off-boundary LABEL fires (transcriptTruncated on at least one agent seg)
- * - REAL audio-level mid-stream cut-off: the truncated segment duration is
- *   meaningfully shorter than the median agent reply (ratio < 0.8)
  * - The agent recovered with non-empty audio after the last interrupt
  * - Multi-turn conversation
  *
- * Binds `@e2e @ts-random-interruptions-demo`. Env-gated on `GEMINI_API_KEY`
- * (Gemini Live agent + judge) AND `OPENAI_API_KEY` (user-sim TTS voice).
+ * ## What this demo does NOT prove
+ * Real audio-level mid-stream cut-off (segment duration meaningfully shorter
+ * than the full reply). The bundled Pipecat stub bot generates TTS in a burst
+ * and streams faster than realtime — by the time fireUserInterrupt's
+ * adapter.interrupt() runs (~1.5-2s after bot starts speaking), the bot has
+ * already sent all frames. The segment plays in full but is correctly LABELED
+ * at the interrupt boundary. This is a transport limitation, not a code bug.
+ *
+ * For REAL audio-level mid-stream cut-off (segment duration meaningfully
+ * shorter than the full reply), see `gemini-live-interruption.test.ts` which
+ * uses Gemini Live's server-side cancel that prevents late-frame delivery.
+ *
+ * Binds `@e2e @ts-random-interruptions-demo`. Env-gated on `OPENAI_API_KEY`
+ * AND a reachable bot socket (`SCENARIO_PIPECAT_BOT_UP=1`).
  */
 
 import { dirname, resolve } from "node:path";
@@ -40,7 +45,7 @@ import { expect } from "vitest";
 
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
-const { InterruptionConfig, GEMINI_LIVE_MODEL } = voice;
+const { InterruptionConfig } = voice;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(
@@ -54,9 +59,10 @@ const FEATURE_PATH = resolve(
   "voice-agents.feature",
 );
 
-const hasGemini = Boolean(process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY);
+const BOT_WS_URL = process.env.PIPECAT_BOT_URL ?? "ws://localhost:8765/stream";
 const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
-const RUN_E2E = hasGemini && hasOpenAI;
+const botUp = process.env.SCENARIO_PIPECAT_BOT_UP === "1";
+const RUN_E2E = hasOpenAI && botUp;
 
 const feature = await loadFeature(FEATURE_PATH);
 
@@ -82,18 +88,14 @@ describeFeature(
           result = await scenario.run({
             name: "demo_random_interruptions",
             description:
-              "A user simulator with a high interruption probability calls a Gemini Live " +
-              "agent for help with their account. Over several turns most agent responses " +
-              "are cut short mid-stream. The agent must recover after the interruptions. " +
-              "Gemini Live streams audio in realtime — the abort-sentinel fix ensures the " +
-              "adapter's interrupt() cuts the stream without a queue starvation race.",
+              "A user simulator with a high interruption probability calls the bot " +
+              "for help with their account. Over several turns most agent responses " +
+              "are cut short. The bot must recover after the interruptions.",
             agents: [
-              scenario.geminiLiveAgent({
-                model: GEMINI_LIVE_MODEL,
-                voice: "Algieba",
-                systemInstruction:
-                  "You are a helpful customer service representative. Give detailed, " +
-                  "multi-sentence answers to every question.",
+              scenario.pipecatAgent({
+                url: BOT_WS_URL,
+                audioFormat: "mulaw",
+                sampleRate: 8000,
               }),
               scenario.userSimulatorAgent({
                 voice: "openai/nova",
@@ -119,7 +121,7 @@ describeFeature(
                 ],
               }),
             ],
-            // Voice convention: the agent greets first on connect. The user's
+            // Voice convention: the bot greets first on connect. The user's
             // request is turn 2; subsequent voiceProceed() turns are subject to
             // interruptProbability. voiceProceed (NOT the plain proceed) carries
             // the InterruptionConfig the executor's loop consumes.
@@ -207,6 +209,16 @@ describeFeature(
 
           // At least one agent segment is marked transcriptTruncated — the
           // cut-off-boundary label fires correctly.
+          //
+          // NOTE: this asserts the LABEL fires, not that audio was meaningfully
+          // shortened. The bundled Pipecat stub bot generates TTS in a burst and
+          // streams faster than realtime — by the time fireUserInterrupt's
+          // adapter.interrupt() runs, the bot has typically already sent all
+          // frames. The segment plays in full but is correctly labeled at the
+          // interrupt boundary. For REAL audio-level mid-stream cut-off (segment
+          // duration meaningfully shorter than the full reply), see
+          // gemini-live-interruption.test.ts which uses Gemini Live's server-side
+          // cancel that prevents late-frame delivery.
           const truncated = (result!.audio?.segments ?? []).filter(
             (s) => s.speaker === "agent" && s.transcriptTruncated,
           );
@@ -214,42 +226,6 @@ describeFeature(
             truncated.length,
             "no agent segment marked transcriptTruncated — interrupt label did not fire at any segment boundary",
           ).toBeGreaterThan(0);
-
-          // REAL audio-level cut-off proof (the key assertion for #583):
-          // Gemini Live streams in realtime, so a mid-stream interrupt actually
-          // cuts the audio — the truncated segment is meaningfully shorter than
-          // a normal agent reply. We compare the shortest truncated segment
-          // duration against the median agent segment duration; the ratio must
-          // be < 0.8 (the truncated turn is at most 80% of the median length).
-          //
-          // This assertion was previously absent because Pipecat burst-streams
-          // TTS before realtime — all frames arrive before interrupt() fires,
-          // so nothing was actually cut off at the audio level. With Gemini Live
-          // and the adapter's abort-sentinel fix, the cut-off is real.
-          const agentSegs = (result!.audio?.segments ?? []).filter(
-            (s) => s.speaker === "agent",
-          );
-          if (agentSegs.length >= 2) {
-            const agentDurations = agentSegs.map((s) => s.endTime - s.startTime).sort((a, b) => a - b);
-            const mid = Math.floor(agentDurations.length / 2);
-            const medianAgentDur =
-              agentDurations.length % 2 === 1
-                ? agentDurations[mid]
-                : (agentDurations[mid - 1] + agentDurations[mid]) / 2;
-
-            const truncatedDurations = truncated.map((s) => s.endTime - s.startTime);
-            const minTruncatedDur = Math.min(...truncatedDurations);
-
-            const ratio = minTruncatedDur / medianAgentDur;
-            expect(
-              ratio,
-              `truncated segment (${minTruncatedDur.toFixed(2)}s) is NOT meaningfully shorter ` +
-                `than median agent reply (${medianAgentDur.toFixed(2)}s): ratio=${ratio.toFixed(3)}. ` +
-                `Expected ratio < 0.8 — Gemini Live's server-side cancel should cut mid-stream. ` +
-                `If the abort-sentinel fix (#583) is not in effect, the adapter still burst-delivers ` +
-                `all frames before interrupt() acts.`,
-            ).toBeLessThan(0.8);
-          }
         });
 
         And("the agent recovered with non-empty audio after the last interrupt", () => {
@@ -296,32 +272,16 @@ describeFeature(
           ).toBeGreaterThan(0);
           expect(recordingDir, "recording was not written").not.toBeNull();
 
-          const agentSegs = (result!.audio?.segments ?? []).filter(
-            (s) => s.speaker === "agent",
+          const truncated = (result!.audio?.segments ?? []).filter(
+            (s) => s.speaker === "agent" && s.transcriptTruncated,
           );
-          const truncated = agentSegs.filter((s) => s.transcriptTruncated);
           const interruptEvents = (result!.timeline ?? []).filter(
             (e) => e.type === "user_interrupt",
           );
-
-          // Compute ratio for the log line.
-          let ratioStr = "n/a";
-          if (agentSegs.length >= 2 && truncated.length > 0) {
-            const agentDurations = agentSegs.map((s) => s.endTime - s.startTime).sort((a, b) => a - b);
-            const mid = Math.floor(agentDurations.length / 2);
-            const medianAgentDur =
-              agentDurations.length % 2 === 1
-                ? agentDurations[mid]
-                : (agentDurations[mid - 1] + agentDurations[mid]) / 2;
-            const minTruncatedDur = Math.min(...truncated.map((s) => s.endTime - s.startTime));
-            ratioStr = (minTruncatedDur / medianAgentDur).toFixed(3);
-          }
-
           console.log(
             `[demo] random_interruptions → ${recordingDir} ` +
               `(interrupts=${interruptEvents.length}, truncated=${truncated.length}, ` +
-              `segments=${result!.audio?.segments.length}, medianRatio=${ratioStr}, ` +
-              `success=${result!.success})`,
+              `segments=${result!.audio?.segments.length}, success=${result!.success})`,
           );
         });
       },
