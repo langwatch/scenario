@@ -503,12 +503,23 @@ export function appendEvent(state: VoiceExecutorState, event: VoiceEvent): void 
 }
 
 function fireAudioChunk(state: VoiceExecutorState, chunk: AudioChunk): void {
+  // Fan-out 1: per-run onAudioChunk hook (ScenarioConfig.onAudioChunk).
   const hook = state.onAudioChunk;
-  if (!hook) return;
-  try {
-    hook(chunk);
-  } catch {
-    // Same swallow rationale as appendEvent — hooks are best-effort.
+  if (hook) {
+    try {
+      hook(chunk);
+    } catch {
+      // Same swallow rationale as appendEvent — hooks are best-effort.
+    }
+  }
+  // Fan-out 2: live local-speaker playback sink (audioPlayback === true).
+  const sink = state.audioPlaybackSink;
+  if (sink) {
+    try {
+      sink.sendChunk(chunk);
+    } catch {
+      // Best-effort — playback errors must not interrupt the scenario.
+    }
   }
 }
 

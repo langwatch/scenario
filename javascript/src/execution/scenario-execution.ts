@@ -50,12 +50,14 @@ import {
   writeUserSegment,
 } from "../voice/adapter.runtime";
 import { AudioChunk } from "../voice/audio-chunk";
+import { getGlobalSettings } from "../config/configure";
 import {
   resolveVoiceConfig,
   type ResolvedVoiceConfig,
 } from "../voice/config";
 import { InterruptionConfig } from "../voice/interruption";
 import { extractAudio } from "../voice/messages";
+import { AudioPlaybackSink } from "../voice/playback";
 import { sleep } from "../voice/utils";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
@@ -215,6 +217,13 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   onVoiceEvent?: (event: VoiceEvent) => void;
   /** Per-chunk hook from {@link ScenarioConfig.onAudioChunk}. */
   onAudioChunk?: (chunk: AudioChunk) => void;
+  /**
+   * Live local-speaker playback sink. Constructed at run start when
+   * `audioPlayback === true` (per-run wins over global per ADR-002). Each
+   * audio chunk is fanned out here via `fireAudioChunk` alongside the recording.
+   * `undefined` when audioPlayback is disabled (the common case).
+   */
+  audioPlaybackSink?: AudioPlaybackSink | null;
 
   /**
    * In-flight non-blocking agent turn started by `agent({ wait: false })` (or
@@ -567,8 +576,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         // RunOptions.voice was already folded into cfg.voice at the run()
         // boundary, so cfg.voice is the carrier. The resolved provider/knobs
         // are read by the judge STT pass + simulator TTS pass (Tier C).
+        // resolveVoiceConfig merges per-run (cfg.voice) over scenario-level
+        // (config.voice) over defaults. audioPlayback is already included.
         this.voiceConfig = resolveVoiceConfig(undefined, this.config.voice);
         initVoiceExecutorState(this);
+        // Construct the local-speaker playback sink when audioPlayback is
+        // enabled. The resolved voiceConfig already applies per-run vs global
+        // precedence per ADR-002. The module-global configure() setting is an
+        // additional fallback read here so callers can do configure({ audioPlayback: true })
+        // without specifying it on every run() call.
+        const audioPlayback =
+          this.voiceConfig.audioPlayback || (getGlobalSettings().audioPlayback ?? false);
+        if (audioPlayback) {
+          const sink = new AudioPlaybackSink();
+          sink.open();
+          this.audioPlaybackSink = sink;
+        }
         await startVoiceAdapters(this.voiceAdapters, this);
       }
 
@@ -700,6 +723,13 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // never masks the primary scenario result.
       if (this.voiceAdapters.length > 0) {
         await stopVoiceAdapters(this.voiceAdapters);
+      }
+      // Close the playback sink after adapters are stopped (no more chunks).
+      if (this.audioPlaybackSink) {
+        await this.audioPlaybackSink.close().catch(() => {
+          // Best-effort — playback drain errors must not mask the scenario result.
+        });
+        this.audioPlaybackSink = null;
       }
       // Clean up the subscription when execution is done
       subscription.unsubscribe();

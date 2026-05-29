@@ -15,6 +15,7 @@
 import type { AudioChunk } from "./audio-chunk";
 import type { ResolvedVoiceConfig } from "./config";
 import type { InterruptionConfig } from "./interruption";
+import type { AudioPlaybackSink } from "./playback";
 import type {
   LatencyMetrics,
   VoiceEvent,
@@ -64,4 +65,14 @@ export interface VoiceExecutorState {
   voiceBackgroundNoise?: VoiceBackgroundNoise;
   onVoiceEvent?: (event: VoiceEvent) => void;
   onAudioChunk?: (chunk: AudioChunk) => void;
+  /**
+   * Live local-speaker playback sink. Populated by the executor when
+   * `audioPlayback === true` (per-run `run({ voice: { audioPlayback } })` wins
+   * over module-global `configure({ audioPlayback })` per ADR-002). Each
+   * agent/user audio chunk is fanned out here alongside the recording.
+   *
+   * `undefined` when audioPlayback is disabled; `null` after `close()` is
+   * called at the end of a run.
+   */
+  audioPlaybackSink?: AudioPlaybackSink | null;
 }

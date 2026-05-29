@@ -5,11 +5,14 @@
  * settings only** (PRD §4.7) — e.g. `audioPlayback` (stream conversation
  * audio to local speakers during a run). It does NOT configure providers.
  *
- * NOTE: `audioPlayback` is currently a stored-but-not-yet-consumed toggle.
- * Live local-speaker playback is a device-bound concern (the Python parity
- * runs it through `ffplay`/PyAudio); the TS runner does not read this setting
- * yet. The store + getter exist so the surface is stable for when the
- * playback sink lands — tracked at https://github.com/langwatch/scenario/issues/585.
+ * `audioPlayback: true` wires a live local-speaker sink into every voice run:
+ * each agent/user audio chunk is fanned out to an ffmpeg subprocess (the
+ * bundled `ffmpeg-static` binary) piping PCM16 to the platform audio driver
+ * (ALSA on Linux, AudioToolbox on macOS, DirectShow on Windows). Gracefully
+ * no-ops on headless CI where no audio device is available — a single warning
+ * is emitted and the run continues normally. Per-run config via
+ * `run({ voice: { audioPlayback } })` or `run({ audioPlayback })` takes
+ * precedence over this module-global setting per ADR-002.
  *
  * STT/TTS providers are per-run, not global: pass them via
  * `run({ voice: { stt, tts } })` (ADR-002). The invented
@@ -46,8 +49,9 @@ export function configure(options: ScenarioConfigureOptions): void {
 }
 
 /**
- * Read the current global execution settings. Intended for the runner to read
- * once a live-playback sink is wired; not yet consumed (see {@link configure}).
+ * Read the current global execution settings. Read by the executor at run
+ * start to decide whether to open an {@link AudioPlaybackSink}. Per-run
+ * `run({ voice: { audioPlayback } })` wins over this global per ADR-002.
  */
 export function getGlobalSettings(): Readonly<ScenarioConfigureOptions> {
   return globalSettings;
