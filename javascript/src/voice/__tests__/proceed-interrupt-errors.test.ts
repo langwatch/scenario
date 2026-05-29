@@ -257,8 +257,8 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
       // Net: exactly ONE barge-in attempt fires (and fails). No successful
       // fireUserInterrupt runs to consume interruptBargeInDelayMs.
       let rngCallCount = 0;
-      (exec as unknown as { interruptRng: () => number }).interruptRng = () => {
-        return rngCallCount++ === 0 ? 0 : 1;
+      exec.interruptOverrides = {
+        rng: () => (rngCallCount++ === 0 ? 0 : 1),
       };
 
       await exec.execute();
@@ -269,9 +269,7 @@ describe("maybeScheduleInterruptedAgentTurn — stale interruptBargeInDelayMs cl
       // No successful fireUserInterrupt ran (second barge-in was skipped), so
       // the field has NOT been consumed by a success path — it remains as-set
       // by the catch (fix: undefined) or as-set by the sample (no fix: 500ms).
-      const remainingDelay = (
-        exec as unknown as { interruptBargeInDelayMs?: number }
-      ).interruptBargeInDelayMs;
+      const remainingDelay = exec.interruptBargeInDelayMs;
 
       expect(
         remainingDelay,
@@ -322,7 +320,7 @@ describe("maybeScheduleInterruptedAgentTurn — rejection propagation (P2 fix)",
         "test-batch-id",
       );
       // RNG = 0 → always fires (0 < 1.0) and picks phrase[0].
-      (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
+      exec.interruptOverrides = { rng: () => 0 };
 
       await expect(exec.execute()).rejects.toThrow("agent-call-failure");
     },

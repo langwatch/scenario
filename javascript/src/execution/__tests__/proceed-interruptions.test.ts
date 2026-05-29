@@ -65,7 +65,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       "test-batch-id",
     );
     // rng = 0 → always < probability=1 → always interrupt; and selects phrase[0].
-    (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
+    exec.interruptOverrides = { rng: () => 0 };
 
     await exec.execute();
 
@@ -100,8 +100,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       "test-batch-id",
     );
     // rng = 0.99 → never < 0.3 → never interrupt.
-    (exec as unknown as { interruptRng: () => number }).interruptRng = () =>
-      0.99;
+    exec.interruptOverrides = { rng: () => 0.99 };
 
     await exec.execute();
 
@@ -123,7 +122,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       [async (_state, executor) => { await executor.proceed(1); }],
       "test-batch-id",
     );
-    (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
+    exec.interruptOverrides = { rng: () => 0 };
 
     await exec.execute();
 
@@ -168,7 +167,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
       ],
       "test-batch-id",
     );
-    (exec as unknown as { interruptRng: () => number }).interruptRng = () => 0;
+    exec.interruptOverrides = { rng: () => 0 };
 
     await exec.execute();
 
@@ -191,7 +190,6 @@ type ExecInternals = {
   consumePendingRolesUntilAgent(agent: unknown): void;
   dispatchAgentBackground(idx: number): { promise: Promise<void>; done: boolean; error: unknown | null };
   voiceInterruptions?: InterruptionConfig;
-  interruptRng: () => number;
 };
 
 function makeExecWithAgents(agents: [MockAgent, RecordingUserSim]): ScenarioExecution & { _i: ExecInternals } {
