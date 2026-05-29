@@ -474,7 +474,16 @@ function appendSegment(
   recording.segments.push(segment);
 }
 
-function appendEvent(state: VoiceExecutorState, event: VoiceEvent): void {
+/**
+ * Append a {@link VoiceEvent} to all active sinks: `voiceTimeline`,
+ * `voiceRecording.timeline`, and the `onVoiceEvent` hook (best-effort —
+ * hook errors are swallowed so observability code can never break a test).
+ *
+ * Canonical writer for voice timeline events — the barge-in paths in
+ * `scenario-execution.ts` import this instead of inlining the 3-part
+ * push/timeline/hook sequence. Issue #576.
+ */
+export function appendEvent(state: VoiceExecutorState, event: VoiceEvent): void {
   if (state.voiceTimeline) {
     state.voiceTimeline.push(event);
   }

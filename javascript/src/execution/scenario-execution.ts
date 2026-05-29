@@ -42,6 +42,7 @@ import {
 import { Logger } from "../utils/logger";
 import type { VoiceAgentAdapter } from "../voice/adapter";
 import {
+  appendEvent,
   initVoiceExecutorState,
   pickVoiceAdapters,
   startVoiceAdapters,
@@ -55,6 +56,7 @@ import {
 } from "../voice/config";
 import { InterruptionConfig } from "../voice/interruption";
 import { extractAudio } from "../voice/messages";
+import { sleep } from "../voice/utils";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
   LatencyMetrics,
@@ -1659,31 +1661,23 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // value as an integer-ms field before consuming it in fireUserInterrupt.
     const delaySeconds = config.sampleDelay(this.interruptRng);
     if (delaySeconds > 0) {
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, delaySeconds * 1000),
-      );
+      await sleep(delaySeconds * 1000);
     }
 
     // Record the interruption on the voice timeline when a recording exists.
-    if (this.voiceRecording) {
-      // Timestamp on the byte-accurate audio cursor — the SAME clock segments
-      // ride (adapter.runtime `layNextSegment`) — so `markTruncatedAgentSegments`
-      // compares like-for-like (review BLOCKER). The agent turn for this proceed
-      // iteration was just recorded, so the cursor sits at that segment's
-      // `endTime`; the inclusive containment check marks it as truncated.
+    // Timestamp on the byte-accurate audio cursor — the SAME clock segments
+    // ride (adapter.runtime `layNextSegment`) — so `markTruncatedAgentSegments`
+    // compares like-for-like (review BLOCKER). The agent turn for this proceed
+    // iteration was just recorded, so the cursor sits at that segment's
+    // `endTime`; the inclusive containment check marks it as truncated.
+    if (this.voiceRecording || this.voiceTimeline || this.onVoiceEvent) {
       const time = this.voiceAudioCursor ?? 0;
       const event: VoiceEvent = {
         time,
         type: "user_interrupt",
         metadata: { source: "proceed-interruption", strategy: config.strategy },
       };
-      this.voiceRecording.timeline.push(event);
-      this.voiceTimeline?.push(event);
-      try {
-        this.onVoiceEvent?.(event);
-      } catch {
-        // Hooks are best-effort — never break the scenario.
-      }
+      appendEvent(this, event);
     }
 
     // Inject the interruption turn. `random_phrase` sends a canned phrase as
@@ -1774,10 +1768,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // else the module default.
       const speaking = adapter.agentSpeakingEvent;
       if (speaking && !speaking.isSet()) {
-        await Promise.race([
-          speaking.wait(),
-          new Promise<void>((resolve) => setTimeout(resolve, waitMs)),
-        ]);
+        await Promise.race([speaking.wait(), sleep(waitMs)]);
       }
       const agentWasSpeaking = Boolean(speaking?.isSet());
       outcome = agentWasSpeaking ? "fired_after_speech" : "fired_before_speech";
@@ -1793,7 +1784,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       //       voiceifyText causes entry.done=true for those adapters.
       // Mirrors maybeInjectInterruption (scenario-execution.ts, text-only path).
       if ((bargeInDelayMs ?? 0) > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, bargeInDelayMs));
+        await sleep(bargeInDelayMs!);
       }
 
       // Capture the cursor at the barge-in instant. If the fast transport
@@ -1850,18 +1841,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       }
     }
 
-    const event: VoiceEvent = {
+    appendEvent(this, {
       time: interruptTime,
       type: "user_interrupt",
       metadata: { source: "barge-in", outcome, native: nativeFired },
-    };
-    if (this.voiceRecording) this.voiceRecording.timeline.push(event);
-    this.voiceTimeline?.push(event);
-    try {
-      this.onVoiceEvent?.(event);
-    } catch {
-      // Hooks are best-effort — never break the scenario.
-    }
+    });
   }
 
   /**
