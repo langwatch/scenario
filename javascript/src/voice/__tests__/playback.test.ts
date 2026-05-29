@@ -15,42 +15,52 @@ import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock child_process.spawn so no real subprocess is spawned.
+// vi.hoisted() ensures these variables exist at the time vi.mock() is hoisted.
 // ---------------------------------------------------------------------------
 
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
+const { mockStdin, mockProc } = vi.hoisted(() => {
+  const stdin = {
+    write: vi.fn().mockReturnValue(true),
+    end: vi.fn(),
+  };
 
-const mockStdin = {
-  write: vi.fn().mockReturnValue(true),
-  // Auto-emit 'exit' on the proc when stdin.end() is called so close()
-  // resolves without hanging in unit tests.
-  end: vi.fn().mockImplementation(() => {
+  let procEventHandlers: Record<string, ((...args: unknown[]) => void)[]> = {};
+
+  const proc: {
+    stdin: typeof stdin;
+    on: Mock;
+    emit: (event: string, ...args: unknown[]) => boolean;
+    _handlers: () => Record<string, ((...args: unknown[]) => void)[]>;
+    _resetHandlers: () => void;
+  } = {
+    stdin,
+    on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+      if (!procEventHandlers[event]) {
+        procEventHandlers[event] = [];
+      }
+      procEventHandlers[event]!.push(handler);
+      return proc;
+    }),
+    emit: (event: string, ...args: unknown[]): boolean => {
+      const handlers = procEventHandlers[event] ?? [];
+      handlers.forEach((h) => h(...args));
+      return handlers.length > 0;
+    },
+    _handlers: () => procEventHandlers,
+    _resetHandlers: () => {
+      procEventHandlers = {};
+    },
+  };
+
+  // Wire stdin.end to auto-emit 'exit' after call so close() resolves.
+  stdin.end.mockImplementation(() => {
     Promise.resolve().then(() => {
-      mockProc.emit("exit", 0);
+      proc.emit("exit", 0);
     });
-  }),
-};
+  });
 
-let mockProcEventHandlers: Record<string, ((...args: unknown[]) => void)[]> = {};
-
-const mockProc: Partial<ChildProcessWithoutNullStreams> & {
-  stdin: typeof mockStdin;
-  on: Mock;
-  emit: (event: string, ...args: unknown[]) => boolean;
-} = {
-  stdin: mockStdin,
-  on: vi.fn().mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
-    if (!mockProcEventHandlers[event]) {
-      mockProcEventHandlers[event] = [];
-    }
-    mockProcEventHandlers[event].push(handler);
-    return mockProc;
-  }),
-  emit: (event: string, ...args: unknown[]): boolean => {
-    const handlers = mockProcEventHandlers[event] ?? [];
-    handlers.forEach((h) => h(...args));
-    return handlers.length > 0;
-  },
-};
+  return { mockStdin: stdin, mockProc: proc };
+});
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn().mockReturnValue(mockProc),
@@ -74,7 +84,7 @@ function makeChunk(): AudioChunk {
 // ---------------------------------------------------------------------------
 
 function restoreMockProcHandlers() {
-  mockProcEventHandlers = {};
+  mockProc._resetHandlers();
   mockStdin.write.mockReturnValue(true);
   mockStdin.end.mockImplementation(() => {
     Promise.resolve().then(() => {
@@ -83,10 +93,11 @@ function restoreMockProcHandlers() {
   });
   mockProc.on.mockImplementation(
     (event: string, handler: (...args: unknown[]) => void) => {
-      if (!mockProcEventHandlers[event]) {
-        mockProcEventHandlers[event] = [];
+      const handlers = mockProc._handlers();
+      if (!handlers[event]) {
+        handlers[event] = [];
       }
-      mockProcEventHandlers[event]!.push(handler);
+      handlers[event]!.push(handler);
       return mockProc;
     },
   );
