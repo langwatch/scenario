@@ -315,6 +315,54 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
   );
 
   it(
+    "handles concurrent interrupt() + receiveAudio() without queue starvation",
+    async () => {
+      // Regression test for the single-consumer dequeue() concurrency race.
+      //
+      // Prior bug: interrupt() called dequeue() concurrently with receiveAudio().
+      // The single `resolveNext` slot was overwritten by the second caller
+      // (interrupt), leaving receiveAudio's resolver orphaned. The timer fired
+      // with TimeoutError → drainAgentResponse caught and broke prematurely.
+      //
+      // With the abort-sentinel fix: interrupt() sets _interruptPending + wakes
+      // any in-flight dequeue() via the resolver directly. receiveAudio() checks
+      // the flag after each dequeue() await and returns the cut-off sentinel.
+      //
+      // Without the fix: receiveAudio() would hang until its timer fires
+      // (TimeoutError), not resolve promptly with the cut-off sentinel.
+      const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
+      await adapter.connect();
+
+      const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
+      expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
+
+      // Start receiveAudio() in one async context — it will suspend in dequeue()
+      // waiting for a message (nothing in the queue yet).
+      const receivePromise = adapter.receiveAudio(5); // 5s budget
+
+      // Fire interrupt() from another async context, after a tick, so
+      // receiveAudio() is suspended in dequeue() when interrupt() runs.
+      // interrupt() must NOT compete on resolveNext — it uses the abort-sentinel.
+      await Promise.resolve(); // yield to let receiveAudio enter dequeue()
+      await adapter.interrupt();
+
+      // receiveAudio() must resolve promptly (not timeout) with the cut-off
+      // sentinel (empty data — the interrupt cut off the in-flight turn).
+      const chunk = await receivePromise;
+
+      // Cut-off sentinel: empty data, NOT a TimeoutError.
+      expect(
+        chunk.data.length,
+        "receiveAudio() did not return the cut-off sentinel (empty data) after interrupt() — " +
+          "it may have timed out or returned stale audio. " +
+          "The dequeue() resolveNext slot race was not fixed.",
+      ).toBe(0);
+
+      await adapter.disconnect();
+    },
+  );
+
+  it(
     "extends the deadline after the spurious pair so delayed recovery audio " +
       "is captured within the same receiveAudio() call (iterator-restart semantic)",
     async () => {

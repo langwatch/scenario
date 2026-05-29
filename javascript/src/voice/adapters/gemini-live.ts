@@ -93,11 +93,16 @@ function resamplePcm16(data: Uint8Array, fromRate: number, toRate: number): Uint
 /**
  * Internal message queue entry: each `onmessage` event from the SDK becomes
  * a `Pending` item; a closure event becomes a sentinel `closed: true`.
+ * The special `interrupted: true` field is used by the abort-sentinel pattern:
+ * `interrupt()` wakes any in-flight `dequeue()` by pushing this sentinel
+ * directly into the resolver slot, without competing on the queue.
  */
 interface QueueItem {
   message?: unknown;
   closed?: boolean;
   error?: unknown;
+  /** Abort sentinel: set by interrupt() to wake a blocked dequeue(). */
+  interrupted?: boolean;
 }
 
 /**
@@ -154,6 +159,17 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
   private connected = false;
   /** Tracks whether the current turn iterator has yielded any audio. */
   private iterHadAudio = false;
+  /**
+   * Abort-sentinel flag. Set by `interrupt()` to signal that any in-flight
+   * `receiveAudio()` should return the cut-off sentinel immediately. Cleared
+   * by `receiveAudio()` when it observes the flag.
+   *
+   * This replaces the prior pattern of `interrupt()` calling `dequeue()`
+   * concurrently with `receiveAudio()`: that caused the single `resolveNext`
+   * slot to be overwritten by the second caller, orphaning the first caller's
+   * resolver and causing a spurious TimeoutError.
+   */
+  private _interruptPending = false;
 
   /** Most-recent output transcript received from the server, for observability. */
   lastAgentTranscript: string | null = null;
@@ -221,6 +237,7 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     this.queue = [];
     this.resolveNext = null;
     this.iterHadAudio = false;
+    this._interruptPending = false;
 
     this.session = await client.live.connect({
       model: this.model,
@@ -331,8 +348,32 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     let sawInterrupted = false;
 
     while (true) {
+      // Abort-sentinel check: if interrupt() signalled while we were waiting
+      // for the next queue item (or even before we reached dequeue()), return
+      // the cut-off sentinel immediately rather than reading stale agent audio.
+      // This prevents the single-resolveNext-slot race: interrupt() no longer
+      // competes on dequeue() — it just sets this flag and wakes any in-flight
+      // dequeue() call via the resolver directly.
+      if (this._interruptPending) {
+        this._interruptPending = false;
+        return new AudioChunk({
+          data: new Uint8Array(0),
+          transcript: pendingTranscript || undefined,
+        });
+      }
+
       const remainingMs = Math.max(0, deadline - Date.now());
       const item = await this.dequeue(remainingMs);
+
+      // Re-check after await — interrupt() may have arrived while dequeue()
+      // was suspended. If the sentinel woke dequeue(), item.interrupted is set.
+      if (item.interrupted || this._interruptPending) {
+        this._interruptPending = false;
+        return new AudioChunk({
+          data: new Uint8Array(0),
+          transcript: pendingTranscript || undefined,
+        });
+      }
 
       if (item.error) throw item.error;
       if (item.closed) {
@@ -443,36 +484,43 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
   }
 
   /**
-   * Drain leftover chunks from the in-flight agent turn so the recovery
-   * agent's `receiveAudio` doesn't pick them up as a fake first reply.
+   * Signal an in-flight `receiveAudio()` to return the cut-off sentinel
+   * immediately, so the interrupted turn doesn't replay stale agent audio
+   * into the next turn's drain loop.
    *
-   * On Gemini Live, when we send a fresh `activityStart` (the next
-   * `sendAudio`) while the model is mid-reply, the server cuts its
-   * in-flight audio AND emits `turnComplete` for that cancelled turn.
-   * `interrupt()` consumes any pending messages up to that boundary so
-   * the next `receiveAudio` reads the recovery turn cleanly.
+   * **Abort-sentinel pattern** (fixes the single-consumer concurrency race):
    *
-   * Best-effort: bounded by 2 seconds so a stuck stream doesn't block
-   * the executor's interrupt sequence.
+   * The original implementation called `dequeue()` concurrently with an
+   * in-flight `receiveAudio()`. Since `dequeue()` has a single `resolveNext`
+   * slot, the second caller (interrupt) overwrote the first caller's
+   * (receiveAudio's) resolver. When a message arrived it resolved the
+   * interrupt's dequeue, leaving receiveAudio's resolver orphaned — its
+   * timer eventually fired with a `TimeoutError`, causing `drainAgentResponse`
+   * to catch and break prematurely.
+   *
+   * Fix: `interrupt()` no longer calls `dequeue()`. Instead it:
+   *   1. Sets `_interruptPending = true`.
+   *   2. Wakes any in-flight `dequeue()` by calling the current `resolveNext`
+   *      directly with an abort sentinel (`{ interrupted: true }`).
+   *   3. `receiveAudio()`'s loop checks `_interruptPending` (and `item.interrupted`)
+   *      and returns the cut-off sentinel immediately on seeing it.
+   *
+   * Best-effort: if nothing is in-flight (`resolveNext` is null), the flag
+   * stays set and `receiveAudio()` catches it at the top of its next iteration.
    */
   override async interrupt(): Promise<void> {
     if (!this.connected) return;
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline) {
-      const remainingMs = Math.max(0, deadline - Date.now());
-      let item: QueueItem;
-      try {
-        item = await this.dequeue(remainingMs);
-      } catch {
-        // Bounded drain: if no message arrives within the remaining
-        // budget, give up — the next receiveAudio will pick up cleanly.
-        break;
-      }
-      if (item.closed) break;
-      const sc = (item.message as { serverContent?: { turnComplete?: boolean } })
-        ?.serverContent;
-      if (sc?.turnComplete) break;
-    }
+    // Set the abort flag first — receiveAudio() checks this at the top of
+    // each iteration, so even if the resolver wake-up races it, the flag
+    // will be seen on the next loop pass.
+    this._interruptPending = true;
+    // Wake any in-flight dequeue() so it delivers the sentinel immediately
+    // rather than waiting for the next real message (which could be seconds
+    // away on a long Gemini turn). Atomically take the resolver to avoid a
+    // double-resolve if enqueue() fires at the same time.
+    const resolver = this.resolveNext;
+    this.resolveNext = null;
+    resolver?.({ interrupted: true });
   }
 
   // ------------------------------------------------------------- internal
