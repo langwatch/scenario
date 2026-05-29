@@ -75,6 +75,12 @@ The capabilities table above describes *what* each adapter supports.
 The table below describes *how* each adapter is wired and *whether* it is
 shipping or still stubbed behind `PendingTransportError`.
 
+> **TypeScript readers:** class names in this table match the **Python** SDK.
+> TypeScript exports factory functions instead — `pipecatAgent`, `twilioAgent`,
+> `openAIRealtimeAgent`, `elevenLabsAgent`, `geminiLiveAgent`, `composableAgent`.
+> Python-only adapters are noted in the
+> [Not yet ported to TypeScript](#not-yet-ported-to-typescript) section below.
+
 | Adapter | Wire transport | Real I/O? |
 |---|---|---|
 | `ComposableVoiceAgent` | STT + LLM + TTS pipeline (provider-defined) | ✅ shipping |
