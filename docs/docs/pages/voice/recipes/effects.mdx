@@ -103,6 +103,8 @@ the backend.
 
 ## Worked example
 
+**Python:**
+
 [`angry_customer.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/angry_customer.py)
 — applies `background_noise("cafe", 0.4)` and `phone_quality()` to simulate an angry
 caller from a noisy cafe on a poor phone connection. JudgeAgent verifies the agent
@@ -111,6 +113,16 @@ handles the emotional tone and noise robustly.
 [`background_handoff.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/background_handoff.py)
 — uses `background_noise("cafe", 0.5)` to simulate overheard conversation during a
 handoff; verifies the agent does not respond to the background audio as user speech.
+
+**TypeScript:**
+
+[`angry-customer.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/angry-customer.test.ts)
+— TypeScript counterpart: `backgroundNoise("cafe", 0.4)` + `phoneQuality()` effects on
+the user simulator; judge verifies emotional tone handling.
+
+[`background-handoff.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/background-handoff.test.ts)
+— background noise during a handoff scenario; verifies the agent ignores background
+audio as user speech.
 
 ## See also
 
