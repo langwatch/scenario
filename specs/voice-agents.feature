@@ -690,7 +690,7 @@ Feature: Voice agent testing in Scenario SDK
 
   @e2e @ts-e2e
   Scenario: Round-trip audio fidelity gate — utterance survives TTS → bus → STT
-    # Source: docs/voice/internal-design.md §8 — the runnable top-of-stack
+    # Source: docs/adr/003-voice-internal-design.md §8 — the runnable top-of-stack
     # gate. The REGRESSION GUARD for the Gap #3 LIVE BUG: the two audio
     # producers tag PCM differently (format:"wav" vs format:"pcm16") and
     # their extractors decode by tag, so a format mismatch surfaces as a

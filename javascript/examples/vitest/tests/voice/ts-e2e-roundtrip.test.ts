@@ -1,5 +1,5 @@
 /**
- * @ts-e2e ROUND-TRIP AUDIO FIDELITY GATE — docs/voice/internal-design.md §8.
+ * @ts-e2e ROUND-TRIP AUDIO FIDELITY GATE — docs/adr/003-voice-internal-design.md §8.
  *
  * The key regression guard for the Gap #3 LIVE BUG. The two audio producers
  * (`messages.ts#createAudioMessage` and the old `adapter.runtime` private

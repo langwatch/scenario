@@ -1,10 +1,12 @@
-# Voice — Internal Design (#372)
+# ADR-003: Voice Internal Design (#372)
+
+**Date:** 2026-05-26
 
 **Status:** Accepted
-**Date:** 2026-05-26
-**Companion docs:** [Voice Agents API Design Proposal (Notion PRD)](https://www.notion.so/langwatchdata/Claude-Opus-1-Proposal-3125e165d48280eca9dbe044884213c8) · [ADR-001 Concurrency](../adr/001-scenario-concurrency-model.md) · [ADR-002 Voice Provider State (proposed)](../adr/002-voice-provider-state.md)
 
-_This document is committed at repo-root `docs/voice/internal-design.md`; ADR-001 and the new ADR-002 live at repo-root `docs/adr/` (not under `javascript/docs/`)._
+**Companion docs:** [Voice Agents API Design Proposal (Notion PRD)](https://www.notion.so/langwatchdata/Claude-Opus-1-Proposal-3125e165d48280eca9dbe044884213c8) · [ADR-001 Concurrency](./001-scenario-concurrency-model.md) · [ADR-002 Voice Provider State](./002-voice-provider-state.md)
+
+_This is an Engineering Design Record — it sits between the PRD and the PRs and is the thing review checks the code against. Committed at repo-root `docs/adr/003-voice-internal-design.md` alongside ADR-001 and ADR-002 (not under `javascript/docs/`)._
 
 ## Why this doc exists
 
@@ -22,9 +24,6 @@ These are not sloppiness — they're what happens when 11 PRs are cut from an AP
 internal model to fit. This doc supplies that model: the seams voice plugs into, where state
 lives, who owns lifecycle, the data model, the public/internal seam, and a PR→design map that
 salvages the flat siblings into a fresh clean stack with a runnable top (the siblings are then closed).
-
-This is an **Engineering Design Record** — it sits between the PRD and the PRs and is the
-thing review checks the code against.
 
 **Two assumptions this doc takes as fixed:**
 - **The public API is decided.** The PRD's surface (`run({...})`, the adapter classes, the
