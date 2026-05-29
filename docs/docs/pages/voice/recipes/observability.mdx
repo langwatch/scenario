@@ -133,10 +133,18 @@ will silently report a missing value rather than fail otherwise.
 
 ## Worked example
 
+**Python:**
+
 [`observability.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/observability.py)
 — wires `on_audio_chunk` and `on_voice_event` callbacks, prints chunk and event counts
 post-run, asserts `time_to_first_byte > 0`, and raises a hard assertion if `result.latency`
 is `None`. Canonical reference for the full observability surface.
+
+**TypeScript:**
+
+[`recording-playback.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/recording-playback.test.ts)
+— exercises `result.audio.save()` / `saveSegments()` round-trip; also demonstrates
+`onAudioChunk` / `onVoiceEvent` hooks for capture and post-run assertions.
 
 ## See also
 
