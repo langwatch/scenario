@@ -316,9 +316,17 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
    * Throws {@link Error} with name `"TimeoutError"` if no chunk arrives
    * within `timeout` seconds.
    */
+  /**
+   * Extra budget granted after detecting the spurious
+   * "interrupted → turnComplete" pair (Python's iterator-restart semantic).
+   * Gemini typically takes ~3.5 s to produce the recovery reply; 10 s gives
+   * comfortable headroom without risking an indefinite hang.
+   */
+  private static readonly SPURIOUS_PAIR_RECOVERY_MS = 10_000;
+
   async receiveAudio(timeout: number): Promise<AudioChunk> {
     this.requireConnected();
-    const deadline = Date.now() + timeout * 1000;
+    let deadline = Date.now() + timeout * 1000;
     let pendingTranscript = "";
     let sawInterrupted = false;
 
@@ -395,29 +403,34 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
         // "interrupted → turnComplete" with no audio FIRST, then the
         // real reply in a separate turn. Detect that pattern (saw
         // interrupted=true, no audio on THIS iterator, no transcript)
-        // and continue the receive loop to read the actual reply.
+        // and re-enter the receive loop to read the actual reply.
         //
-        // IN ISOLATION this `continue` correctly absorbs the spurious pair
-        // and reads the recovery audio in a single receiveAudio() call
-        // (unit-tested in src/voice/adapters/__tests__/gemini-live.test.ts).
+        // Iterator-restart semantic (mirrors Python's session.receive()
+        // re-creation): reset per-turn detection state and extend the
+        // deadline by SPURIOUS_PAIR_RECOVERY_MS so the loop has ample
+        // budget to wait for Gemini's real recovery reply (~3.5 s typical).
+        // Without the deadline extension the original timeout may have
+        // nearly elapsed by the time the spurious pair fires (e.g. in the
+        // live executor the boundary can arrive several seconds after
+        // interrupt() completes), causing a TimeoutError before the
+        // recovery audio arrives.
         //
-        // IN THE FULL EXECUTOR, the cancelled-turn boundary arrives AFTER
-        // the executor's interrupt() drain has already exited (timing race:
-        // interrupt() has a 2s bounded drain; the boundary lands a beat
-        // later). The executor concurrently runs the in-flight agent task
-        // which may still be awaiting in dequeue() — so the boundary message
-        // may be consumed by the wrong waiter, or sendAudio() may reset
-        // iterHadAudio mid-flight. Live API verification (probe: 1 agent()
-        // → recovery=""; 2 agent() → full non-empty reply) confirmed that
-        // the demo's TWO post-interrupt scenario.agent() calls are required:
-        // the first drains the stale cancelled-turn boundary and the second
-        // captures Gemini's genuine recovery reply. This is a known timing
-        // divergence from Python (which re-creates the session.receive()
-        // iterator, giving a clean per-turn boundary). A future fix would
-        // replicate Python's iterator-restart semantic at the TS level; for
-        // now the demo script compensates.
+        // Unit-tested in src/voice/adapters/__tests__/gemini-live.test.ts:
+        // three existing tests + the "delayed recovery" test confirm this
+        // path works both synchronously (pre-loaded queue) and with a
+        // deliberate async delay between the spurious pair and the real
+        // audio.
         if (sawInterrupted && !this.iterHadAudio && !pendingTranscript) {
+          // Reset iterator-scope state — as if session.receive() was
+          // re-created (Python's pattern).
           sawInterrupted = false;
+          // Grant a fresh recovery budget; take the later of the current
+          // deadline and now+RECOVERY to avoid shortening a generous
+          // original timeout.
+          deadline = Math.max(
+            deadline,
+            Date.now() + GeminiLiveAgentAdapter.SPURIOUS_PAIR_RECOVERY_MS,
+          );
           continue;
         }
         // Real end-of-turn — yield empty AudioChunk.
