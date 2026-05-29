@@ -150,12 +150,6 @@ Feature: Adopt langwatch/langwatch PR gate pattern
     And that job dismisses the bot's firefighting APPROVE review matching by exact review body
 
   @unit
-  Scenario: PR #1 does not modify the legacy approval workflows
-    Given the diff of PR #1
-    When `.github/workflows/approval-or-hotfix.yml` and `.github/workflows/low-risk-evaluation.yml` are inspected
-    Then neither file is modified, renamed, or deleted
-
-  @unit
   Scenario: PR #1 does not modify branch protection on main
     Given the diff of PR #1
     When the repository's branch protection settings for `main` are inspected
@@ -356,7 +350,7 @@ Feature: Adopt langwatch/langwatch PR gate pattern
   # AC-1.8: "qualifies=true -> APPROVE + label + comment with reasoning verbatim" -> Scenario: Qualifying PR receives bot APPROVE, label, and comment with reasoning verbatim
   # AC-1.9: "qualifies=false -> remove label + comment + no review" -> Scenario: Non-qualifying PR has label removed, comment posted, and no review submitted
   # AC-1.10: "firefighting unlabeled -> dismiss-firefighting-approval job" -> Scenario: Removing the firefighting label dismisses the bot's firefighting approval
-  # AC-1.11: "approval-or-hotfix.yml + low-risk-evaluation.yml unchanged in PR #1" -> Scenario: PR #1 does not modify the legacy approval workflows
+  # AC-1.11: REMOVED — covered the diff of PR #1 not modifying approval-or-hotfix.yml + low-risk-evaluation.yml; both workflows were deleted in PR #4 so the assertion is no longer meaningful on main.
   # AC-1.12: "branch protection unchanged in PR #1" -> Scenario: PR #1 does not modify branch protection on main
   # AC-1.13: "concurrency group + cancel-in-progress" -> Scenario: PR #1 uses the expected concurrency keying
   # AC-1.14: "permissions: pull-requests write, contents read, no others" -> Scenario: PR #1 declares only the minimum required permissions
