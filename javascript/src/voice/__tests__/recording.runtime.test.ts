@@ -154,6 +154,34 @@ describe("VoiceRecordingRuntime.saveSegments", () => {
     rec.saveSegments(dir, { manifest: false });
     expect(() => readFileSync(join(dir, "manifest.json"))).toThrow();
   });
+
+  it("serializes transcript_truncated=true in the manifest when a segment is truncated", () => {
+    // Round-trip the transcriptTruncated branch: the manifest must include
+    // transcript_truncated: true for segments flagged as cut off by a barge-in.
+    const truncatedSeg: AudioSegment = {
+      ...pcmSegment("agent", 0.0, 0.2, "I was saying"),
+      transcriptTruncated: true,
+    };
+    const rec = new VoiceRecordingRuntime({ segments: [truncatedSeg] });
+    const dir = mkdtempSync(join(tmpdir(), "ts-recording-trunc-"));
+    rec.saveSegments(dir);
+
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    expect(manifest.segments[0].transcript_truncated).toBe(true);
+  });
+
+  it("omits transcript_truncated from the manifest for non-truncated segments", () => {
+    // Round-trip the absence branch: the manifest must NOT include
+    // transcript_truncated for segments that were not cut off.
+    const rec = new VoiceRecordingRuntime({
+      segments: [pcmSegment("agent", 0.0, 0.2, "full reply")],
+    });
+    const dir = mkdtempSync(join(tmpdir(), "ts-recording-notrunc-"));
+    rec.saveSegments(dir);
+
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    expect(manifest.segments[0].transcript_truncated).toBeUndefined();
+  });
 });
 
 describe("computeLatencyMetrics", () => {

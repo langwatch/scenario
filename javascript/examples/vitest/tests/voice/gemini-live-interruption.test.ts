@@ -262,10 +262,16 @@ describeFeature(
               ).toBeGreaterThan(0);
             }
             expect(recordingDir, "recording was not written").not.toBeNull();
+            // Recovery transcript summary — only logged in the fired_after_speech
+            // branch where a recovery is actually expected. Gated here so the log
+            // never runs against the skip-path where recoveryTranscript is empty
+            // by design (no PII surfaced from a skipped assertion branch).
+            // Content is length-only to prevent accidental PII leakage if this
+            // E2E ever runs against a production-shaped agent.
             const lastInterruptT = interruptEvents.length
               ? Math.max(...interruptEvents.map((e) => e.time))
               : 0;
-            const recoveryTranscript = segments
+            const recoveryChars = segments
               .filter(
                 (s) =>
                   s.speaker === "agent" &&
@@ -274,15 +280,17 @@ describeFeature(
                   s.audio.length > 0 &&
                   s.transcript,
               )
-              .map((s) => s.transcript)
-              .join(" ");
-            console.log(
-              `[demo] gemini_live_interruption → ${recordingDir} ` +
-                `(interrupts=${interruptEvents.length}, firedAfterSpeech=${firedAfterSpeech}, ` +
-                `truncated=${truncated.length}, segments=${segments.length}, ` +
-                `recovery=${JSON.stringify(recoveryTranscript)}, ` +
-                `success=${result!.success})`,
-            );
+              .map((s) => s.transcript ?? "")
+              .join(" ").length;
+            if (firedAfterSpeech) {
+              console.log(
+                `[demo] gemini_live_interruption → ${recordingDir} ` +
+                  `(interrupts=${interruptEvents.length}, firedAfterSpeech=${firedAfterSpeech}, ` +
+                  `truncated=${truncated.length}, segments=${segments.length}, ` +
+                  `recovery=${recoveryChars} chars, ` +
+                  `success=${result!.success})`,
+              );
+            }
           },
         );
       },

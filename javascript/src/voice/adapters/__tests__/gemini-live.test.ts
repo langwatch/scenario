@@ -23,7 +23,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
-import { vi, expect, describe, it } from "vitest";
+import { vi, expect, describe, it, beforeEach } from "vitest";
 
 import { AdapterCapabilities } from "../../capabilities";
 import { GeminiLiveAgentAdapter } from "../gemini-live";
@@ -185,6 +185,13 @@ describeFeature(
 // -----------------------------------------------------------------------
 
 describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", () => {
+  // `captured` is a module-level mutable singleton; reset before each test
+  // in this describe block to prevent implicit ordering between the BDD
+  // scenarios above and these standalone unit tests.
+  beforeEach(() => {
+    captured.last = null;
+  });
+
   /**
    * Build a minimal real-PCM16 payload that survives AudioChunk's
    * even-byte invariant. Two zero samples = 4 bytes = valid PCM16.
@@ -198,16 +205,12 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
     "absorbs the spurious [interrupted, turnComplete] pair and returns the " +
       "recovery audio in a single receiveAudio() call",
     async () => {
-      // Reset the captured state so this test doesn't see stale callbacks
-      // from earlier BDD scenarios.
-      captured.last = null;
-
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
       await adapter.connect();
 
       // connect() must have registered the onmessage callback.
-      // Cast: TypeScript CFA narrowed captured.last to null after the explicit
-      // assignment on line above, but connect() mutates it inside the mock.
+      // Cast: TypeScript CFA narrowed captured.last to null by the beforeEach
+      // reset, but connect() mutates it inside the mock.
       const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
       expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
 
@@ -257,8 +260,6 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
     "does NOT swallow a real turnComplete that follows actual audio " +
       "(only the spurious no-audio interrupted-pair is skipped)",
     async () => {
-      captured.last = null;
-
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
       await adapter.connect();
 
@@ -290,8 +291,6 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
     async () => {
       // This is NOT the normal barge-in path — it tests that the adapter
       // doesn't loop forever on an interrupted-only turn with nothing after it.
-      captured.last = null;
-
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
       await adapter.connect();
 
@@ -328,8 +327,6 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
       // deadline. WITHOUT the deadline extension the dequeue would time out.
       // WITH SPURIOUS_PAIR_RECOVERY_MS the deadline becomes now+10 s after
       // the spurious pair fires, so 600 ms is well within budget.
-      captured.last = null;
-
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
       await adapter.connect();
 
