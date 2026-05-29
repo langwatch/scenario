@@ -169,38 +169,24 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
   private mulawChunks: Uint8Array[] = [];
   private mulawChunksByteLength = 0;
   /**
-   * Set by {@link interrupt} to stop the in-progress drain early.
+   * Single interruption state flag — collapses what were previously two
+   * always-in-sync boolean fields (`interrupted` + `discardingInboundAudio`).
    *
-   * Pipecat bots generate all TTS in one blocking call, then send all frames
-   * in a tight asyncio loop — by the time the JS client's `agentSpeakingEvent`
-   * fires and we send the `clear` frame, all audio bytes are already buffered
-   * in the TCP receive buffer and queued in `inbox`. The bot-side `clear`
-   * handler cannot un-send bytes already on the wire.
+   * `"idle"` (default): normal operation; both gates open.
+   * `"interrupted"`: set by {@link interrupt}; both gates closed until
+   *   the recovery turn's `sendAudio` resets to `"idle"`.
    *
-   * This flag gates the JS-side drain: when `interrupt()` fires it clears
-   * `inbox.queue` and sets this flag. The NEXT `receiveAudio()` call (the
-   * first iteration of `drainAgentResponse`'s while loop) sees the flag,
-   * returns an empty chunk, and the drain stops — producing a genuinely
-   * truncated agent segment rather than the full-duration recording.
+   * The two consumer points that previously read the separate flags now both
+   * check this field:
+   * - `receiveAudio`: returns empty sentinel when `"interrupted"` (stops
+   *   drainAgentResponse after the waiter wake).
+   * - `bufferMulaw`: drops inbound WS frames when `"interrupted"` (prevents
+   *   late-arriving bot frames from polluting the next turn's inbox).
    *
-   * Reset by `sendAudio()` at the top of each new user turn so it does not
-   * bleed across turns.
+   * The flags were always set and cleared together; unifying them removes the
+   * subtle risk of one advancing while the other lags.
    */
-  private interrupted = false;
-  /**
-   * Set alongside {@link interrupted} to discard late-arriving WS frames that
-   * belong to the just-interrupted bot turn.
-   *
-   * After `interrupt()` fires, the bot may still emit a few frames before
-   * processing the `clear` event (they are already in the TCP send buffer).
-   * Without this gate, those frames would accumulate in `inbox.queue` and
-   * pollute the NEXT turn's `drainAgentResponse` — the first `receiveAudio`
-   * of that turn would return stale audio from the previous reply.
-   *
-   * `bufferMulaw` checks this flag and silently drops inbound frames until
-   * the next `sendAudio` resets it (signaling the start of a new user turn).
-   */
-  private discardingInboundAudio = false;
+  private interruptPhase: "idle" | "interrupted" = "idle";
 
   constructor(init: PipecatAgentAdapterInit = {}) {
     super();
@@ -341,11 +327,10 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
 
   override async sendAudio(chunk: AudioChunk): Promise<void> {
     this.assertConnected();
-    // Clear stale interrupt flags from the previous turn. `interrupt()` is
+    // Clear stale interrupt state from the previous turn. `interrupt()` is
     // always followed by the recovery turn's `sendAudio`, making this the
-    // correct reset point for both per-turn signals.
-    this.interrupted = false;
-    this.discardingInboundAudio = false;
+    // correct reset point for the per-turn signal.
+    this.interruptPhase = "idle";
     const ws = this.ws!;
     const streamSid = this.streamSid!;
     const mulaw = pcm16At24kToMulaw8k(chunk.data);
@@ -372,12 +357,12 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
 
   override async receiveAudio(timeout: number): Promise<AudioChunk> {
     this.assertConnected();
-    // Interrupt gate: `interrupt()` set this flag after clearing `inbox.queue`.
+    // Interrupt gate: `interrupt()` set this phase after clearing `inbox.queue`.
     // Return an empty sentinel so `drainAgentResponse`'s while loop breaks and
-    // records only the audio received before the barge-in. Consume the flag so
+    // records only the audio received before the barge-in. Consume the phase so
     // subsequent calls (e.g. on the recovery turn) behave normally.
-    if (this.interrupted) {
-      this.interrupted = false;
+    if (this.interruptPhase === "interrupted") {
+      this.interruptPhase = "idle";
       return new AudioChunk({ data: new Uint8Array(0) });
     }
     const inbox = this.inbox!;
@@ -407,26 +392,17 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
   /**
    * Send a Twilio `clear` frame and truncate the JS-side receive buffer.
    *
-   * The `clear` frame signals the bot to stop sending outbound audio. For
-   * cooperating bots this stops further frames from being emitted. For bots
-   * that generate all TTS synchronously (e.g. the bundled Pipecat stub), all
-   * frames are already in the TCP receive buffer before the `clear` can arrive
-   * — so the wire signal alone cannot truncate the agent's recording.
-   *
-   * The JS-side truncation is handled by:
-   * 1. Clearing `inbox.queue` — discards buffered PCM chunks not yet consumed
+   * Side effects:
+   * 1. `inbox.queue` cleared — discards buffered PCM chunks not yet consumed
    *    by `drainAgentResponse`.
-   * 2. Clearing `mulawChunks` — discards any partially-accumulated µ-law that
-   *    hasn't been resampled and queued yet.
-   * 3. Waking the active `receiveAudio` waiter (if any) with an empty chunk so
+   * 2. `mulawChunks` cleared — discards partially-accumulated µ-law that
+   *    hasn't been resampled yet.
+   * 3. Active `receiveAudio` waiter (if any) woken with an empty chunk so
    *    `drainAgentResponse` breaks its loop immediately without a timeout.
-   * 4. Setting `interrupted = true` so the NEXT `receiveAudio` call (the one
-   *    after the microtask yield between drain iterations) also returns an empty
-   *    sentinel and the drain loop stops.
-   *
-   * Together these ensure `drainAgentResponse` records only the audio chunks
-   * received up to the barge-in instant, producing a genuinely truncated
-   * agent segment (ratio of truncated duration / median agent duration < 0.8).
+   * 4. `interruptPhase` set to `"interrupted"` — the NEXT `receiveAudio` call
+   *    returns an empty sentinel (stops the drain loop after the waiter wake),
+   *    and `bufferMulaw` discards late-arriving WS frames until the recovery
+   *    turn's `sendAudio` resets the phase to `"idle"`.
    */
   override async interrupt(): Promise<void> {
     this.assertConnected();
@@ -443,13 +419,9 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     // Discard partially-accumulated µ-law that hasn't been flushed to the queue yet.
     this.mulawChunks = [];
     this.mulawChunksByteLength = 0;
-    // Signal the NEXT receiveAudio call to return empty (stops the drain loop
-    // in the iteration after the one currently being resolved by the waiter wake).
-    this.interrupted = true;
-    // Drop any late-arriving WS frames from the bot until the recovery turn's
-    // sendAudio resets this flag. Without this, frames still in-flight when
-    // `clear` fires would pollute the next turn's inbox.
-    this.discardingInboundAudio = true;
+    // Gates both receiveAudio (empty sentinel) and bufferMulaw (frame discard)
+    // until the recovery turn's sendAudio resets to "idle".
+    this.interruptPhase = "interrupted";
   }
 
   // ---------------------------------------------------------------- internals
@@ -480,8 +452,8 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
   private bufferMulaw(bytes: Uint8Array): void {
     if (bytes.length === 0) return;
     // Drop frames from a just-interrupted bot turn so they don't pollute the
-    // next turn's drain. Cleared by sendAudio() at the start of each new user turn.
-    if (this.discardingInboundAudio) return;
+    // next turn's drain. Reset by sendAudio() at the start of each new user turn.
+    if (this.interruptPhase === "interrupted") return;
     this.mulawChunks.push(bytes);
     this.mulawChunksByteLength += bytes.length;
     if (this.mulawChunksByteLength >= RECV_BATCH_MULAW_BYTES) this.flushBufferedMulaw();

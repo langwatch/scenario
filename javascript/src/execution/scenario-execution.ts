@@ -1615,6 +1615,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Honour the configured delayRange (PRD §4.4): wait a sampled delay before
     // barging in, so the interruption lands partway into the agent's turn
     // rather than instantly. Deterministic via the injected `interruptRng`.
+    // No Math.floor here: the value goes directly to setTimeout (which accepts
+    // fractional ms and clamps internally). The floor in
+    // maybeScheduleInterruptedAgentTurn is intentional — that path stores the
+    // value as an integer-ms field before consuming it in fireUserInterrupt.
     const delaySeconds = config.sampleDelay(this.interruptRng);
     if (delaySeconds > 0) {
       await new Promise<void>((resolve) =>
@@ -1750,7 +1754,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       //       queue before the interrupt fires; placing the sleep before
       //       voiceifyText causes entry.done=true for those adapters.
       // Mirrors maybeInjectInterruption (scenario-execution.ts, text-only path).
-      if (bargeInDelayMs && bargeInDelayMs > 0) {
+      if ((bargeInDelayMs ?? 0) > 0) {
         await new Promise<void>((resolve) => setTimeout(resolve, bargeInDelayMs));
       }
 
