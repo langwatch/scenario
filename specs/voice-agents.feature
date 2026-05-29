@@ -537,8 +537,8 @@ Feature: Voice agent testing in Scenario SDK
   @unit @ts-bound @ts-result-ext
   Scenario: result.timeline lists VoiceEvent objects in order
     # Source §4.6, L600-615
-    Given a voice scenario with interruptions and a tool call
-    Then timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, tool_call, tool_result, user_interrupt, agent_stop_speaking in time order
+    Given a voice scenario with interruptions
+    Then timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, user_interrupt, agent_stop_speaking in time order
 
   @unit @ts-bound @ts-result-ext
   Scenario: result.latency exposes response-time statistics

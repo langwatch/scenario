@@ -37,7 +37,6 @@ export interface AudioSegment {
  *   boundaries.
  * - `agent_start_speaking` / `agent_stop_speaking` — TTS/stream playback
  *   boundaries for the agent.
- * - `tool_call` / `tool_result` — function-call invocation and return.
  * - `user_interrupt` — user barged in mid-agent-utterance.
  */
 export type VoiceEventType =
@@ -45,8 +44,6 @@ export type VoiceEventType =
   | "user_stop_speaking"
   | "agent_start_speaking"
   | "agent_stop_speaking"
-  | "tool_call"
-  | "tool_result"
   | "user_interrupt";
 
 /** Base fields shared by every {@link VoiceEvent} variant. */
@@ -76,30 +73,6 @@ interface VoiceEventAgentStart extends VoiceEventBase {
 }
 
 /**
- * Tool invocation event. `name` is the function name; `args` are the call
- * arguments.
- */
-interface VoiceEventToolCall extends VoiceEventBase {
-  type: "tool_call";
-  /** Name of the tool that was called. */
-  name?: string;
-  /** Arguments passed to the tool. */
-  args?: Record<string, unknown>;
-}
-
-/**
- * Tool result event. `name` is the function name; `result` is the return
- * value.
- */
-interface VoiceEventToolResult extends VoiceEventBase {
-  type: "tool_result";
-  /** Name of the tool that returned. */
-  name?: string;
-  /** Return value from the tool. */
-  result?: unknown;
-}
-
-/**
  * User barge-in. `metadata` typically carries `{ source, native, outcome }`.
  * Example: `{ source: "barge-in", native: true, outcome: "fired_after_speech" }`.
  */
@@ -111,19 +84,15 @@ interface VoiceEventUserInterrupt extends VoiceEventBase {
  * One timestamped event on the voice conversation timeline.
  *
  * This is a discriminated union — narrow on `event.type` to access
- * variant-specific fields like `latency` (agent_start_speaking), `name` +
- * `args` (tool_call), or `name` + `result` (tool_result).
+ * variant-specific fields like `latency` (agent_start_speaking).
  *
  * Common `metadata` fields by type:
  * - `user_interrupt`: `{ adapter: "PipecatAgentAdapter", native: true }`
  * - `user_start_speaking` / `user_stop_speaking` (VAD fallback): `{ source: "vad-fallback" }`
- * - `tool_call`: `{ call_id: "..." }`
  */
 export type VoiceEvent =
   | VoiceEventSpeakingBoundary
   | VoiceEventAgentStart
-  | VoiceEventToolCall
-  | VoiceEventToolResult
   | VoiceEventUserInterrupt;
 
 /** Summary of agent response timing across the conversation. */
