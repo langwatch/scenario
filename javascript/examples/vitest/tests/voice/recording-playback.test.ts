@@ -9,7 +9,7 @@
  * The `audioPlayback=true` live-device streaming is NOT exercised here (no
  * audio device in CI/headless); the load-bearing assertion is the dual-format
  * save. The segment recording is also committed under
- * `javascript/examples/vitest/recordings/recording_playback/`.
+ * `javascript/examples/vitest/outputs/recording_playback/`.
  *
  * Binds `@e2e @ts-recording-playback`. Env-gated on `OPENAI_API_KEY`.
  */

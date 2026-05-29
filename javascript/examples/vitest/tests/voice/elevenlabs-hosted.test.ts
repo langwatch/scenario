@@ -13,7 +13,7 @@
  *
  * Env-gated on `ELEVENLABS_API_KEY` (+ `ELEVENLABS_AGENT_ID` for hosted) and
  * `OPENAI_API_KEY` (judge LLM + user-sim TTS). Recordings land in
- * `javascript/examples/vitest/recordings/elevenlabs_hosted/` and `…/elevenlabs_branded/`.
+ * `javascript/examples/vitest/outputs/elevenlabs_hosted/` and `…/elevenlabs_branded/`.
  */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -10,7 +10,7 @@
  * `python/examples/voice/openai_realtime_agent.py`.
  *
  * On success the recording (full.wav + segments/ + manifest.json) lands in
- * `javascript/examples/vitest/recordings/openai_realtime_agent/` via {@link saveDemoRecording}.
+ * `javascript/examples/vitest/outputs/openai_realtime_agent/` via {@link saveDemoRecording}.
  *
  * Binds `@e2e @ts-openai-realtime-agent-demo` from `specs/voice-agents.feature`.
  * Env-gated on `OPENAI_API_KEY`: skipped when unset so CI without secrets
