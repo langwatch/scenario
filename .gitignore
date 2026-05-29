@@ -237,44 +237,52 @@ python/recordings/stt_swap/segments/
 # python/recordings/ above. Regenerated per local run by the @e2e demo tests
 # under javascript/examples/vitest/tests/voice/; the committed subset below
 # is the canonical "prove it" audio evidence. See
-# javascript/examples/vitest/outputs/README.md.
+# javascript/examples/vitest/outputs/README.md (parent index) and
+# javascript/examples/vitest/outputs/recordings/README.md (audio policy).
+#
+# Shape: outputs/ is the artifact parent (room for traces/, logs/,
+# screenshots/ later). recordings/ is the audio subdir — only it is
+# whitelisted today; new artifact siblings will get their own block when added.
 javascript/examples/vitest/outputs/*
 !javascript/examples/vitest/outputs/README.md
+!javascript/examples/vitest/outputs/recordings/
+javascript/examples/vitest/outputs/recordings/*
+!javascript/examples/vitest/outputs/recordings/README.md
 # Core demos — commit full.wav + manifest.json + per-turn segments/.
-!javascript/examples/vitest/outputs/openai_realtime_agent/
-!javascript/examples/vitest/outputs/openai_realtime_user/
-!javascript/examples/vitest/outputs/elevenlabs_hosted/
-!javascript/examples/vitest/outputs/elevenlabs_branded/
-!javascript/examples/vitest/outputs/gemini_live/
+!javascript/examples/vitest/outputs/recordings/openai_realtime_agent/
+!javascript/examples/vitest/outputs/recordings/openai_realtime_user/
+!javascript/examples/vitest/outputs/recordings/elevenlabs_hosted/
+!javascript/examples/vitest/outputs/recordings/elevenlabs_branded/
+!javascript/examples/vitest/outputs/recordings/gemini_live/
 # Additional demos — commit only full.wav + manifest.json (skip segments/
 # to keep the tree thin, mirroring the Python additional-demo policy).
-!javascript/examples/vitest/outputs/composable_stt_swap/
-javascript/examples/vitest/outputs/composable_stt_swap/segments/
-!javascript/examples/vitest/outputs/recording_playback/
-javascript/examples/vitest/outputs/recording_playback/segments/
-!javascript/examples/vitest/outputs/voice_text_parity/
-javascript/examples/vitest/outputs/voice_text_parity/segments/
-!javascript/examples/vitest/outputs/pipecat_ws/
-javascript/examples/vitest/outputs/pipecat_ws/segments/
+!javascript/examples/vitest/outputs/recordings/composable_stt_swap/
+javascript/examples/vitest/outputs/recordings/composable_stt_swap/segments/
+!javascript/examples/vitest/outputs/recordings/recording_playback/
+javascript/examples/vitest/outputs/recordings/recording_playback/segments/
+!javascript/examples/vitest/outputs/recordings/voice_text_parity/
+javascript/examples/vitest/outputs/recordings/voice_text_parity/segments/
+!javascript/examples/vitest/outputs/recordings/pipecat_ws/
+javascript/examples/vitest/outputs/recordings/pipecat_ws/segments/
 # Interruption demos — the flagship voice capability. Per-adapter interruption
 # demos (EL / Gemini) commit segments (match python/recordings); the
 # script-driven ones commit full.wav + manifest only.
-!javascript/examples/vitest/outputs/interruption_recovery/
-javascript/examples/vitest/outputs/interruption_recovery/segments/
-!javascript/examples/vitest/outputs/random_interruptions/
-javascript/examples/vitest/outputs/random_interruptions/segments/
-!javascript/examples/vitest/outputs/elevenlabs_interruption/
+!javascript/examples/vitest/outputs/recordings/interruption_recovery/
+javascript/examples/vitest/outputs/recordings/interruption_recovery/segments/
+!javascript/examples/vitest/outputs/recordings/random_interruptions/
+javascript/examples/vitest/outputs/recordings/random_interruptions/segments/
+!javascript/examples/vitest/outputs/recordings/elevenlabs_interruption/
 # gemini_live_interruption: full.wav (8kHz) + manifest only — Gemini's detailed
 # replies make individual segment WAVs exceed the 1MB cap.
-!javascript/examples/vitest/outputs/gemini_live_interruption/
-javascript/examples/vitest/outputs/gemini_live_interruption/segments/
+!javascript/examples/vitest/outputs/recordings/gemini_live_interruption/
+javascript/examples/vitest/outputs/recordings/gemini_live_interruption/segments/
 # Persona / pain-pattern + greeting + pipecat-scenario demos — full.wav +
 # manifest only (additional-demo policy).
-!javascript/examples/vitest/outputs/basic_greeting/
-javascript/examples/vitest/outputs/basic_greeting/segments/
-!javascript/examples/vitest/outputs/angry_customer/
-javascript/examples/vitest/outputs/angry_customer/segments/
-!javascript/examples/vitest/outputs/background_handoff/
-javascript/examples/vitest/outputs/background_handoff/segments/
-!javascript/examples/vitest/outputs/pipecat_scenario/
-javascript/examples/vitest/outputs/pipecat_scenario/segments/
+!javascript/examples/vitest/outputs/recordings/basic_greeting/
+javascript/examples/vitest/outputs/recordings/basic_greeting/segments/
+!javascript/examples/vitest/outputs/recordings/angry_customer/
+javascript/examples/vitest/outputs/recordings/angry_customer/segments/
+!javascript/examples/vitest/outputs/recordings/background_handoff/
+javascript/examples/vitest/outputs/recordings/background_handoff/segments/
+!javascript/examples/vitest/outputs/recordings/pipecat_scenario/
+javascript/examples/vitest/outputs/recordings/pipecat_scenario/segments/

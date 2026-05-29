@@ -6,7 +6,7 @@
  * → judge (two full user↔agent exchanges after the greeting). Mirrors
  * `python/examples/voice/basic_greeting.py`.
  *
- * On success the recording lands in `javascript/examples/vitest/outputs/basic_greeting/`
+ * On success the recording lands in `javascript/examples/vitest/outputs/recordings/basic_greeting/`
  * (full.wav + manifest).
  *
  * Binds `@e2e @ts-basic-greeting-demo`. Env-gated on `OPENAI_API_KEY` AND a

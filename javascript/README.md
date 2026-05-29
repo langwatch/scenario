@@ -271,7 +271,7 @@ expect(result.success).toBe(true);
 
 - **Full TypeScript voice guide:** [scenario.langwatch.ai/voice/getting-started](https://scenario.langwatch.ai/voice/getting-started) — the real public API, mirroring the worked examples.
 - **Capability matrix (TS):** [`docs/voice/capability-matrix.md`](./docs/voice/capability-matrix.md) — per-adapter features, wire formats, and the errors that reference them.
-- **Recorded demos (audio evidence):** [`examples/vitest/outputs/README.md`](./examples/vitest/outputs/README.md) — `full.wav` + `manifest.json` per `@e2e` demo.
+- **Recorded demos (audio evidence):** [`examples/vitest/outputs/recordings/README.md`](./examples/vitest/outputs/recordings/README.md) — `full.wav` + `manifest.json` per `@e2e` demo.
 
 > The judge and the user simulator use LLMs — even for an ElevenLabs-only or Twilio-only test, an `OPENAI_API_KEY` is required for those (or swap them via `run({ voice })`).
 

@@ -10,7 +10,7 @@
  * bot IS LLM-backed, but here we only assert the TRANSPORT round-trips audio
  * both ways across multiple turns. Mirrors `python/examples/voice/pipecat_scenario.py`.
  *
- * On success the recording lands in `javascript/examples/vitest/outputs/pipecat_scenario/`
+ * On success the recording lands in `javascript/examples/vitest/outputs/recordings/pipecat_scenario/`
  * (full.wav + manifest).
  *
  * Binds `@e2e @ts-pipecat-scenario-demo`. Env-gated on `OPENAI_API_KEY` AND a

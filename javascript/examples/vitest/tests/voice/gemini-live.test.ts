@@ -7,7 +7,7 @@
  * exchanges), and a `judgeAgent` evaluates — all via the documented
  * `scenario.run()` entrypoint. Mirrors `python/examples/voice/gemini_live.py`.
  *
- * On success the recording lands in `javascript/examples/vitest/outputs/gemini_live/`.
+ * On success the recording lands in `javascript/examples/vitest/outputs/recordings/gemini_live/`.
  *
  * Binds `@e2e @ts-gemini-live-e2e`. Env-gated on `GEMINI_API_KEY` (or
  * `GOOGLE_API_KEY`) for the live session + `OPENAI_API_KEY` for the user-sim

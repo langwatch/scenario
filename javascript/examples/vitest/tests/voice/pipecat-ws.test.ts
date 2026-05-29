@@ -8,7 +8,7 @@
  *
  * The bot must be running at PIPECAT_BOT_URL (default ws://localhost:8765/stream).
  * Bring it up with `make voice-pipecat-up` (exports OPENAI_API_KEY first — see
- * the demo recipe). Recording lands in `javascript/examples/vitest/outputs/pipecat_ws/`.
+ * the demo recipe). Recording lands in `javascript/examples/vitest/outputs/recordings/pipecat_ws/`.
  *
  * Binds `@e2e @ts-pipecat-demo`. Env-gated on `OPENAI_API_KEY` AND a reachable
  * bot socket (`SCENARIO_PIPECAT_BOT_UP=1`, set by the runner once the bot is up).
