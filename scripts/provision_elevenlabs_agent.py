@@ -6,7 +6,7 @@ Provision (or reuse) an ElevenLabs Conversational AI test agent.
 are a developer using Scenario to test your own deployed ElevenLabs agent,
 you already have an ``agent_id`` from the ElevenLabs dashboard — set it as
 ``ELEVENLABS_AGENT_ID`` in your ``.env`` and skip this script entirely.
-See docs/voice/happy-path-elevenlabs.md.
+See https://scenario-docs.langwatch.ai/voice/happy-path-elevenlabs.
 
 This script exists so the SDK's own ``@e2e`` demos have a throwaway agent
 to target in CI without manual dashboard clicks.
