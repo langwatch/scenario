@@ -93,7 +93,7 @@ digital silence — clean TTS is ~0).
 > `[demo] <name> → skipped (<reason>)` line in the test log — never faked.
 
 The `@ts-e2e` round-trip **gate** (`tests/voice/ts-e2e-roundtrip.test.ts`,
-`docs/voice/internal-design.md` §8) does not commit a recording — it is a
+`docs/adr/003-voice-internal-design.md` §8) does not commit a recording — it is a
 pass/fail fidelity assertion (utterance survives TTS → message bus → STT),
 the regression guard for the Gap #3 audio-format bug.
 
