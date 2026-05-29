@@ -198,14 +198,6 @@ export class VoiceRecordingRuntime implements VoiceRecording {
           if (evt.type === "agent_start_speaking" && evt.latency !== undefined) {
             e.latency = evt.latency;
           }
-          if (evt.type === "tool_call") {
-            if (evt.name !== undefined) e.name = evt.name;
-            if (evt.args !== undefined) e.args = evt.args;
-          }
-          if (evt.type === "tool_result") {
-            if (evt.name !== undefined) e.name = evt.name;
-            if (evt.result !== undefined) e.result = evt.result;
-          }
           return e;
         });
 

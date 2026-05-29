@@ -207,13 +207,11 @@ describeFeature(
       ({ Given, Then }) => {
         let result: ScenarioResult;
 
-        Given("a voice scenario with interruptions and a tool call", () => {
+        Given("a voice scenario with interruptions", () => {
           const timeline: VoiceEvent[] = [
             { time: 0.0, type: "user_start_speaking" },
             { time: 0.1, type: "user_stop_speaking" },
             { time: 0.12, type: "agent_start_speaking", latency: 0.02 },
-            { time: 0.5, type: "tool_call", name: "lookup" },
-            { time: 0.7, type: "tool_result", name: "lookup" },
             { time: 1.2, type: "user_interrupt", metadata: { native: true } },
             { time: 1.5, type: "agent_stop_speaking" },
           ];
@@ -221,15 +219,13 @@ describeFeature(
         });
 
         Then(
-          "timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, tool_call, tool_result, user_interrupt, agent_stop_speaking in time order",
+          "timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, user_interrupt, agent_stop_speaking in time order",
           () => {
             const types = (result.timeline ?? []).map((e) => e.type);
             expect(types).toEqual([
               "user_start_speaking",
               "user_stop_speaking",
               "agent_start_speaking",
-              "tool_call",
-              "tool_result",
               "user_interrupt",
               "agent_stop_speaking",
             ]);

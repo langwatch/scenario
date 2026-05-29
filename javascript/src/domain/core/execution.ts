@@ -70,8 +70,8 @@ export interface ScenarioResult {
 
   /**
    * Voice-only: timestamped events on the voice conversation timeline
-   * (user_start_speaking, agent_start_speaking, user_interrupt, tool_call,
-   * etc.). Absent for text-only runs (back-compat).
+   * (user_start_speaking, agent_start_speaking, user_interrupt, etc.).
+   * Absent for text-only runs (back-compat).
    */
   timeline?: VoiceEvent[];
 
