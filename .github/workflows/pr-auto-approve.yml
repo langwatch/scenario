@@ -258,8 +258,15 @@ jobs:
             # Treat as oversized — downstream "Fail fast for oversized diffs" handles
             # this by setting qualifies=false and exiting cleanly.
             if grep -q "diff exceeded the maximum number of lines" /tmp/pr_diff_err.txt; then
+              ERR_MSG=$(head -c 500 /tmp/pr_diff_err.txt 2>/dev/null || echo "(no stderr captured)")
               echo "Diff exceeds GitHub API 20k-line limit; treating as oversized."
               echo "oversized=true" >> "$GITHUB_OUTPUT"
+              # Use a heredoc so multi-line stderr doesn't corrupt GITHUB_OUTPUT format.
+              {
+                printf 'oversized_reason<<__EOF_OVERSIZE__\n'
+                printf 'Diff too large to fetch via GitHub API (fetch error: %s)\n' "$ERR_MSG"
+                printf '__EOF_OVERSIZE__\n'
+              } >> "$GITHUB_OUTPUT"
               exit 0
             else
               cat /tmp/pr_diff_err.txt >&2
@@ -273,6 +280,12 @@ jobs:
           if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
             echo "PR diff is ${DIFF_SIZE} chars (> ${DIFF_LIMIT}); too large for automated evaluation."
             echo "oversized=true" >> "$GITHUB_OUTPUT"
+            # Use a heredoc so the reason string doesn't corrupt GITHUB_OUTPUT format.
+            {
+              printf 'oversized_reason<<__EOF_OVERSIZE__\n'
+              printf 'Diff too large for automated evaluation (%s chars exceeds %s-char limit)\n' "$DIFF_SIZE" "$DIFF_LIMIT"
+              printf '__EOF_OVERSIZE__\n'
+            } >> "$GITHUB_OUTPUT"
           else
             echo "oversized=false" >> "$GITHUB_OUTPUT"
             cp /tmp/pr_diff.txt /tmp/pr_diff_truncated.txt
@@ -281,11 +294,21 @@ jobs:
       - name: Fail fast for oversized diffs
         id: oversized
         if: steps.pr-data.outputs.oversized == 'true'
+        # Pass oversized_reason via env: (not ${{ }} direct expansion in run:) — the
+        # documented GitHub Actions pattern for shell-injection hardening even when the
+        # source is trusted (gh CLI stderr). See:
+        # https://docs.github.com/en/actions/learn-github-actions/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+        env:
+          OVERSIZED_REASON: ${{ steps.pr-data.outputs.oversized_reason }}
         run: |
           {
             echo "qualifies=false"
             echo "scope=Diff too large for automated evaluation"
-            echo "reasoning=This PR's diff exceeds the size limit for automated low-risk evaluation. Manual review required."
+            # Use heredoc for reasoning since OVERSIZED_REASON can be multi-line
+            # (gh CLI stderr) and would otherwise corrupt the GITHUB_OUTPUT format.
+            printf 'reasoning<<__EOF_REASON__\n'
+            printf 'This PR'\''s diff could not be evaluated automatically: %s. Manual review required.\n' "$OVERSIZED_REASON"
+            printf '__EOF_REASON__\n'
           } >> "$GITHUB_OUTPUT"
 
       - name: Check for restricted paths
