@@ -252,7 +252,20 @@ jobs:
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json title,body --template '{{.title}}' > /tmp/pr_title.txt
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json title,body --template '{{.body}}' > /tmp/pr_body.txt
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path' > /tmp/pr_files.txt
-          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr_diff.txt
+
+          if ! gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr_diff.txt 2>/tmp/pr_diff_err.txt; then
+            # GitHub PR-diff API returns HTTP 406 when the diff exceeds 20k lines.
+            # Treat as oversized — downstream "Fail fast for oversized diffs" handles
+            # this by setting qualifies=false and exiting cleanly.
+            if grep -q "diff exceeded the maximum number of lines" /tmp/pr_diff_err.txt; then
+              echo "Diff exceeds GitHub API 20k-line limit; treating as oversized."
+              echo "oversized=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              cat /tmp/pr_diff_err.txt >&2
+              exit 1
+            fi
+          fi
 
           # Fail closed if diff exceeds model window — large PRs could hide risky changes.
           DIFF_LIMIT=100000
