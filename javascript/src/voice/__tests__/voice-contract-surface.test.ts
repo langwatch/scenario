@@ -185,6 +185,7 @@ describeFeature(
             expect(typeof caps.streamingTranscripts).toBe("boolean");
             expect(typeof caps.nativeVad).toBe("boolean");
             expect(typeof caps.dtmf).toBe("boolean");
+            expect(typeof caps.interruption).toBe("boolean");
             expect(Array.isArray(caps.inputFormats)).toBe(true);
             expect(Array.isArray(caps.outputFormats)).toBe(true);
 
