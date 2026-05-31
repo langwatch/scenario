@@ -14,7 +14,7 @@ overrides:
   rollup@>=4.0.0 <4.59.0: '>=4.59.0'
   trim-newlines@<4.0.1: '>=4.0.1'
   flatted@<3.4.2: '>=3.4.2'
-  liquidjs@<10.25.7: '>=10.25.7'
+  liquidjs@<10.26.0: '>=10.26.0'
   path-to-regexp@<6.3.1: '>=6.3.1'
   path-to-regexp@>=8.0.0 <8.4.0: '>=8.4.0'
   picomatch@<2.3.2: 2.3.2
@@ -3756,8 +3756,8 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
-  liquidjs@10.25.7:
-    resolution: {integrity: sha512-rPCjJLiD4eDhQjvv964AeXFC+HbeYBbZrd7Z82Q6hqv1lX7G+5w4SJcKLn9CAAAwHI4aS3dTdo083UB79K3pDA==}
+  liquidjs@10.27.0:
+    resolution: {integrity: sha512-tw/OA59K7aIBlMKIrKlumr37fiZUheShVHXY8cVctWisgY1p9mc5hreOvlreoS0wTiwlWk14Ya7305c2a/Cg5w==}
     engines: {node: '>=16'}
     hasBin: true
 
@@ -8860,7 +8860,7 @@ snapshots:
       dotenv: 17.4.2
       js-yaml: 4.1.1
       langchain: 0.3.37(@langchain/core@0.3.80(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.212.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.1))(openai@6.35.0(ws@8.20.0)(zod@3.25.76))(ws@8.20.0))(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.212.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.1))(handlebars@4.7.9)(openai@6.35.0(ws@8.20.0)(zod@3.25.76))(ws@8.20.0)
-      liquidjs: 10.25.7
+      liquidjs: 10.27.0
       open: 11.0.0
       openapi-fetch: 0.16.0
       ora: 5.4.1
@@ -8983,7 +8983,7 @@ snapshots:
 
   lines-and-columns@1.2.4: {}
 
-  liquidjs@10.25.7:
+  liquidjs@10.27.0:
     dependencies:
       commander: 10.0.1
 
