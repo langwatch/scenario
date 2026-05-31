@@ -208,17 +208,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# AC-1.11: Legacy workflows still exist (not deleted)
+# AC-1.11: REMOVED — this check asserted approval-or-hotfix.yml and
+# low-risk-evaluation.yml still existed (PR #1 must not delete them). Both
+# workflows were intentionally deleted in PR #4 of the gate-swap sequence, so
+# the assertion is no longer meaningful on main. Mirrors the same removal in
+# specs/langwatch-pr-gate-pattern.feature (AC-1.11 coverage-map note).
 # ---------------------------------------------------------------------------
-echo ""
-echo "--- AC-1.11: Legacy workflows untouched ---"
-for f in "approval-or-hotfix.yml" "low-risk-evaluation.yml"; do
-  if [ -f "$REPO_ROOT/.github/workflows/$f" ]; then
-    pass "AC-1.11 $f still exists"
-  else
-    fail "AC-1.11 $f missing (should not have been deleted)"
-  fi
-done
 
 # ---------------------------------------------------------------------------
 # AC-1.12: No branch protection API calls in the new workflow
