@@ -174,7 +174,7 @@ describeFeature(
         });
 
         And(
-          "it declares: streaming_transcripts, native_vad, dtmf, input_formats, output_formats",
+          "it declares: streaming_transcripts, native_vad, dtmf, interruption, input_formats, output_formats",
           () => {
             const caps = adapter.capabilities;
             expect(typeof caps.streamingTranscripts).toBe("boolean");
