@@ -13,8 +13,8 @@ Public surface:
     - AudioSegment — per-speaker slice of the recording
     - synthesize / STTProvider / set_stt_provider / get_stt_provider —
       TTS + STT plumbing
-    - transcribe_segments — post-hoc STT over a VoiceRecording (AC-15 judge
-      fallback path for non-multimodal judges, proposal §4.3)
+    - transcribe_segments — post-hoc STT over a VoiceRecording (judge
+      fallback path for non-multimodal judges)
     - WebRTCVadFallback — SDK-side VAD for adapters without native VAD
     - create_audio_message / extract_audio / message_has_audio — message helpers
 """

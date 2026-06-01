@@ -385,7 +385,7 @@ class JudgeAgent(AgentAdapter):
             return self.include_traces
         return otel_configured
 
-    # --------------------------------------------- AC-15 helpers (§4.3 fallback)
+    # --------------------------------- audio-transcription fallback helpers
 
     @staticmethod
     def _conversation_has_audio(messages: List[Any]) -> bool:
@@ -448,8 +448,8 @@ class JudgeAgent(AgentAdapter):
         )
 
         # Build transcript and traces digest
-        # AC-15 (§4.3): when the judge model can't ingest audio, transcribe
-        # agent audio and substitute text so the judge can evaluate the content.
+        # When the judge model can't ingest audio, transcribe agent audio and
+        # substitute text so the judge can evaluate the content.
         conversation_has_audio = self._conversation_has_audio(input.messages)
         working_messages = input.messages
         if conversation_has_audio and not self.effective_include_audio(conversation_has_audio):
@@ -1020,7 +1020,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
 
 
 # --------------------------------------------------------------------- #
-# AC-15 helper — module-level to keep JudgeAgent clean                  #
+# Transcript-enrichment helper — module-level to keep JudgeAgent clean  #
 # --------------------------------------------------------------------- #
 
 

@@ -331,53 +331,8 @@ Feature: Adopt langwatch/langwatch PR gate pattern
     Then the bot-APPROVE + `*-complete` aggregator gate runs end-to-end
     And neither `approval-or-hotfix` nor `low-risk-evaluation` appears in the PR's workflow run history
 
-  # --- AC Coverage Map ---
-  # Cross-cutting
-  # AC-X1: "No re-actors/alls-green; inline jq aggregator" -> Scenario: No third-party alls-green action is introduced anywhere
-  # AC-X2: "All actions pinned to commit SHAs" -> Scenario: All GitHub Action references in new or modified workflows are pinned to a full commit SHA
-  # AC-X3: "Reuse LOW_RISK_OPENAI_API_KEY secret" -> Scenario: The existing OpenAI secret name is reused without rotation
-  # AC-X4: "No PR touches .github/LOW_RISK_PULL_REQUESTS.md" -> Scenario: Policy content is untouched across the sequence
-  # AC-X5: "Each PR independently revertable" -> Scenario: Each PR in the sequence is independently revertable
-  #
-  # PR #1
-  # AC-1.1: "pr-auto-approve.yml on pull_request_target, types list" -> Scenario: pr-auto-approve.yml is added with the expected pull_request_target trigger
-  # AC-1.2: "preflight skips fork PRs" -> Scenario: preflight job skips fork PRs
-  # AC-1.3: "Decision tree order preserved verbatim" -> Scenario: Decision tree order is preserved verbatim from the reference (plus the four following scenarios that cover branches a-d individually)
-  # AC-1.4: "evaluate checks out base SHA" -> Scenario: Evaluate job checks out the base SHA, not the PR head
-  # AC-1.5: "Prompt-injection mitigation (delimiters + system prompt)" -> Scenarios: Prompt-injection delimiters wrap untrusted PR title and body; System prompt warns the model that PR title/body/diff are untrusted
-  # AC-1.6: "Restricted-paths regex tuned for scenario (no prisma/)" -> Scenario: Restricted-paths regex matches the scenario-tuned path set
-  # AC-1.7: "DIFF_LIMIT=100000 oversized handling" -> Scenario: Oversized-diff threshold matches the reference
-  # AC-1.8: "qualifies=true -> APPROVE + label + comment with reasoning verbatim" -> Scenario: Qualifying PR receives bot APPROVE, label, and comment with reasoning verbatim
-  # AC-1.9: "qualifies=false -> remove label + comment + no review" -> Scenario: Non-qualifying PR has label removed, comment posted, and no review submitted
-  # AC-1.10: "firefighting unlabeled -> dismiss-firefighting-approval job" -> Scenario: Removing the firefighting label dismisses the bot's firefighting approval
-  # AC-1.11: REMOVED — covered the diff of PR #1 not modifying approval-or-hotfix.yml + low-risk-evaluation.yml; both workflows were deleted in PR #4 so the assertion is no longer meaningful on main.
-  # AC-1.12: "branch protection unchanged in PR #1" -> Scenario: PR #1 does not modify branch protection on main
-  # AC-1.13: "concurrency group + cancel-in-progress" -> Scenario: PR #1 uses the expected concurrency keying
-  # AC-1.14: "permissions: pull-requests write, contents read, no others" -> Scenario: PR #1 declares only the minimum required permissions
-  # AC-1.15: "Evidence: bot APPROVE on >=2 subsequent PRs" -> Scenario: Bot submits APPROVE reviews on at least 2 subsequent PRs after PR #1 merges
-  #
-  # PR #2
-  # AC-2.1: "detect-changes composite contract" -> Scenario: detect-changes composite action is added with the expected contract
-  # AC-2.2: "python-ci.yml rewrite" -> Scenario: python-ci.yml is rewritten with always-run + changes job + aggregator
-  # AC-2.3: "javascript-ci.yml rewrite + draft-PR guard placement" -> Scenario: javascript-ci.yml is rewritten with the same shape and draft-PR guard preserved
-  # AC-2.4: "docs-ci.yml rewrite" -> Scenario: docs-ci.yml is rewritten with the same shape
-  # AC-2.5: "concurrency keying boy-scout fix" -> Scenario: Concurrency keying is fixed so main pushes no longer cancel each other
-  # AC-2.6: "test command order preserved" -> Scenario: Rewritten workflows preserve the existing test command order
-  # AC-2.7: "branch protection unchanged in PR #2" -> Scenario: PR #2 does not modify branch protection on main
-  # AC-2.8: "Evidence: green on main no-op + python-only PR shows all aggregators green" -> Scenario: Aggregator jobs report success on a no-op main push and on a python-only PR
-  #
-  # PR #3
-  # AC-3.1: "Single PR with gh api script or documented payload" -> Scenario: Branch protection update lands as a single bundled PR with the exact payload
-  # AC-3.2: "Required contexts: python-complete + javascript-complete; no docs-complete; no check-approval-or-label" -> Scenario: Required status checks list contains only python-complete and javascript-complete
-  # AC-3.3: "required_approving_review_count: 1" -> Scenario: required_approving_review_count is raised to 1
-  # AC-3.4: "dismiss_stale_reviews: true unchanged" -> Scenario: dismiss_stale_reviews remains true
-  # AC-3.5: "bypass list includes rogeriochaves AND drewdrewthis, in same PR, applied first" -> Scenario: Bypass list update lands in the same PR and applies first within the API call
-  # AC-3.6: "enforce_admins: false unchanged" -> Scenario: enforce_admins remains false
-  # AC-3.7: "Evidence: next non-.github PR merges only after CI green + APPROVE review" -> Scenario: The first post-PR-#3 non-.github PR only merges with green CI and an APPROVE review
-  #
-  # PR #4
-  # AC-4.1: "approval-or-hotfix.yml deleted" -> Scenario: approval-or-hotfix.yml is deleted in PR #4
-  # AC-4.2: "low-risk-evaluation.yml deleted" -> Scenario: low-risk-evaluation.yml is deleted in PR #4
-  # AC-4.3: "No remaining file references deleted workflow names" -> Scenario: No remaining .github file references the deleted workflow names
-  # AC-4.4: "Branch protection still requires python-complete + javascript-complete" -> Scenario: Branch protection state from PR #3 is preserved
-  # AC-4.5: "Evidence: full new gate end-to-end, no traces of deleted workflows" -> Scenario: The first post-PR-#4 PR exercises the new gate end-to-end with no traces of the deleted workflows
+  # Coverage note: the scenarios above are grouped to mirror the rollout
+  # sequence — cross-cutting guarantees plus one block per PR (PR #1
+  # pr-auto-approve workflow, PR #2 detect-changes + CI rewrites, PR #3
+  # branch-protection update, PR #4 legacy-workflow deletion). Each scenario
+  # name is self-describing; consult the scenarios directly for coverage.

@@ -824,7 +824,7 @@ Feature: Voice agent testing in Scenario SDK
     And no "forceUserRole" style workaround exists anywhere in the Python SDK
 
   # ======================================================================
-  # AC-14 — Voice demo recordings (per-segment + full + manifest)
+  # Voice demo recordings (per-segment + full + manifest)
   # ======================================================================
 
   @unit
@@ -850,7 +850,7 @@ Feature: Voice agent testing in Scenario SDK
     And the upload step runs even when prior steps fail (if: always())
 
   # ======================================================================
-  # AC-15 — Auto-transcribe agent audio for non-multimodal judges
+  # Auto-transcribe agent audio for non-multimodal judges
   # ======================================================================
 
   @unit
@@ -875,7 +875,7 @@ Feature: Voice agent testing in Scenario SDK
     And segment transcripts remain null
 
   # ======================================================================
-  # AC-16 — Audio messages render cleanly in the terminal
+  # Audio messages render cleanly in the terminal
   # ======================================================================
 
   @unit
