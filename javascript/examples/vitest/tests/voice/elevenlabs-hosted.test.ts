@@ -84,22 +84,22 @@ if (hasHostedKey || hasComposableKey) {
               // with agent() so the greeting drains before user audio hits the
               // wire (mirrors the Python twin's script).
               //
-              // SINGLE scripted exchange (greeting → user → agent) — NOT extended
-              // to a second scripted user turn. The hosted ConvAI transport is
-              // server-VAD-driven: it segments turns from the *audio stream*, and
-              // a scripted second user turn after the agent has already replied
-              // does not reliably re-engage the server's turn-taking — the next
-              // `agent()` receive then times out (`receiveAudio timed out`,
-              // verified empirically). The MULTI-TURN ElevenLabs proof lives in
-              // the in-process `elevenlabs_branded` demo below, which has full
-              // turn control. This demo proves the live hosted-ConvAI WS path.
+              // MULTI-TURN (≥2 scripted exchanges) over the LIVE hosted ConvAI
+              // socket — un-gated by #567. The adapter now commits each user turn
+              // with an explicit `user_message` event instead of leaning on
+              // mic-style server VAD, so a scripted 2nd user turn after the agent
+              // has already replied reliably re-engages the next agent response
+              // (the old single-exchange limit + `receiveAudio timed out` are
+              // fixed). This is the load-bearing live proof for #567.
               script: [
                 scenario.agent(),
                 scenario.user("Hello, I have a question about my account."),
                 scenario.agent(),
+                scenario.user("Thanks. Can you tell me your support hours?"),
+                scenario.agent(),
                 scenario.judge(),
               ],
-              maxTurns: 6,
+              maxTurns: 8,
             });
             recordingDir = saveDemoRecording(result.audio, "elevenlabs_hosted");
           });
@@ -119,16 +119,24 @@ if (hasHostedKey || hasComposableKey) {
             },
           );
 
-          And("result.success is True after one turn", () => {
+          And("result.success is True after ≥2 exchanges", () => {
             if (!hasHostedKey) return;
             expect(recordingDir, "recording was not written").not.toBeNull();
             console.log(
               `[demo] elevenlabs_hosted → ${recordingDir} ` +
                 `(success=${result!.success}, ${result!.audio!.segments.length} segments)`,
             );
-            // The judge verdict is informative but EL hosted turn-taking is
-            // server-VAD-driven; the load-bearing proof is real audio over the
-            // live socket. Surface success for the reviewer.
+            // #567: the explicit user_message turn-commit re-engages the agent
+            // on the scripted 2nd user turn, so the live socket now carries
+            // multiple agent audio turns (greeting + ≥2 responses). Assert the
+            // multi-turn shape — more segments than the old single-exchange
+            // limit could produce — as the load-bearing live proof.
+            expect(
+              result!.audio!.segments.length,
+              "expected ≥3 audio segments (greeting + 2 agent responses) — " +
+                "a scripted 2nd-turn re-engagement is the #567 fix",
+            ).toBeGreaterThanOrEqual(3);
+            // The judge verdict is informative; surface success for the reviewer.
             expect(result!.success, `judge verdict: ${result!.reasoning}`).toBe(true);
           });
         },

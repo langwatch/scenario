@@ -51,12 +51,36 @@ export const ELEVENLABS_CONVAI_URL_TEMPLATE =
   "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}";
 
 /**
- * Empirical tail: EL ConvAI stops responding to subsequent turns unless the
- * client signals end-of-turn via silence padding. 16000 zero bytes at 24 kHz
- * = ~333 ms silence — reliable middle ground between "no tail" (greeting only)
- * and "double tail" (mid-conversation stalls). See Python adapter docstring.
+ * Default silence-tail length for the legacy {@link TurnCommitMode} `"silence"`
+ * path. 16000 zero bytes at 24 kHz = ~333 ms silence — the empirical middle
+ * ground that historically let the *greeting → first user turn* exchange work
+ * (see Python adapter docstring).
+ *
+ * This tail is NOT reliable for scripted turn 2+ (issue #567): EL ConvAI 2.0's
+ * end-of-turn is a hybrid VAD + deep-learning turn-detector (prosody, rhythm,
+ * micro-pauses), not a pure silence threshold, so a fixed zero-byte blob does
+ * not deterministically trip it on a non-mic stream. The default commit mode is
+ * therefore {@link TurnCommitMode} `"text"`; the silence tail survives as an
+ * opt-in for callers who want the pure server-VAD audio path.
  */
 const SILENCE_TAIL_BYTES = 16000;
+
+/**
+ * How {@link ElevenLabsAgentAdapter.sendAudio} signals end-of-turn to EL ConvAI.
+ *
+ * - `"text"` (default): after streaming the user audio, send an explicit
+ *   `{"type":"user_message","text":<transcript>}` — the only client→server
+ *   event EL's documented protocol exposes that *deterministically* commits a
+ *   turn and forces an agent response, without relying on mic-style server VAD
+ *   (issue #567). Requires a transcript on the outgoing {@link AudioChunk}
+ *   (the voice runtime threads the `scenario.user("…")` script text through as
+ *   the chunk transcript); when absent, falls back to the silence tail.
+ * - `"silence"`: legacy behavior — stream the audio then a fixed
+ *   {@link ElevenLabsAgentAdapterOptions.silenceTailBytes} zero-byte tail and
+ *   hope server VAD fires. Kept for the pure-audio path and parity with the
+ *   pre-#567 transport, but unreliable for scripted turn 2+.
+ */
+export type TurnCommitMode = "text" | "silence";
 
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
@@ -71,6 +95,19 @@ export interface ElevenLabsAgentAdapterOptions {
   systemPromptOverride?: string;
   /** Per-session first message override. */
   firstMessageOverride?: string;
+  /**
+   * How `sendAudio` commits a user turn. Defaults to `"text"` (explicit
+   * `user_message` commit) so scripted turn 2+ reliably re-engages an agent
+   * response (issue #567). Set to `"silence"` for the legacy pure-audio
+   * server-VAD path. See {@link TurnCommitMode}.
+   */
+  turnCommitMode?: TurnCommitMode;
+  /**
+   * Zero-byte silence-tail length appended after user audio. Only consulted on
+   * the `"silence"` commit path (and the `"text"` fallback when no transcript
+   * is available). Defaults to {@link SILENCE_TAIL_BYTES} (~333 ms @ 24 kHz).
+   */
+  silenceTailBytes?: number;
   /**
    * WebSocket factory — injected for tests. Defaults to the `ws` package's
    * `WebSocket` constructor. Production callers should leave this unset.
@@ -116,6 +153,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly apiKey: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
+  private readonly turnCommitMode: TurnCommitMode;
+  private readonly silenceTailBytes: number;
   private readonly webSocketFactory: (
     url: string,
     headers: Record<string, string>,
@@ -138,6 +177,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     this.apiKey = options.apiKey;
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
+    this.turnCommitMode = options.turnCommitMode ?? "text";
+    this.silenceTailBytes = options.silenceTailBytes ?? SILENCE_TAIL_BYTES;
     this.webSocketFactory =
       options.webSocketFactory ??
       ((url, headers) => new WebSocket(url, { headers }) as unknown as WebSocketLike);
@@ -245,14 +286,52 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
 
-    // 1. Speech.
+    // EL ConvAI exposes NO audio-flush / end-of-turn client event (verified
+    // against the official Python + JS SDKs — the full client→server union is
+    // pong | client_tool_result | conversation_initiation_client_data |
+    // feedback | contextual_update | user_message | user_activity |
+    // multimodal_message, plus the bare user_audio_chunk; none commit audio).
+    // Server-side turn detection (ConvAI 2.0 hybrid VAD + DL turn-detector) does
+    // NOT reliably fire on a scripted, non-mic stream, so the legacy "stream
+    // audio + silence tail" path stalls on turn 2+ (issue #567).
+    const transcript = chunk.transcript?.trim();
+
+    if (this.turnCommitMode === "text" && transcript) {
+      // Deterministic commit: send ONLY the user_message text turn. We do NOT
+      // also stream the raw audio to EL here — sending user_audio_chunk and then
+      // user_message in the same turn races the server's audio ingestion
+      // against the text commit and was empirically flaky (the agent receive
+      // intermittently timed out). The text turn alone forces an agent response
+      // every time. Nothing observable is lost: the voice runtime records the
+      // user audio locally (recorder.recordUser, independent of this send), and
+      // EL echoes the committed text back as a user_transcript event, so
+      // lastUserTranscript still populates.
+      this.sendUserMessage(transcript);
+      return;
+    }
+
+    // Legacy / fallback path: stream the speech then a silence tail and let
+    // server VAD try. Used when turnCommitMode is "silence", or in "text" mode
+    // when the chunk carries no transcript to commit.
     const speechB64 = Buffer.from(chunk.data).toString("base64");
     this.ws.send(JSON.stringify({ user_audio_chunk: speechB64 }));
+    this.sendSilenceTail();
+  }
 
-    // 2. Silence tail — see SILENCE_TAIL_BYTES doc for sizing rationale.
-    const silence = new Uint8Array(SILENCE_TAIL_BYTES);
+  /**
+   * Explicit turn-commit: tells EL the user is done and forces an agent
+   * response without relying on mic-style server VAD (issue #567). Wire shape
+   * matches the official SDK's `user_message` event.
+   */
+  private sendUserMessage(text: string): void {
+    this.ws?.send(JSON.stringify({ type: "user_message", text }));
+  }
+
+  /** Legacy end-of-turn nudge: a fixed zero-byte tail to coax server VAD. */
+  private sendSilenceTail(): void {
+    const silence = new Uint8Array(this.silenceTailBytes);
     const silenceB64 = Buffer.from(silence).toString("base64");
-    this.ws.send(JSON.stringify({ user_audio_chunk: silenceB64 }));
+    this.ws?.send(JSON.stringify({ user_audio_chunk: silenceB64 }));
   }
 
   async receiveAudio(timeout: number): Promise<AudioChunk> {

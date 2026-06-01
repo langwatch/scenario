@@ -717,7 +717,7 @@ Feature: Voice agent testing in Scenario SDK
     Given an ElevenLabsAgentAdapter with a live agent_id and ELEVENLABS_API_KEY
     When the demo script runs via scenario.run()
     Then the WS reaches wss://api.elevenlabs.io/v1/convai/conversation
-    And result.success is True after one turn
+    And result.success is True after ≥2 exchanges
 
   @e2e @ts-elevenlabs
   Scenario: Demo — ElevenLabs composable + branded agent
