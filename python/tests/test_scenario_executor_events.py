@@ -369,7 +369,7 @@ def _make_empty_turn_executor() -> ScenarioExecutor:
         # voice pipeline does when STT returns "" for silence.
         state.messages.append(
             _cast(
-                "ChatCompletionMessageParamWithTrace",
+                ChatCompletionMessageParamWithTrace,
                 {"role": "user", "content": ""},
             )
         )
