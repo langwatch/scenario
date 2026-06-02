@@ -3,8 +3,7 @@ import pytest
 from typing import Any, cast as _cast, List, Tuple, Dict
 from unittest.mock import patch
 
-import scenario as sc
-from scenario import JudgeAgent, UserSimulatorAgent
+from scenario import JudgeAgent, UserSimulatorAgent, succeed
 from scenario._generated.langwatch_api_client.lang_watch_api_client.types import Unset
 from scenario.agent_adapter import AgentAdapter
 from scenario.scenario_state import ScenarioState
@@ -386,7 +385,7 @@ def _make_empty_turn_executor() -> ScenarioExecutor:
         event_bus=event_bus,
         script=[
             _inject_empty_user_turn,  # injects "" user turn; snapshot fires after
-            sc.succeed("voice run completed"),
+            succeed("voice run completed"),
         ],
     )
 
@@ -426,7 +425,7 @@ async def test_snapshot_emitter_failure_degrades_to_warning(caplog: pytest.LogCa
         event_bus=event_bus,
         script=[
             lambda state: None,  # harmless step; snapshot fires after — we monkeypatch it to raise
-            sc.succeed("run should survive snapshot error"),
+            succeed("run should survive snapshot error"),
         ],
     )
 
@@ -466,7 +465,7 @@ async def test_empty_user_turn_state_unchanged_after_snapshot() -> None:
     await executor.run()
 
     # The empty-content user turn must still be present in _state.
-    # _make_empty_turn_executor injects exactly 1 message before sc.succeed() fires.
+    # _make_empty_turn_executor injects exactly 1 message before succeed() fires.
     assert len(captured_messages_at_snapshot) == 1, (
         "_state.messages must have exactly 1 message after the inject step "
         "(nothing dropped or added by the snapshot path)"
