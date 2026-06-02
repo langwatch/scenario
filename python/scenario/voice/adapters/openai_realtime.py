@@ -5,14 +5,19 @@ Source §5.6 + §7.2 L1164-1171. Unlike the other adapters which wrap a user's
 running agent, this one IS the agent under test (or, when
 ``role=AgentRole.USER``, the voice-enabled user simulator).
 
-Wire protocol:
+Wire protocol (GA, post-2026-05-12):
 - Endpoint: ``wss://api.openai.com/v1/realtime?model=<model>``
-- Headers: ``Authorization: Bearer <api_key>``, ``OpenAI-Beta: realtime=v1``
-- On connect: emit ``session.update`` to configure audio formats, voice,
-  instructions, and tools.
+- Headers: ``Authorization: Bearer <api_key>`` only (no ``OpenAI-Beta`` header).
+- On connect: emit ``session.update`` to configure session type, audio formats,
+  voice, instructions, and tools. ``session.type="realtime"``; audio config
+  nested under ``session.audio.{input,output}`` with object format descriptors
+  (e.g. ``{"type": "audio/pcm", "rate": 24000}``).
 - Send audio: ``input_audio_buffer.append`` with base64-encoded PCM16.
-- Receive audio: loop over server events until ``response.audio.delta``;
-  return decoded PCM16. Transcript events update instance attributes.
+- Receive audio: loop over server events until ``response.output_audio.delta``
+  (GA name); legacy ``response.audio.delta`` accepted defensively with a
+  one-time warning. Return decoded PCM16.
+- Transcript events: ``response.output_audio_transcript.delta`` /
+  ``response.output_audio_transcript.done`` update instance attributes.
 - Send text (role=USER): ``conversation.item.create`` (input_text) then
   ``response.create``.
 """
@@ -51,7 +56,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         - ``last_user_transcript`` — set from
           ``conversation.item.input_audio_transcription.completed``
         - ``last_agent_transcript`` — accumulated from
-          ``response.audio_transcript.delta`` / reset on done
+          ``response.output_audio_transcript.delta`` / reset on done
 
     Example::
 
@@ -107,6 +112,10 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # means recv_audio should commit + request a response before awaiting.
         self._pending_audio_bytes: int = 0
 
+        # Tracks which legacy (pre-GA) event names have already triggered a
+        # one-time warning, so the log isn't spammed on every audio frame.
+        self._legacy_events_warned: set[str] = set()
+
     @property
     def url(self) -> str:
         return REALTIME_URL_TEMPLATE.format(model=self.model)
@@ -120,6 +129,22 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             f"api_key='***')"
         )
 
+    def _warn_if_legacy(self, received: str, ga_name: str) -> None:
+        """Emit a one-time WARNING when a pre-GA (beta) event name is seen.
+
+        Only fires once per distinct legacy name per adapter instance, so a
+        multi-chunk audio response doesn't flood the log. The GA-named event
+        itself never triggers a warning.
+        """
+        if received != ga_name and received not in self._legacy_events_warned:
+            self._legacy_events_warned.add(received)
+            logger.warning(
+                "OpenAIRealtimeAgentAdapter: received legacy event %r; "
+                "GA uses %r — accepting defensively",
+                received,
+                ga_name,
+            )
+
     # ------------------------------------------------------------------ lifecycle
 
     async def connect(self) -> None:
@@ -130,20 +155,27 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             self.url,
             additional_headers={
                 "Authorization": f"Bearer {self._api_key}",
-                "OpenAI-Beta": "realtime=v1",
             },
         )
         logger.debug("OpenAIRealtimeAgentAdapter: connected to %s", self.url)
 
         # Configure session: audio formats, voice, instructions, tools.
-        # Disable server-side VAD so we control turn boundaries explicitly via
-        # input_audio_buffer.commit + response.create after each send_audio.
+        # Disable server-side VAD (session.audio.input.turn_detection=None) so
+        # we control turn boundaries explicitly via input_audio_buffer.commit +
+        # response.create after each send_audio.
         session_config: dict[str, Any] = {
-            "input_audio_format": "pcm16",
-            "output_audio_format": "pcm16",
-            "voice": self.voice,
-            "input_audio_transcription": {"model": OPENAI_STT_MODEL},
-            "turn_detection": None,
+            "type": "realtime",
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcm", "rate": 24000},
+                    "turn_detection": None,
+                    "transcription": {"model": OPENAI_STT_MODEL},
+                },
+                "output": {
+                    "format": {"type": "audio/pcm", "rate": 24000},
+                    "voice": self.voice,
+                },
+            },
         }
         if self.instructions:
             session_config["instructions"] = self.instructions
@@ -211,11 +243,13 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         awaiting the reply. Subsequent recv calls without new send calls
         just await the next audio delta (for multi-chunk responses).
 
-        Loops over incoming events until a ``response.audio.delta`` event
-        arrives, then returns decoded PCM16. Transcript events update the
-        instance's ``last_user_transcript`` / ``last_agent_transcript``
-        attributes. An ``error`` event raises a ``RuntimeError``. All other
-        housekeeping events are ignored and the loop continues.
+        Loops over incoming events until a ``response.output_audio.delta``
+        event arrives (GA name), then returns decoded PCM16. The legacy
+        ``response.audio.delta`` name is accepted defensively with a one-time
+        warning. Transcript events update the instance's
+        ``last_user_transcript`` / ``last_agent_transcript`` attributes.
+        An ``error`` event raises a ``RuntimeError``. All other housekeeping
+        events are ignored and the loop continues.
 
         Raises:
             asyncio.TimeoutError: if no audio arrives within ``timeout``.
@@ -249,8 +283,11 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
 
             etype = event.get("type", "")
 
-            if etype == "response.audio.delta":
+            if etype in ("response.output_audio.delta", "response.audio.delta"):
                 # Base64-encoded PCM16 audio fragment from the model.
+                # GA name: response.output_audio.delta
+                # Legacy beta name: response.audio.delta (accepted defensively)
+                self._warn_if_legacy(etype, "response.output_audio.delta")
                 b64 = event.get("delta", "")
                 pcm = base64.b64decode(b64)
                 # Enforce PCM16 invariant: even byte count.
@@ -258,12 +295,22 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                     pcm = pcm[:-1]
                 return AudioChunk(data=pcm)
 
-            elif etype == "response.audio_transcript.delta":
+            elif etype in (
+                "response.output_audio_transcript.delta",
+                "response.audio_transcript.delta",
+            ):
                 # Accumulate streaming agent transcript.
+                # GA name: response.output_audio_transcript.delta
+                self._warn_if_legacy(etype, "response.output_audio_transcript.delta")
                 self._agent_transcript_buf += event.get("delta", "")
 
-            elif etype == "response.audio_transcript.done":
+            elif etype in (
+                "response.output_audio_transcript.done",
+                "response.audio_transcript.done",
+            ):
                 # Finalise; the `transcript` field may have the full text.
+                # GA name: response.output_audio_transcript.done
+                self._warn_if_legacy(etype, "response.output_audio_transcript.done")
                 transcript = event.get("transcript", "")
                 if transcript:
                     self.last_agent_transcript = transcript
