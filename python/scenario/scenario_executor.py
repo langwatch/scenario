@@ -1630,14 +1630,24 @@ class ScenarioExecutor:
         This event captures the current state of the conversation during
         scenario execution. It's published whenever messages are added to
         the conversation, allowing real-time tracking of scenario progress.
-        """
-        common_fields = self._create_common_event_fields(scenario_run_id)
 
-        event = ScenarioMessageSnapshotEvent(
-            **common_fields,
-            messages=convert_messages_to_api_client_messages(self._state.messages),
-        )
-        self._emit_event(event)
+        Failures are logged as warnings rather than propagated so that a
+        serialization edge-case in the telemetry path cannot abort an
+        otherwise-healthy scenario run.
+        """
+        try:
+            common_fields = self._create_common_event_fields(scenario_run_id)
+
+            event = ScenarioMessageSnapshotEvent(
+                **common_fields,
+                messages=convert_messages_to_api_client_messages(self._state.messages),
+            )
+            self._emit_event(event)
+        except Exception:
+            logger.warning(
+                "Failed to emit message snapshot event; snapshot skipped",
+                exc_info=True,
+            )
 
     def _emit_run_finished_event(
         self,
