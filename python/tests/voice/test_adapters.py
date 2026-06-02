@@ -684,8 +684,14 @@ async def test_openai_realtime_adapter_send_text_routes_user_role():
 
 
 @pytest.mark.asyncio
-async def test_openai_realtime_adapter_tracks_transcripts():
-    """Transcript delta events update last_agent_transcript / last_user_transcript."""
+async def test_openai_realtime_adapter_tracks_agent_transcript():
+    """AC4 (agent side) — response.output_audio_transcript.delta/.done update last_agent_transcript.
+
+    Feeds two delta events ("Hello " then "world") followed by a .done event whose
+    ``transcript`` field is the canonical assembled string, then a
+    ``response.output_audio.delta`` so recv_audio returns.  Asserts that
+    ``adapter.last_agent_transcript`` equals the .done transcript value.
+    """
     adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
 
     pcm_payload = b"\x00\x00" * 8
@@ -695,6 +701,43 @@ async def test_openai_realtime_adapter_tracks_transcripts():
         json.dumps({"type": "response.output_audio_transcript.delta", "delta": "Hello "}),
         json.dumps({"type": "response.output_audio_transcript.delta", "delta": "world"}),
         json.dumps({"type": "response.output_audio_transcript.done", "transcript": "Hello world"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        await adapter.recv_audio(timeout=5.0)
+
+    assert adapter.last_agent_transcript == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_tracks_user_transcript():
+    """AC4 (user side) — conversation.item.input_audio_transcription.completed updates last_user_transcript.
+
+    Feeds the user-transcription completed event (event name unchanged in GA),
+    then a ``response.output_audio.delta`` so recv_audio returns.  Asserts that
+    ``adapter.last_user_transcript`` holds the transcript text.
+    """
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    pcm_payload = b"\x00\x00" * 8
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    events = [
         json.dumps({
             "type": "conversation.item.input_audio_transcription.completed",
             "transcript": "user said hello",
@@ -719,8 +762,99 @@ async def test_openai_realtime_adapter_tracks_transcripts():
         await adapter.connect()
         await adapter.recv_audio(timeout=5.0)
 
-    assert adapter.last_agent_transcript == "Hello world"
     assert adapter.last_user_transcript == "user said hello"
+
+
+def test_openai_realtime_adapter_docstring_documents_ga():
+    """AC7 / issue #602 — module docstring reflects GA wire protocol, not the retired beta one.
+
+    Inspects the adapter MODULE docstring directly to guard against doc-drift.
+    The docstring legitimately says "no OpenAI-Beta header" (describing removal)
+    and "legacy response.audio.delta accepted defensively", so we do NOT assert
+    bare-string absence of those substrings.  Instead we assert:
+      - The retired beta header VALUE ("realtime=v1") is absent.
+      - The GA primary event name ("response.output_audio.delta") is documented.
+      - The auth-only header pattern ("Authorization: Bearer") is documented.
+      - The string "GA" is present (explicitly marks the protocol generation).
+    """
+    import scenario.voice.adapters.openai_realtime as _mod
+
+    doc = _mod.__doc__
+    assert doc is not None, "Module docstring must be present"
+
+    # Retired beta header value must be gone from the docstring.
+    assert "realtime=v1" not in doc, (
+        "Module docstring must not document the retired beta header value 'realtime=v1'"
+    )
+
+    # GA primary audio-delta event name must be documented.
+    assert "response.output_audio.delta" in doc, (
+        "Module docstring must document the GA event name 'response.output_audio.delta'"
+    )
+
+    # Auth-only header pattern must be documented.
+    assert "Authorization: Bearer" in doc, (
+        "Module docstring must document the auth-only header 'Authorization: Bearer'"
+    )
+
+    # The protocol generation must be explicitly stated.
+    assert "GA" in doc, (
+        "Module docstring must explicitly reference GA (General Availability) protocol"
+    )
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_session_update_keeps_tools_instructions_top_level():
+    """AC2 / issue #602 — tools and instructions are top-level under session, not under audio.
+
+    Constructs the adapter with both ``instructions`` and a tool, connects with a
+    mocked WebSocket, and inspects the session.update payload.  Asserts:
+      - ``session["instructions"]`` is the supplied string (top-level).
+      - ``session["tools"]`` is the supplied list (top-level).
+      - ``session["audio"]`` does not contain "instructions" or "tools".
+      - ``session`` does not contain "tool_choice" (the adapter does not set it).
+    """
+    tool = {"type": "function", "name": "f", "description": "d", "parameters": {"type": "object", "properties": {}}}
+    adapter = OpenAIRealtimeAgentAdapter(
+        instructions="be brief",
+        tools=[tool],
+        api_key="sk-test",
+    )
+
+    mock_ws = AsyncMock()
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+
+    first_send_raw = mock_ws.send.call_args_list[0][0][0]
+    payload = json.loads(first_send_raw)
+    assert payload["type"] == "session.update"
+    session = payload["session"]
+
+    # instructions and tools must be top-level under session.
+    assert session["instructions"] == "be brief", (
+        "instructions must be top-level under session"
+    )
+    assert session["tools"] == [tool], (
+        "tools must be top-level under session"
+    )
+
+    # Neither must appear nested under audio.
+    assert "instructions" not in session["audio"], (
+        "instructions must not be nested under session.audio"
+    )
+    assert "tools" not in session["audio"], (
+        "tools must not be nested under session.audio"
+    )
+
+    # The adapter does not set tool_choice.
+    assert "tool_choice" not in session, (
+        "adapter must not set tool_choice (not part of the GA session.update shape)"
+    )
+
+    await adapter.disconnect()
 
 
 @pytest.mark.asyncio

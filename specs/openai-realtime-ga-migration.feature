@@ -63,7 +63,7 @@ Feature: OpenAIRealtimeAgentAdapter speaks the GA Realtime wire protocol
     And session.audio.input.transcription.model is "gpt-4o-transcribe"
     And session.audio.input.turn_detection is null
     And no flat "input_audio_format" or "output_audio_format" string field is present
-    And tools and tool_choice remain top-level under session, not under audio
+    And tools and instructions remain top-level under session, not under audio
 
   @integration
   Scenario: The GA endpoint accepts the session.update with no session.audio error
@@ -84,7 +84,7 @@ Feature: OpenAIRealtimeAgentAdapter speaks the GA Realtime wire protocol
     When recv_audio is awaited
     Then it returns an AudioChunk whose data is the decoded PCM16 bytes
 
-  @integration
+  @unit
   Scenario: recv_audio defensively accepts the legacy audio-delta name and logs once
     # Live gpt-realtime* may still emit the legacy beta name despite the docs.
     Given the server emits the legacy "response.audio.delta" event with base64 PCM16
@@ -150,7 +150,7 @@ Feature: OpenAIRealtimeAgentAdapter speaks the GA Realtime wire protocol
     Then the audio-delta fixtures use "response.output_audio.delta"
     And the assistant-transcript fixtures use "response.output_audio_transcript.delta" / ".done"
 
-  @integration
+  @unit
   Scenario: A CI-runnable test fails if the adapter regresses to the beta wire shape
     # The missing guard that let the regression ship — assertable with no live key.
     Given no live OPENAI_API_KEY is available
@@ -176,7 +176,7 @@ Feature: OpenAIRealtimeAgentAdapter speaks the GA Realtime wire protocol
   #   Scenario: The GA endpoint accepts the session.update with no session.audio error (@integration)
   # AC3 "Audio receive under GA event names" →
   #   Scenario: recv_audio returns decoded PCM16 from the GA audio-delta event (@unit)
-  #   Scenario: recv_audio defensively accepts the legacy audio-delta name and logs once (@integration)
+  #   Scenario: recv_audio defensively accepts the legacy audio-delta name and logs once (@unit)
   # AC4 "Transcript observability preserved" →
   #   Scenario: last_agent_transcript is populated from GA assistant-transcript events (@unit)
   #   Scenario: last_user_transcript is populated from the user transcription event (@unit)
@@ -187,6 +187,6 @@ Feature: OpenAIRealtimeAgentAdapter speaks the GA Realtime wire protocol
   # AC6 "Tests assert the GA contract, not the beta one" →
   #   Scenario: The adapter unit test asserts the GA session.update shape (@unit)
   #   Scenario: The adapter unit test feeds GA-named server events (@unit)
-  #   Scenario: A CI-runnable test fails if the adapter regresses to the beta wire shape (@integration)
+  #   Scenario: A CI-runnable test fails if the adapter regresses to the beta wire shape (@unit)
   # AC7 "Docstring reflects GA" →
   #   Scenario: The adapter module docstring documents the GA protocol (@unit)
