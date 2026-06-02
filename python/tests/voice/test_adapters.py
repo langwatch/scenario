@@ -542,6 +542,99 @@ async def test_openai_realtime_adapter_connects_and_sends_pcm16():
 
 
 @pytest.mark.asyncio
+async def test_openai_realtime_adapter_uses_ga_wire_protocol_not_beta():
+    """GA wire protocol regression guard — issue #602.
+
+    The adapter previously spoke the retired OpenAI beta Realtime protocol
+    (OpenAI-Beta header + flat session fields + response.audio.delta event).
+    This test asserts the three GA layers together so CI catches any regression:
+      (a) no OpenAI-Beta header in the WebSocket handshake (AC1),
+      (b) GA-shaped session.update payload with nested audio objects (AC2),
+      (c) recv_audio returns PCM16 from the GA response.output_audio.delta event (AC3).
+    """
+    adapter = OpenAIRealtimeAgentAdapter(
+        model="gpt-realtime-mini",
+        voice="alloy",
+        api_key="sk-test",
+    )
+
+    pcm_payload = b"\x00\x01" * 8  # 16 bytes of dummy PCM16
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    events = [
+        json.dumps({"type": "session.created", "session": {}}),
+        json.dumps({"type": "session.updated", "session": {}}),
+        json.dumps({"type": "response.output_audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)) as mock_connect:
+        await adapter.connect()
+
+        # --- AC1: no beta header; auth header present ---
+        headers = mock_connect.call_args.kwargs.get(
+            "additional_headers", mock_connect.call_args[1].get("additional_headers", {})
+        )
+        assert "Authorization" in headers, "Authorization header must be present"
+        assert "OpenAI-Beta" not in headers, (
+            "OpenAI-Beta header must be absent in GA protocol"
+        )
+
+        # --- AC2: GA session.update shape ---
+        first_send_raw = mock_ws.send.call_args_list[0][0][0]
+        payload = json.loads(first_send_raw)
+        assert payload["type"] == "session.update"
+        session = payload["session"]
+
+        # GA requires session.type == "realtime"
+        assert session["type"] == "realtime", (
+            "session.type must be 'realtime' in GA protocol"
+        )
+
+        # Audio formats must be nested objects, not flat strings
+        assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 24000}, (
+            "session.audio.input.format must be GA object shape"
+        )
+        assert session["audio"]["output"]["format"] == {"type": "audio/pcm", "rate": 24000}, (
+            "session.audio.output.format must be GA object shape"
+        )
+
+        # Voice and transcription/turn_detection must be under audio subtree
+        assert session["audio"]["output"]["voice"] == "alloy"
+        assert session["audio"]["input"]["turn_detection"] is None
+        assert session["audio"]["input"]["transcription"]["model"] == "gpt-4o-transcribe"
+
+        # Beta flat fields must NOT be present
+        assert "input_audio_format" not in session, (
+            "flat input_audio_format must be absent in GA protocol"
+        )
+        assert "output_audio_format" not in session, (
+            "flat output_audio_format must be absent in GA protocol"
+        )
+
+        # --- AC3: recv_audio handles GA event name response.output_audio.delta ---
+        result = await adapter.recv_audio(timeout=5.0)
+        assert isinstance(result, AudioChunk)
+        assert result.data == pcm_payload, (
+            "recv_audio must decode PCM16 from response.output_audio.delta"
+        )
+
+        await adapter.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_openai_realtime_adapter_send_text_routes_user_role():
     """role=USER: send_text emits conversation.item.create + response.create."""
     adapter = OpenAIRealtimeAgentAdapter(
