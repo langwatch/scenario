@@ -8,6 +8,7 @@ at @integration scope (requires real platform creds).
 
 import base64
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -480,7 +481,18 @@ def test_branded_elevenlabs_voice_agent_is_voice_adapter():
 
 @pytest.mark.asyncio
 async def test_openai_realtime_adapter_connects_and_sends_pcm16():
-    """Verify URL construction, session.update on connect, audio send/recv round-trip."""
+    """Send/commit/response round-trip: send_audio → recv_audio commits the buffer and
+    requests a response before returning the decoded AudioChunk.
+
+    Asserts:
+    - send_audio emits input_audio_buffer.append with base64 PCM16.
+    - recv_audio (when _pending_audio_bytes > 0) sends input_audio_buffer.commit
+      followed by response.create BEFORE awaiting the audio delta.
+    - recv_audio returns the decoded AudioChunk from response.output_audio.delta.
+
+    Session-shape and header assertions are owned solely by
+    test_openai_realtime_adapter_uses_ga_wire_protocol_not_beta.
+    """
     adapter = OpenAIRealtimeAgentAdapter(
         model="gpt-realtime-mini",
         voice="alloy",
@@ -509,35 +521,37 @@ async def test_openai_realtime_adapter_connects_and_sends_pcm16():
     mock_ws.send = AsyncMock()
     mock_ws.close = AsyncMock()
 
-    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)) as mock_connect:
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
 
-        # Verify the URL contains the model.
-        connect_url = mock_connect.call_args[0][0]
-        assert "model=gpt-realtime-mini" in connect_url
-        assert "api.openai.com" in connect_url
-
-        # Verify session.update was emitted (first send call) with GA shape.
-        first_send_raw = mock_ws.send.call_args_list[0][0][0]
-        first_sent = json.loads(first_send_raw)
+        # Minimal check: connect emits session.update as the first send.
+        first_sent = json.loads(mock_ws.send.call_args_list[0][0][0])
         assert first_sent["type"] == "session.update"
-        session = first_sent["session"]
-        assert session["type"] == "realtime"
-        assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 24000}
-        assert session["audio"]["output"]["format"] == {"type": "audio/pcm", "rate": 24000}
-        assert session["audio"]["output"]["voice"] == "alloy"
 
         # send_audio must emit input_audio_buffer.append with base64 PCM16.
         chunk = AudioChunk(data=b"\x10\x20" * 100)
         await adapter.send_audio(chunk)
-        send_calls = mock_ws.send.call_args_list
-        audio_send = json.loads(send_calls[1][0][0])
+        audio_send = json.loads(mock_ws.send.call_args_list[1][0][0])
         assert audio_send["type"] == "input_audio_buffer.append"
-        decoded = base64.b64decode(audio_send["audio"])
-        assert decoded == chunk.data
+        assert base64.b64decode(audio_send["audio"]) == chunk.data
 
-        # recv_audio must skip housekeeping events and return the audio delta.
+        # recv_audio must commit the buffer and request a response BEFORE
+        # returning audio — assert commit then response.create ordering.
         result = await adapter.recv_audio(timeout=5.0)
+
+        send_types = [
+            json.loads(c[0][0])["type"] for c in mock_ws.send.call_args_list
+        ]
+        commit_idx = send_types.index("input_audio_buffer.commit")
+        create_idx = send_types.index("response.create")
+        assert commit_idx < create_idx, (
+            "input_audio_buffer.commit must precede response.create"
+        )
+        # Both must appear before the audio delta is returned.
+        assert "input_audio_buffer.commit" in send_types
+        assert "response.create" in send_types
+
+        # recv_audio must return the decoded PCM16 AudioChunk.
         assert isinstance(result, AudioChunk)
         assert result.data == pcm_payload
 
@@ -587,9 +601,7 @@ async def test_openai_realtime_adapter_uses_ga_wire_protocol_not_beta():
         await adapter.connect()
 
         # --- AC1: no beta header; auth header present ---
-        headers = mock_connect.call_args.kwargs.get(
-            "additional_headers", mock_connect.call_args[1].get("additional_headers", {})
-        )
+        headers = mock_connect.call_args.kwargs["additional_headers"]
         assert "Authorization" in headers, "Authorization header must be present"
         assert "OpenAI-Beta" not in headers, (
             "OpenAI-Beta header must be absent in GA protocol"
@@ -782,16 +794,18 @@ async def test_openai_realtime_adapter_accepts_legacy_audio_delta_defensively(ca
     the GA migration. The adapter must not drop the frame — it returns the
     AudioChunk normally and emits a one-time WARNING so the divergence is
     observable in logs without spamming on every frame.
-    """
-    import logging
 
+    Feeds the legacy event TWICE to prove the "one-time" dedup: exactly one
+    warning must be emitted across both calls (validates _legacy_events_warned).
+    """
     adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
 
     pcm_payload = b"\x00\x01" * 8  # 16 bytes of dummy PCM16
     b64_audio = base64.b64encode(pcm_payload).decode()
 
-    # Feed the legacy (pre-GA) event name.
+    # Feed the legacy (pre-GA) event name twice.
     events = [
+        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
         json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
     ]
     call_index = 0
@@ -812,16 +826,23 @@ async def test_openai_realtime_adapter_accepts_legacy_audio_delta_defensively(ca
         await adapter.connect()
 
         with caplog.at_level(logging.WARNING, logger="scenario.voice.openai_realtime"):
-            result = await adapter.recv_audio(timeout=5.0)
+            result1 = await adapter.recv_audio(timeout=5.0)
+            result2 = await adapter.recv_audio(timeout=5.0)
 
-    # Must still return the decoded PCM16 bytes.
-    assert isinstance(result, AudioChunk)
-    assert result.data == pcm_payload
+    # Both recv calls must return the decoded PCM16 bytes.
+    assert isinstance(result1, AudioChunk)
+    assert result1.data == pcm_payload
+    assert isinstance(result2, AudioChunk)
+    assert result2.data == pcm_payload
 
-    # A one-time WARNING must have been emitted naming the legacy event.
-    warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("response.audio.delta" in m for m in warning_msgs), (
-        "Expected a WARNING mentioning the legacy event name 'response.audio.delta'"
+    # Exactly ONE warning mentioning the legacy event must have been emitted
+    # across both calls — _legacy_events_warned dedup prevents log spam.
+    warning_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.levelno == logging.WARNING and "response.audio.delta" in r.getMessage()
+    ]
+    assert len(warning_msgs) == 1, (
+        f"Expected exactly 1 WARNING for 'response.audio.delta', got {len(warning_msgs)}"
     )
 
 

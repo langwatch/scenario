@@ -284,9 +284,10 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             etype = event.get("type", "")
 
             if etype in ("response.output_audio.delta", "response.audio.delta"):
-                # Base64-encoded PCM16 audio fragment from the model.
-                # GA name: response.output_audio.delta
-                # Legacy beta name: response.audio.delta (accepted defensively)
+                # Accept both the GA event name and its retired beta alias —
+                # live gpt-realtime* models have been observed still emitting
+                # the beta names. These legacy arms should be removed once the
+                # GA names are confirmed stable at a live endpoint (issue #602).
                 self._warn_if_legacy(etype, "response.output_audio.delta")
                 b64 = event.get("delta", "")
                 pcm = base64.b64decode(b64)
@@ -300,7 +301,6 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 "response.audio_transcript.delta",
             ):
                 # Accumulate streaming agent transcript.
-                # GA name: response.output_audio_transcript.delta
                 self._warn_if_legacy(etype, "response.output_audio_transcript.delta")
                 self._agent_transcript_buf += event.get("delta", "")
 
@@ -309,7 +309,6 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 "response.audio_transcript.done",
             ):
                 # Finalise; the `transcript` field may have the full text.
-                # GA name: response.output_audio_transcript.done
                 self._warn_if_legacy(etype, "response.output_audio_transcript.done")
                 transcript = event.get("transcript", "")
                 if transcript:
