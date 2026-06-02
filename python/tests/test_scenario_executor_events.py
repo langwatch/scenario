@@ -1,11 +1,13 @@
 import logging
 import pytest
-from typing import List, Tuple, Dict, Any
+from typing import Any, cast as _cast, List, Tuple, Dict
 from unittest.mock import patch
 
+import scenario as sc
 from scenario import JudgeAgent, UserSimulatorAgent
 from scenario._generated.langwatch_api_client.lang_watch_api_client.types import Unset
 from scenario.agent_adapter import AgentAdapter
+from scenario.scenario_state import ScenarioState
 from scenario.types import AgentInput, ScenarioResult
 from scenario.scenario_executor import ScenarioExecutor
 from scenario._events import (
@@ -360,10 +362,6 @@ def _make_empty_turn_executor() -> ScenarioExecutor:
     """Return an executor whose script injects an empty-content user turn then
     immediately succeeds.  The snapshot emitter fires after the inject step —
     that is the crash site under the buggy code."""
-    import scenario as sc
-    from typing import cast as _cast
-    from scenario.scenario_state import ScenarioState
-
     mock_reporter = MockEventReporter()
     event_bus = ScenarioEventBus(event_reporter=mock_reporter)
 
@@ -395,18 +393,25 @@ def _make_empty_turn_executor() -> ScenarioExecutor:
 
 @pytest.mark.asyncio
 async def test_run_completes_with_empty_user_turn() -> None:
-    """AC1/AC4b — specs/empty-content-turn-snapshot.feature: run() must return a ScenarioResult, not raise ValueError, when state contains an empty-content user turn."""
+    """AC1/AC4b — specs/empty-content-turn-snapshot.feature: run() must return a ScenarioResult, not raise ValueError, when state contains an empty-content user turn.
+
+    The snapshot assertion pins AC4b: if the converter raise were reintroduced the
+    emitter would swallow it, emit no snapshot, and this assertion would fail.
+    """
     executor = _make_empty_turn_executor()
+    events: List[ScenarioEvent] = []
+    executor.events.subscribe(events.append)
     result = await executor.run()
     assert isinstance(result, ScenarioResult)
     assert result.success is True
+    assert any(
+        isinstance(e, ScenarioMessageSnapshotEvent) for e in events
+    ), "ScenarioMessageSnapshotEvent must be emitted — silent swallow means the fix is broken"
 
 
 @pytest.mark.asyncio
 async def test_snapshot_emitter_failure_degrades_to_warning(caplog: pytest.LogCaptureFixture) -> None:
     """AC3 — specs/empty-content-turn-snapshot.feature: a failure inside the snapshot emitter must degrade to a logged warning, not abort run()."""
-    import scenario as sc
-
     mock_reporter = MockEventReporter()
     event_bus = ScenarioEventBus(event_reporter=mock_reporter)
 
@@ -460,7 +465,12 @@ async def test_empty_user_turn_state_unchanged_after_snapshot() -> None:
 
     await executor.run()
 
-    # The empty-content user turn must still be present in _state
+    # The empty-content user turn must still be present in _state.
+    # _make_empty_turn_executor injects exactly 1 message before sc.succeed() fires.
+    assert len(captured_messages_at_snapshot) == 1, (
+        "_state.messages must have exactly 1 message after the inject step "
+        "(nothing dropped or added by the snapshot path)"
+    )
     assert any(
         msg.get("role") == "user" and msg.get("content") == ""
         for msg in captured_messages_at_snapshot

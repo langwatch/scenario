@@ -48,7 +48,9 @@ def convert_messages_to_api_client_messages(
         List of API client Message objects
 
     Raises:
-        ValueError: If message role is not supported or message format is invalid
+        ValueError: If the message role is not one of ``user``, ``assistant``,
+            ``system``, or ``tool``.  ``tool`` messages missing ``tool_call_id``
+            or ``content`` are warned and skipped rather than raised.
     """
 
     converted_messages: list[MessageType] = []
