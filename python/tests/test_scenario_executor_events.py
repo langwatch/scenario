@@ -8,7 +8,7 @@ from scenario import JudgeAgent, UserSimulatorAgent
 from scenario._generated.langwatch_api_client.lang_watch_api_client.types import Unset
 from scenario.agent_adapter import AgentAdapter
 from scenario.scenario_state import ScenarioState
-from scenario.types import AgentInput, ScenarioResult
+from scenario.types import AgentInput, ChatCompletionMessageParamWithTrace, ScenarioResult
 from scenario.scenario_executor import ScenarioExecutor
 from scenario._events import (
     ScenarioEvent,
@@ -370,7 +370,7 @@ def _make_empty_turn_executor() -> ScenarioExecutor:
         # voice pipeline does when STT returns "" for silence.
         state.messages.append(
             _cast(
-                "scenario.types.ChatCompletionMessageParamWithTrace",
+                "ChatCompletionMessageParamWithTrace",
                 {"role": "user", "content": ""},
             )
         )
