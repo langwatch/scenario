@@ -132,3 +132,94 @@ def test_assistant_string_content_with_quotes_passes_through():
         _messages({"role": "assistant", "content": 'he said "hi" and left'})
     )
     assert result[0].content == 'he said "hi" and left'
+
+
+# ---------------------------------------------------------------------------
+# AC2 regression tests — empty/falsy user + system content must not raise
+# Ref: specs/empty-content-turn-snapshot.feature  AC2
+# ---------------------------------------------------------------------------
+
+
+def test_empty_user_content_empty_string_does_not_raise():
+    """AC2 — specs/empty-content-turn-snapshot.feature: converter must not raise for user message with content ''."""
+    result = convert_messages_to_api_client_messages(
+        _messages({"role": "user", "content": ""})
+    )
+    assert len(result) == 1
+    assert result[0].content == ""
+
+
+def test_empty_user_content_none_does_not_raise():
+    """AC2 — specs/empty-content-turn-snapshot.feature: converter must not raise for user message with content None."""
+    result = convert_messages_to_api_client_messages(
+        _messages({"role": "user", "content": None})
+    )
+    assert len(result) == 1
+    assert result[0].content == ""
+
+
+def test_empty_user_content_empty_list_does_not_raise():
+    """AC2 — specs/empty-content-turn-snapshot.feature: converter must not raise for user message with content []; coerces via json.dumps to '[]'."""
+    result = convert_messages_to_api_client_messages(
+        _messages({"role": "user", "content": []})
+    )
+    assert len(result) == 1
+    assert result[0].content == "[]"
+
+
+def test_empty_system_content_empty_string_does_not_raise():
+    """AC2 — specs/empty-content-turn-snapshot.feature: converter must not raise for system message with content ''."""
+    result = convert_messages_to_api_client_messages(
+        _messages({"role": "system", "content": ""})
+    )
+    assert len(result) == 1
+    assert result[0].content == ""
+
+
+def test_empty_system_content_none_does_not_raise():
+    """AC2 — specs/empty-content-turn-snapshot.feature: converter must not raise for system message with content None."""
+    result = convert_messages_to_api_client_messages(
+        _messages({"role": "system", "content": None})
+    )
+    assert len(result) == 1
+    assert result[0].content == ""
+
+
+def test_empty_system_content_empty_list_does_not_raise():
+    """AC2 — specs/empty-content-turn-snapshot.feature: converter must not raise for system message with content []; coerces via json.dumps to '[]'."""
+    result = convert_messages_to_api_client_messages(
+        _messages({"role": "system", "content": []})
+    )
+    assert len(result) == 1
+    assert result[0].content == "[]"
+
+
+def test_empty_content_all_roles_coerce_without_raising():
+    """AC2 — specs/empty-content-turn-snapshot.feature: assistant+user+system all with content='' must all coerce to '' without raising."""
+    result = convert_messages_to_api_client_messages(
+        _messages(
+            {"role": "assistant", "content": ""},
+            {"role": "user", "content": ""},
+            {"role": "system", "content": ""},
+        )
+    )
+    assert len(result) == 3
+    for msg in result:
+        assert msg.content == ""
+
+
+def test_non_empty_content_serializes_unchanged():
+    """AC2 (no-regression guard) — specs/empty-content-turn-snapshot.feature: non-empty user/system/assistant/tool content must not be dropped or mangled."""
+    result = convert_messages_to_api_client_messages(
+        _messages(
+            {"role": "user", "content": "hello"},
+            {"role": "system", "content": "be helpful"},
+            {"role": "assistant", "content": "of course"},
+            {"role": "tool", "content": "result data", "tool_call_id": "call_abc"},
+        )
+    )
+    assert len(result) == 4
+    assert result[0].content == "hello"
+    assert result[1].content == "be helpful"
+    assert result[2].content == "of course"
+    assert result[3].content == "result data"
