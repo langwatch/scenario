@@ -748,6 +748,33 @@ def test_openai_realtime_adapter_repr_redacts_api_key():
 
 
 @pytest.mark.asyncio
+async def test_openai_realtime_adapter_interrupt_sends_response_cancel():
+    """AC5 / issue #602: interrupt() sends exactly one ``response.cancel`` message.
+
+    The GA Realtime API exposes ``response.cancel`` as the first-class interrupt
+    signal — the model stops generating immediately. This test guards that
+    ``interrupt()`` emits that exact payload and nothing else, so any accidental
+    regression (e.g. wrong event name, extra sends) is caught in CI.
+    """
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    mock_ws = AsyncMock()
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        # Reset send calls so only interrupt()'s output is under scrutiny.
+        mock_ws.send.reset_mock()
+
+        await adapter.interrupt()
+
+    assert mock_ws.send.call_count == 1
+    payload = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert payload == {"type": "response.cancel"}
+
+
+@pytest.mark.asyncio
 async def test_openai_realtime_adapter_accepts_legacy_audio_delta_defensively(caplog):
     """AC3 defensive scenario: legacy response.audio.delta still delivers audio.
 
