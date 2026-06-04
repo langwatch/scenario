@@ -221,6 +221,13 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       audio: {
         input: {
           format: { type: "audio/pcm", rate: 24000 },
+          // Deliberate STT lock: the Realtime API's `input.transcription.model`
+          // accepts only transcription-class models (gpt-4o-transcribe,
+          // whisper-1). It is NOT exposed as an adapter constructor option
+          // because the Realtime session already transcribes the user's audio
+          // internally — this field only controls the *inline transcript* side
+          // channel, which OPENAI_STT_MODEL is already the current-gen choice
+          // for. Callers who need a different model must subclass the adapter.
           transcription: { model: OPENAI_STT_MODEL },
           turn_detection: null,
         },
