@@ -5,7 +5,6 @@ description: Test multi-turn voice conversations where both user simulator and a
 
 import { Callout } from "vocs/components";
 import { LanguageTabs } from "../../../components/LanguageTabs";
-import VoiceToVoiceExamplePython from "../../_generated/examples/test_voice_to_voice_conversation.mdx";
 import VoiceToVoiceExampleJavaScript from "../../_generated/examples/multimodal-voice-to-voice-conversation.test.mdx";
 import LegacyVoiceDeprecation from "../../../snippets/LegacyVoiceDeprecation.mdx";
 
@@ -66,9 +65,6 @@ uv pip install scenario-sdk openai
 <LanguageTabs collapsible>
   <LanguageTabs.CodeTab language="typescript">
     <VoiceToVoiceExampleJavaScript />
-  </LanguageTabs.CodeTab>
-  <LanguageTabs.CodeTab language="python">
-    <VoiceToVoiceExamplePython />
   </LanguageTabs.CodeTab>
 </LanguageTabs>
 
@@ -142,7 +138,7 @@ Browse the full tests in the repo:
 
 **Python:**
 
-- [voice-to-voice conversation](https://github.com/langwatch/scenario/blob/main/python/examples/test_voice_to_voice_conversation.py) with [helper utilities](https://github.com/langwatch/scenario/tree/main/python/examples/helpers)
+- [helper utilities](https://github.com/langwatch/scenario/tree/main/python/examples/helpers) (the legacy single-call `gpt-4o-audio-preview` example has been removed; use the VoiceAgentAdapter pattern from [Testing Voice Agents](/examples/multimodal/testing-voice-agents) instead)
 
 ## Related Guides
 
