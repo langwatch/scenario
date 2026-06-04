@@ -164,6 +164,15 @@ function normalizeContentParts(parts: readonly unknown[]): unknown {
  *   { type:"input_audio", input_audio:{ data:"<b64>", format:"wav", mimeType:"audio/wav" } }
  *
  * Non-audio parts pass through unchanged.
+ *
+ * Special case — raw `audio/pcm16`: the SDK carries in-message audio as raw
+ * headerless PCM16 (the single internal format, see `voice/messages.ts`;
+ * deliberately NOT WAV to keep one encoder/extractor pair). But raw PCM is
+ * undecodable by a browser `<audio>` element, so the LangWatch simulations UI
+ * renders an `[error]` badge instead of a player. At THIS langwatch-bound
+ * boundary only, wrap the PCM in a WAV container and ship it as `audio/wav`
+ * (matches the Python twin's shipped shape, `voice/messages.py` → `format:"wav"`).
+ * The SDK's internal raw-PCM16 contract is untouched.
  */
 function translateAudioFilePart(part: unknown): unknown {
   if (!isRecord(part)) return part;
@@ -175,6 +184,18 @@ function translateAudioFilePart(part: unknown): unknown {
   const data = part.data;
   if (typeof data !== "string") return part;
 
+  // Raw PCM16 is not browser-playable; WAV-wrap it for the LangWatch app.
+  if (mediaType === "audio/pcm16") {
+    return {
+      type: "input_audio",
+      input_audio: {
+        data: pcm16Base64ToWavBase64(data),
+        format: "wav",
+        mimeType: "audio/wav",
+      },
+    };
+  }
+
   return {
     type: "input_audio",
     input_audio: {
@@ -183,6 +204,39 @@ function translateAudioFilePart(part: unknown): unknown {
       mimeType: mediaType,
     },
   };
+}
+
+// Canonical PCM16 recording format (24kHz / mono / 16-bit) — matches the SDK's
+// AudioChunk contract and the Python twin's `_pcm16_to_wav_bytes`.
+const PCM16_SAMPLE_RATE = 24000;
+const PCM16_CHANNELS = 1;
+const PCM16_SAMPLE_WIDTH_BYTES = 2;
+
+/**
+ * Wrap base64 raw PCM16 in a minimal 44-byte RIFF/WAVE container and return it
+ * base64-encoded. Byte-identical to Python's `wave.open(...)` output for the
+ * canonical format, so a browser `<audio>` element can decode it.
+ */
+function pcm16Base64ToWavBase64(pcmBase64: string): string {
+  const pcm = Buffer.from(pcmBase64, "base64");
+  const blockAlign = PCM16_CHANNELS * PCM16_SAMPLE_WIDTH_BYTES;
+  const byteRate = PCM16_SAMPLE_RATE * blockAlign;
+  const out = Buffer.alloc(44 + pcm.length);
+  out.write("RIFF", 0, "ascii");
+  out.writeUInt32LE(36 + pcm.length, 4);
+  out.write("WAVE", 8, "ascii");
+  out.write("fmt ", 12, "ascii");
+  out.writeUInt32LE(16, 16); // PCM fmt chunk size
+  out.writeUInt16LE(1, 20); // AudioFormat = PCM
+  out.writeUInt16LE(PCM16_CHANNELS, 22);
+  out.writeUInt32LE(PCM16_SAMPLE_RATE, 24);
+  out.writeUInt32LE(byteRate, 28);
+  out.writeUInt16LE(blockAlign, 32);
+  out.writeUInt16LE(PCM16_SAMPLE_WIDTH_BYTES * 8, 34);
+  out.write("data", 36, "ascii");
+  out.writeUInt32LE(pcm.length, 40);
+  pcm.copy(out, 44);
+  return out.toString("base64");
 }
 
 function mediaTypeToFormat(mediaType: string): string | undefined {

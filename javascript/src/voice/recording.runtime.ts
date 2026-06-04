@@ -272,7 +272,7 @@ function pad4(n: number): string {
  * RIFF header is little-endian and matches what `wave.open(buf, "wb")`
  * produces in Python for the canonical format (PCM16, 24kHz, mono).
  */
-export function encodeWav(
+function encodeWav(
   segments: readonly Uint8Array[],
   totalPcmBytes: number,
 ): Uint8Array {
