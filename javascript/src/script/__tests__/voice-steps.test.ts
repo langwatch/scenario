@@ -512,8 +512,10 @@ describeFeature(
         );
 
         And("the error message points to the capability matrix in the docs", () => {
+          // Same hosted-docs URL the Python reference implementation emits
+          // (python/scenario/voice/capabilities.py) — not a repo-relative path.
           expect((caught as Error).message).toContain(
-            "docs/voice/capability-matrix.md",
+            "scenario-docs.langwatch.ai/voice/capability-matrix",
           );
         });
       },

@@ -31,7 +31,9 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
 // Capability matrix is now sourced from the published docs page (single
-// source-of-truth across Python + TS). See docs/docs/pages/voice/capability-matrix.mdx.
+// source-of-truth across Python + TS). The wrapper page documents the
+// adapters; the per-capability table itself is auto-generated from the
+// Python declarations into _generated/ and imported by the wrapper.
 const MATRIX_DOC_PATH = resolve(
   HERE,
   "..",
@@ -41,6 +43,19 @@ const MATRIX_DOC_PATH = resolve(
   "docs",
   "docs",
   "pages",
+  "voice",
+  "capability-matrix.mdx",
+);
+const GENERATED_MATRIX_PATH = resolve(
+  HERE,
+  "..",
+  "..",
+  "..",
+  "..",
+  "docs",
+  "docs",
+  "pages",
+  "_generated",
   "voice",
   "capability-matrix.mdx",
 );
@@ -261,7 +276,12 @@ describeFeature(
         let doc: string;
 
         Given("the voice-agents documentation", () => {
-          doc = readFileSync(MATRIX_DOC_PATH, "utf8");
+          // Wrapper page (adapter docs) + the auto-generated capability table
+          // it imports — together they are "the documentation" for the matrix.
+          doc =
+            readFileSync(MATRIX_DOC_PATH, "utf8") +
+            "\n" +
+            readFileSync(GENERATED_MATRIX_PATH, "utf8");
         });
 
         Then("a capability matrix table lists every built-in adapter", () => {
@@ -284,10 +304,13 @@ describeFeature(
         And(
           "each row shows streaming_transcripts, native_vad, dtmf, input/output formats",
           () => {
-            expect(doc.toLowerCase()).toContain("streaming transcripts");
-            expect(doc.toLowerCase()).toContain("native vad");
+            // The generated table's column headers — the literal capability
+            // keys, exactly as the feature step names them.
+            expect(doc.toLowerCase()).toContain("streaming_transcripts");
+            expect(doc.toLowerCase()).toContain("native_vad");
             expect(doc.toLowerCase()).toContain("dtmf");
-            expect(doc.toLowerCase()).toContain("wire formats");
+            expect(doc.toLowerCase()).toContain("input_formats");
+            expect(doc.toLowerCase()).toContain("output_formats");
           },
         );
       },
