@@ -6,8 +6,8 @@
  * TTS registry instead of being buried in `adapters/composable.ts`. The
  * composable agent consumes this leaf for its EL path (de-dup, Gap #5).
  *
- * Wire: `client.textToSpeech.convert(voiceId, { model_id: eleven_v3,
- * output_format: "pcm_24000" })` → raw PCM16/24 kHz mono, matching the
+ * Wire: `client.textToSpeech.convert(voiceId, { modelId: eleven_v3,
+ * outputFormat: "pcm_24000" })` → raw PCM16/24 kHz mono, matching the
  * canonical {@link AudioChunk}.
  *
  * Registered under the `elevenlabs` prefix by `tts/index.ts` (side effect).
