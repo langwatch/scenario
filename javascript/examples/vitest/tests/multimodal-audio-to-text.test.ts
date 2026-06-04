@@ -15,9 +15,9 @@ import {
 } from "./helpers";
 import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
-// Previously skipped in CI due to deleted `gpt-4o-audio-preview` model (404 since 2026-05-19).
-// Model swapped to gpt-audio-mini in PR #607. Judge criteria relaxed in this commit (#606).
-// Skip marker removed — this test should now run in CI.
+// CI-skipped: this test still pins `gpt-4o-audio-preview` (deleted, 404 since 2026-05-19) on line 48.
+// The model swap → gpt-audio-mini and the skip-marker removal are tracked in PR #607 (not yet merged).
+// This commit (#606) relaxes the judge criteria below so they're robust once that model swap lands.
 const skipInCi = process.env.CI === "true";
 
 class AudioAgent extends AgentAdapter {
