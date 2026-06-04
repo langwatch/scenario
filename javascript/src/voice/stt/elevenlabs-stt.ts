@@ -12,7 +12,7 @@
  * copy that used to live in `adapters/composable.ts` is gone; composable and
  * the branded preset import this leaf.
  */
-import { ElevenLabsClient } from "elevenlabs";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 import { AudioChunk } from "../audio-chunk";
 import { ELEVENLABS_STT_MODEL } from "../voice-models";
@@ -56,7 +56,7 @@ export class ElevenLabsSTTProvider implements STTProvider {
     const blob = new Blob([new Uint8Array(wav)], { type: "audio/wav" });
     const response = await client.speechToText.convert({
       file: blob,
-      model_id: ELEVENLABS_STT_MODEL,
+      modelId: ELEVENLABS_STT_MODEL,
     });
     return response.text ?? "";
   }

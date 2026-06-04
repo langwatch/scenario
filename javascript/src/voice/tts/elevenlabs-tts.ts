@@ -14,7 +14,7 @@
  */
 import { Buffer } from "node:buffer";
 
-import { ElevenLabsClient } from "elevenlabs";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 import { ELEVENLABS_TTS_MODEL } from "../voice-models";
 import type { TTSCallable } from "./tts";
@@ -49,8 +49,8 @@ export async function elevenLabsSynthesizeBytes(
   const client = factory(apiKey);
   const stream = await client.textToSpeech.convert(voiceId, {
     text,
-    model_id: ELEVENLABS_TTS_MODEL,
-    output_format: "pcm_24000",
+    modelId: ELEVENLABS_TTS_MODEL,
+    outputFormat: "pcm_24000",
   });
   const chunks: Buffer[] = [];
   for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array>) {
