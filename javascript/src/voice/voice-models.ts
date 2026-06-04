@@ -13,10 +13,20 @@
 /** OpenAI Realtime — bidirectional streaming audio API. */
 export const OPENAI_REALTIME_MODEL = "gpt-realtime-mini";
 
-/** OpenAI STT — speech-to-text default for the judge / transcript path. */
+/**
+ * OpenAI STT — speech-to-text default for the judge / transcript path.
+ * Deliberate: gpt-4o-transcribe is OpenAI's current-gen transcription model
+ * as of 2026-06 (no gpt-5-transcribe exists on the public API). Revisit when
+ * OpenAI ships a gpt-5-family transcription successor.
+ */
 export const OPENAI_STT_MODEL = "gpt-4o-transcribe";
 
-/** OpenAI TTS — text-to-speech endpoint default. */
+/**
+ * OpenAI TTS — text-to-speech endpoint default.
+ * Deliberate: gpt-4o-mini-tts is OpenAI's current-gen TTS model as of 2026-06
+ * (no gpt-5-tts exists on the public API). Revisit when OpenAI ships a
+ * gpt-5-family speech successor.
+ */
 export const OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
 
 /** Gemini Live — bidirectional audio (Google's realtime model). */
@@ -51,3 +61,6 @@ export const ELEVENLABS_STT_MODEL = "scribe_v1";
  * env or the `voice` constructor argument.
  */
 export const ELEVENLABS_DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
+
+// Note: Python's voice_models.py also defines OPENAI_BOT_STT_MODEL ("gpt-4o-mini-transcribe")
+// for the bot path. No TS bot path exists, so that constant is Python-only.
