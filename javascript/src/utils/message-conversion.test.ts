@@ -115,7 +115,7 @@ describe("convertModelMessagesToAguiMessages", () => {
       ]);
     });
 
-    it("translates pcm16 audio with no canonical format to a defined input_audio shape", () => {
+    it("WAV-wraps raw pcm16 audio at the langwatch boundary so players can decode it", () => {
       const arr = [
         { type: "file", mediaType: "audio/pcm16", data: "BASE64BYTES" },
       ];
@@ -125,9 +125,14 @@ describe("convertModelMessagesToAguiMessages", () => {
         {
           type: "input_audio",
           input_audio: {
-            data: "BASE64BYTES",
-            format: undefined,
-            mimeType: "audio/pcm16",
+            // Raw headerless PCM16 is undecodable by a browser <audio>
+            // element, so the langwatch-bound converter wraps it in a RIFF/WAV
+            // container (24kHz mono 16-bit — the AudioChunk contract; matches
+            // the Python twin's shipped `format:"wav"`). Deterministic for the
+            // fixture bytes: base64 starts "UklGRi" = "RIFF".
+            data: "UklGRiwAAABXQVZFZm10IBAAAAABAAEAwF0AAIC7AAACABAAZGF0YQgAAAAEBITrgFhMRA==",
+            format: "wav",
+            mimeType: "audio/wav",
           },
         },
       ]);
