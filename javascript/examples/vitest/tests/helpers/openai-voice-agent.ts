@@ -6,7 +6,7 @@
  * - Generate audio output (voice responses)
  * - Handle multi-turn voice conversations
  *
- * Uses OpenAI's gpt-4o-audio-preview model which supports voice-to-voice interaction.
+ * Uses OpenAI's gpt-audio-mini model which supports voice-to-voice interaction.
  *
  * Example usage:
  * ```typescript
@@ -128,7 +128,7 @@ ${this.constructor.name} TEXT FALLBACK
   /**
    * Calls OpenAI's audio-enabled model to generate voice response
    *
-   * Uses gpt-4o-audio-preview with:
+   * Uses gpt-audio-mini with:
    * - Text and audio modalities
    * - WAV format output
    * - Configured voice (alloy, nova, echo, etc.)
@@ -138,7 +138,7 @@ ${this.constructor.name} TEXT FALLBACK
     messages: ChatCompletionMessageParam[]
   ): Promise<ChatCompletion> {
     return this.openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
+      model: "gpt-audio-mini",
       modalities: ["text", "audio"],
       audio: { voice: this.config.voice, format: "wav" },
       messages: this.systemMessage
