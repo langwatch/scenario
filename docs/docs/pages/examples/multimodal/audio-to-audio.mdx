@@ -6,11 +6,8 @@ description: Test agents that receive audio and respond with audio. Perfect for 
 import { LanguageTabs } from "../../../components/LanguageTabs";
 import AudioToAudioExample from "../../_generated/examples/multimodal-audio-to-audio.test.mdx";
 import AudioToAudioExamplePython from "../../_generated/examples/test_audio_to_audio.mdx";
-import LegacyVoiceDeprecation from "../../../snippets/LegacyVoiceDeprecation.mdx";
 
 # Audio → Audio Testing
-
-<LegacyVoiceDeprecation />
 
 Test agents that listen to audio input and reply with audio responses. This pattern is ideal for voice assistants, conversational AI, and any agent that needs to respond in a natural spoken voice.
 
@@ -18,7 +15,7 @@ Test agents that listen to audio input and reply with audio responses. This patt
 
 **Common requirements:**
 
-- **OPENAI_API_KEY** with access to `gpt-4o-audio-preview`
+- **OPENAI_API_KEY** with access to `gpt-audio-mini`
 
 ```bash
 export OPENAI_API_KEY="sk-…"
@@ -113,6 +110,5 @@ Browse the full test in the repo:
 ## Related Guides
 
 - [Audio → Text Testing](/examples/multimodal/audio-to-text) - Agent responds with text instead of audio
-- [Voice-to-Voice Conversations](/examples/multimodal/voice-to-voice) - Multi-turn voice conversations
-- [Testing Voice Agents Overview](/examples/multimodal/testing-voice-agents) - Main voice testing guide
+- [Voice Agents → Getting Started](/voice/getting-started) - First-class voice agent testing via VoiceAgentAdapter
 - [Fixtures Guide](/testing-guides/fixtures) - Learn about test fixtures

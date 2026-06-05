@@ -1,79 +1,12 @@
 ---
-title: Testing Voice AI Agents - Audio Testing Guide
-description: Test voice-enabled AI agents with audio fixtures. Validate speech-to-text, text-to-speech, and conversational voice agents.
+title: Testing Voice Agents
+description: This guide has moved. Voice agent testing now uses the VoiceAgentAdapter system.
 ---
 
-import { BlockLink } from "../../../components/BlockLink";
-import LegacyVoiceDeprecation from "../../../snippets/LegacyVoiceDeprecation.mdx";
+# This guide has moved
 
-# Testing Voice Agents
+Voice agent testing now uses Scenario's first-class **VoiceAgentAdapter** system rather than the legacy multimodal examples.
 
-<LegacyVoiceDeprecation />
+➡ **[Voice Agents → Getting Started](/voice/getting-started)**
 
-Scenario lets you write **end-to-end tests** for agents that listen to audio, think, and respond with either text _or_ audio.
-
-## Video Demo
-
-_This video shows a complete example of a black box test for a voice-to-voice conversation between an agent and a user simulator._
-
-<div className="relative pb-[56.25%] h-0 overflow-hidden mb-8">
-  <iframe
-    className="absolute top-0 left-0 w-full h-full border-0"
-    src="https://www.youtube.com/embed/923Y81jy_Xo"
-    title="YouTube video player"
-    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-    allowFullScreen
-  />
-</div>
-
-## Testing Approaches
-
-Choose the approach that matches your voice agent's architecture:
-
-<div className="mt-8 grid grid-cols-1 gap-4">
-  <BlockLink
-    href="/examples/multimodal/audio-to-text"
-    title="Audio → Text"
-    description="Agent receives audio and replies with text. Perfect for transcription or audio-based Q&A."
-  />
-  <BlockLink
-    href="/examples/multimodal/audio-to-audio"
-    title="Audio → Audio"
-    description="Agent listens and replies in audio. Ideal for voice assistants and conversational AI."
-  />
-  <BlockLink
-    href="/examples/multimodal/voice-to-voice"
-    title="Voice-to-Voice Conversation"
-    description="Full multi-turn conversations where both user simulator and agent speak. Test complex dialogues."
-  />
-</div>
-
-## Use-case comparison
-
-| Scenario                    | Input                                         | Expected Output        | Typical Judge Model                                  |
-| --------------------------- | --------------------------------------------- | ---------------------- | ---------------------------------------------------- |
-| Audio → Text                | `file` part (audio) + optional prompt         | Text                   | `gpt-4o-audio-preview` or any GPT-4-level text model |
-| Audio → Audio               | `file` part (audio) + optional prompt         | Audio (voice response) | `gpt-4o-audio-preview` (handles audio)               |
-| Voice-to-Voice Conversation | Multiple turns, both sides send/receive audio | Audio dialogue         | Same as above; judge runs after conversation         |
-
-## General Troubleshooting
-
-**Judge ignores assistant audio**  
-Use wrapper utilities (`wrap_judge_for_audio` in Python or `wrapJudgeForAudio` in TypeScript) to automatically transcribe audio for judge evaluation.
-
-**Tests time-out or hang**  
-Voice models are slower. For TypeScript: `--timeout 60000` or `VITEST_MAX_WORKERS=1`. For Python: `@pytest.mark.timeout(120)`.
-
-**"Unsupported media type" errors**  
-Helpers support WAV and MP3. Ensure audio files use these formats.
-
-**CI machines without audio hardware**  
-All examples work headlessly—no speakers or microphone required.
-
-💸 **Cost tip**: Each voice request bills as a standard GPT-4 audio-preview call. Keep fixture lengths and turn counts reasonable.
-
-## Related Resources
-
-- [Fixtures Guide](/testing-guides/fixtures) - Learn about test fixtures
-- [Agent Integration](/agent-integration) - Integrate with different agent frameworks
-- [Multimodal Overview](/examples/multimodal/overview) - Other multimodal testing approaches
+See also [Choosing an Adapter](/voice/choosing-an-adapter) and the [voice adapter reference](/voice/adapters/openai-realtime).
