@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.7.28](https://github.com/langwatch/scenario/compare/python/v0.7.27...python/v0.7.28) (2026-06-05)
+
+
+### Features
+
+* **#318:** add context param to JudgmentRequest for extra judge evaluation input ([#554](https://github.com/langwatch/scenario/issues/554)) ([1947824](https://github.com/langwatch/scenario/commit/1947824f179da1176664a843039ba8bd64e7a5fe))
+
+
+### Bug Fixes
+
+* **#191:** rename --debug to --scenario-debug in pytest plugin to avoid file-overwrite ([095360e](https://github.com/langwatch/scenario/commit/095360e68c96ef579de50c127a8112a3110c55ff)), closes [#191](https://github.com/langwatch/scenario/issues/191)
+* **#191:** rename --debug to --scenario-debug in pytest plugin to prevent file overwrite ([#551](https://github.com/langwatch/scenario/issues/551)) ([095360e](https://github.com/langwatch/scenario/commit/095360e68c96ef579de50c127a8112a3110c55ff))
+* **#454:** add liveness check + auto-restart to requires_pipecat_bot fixture ([#557](https://github.com/langwatch/scenario/issues/557)) ([a9bb3f9](https://github.com/langwatch/scenario/commit/a9bb3f9cbeea1b8b87e015b2039dc310d9151c13))
+* **#454:** add liveness check and auto-restart to requires_pipecat_bot fixture ([a9bb3f9](https://github.com/langwatch/scenario/commit/a9bb3f9cbeea1b8b87e015b2039dc310d9151c13))
+* **#500:** include exception type name when str(e) is empty in _call_agent re-raise ([#547](https://github.com/langwatch/scenario/issues/547)) ([acfbda9](https://github.com/langwatch/scenario/commit/acfbda9c7d1f8e82678e868f20d9f0c2c4acbe25)), closes [#500](https://github.com/langwatch/scenario/issues/500)
+* **#501:** set PYTHONUNBUFFERED=1 on pipecat bot subprocess to prevent log loss on crash ([#548](https://github.com/langwatch/scenario/issues/548)) ([a56720d](https://github.com/langwatch/scenario/commit/a56720d655cb7617a7c922a213e3fb74a57d158d)), closes [#501](https://github.com/langwatch/scenario/issues/501)
+* **#502/#493:** raise VoiceAgentAdapter.response_timeout default to 60s ([38172ee](https://github.com/langwatch/scenario/commit/38172ee2e42dfe4f2db486683762287cbc3ab424))
+* **#502:** raise VoiceAgentAdapter.response_timeout default from 30s to 60s ([#558](https://github.com/langwatch/scenario/issues/558)) ([38172ee](https://github.com/langwatch/scenario/commit/38172ee2e42dfe4f2db486683762287cbc3ab424))
+* **executor:** suppress pydantic warnings during agent await, not just creation ([#541](https://github.com/langwatch/scenario/issues/541)) ([9e55f7a](https://github.com/langwatch/scenario/commit/9e55f7a0da0c0260df34d91465c702eef924c25e))
+* **voice/#350:** post-merge cleanup — capability AC, disconnect logging, doc drift, e2e wedge ([#492](https://github.com/langwatch/scenario/issues/492)) ([71dd5ed](https://github.com/langwatch/scenario/commit/71dd5eda08516c3e0fe1927043ac33f4a4762bf5))
+* **voice/#602:** migrate OpenAIRealtimeAgentAdapter to GA Realtime wire protocol ([#604](https://github.com/langwatch/scenario/issues/604)) ([3765f3c](https://github.com/langwatch/scenario/commit/3765f3c5a6eeeee5c7598c1c90bdd35233a2ae4d))
+* **voice:** tolerate empty-content user/system turns in snapshot emitter ([#600](https://github.com/langwatch/scenario/issues/600)) ([#603](https://github.com/langwatch/scenario/issues/603)) ([0f5555d](https://github.com/langwatch/scenario/commit/0f5555d879a13f46e0c72f28d5754e6fe0c1dffc))
+
+
+### Miscellaneous
+
+* **#489:** drop stale Python 3.8/3.9 classifiers from pyproject.toml ([#555](https://github.com/langwatch/scenario/issues/555)) ([eb33452](https://github.com/langwatch/scenario/commit/eb334526cdd5cf9db0c4c00b0c84552e45c33ab5))
+* main-side cleanup — docs + spec + python/TS parity ([#586](https://github.com/langwatch/scenario/issues/586)) ([371f94c](https://github.com/langwatch/scenario/commit/371f94cd20998004398fa19d663254cb9aace8d8))
+* scrub vestigial AC-reference tags from code + specs ([#594](https://github.com/langwatch/scenario/issues/594)) ([f8c5621](https://github.com/langwatch/scenario/commit/f8c56219022ef2e58da004206783066454bbbcdf))
+* scrub vestigial AC-reference tags, keep descriptions ([f8c5621](https://github.com/langwatch/scenario/commit/f8c56219022ef2e58da004206783066454bbbcdf))
+
+
+### Documentation
+
+* **voice/#606:** document STT/TTS model choices as deliberate current-gen ([#610](https://github.com/langwatch/scenario/issues/610)) ([6211df3](https://github.com/langwatch/scenario/commit/6211df3c1386520a59de165f5a7ccd57d6a8eaf2))
+
 ## [0.7.27](https://github.com/langwatch/scenario/compare/python/v0.7.26...python/v0.7.27) (2026-05-21)
 
 
