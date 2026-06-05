@@ -33,6 +33,12 @@ export interface LangwatchConfig {
   endpoint?: string;
   /** The API key for authentication. Falls back to LANGWATCH_API_KEY env var. */
   apiKey?: string;
+  /**
+   * Optional LangWatch project ID. When set alongside apiKey, requests carry
+   * the X-Project-Id header. Falls back to LANGWATCH_PROJECT_ID env var.
+   * Required for API keys that are not bound to a single project.
+   */
+  projectId?: string;
 }
 
 /**
@@ -165,6 +171,8 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
     eventBus = new EventBus({
       endpoint: options?.langwatch?.endpoint ?? envConfig.LANGWATCH_ENDPOINT,
       apiKey: options?.langwatch?.apiKey ?? envConfig.LANGWATCH_API_KEY,
+      projectId:
+        options?.langwatch?.projectId ?? envConfig.LANGWATCH_PROJECT_ID,
     });
     eventBus.listen();
 

@@ -64,19 +64,89 @@ async def test_post_event_sends_correct_request(caplog: LogCaptureFixture) -> No
 
         assert route.called
         request: httpx.Request = route.calls[0].request
-        # Dual-emit: both Authorization: Bearer (preferred by RFC 6750 + most
-        # corporate proxies) and X-Auth-Token (legacy compat). Skai's traces
-        # arrive via Authorization but their scenario events POSTs were getting
-        # X-Auth-Token stripped at their network boundary; dual-emit closes
-        # that gap without changing customer config.
         assert request.headers["Authorization"] == f"Bearer {api_key}"
-        assert request.headers["X-Auth-Token"] == api_key
+        assert "X-Auth-Token" not in request.headers
         assert request.headers["Content-Type"] == "application/json"
+        # Without project_id, no X-Project-Id header is sent — the API key is
+        # assumed to be project-bound.
+        assert "X-Project-Id" not in request.headers
         assert (
             b'"type": "SCENARIO_RUN_STARTED"' in request.content
             or b'"type":"SCENARIO_RUN_STARTED"' in request.content
         )
         assert any("POST response status: 200" in m for m in caplog.messages)
+
+
+@pytest.mark.asyncio
+async def test_post_event_includes_x_project_id_when_configured() -> None:
+    """When project_id is set, X-Project-Id is sent alongside Authorization.
+
+    This supports API keys that are not bound to a single project — the
+    project_id tells the server which project to scope the request to.
+    """
+    endpoint = "https://app.langwatch.ai"
+    api_key = "test-api-key"
+    project_id = "project_xxx"
+    event = _make_event()
+
+    reporter = EventReporter(
+        endpoint=endpoint, api_key=api_key, project_id=project_id
+    )
+
+    with respx.mock as mock:
+        route = mock.post(f"{endpoint}/api/scenario-events").respond(
+            200, json={"ok": True}
+        )
+        await reporter.post_event(event)
+
+        assert route.called
+        request: httpx.Request = route.calls[0].request
+        assert request.headers["Authorization"] == f"Bearer {api_key}"
+        assert request.headers["X-Project-Id"] == project_id
+
+
+@pytest.mark.asyncio
+async def test_project_id_falls_back_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGWATCH_PROJECT_ID", "project_from_env")
+
+    reporter = EventReporter(
+        endpoint="https://app.langwatch.ai", api_key="test-api-key"
+    )
+    event = _make_event()
+
+    with respx.mock as mock:
+        route = mock.post("https://app.langwatch.ai/api/scenario-events").respond(
+            200, json={"ok": True}
+        )
+        await reporter.post_event(event)
+
+        assert route.called
+        request: httpx.Request = route.calls[0].request
+        assert request.headers["X-Project-Id"] == "project_from_env"
+
+
+@pytest.mark.asyncio
+async def test_explicit_project_id_wins_over_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LANGWATCH_PROJECT_ID", "project_from_env")
+
+    reporter = EventReporter(
+        endpoint="https://app.langwatch.ai",
+        api_key="test-api-key",
+        project_id="project_explicit",
+    )
+    event = _make_event()
+
+    with respx.mock as mock:
+        route = mock.post("https://app.langwatch.ai/api/scenario-events").respond(
+            200, json={"ok": True}
+        )
+        await reporter.post_event(event)
+
+        assert route.called
+        request: httpx.Request = route.calls[0].request
+        assert request.headers["X-Project-Id"] == "project_explicit"
 
 
 @pytest.mark.asyncio
@@ -107,7 +177,7 @@ async def test_inherits_api_key_from_langwatch_setup(
 
         assert route.called
         request: httpx.Request = route.calls[0].request
-        assert request.headers["X-Auth-Token"] == "sk-lw-from-langwatch-setup"
+        assert request.headers["Authorization"] == "Bearer sk-lw-from-langwatch-setup"
 
 
 @pytest.mark.asyncio
@@ -135,7 +205,7 @@ async def test_constructor_api_key_wins_over_env_and_langwatch_state(
 
         assert route.called
         request: httpx.Request = route.calls[0].request
-        assert request.headers["X-Auth-Token"] == "sk-lw-explicit"
+        assert request.headers["Authorization"] == "Bearer sk-lw-explicit"
 
 
 @pytest.mark.asyncio
@@ -160,7 +230,7 @@ async def test_env_var_wins_over_langwatch_state_when_no_explicit_key(
 
         assert route.called
         request: httpx.Request = route.calls[0].request
-        assert request.headers["X-Auth-Token"] == "sk-lw-from-env"
+        assert request.headers["Authorization"] == "Bearer sk-lw-from-env"
 
 
 @pytest.mark.asyncio
@@ -170,7 +240,7 @@ async def test_skips_post_when_api_key_unavailable_everywhere(
     _reset_langwatch_client_state: None,
 ) -> None:
     """When no api_key is set anywhere, never POST. Customer ran into hundreds of
-    thousands of 401s/day because empty `X-Auth-Token: ""` was still being sent
+    thousands of 401s/day because an empty bearer token was still being sent
     on every event. Skipping silently is correct — the greeting message in
     EventAlertMessageLogger already directs the user to set LANGWATCH_API_KEY.
     """

@@ -25,7 +25,11 @@ export class EventBus {
   private logger = new Logger("scenario.events.EventBus");
   private static globalListeners: Array<(bus: EventBus) => void> = [];
 
-  constructor(config: { endpoint: string; apiKey: string | undefined }) {
+  constructor(config: {
+    endpoint: string;
+    apiKey: string | undefined;
+    projectId?: string | undefined;
+  }) {
     this.eventReporter = new EventReporter(config);
     this.eventAlertMessageLogger = new EventAlertMessageLogger();
     EventBus.registry.add(this);

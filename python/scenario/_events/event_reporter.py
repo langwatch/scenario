@@ -78,9 +78,13 @@ class EventReporter:
         api_key (str, optional): Override API key. Resolution order: explicit
             arg → LANGWATCH_API_KEY env var → langwatch.client.Client._api_key
             (set by langwatch.setup(api_key=...)).
+        project_id (str, optional): Override LangWatch project ID. When set
+            (alongside api_key), requests carry the X-Project-Id header. Falls
+            back to LANGWATCH_PROJECT_ID env var.
 
     Example:
-        # Using environment variables (LANGWATCH_ENDPOINT, LANGWATCH_API_KEY)
+        # Using environment variables (LANGWATCH_ENDPOINT, LANGWATCH_API_KEY,
+        # LANGWATCH_PROJECT_ID)
         reporter = EventReporter()
 
         # Or rely on langwatch.setup(api_key=...) called earlier in the process
@@ -88,7 +92,7 @@ class EventReporter:
 
         # Override specific values
         reporter = EventReporter(endpoint="https://langwatch.yourdomain.com")
-        reporter = EventReporter(api_key="your-api-key")
+        reporter = EventReporter(api_key="your-api-key", project_id="project_xxx")
     """
 
     # Process-wide flag: emit the "no api_key configured" warning at most once
@@ -99,6 +103,7 @@ class EventReporter:
         self,
         endpoint: Optional[str] = None,
         api_key: Optional[str] = None,
+        project_id: Optional[str] = None,
     ):
         # Load settings from environment variables
         langwatch_settings = LangWatchSettings()
@@ -113,6 +118,7 @@ class EventReporter:
             or langwatch_settings.api_key
             or _resolve_langwatch_client_api_key()
         )
+        self.project_id = project_id or langwatch_settings.project_id
         self.logger = logging.getLogger(__name__)
         self.event_alert_message_logger = EventAlertMessageLogger()
 
@@ -161,22 +167,17 @@ class EventReporter:
             self.logger.debug(
                 f"[{event_type}] POST {url} payload keys={list(payload.keys())} ({event.scenario_run_id})"
             )
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            }
+            if self.project_id:
+                headers["X-Project-Id"] = self.project_id
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 response = await client.post(
                     url,
                     json=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        # Send credentials as both Authorization: Bearer (RFC
-                        # 6750) and X-Auth-Token (legacy). Some corporate
-                        # proxies strip non-standard headers like X-Auth-Token
-                        # while preserving Authorization, so dual-emit makes
-                        # the SDK robust to that path. The server's auth
-                        # middleware accepts either; if both are present
-                        # Bearer wins by middleware priority.
-                        "Authorization": f"Bearer {self.api_key}",
-                        "X-Auth-Token": self.api_key,
-                    },
+                    headers=headers,
                     timeout=httpx.Timeout(30.0),
                 )
                 self.logger.info(
