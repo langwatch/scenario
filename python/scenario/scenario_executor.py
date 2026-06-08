@@ -1531,9 +1531,9 @@ class ScenarioExecutor:
         # both the opening turn AND subsequent agent turns in multi-turn scripts.
         # Guards with hasattr so non-realtime adapters are unaffected.
         if role == AgentRole.AGENT:
-            _agent = next_agent
-            if hasattr(_agent, "notify_agent_turn"):
-                _agent.notify_agent_turn()
+            _notify = getattr(next_agent, "notify_agent_turn", None)
+            if callable(_notify):
+                _notify()
 
         result = await self._call_agent(
             idx, role=role, judgment_request=judgment_request

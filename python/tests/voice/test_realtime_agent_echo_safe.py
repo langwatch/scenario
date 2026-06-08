@@ -40,7 +40,7 @@ import pytest
 import scenario
 from scenario.config import ScenarioConfig
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
-from scenario.user_simulator_agent import UserSimulatorAgent, _strip_audio_content
+from scenario.user_simulator_agent import UserSimulatorAgent
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ def _configure_scenario(monkeypatch):
         from langwatch.client import Client
         monkeypatch.setattr(Client, "_api_key", "", raising=False)
     except Exception:
-        pass
+        pass  # langwatch SDK not importable in this env — hermetic floor is best-effort
     # Patch event reporter post_event to a no-op so no HTTP calls are made
     # even if the endpoint is configured via some other path.
     try:
@@ -246,7 +246,7 @@ def _configure_scenario(monkeypatch):
 
         monkeypatch.setattr(EventReporter, "post_event", _noop_post_event)
     except Exception:
-        pass
+        pass  # event reporter not importable — no-op floor is best-effort
 
     prev = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(
@@ -492,20 +492,6 @@ async def test_agent_first_produces_turn():
 
     adapter.connect = _fake_connect  # type: ignore[method-assign]
     adapter.disconnect = _fake_disconnect  # type: ignore[method-assign]
-
-    # Simple QuietAgent to play agent role (adapter IS the agent, we need a
-    # user sim to provide the USER side).
-    from scenario.voice import VoiceAgentAdapter, AdapterCapabilities, AudioChunk as _Chunk
-
-    class _QuietUser(VoiceAgentAdapter):
-        role = scenario.AgentRole.USER  # type: ignore[assignment]
-        capabilities = AdapterCapabilities()
-
-        async def connect(self): pass
-        async def disconnect(self): pass
-        async def send_audio(self, chunk): pass
-        async def recv_audio(self, timeout):
-            return _Chunk(data=_make_pcm(2400), transcript="hello")
 
     # Use a scripted user to avoid needing an LLM.
     with patch("scenario.voice.tts.synthesize") as mock_tts:
