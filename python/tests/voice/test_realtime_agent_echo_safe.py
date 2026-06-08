@@ -31,7 +31,7 @@ import json
 import wave
 from io import BytesIO
 from typing import Any, List
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from litellm.files.main import ModelResponse as _LiteLLMModelResponse
 
@@ -234,7 +234,7 @@ def _configure_scenario(monkeypatch):
     try:
         from langwatch.client import Client
         monkeypatch.setattr(Client, "_api_key", "", raising=False)
-    except Exception:
+    except ImportError:
         pass  # langwatch SDK not importable in this env — hermetic floor is best-effort
     # Patch event reporter post_event to a no-op so no HTTP calls are made
     # even if the endpoint is configured via some other path.
@@ -245,7 +245,7 @@ def _configure_scenario(monkeypatch):
             return {}
 
         monkeypatch.setattr(EventReporter, "post_event", _noop_post_event)
-    except Exception:
+    except ImportError:
         pass  # event reporter not importable — no-op floor is best-effort
 
     prev = ScenarioConfig.default_config
