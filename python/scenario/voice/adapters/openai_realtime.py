@@ -90,6 +90,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         *,
         api_key: Optional[str] = None,
         role: AgentRole = AgentRole.AGENT,
+        speaks_first: bool = False,
     ):
         super().__init__()
         self.model = model
@@ -115,6 +116,29 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # Tracks which legacy (pre-GA) event names have already triggered a
         # one-time warning, so the log isn't spammed on every audio frame.
         self._legacy_events_warned: set[str] = set()
+
+        # --- Gap 1: agent-speaks-first support ---
+        # When speaks_first=True, the adapter is configured for an agent-initiated
+        # scenario where the agent must speak first without any user audio.
+        self._speaks_first: bool = speaks_first
+
+        # True while a response is in flight (set on response.created, cleared on
+        # response.done / response.cancelled). Prevents double-firing response.create
+        # and allows drain re-entries after a completed response to return empty
+        # (clean drain exit).
+        self._response_active: bool = False
+
+        # Set to True the first time response.created is received. Guards the
+        # drain re-entry short-circuit in recv_audio: the empty-chunk early-return
+        # must only fire AFTER at least one response has been active and completed,
+        # not on the very first recv_audio call (which would break direct-call
+        # tests that don't go through notify_agent_turn).
+        self._response_ever_active: bool = False
+
+        # Per-turn signal: set by notify_agent_turn() before each agent step so
+        # recv_audio knows this is a genuine agent-initiated turn (not a silent
+        # proceed()/resume). Consumed (cleared) when the kick fires.
+        self._agent_turn_pending: bool = speaks_first  # first turn armed if speaks_first
 
     @property
     def url(self) -> str:
@@ -144,6 +168,21 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 received,
                 ga_name,
             )
+
+    def notify_agent_turn(self) -> None:
+        """Signal that an agent turn is about to be dispatched.
+
+        Called by the executor before each agent step so recv_audio can fire
+        a bare response.create for agent-initiated turns (where no user audio
+        has been committed). This per-turn signal handles both turn 1 (opening)
+        and subsequent agent turns in multi-turn scripts like [agent(), user(),
+        agent()].
+
+        Only meaningful when role=AGENT. Safe to call on every agent step —
+        recv_audio consumes and clears the flag.
+        """
+        if self.role == AgentRole.AGENT:
+            self._agent_turn_pending = True
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -263,6 +302,33 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
             await self._ws.send(json.dumps({"type": "response.create"}))
             self._pending_audio_bytes = 0
+            self._agent_turn_pending = False  # user spoke → per-turn signal consumed
+
+        # Gap 1: agent-speaks-first / multi-turn agent initiation.
+        # When the executor signals an agent turn via notify_agent_turn() and
+        # no user audio has been committed and no response is already in flight,
+        # send a bare content-free response.create so the model speaks.
+        # Opening words come from the session instructions — no text is injected.
+        # Self-limiting on user-first scripts: if user audio was committed above,
+        # _agent_turn_pending was already cleared.
+        # Also serves as the clean drain exit: if a response already completed
+        # (_response_active is False after response.done cleared it) and
+        # _agent_turn_pending is False, a drain re-entry returns an empty chunk.
+        elif self._agent_turn_pending and not self._response_active:
+            await self._ws.send(json.dumps({"type": "response.create"}))
+            self._agent_turn_pending = False
+            self._response_active = True
+
+        elif not self._agent_turn_pending and not self._response_active and self._response_ever_active:
+            # No pending audio, no agent-turn signal, no response in flight,
+            # AND at least one response has already completed this session:
+            # this is a drain re-entry after a completed response. Return empty
+            # chunk so _drain_agent_response's tail-silence loop exits cleanly.
+            # Guard on _response_ever_active so that a fresh recv_audio call
+            # (before any response.created fires) does NOT short-circuit —
+            # that would break direct recv_audio callers (e.g. unit tests that
+            # call recv_audio without going through notify_agent_turn).
+            return AudioChunk(data=b"")
 
         deadline = asyncio.get_running_loop().time() + timeout
         while True:
@@ -296,6 +362,12 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                     pcm = pcm[:-1]
                 return AudioChunk(data=pcm)
 
+            elif etype == "response.created":
+                # Response is now in flight — mark it so subsequent recv_audio
+                # drain re-entries don't fire a spurious second response.create.
+                self._response_active = True
+                self._response_ever_active = True
+
             elif etype in (
                 "response.output_audio_transcript.delta",
                 "response.audio_transcript.delta",
@@ -317,6 +389,11 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                     self.last_agent_transcript = self._agent_transcript_buf
                 self._agent_transcript_buf = ""
 
+            elif etype in ("response.done", "response.cancelled"):
+                # Response finished or was cancelled — mark it so the next
+                # drain re-entry returns an empty chunk (clean exit).
+                self._response_active = False
+
             elif etype == "conversation.item.input_audio_transcription.completed":
                 # User-side transcript from Whisper.
                 self.last_user_transcript = event.get("transcript", "")
@@ -330,11 +407,50 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
 
             else:
                 # Housekeeping events — session.created, session.updated,
-                # response.created, response.output_item.added, etc. — are
-                # benign. Log at DEBUG and keep the loop running.
+                # response.output_item.added, etc. — are benign. Log at DEBUG
+                # and keep the loop running.
                 logger.debug(
                     "OpenAIRealtimeAgentAdapter: ignoring event type %r", etype
                 )
+
+    async def _drain_agent_response(
+        self, on_first_chunk=None
+    ) -> "AudioChunk":
+        """Override to surface the spoken transcript after draining.
+
+        The base class drains recv_audio chunks until tail silence. After
+        draining, ``response.output_audio_transcript.done`` will have already
+        fired (it arrives before ``response.done``), so ``self.last_agent_transcript``
+        is populated. We rebuild the merged chunk with ``transcript=`` set so
+        ``create_audio_message`` attaches a text part to the assistant message.
+
+        This puts the transcript in ``result.messages`` (AC2/AC5) without
+        modifying messages.py, tts.py, or composable.py (AC6).
+
+        The transcript text is an ordinary ``{"type":"text","text":...}`` part —
+        no extra keys. Echo-safety is handled in ``_strip_audio_content``
+        (user_simulator_agent.py) by detecting the structural pattern: an
+        assistant message that carries both an ``input_audio`` part AND a ``text``
+        part is a voiced agent turn, so the text is reframed as third-person
+        context before ``reverse_roles`` runs (AC4/AC11).
+        """
+        from ..audio_chunk import AudioChunk as _AudioChunk
+
+        # Clear transcript state at the start of each turn so a stale value
+        # from a prior turn doesn't bleed through if this turn's event never
+        # fires (AC8: degraded case — absent transcript → no text part).
+        self.last_agent_transcript = None
+        self._agent_transcript_buf = ""
+
+        merged = await super()._drain_agent_response(on_first_chunk=on_first_chunk)
+
+        transcript = self.last_agent_transcript
+        if transcript:
+            # Rebuild with transcript attached so create_audio_message adds
+            # the text part. The original merged.data is unchanged.
+            return _AudioChunk(data=merged.data, transcript=transcript)
+        # No transcript (AC8): return the merge unchanged (audio-only).
+        return merged
 
     async def send_text(self, text: str) -> None:
         """

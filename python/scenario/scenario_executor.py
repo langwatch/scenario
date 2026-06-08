@@ -1525,6 +1525,16 @@ class ScenarioExecutor:
                 print_openai_messages(self._scenario_name(), [message])
             return
 
+        # Gap 1 (AC9/AC10): signal the voice adapter that an agent turn is about
+        # to be dispatched. This per-turn flag lets recv_audio fire a bare
+        # response.create for agent-initiated turns (no user audio committed) —
+        # both the opening turn AND subsequent agent turns in multi-turn scripts.
+        # Guards with hasattr so non-realtime adapters are unaffected.
+        if role == AgentRole.AGENT:
+            _agent = next_agent
+            if hasattr(_agent, "notify_agent_turn"):
+                _agent.notify_agent_turn()
+
         result = await self._call_agent(
             idx, role=role, judgment_request=judgment_request
         )
