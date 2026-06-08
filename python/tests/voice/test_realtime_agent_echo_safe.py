@@ -33,6 +33,8 @@ from io import BytesIO
 from typing import Any, List
 from unittest.mock import MagicMock, patch
 
+from litellm.files.main import ModelResponse as _LiteLLMModelResponse
+
 import pytest
 
 import scenario
@@ -177,12 +179,14 @@ def _agent_event_sequence(question: str = QUESTION) -> List[str]:
 # Parrot LLM stub
 # ---------------------------------------------------------------------------
 
-def _make_parrot_response(text: str) -> MagicMock:
-    """Build a mock litellm.completion ModelResponse that returns ``text``."""
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = text
-    return mock_response
+def _make_parrot_response(text: str) -> _LiteLLMModelResponse:
+    """Build a real litellm ModelResponse so langwatch tracing can serialize it."""
+    return _LiteLLMModelResponse(
+        id="parrot-stub",
+        choices=[{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+        model="gpt-4.1-mini",
+        object="chat.completion",
+    )
 
 
 def _parrot_completion(**kwargs):
@@ -220,6 +224,12 @@ def _configure_scenario(monkeypatch):
     """
     monkeypatch.delenv("LANGWATCH_API_KEY", raising=False)
     monkeypatch.delenv("LANGWATCH_ENDPOINT", raising=False)
+    # Provide a dummy OpenAI key so AsyncOpenAI() construction does not raise
+    # "Missing credentials" if any un-mocked path reaches client init.
+    # The real synthesize is always patched in these tests, so no network call
+    # is made; this is a belt-and-suspenders hermetic floor.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-sk-not-a-real-key")
+    monkeypatch.setenv("OPENAI_ADMIN_KEY", "test-sk-not-a-real-key")
     # Also clear the langwatch SDK's class-level api_key if set.
     try:
         from langwatch.client import Client
@@ -323,7 +333,7 @@ async def _run_echo_test(
         scenario.succeed("done"),
     ]
 
-    with patch("scenario.voice.tts.synthesize", side_effect=_fake_synthesize):
+    with patch("scenario.voice.synthesize", side_effect=_fake_synthesize):
         with patch(
             "scenario.user_simulator_agent.litellm.completion",
             side_effect=_parrot_completion,
@@ -645,7 +655,7 @@ async def test_multi_turn_agent_user_agent():
         "scenario.user_simulator_agent.litellm.completion",
         side_effect=_parrot_completion,
     ):
-        with patch("scenario.voice.tts.synthesize") as mock_tts:
+        with patch("scenario.voice.synthesize") as mock_tts:
             async def _fake_synth(text, voice):
                 from scenario.voice.audio_chunk import AudioChunk
                 return AudioChunk(data=_make_pcm(2400), transcript=text)
@@ -722,7 +732,7 @@ async def test_no_spurious_response_create_on_user_first():
         voice="openai/nova",
     )
 
-    with patch("scenario.voice.tts.synthesize") as mock_tts:
+    with patch("scenario.voice.synthesize") as mock_tts:
         async def _fake_synth(text, voice):
             from scenario.voice.audio_chunk import AudioChunk
             return AudioChunk(data=_make_pcm(2400), transcript=text)
