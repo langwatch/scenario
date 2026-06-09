@@ -192,6 +192,7 @@ docs/docs/public/reference/python/**/*
 
 .claude/worktrees
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 .worktrees
 
 # Voice demo recordings — most are regenerated per local run, NOT
