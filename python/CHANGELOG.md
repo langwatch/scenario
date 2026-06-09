@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.29](https://github.com/langwatch/scenario/compare/python/v0.7.28...python/v0.7.29) (2026-06-09)
+
+
+### Features
+
+* **voice:** agent-initiated turns + echo-safe agent-transcript surfacing ([#621](https://github.com/langwatch/scenario/issues/621)) ([#622](https://github.com/langwatch/scenario/issues/622)) ([bc060b2](https://github.com/langwatch/scenario/commit/bc060b20bead66b80117d0132eb1632ae4c545d8))
+
+
+### Bug Fixes
+
+* **deps:** close scenario python aiohttp and starlette security alerts ([#625](https://github.com/langwatch/scenario/issues/625)) ([a32568b](https://github.com/langwatch/scenario/commit/a32568b359d27d5d7e1c2447445c8b8c1ede5b44))
+
 ## [0.7.28](https://github.com/langwatch/scenario/compare/python/v0.7.27...python/v0.7.28) (2026-06-05)
 
 
