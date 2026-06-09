@@ -140,6 +140,23 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # proceed()/resume). Consumed (cleared) when the kick fires.
         self._agent_turn_pending: bool = speaks_first  # first turn armed if speaks_first
 
+        # --- Issue #630: realtime function-call (tool-call) surfacing ---
+        # In-progress function calls keyed by call_id. Each value is a dict
+        # {"name": str|None, "arguments": str} assembled from the streaming
+        # `response.function_call_arguments.delta`/`.done` events and the
+        # `response.output_item.added`/`.done` (function_call item) events.
+        # recv_audio() returns an AudioChunk, so it cannot carry tool calls in
+        # its return value — instead the function-call branches accumulate here
+        # and the overridden call() drains them into result.messages.
+        self._tool_call_accumulators: dict[str, dict[str, Any]] = {}
+        # Finalized OpenAI-chat tool_call dicts for the CURRENT turn, in arrival
+        # order. Cleared at the start of each call() so calls never leak across
+        # turns (mirrors the transcript-state reset in _drain_agent_response).
+        # Shape per entry:
+        #   {"id": call_id, "type": "function",
+        #    "function": {"name": name, "arguments": <json-str>}}
+        self._completed_tool_calls: List[dict[str, Any]] = []
+
     @property
     def url(self) -> str:
         return REALTIME_URL_TEMPLATE.format(model=self.model)
@@ -168,6 +185,93 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 received,
                 ga_name,
             )
+
+    # ------------------------------------------------------------- tool calls
+    # Issue #630: surface OpenAI Realtime function-call events as OpenAI-chat
+    # tool_calls on the assistant message in result.messages. The Realtime wire
+    # describes ONE logical call across several events
+    # (`response.function_call_arguments.delta` × N → `.done`, and/or
+    # `response.output_item.added`/`.done` carrying the function_call item).
+    # We accumulate per call_id, then finalize into self._completed_tool_calls,
+    # de-duplicating so each call_id yields exactly one tool_call (AC6).
+
+    def _accumulate_tool_call_delta(self, call_id: str, delta: str) -> None:
+        """Append a streaming arguments fragment for ``call_id``."""
+        acc = self._tool_call_accumulators.setdefault(
+            call_id, {"name": None, "arguments": ""}
+        )
+        acc["arguments"] = (acc["arguments"] or "") + (delta or "")
+
+    def _note_tool_call_name(self, call_id: str, name: Optional[str]) -> None:
+        """Record the function name for ``call_id`` (the item/added event)."""
+        if not name:
+            return
+        acc = self._tool_call_accumulators.setdefault(
+            call_id, {"name": None, "arguments": ""}
+        )
+        acc["name"] = name
+
+    def _finalize_tool_call(
+        self,
+        call_id: Optional[str],
+        *,
+        name: Optional[str] = None,
+        arguments: Optional[str] = None,
+    ) -> None:
+        """Resolve one logical function call into ``self._completed_tool_calls``.
+
+        Idempotent on ``call_id`` (AC6): the streaming-args path and the
+        output-item path both describe the SAME call, so a second finalize for
+        an already-completed ``call_id`` MERGES (fills a missing name / upgrades
+        to a more complete arguments string) rather than appending a duplicate.
+
+        Degrades safely (AC7): a finalize with NO ``call_id`` is skipped with a
+        DEBUG log and emits nothing. Missing arguments become ``"{}"``; a
+        malformed (non-JSON) arguments string is passed through verbatim — the
+        adapter never parses-and-reraises.
+        """
+        if not call_id:
+            logger.debug(
+                "OpenAIRealtimeAgentAdapter: function-call event with no "
+                "call_id; skipping (AC7 degraded path)"
+            )
+            return
+
+        acc = self._tool_call_accumulators.get(call_id, {})
+        resolved_name = name or acc.get("name")
+        # Pick the most complete arguments source: explicit (item/done) arg if
+        # non-empty, else the accumulated streaming deltas, else "{}".
+        candidates = [arguments, acc.get("arguments")]
+        resolved_args = next(
+            (c for c in candidates if c is not None and c != ""), None
+        )
+        if resolved_args is None:
+            resolved_args = "{}"
+
+        # De-dup / merge on call_id (AC6).
+        for existing in self._completed_tool_calls:
+            if existing["id"] == call_id:
+                fn = existing["function"]
+                if not fn.get("name") and resolved_name:
+                    fn["name"] = resolved_name
+                # Upgrade to a longer/more-complete arguments string if the new
+                # source carries more (item arguments arriving after deltas).
+                if resolved_args not in ("", "{}") and len(resolved_args) > len(
+                    fn.get("arguments") or ""
+                ):
+                    fn["arguments"] = resolved_args
+                return
+
+        self._completed_tool_calls.append(
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": resolved_name or "",
+                    "arguments": resolved_args,
+                },
+            }
+        )
 
     def notify_agent_turn(self) -> None:
         """Signal that an agent turn is about to be dispatched.
@@ -398,6 +502,50 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # User-side transcript from Whisper.
                 self.last_user_transcript = event.get("transcript", "")
 
+            elif etype == "response.function_call_arguments.delta":
+                # Issue #630: streaming arguments fragment for a function call.
+                # Accumulate per call_id; the call is finalized on `.done` or
+                # the function_call output-item event.
+                self._accumulate_tool_call_delta(
+                    event.get("call_id", ""), event.get("delta", "")
+                )
+
+            elif etype == "response.function_call_arguments.done":
+                # Issue #630: streaming-args path complete. `name` is typically
+                # NOT on this event (it arrives via the output_item), so resolve
+                # it from the accumulator. A missing call_id degrades safely.
+                self._finalize_tool_call(
+                    event.get("call_id"),
+                    name=event.get("name"),
+                    arguments=event.get("arguments"),
+                )
+
+            elif etype in ("response.output_item.added", "response.output_item.done"):
+                # Issue #630: the output-item form of a function call carries the
+                # authoritative `name` + `call_id` (and, on `.done`, the full
+                # `arguments`). For non-function items (e.g. an audio message
+                # item) this is benign housekeeping — fall through silently.
+                item = event.get("item") or {}
+                if isinstance(item, dict) and item.get("type") == "function_call":
+                    call_id = item.get("call_id")
+                    name = item.get("name")
+                    if etype == "response.output_item.added":
+                        # Shell arrives before args stream — record the name so a
+                        # later delta/done can attach to it. Do not finalize yet.
+                        self._note_tool_call_name(call_id or "", name)
+                    else:
+                        # `.done`: authoritative full call. Finalize (idempotent
+                        # on call_id — merges with any streaming-args entry, AC6).
+                        self._finalize_tool_call(
+                            call_id, name=name, arguments=item.get("arguments")
+                        )
+                else:
+                    logger.debug(
+                        "OpenAIRealtimeAgentAdapter: ignoring non-function "
+                        "output_item event %r",
+                        etype,
+                    )
+
             elif etype == "error":
                 error_detail = event.get("error", {})
                 msg = error_detail.get("message", str(error_detail))
@@ -406,12 +554,50 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 )
 
             else:
-                # Housekeeping events — session.created, session.updated,
-                # response.output_item.added, etc. — are benign. Log at DEBUG
-                # and keep the loop running.
+                # Housekeeping events — session.created, session.updated, etc. —
+                # are benign. Log at DEBUG and keep the loop running.
                 logger.debug(
                     "OpenAIRealtimeAgentAdapter: ignoring event type %r", etype
                 )
+
+    async def call(self, input):  # type: ignore[override]
+        """Surface realtime tool calls alongside the spoken audio turn (#630).
+
+        The base ``call()`` returns a single assistant audio message and does
+        all the recording bookkeeping. We keep that intact and, when the agent
+        called any tools this turn, append ONE extra assistant message carrying
+        every tool call as OpenAI-chat ``tool_calls`` — the shape
+        ``state.has_tool_call`` / ``state.last_tool_call`` consume.
+
+        Returns:
+            - the single audio message (dict) when no tools were called — byte
+              identical to the base behaviour (AC8 regression), OR
+            - ``[audio_message, tool_call_message]`` when ≥1 tool was called
+              (AC1/AC9/AC10). ``convert_agent_return_types_to_openai_messages``
+              passes a list of dicts through verbatim into result.messages.
+
+        The completed-calls list is reset HERE (turn start) so tool calls never
+        leak across turns; the function-call events for THIS turn are consumed
+        inside the ``super().call()`` drain and finalized onto the list.
+        """
+        # Reset per-turn tool-call state so a prior turn's calls don't bleed
+        # through (mirrors the transcript reset in _drain_agent_response).
+        self._completed_tool_calls = []
+        self._tool_call_accumulators = {}
+
+        audio_message = await super().call(input)
+
+        if not self._completed_tool_calls:
+            return audio_message
+
+        # One assistant message carrying ALL of this turn's tool calls — the
+        # conventional OpenAI shape (one assistant turn, many tool_calls).
+        tool_call_message: dict[str, Any] = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": list(self._completed_tool_calls),
+        }
+        return [audio_message, tool_call_message]
 
     async def _drain_agent_response(
         self, on_first_chunk=None

@@ -1119,10 +1119,74 @@ def _voice_input_with_tool_call() -> AgentInput:
     )
 
 
+def _realtime_adapter_output_with_tool_call() -> AgentInput:
+    """The EXACT message list ``OpenAIRealtimeAgentAdapter.call()`` returns when
+    the agent calls a tool during a spoken turn (openai_realtime.py:595-600):
+    ``[audio_message, tool_call_message]``.
+
+    - ``audio_message``: an assistant turn carrying an ``input_audio`` part (the
+      spoken reply). Mirrors what ``create_audio_message`` emits.
+    - ``tool_call_message``: a SEPARATE assistant turn with ``content=None`` and
+      a ``tool_calls`` list — byte-for-byte the dict the realtime adapter
+      appends.
+
+    ``book_flight`` / ``Paris`` appear ONLY in the tool_call (this input pairs
+    with an empty span collector), so a hit inside the <transcript> slice is
+    attributable to the renderer, not the OTEL digest.
+    """
+    mock_state = MagicMock()
+    mock_state.description = "Verify the realtime agent calls the booking tool"
+    mock_state.current_turn = 1
+    mock_state.config.max_turns = 8
+    # ~1KB of base64-ish bytes so the audio part is a realistic spoken payload
+    # (truncated to [AUDIO: ...] by the renderer regardless).
+    fake_audio_b64 = "A" * 1024
+    audio_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "input_audio",
+                "input_audio": {"data": fake_audio_b64, "format": "wav"},
+            }
+        ],
+    }
+    # Literal shape returned by OpenAIRealtimeAgentAdapter.call() (the second
+    # list element): one assistant message, content=None, one tool call.
+    tool_call_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                    "name": "book_flight",
+                    "arguments": '{"location":"Paris"}',
+                },
+            }
+        ],
+    }
+    return AgentInput(
+        thread_id="test-thread",
+        messages=cast(Any, [
+            {"role": "user", "content": "Book me a flight to Paris."},
+            audio_message,
+            tool_call_message,
+        ]),
+        new_messages=[],
+        judgment_request=None,
+        scenario_state=mock_state,
+    )
+
+
 class TestToolCallReachesJudgeContext:
     """#631 integration: a rendered tool call reaches `content_for_judge`'s
     <transcript> block — across the text path, the voice path, and the
-    large-trace path where the OTEL digest is truncated to structure-only."""
+    large-trace path where the OTEL digest is truncated to structure-only.
+
+    #630 AC5 additionally proves the realtime adapter's exact
+    ``[audio_message, tool_call_message]`` output surfaces the tool call in the
+    transcript with an empty span collector (digest cannot be the source)."""
 
     @pytest.mark.asyncio
     async def test_ac4_text_path_tool_name_in_transcript_section(self):
@@ -1262,5 +1326,64 @@ class TestToolCallReachesJudgeContext:
         # Make the transcript slice visible so a reviewer can SEE the tool call
         # is in it (AC6 must not be vacuous).
         print("\n--- AC6 captured <transcript> slice ---")
+        print(transcript)
+        print("--- end <transcript> slice ---")
+
+    @pytest.mark.asyncio
+    async def test_ac5_realtime_tool_call_shape_reaches_judge_transcript(self):
+        """AC5 of #630 — realtime tool calls reach the judge via the transcript
+        channel (post-#631 renderer), asserted with an empty span collector so
+        the digest cannot be the source.
+
+        This drives the EXACT message list that ``OpenAIRealtimeAgentAdapter.call()``
+        now returns when the agent calls a tool during a spoken turn:
+        ``[audio_message, tool_call_message]`` where the audio message is an
+        assistant turn carrying an ``input_audio`` part and the tool-call message
+        is a SEPARATE assistant turn ``{"role":"assistant","content":None,
+        "tool_calls":[...]}`` (openai_realtime.py:595-600). With an empty span
+        collector the OTEL digest is "No spans recorded.", so a hit on the tool
+        name inside <transcript> is attributable solely to the renderer — proving
+        realtime tool calls reach the judge through the TRANSCRIPT channel, the
+        post-#631 reality (no OTEL span needs to be emitted)."""
+        # Empty span collector -> digest is "No spans recorded.", so the tool
+        # name `book_flight` cannot come from the OTEL channel.
+        judge = JudgeAgent(
+            criteria=["Agent uses the tool"],
+            span_collector=_create_collector([]),
+            # Skip the transcribe-audio fallback (would hit the network); the
+            # tool call is rendered by build_transcript_from_messages regardless.
+            include_audio=True,
+        )
+
+        captured, mock_completion = _capture_first_content_for_judge()
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            await judge.call(_realtime_adapter_output_with_tool_call())
+
+        assert captured, "completion was never called; content_for_judge not captured"
+        content_for_judge = captured[0]
+        transcript = _extract_transcript_section(content_for_judge)
+
+        # Attributable to the transcript channel: the tool name is absent from
+        # everything BEFORE <transcript> (system prompt + the "No spans recorded."
+        # digest), so it cannot be leaking from the digest / system prompt.
+        pre_transcript = content_for_judge.split("<transcript>")[0]
+        assert "book_flight" not in pre_transcript
+        assert "Paris" not in pre_transcript
+        # Precondition: the empty span collector really did yield an empty digest,
+        # so the transcript is provably the only channel that could carry it.
+        assert "No spans recorded." in content_for_judge
+
+        # Load-bearing: the realtime-shaped tool call surfaces in <transcript>.
+        assert "book_flight" in transcript
+        assert "Paris" in transcript
+        # The renderer's tool-call shape, alongside the spoken (audio) turn.
+        assert "[tool_call: book_flight(" in transcript
+        assert "[AUDIO:" in transcript
+
+        # Make the transcript slice visible so a reviewer can SEE the realtime
+        # tool call is inside it (AC5 must not be vacuous).
+        print("\n--- AC5 (#630) captured <transcript> slice ---")
         print(transcript)
         print("--- end <transcript> slice ---")
