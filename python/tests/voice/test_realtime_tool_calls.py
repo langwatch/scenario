@@ -252,11 +252,6 @@ async def test_ac1_tool_call_surfaced_via_dedicated_branch():
     parsed = json.loads(tc["function"]["arguments"])  # must parse
     assert parsed == {"location": "Paris"}
 
-    # PROVE THE SHAPE — print the actual assistant tool_calls message.
-    msg = _tool_call_messages(returned)[0]
-    print("\n[AC1] assistant tool_calls message:")
-    print(json.dumps(msg, indent=2))
-
 
 @pytest.mark.asyncio
 async def test_ac1_item_only_form_surfaced():
@@ -404,8 +399,6 @@ async def test_ac2_has_tool_call_and_last_tool_call(_configure_scenario):
     calls = _all_tool_calls(list(result.messages))
     assert any(c["function"]["name"] == "get_weather" for c in calls)
 
-    print("\n[AC2] state.last_tool_call('get_weather'):")
-    print(json.dumps(tc, indent=2))
 
 
 # ---------------------------------------------------------------------------

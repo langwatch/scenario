@@ -32,7 +32,7 @@ import os
 from typing import Any, ClassVar, List, Optional
 
 from ...config.voice_models import OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL
-from ...types import AgentRole
+from ...types import AgentInput, AgentReturnTypes, AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
@@ -570,7 +570,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                     "OpenAIRealtimeAgentAdapter: ignoring event type %r", etype
                 )
 
-    async def call(self, input):  # type: ignore[override]
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
         """Surface realtime tool calls alongside the spoken audio turn (#630).
 
         The base ``call()`` returns a single assistant audio message and does
