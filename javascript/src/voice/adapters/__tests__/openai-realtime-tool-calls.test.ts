@@ -316,6 +316,34 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     ).toBe(true);
   });
 
+  // --- #646: tool-only (no-audio) turn ---
+  it("#646 (AC2) — tool-only turn (no audio delta) returns the role:'tool' message, does not time out", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5; // fail fast if the no-audio path still hangs
+
+    const messages = await runTurn(adapter, () => {
+      // Tool-only: a function call with NO audio delta, terminated by response.done.
+      pushStreamingCall("call_weather", "get_weather", '{"city":"Paris"}');
+      push({ type: "response.done" });
+    });
+
+    const toolMsg = toolMessageOf(messages);
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.role).toBe("tool");
+    const part = toolMsg!.content.find(
+      (p) => p.type === "tool-result" && p.toolName === "get_weather",
+    );
+    expect(part).toBeDefined();
+    expect(part).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call_weather",
+      toolName: "get_weather",
+    });
+
+    // The real consumer recognizes it.
+    expect(stateWith(messages).hasToolCall("get_weather")).toBe(true);
+  });
+
   it("AC4 (variant) — a call delivered ONLY via output_item.done is surfaced", async () => {
     const adapter = buildAdapter({ apiKey: "test-key" });
 
