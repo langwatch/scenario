@@ -17,20 +17,64 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.1 Voice Agent Adapters (Source L130-243)
   # ======================================================================
 
-  @unit
-  Scenario: PipecatAgentAdapter connects over WebSocket with Twilio audio format
+  @unit @ts-pipecat
+  Scenario: PipecatAgentAdapter exchanges audio with a Pipecat bot over WebSocket
     # Source §4.1, L137-142 and §5.1, L664-682
-    Given a PipecatAgentAdapter configured with url "ws://localhost:8765/ws", audio_format "mulaw", sample_rate 8000
-    When the scenario executor starts
-    Then connect() is called automatically before any script step
+    # PR10 of N: TS Pipecat adapter binds this scenario against a fake Twilio
+    # Media Streams WS (FakeWebSocket — no network). The real-WSS @integration
+    # demo against a live Pipecat bot ships separately once we have an
+    # env-gated bot endpoint (see /browser-qa note). The "successful round-trip"
+    # asserts: synthetic start handshake, outbound µ-law frames over the
+    # wire, inbound µ-law decoded into a PCM16/24k AudioChunk.
+    Given a PipecatAgentAdapter configured with url, audio_format "mulaw", sample_rate 8000
+    When connect() is called and the SDK sends user audio
+    Then a synthetic Twilio Media Streams handshake is performed
+    And outbound audio is paced as 20 ms µ-law frames
+    And inbound µ-law from the bot is decoded into a PCM16/24kHz AudioChunk
     And the adapter advertises mulaw/8000 as its transport format
 
-  @unit
-  Scenario: PipecatAgentAdapter connects over WebRTC
+  @unit @ts-pipecat
+  Scenario: PipecatAgentAdapter raises PendingTransportError on transport="webrtc"
     # Source §4.1, L144-148 and §5.1, L684-700
+    # WebRTC (SmallWebRTC) is deferred; calling connect() with transport="webrtc"
+    # must raise PendingTransportError immediately so users hit a clear failure
+    # mode instead of a silent hang.
     Given a PipecatAgentAdapter configured with signaling_url and transport "webrtc"
-    When the scenario executor starts
-    Then a WebRTC peer connection is negotiated via the signaling endpoint
+    When the scenario executor calls connect()
+    Then PendingTransportError is raised naming the adapter and the deferred transport
+
+  @unit @ts-codec
+  Scenario: g711 µ-law encode/decode round-trip preserves audio fidelity
+    # The g711 codec is the load-bearing math behind every Twilio-protocol
+    # adapter (Pipecat over Twilio transport, the upcoming TS Twilio adapter).
+    # A known sine wave round-tripped through encode→decode→encode at the same
+    # sample rate must preserve amplitude within the per-segment µ-law step.
+    Given a PCM16 8 kHz sine wave at known amplitude
+    When the buffer is encoded to µ-law and decoded back to PCM16
+    Then the round-tripped samples match the input within G.711 quantisation error
+    And amplitude is preserved within the per-segment µ-law step
+
+  @unit @ts-codec
+  Scenario: g711 sample rate conversion is correct in both directions
+    # Pipecat transports run at 8 kHz µ-law; scenario's internal canonical
+    # format is PCM16 24 kHz. The 3:1 / 1:3 resampling must round-trip a known
+    # signal without large amplitude or DC drift — otherwise inbound audio
+    # decays each turn.
+    Given a PCM16 24 kHz buffer carrying a known low-frequency tone
+    When the buffer is converted 24 kHz → 8 kHz → 24 kHz
+    Then the result is approximately 3× shorter then 3× longer
+    And no large amplitude or DC offset is introduced
+
+  @unit @ts-pipecat
+  Scenario: PipecatAgentAdapter emits a Twilio clear-buffer frame on interrupt
+    # Pipecat over the Twilio WS transport speaks Media Streams; the `clear`
+    # event drops all buffered outbound audio on the bot side. This is the
+    # adapter's first-class interrupt path — preferred over timing-based
+    # barge-in because it's deterministic, no VAD detection race.
+    Given a connected PipecatAgentAdapter
+    When scenario.interrupt() is called on the adapter
+    Then a Twilio Media Streams "clear" frame is sent on the WebSocket
+    And the frame carries the active streamSid
 
   @unit
   Scenario: LiveKitAgentAdapter joins a room as a participant
@@ -46,16 +90,69 @@ Feature: Voice agent testing in Scenario SDK
     When the scenario starts
     Then an outbound Twilio call is created and a Media Streams WebSocket is established
 
-  @unit
+  @integration @ts-bound @ts-twilio-proto
+  Scenario: TwilioAgentAdapter publishes mulaw/8000 capabilities and clear-buffer interruption
+    # PR11 — capability declaration for the Twilio Media Streams transport
+    Given a TwilioAgentAdapter constructed with valid credentials and an E.164 phone_number
+    Then capabilities.inputFormats and outputFormats both equal ["mulaw/8000"]
+    And capabilities.interruption is true (Twilio clear-buffer event)
+    And capabilities.dtmf is true
+
+  @integration @ts-bound @ts-twilio-proto
+  Scenario: Twilio Media Streams JSON protocol parses start, media, and stop events
+    # PR11 — wire-protocol parser bound at unit/integration level
+    Given a stream of Twilio Media Streams JSON frames containing "start", "media", and "stop"
+    When parseMediaStreamFrame is invoked on each frame
+    Then the start frame yields streamSid and callSid
+    And the media frame yields decoded mulaw payload bytes
+    And the stop frame yields an event with no payload
+
+  @integration @ts-bound @ts-twilio-proto
+  Scenario: Twilio interrupt() sends a clear-buffer frame on the live stream
+    # PR11 — interrupt path: capabilities.interruption true → send Twilio "clear" event
+    Given a TwilioAgentAdapter with a live media stream and a known streamSid
+    When interrupt() is awaited
+    Then a JSON frame with event "clear" and the streamSid is written to the WebSocket
+
+  @integration @ts-bound @ts-twilio-server
+  Scenario: TwiML voice endpoint serves Connect+Stream with an XML-escaped WSS URL
+    # PR11 — TwiML response shape, served by the local webhook server
+    Given the TwilioWebhookServer is bound on an OS-assigned port
+    And the parent adapter has a publicBaseUrl configured
+    When a Twilio webhook POSTs valid form data to /twilio/voice
+    Then the response Content-Type is application/xml
+    And the body contains <Connect><Stream url="wss://..."/></Connect>
+    And the stream URL is XML-escaped (no unescaped &, <, >, or quotes)
+
+  @integration @ts-bound @ts-twilio-server
+  Scenario: TwiML voice endpoint rejects webhooks with a missing X-Twilio-Signature
+    # PR11 — signature gate fails closed for forged or unsigned webhooks
+    Given a TwilioWebhookServer with validateSignature true
+    When a POST to /twilio/voice arrives without an X-Twilio-Signature header
+    Then the response status is 403
+    And the adapter records the rejection without opening a media stream
+
+  @e2e @ts-bound @ts-twilio-tunnel
+  Scenario: Tunnel exposes the local Twilio server over a public URL
+    # PR11 — env-gated e2e: opens an ngrok or localtunnel tunnel and confirms it routes back
+    Given NGROK_AUTHTOKEN is set in the environment (otherwise skip)
+    And the local TwilioWebhookServer is running on an ephemeral port
+    When a TwilioTunnel is opened against the bound port
+    Then the tunnel reports an HTTPS URL
+    And the URL proxies a GET request through to the local server
+
+  @unit @ts-elevenlabs
   Scenario: ElevenLabsAgentAdapter connects to conversational AI endpoint
     # Source §4.1, L171-174 and §5.4, L760-776
     # Hosted path: ElevenLabs runs the STT→LLM→TTS loop themselves.
+    # @ts-elevenlabs so the AND-filter in elevenlabs.test.ts binds this
+    # scenario (its connect() handshake unit assertions) — EDR §7.4.
     Given an ElevenLabsAgentAdapter with agent_id and api_key
     When the scenario starts
     Then a WebSocket to wss://api.elevenlabs.io/v1/convai/conversation?agent_id=... is opened
     And PCM16 audio chunks are sent over the socket
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: Users can compose arbitrary STT + LLM + TTS providers into a voice agent
     # Locked decision #9: composable + branded voice agents
     # Capability AC — no implementation shape prescribed.
@@ -65,29 +162,29 @@ Feature: Voice agent testing in Scenario SDK
     And the STT, LLM, and TTS seams are independently swappable without changes to the other two
     And intermediate transcripts and LLM decisions are observable by the scenario harness
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: Provider-branded voice agents expose typed, provider-specific signatures with sensible defaults
     # Locked decision #9: branded wrappers — typing matters, defaults must be opinionated.
     Given a provider-branded voice agent (e.g. an ElevenLabs-branded voice agent)
     When a user instantiates it with only provider-specific required arguments
     Then the branded agent applies opinionated defaults for that provider's STT and TTS
-    And the public signature is typed with provider-specific parameter names (not **kwargs forwarding)
+    And the public signature is typed with provider-specific parameter names, not opaque kwargs forwarding
     And it implements the same VoiceAgentAdapter contract as the composable path
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: Branded voice agents accept overrides for any piece (STT, LLM, or TTS)
     # Locked decision #9: branded is a preset, not a cage — escape hatch is required.
     Given a provider-branded voice agent
     When a user overrides the LLM, STT, or TTS independently
     Then the override takes effect and the other pieces retain their branded defaults
 
-  @unit
+  @unit @ts-elevenlabs
   Scenario: ElevenLabsSTTProvider implements STTProvider and plugs into the composition path
     # Locked decision #9 + existing AC that STT is pluggable.
     Given an ElevenLabsSTTProvider
     Then it implements the STTProvider interface (async transcribe(audio: AudioChunk) -> str)
     And no ElevenLabs-specific types leak into the interface
-    And it can be used anywhere an STTProvider is accepted (scenario.configure, composable voice agents)
+    And it can be used anywhere an STTProvider is accepted (run({ voice: { stt } }), composable voice agents)
 
   @unit
   Scenario: VapiAgentAdapter creates a call and connects to websocketCallUrl
@@ -97,14 +194,14 @@ Feature: Voice agent testing in Scenario SDK
     Then a call is created via the Vapi REST API
     And the returned websocketCallUrl is connected for bidirectional audio
 
-  @unit
+  @unit @ts-openai-realtime
   Scenario: OpenAIRealtimeAgentAdapter connects as the agent under test
     # Source §4.1, L185-190 and §5.6, L800-813
     Given an OpenAIRealtimeAgentAdapter with model, voice, instructions, tools
     When the scenario starts
     Then a realtime session is established and the model IS the agent
 
-  @unit
+  @unit @ts-openai-realtime
   Scenario: OpenAIRealtimeAgentAdapter with role=AgentRole.USER acts as the user simulator
     # Source §7.2, L1164-1171 (CHOSEN alternative — NOT rejected)
     Given an OpenAIRealtimeAgentAdapter configured with role=AgentRole.USER, voice "nova", instructions "simulate a confused elderly customer"
@@ -112,12 +209,22 @@ Feature: Voice agent testing in Scenario SDK
     Then the realtime model drives the user side of the conversation with natural prosody
     And text TTS is bypassed for the user simulator
 
-  @unit
+  @unit @ts-gemini-live
   Scenario: GeminiLiveAgentAdapter connects via native-audio endpoint
     # Source §4.1, L193-197 and §5.6, L815-826
     Given a GeminiLiveAgentAdapter with model "gemini-2.5-flash-native-audio", voice "Algieba"
     When the scenario starts
     Then a Gemini Live session is established with the given system_instruction
+
+  @unit @ts-gemini-live
+  Scenario: GeminiLiveAgentAdapter advertises native-audio capabilities matrix
+    # Source §5.6, L815-826 — capability matrix invariants
+    Given a GeminiLiveAgentAdapter
+    Then capabilities.streaming_transcripts is True
+    And capabilities.native_vad is True
+    And capabilities.interruption is True
+    And capabilities.input_formats include "pcm16/16000"
+    And capabilities.output_formats include "pcm16/24000"
 
   @unit
   Scenario: WebSocketAgentAdapter uses a user-supplied protocol
@@ -134,7 +241,7 @@ Feature: Voice agent testing in Scenario SDK
     When the scenario starts
     Then a WebRTC peer connection is negotiated
 
-  @unit
+  @unit @ts-adapter
   Scenario: Executor calls connect() before and disconnect() after every scenario
     # Source §4.1, L213-230
     Given any VoiceAgentAdapter subclass
@@ -142,7 +249,7 @@ Feature: Voice agent testing in Scenario SDK
     Then connect() was awaited exactly once before the first script step
     And disconnect() was awaited exactly once regardless of pass/fail/exception
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: AudioChunk internal format is PCM16 at 24kHz mono
     # Locked decision: AudioChunk normalization
     Given any adapter receives or sends audio
@@ -154,14 +261,14 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.2 Voice-Enabled User Simulator (Source L244-306)
   # ======================================================================
 
-  @unit
+  @unit @ts-simulator
   Scenario: UserSimulatorAgent without voice is unchanged
     # Source §4.2, L249-250
     Given UserSimulatorAgent(model="openai/gpt-4.1-mini") with no voice parameter
     When the simulator produces a message
     Then the output is a text-only message (existing behavior preserved)
 
-  @unit
+  @unit @ts-simulator
   Scenario: UserSimulatorAgent with voice produces audio messages
     # Source §4.2, L252-256
     Given UserSimulatorAgent(voice="openai/nova")
@@ -176,7 +283,7 @@ Feature: Voice agent testing in Scenario SDK
     Then the provider prefix selects the TTS client
     And the remainder is used as the voice id
 
-  @unit
+  @unit @ts-tts
   Scenario: TTS cache key is (text, voice) only and effects apply after cache hit
     # Locked decision: TTS cache key; Source §7.2 L1158 deterministic caching claim
     Given the same text and voice are used twice with different audio_effects
@@ -184,22 +291,26 @@ Feature: Voice agent testing in Scenario SDK
     Then the TTS synthesis is cached on (text, voice) and only called once
     And effects are applied to the cached audio after retrieval, never baked in
 
-  @unit
+  @unit @todo
   Scenario: Per-step voice override applies to only that step
     # Source §4.2, L290-294
+    # @todo for the AUDIBLE voiceStyle effect — no TTS backend changes timbre
+    # by style yet (the simulator emits a one-shot warning). The per-step
+    # override PLUMBING (one-turn install + revert) IS wired; covered by
+    # script/__tests__/interrupt-after-and-user-overrides.test.ts.
     Given scenario.user("I'm really upset about this!", voice_style="angry")
     When the step runs
     Then the style "angry" is applied only to that turn
     And the simulator's default voice/effects resume on subsequent turns
 
-  @unit
+  @unit @ts-simulator
   Scenario: Per-step audio_effects override applies to only that step
     # Source §4.2, L293
     Given scenario.user("Hello?", audio_effects=[effects.low_volume(0.3)])
     When the step runs
     Then low_volume is applied to only that turn's audio
 
-  @unit
+  @unit @ts-simulator
   Scenario: Persona and audio_effects compose on user simulator
     # Source §4.2, L259-268
     Given UserSimulatorAgent with voice, persona, and audio_effects [background_noise("cafe", 0.2), phone_quality()]
@@ -211,7 +322,7 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.3 Voice-Enabled Judge (Source L307-364)
   # ======================================================================
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge auto-detects audio messages without configuration
     # Source §4.3, L309-318
     Given JudgeAgent(criteria=[...]) with no audio flags set
@@ -219,42 +330,42 @@ Feature: Voice agent testing in Scenario SDK
     When the judge evaluates
     Then it auto-enables audio handling
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge always includes transcripts of audio messages
     # Source §4.3, L324 ("Transcripts — automatic STT of all audio messages (always included)")
     Given the conversation has audio turns
     When the judge evaluates
     Then every audio turn has an STT transcript attached to the input
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge passes audio to multimodal models that support it
     # Source §4.3, L325, L362-363 (auto-detect model capability)
     Given JudgeAgent(model="openai/gpt-4o") with audio in the conversation
     When the judge evaluates
     Then the raw audio is passed to the model as multimodal input
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge falls back to transcript-only for non-multimodal models
     # Source §4.3, L362-363
     Given JudgeAgent(model="openai/gpt-4.1-mini") with audio in the conversation
     When the judge evaluates
     Then audio is auto-transcribed and passed as text only
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge receives a structured timeline for voice conversations
     # Source §4.3, L326-345
     Given a voice conversation with speaking/interrupt/tool-call events
     When the judge evaluates
     Then include_timeline defaults to True and a structured timeline is present in AgentInput
 
-  @unit
+  @unit @ts-judge
   Scenario: Judge receives OTel traces when configured
     # Source §4.3, L347, L358
     Given LangWatch/OTel is configured and the conversation contains spans
     When the judge evaluates
     Then include_traces defaults to True and traces are included
 
-  @unit
+  @unit @ts-judge
   Scenario: Explicit include_audio=False forces text-only judge for cost
     # Source §4.3, L353-358
     Given JudgeAgent(include_audio=False) with audio in the conversation
@@ -265,7 +376,7 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.4 Script Extensions (Source L365-494)
   # ======================================================================
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: agent(wait=False) returns immediately and the agent speaks in background
     # Source §4.4, L369-382
     Given a script with scenario.agent(wait=False) followed by scenario.sleep(2.0)
@@ -273,7 +384,7 @@ Feature: Voice agent testing in Scenario SDK
     Then control returns before the agent finishes speaking
     And the agent's audio continues streaming during the sleep
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.sleep(seconds) pauses the script without touching the transport
     # Source §4.4, L394-406
     Given scenario.sleep(2.0) in a script
@@ -281,21 +392,21 @@ Feature: Voice agent testing in Scenario SDK
     Then the script pauses 2.0 real seconds
     And no audio is sent on the transport during the pause
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.silence(duration) sends silent audio to the transport
     # Source §4.4, L408-417
     Given scenario.silence(5.0) in a script
     When the step runs
     Then 5.0 seconds of PCM16 zero-audio is sent to the agent under test
 
-  @integration
+  @integration @ts-bound @ts-script-step
   Scenario: scenario.dtmf(tones) emits DTMF tones
     # Source §4.4, L419-432 and §5.3
     Given a TwilioAgentAdapter and scenario.dtmf("1") in a script
     When the step runs
     Then the DTMF tone "1" is transmitted through the telephony channel
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.audio() injects a WAV file
     # Source §4.4, L434-448
     Given scenario.audio("fixtures/angry_customer_rant.wav") in a script
@@ -303,35 +414,35 @@ Feature: Voice agent testing in Scenario SDK
     Then the file is loaded, converted to the transport format, and sent as user input
     And the user simulator is bypassed for that turn
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.audio() accepts raw bytes
     # Source §4.4, L448
     Given scenario.audio(b"...raw audio bytes...") in a script
     When the step runs
     Then the bytes are converted to the transport format and sent as user input
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.audio() supports WAV, MP3, OGG, FLAC
     # Source §4.4, L448
     Given scenario.audio() called with each of .wav, .mp3, .ogg, .flac fixtures
     When each step runs
     Then the file is auto-converted to the transport's format via ffmpeg (bundled)
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.interrupt(after=T, content="...") composes wait=False + sleep + user
     # Source §4.4, L450-467
     Given scenario.interrupt(after=2.0, content="Wait, that's wrong!")
     When the step runs
     Then it is equivalent to agent(wait=False) then sleep(2.0) then user("Wait, that's wrong!")
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.interrupt(after_words=N) uses streaming transcript when available
     # Source §4.4, L469-476; Locked decision: after_words UnsupportedCapabilityError
     Given the adapter exposes a streaming transcript and after_words=5 is used
     When the agent emits the 5th word
     Then the interrupt content is immediately sent
 
-  @unit
+  @unit @ts-bound @ts-script-step
   Scenario: scenario.interrupt(after_words=N) raises a clear error when adapter lacks streaming transcripts
     # Locked decision: after_words UnsupportedCapabilityError (do not ship built-in STT; document capability matrix)
     Given the adapter does NOT expose a streaming transcript
@@ -339,7 +450,7 @@ Feature: Voice agent testing in Scenario SDK
     Then a clear UnsupportedCapabilityError is raised naming the adapter and the missing capability
     And the error message points to the capability matrix in the docs
 
-  @integration
+  @integration @ts-bound @ts-script-step
   Scenario: proceed(interruptions=InterruptionConfig(...)) injects random interruptions
     # Source §4.4, L478-492
     Given proceed(turns=5, interruptions=InterruptionConfig(probability=0.3, delay_range=(0.5,3.0), strategy="contextual"))
@@ -347,7 +458,7 @@ Feature: Voice agent testing in Scenario SDK
     Then ~30% of agent turns are interrupted with contextual LLM-generated phrases
     And delay before each interrupt is sampled uniformly in [0.5, 3.0]
 
-  @integration
+  @integration @ts-bound @ts-interruption-cfg
   Scenario: InterruptionConfig strategy="random_phrase" picks from a canned phrase list
     # Source §4.4, L491
     Given proceed(interruptions=InterruptionConfig(strategy="random_phrase"))
@@ -358,35 +469,35 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.5 Audio Effects (Source L495-559)
   # ======================================================================
 
-  @unit
+  @unit @ts-effects
   Scenario: Global audio_effects apply to every user-simulator turn
     # Source §4.5, L499-510
     Given UserSimulatorAgent(audio_effects=[effects.background_noise("cafe", 0.3), effects.phone_quality(), effects.packet_loss(0.05)])
     When multiple turns are produced
     Then every turn's audio has all three effects applied in order
 
-  @unit
+  @unit @ts-effects
   Scenario: Each built-in effect from the §4.5 table exists and mutates audio
     # Source §4.5, L517-534 — enumeration contract
     Given the effects module
     Then the following callables exist: background_noise, phone_quality, low_quality, packet_loss, static, echo, speaking_fast, speaking_slow, low_volume, high_volume, robotic, breaking_up, multiple_voices, custom
     And each returns a callable that takes audio bytes and returns audio bytes
 
-  @unit
+  @unit @ts-effects
   Scenario: Custom effect callable wraps user function
     # Source §4.5, L534
     Given effects.custom(fn) where fn takes and returns bytes
     When the effect is applied to a chunk
     Then fn is called with the chunk bytes
 
-  @unit
+  @unit @ts-effects
   Scenario: Accents are handled via TTS voice selection, not post-processing
     # Source §4.5, L536-544 (explicit design note)
     Given a persona requiring an Indian-English accent
     Then the recommended path is voice="elevenlabs/raj_indian_english"
     And no "accent" post-processing effect is provided
 
-  @integration
+  @integration @ts-effects
   Scenario: Effects that vary during conversation via on_turn hook
     # Source §4.5, L548-557
     Given proceed(on_turn=lambda s: s.set_effects([effects.background_noise("cafe", 0.1 * s.current_turn)]))
@@ -397,39 +508,39 @@ Feature: Voice agent testing in Scenario SDK
   # Core API — §4.6 Results & Output (Source L560-627)
   # ======================================================================
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: ScenarioResult preserves existing fields
     # Source §4.6, L567-574
     Given a voice scenario completes
     Then result has: success, passed_criteria, failed_criteria, reasoning, messages, total_time, agent_time
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.audio.save() writes a WAV file of the full conversation
     # Source §4.6, L583-598
     Given a voice scenario result
     When result.audio.save("out.wav") is called
     Then a WAV file containing both speakers' audio is written
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.audio.save() with format="mp3" writes MP3 via ffmpeg
     # Source §4.6, L586
     Given a voice scenario result
     When result.audio.save("out.mp3", format="mp3") is called
     Then an MP3 file is written using the bundled ffmpeg binary
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.audio.segments expose per-speaker AudioSegment objects
     # Source §4.6, L588-595
     Given a two-turn voice scenario result
     Then each segment has speaker, start_time, end_time, audio (bytes), transcript
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.timeline lists VoiceEvent objects in order
     # Source §4.6, L600-615
-    Given a voice scenario with interruptions and a tool call
-    Then timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, tool_call, tool_result, user_interrupt, agent_stop_speaking in time order
+    Given a voice scenario with interruptions
+    Then timeline contains VoiceEvent entries for user_start_speaking, user_stop_speaking, agent_start_speaking, user_interrupt, agent_stop_speaking in time order
 
-  @unit
+  @unit @ts-bound @ts-result-ext
   Scenario: result.latency exposes response-time statistics
     # Source §4.6, L617-625
     Given a voice scenario with multiple agent responses
@@ -446,14 +557,14 @@ Feature: Voice agent testing in Scenario SDK
     When the test runs
     Then audio is played through the local output device in real time
 
-  @unit
+  @unit @ts-hooks
   Scenario: on_audio_chunk hook fires for each chunk
     # Source §4.7, L647-653
     Given scenario.run(..., on_audio_chunk=cb)
     When audio flows
     Then cb is invoked with each AudioChunk
 
-  @unit
+  @unit @ts-hooks
   Scenario: on_voice_event hook fires for each VoiceEvent
     # Source §4.7, L647-653
     Given scenario.run(..., on_voice_event=cb)
@@ -577,7 +688,22 @@ Feature: Voice agent testing in Scenario SDK
   # exercising the shipped real transport end-to-end.
   # ======================================================================
 
-  @e2e
+  @e2e @ts-e2e
+  Scenario: Round-trip audio fidelity gate — utterance survives TTS → bus → STT
+    # Source: docs/adr/003-voice-internal-design.md §8 — the runnable top-of-stack
+    # gate. The REGRESSION GUARD for the Gap #3 LIVE BUG: the two audio
+    # producers tag PCM differently (format:"wav" vs format:"pcm16") and
+    # their extractors decode by tag, so a format mismatch surfaces as a
+    # GARBLED transcript on the far side. Per-PR unit tests each exercise
+    # only their own producer/extractor pair and miss the seam; this drives
+    # a known utterance through the real seam end-to-end and asserts the
+    # far-side transcript matches the input within a word-level tolerance.
+    # Self-contained on OPENAI_API_KEY (user-sim TTS + judge STT both OpenAI).
+    Given a known user utterance and OPENAI_API_KEY
+    When the utterance is synthesized by the user-sim TTS, carried on the message bus, and transcribed by the judge STT
+    Then the far-side transcript matches the input utterance within tolerance
+
+  @e2e @ts-pipecat-demo
   Scenario: Demo — Pipecat WebSocket adapter happy path
     # Covers: PipecatAgentAdapter real WS transport (shipped) + simulator + judge
     Given a local Pipecat bot on ws://localhost:8765/ws and a PipecatAgentAdapter
@@ -585,7 +711,7 @@ Feature: Voice agent testing in Scenario SDK
     Then result.success is True
     And the recording contains both user-sim and agent audio
 
-  @e2e
+  @e2e @ts-elevenlabs
   Scenario: Demo — ElevenLabs hosted Conversational AI
     # Covers: ElevenLabsAgentAdapter real WS transport (§5.4) + simulator + judge
     Given an ElevenLabsAgentAdapter with a live agent_id and ELEVENLABS_API_KEY
@@ -593,7 +719,7 @@ Feature: Voice agent testing in Scenario SDK
     Then the WS reaches wss://api.elevenlabs.io/v1/convai/conversation
     And result.success is True after one turn
 
-  @e2e
+  @e2e @ts-elevenlabs
   Scenario: Demo — ElevenLabs composable + branded agent
     # Covers: ComposableVoiceAgent + ElevenLabsVoiceAgent + ElevenLabsSTTProvider (locked decision #9)
     Given an ElevenLabsVoiceAgent with branded defaults (ElevenLabsSTTProvider, elevenlabs/rachel TTS)
@@ -601,21 +727,21 @@ Feature: Voice agent testing in Scenario SDK
     Then the STT, LLM, and TTS seams each fire at least once
     And result.success is True
 
-  @e2e
+  @e2e @ts-gemini-live-e2e
   Scenario: Demo — Gemini Live native audio
     # Covers: GeminiLiveAgentAdapter real transport + simulator + judge
     Given a GeminiLiveAgentAdapter with model "gemini-2.5-flash-native-audio" and GEMINI_API_KEY
     When the demo script runs via scenario.run()
     Then a live session is established and result.success is True
 
-  @e2e
+  @e2e @ts-openai-realtime-agent-demo
   Scenario: Demo — OpenAI Realtime as the agent under test
     # Covers: OpenAIRealtimeAgentAdapter (role=AGENT) end-to-end
     Given an OpenAIRealtimeAgentAdapter with role=AgentRole.AGENT and OPENAI_API_KEY
     When the demo script runs via scenario.run()
     Then the model plays the agent role and result.success is True
 
-  @e2e
+  @e2e @ts-openai-realtime-user-demo
   Scenario: Demo — OpenAI Realtime as the user simulator
     # Covers: OpenAIRealtimeAgentAdapter(role=AgentRole.USER) natural-prosody simulator
     Given an OpenAIRealtimeAgentAdapter with role=AgentRole.USER and a confused-elderly-customer persona
@@ -644,7 +770,7 @@ Feature: Voice agent testing in Scenario SDK
   # first-class SDK features work via a runnable script, not just in isolation.
   # ======================================================================
 
-  @e2e
+  @e2e @ts-recording-playback
   Scenario: Demo — recording and playback
     # Covers: result.audio.save() (WAV + MP3 via ffmpeg) + audio_playback=True live stream
     Given a voice scenario run with audio_playback=True
@@ -660,21 +786,112 @@ Feature: Voice agent testing in Scenario SDK
     Then both callbacks fired at least once per turn
     And result.latency exposes time_to_first_byte, p50, and p95
 
-  @e2e
-  Scenario: Demo — STT provider swap via scenario.configure
+  @e2e @ts-stt-swap
+  Scenario: Demo — STT provider swap via run({ voice: { stt } })
     # Covers: pluggable STTProvider (default OpenAI → ElevenLabsSTTProvider in demo)
-    Given a voice scenario configured with scenario.configure(stt=ElevenLabsSTTProvider(...))
-    When the demo script runs and the judge transcribes an audio turn
+    # Per-run, not a global (ADR-002): run({ voice: { stt } }) replaces the
+    # removed scenario.configure(stt=...) API.
+    Given a voice scenario run with run({ voice: { stt: ElevenLabsSTTProvider(...) } })
+    When the demo script runs and the audio turn is auto-transcribed for the judge
     Then the ElevenLabsSTTProvider.transcribe() path was exercised (not the default)
     And result.success is True
 
-  @e2e
+  @e2e @ts-voice-text-parity
   Scenario: Demo — same scenario.run() entrypoint for voice and text
     # Covers: text-only scenario still works; voice scenario same entrypoint/script shape
     Given two scenarios sharing an identical script and judge, differing only in agents
     When both are executed via scenario.run()
     Then both result.success are True
     And no voice imports are loaded in the text-only run
+
+  # ======================================================================
+  # Interruption / barge-in demos — the flagship voice-only capability (§6.2,
+  # §6.7, §4.4). Each is a MULTI-TURN conversation that fires a real barge-in.
+  # Mirrors python/examples/voice/{interruption_recovery,random_interruptions,
+  # elevenlabs_interruption,gemini_live_interruption}.py.
+  # ======================================================================
+
+  @e2e @ts-interruption-recovery-demo
+  Scenario: Demo — interruption recovery (barge-in via agent({ wait: false }) + interrupt())
+    # Covers §6.2: user interrupts the agent mid-utterance twice (unrolled
+    # agent({wait:false})+user, then the interrupt() sugar); the agent recovers.
+    Given a local Pipecat bot on ws://localhost:8765/stream that supports barge-in
+    When the demo script interrupts the agent mid-utterance and the agent recovers
+    Then the agent recovered and the conversation is multi-turn
+    And the agent reply was actually cut off and then recovered
+
+  @e2e @ts-random-interruptions-demo
+  Scenario: Demo — random interruptions via interruptProbability + voiceProceed
+    # Covers §6.7: UserSimulatorAgent({interruptProbability}) + voiceProceed({turns,
+    # interruptions: InterruptionConfig({...})}) injects barge-ins across the run.
+    #
+    # What this proves: probabilistic barge-in fires (user_interrupt event) with a
+    # fired_after_speech outcome (timing correct), canned-phrase strategy ran (user
+    # segment carries a phrase from the pool), cut-off-boundary LABEL fires
+    # (transcriptTruncated on at least one agent seg), and the bot recovers.
+    #
+    # What this does NOT prove: real audio-level mid-stream cut-off. The bundled
+    # Pipecat stub bot generates TTS in a burst and streams faster than realtime —
+    # by the time adapter.interrupt() runs all frames are already sent. The segment
+    # plays in full but is correctly LABELED at the interrupt boundary. For REAL
+    # audio truncation see the gemini-live-interruption scenario (server-side cancel).
+    Given a user simulator with interruptProbability and voiceProceed({ interruptions })
+    When the multi-turn demo script runs via scenario.run()
+    Then at least one barge-in fired mid-utterance and the canned-phrase strategy ran
+    And the agent recovered with non-empty audio after the last interrupt
+    And the conversation involved multiple turns
+
+  @e2e @ts-elevenlabs-interruption-demo
+  Scenario: Demo — ElevenLabs interruption (server VAD barge-in)
+    # Covers: ElevenLabs ConvAI has no client cancel — server VAD detects the
+    # overlap and cuts the agent's reply when user audio arrives mid-utterance.
+    Given a hosted ElevenLabs ConvAI agent and a mid-utterance interrupt()
+    When the demo script runs via scenario.run()
+    Then the agent's reply was cut off and it pivoted to the new topic
+
+  @e2e @ts-gemini-live-interruption-demo
+  Scenario: Demo — Gemini Live interruption (server VAD barge-in)
+    # Covers: Gemini Live has no client cancel — server VAD detects the overlap
+    # and cuts the agent's reply when user audio arrives mid-utterance.
+    Given a Gemini Live agent and a mid-utterance interrupt()
+    When the demo script runs via scenario.run()
+    Then the agent's first reply was cut off mid-utterance by the barge-in
+
+  # ======================================================================
+  # Persona / pain-pattern + greeting + pipecat-scenario demos (§6.1, §6.3, §8).
+  # Mirrors python/examples/voice/{basic_greeting,angry_customer,
+  # background_handoff,pipecat_scenario}.py.
+  # ======================================================================
+
+  @e2e @ts-basic-greeting-demo
+  Scenario: Demo — basic greeting flow (multi-turn)
+    # Covers §6.1: greeting → user → agent → user → agent → judge over the bot.
+    Given a local Pipecat bot and a voice user simulator
+    When the multi-turn greeting demo runs via scenario.run()
+    Then result.success is True and the recording has both speakers
+
+  @e2e @ts-angry-customer-demo
+  Scenario: Demo — angry customer in a noisy cafe (multi-turn)
+    # Covers §6.3: persona + audioEffects (backgroundNoise + phoneQuality) over
+    # a multi-turn conversation; judge evaluates empathy + noise-robustness.
+    Given a very-angry user simulator with backgroundNoise + phoneQuality effects
+    When the multi-turn demo runs via scenario.run()
+    Then the agent stays calm, noise is audibly mixed, and the judge passes
+
+  @e2e @ts-background-handoff-demo
+  Scenario: Demo — background handoff should not trigger agent response
+    # Covers §8 pain pattern: user says "hold on", goes silent, then returns;
+    # the agent should wait rather than respond to the gap.
+    Given a user simulator that hands off mid-call (silence) then returns
+    When the multi-turn demo runs via scenario.run()
+    Then result.success is True and the recording spans the handoff
+
+  @e2e @ts-pipecat-scenario-demo
+  Scenario: Demo — Pipecat scenario smoke (multi-turn)
+    # Covers: the pipecat_scenario.py twin — multi-turn smoke over the live bot.
+    Given a local Pipecat bot on ws://localhost:8765/stream
+    When the multi-turn smoke demo runs via scenario.run()
+    Then the recording contains both user-sim and agent audio across turns
 
   # ======================================================================
   # Architectural Guarantees (Source §1 L9, §3 L107-124, §7 L1175-1186)
@@ -694,7 +911,7 @@ Feature: Voice agent testing in Scenario SDK
     Then no TTS, STT, ffmpeg, or transport code is invoked
     And behavior is identical to pre-voice SDK
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: VoiceAgentAdapter base class is public for custom implementations
     # Source §7.3 L1186, §5.7 L830-854
     Given a user subclass of VoiceAgentAdapter implementing connect/send_audio/recv_audio/disconnect
@@ -716,27 +933,27 @@ Feature: Voice agent testing in Scenario SDK
   # Pluggable STT (provider-agnostic by design)
   # ======================================================================
 
-  @unit
+  @unit @ts-stt
   Scenario: Default STT provider is OpenAI gpt-4o-transcribe
-    Given no scenario.configure(stt=...) has been called
+    Given no per-run STT override is set on run({ voice: { stt } })
     And a conversation contains an audio turn
-    When the judge requests a transcript
+    When the audio is auto-transcribed and the judge receives text
     Then the SDK uses openai.audio.transcriptions with model "gpt-4o-transcribe"
 
-  @unit
-  Scenario: Users swap STT providers via scenario.configure
+  @unit @ts-stt
+  Scenario: Users swap STT providers via run({ voice: { stt } })
     Given a custom STTProvider implementation
-    When scenario.configure(stt=CustomProvider()) is called
-    And the judge requests a transcript
+    When run({ voice: { stt: CustomProvider() } }) is used
+    And the audio is auto-transcribed and the judge receives text
     Then the custom provider's transcribe() is invoked instead of the default
 
-  @unit
+  @unit @ts-stt
   Scenario: STT provider interface is minimal and provider-agnostic
     Given the STTProvider abstract base class
     Then it defines async transcribe(audio: AudioChunk) -> str
     And no OpenAI-specific types leak into the interface
 
-  @unit
+  @unit @ts-stt
   Scenario: Transcription chunks audio longer than 25 minutes
     # OpenAI gpt-4o-transcribe has a 25-minute per-request limit
     Given an audio turn exceeding 25 minutes in the default STT provider
@@ -747,19 +964,19 @@ Feature: Voice agent testing in Scenario SDK
   # Adapter Capability Matrix — new requirement
   # ======================================================================
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: Every adapter publishes a capabilities attribute
     Given any concrete VoiceAgentAdapter subclass
     Then adapter.capabilities is an AdapterCapabilities instance
-    And it declares: streaming_transcripts, native_vad, dtmf, input_formats, output_formats
+    And it declares: streaming_transcripts, native_vad, dtmf, interruption, input_formats, output_formats
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: dtmf() raises UnsupportedCapabilityError on non-telephony adapters
     Given an adapter with capabilities.dtmf == False
     When scenario.dtmf("1") runs
     Then UnsupportedCapabilityError is raised naming the adapter and the "dtmf" capability
 
-  @unit @ts-bound
+  @unit @ts-bound @ts-contract-surface
   Scenario: Capability matrix is rendered into adapter docs
     Given the voice-agents documentation
     Then a capability matrix table lists every built-in adapter
@@ -769,21 +986,21 @@ Feature: Voice agent testing in Scenario SDK
   # VAD Fallback
   # ======================================================================
 
-  @unit
+  @unit @ts-vad
   Scenario: SDK-side VAD fallback activates on adapters without native VAD
     Given an adapter with capabilities.native_vad == False
     When a voice scenario runs and audio flows
     Then user_start_speaking and user_stop_speaking VoiceEvents are still emitted
     And webrtcvad-wheels is used to detect speaker boundaries
 
-  @unit
+  @unit @ts-vad
   Scenario: VAD fallback emits a one-shot UserWarning on first activation
     Given an adapter with capabilities.native_vad == False
     When the scenario starts and VAD fallback is used
     Then a UserWarning is issued exactly once per process naming the adapter
     And the warning text references accuracy differences vs native VAD
 
-  @unit
+  @unit @ts-vad
   Scenario: Adapters with native VAD do not trigger the fallback
     Given an adapter with capabilities.native_vad == True
     When the scenario runs
@@ -815,7 +1032,7 @@ Feature: Voice agent testing in Scenario SDK
   # Audio in any role — type-level fix (adaptability note)
   # ======================================================================
 
-  @unit
+  @unit @ts-assistant-role
   Scenario: Audio content works cleanly in assistant-role messages
     # Fixes the forceUserRole workaround in javascript/examples/vitest/tests/helpers/openai-voice-agent.ts
     Given a conversation with an assistant-role message containing audio content
@@ -824,7 +1041,7 @@ Feature: Voice agent testing in Scenario SDK
     And no "forceUserRole" style workaround exists anywhere in the Python SDK
 
   # ======================================================================
-  # AC-14 — Voice demo recordings (per-segment + full + manifest)
+  # Voice demo recordings (per-segment + full + manifest)
   # ======================================================================
 
   @unit
@@ -837,23 +1054,23 @@ Feature: Voice agent testing in Scenario SDK
     And each manifest entry's file path resolves to a real WAV on disk
 
   @integration
-  Scenario: Demo opt-in writes recordings under python/recordings/<demo>/
+  Scenario: Demo opt-in writes recordings under python/outputs/recordings/<demo>/
     Given any voice_*.py demo runs to completion and produces result.audio
     When the demo's main() calls save_demo_recording(result.audio, "<demo_name>")
-    Then a directory python/recordings/<demo_name>/ is created
+    Then a directory python/outputs/recordings/<demo_name>/ is created
     And it contains segments/, full.wav, and manifest.json
 
   @integration
   Scenario: CI uploads recordings as a workflow artifact
     Given the voice-integration workflow runs
-    Then it uploads python/recordings/** as the "voice-demo-recordings" artifact
+    Then it uploads python/outputs/recordings/** as the "voice-demo-recordings" artifact
     And the upload step runs even when prior steps fail (if: always())
 
   # ======================================================================
-  # AC-15 — Auto-transcribe agent audio for non-multimodal judges
+  # Auto-transcribe agent audio for non-multimodal judges
   # ======================================================================
 
-  @unit
+  @unit @ts-transcribe
   Scenario: transcribe_segments fills missing transcripts in place
     Given a VoiceRecording with two agent segments lacking transcripts
     When transcribe_segments is called with a configured STT provider
@@ -868,14 +1085,14 @@ Feature: Voice agent testing in Scenario SDK
     Then transcribe_segments is invoked over result.audio
     And the judge's transcript view contains the agent's spoken text
 
-  @unit
+  @unit @ts-transcribe
   Scenario: missing STT provider degrades gracefully
     Given transcribe_segments is called with no configured STT provider
     Then it logs a warning and returns without raising
     And segment transcripts remain null
 
   # ======================================================================
-  # AC-16 — Audio messages render cleanly in the terminal
+  # Audio messages render cleanly in the terminal
   # ======================================================================
 
   @unit

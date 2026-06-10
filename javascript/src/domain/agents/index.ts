@@ -3,6 +3,13 @@ import { ScenarioExecutionStateLike } from "../core/execution";
 import { ScenarioConfig } from "../scenarios";
 import { AgentReturnTypes } from "./types/agent-return.types";
 export * from "./types/agent-return.types";
+export {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+  type UserSimulatorAgentWithVoice,
+} from "./agent-shapes";
 
 export enum AgentRole {
   USER = "User",
@@ -27,6 +34,14 @@ export interface JudgmentRequest {
    * Optional criteria to evaluate, overriding the judge agent's configured criteria.
    */
   criteria?: string[];
+  /**
+   * Optional additional context for the judge, such as filesystem state,
+   * command outputs, or structured observations collected during custom
+   * assertion steps. Included in the evaluation prompt under
+   * `<additional_context>`. Useful when conversation messages contain raw
+   * tool-call JSON that is difficult for the judge to interpret directly.
+   */
+  context?: string;
 }
 
 /**

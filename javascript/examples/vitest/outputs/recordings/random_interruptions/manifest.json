@@ -1,0 +1,88 @@
+{
+  "generated_at": "2026-05-28T09:50:40.649Z",
+  "duration": 10.209999999999999,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0000ms.wav",
+      "role": "agent",
+      "start_time": 0,
+      "end_time": 3.4,
+      "duration": 3.4,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3400ms.wav",
+      "role": "user",
+      "start_time": 3.4,
+      "end_time": 7.699999999999999,
+      "duration": 4.299999999999999,
+      "transcript": "can't log in says password incorrect even after reset"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-7699ms.wav",
+      "role": "agent",
+      "start_time": 7.699999999999999,
+      "end_time": 7.81,
+      "duration": 0.11000000000000032,
+      "transcript": "Ann.",
+      "transcript_truncated": true
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-7810ms.wav",
+      "role": "user",
+      "start_time": 7.81,
+      "end_time": 10.209999999999999,
+      "duration": 2.3999999999999995,
+      "transcript": "Oh, one more thing—"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.4,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.4,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7.699999999999999,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 7.699999999999999,
+      "type": "agent_start_speaking",
+      "latency": 4.086609699
+    },
+    {
+      "time": 7.699999999999999,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_after_speech",
+        "native": true
+      }
+    },
+    {
+      "time": 7.81,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 7.81,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 10.209999999999999,
+      "type": "user_stop_speaking"
+    }
+  ]
+}

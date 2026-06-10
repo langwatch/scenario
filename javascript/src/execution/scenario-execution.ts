@@ -40,6 +40,50 @@ import {
   generateThreadId,
 } from "../utils/ids";
 import { Logger } from "../utils/logger";
+import type { VoiceAgentAdapter } from "../voice/adapter";
+import {
+  appendEvent,
+  initVoiceExecutorState,
+  pickVoiceAdapters,
+  startVoiceAdapters,
+  stopVoiceAdapters,
+  writeUserSegment,
+} from "../voice/adapter.runtime";
+import { AudioChunk } from "../voice/audio-chunk";
+import { getGlobalSettings } from "../config/configure";
+import {
+  resolveVoiceConfig,
+  type ResolvedVoiceConfig,
+} from "../voice/config";
+import { InterruptionConfig } from "../voice/interruption";
+import { extractAudio } from "../voice/messages";
+import { AudioPlaybackSink } from "../voice/playback";
+import { sleep } from "../voice/utils";
+import { computeLatencyMetrics } from "../voice/recording.runtime";
+import type {
+  LatencyMetrics,
+  VoiceEvent,
+  VoiceRecording,
+} from "../voice/recording.types";
+import {
+  deriveInterruptResponseTime,
+  markTruncatedAgentSegments,
+} from "../voice/segment-utils";
+import type { VoiceExecutorState } from "../voice/voice-executor-state";
+import {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+} from "../domain/agents/agent-shapes";
+
+/**
+ * Default bound (ms) on the barge-in wait for the agent to start speaking.
+ * Used by {@link ScenarioExecution.fireUserInterrupt} when the `interrupt()`
+ * step has not threaded its own `waitForSpeechTimeout`. A hung bot can't stall
+ * the script past this.
+ */
+const DEFAULT_WAIT_FOR_SPEECH_MS = 15_000;
 
 /**
  * Manages the execution of a single scenario test.
@@ -125,12 +169,86 @@ import { Logger } from "../utils/logger";
  * console.log("Scenario result:", result.success);
  * ```
  */
-export class ScenarioExecution implements ScenarioExecutionLike {
+export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorState {
   /** LangWatch tracer for scenario execution */
   private tracer = getLangWatchTracer("@langwatch/scenario");
 
   /** The current state of the scenario execution */
   private state: ScenarioExecutionState;
+
+  // ----- VoiceExecutorState surface (issue #372 Decision 1(b)). ----------
+  // These are public fields rather than getters because the voice adapter
+  // runtime writes to them through the typed surface — see
+  // `voice/voice-executor-state.ts` for the contract. They default to
+  // `null` and only get populated when at least one VoiceAgentAdapter
+  // participates in the scenario.
+
+  /** PCM16 segments + timeline accumulated during the run. */
+  voiceRecording: VoiceRecording | null = null;
+  /** Mirror of `voiceRecording.timeline` for direct subscribers. */
+  voiceTimeline: VoiceEvent[] | null = null;
+  /** Response-time measurements from agent_start_speaking events. */
+  voiceLatency: LatencyMetrics | null = null;
+  /** Monotonic clock anchor (`performance.now() / 1000`) for offsets. */
+  voiceRecordingStartedAt: number | null = null;
+  /**
+   * Byte-accurate audio cursor (seconds) — cumulative PCM byte-duration of all
+   * segments laid so far. Drives segment start/end so `voiceRecording.duration`
+   * tracks the `full.wav` byte-duration, not wall-clock send latency (M1).
+   */
+  voiceAudioCursor: number | null = null;
+  /**
+   * Resolved per-run voice config (ADR-002 / Gap #7). Set at run start from
+   * `cfg.voice` when voice adapters are present; the consumer agents read
+   * the provider/knobs here instead of a module global.
+   */
+  voiceConfig: ResolvedVoiceConfig | null = null;
+  /**
+   * Interruption config recorded by `voiceProceed({ interruptions })`. Read
+   * at the top of each `proceed()` iteration to decide barge-ins (Gap #8).
+   */
+  voiceInterruptions?: InterruptionConfig;
+  /**
+   * Background ambience recorded by `backgroundNoise(source, volume)` — read
+   * by the user-simulator audio path when mixing turns (Gap #8).
+   */
+  voiceBackgroundNoise?: { source: string; volume: number };
+  /** Per-event hook from {@link ScenarioConfig.onVoiceEvent}. */
+  onVoiceEvent?: (event: VoiceEvent) => void;
+  /** Per-chunk hook from {@link ScenarioConfig.onAudioChunk}. */
+  onAudioChunk?: (chunk: AudioChunk) => void;
+  /**
+   * Live local-speaker playback sink. Constructed at run start when
+   * `audioPlayback === true` (per-run wins over global per ADR-002). Each
+   * audio chunk is fanned out here via `fireAudioChunk` alongside the recording.
+   * `undefined` when audioPlayback is disabled (the common case).
+   */
+  audioPlaybackSink?: AudioPlaybackSink | null;
+
+  /**
+   * In-flight non-blocking agent turn started by `agent({ wait: false })` (or
+   * the `interrupt()` sugar). When set and not yet settled, a subsequent
+   * {@link user} call fires {@link fireUserInterrupt} — the new user audio
+   * lands as a mid-stream barge-in. Mirrors Python's `_pending_agent_task`.
+   * JS promises aren't cancelable; `done` records settlement so `user()` can
+   * tell "agent still speaking" from "already finished".
+   *
+   * `error` captures any rejection from the background turn so it can be
+   * re-thrown after the promise settles (rather than silently swallowed).
+   */
+  private pendingAgentTask: {
+    promise: Promise<void>;
+    done: boolean;
+    /** Captured rejection, if any. Re-thrown by {@link fireUserInterrupt}. */
+    error: unknown | null;
+  } | null = null;
+
+  /**
+   * Snapshot of voice adapters for the in-flight execution. Captured at
+   * the top of {@link execute} so the matching `disconnect()` always
+   * fires in the finally block, even when the for-loop bails early.
+   */
+  private voiceAdapters: readonly VoiceAgentAdapter[] = [];
 
   /** The final result of the scenario execution, set when a conclusion is reached */
   private _result?: ScenarioResult;
@@ -221,10 +339,29 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId || "default",
       metadata: config.metadata,
+      // Voice carriers (ADR-002): the per-run voice config + audio hooks must
+      // survive onto `this.config` so they reach every `call()` via
+      // `AgentInput.scenarioConfig`. `run({ voice })` seeds `cfg.voice`; the
+      // judge STT pre-pass + simulator TTS resolve their provider off
+      // `scenarioConfig.voice`. Dropping these here silently defeated
+      // `run({ voice: { stt } })` (the judge fell back to the default STT).
+      voice: config.voice,
+      onAudioChunk: config.onAudioChunk,
+      onVoiceEvent: config.onVoiceEvent,
     } satisfies ScenarioConfigFinal;
 
     this.state = new ScenarioExecutionState(this.config);
+    // The voice adapter runtime reaches into `state._executor` to read the
+    // VoiceExecutorState surface (Python parity: `ScenarioState._executor`).
+    // Set once here so adapters fetched via AgentInput.scenarioState can
+    // find their voice fields.
+    this.state.setExecutor(this);
     this.preAssignedRunId = runId;
+
+    // Pull voice-side hooks off the user-supplied config. They fan out
+    // through the VoiceExecutorState surface during the run.
+    this.onAudioChunk = config.onAudioChunk;
+    this.onVoiceEvent = config.onVoiceEvent;
 
     // Wire up rollback handler so the state can clean pending queues
     this.state.setOnRollback((removedSet: Set<object>) => {
@@ -299,6 +436,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
       messages: this.state.messages,
       totalTime: this.totalTime,
       agentTime: totalAgentTime,
+      ...this.buildVoiceResultFields(),
     };
 
     this.logger.debug(`[${this.config.id}] Result set`, {
@@ -310,6 +448,53 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     });
 
     return this._result;
+  }
+
+  /**
+   * Build the voice-only `audio` / `timeline` / `latency` result fields
+   * (issue #372, EDR §4.3 — "Gap A"). Returns an empty object for text-only
+   * runs so {@link setResult} stays a pure spread and the existing fields are
+   * untouched (back-compat).
+   *
+   * The per-run recording is a {@link VoiceRecordingRuntime} (see
+   * `adapter.runtime.ts#emptyRecording`, "Gap B") so the attached
+   * `result.audio` carries `save()` / `saveSegments()`. Latency is finalized
+   * here from the running measurements (avg / p50 / p95 computed once at
+   * end-of-run rather than re-derived each turn), and `audio.timeline`
+   * aliases `result.timeline` (the runtime appends to both during the run).
+   */
+  private buildVoiceResultFields(): Pick<
+    ScenarioResult,
+    "audio" | "timeline" | "latency"
+  > {
+    const recording = this.voiceRecording;
+    if (!recording) {
+      return {};
+    }
+
+    const timeline = this.voiceTimeline ?? recording.timeline;
+
+    // Flag agent segments cut off by a barge-in so manifest readers + the judge
+    // know the reply was truncated mid-utterance (see helper docstring).
+    markTruncatedAgentSegments(recording.segments, timeline ?? []);
+
+    const latency = this.voiceLatency
+      ? computeLatencyMetrics({
+          measurements: this.voiceLatency.measurements,
+          timeToFirstByte: this.voiceLatency.timeToFirstByte,
+          // Prefer an explicitly-recorded value; otherwise derive it from the
+          // barge-in timeline (how fast the agent stopped after the interrupt).
+          interruptResponseTime:
+            this.voiceLatency.interruptResponseTime ??
+            deriveInterruptResponseTime(timeline),
+        })
+      : undefined;
+
+    return {
+      audio: recording,
+      timeline,
+      latency,
+    };
   }
 
   /**
@@ -375,9 +560,41 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.emitMessageSnapshot({ scenarioRunId });
       });
 
+    // Voice adapter lifecycle (issue #372 spec lines 138-145):
+    // `connect()` is awaited exactly once before the first script step;
+    // the matching `disconnect()` lives in the finally block so it fires
+    // regardless of pass / fail / exception. Connect runs inside the try
+    // so a partial connect still pairs with disconnect on the cleanup path
+    // — matches Python `scenario_executor.py:642-678`.
+    this.voiceAdapters = pickVoiceAdapters(this.agents);
+
     let checkFailure: Error | null = null;
 
     try {
+      if (this.voiceAdapters.length > 0) {
+        // Resolve the per-run voice config off cfg.voice (ADR-002, Gap #7).
+        // RunOptions.voice was already folded into cfg.voice at the run()
+        // boundary, so cfg.voice is the carrier. The resolved provider/knobs
+        // are read by the judge STT pass + simulator TTS pass (Tier C).
+        // resolveVoiceConfig merges per-run (cfg.voice) over scenario-level
+        // (config.voice) over defaults. audioPlayback is already included.
+        this.voiceConfig = resolveVoiceConfig(undefined, this.config.voice);
+        initVoiceExecutorState(this);
+        // Construct the local-speaker playback sink when audioPlayback is
+        // enabled. The resolved voiceConfig already applies per-run vs global
+        // precedence per ADR-002. The module-global configure() setting is an
+        // additional fallback read here so callers can do configure({ audioPlayback: true })
+        // without specifying it on every run() call.
+        const audioPlayback =
+          this.voiceConfig.audioPlayback || (getGlobalSettings().audioPlayback ?? false);
+        if (audioPlayback) {
+          const sink = new AudioPlaybackSink();
+          sink.open();
+          this.audioPlaybackSink = sink;
+        }
+        await startVoiceAdapters(this.voiceAdapters, this);
+      }
+
       // Execute script steps - pass the execution context (this), not just state
       for (let i = 0; i < this.config.script.length; i++) {
         const scriptStep = this.config.script[i];
@@ -411,7 +628,7 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (checkFailure) {
         const cp = this.compiledCheckpoints;
-        let result = this.setResult({
+        const result = this.setResult({
           success: false,
           reasoning: `Scenario failed with error: ${checkFailure.message}`,
           metCriteria: cp.metCriteria,
@@ -491,9 +708,72 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         this.currentTurnSpan.end();
         this.currentTurnSpan = undefined;
       }
+      // Back-fill transcripts on recording segments that the transport did not
+      // supply one for (e.g. Pipecat over Twilio Media Streams carries audio
+      // only, no transcript) so the committed manifest is READABLE — the same
+      // STT the judge pre-pass uses, run over the recorded bytes. The shared
+      // recording object is what `result.audio` points at, so the back-fill is
+      // visible to a later `saveSegments()`. Runs before disconnect so the
+      // resolved STT config is still live. (issue #372 — FIX #5.)
+      if (this.voiceAdapters.length > 0) {
+        await this.backfillSegmentTranscripts();
+      }
+      // Voice adapter lifecycle close — matches the connect at the top of
+      // execute(). Errors swallowed inside stopVoiceAdapters so cleanup
+      // never masks the primary scenario result.
+      if (this.voiceAdapters.length > 0) {
+        await stopVoiceAdapters(this.voiceAdapters);
+      }
+      // Close the playback sink after adapters are stopped (no more chunks).
+      if (this.audioPlaybackSink) {
+        await this.audioPlaybackSink.close().catch(() => {
+          // Best-effort — playback drain errors must not mask the scenario result.
+        });
+        this.audioPlaybackSink = null;
+      }
       // Clean up the subscription when execution is done
       subscription.unsubscribe();
     }
+  }
+
+  /**
+   * Transcribe any recording segment that lacks a transcript, using the per-run
+   * resolved STT provider — so the committed manifest reads as a conversation
+   * even on transports that carry no transcript (Pipecat / Twilio Media
+   * Streams). The judge already gets transcribed text via its own STT pre-pass
+   * ({@link prepareJudgeInput}); this back-fills the SEGMENTS (the manifest).
+   *
+   * Best-effort and bounded: STT failures leave the segment transcript unset
+   * (manifest stays `null` for that turn) rather than failing the run — mirrors
+   * the judge pre-pass's degrade-gracefully contract. A segment whose transcript
+   * was marked {@link AudioSegment.transcriptTruncated} is RE-transcribed from
+   * the recorded bytes (what actually played), since the chunk-level transcript
+   * reflected the agent's intended — not cut-off — reply.
+   */
+  private async backfillSegmentTranscripts(): Promise<void> {
+    const recording = this.voiceRecording;
+    const stt = this.voiceConfig?.stt;
+    if (!recording || !stt) return;
+    const targets = recording.segments.filter(
+      (s) =>
+        s.audio.length > 0 &&
+        (s.transcriptTruncated || !s.transcript || s.transcript.trim() === ""),
+    );
+    if (targets.length === 0) return;
+    await Promise.all(
+      targets.map(async (seg) => {
+        try {
+          const chunk = new AudioChunk({ data: seg.audio });
+          const text = (await stt.transcribe(chunk)).trim();
+          if (text) seg.transcript = text;
+        } catch (err) {
+          this.logger.warn(
+            `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
+              `manifest transcript left unset (${(err as Error).message})`,
+          );
+        }
+      }),
+    );
   }
 
   /**
@@ -746,6 +1026,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
             });
             this.broadcastMessage(message, idx);
           }
+
+          // Voice path: if a non-blocking agent turn is in flight when the
+          // user-sim produces audio (e.g. via the script-level `agent({ wait:
+          // false }) + user()` barge-in pattern), fire the interrupt so the
+          // new audio lands mid-response. The proceed-loop path fires via
+          // maybeScheduleInterruptedAgentTurn (inline, before `_step`); this
+          // guard handles explicit `agent(wait:false)` script steps.
+          if (role === AgentRole.USER && messages.length > 0) {
+            const pendingTask = this.pendingAgentTask;
+            if (pendingTask && !pendingTask.done) {
+              await this.fireUserInterrupt(messages[messages.length - 1]!);
+            }
+          }
         }
         )
       );
@@ -812,7 +1105,89 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    * ```
    */
   async user(content?: string | ModelMessage): Promise<void> {
+    // Voice routing for an explicit, scripted user line (parity with
+    // python/scenario/scenario_executor.py:user). Without this, a voice agent
+    // under test (OpenAI Realtime, ElevenLabs hosted, Pipecat, …) sees a
+    // text-only message when the script emits `scenario.user("...")` and never
+    // receives audio — its `call()` then drains a response that was never
+    // prompted and times out. Only applies to a plain string; a pre-built
+    // ModelMessage (already audio, or a deliberate text turn) passes straight
+    // through.
+    if (typeof content === "string") {
+      // (1) Realtime USER agent → route text through the realtime session's
+      //     text-input channel; the model generates audio natively (§7.2).
+      const realtimeUser = this.findRealtimeUserAgent();
+      if (realtimeUser) {
+        await realtimeUser.sendText(content);
+        this.state.addMessage({ role: "user", content });
+        return;
+      }
+      // (2) Voice-capable user simulator → TTS the scripted text so the agent
+      //     under test receives AUDIO. Route the resulting audio ModelMessage
+      //     through the normal scriptCallAgent path (add + broadcast).
+      const sim = this.findVoiceUserSim();
+      if (sim) {
+        const audioMessage = await sim.voiceifyText(content, this.config.voice);
+        // Interruption path: when an `agent({ wait: false })` turn is in flight,
+        // THIS user() call IS the barge-in. `agent({wait:false}) + user("...")`
+        // reads as "agent starts replying; user interrupts" — no sleep needed.
+        if (await this.maybeFireUserInterrupt(audioMessage)) return;
+        await this.scriptCallAgent(AgentRole.USER, audioMessage);
+        return;
+      }
+    }
+    // (3) Default: text path (or a pre-built ModelMessage / generated turn).
     await this.scriptCallAgent(AgentRole.USER, content);
+  }
+
+  /**
+   * If a non-blocking agent turn is in flight ({@link pendingAgentTask} set and
+   * unsettled), fire the barge-in for `voicedMessage` and return `true`
+   * (the caller must NOT then run the normal user turn — the interrupt already
+   * delivered the audio). Returns `false` when there is nothing to interrupt.
+   *
+   * Mirrors the `_pending_agent_task` guard around Python's
+   * `_fire_user_interrupt`.
+   */
+  private async maybeFireUserInterrupt(
+    voicedMessage: ModelMessage,
+  ): Promise<boolean> {
+    const pending = this.pendingAgentTask;
+    if (!pending || pending.done) return false;
+    await this.fireUserInterrupt(voicedMessage);
+    // Record the barge-in user turn in conversation history so the judge
+    // and downstream agents see the correction. Mirrors the recording step in
+    // maybeScheduleInterruptedAgentTurn (lines 1539-1543 pattern).
+    this.state.addMessage(voicedMessage);
+    this.broadcastMessage(voicedMessage);
+    return true;
+  }
+
+  /**
+   * Find a USER-role agent that speaks text into a realtime session (has a
+   * `sendText` method) — the OpenAI Realtime user-simulator path. Duck-typed
+   * to avoid coupling the executor to the concrete adapter class.
+   */
+  private findRealtimeUserAgent(): RealtimeUserAgent | null {
+    for (const agent of this.agents) {
+      if (agent.role === AgentRole.USER && isRealtimeUserAgent(agent)) {
+        return agent;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find a voice-capable user simulator (has a non-empty `voice` and a
+   * `voiceifyText` method). Mirrors Python's `_find_user_sim` + the
+   * `getattr(sim, "voice", None)` guard. Duck-typed for the same reason.
+   */
+  private findVoiceUserSim(): VoiceUserSimulator | null {
+    for (const agent of this.agents) {
+      if (agent.role !== AgentRole.USER) continue;
+      if (isVoiceUserSim(agent)) return agent;
+    }
+    return null;
   }
 
   /**
@@ -847,6 +1222,36 @@ export class ScenarioExecution implements ScenarioExecutionLike {
   }
 
   /**
+   * Fire an agent turn WITHOUT awaiting it (PRD §4.4 `agent({ wait: false })`).
+   * The in-flight promise is recorded on {@link pendingAgentTask} so the next
+   * {@link user} call can detect it and fire a mid-stream barge-in. Mirrors
+   * Python's `agent(wait=False)` setting `_pending_agent_task`.
+   *
+   * Errors from the background turn are swallowed here (they surface via the
+   * recorded segments / the recovery turn) — exactly as the previous
+   * `void executor.agent().catch()` call sites did.
+   */
+  agentNonBlocking(content?: string | ModelMessage): void {
+    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
+      // Assigned in the same statement; the `.finally` below closes over
+      // `entry` and only runs after this turn settles, by which point the field
+      // holds the real promise (no dead Promise.resolve() placeholder — review
+      // H6).
+      promise: this.scriptCallAgent(AgentRole.AGENT, content)
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          entry.error = err; // capture, don't swallow — re-thrown at drain/interrupt time
+        })
+        .finally(() => {
+          entry.done = true;
+        }),
+      done: false,
+      error: null,
+    };
+    this.pendingAgentTask = entry;
+  }
+
+  /**
    * Invokes the judge agent to evaluate the current state of the conversation.
    *
    * The judge agent analyzes the conversation history and determines whether the
@@ -868,13 +1273,19 @@ export class ScenarioExecution implements ScenarioExecutionLike {
    *
    * // Evaluate inline criteria as a checkpoint
    * const result = await execution.judge({ criteria: ["Agent responded helpfully"] });
+   *
+   * // Provide additional context for tool-call-heavy conversations
+   * const result = await execution.judge({
+   *   criteria: ["Agent installed the dependency"],
+   *   context: "The agent ran `npm install -g git-orchard` which exited 0.",
+   * });
    * ```
    */
-  async judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null> {
+  async judge(options?: { criteria?: string[]; context?: string }): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(
       AgentRole.JUDGE,
       undefined,
-      { criteria: options?.criteria }
+      { criteria: options?.criteria, context: options?.context }
     );
   }
 
@@ -936,6 +1347,18 @@ export class ScenarioExecution implements ScenarioExecutionLike {
         initialTurn === null ||
         (this.state.currentTurn != null &&
           this.state.currentTurn + 1 < initialTurn + turns);
+
+      // Voice path (PRD §4.4 / §4.2 — Gap #8): BEFORE _step, roll the
+      // interruption probability against the upcoming AGENT role. On a hit,
+      // the agent turn is dispatched non-blocking and AGENT is popped from
+      // pendingRolesOnTurn, so _step advances to USER. The USER turn's audio
+      // is then delivered as a real mid-stream barge-in via callAgent's
+      // pendingAgentTask check. Mirrors Python's proceed loop calling
+      // _maybe_schedule_interrupted_agent_turn() before _step().
+      // Text-only runs: maybeScheduleInterruptedAgentTurn bails; the
+      // post-step maybeInjectInterruption handles that path.
+      await this.maybeScheduleInterruptedAgentTurn();
+
       await this._step(goToNextTurn, onTurn);
 
       if (initialTurn === null) initialTurn = this.state.currentTurn;
@@ -946,10 +1369,553 @@ export class ScenarioExecution implements ScenarioExecutionLike {
 
       if (onStep) await onStep(this.state);
 
+      // Text-only fallback (Gap #8): for runs without a voice adapter, inject
+      // a canned-phrase turn post-step. Voice runs use the pre-step path above
+      // (maybeScheduleInterruptedAgentTurn) — this is a no-op for them.
+      await this.maybeInjectInterruption();
+      if (this.result) {
+        return this.result;
+      }
+
       if (!goToNextTurn) {
         return null;
       }
     }
+  }
+
+  /**
+   * Single override bag for all test-injectable interrupt seams.
+   *
+   * Consolidates the three formerly scattered `@internal` public fields into
+   * one named gateway (issue #575). Tests assign this directly — no
+   * `as unknown as` cast needed:
+   *
+   * ```ts
+   * exec.interruptOverrides = { rng: () => 0 };
+   * ```
+   *
+   * Fields:
+   * - `rng` — RNG for interruption decisions (defaults to `Math.random`).
+   * - `waitForSpeechMs` — per-barge-in wait bound in {@link fireUserInterrupt}
+   *   (overrides `DEFAULT_WAIT_FOR_SPEECH_MS`). Same value that the
+   *   `interrupt()` step threads through `waitForSpeechTimeout`.
+   * - `bargeInDelayMs` — post-speech delay in {@link fireUserInterrupt} (set
+   *   by {@link prepareAndFireBargeIn} from `InterruptionConfig.sampleDelay`).
+   *
+   * @internal
+   */
+  interruptOverrides?: {
+    rng?: () => number;
+    waitForSpeechMs?: number;
+    bargeInDelayMs?: number;
+  };
+
+  /**
+   * Effective RNG for interruption decisions.
+   *
+   * Reads `interruptOverrides.rng` when set; otherwise defaults to
+   * `Math.random`. Internal call sites call `this.interruptRng()` — this
+   * getter makes the override transparent to those sites.
+   *
+   * @internal
+   */
+  private get interruptRng(): () => number {
+    return this.interruptOverrides?.rng ?? Math.random;
+  }
+
+  /**
+   * Optional per-barge-in wait override (ms) for {@link fireUserInterrupt}.
+   * Threaded by the `interrupt()` step from `waitForSpeechTimeout` so the
+   * step and the executor agree on ONE timeout. Consumed (reset to
+   * `undefined`) on each barge-in. See also `interruptOverrides.waitForSpeechMs`.
+   *
+   * @internal Set by the `interrupt()` script step; consumed by {@link fireUserInterrupt}.
+   */
+  interruptWaitForSpeechMs?: number;
+
+  /**
+   * Optional delay (ms) applied AFTER the agent starts speaking in
+   * {@link fireUserInterrupt}. Set by {@link prepareAndFireBargeIn} from
+   * `InterruptionConfig.sampleDelay`. Consumed (reset to `undefined`) on each
+   * barge-in. See also `interruptOverrides.bargeInDelayMs`.
+   *
+   * @internal Set by {@link prepareAndFireBargeIn}; consumed by {@link fireUserInterrupt}.
+   */
+  interruptBargeInDelayMs?: number;
+
+  /**
+   * Pre-step voice interruption scheduling (issue #372 proceed-loop fix).
+   *
+   * Mirrors Python's `_maybe_schedule_interrupted_agent_turn`. If an
+   * {@link InterruptionConfig} is active and the NEXT runnable role is AGENT,
+   * samples the probability and — on a hit — dispatches the agent turn as a
+   * non-blocking background task (setting {@link pendingAgentTask}) then fires
+   * the barge-in inline (without waiting for the user-sim's full LLM call).
+   *
+   * ## Why inline rather than delegating to the USER role in `callAgent`
+   *
+   * Delegating to USER (`callAgent` line 990-994) requires the user-sim's
+   * full `call()` chain: LLM text generation (~1-2 s) + TTS synthesis (~0.5-1 s)
+   * ≈ 1.5-3 s. The pipecat bot's audio reply completes in ~1-3 s. The two
+   * windows overlap non-deterministically — in practice the bot often finishes
+   * before the user-sim, so `pendingAgentTask.done` is already `true` by the
+   * time the USER check fires, and the interrupt never happens.
+   *
+   * Inline firing bypasses the LLM step: pick a phrase → TTS only (~0.5-1 s) →
+   * `fireUserInterrupt` (which itself waits for the bot to start speaking before
+   * sending audio). TTS alone is reliably faster than the bot's full reply
+   * duration, so the interrupt lands while the bot is still streaming.
+   *
+   * ## delayRange sleep (issue #372 follow-up)
+   *
+   * After dispatching AGENT non-blocking, the method samples a delay from
+   * {@link InterruptionConfig.delayRange} and stores it on
+   * {@link interruptBargeInDelayMs}. {@link fireUserInterrupt} applies the
+   * sleep AFTER `agentSpeakingEvent` fires — NOT before `voiceifyText` — so:
+   *   (a) the delay is measured from when the bot starts speaking (matching the
+   *       spec "sleep between speech start and barge-in fire"); and
+   *   (b) burst-TTS bots (e.g. pipecat stub) that drain their receive queue
+   *       instantly don't drain to completion before the interrupt window opens
+   *       (placing the sleep before `voiceifyText` causes `entry.done=true`
+   *       for those adapters, silently skipping the barge-in).
+   * Without this delay, `fireUserInterrupt` fires on the bot's very first audio
+   * chunk — truncating replies to ~110 ms and collapsing multi-turn demos to
+   * a 10 s recording. Mirrors the same sleep in the text-only fallback
+   * {@link maybeInjectInterruption}. Callers that need fast, deterministic
+   * unit tests should set `delayRange: [0, 0]` on their
+   * {@link InterruptionConfig}.
+   *
+   * Returns `true` if an interruption was scheduled and fired (the proceed loop
+   * should advance to JUDGE, which runs a non-final check). Returns `false`
+   * (no-op) for:
+   * - text-only runs (no {@link VoiceAgentAdapter})
+   * - no voice-capable user simulator (no `voiceifyText`)
+   * - when the next runnable role is not AGENT
+   * - when a task is already in-flight
+   * - when the RNG roll declines
+   */
+  private async maybeScheduleInterruptedAgentTurn(): Promise<boolean> {
+    const config = this.resolveInterruptionConfig();
+    if (!config) return false;
+    if (this.findVoiceAgentAdapter() === null) return false;
+    const voiceUserSim = this.findVoiceUserSim();
+    if (!voiceUserSim) return false;
+    const existing = this.pendingAgentTask;
+    if (existing && !existing.done) return false;
+    if (this.interruptRng() >= config.probability) return false;
+
+    const agentLookup = this.resolveNextAgentForInlineBarge();
+    if (!agentLookup) return false;
+
+    this.consumePendingRolesUntilAgent(agentLookup.agent);
+    const entry = this.dispatchAgentBackground(agentLookup.idx);
+    return this.prepareAndFireBargeIn(config, voiceUserSim, entry);
+  }
+
+  /**
+   * Verify the bail conditions for an inline barge-in and return the AGENT
+   * index + adapter when the pre-conditions are met.
+   *
+   * Walks `pendingRolesOnTurn` to confirm AGENT is the next runnable role
+   * (mirrors Python's `_pending_roles_on_turn` walk). Returns `null` to
+   * bail when AGENT is not next.
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private resolveNextAgentForInlineBarge(): {
+    idx: number;
+    agent: AgentAdapter;
+  } | null {
+    // Walk pendingRolesOnTurn to find the next role that will actually run.
+    let nextRole: AgentRole | null = null;
+    for (const r of this.pendingRolesOnTurn) {
+      const { agent } = this.nextAgentForRole(r);
+      if (agent !== null) {
+        nextRole = r;
+        break;
+      }
+    }
+    if (nextRole !== AgentRole.AGENT) return null;
+
+    const { idx, agent } = this.nextAgentForRole(AgentRole.AGENT);
+    if (!agent) return null;
+    return { idx, agent };
+  }
+
+  /**
+   * Queue surgery: remove `agent` from `pendingAgentsOnTurn` and consume
+   * all roles from `pendingRolesOnTurn` up to and including AGENT so the
+   * next `_step` call advances to JUDGE cleanly. Mirrors Python's while-loop
+   * in `_maybe_schedule_interrupted_agent_turn`.
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private consumePendingRolesUntilAgent(agent: AgentAdapter): void {
+    this.removePendingAgent(agent);
+    while (
+      this.pendingRolesOnTurn.length > 0 &&
+      this.pendingRolesOnTurn[0] !== AgentRole.AGENT
+    ) {
+      this.pendingRolesOnTurn.shift();
+    }
+    if (
+      this.pendingRolesOnTurn.length > 0 &&
+      this.pendingRolesOnTurn[0] === AgentRole.AGENT
+    ) {
+      this.pendingRolesOnTurn.shift();
+    }
+  }
+
+  /**
+   * Dispatch the agent at `idx` as a non-blocking background task, record it
+   * on `pendingAgentTask`, and return the entry so the caller can poll
+   * `entry.done` before firing the barge-in.
+   *
+   * Uses `callAgent` directly (NOT `agentNonBlocking` / `scriptCallAgent`)
+   * because the role has already been popped from `pendingRolesOnTurn` by
+   * {@link consumePendingRolesUntilAgent}; `scriptCallAgent` would try a new
+   * turn. Mirrors Python's
+   * `asyncio.create_task(self._call_agent(idx, role=AGENT))`.
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private dispatchAgentBackground(idx: number): {
+    promise: Promise<void>;
+    done: boolean;
+    error: unknown | null;
+  } {
+    const entry: { promise: Promise<void>; done: boolean; error: unknown | null } = {
+      promise: this.callAgent(idx, AgentRole.AGENT)
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          entry.error = err; // captured, re-thrown by fireUserInterrupt/drain
+        })
+        .finally(() => {
+          entry.done = true;
+        }),
+      done: false,
+      error: null,
+    };
+    this.pendingAgentTask = entry;
+    return entry;
+  }
+
+  /**
+   * Sample the barge-in delay, TTS the interrupt phrase, fire the inline
+   * barge-in, and record the user message in the conversation.
+   *
+   * Returns `true` in all cases (AGENT was dispatched; barge-in either fired
+   * or was skipped because the bot finished first / TTS failed).
+   *
+   * @internal Extracted from {@link maybeScheduleInterruptedAgentTurn}.
+   */
+  private async prepareAndFireBargeIn(
+    config: InterruptionConfig,
+    voiceUserSim: VoiceUserSimulator,
+    entry: { promise: Promise<void>; done: boolean; error: unknown | null },
+  ): Promise<boolean> {
+    // Sample the delay BEFORE voiceifyText so it is applied AFTER
+    // agentSpeakingEvent fires (in fireUserInterrupt) — not before TTS.
+    // Placing the sleep before TTS causes burst-TTS bots (pipecat stub) to
+    // drain to entry.done=true and silently skip the barge-in window.
+    const delaySeconds = config.sampleDelay(this.interruptRng);
+    if (delaySeconds > 0) {
+      this.interruptBargeInDelayMs = Math.floor(delaySeconds * 1000);
+    }
+
+    const phrase = config.pickRandomPhrase(this.interruptRng);
+    let voicedMessage: ModelMessage | null = null;
+    try {
+      voicedMessage = await voiceUserSim.voiceifyText(
+        phrase,
+        this.config.voice,
+      );
+    } catch {
+      // Best-effort: if TTS fails, skip the barge-in for this turn.
+      // Clear the sampled delay so a later successful barge-in does not
+      // inherit the stale value from this failed attempt (P2 fix).
+      this.interruptBargeInDelayMs = undefined;
+      return true; // AGENT is still dispatched; proceed continues normally.
+    }
+
+    if (entry.done) {
+      // Bot finished before TTS completed — nothing to interrupt.
+      return true;
+    }
+    await this.fireUserInterrupt(voicedMessage);
+
+    // Record the user interrupt message in the conversation so the judge
+    // and subsequent turns see it in context. Mirrors scriptCallAgent's
+    // message recording path.
+    this.state.addMessage(voicedMessage);
+    this.broadcastMessage(voicedMessage);
+
+    return true;
+  }
+
+  /**
+   * Resolve the active {@link InterruptionConfig} for the run:
+   * - `voiceProceed({ interruptions })` config (on the executor state) wins.
+   * - else, when a user simulator declares `interruptProbability > 0`, build
+   *   a default config from it.
+   * - else `null` (no interruptions).
+   */
+  private resolveInterruptionConfig(): InterruptionConfig | null {
+    if (this.voiceInterruptions instanceof InterruptionConfig) {
+      return this.voiceInterruptions;
+    }
+    if (this.voiceInterruptions) {
+      // A plain InterruptionConfigInit-shaped object was recorded — wrap it.
+      return new InterruptionConfig(this.voiceInterruptions);
+    }
+    const prob = this.userSimulatorInterruptProbability();
+    if (prob > 0) {
+      return new InterruptionConfig({ probability: prob });
+    }
+    return null;
+  }
+
+  /** Read `interruptProbability` off a user-simulator agent, if any declares it. */
+  private userSimulatorInterruptProbability(): number {
+    for (const agent of this.agents) {
+      const p = (agent as { interruptProbability?: unknown })
+        .interruptProbability;
+      if (typeof p === "number" && p > 0) return p;
+    }
+    return 0;
+  }
+
+  /**
+   * Text-only fallback for proceed-loop interruptions (Gap #8).
+   *
+   * For voice runs, {@link maybeScheduleInterruptedAgentTurn} handles the
+   * interruption PRE-step via the real barge-in path. This method is a
+   * POST-step fallback that handles text-only runs (no {@link VoiceAgentAdapter})
+   * — it injects a canned user turn after the agent responds. Voice runs bail
+   * immediately to avoid double injection.
+   *
+   * Deterministic with the injected `interruptRng`. Returns immediately for
+   * voice runs (handled by pre-step path) or when the config declines.
+   */
+  private async maybeInjectInterruption(): Promise<void> {
+    // Voice runs: the pre-step maybeScheduleInterruptedAgentTurn handles the
+    // real barge-in. This post-step injection would double-fire — skip it.
+    if (this.findVoiceAgentAdapter() !== null) return;
+
+    const config = this.resolveInterruptionConfig();
+    if (!config) return;
+    if (!config.shouldInterrupt(this.interruptRng)) return;
+
+    // Honour the configured delayRange (PRD §4.4): wait a sampled delay before
+    // barging in, so the interruption lands partway into the agent's turn
+    // rather than instantly. Deterministic via the injected `interruptRng`.
+    // No Math.floor here: the value goes directly to setTimeout (which accepts
+    // fractional ms and clamps internally). The floor in
+    // maybeScheduleInterruptedAgentTurn is intentional — that path stores the
+    // value as an integer-ms field before consuming it in fireUserInterrupt.
+    const delaySeconds = config.sampleDelay(this.interruptRng);
+    if (delaySeconds > 0) {
+      await sleep(delaySeconds * 1000);
+    }
+
+    // Record the interruption on the voice timeline when a recording exists.
+    // Timestamp on the byte-accurate audio cursor — the SAME clock segments
+    // ride (adapter.runtime `layNextSegment`) — so `markTruncatedAgentSegments`
+    // compares like-for-like (review BLOCKER). The agent turn for this proceed
+    // iteration was just recorded, so the cursor sits at that segment's
+    // `endTime`; the inclusive containment check marks it as truncated.
+    if (this.voiceRecording || this.voiceTimeline || this.onVoiceEvent) {
+      const time = this.voiceAudioCursor ?? 0;
+      const event: VoiceEvent = {
+        time,
+        type: "user_interrupt",
+        metadata: { source: "proceed-interruption", strategy: config.strategy },
+      };
+      appendEvent(this, event);
+    }
+
+    // Inject the interruption turn. `random_phrase` sends a canned phrase as
+    // explicit content; `contextual` lets the user simulator generate one.
+    if (config.strategy === "random_phrase") {
+      await this.user(config.pickRandomPhrase(this.interruptRng));
+    } else {
+      await this.user();
+    }
+  }
+
+  /**
+   * Find the first {@link VoiceAgentAdapter} on the scenario, if any — by
+   * convention the agent-under-test. Used by the barge-in path to push the
+   * interrupting user audio onto the wire directly. Mirrors Python's
+   * `_find_voice_adapter`.
+   *
+   * Reuses {@link voiceAdapters} (populated by the duck-typed
+   * `pickVoiceAdapters` at scenario start) rather than re-deriving a third
+   * type-guard (review m1/H2) — `findVoiceAgentAdapter` only ever runs during
+   * the script loop, after that population.
+   */
+  private findVoiceAgentAdapter(): VoiceAgentAdapter | null {
+    return this.voiceAdapters[0] ?? null;
+  }
+
+  /**
+   * Mid-stream interrupt: fire the transport-native cancel (if the adapter
+   * advertises `capabilities.interruption`), push the new user audio onto the
+   * wire so the bot's VAD detects the overlap, record a `user_interrupt`
+   * timeline event + a user segment for the interrupting turn, then let the
+   * in-flight agent task settle. Mirrors Python's `_fire_user_interrupt`
+   * (issue #466/#467): be PROMPT, not POLITE — push audio whether or not the
+   * agent has started speaking; the provider VADs handle the rest.
+   *
+   * PRECONDITION: only invoked by {@link maybeFireUserInterrupt}, which has
+   * already verified an in-flight, un-settled {@link pendingAgentTask} exists —
+   * so there is no `pending_done` outcome here (the guard lives at the single
+   * call site, not duplicated).
+   *
+   * Records `metadata.outcome`:
+   *  - `no_adapter` — text-only path, nothing to barge in on;
+   *  - `fired_after_speech` — the agent had started speaking (true mid-stream);
+   *  - `fired_before_speech` — barge-in landed in the bot's pre-reply window.
+   *
+   * The `user_interrupt` event is timestamped on the byte-accurate audio cursor
+   * (`voiceAudioCursor`) — the SAME clock segments ride — captured at the
+   * barge-in instant. The truncated agent segment is laid either just BEFORE
+   * (fast transport: already recorded → cursor == its `endTime`) or just AFTER
+   * (slow transport: recorded during settle → cursor == its `startTime`) this
+   * capture; either way the cursor lands on a segment boundary, and the
+   * inclusive containment in {@link markTruncatedAgentSegments} marks it. This
+   * is why we no longer carry a clock-agnostic last-segment workaround AND a
+   * cross-clock post-hoc pass (review BLOCKER): one cursor-based mechanism.
+   */
+  private async fireUserInterrupt(voicedMessage: ModelMessage): Promise<void> {
+    // Consume the per-barge-in wait override up front (cleared so a later
+    // raw `user()` barge-in can't inherit a stale `interrupt()` budget).
+    // Priority: per-barge-in field (set by interrupt() step) → override bag
+    // (set by tests via interruptOverrides.waitForSpeechMs) → module default.
+    const waitMs =
+      this.interruptWaitForSpeechMs ??
+      this.interruptOverrides?.waitForSpeechMs ??
+      DEFAULT_WAIT_FOR_SPEECH_MS;
+    this.interruptWaitForSpeechMs = undefined;
+    // Consume the post-speech delay (set by prepareAndFireBargeIn from
+    // InterruptionConfig.sampleDelay). Override bag provides a test seam.
+    const bargeInDelayMs =
+      this.interruptBargeInDelayMs ?? this.interruptOverrides?.bargeInDelayMs;
+    this.interruptBargeInDelayMs = undefined;
+
+    const pending = this.pendingAgentTask;
+    // Precondition (see jsdoc): the sole caller guarantees a live task. Guard
+    // defensively rather than emit a bogus event if that ever changes.
+    if (!pending || pending.done) return;
+    const adapter = this.findVoiceAgentAdapter();
+
+    // Byte-cursor timestamp for the barge-in. Default for the proceed/raw path;
+    // refreshed at the actual barge-in instant in the adapter branch below.
+    let interruptTime = this.voiceAudioCursor ?? 0;
+    let outcome: string;
+    let nativeFired = false;
+
+    if (adapter === null) {
+      outcome = "no_adapter";
+      await pending.promise;
+      this.pendingAgentTask = null;
+      if (pending.error) throw pending.error;
+    } else {
+      // Best-effort wait for the agent to start speaking so the barge-in lands
+      // mid-utterance. Bounded so a hung bot can't stall the script — the bound
+      // is the step's `waitForSpeechTimeout` when threaded by `interrupt()`,
+      // else the module default.
+      const speaking = adapter.agentSpeakingEvent;
+      if (speaking && !speaking.isSet()) {
+        await Promise.race([speaking.wait(), sleep(waitMs)]);
+      }
+      const agentWasSpeaking = Boolean(speaking?.isSet());
+      outcome = agentWasSpeaking ? "fired_after_speech" : "fired_before_speech";
+
+      // Honour the configured delayRange: sleep between speech start and barge-in
+      // fire so the agent gets to say something substantive before being cut off.
+      // Applied here — AFTER agentSpeakingEvent fires — so that:
+      //   (a) the delay is measured from when the bot starts speaking, not from
+      //       when AGENT was dispatched (matching the spec "delayRange = sleep
+      //       between speech start and barge-in fire");
+      //   (b) burst-TTS bots (e.g. pipecat stub) don't drain their full audio
+      //       queue before the interrupt fires; placing the sleep before
+      //       voiceifyText causes entry.done=true for those adapters.
+      // Mirrors maybeInjectInterruption (scenario-execution.ts, text-only path).
+      if ((bargeInDelayMs ?? 0) > 0) {
+        await sleep(bargeInDelayMs!);
+      }
+
+      // Capture the cursor at the barge-in instant. If the fast transport
+      // already recorded the agent segment, the cursor sits at its `endTime`;
+      // otherwise it sits where the about-to-be-recorded agent segment starts.
+      interruptTime = this.voiceAudioCursor ?? 0;
+
+      // 1. Native cancel first (Twilio clear / OpenAI Realtime response.cancel).
+      if (adapter.capabilities.interruption) {
+        try {
+          await adapter.interrupt();
+          nativeFired = true;
+        } catch {
+          // Best-effort: step 2 (push audio) is the load-bearing barge-in.
+        }
+      }
+
+      // 2. Push the user audio — the bot's VAD detects the overlap and cuts its
+      //    reply, even without a native cancel (EL ConvAI, Gemini Live). The
+      //    wire send is PROMPT (now); recording the user segment is DEFERRED to
+      //    step 4 so the interrupted agent segment (laid during settle on a slow
+      //    transport) lands on the cursor BEFORE the barge-in user segment.
+      const chunk = extractAudio(voicedMessage);
+      let audioSent = false;
+      if (chunk) {
+        try {
+          await adapter.sendAudio(chunk);
+          audioSent = true;
+        } catch {
+          // Best-effort: the adapter may have torn down mid-flight.
+        }
+        if (audioSent) {
+          // The audio went out of band (hand-delivered), so drop it from this
+          // adapter's pending queue — otherwise the recovery agent() re-sends
+          // it. Mirrors Python's `_clear_adapter_pending_messages`.
+          this.clearAdapterPendingMessages(adapter);
+        }
+      }
+
+      // 3. Let the in-flight agent task settle (JS promises aren't cancelable;
+      //    the agent's call() finishes/errors naturally once we've barged in).
+      //    The interrupted agent segment is recorded HERE on a slow transport.
+      await pending.promise;
+      this.pendingAgentTask = null;
+      if (pending.error) throw pending.error;
+
+      // 4. Now record the interrupting user turn on the byte cursor — AFTER the
+      //    agent segment so the manifest reads agent-(truncated)→user-barge-in
+      //    (issue #466 — Gemini emitted the event but no user segment without
+      //    this). Truncation marking is the post-hoc cursor pass in
+      //    `markTruncatedAgentSegments`; no inline marking here.
+      if (audioSent && chunk && this.voiceRecording) {
+        writeUserSegment(this, chunk);
+      }
+    }
+
+    appendEvent(this, {
+      time: interruptTime,
+      type: "user_interrupt",
+      metadata: { source: "barge-in", outcome, native: nativeFired },
+    });
+  }
+
+  /**
+   * Drop all queued pending messages for the given adapter's index. Called
+   * after {@link fireUserInterrupt} hand-delivers the interrupting audio, so
+   * the recovery `agent()` turn does not re-send it. Mirrors Python's
+   * `_clear_adapter_pending_messages`.
+   */
+  private clearAdapterPendingMessages(adapter: VoiceAgentAdapter): void {
+    const idx = this.agents.indexOf(adapter as unknown as AgentAdapter);
+    if (idx >= 0) this.pendingMessages.set(idx, []);
   }
 
   /**
@@ -1186,6 +2152,11 @@ export class ScenarioExecution implements ScenarioExecutionLike {
     }
 
     this.state = new ScenarioExecutionState(this.config);
+    // Re-establish the voice runtime's back-reference — the new state
+    // object loses the linkage from the constructor's setExecutor call,
+    // so adapters reaching `input.scenarioState._executor` would see
+    // `null` for the rest of the run otherwise.
+    this.state.setExecutor(this);
     this.state.threadId = this.config.threadId || generateThreadId();
     this.setAgents(this.config.agents);
     // Initialize turn state without creating a span yet. execute() calls

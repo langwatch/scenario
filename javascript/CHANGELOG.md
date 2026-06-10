@@ -1,5 +1,74 @@
 # Changelog
 
+## [0.4.12](https://github.com/langwatch/scenario/compare/javascript/v0.4.11...javascript/v0.4.12) (2026-06-04)
+
+
+### Features
+
+* **#318:** add context param to JudgmentRequest for extra judge evaluation input ([#554](https://github.com/langwatch/scenario/issues/554)) ([1947824](https://github.com/langwatch/scenario/commit/1947824f179da1176664a843039ba8bd64e7a5fe))
+* add GOAT strategy with dynamic technique selection for RedTeamAgent ([#346](https://github.com/langwatch/scenario/issues/346)) ([2896c97](https://github.com/langwatch/scenario/commit/2896c97e9a534a9ff1817904053a6af4f1ad06a4))
+* **ci/#364:** add pr-auto-approve.yml as passive observer (PR [#1](https://github.com/langwatch/scenario/issues/1) of 4) ([#485](https://github.com/langwatch/scenario/issues/485)) ([4d84597](https://github.com/langwatch/scenario/commit/4d8459710e566ac90ad731164a4506f6d81365eb))
+* **red-team:** zero-friction report dashboard — auto-save + `scenario redteam-report` CLI ([2896c97](https://github.com/langwatch/scenario/commit/2896c97e9a534a9ff1817904053a6af4f1ad06a4))
+* **test/#516:** bind PR [#511](https://github.com/langwatch/scenario/issues/511) voice scenarios via vitest-cucumber (retrofit PR-A) ([#517](https://github.com/langwatch/scenario/issues/517)) ([c247f42](https://github.com/langwatch/scenario/commit/c247f42d4f8a1bfe5d4f4e86a55bd0ba32d4d650))
+* **typescript-sdk/#372:** voice agent contract surface (types only, PR1 of N) ([#511](https://github.com/langwatch/scenario/issues/511)) ([9216d35](https://github.com/langwatch/scenario/commit/9216d35071bba29ba065f4b188d7c8199c34777f))
+* **typescript-sdk:** voice agent testing — consolidated clean stack ([#561](https://github.com/langwatch/scenario/issues/561)) ([5847c4b](https://github.com/langwatch/scenario/commit/5847c4b40f76edefeca810ba40708db281b70821))
+
+
+### Bug Fixes
+
+* **deps:** bump fast-uri to &gt;=3.1.2 for high severity CVEs ([#450](https://github.com/langwatch/scenario/issues/450)) ([474ab65](https://github.com/langwatch/scenario/commit/474ab6503a044d4c80f30dd6bdf712988becd636))
+* **deps:** bump fast-uri to &gt;=3.1.2 to resolve high severity vulnerabilities ([474ab65](https://github.com/langwatch/scenario/commit/474ab6503a044d4c80f30dd6bdf712988becd636))
+* **deps:** bump liquidjs override to &gt;=10.26.0 to close RCE/ReDoS alerts ([#591](https://github.com/langwatch/scenario/issues/591)) ([daaf9cc](https://github.com/langwatch/scenario/commit/daaf9ccfc4f89609518094a9a390eaaa89972fc3))
+* **deps:** bump protobufjs to &gt;=7.5.6/&gt;=8.0.2 for high severity CVEs ([#463](https://github.com/langwatch/scenario/issues/463)) ([f008161](https://github.com/langwatch/scenario/commit/f008161c8f45192a0290f0ebb884cc830de855bd))
+* **deps:** bump protobufjs to &gt;=8.0.2 for 4 high severity CVEs ([#462](https://github.com/langwatch/scenario/issues/462)) ([e2c0499](https://github.com/langwatch/scenario/commit/e2c04991e352a777a1adc9e7719c6b69ceab682b))
+* **deps:** override hono to &gt;=4.12.18 for JWT NumericDate validation CVE ([#477](https://github.com/langwatch/scenario/issues/477)) ([d81ff1a](https://github.com/langwatch/scenario/commit/d81ff1ac031d3a4b62cfc28d5acd7e265cde4395))
+* **deps:** override langsmith to &gt;=0.6.0 for CVE fix ([#471](https://github.com/langwatch/scenario/issues/471)) ([4e5237e](https://github.com/langwatch/scenario/commit/4e5237ef3b966e9341ffe635454b938adea7e3ab))
+* **deps:** override langsmith to &gt;=0.6.0 for prompt deserialization CVEs ([4e5237e](https://github.com/langwatch/scenario/commit/4e5237ef3b966e9341ffe635454b938adea7e3ab))
+* **deps:** override minimatch to &gt;=9.0.6 (CVE-2026-26996) ([#395](https://github.com/langwatch/scenario/issues/395)) ([ceb0b59](https://github.com/langwatch/scenario/commit/ceb0b59e6a96fe27adf865f03aa1de8a9ea03357))
+* **deps:** override qs to &gt;=6.14.2 for arrayLimit bypass DoS CVE ([#482](https://github.com/langwatch/scenario/issues/482)) ([51a2b6d](https://github.com/langwatch/scenario/commit/51a2b6daaf5c243154c3c61b8ffeaafd368d5628))
+* **deps:** resolve 4 high-severity Dependabot security alerts ([#393](https://github.com/langwatch/scenario/issues/393)) ([97f257d](https://github.com/langwatch/scenario/commit/97f257ddc30a6bd7a9cca65e2e62e0ed0c688085))
+* **examples:** stabilize custom LLM judge criteria matching ([#396](https://github.com/langwatch/scenario/issues/396)) ([f4b536c](https://github.com/langwatch/scenario/commit/f4b536cf12a6d525b487c672f9451390e13957c7))
+* **examples:** use positional index matching in custom judge examples ([f4b536c](https://github.com/langwatch/scenario/commit/f4b536cf12a6d525b487c672f9451390e13957c7))
+* **judge:** harden forceVerdict so discovery tools cannot leak (JS + Python) ([#377](https://github.com/langwatch/scenario/issues/377)) ([0e2859f](https://github.com/langwatch/scenario/commit/0e2859f5ec1c171fa3d3d6f89b7d59555be6b95b))
+* **red-team:** annotate H_attacker when post-hoc injection fires ([#326](https://github.com/langwatch/scenario/issues/326), [#334](https://github.com/langwatch/scenario/issues/334)) ([2896c97](https://github.com/langwatch/scenario/commit/2896c97e9a534a9ff1817904053a6af4f1ad06a4))
+* **security:** bump liquidjs override to fix memoryLimit bypass, memory amplification, and DoS CVEs ([25ba99d](https://github.com/langwatch/scenario/commit/25ba99ddf5bcfdc903ef59dd59e1606d8417f20c))
+* **security:** bump liquidjs to fix 4 additional high-severity CVEs ([#412](https://github.com/langwatch/scenario/issues/412)) ([25ba99d](https://github.com/langwatch/scenario/commit/25ba99ddf5bcfdc903ef59dd59e1606d8417f20c))
+* **security:** delete orphaned vitest lockfile recreated during rebase ([ea8a19c](https://github.com/langwatch/scenario/commit/ea8a19cfdd1ff02ae3c9f7839d17ad5bf9346a5d))
+* **security:** delete orphaned vitest lockfile to fix 8 Dependabot alerts ([#426](https://github.com/langwatch/scenario/issues/426)) ([ea8a19c](https://github.com/langwatch/scenario/commit/ea8a19cfdd1ff02ae3c9f7839d17ad5bf9346a5d))
+* **security:** patch @modelcontextprotocol/sdk ReDoS, DNS rebinding, and data leak ([#410](https://github.com/langwatch/scenario/issues/410)) ([b993066](https://github.com/langwatch/scenario/commit/b9930668175f8adbeb0941d721fa45b171c24810))
+* **security:** patch @modelcontextprotocol/sdk ReDoS, DNS rebinding, and data leak CVEs ([b993066](https://github.com/langwatch/scenario/commit/b9930668175f8adbeb0941d721fa45b171c24810))
+* **security:** patch critical CVEs in protobufjs and handlebars ([#390](https://github.com/langwatch/scenario/issues/390)) ([de89d50](https://github.com/langwatch/scenario/commit/de89d5017cf27dd3c060bdafe920ed0168eff831))
+* **security:** patch critical vulnerabilities in protobufjs and handlebars ([de89d50](https://github.com/langwatch/scenario/commit/de89d5017cf27dd3c060bdafe920ed0168eff831))
+* **security:** patch CVE-2026-27903 in minimatch ([#398](https://github.com/langwatch/scenario/issues/398)) ([b61cc60](https://github.com/langwatch/scenario/commit/b61cc6005645b7703788c02c6cb4d134559e339b))
+* **security:** patch flatted prototype pollution via parse() ([#421](https://github.com/langwatch/scenario/issues/421)) ([3a20e6c](https://github.com/langwatch/scenario/commit/3a20e6c57bb81583144cb643d3fcac390f66af3b))
+* **security:** patch langchain serialization injection vulnerability ([#420](https://github.com/langwatch/scenario/issues/420)) ([89dd094](https://github.com/langwatch/scenario/commit/89dd0947dd660bb8aefe243c803841b65cbb67a1))
+* **security:** patch path-to-regexp DoS in openai-realtime-demo ([c6e55b0](https://github.com/langwatch/scenario/commit/c6e55b06ba4bcdfa7640fffae9f086d3a871245c))
+* **security:** patch path-to-regexp DoS in openai-realtime-demo (CVE-2026-4926) ([#428](https://github.com/langwatch/scenario/issues/428)) ([c6e55b0](https://github.com/langwatch/scenario/commit/c6e55b06ba4bcdfa7640fffae9f086d3a871245c))
+* **security:** patch path-to-regexp DoS via sequential optional groups ([#416](https://github.com/langwatch/scenario/issues/416)) ([752539a](https://github.com/langwatch/scenario/commit/752539a738993f3b03085cda54b04792a036f17d))
+* **security:** patch rollup arbitrary file write via path traversal ([#399](https://github.com/langwatch/scenario/issues/399)) ([55a0259](https://github.com/langwatch/scenario/commit/55a02598ad8d245dfac159357b17c8d89192b824))
+* **security:** patch rollup path traversal CVE (&gt;= 4.0.0, &lt; 4.59.0) ([55a0259](https://github.com/langwatch/scenario/commit/55a02598ad8d245dfac159357b17c8d89192b824))
+* **security:** patch trim-newlines uncontrolled resource consumption ([#415](https://github.com/langwatch/scenario/issues/415)) ([1c507c3](https://github.com/langwatch/scenario/commit/1c507c35364a229ba72b80b380a6f5fac46431b7))
+* **security:** patch vite server.fs.deny bypass and WebSocket file read CVEs ([#419](https://github.com/langwatch/scenario/issues/419)) ([7bb7af9](https://github.com/langwatch/scenario/commit/7bb7af95445a4b80a1daf6a4bfa9866099c2fc50))
+* **security:** upgrade picomatch, @hono/node-server, and glob to fix CVEs ([#394](https://github.com/langwatch/scenario/issues/394)) ([4395e52](https://github.com/langwatch/scenario/commit/4395e52f765895a8c58def12086cb09e179e8a18))
+
+
+### Miscellaneous
+
+* **deps:** bump @ungap/structured-clone past 1.3.1 (CWE-502) ([#544](https://github.com/langwatch/scenario/issues/544)) ([f716e46](https://github.com/langwatch/scenario/commit/f716e46b7f7f62ab61f5f99a761ea566985e891f))
+* **deps:** bump pnpm/action-setup from 2.4.1 to 5.0.0 ([#300](https://github.com/langwatch/scenario/issues/300)) ([053cc3a](https://github.com/langwatch/scenario/commit/053cc3a7cb192f725fe2c64beddeb996493c122d))
+* **deps:** remove unused nanoid-cli devDep from vitest examples ([#422](https://github.com/langwatch/scenario/issues/422)) ([d4a40a5](https://github.com/langwatch/scenario/commit/d4a40a5871239ee5440bb007cb5a32e9eab5df0e))
+* main-side cleanup — docs + spec + python/TS parity ([#586](https://github.com/langwatch/scenario/issues/586)) ([371f94c](https://github.com/langwatch/scenario/commit/371f94cd20998004398fa19d663254cb9aace8d8))
+* **tests:** remove flaky 10-turn travel-planning example test ([#423](https://github.com/langwatch/scenario/issues/423)) ([bbe86de](https://github.com/langwatch/scenario/commit/bbe86de991124e9cfe64d103c107795f9ff0ae3c))
+* **tests:** remove flaky live-LLM travel-agent example test ([ac911ff](https://github.com/langwatch/scenario/commit/ac911ff2da99de1ae0f8341e6702cb96c448db54))
+* **tests:** remove flaky travel-agent example test ([#425](https://github.com/langwatch/scenario/issues/425)) ([ac911ff](https://github.com/langwatch/scenario/commit/ac911ff2da99de1ae0f8341e6702cb96c448db54))
+* **tests:** remove no-op example tests + audit notes ([#424](https://github.com/langwatch/scenario/issues/424)) ([947f219](https://github.com/langwatch/scenario/commit/947f219344e9beb6267f8a6d43e9b01717284da2))
+* **tests:** remove no-op example tests that always pass or are skipped ([947f219](https://github.com/langwatch/scenario/commit/947f219344e9beb6267f8a6d43e9b01717284da2))
+
+
+### Code Refactoring
+
+* **test/#522:** move instanceof assertions from Given to Then in voice contract surface ([#559](https://github.com/langwatch/scenario/issues/559)) ([c8cca4e](https://github.com/langwatch/scenario/commit/c8cca4ecafb0ebfb10d2d39b36ac2fe28443a376))
+
 ## [0.4.11](https://github.com/langwatch/scenario/compare/javascript/v0.4.10...javascript/v0.4.11) (2026-04-23)
 
 

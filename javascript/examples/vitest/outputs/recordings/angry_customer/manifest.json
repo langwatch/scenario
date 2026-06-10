@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-05-27T15:24:31.055Z",
+  "duration": 39.65,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0000ms.wav",
+      "role": "agent",
+      "start_time": 0,
+      "end_time": 3.7,
+      "duration": 3.7,
+      "transcript": "Hello, thank you for calling, how can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3700ms.wav",
+      "role": "user",
+      "start_time": 3.7,
+      "end_time": 7.54,
+      "duration": 3.84,
+      "transcript": "[shouting] You charged me twice for my order! [angry] Fix it NOW."
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-7540ms.wav",
+      "role": "agent",
+      "start_time": 7.54,
+      "end_time": 20.34,
+      "duration": 12.8,
+      "transcript": "I'm really sorry about that. Double charges are frustrating. I can help. Please tell me your order number, or the name and email/phone on the order, and I'll get the duplicate charge reviewed and arrange a refund for the extra one."
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-20340ms.wav",
+      "role": "user",
+      "start_time": 20.34,
+      "end_time": 25.54,
+      "duration": 5.199999999999999,
+      "transcript": "[shouting] You charged me twice for the same order! [angry] Fix it and refund the duplicate NOW."
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-25540ms.wav",
+      "role": "agent",
+      "start_time": 25.54,
+      "end_time": 39.65,
+      "duration": 14.11,
+      "transcript": "I hear you. Let's get this fixed. Please share your order number and the last four digits of the card, or the email/phone on the order, and I'll immediately start the process to refund the duplicate charge."
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.7,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.7,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7.54,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 7.54,
+      "type": "agent_start_speaking",
+      "latency": 22.878932347999978
+    },
+    {
+      "time": 20.34,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 20.34,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 25.54,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 25.54,
+      "type": "agent_start_speaking",
+      "latency": 8.63097986400004
+    },
+    {
+      "time": 39.65,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

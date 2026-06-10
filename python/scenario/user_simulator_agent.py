@@ -36,18 +36,45 @@ def _strip_audio_content(messages: list) -> list:
     error.  This helper keeps ``text`` parts as-is and replaces audio-only
     messages with an ``[audio message]`` placeholder so the LLM still has a
     structural turn in the right position.
+
+    Echo-safety (AC4): when an **assistant** message carries BOTH an
+    ``input_audio`` part AND a ``text`` part, it is a voiced agent turn whose
+    transcript was auto-surfaced by the realtime adapter. The simulator must NOT
+    receive that text verbatim — after ``reverse_roles`` the assistant turn
+    becomes a "user" turn, which the LLM reads as its own prior words and parrots
+    back as the candidate's answer. Instead we reframe the text as third-person
+    context ("the agent said: Q") so the simulator understands it as the OTHER
+    party's utterance to respond to, not its own line.
+
+    This reframing applies ONLY to the simulator's prompt view. The text part in
+    ``result.messages`` is untouched — only the copy passed into the LLM call
+    here is transformed. No dict-key markers are used; origin is identified
+    structurally (assistant + audio + text = voiced agent turn). AC11 is
+    satisfied by construction — no marker key ever appears on the message dict.
     """
     result = []
     for msg in messages:
         content = msg.get("content")
         if isinstance(content, list):
+            has_audio = any(
+                isinstance(p, dict) and p.get("type") in ("input_audio", "audio")
+                for p in content
+            )
             text_parts = [
                 p["text"]
                 for p in content
                 if isinstance(p, dict) and p.get("type") == "text"
             ]
             if text_parts:
-                result.append({**msg, "content": " ".join(text_parts)})
+                joined = " ".join(text_parts)
+                # Echo-safety: an assistant turn with BOTH audio and text parts
+                # is a voiced agent turn (transcript auto-surfaced by the
+                # realtime adapter). Reframe as third-person context so the
+                # simulator sees it as the agent's utterance to answer, not its
+                # own words to repeat. (AC4)
+                if has_audio and msg.get("role") == "assistant":
+                    joined = f"[the agent said: {joined}]"
+                result.append({**msg, "content": joined})
             else:
                 result.append({**msg, "content": "[audio message]"})
         else:

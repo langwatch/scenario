@@ -232,3 +232,110 @@ async def test_judge_is_last_message_on_final_turn(
     finally:
         context_scenario.reset(token)
         ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_judge_includes_additional_context_in_prompt():
+    """JudgmentRequest.context is injected into the judge's user message under <additional_context>.
+
+    Test for #318: allows callers to pass structured observations (e.g. command
+    output, filesystem state) to the judge without polluting the message history.
+    """
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    judge = JudgeAgent(criteria=["Agent installed the dependency"])
+
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Install scenario"
+    mock_scenario_state.current_turn = 1
+    mock_scenario_state.config.max_turns = 10
+
+    ctx_text = "The agent ran `npm install -g git-orchard` which exited 0. The binary is now at /usr/local/bin/orchard."
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[{"role": "user", "content": "Install git-orchard"}],
+        new_messages=[],
+        judgment_request=JudgmentRequest(
+            context=ctx_text,
+        ),
+        scenario_state=mock_scenario_state,
+    )
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.tool_calls = [MagicMock()]
+    mock_response.choices[0].message.tool_calls[0].function.name = "finish_test"
+    mock_response.choices[0].message.tool_calls[
+        0
+    ].function.arguments = '{"verdict": "success", "reasoning": "installed", "criteria": {"agent_installed_the_dependency": "true"}}'
+
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion", return_value=mock_response
+        ) as mock_completion:
+            await judge.call(agent_input)
+
+            assert mock_completion.called
+            call_kwargs = mock_completion.call_args.kwargs
+            messages = call_kwargs["messages"]
+
+            # The context must appear in the user message (index 1) under <additional_context>.
+            user_msg = next(m for m in messages if m["role"] == "user")
+            assert "<additional_context>" in user_msg["content"]
+            assert ctx_text in user_msg["content"]
+            assert "</additional_context>" in user_msg["content"]
+    finally:
+        context_scenario.reset(token)
+        ScenarioConfig.default_config = None
+
+
+@pytest.mark.asyncio
+async def test_judge_omits_additional_context_when_none():
+    """No <additional_context> block when JudgmentRequest.context is absent."""
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    judge = JudgeAgent(criteria=["Agent responded"])
+
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Basic scenario"
+    mock_scenario_state.current_turn = 1
+    mock_scenario_state.config.max_turns = 10
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[{"role": "user", "content": "Hello"}],
+        new_messages=[],
+        judgment_request=JudgmentRequest(),  # no context
+        scenario_state=mock_scenario_state,
+    )
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.tool_calls = [MagicMock()]
+    mock_response.choices[0].message.tool_calls[0].function.name = "finish_test"
+    mock_response.choices[0].message.tool_calls[
+        0
+    ].function.arguments = '{"verdict": "success", "reasoning": "ok", "criteria": {"agent_responded": "true"}}'
+
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion", return_value=mock_response
+        ) as mock_completion:
+            await judge.call(agent_input)
+
+            call_kwargs = mock_completion.call_args.kwargs
+            messages = call_kwargs["messages"]
+            user_msg = next(m for m in messages if m["role"] == "user")
+            assert "<additional_context>" not in user_msg["content"]
+    finally:
+        context_scenario.reset(token)
+        ScenarioConfig.default_config = None

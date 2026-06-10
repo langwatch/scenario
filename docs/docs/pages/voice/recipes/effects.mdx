@@ -13,10 +13,13 @@ after TTS synthesis — they are never baked into the TTS cache.
 
 ## Pattern
 
-Pass a list of effect functions to `UserSimulatorAgent(audio_effects=[...])`. Effects
-compose left-to-right: the output of each effect is the input to the next.
+Pass a list of effect functions to the user simulator's `audio_effects` /
+`audioEffects`. Effects compose left-to-right: the output of each effect is the
+input to the next.
 
-```python
+:::code-group
+
+```python [python]
 scenario.UserSimulatorAgent(
     voice="openai/nova",
     audio_effects=[
@@ -26,20 +29,42 @@ scenario.UserSimulatorAgent(
 )
 ```
 
+```typescript [typescript]
+import scenario, { voice } from "@langwatch/scenario";
+
+scenario.userSimulatorAgent({
+  voice: "openai/nova",
+  audioEffects: [
+    voice.effects.backgroundNoise("cafe", 0.4),
+    voice.effects.phoneQuality(),
+  ],
+});
+```
+
+:::
+
 ### Available effects
 
-| Effect | Description |
-|---|---|
-| `background_noise(preset_or_path, volume)` | Overlay ambient noise. Built-in presets: `"cafe"`, `"street"`, `"office"`, `"airport"`. Pass a `.wav` path for custom noise. |
-| `static(intensity)` | White-noise static at the given fraction of full scale. |
-| `multiple_voices()` | Mix with a babble sample to simulate background conversation. |
-| `phone_quality()` | Bandpass 300Hz–3.4kHz + mild compression, mimicking a phone line. |
-| `low_quality(bitrate)` | Downsample to `bitrate` Hz and back — aliasing and quantisation artefacts. |
-| `packet_loss(probability, chunk_ms)` | Zero out random windows at the given probability. |
-| `echo(delay_ms, decay)` | Overlay a delayed, attenuated copy of the signal. |
-| `robotic()` | Ring-modulate the signal with a 100Hz carrier for a robotic timbre. |
-| `breaking_up()` | Frequent 100ms dropouts simulating a losing-signal scenario. |
-| `custom(fn)` | Bring your own `Callable[[bytes], bytes]` operating on PCM16 @ 24kHz mono. |
+Effect names are `snake_case` on `scenario.effects` (Python) and `camelCase` on
+`voice.effects` (TypeScript). The one non-obvious rename: `static` →
+`static_` in TypeScript (`static` is a reserved word).
+
+| Python (`scenario.effects`) | TypeScript (`voice.effects`) | Description |
+|---|---|---|
+| `background_noise(preset_or_path, volume)` | `backgroundNoise(presetOrPath, volume?)` | Overlay ambient noise. Built-in presets: `"cafe"`, `"street"`, `"office"`, `"airport"`. Pass a `.wav` path for custom noise. |
+| `static(intensity)` | `static_(intensity?)` | White-noise static at the given fraction of full scale. |
+| `multiple_voices()` | `multipleVoices(backgroundAudio?)` | Mix with a babble sample to simulate background conversation. |
+| `phone_quality()` | `phoneQuality()` | Bandpass 300Hz–3.4kHz + mild compression, mimicking a phone line. |
+| `low_quality(bitrate)` | `lowQuality(bitrate?)` | Downsample to `bitrate` Hz and back — aliasing and quantisation artefacts. |
+| `packet_loss(probability, chunk_ms)` | `packetLoss(probability?, chunkMs?)` | Zero out random windows at the given probability. |
+| `echo(delay_ms, decay)` | `echo(delayMs?, decay?)` | Overlay a delayed, attenuated copy of the signal. |
+| `robotic()` | `robotic()` | Ring-modulate the signal with a 100Hz carrier for a robotic timbre. |
+| `breaking_up()` | `breakingUp()` | Frequent 100ms dropouts simulating a losing-signal scenario. |
+| `custom(fn)` | `custom(fn)` | Bring your own `(bytes) => bytes` operating on PCM16 @ 24kHz mono. |
+
+The TypeScript SDK also ships prosody effects not in the Python table above:
+`lowVolume(factor?)`, `highVolume(factor?)`, `speakingFast(factor?)`,
+`speakingSlow(factor?)`.
 
 <Callout type="tip">
 Accents are handled via TTS voice selection (e.g. `voice="elevenlabs/raj_indian_english"`),
@@ -49,18 +74,36 @@ not via post-processing. There is no `accent` effect by design — see the
 
 ### Per-step overrides
 
-The `audio_effects` list on `UserSimulatorAgent` applies to every user turn in the
-scenario.
+The simulator-level `audio_effects` / `audioEffects` list applies to every user
+turn in the scenario.
 
-<Callout type="warning">
-Per-step effect overrides via `scenario.user(audio_effects=[...])` are on the roadmap
-but not yet in the stable API. Use adapter-level `audio_effects` for global application,
-or pre-bake effects into WAV files and use `scenario.audio()` for per-step control.
-See [specs/voice-agents.feature §4.5](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature)
-for the full effects/degradation specification.
+In **TypeScript**, you can also override effects (and voice style) for a single
+turn by passing options to `scenario.user(...)` — the override applies to that
+turn only, then the simulator's defaults resume:
+
+```typescript
+scenario.user("Hello?", { audioEffects: [voice.effects.lowVolume(0.3)] });
+scenario.user("I'm really upset!", { voiceStyle: "angry" });
+```
+
+Both SDKs support per-step overrides. Python's `scenario.user()` accepts
+`voice_style` and `audio_effects` with the same one-shot semantics as TypeScript:
+
+```python
+scenario.user("Hello?", audio_effects=[scenario.effects.low_volume(0.3)])
+scenario.user("I'm really upset!", voice_style="angry")
+```
+
+<Callout type="info">
+When `voice_style` is set, the SDK emits a warning if the active TTS backend
+does not yet wire prosody — the audio is still synthesized, but the style hint
+is not applied. `audio_effects` post-processing is always applied regardless of
+the backend.
 </Callout>
 
 ## Worked example
+
+**Python:**
 
 [`angry_customer.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/angry_customer.py)
 — applies `background_noise("cafe", 0.4)` and `phone_quality()` to simulate an angry
@@ -70,6 +113,16 @@ handles the emotional tone and noise robustly.
 [`background_handoff.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/background_handoff.py)
 — uses `background_noise("cafe", 0.5)` to simulate overheard conversation during a
 handoff; verifies the agent does not respond to the background audio as user speech.
+
+**TypeScript:**
+
+[`angry-customer.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/angry-customer.test.ts)
+— TypeScript counterpart: `backgroundNoise("cafe", 0.4)` + `phoneQuality()` effects on
+the user simulator; judge verifies emotional tone handling.
+
+[`background-handoff.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/background-handoff.test.ts)
+— background noise during a handoff scenario; verifies the agent ignores background
+audio as user speech.
 
 ## See also
 

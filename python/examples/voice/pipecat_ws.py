@@ -29,8 +29,8 @@ Optional env vars:
 
 # Re-export from the original pipecat scenario so we stay DRY.
 # The original demo is voice/pipecat_scenario.py; this module delegates to it
-# but passes its own demo_name so recordings land in recordings/pipecat_ws/
-# instead of clobbering recordings/pipecat_scenario/.
+# but passes its own demo_name so recordings land in outputs/recordings/pipecat_ws/
+# instead of clobbering outputs/recordings/pipecat_scenario/.
 
 from pipecat_scenario import main as _delegate_main  # type: ignore[import]
 

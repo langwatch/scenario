@@ -777,14 +777,21 @@ class ScenarioExecutor:
                 continue
             try:
                 await agent.disconnect()
-            except Exception:  # pragma: no cover — defensive cleanup
-                pass
+            except Exception:
+                logger.warning(
+                    "voice adapter %s disconnect failed",
+                    type(agent).__name__,
+                    exc_info=True,
+                )
 
         if self._ffmpeg_playback is not None:
             try:
                 await asyncio.to_thread(self._ffmpeg_playback.stop)
-            except Exception:  # pragma: no cover — best-effort cleanup
-                pass
+            except Exception:
+                logger.warning(
+                    "ffmpeg playback stop failed during voice disconnect",
+                    exc_info=True,
+                )
             self._ffmpeg_playback = None
 
     async def _call_agent(
@@ -836,7 +843,13 @@ class ScenarioExecutor:
                 ):
                     start_time = time.time()
 
-                    # Prevent pydantic validation warnings which should already be disabled
+                    # Suppress noisy pydantic serializer warnings emitted by
+                    # litellm + langwatch tracing when dispatching the
+                    # ChatCompletionMessageParam union (developer/system/user/
+                    # assistant/tool/function variants). The previous scope
+                    # only wrapped the call-coroutine *creation*; the await
+                    # below is where litellm.completion actually runs and
+                    # where the warnings fire. Keep the await inside.
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
 
@@ -854,12 +867,12 @@ class ScenarioExecutor:
                                 scenario_state=self._state,
                             )
                         )
-                    if not isinstance(agent_response, Awaitable):
-                        raise Exception(
-                            agent_response_not_awaitable(agent.__class__.__name__),
-                        )
+                        if not isinstance(agent_response, Awaitable):
+                            raise Exception(
+                                agent_response_not_awaitable(agent.__class__.__name__),
+                            )
 
-                    agent_response = await agent_response
+                        agent_response = await agent_response
 
                 if idx not in self._agent_times:
                     self._agent_times[idx] = 0
@@ -910,7 +923,10 @@ class ScenarioExecutor:
                 return messages
         except Exception as e:
             agent_name = agent.__class__.__name__
-            raise RuntimeError(f"[{agent_name}] {e}") from e
+            # str(e) is empty for no-args exceptions like asyncio.TimeoutError().
+            # Fall back to the exception type name so the error body is never blank.
+            error_detail = str(e) or type(e).__name__
+            raise RuntimeError(f"[{agent_name}] {error_detail}") from e
 
     def _scenario_name(self):
         if self.config.verbose == 2:
@@ -1532,6 +1548,16 @@ class ScenarioExecutor:
                 print_openai_messages(self._scenario_name(), [message])
             return
 
+        # Gap 1 (AC9/AC10): signal the voice adapter that an agent turn is about
+        # to be dispatched. This per-turn flag lets recv_audio fire a bare
+        # response.create for agent-initiated turns (no user audio committed) —
+        # both the opening turn AND subsequent agent turns in multi-turn scripts.
+        # Guards with hasattr so non-realtime adapters are unaffected.
+        if role == AgentRole.AGENT:
+            _notify = getattr(next_agent, "notify_agent_turn", None)
+            if callable(_notify):
+                _notify()
+
         result = await self._call_agent(
             idx, role=role, judgment_request=judgment_request
         )
@@ -1635,16 +1661,33 @@ class ScenarioExecutor:
         Emit a message snapshot event.
 
         This event captures the current state of the conversation during
-        scenario execution. It's published whenever messages are added to
-        the conversation, allowing real-time tracking of scenario progress.
-        """
-        common_fields = self._create_common_event_fields(scenario_run_id)
+        scenario execution. It's published after every script step, allowing
+        real-time tracking of scenario progress.
 
-        event = ScenarioMessageSnapshotEvent(
-            **common_fields,
-            messages=convert_messages_to_api_client_messages(self._state.messages),
-        )
-        self._emit_event(event)
+        Any failure while building or emitting the snapshot is logged as a
+        warning and swallowed so that a telemetry error can never abort an
+        otherwise-healthy scenario run.  This guard is intentionally broad:
+        the snapshot fires on arbitrary in-flight conversation content (e.g.
+        empty-content voice turns) where serialization or transport errors are
+        plausible and must be non-fatal.
+
+        Note: _emit_run_started_event and _emit_run_finished_event are NOT
+        guarded because they carry structured, schema-controlled data produced
+        by the executor itself — not raw, user-supplied message content.
+        """
+        try:
+            common_fields = self._create_common_event_fields(scenario_run_id)
+
+            event = ScenarioMessageSnapshotEvent(
+                **common_fields,
+                messages=convert_messages_to_api_client_messages(self._state.messages),
+            )
+            self._emit_event(event)
+        except Exception:
+            logger.warning(
+                "Failed to emit message snapshot event; snapshot skipped",
+                exc_info=True,
+            )
 
     def _emit_run_finished_event(
         self,

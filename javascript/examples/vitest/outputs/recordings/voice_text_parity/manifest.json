@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T14:33:26.690Z",
+  "duration": 19.400000000000002,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2,
+      "duration": 2,
+      "transcript": "Hello, can you help me?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2000ms.wav",
+      "role": "agent",
+      "start_time": 2,
+      "end_time": 5.65,
+      "duration": 3.6500000000000004,
+      "transcript": "Of course, I'm here to help. What do you need assistance with?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-5650ms.wav",
+      "role": "user",
+      "start_time": 5.65,
+      "end_time": 8.600000000000001,
+      "duration": 2.950000000000001,
+      "transcript": "Great — what can you do?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-8600ms.wav",
+      "role": "agent",
+      "start_time": 8.600000000000001,
+      "end_time": 19.400000000000002,
+      "duration": 10.8,
+      "transcript": "I can assist you with a wide range of things, from answering questions, providing information, helping with problem-solving, giving advice, setting reminders, and much more. What would you like to focus on right now?"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2,
+      "type": "agent_start_speaking",
+      "latency": 0.6913024919999984
+    },
+    {
+      "time": 5.65,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 5.65,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.600000000000001,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 8.600000000000001,
+      "type": "agent_start_speaking",
+      "latency": 0.6880981969999986
+    },
+    {
+      "time": 19.400000000000002,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

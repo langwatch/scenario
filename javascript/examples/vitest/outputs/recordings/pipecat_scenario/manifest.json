@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T14:24:06.225Z",
+  "duration": 16.81,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2.8,
+      "duration": 2.8,
+      "transcript": "Hi! Can you help me with a question?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2800ms.wav",
+      "role": "agent",
+      "start_time": 2.8,
+      "end_time": 6.6,
+      "duration": 3.8,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6600ms.wav",
+      "role": "user",
+      "start_time": 6.6,
+      "end_time": 9.1,
+      "duration": 2.5,
+      "transcript": "Thanks — what else can you do?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-9100ms.wav",
+      "role": "agent",
+      "start_time": 9.1,
+      "end_time": 16.81,
+      "duration": 7.709999999999999,
+      "transcript": "你好，欢迎致电我们公司。请问你想咨询账单、账户还是营业时间呢?"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.8,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2.8,
+      "type": "agent_start_speaking",
+      "latency": 0.0006899929999999443
+    },
+    {
+      "time": 6.6,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.6,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.1,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 9.1,
+      "type": "agent_start_speaking",
+      "latency": 0.00012102000000169255
+    },
+    {
+      "time": 16.81,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

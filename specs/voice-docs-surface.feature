@@ -46,7 +46,7 @@ Feature: User-facing docs surface for the voice-agent adapter system
   @e2e
   Scenario: Capability matrix is published as a navigable reference page
     Given a developer comparing voice adapters
-    When they open docs/voice/capability-matrix on the published site
+    When they open the /voice/capability-matrix page on the published docs site
     Then the page renders a table with one row per shipped adapter and one row per stubbed adapter
     And stubbed adapters carry a PendingTransportError note
     And the table columns include streaming_transcripts, native_vad, dtmf, interruption, input_formats, and output_formats
@@ -126,7 +126,7 @@ Feature: User-facing docs surface for the voice-agent adapter system
     And the page covers Gemini Live agent-reply ~60 bytes on turn 2+ with a reference to commit 80461e2
     And the page covers VAD-didn't-fire with threshold-tuning guidance and the webrtcvad-wheels fallback
     And the page covers ffmpeg-not-found with the imageio-ffmpeg install path
-    And the page covers empty demo recordings with the recordings/<demo>/manifest.json check
+    And the page covers empty demo recordings with the outputs/recordings/<demo>/manifest.json check
 
   # ============================================================
   # Group: Docs site integration

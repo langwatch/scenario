@@ -11,7 +11,9 @@ harness as the bundled adapters.
 
 ## Constructor
 
-```python
+:::code-group
+
+```python [python]
 import scenario
 
 agent = scenario.ComposableVoiceAgent(
@@ -22,8 +24,23 @@ agent = scenario.ComposableVoiceAgent(
 )
 ```
 
-`stt` accepts any `STTProvider` implementation (e.g.
-`scenario.ElevenLabsSTTProvider`).
+```typescript [typescript]
+import scenario, { voice } from "@langwatch/scenario";
+import { openai } from "@ai-sdk/openai";
+
+const agent = scenario.composableAgent({
+  stt: new voice.OpenAISTTProvider(), // any STTProvider (e.g. voice.ElevenLabsSTTProvider)
+  llm: openai("gpt-4.1-mini"),        // an AI-SDK LanguageModel
+  tts: "openai/nova",                 // "<provider>/<voiceId>"
+  systemPrompt: "You are a helpful assistant.",
+});
+```
+
+:::
+
+`stt` accepts any `STTProvider` implementation (`voice.OpenAISTTProvider`,
+`voice.ElevenLabsSTTProvider`, or your own). Note `llm` differs by SDK: Python
+takes a model string; TypeScript takes an AI-SDK `LanguageModel`.
 
 ## Capabilities
 
@@ -36,6 +53,5 @@ VAD: Composable has no native VAD; the SDK falls back to `webrtcvad`. See
 
 ## Worked examples
 
-No standalone shipping demo yet — see the
-[ElevenLabs composable variant](/voice/adapters/elevenlabs#composable-variant--elevenlabsvoiceagent)
-for a working pattern.
+- See the [ElevenLabs composable variant](/voice/adapters/elevenlabs#composable-variant--elevenlabsvoiceagent) for a working pattern in both SDKs.
+- **TypeScript:** [`composable-stt-swap.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/composable-stt-swap.test.ts) — swaps the judge's STT provider per run via `run(cfg, { voice: { stt } })`.

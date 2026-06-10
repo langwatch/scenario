@@ -3,6 +3,8 @@ title: Gemini Live Adapter
 description: Test a Gemini Live agent over WebSocket with GeminiLiveAgentAdapter.
 ---
 
+import { Callout } from "vocs/components";
+
 # `GeminiLiveAgentAdapter`
 
 Connects to Google's Gemini Live API over WebSocket. Native VAD and barge-in
@@ -10,7 +12,9 @@ are built-in.
 
 ## Constructor
 
-```python
+:::code-group
+
+```python [python]
 import os
 import scenario
 
@@ -22,8 +26,29 @@ adapter = scenario.GeminiLiveAgentAdapter(
 )
 ```
 
-If `api_key` is not passed, it falls back to `GEMINI_API_KEY` in the
-environment.
+```typescript [typescript]
+import scenario, { voice } from "@langwatch/scenario";
+
+const { GEMINI_LIVE_MODEL } = voice;
+
+const adapter = scenario.geminiLiveAgent({
+  model: GEMINI_LIVE_MODEL, // "gemini-2.5-flash-native-audio-latest"
+  voice: "Algieba",
+  systemInstruction: "You are a helpful assistant.",
+  // apiKey falls back to GEMINI_API_KEY / GOOGLE_API_KEY
+});
+```
+
+:::
+
+If `api_key` / `apiKey` is not passed, it falls back to `GEMINI_API_KEY` (and, in
+TypeScript, `GOOGLE_API_KEY`) in the environment.
+
+<Callout type="info">
+  In TypeScript, the Gemini Live adapter uses `@google/genai`, declared as an
+  **optional peer dependency** — install it yourself
+  (`pnpm install @google/genai`) if you import this adapter.
+</Callout>
 
 ## Capabilities
 
@@ -31,10 +56,17 @@ environment.
 | --- | --- | --- | --- | --- | --- |
 | ✅ | ✅ | ❌ | ✅ | `pcm16/16000` | `pcm16/24000` |
 
+<Callout type="info">
+  The **TypeScript** `geminiLiveAgent` declares `interruption: true` (it cuts
+  its in-flight audio on the next activity-start marker). The Python capability
+  matrix currently lists Gemini interruption as deferred — see the
+  [capability matrix](/voice/capability-matrix) for the per-SDK values.
+</Callout>
+
 ## Worked examples
 
-- [`gemini_live.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live.py) — basic Gemini Live scenario.
-- [`gemini_live_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live_interruption.py) — barge-in handling.
+- **Python:** [`gemini_live.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live.py) — basic Gemini Live scenario; [`gemini_live_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live_interruption.py) — barge-in handling.
+- **TypeScript:** [`gemini-live.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/gemini-live.test.ts) — Gemini Live native-audio happy path.
 
 ## Known-fixed quirks
 

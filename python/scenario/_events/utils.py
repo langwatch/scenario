@@ -48,7 +48,9 @@ def convert_messages_to_api_client_messages(
         List of API client Message objects
 
     Raises:
-        ValueError: If message role is not supported or message format is invalid
+        ValueError: If the message role is not one of ``user``, ``assistant``,
+            ``system``, or ``tool``.  ``tool`` messages missing ``tool_call_id``
+            or ``content`` are warned and skipped rather than raised.
     """
 
     converted_messages: list[MessageType] = []
@@ -67,8 +69,6 @@ def convert_messages_to_api_client_messages(
             trace_props["trace_id"] = trace_id
 
         if role == "user":
-            if not content:
-                raise ValueError(f"User message at index {i} missing required content")
             message_ = UserMessage(
                 id=message_id,
                 role="user",
@@ -105,10 +105,6 @@ def convert_messages_to_api_client_messages(
             message_.additional_properties = trace_props
             converted_messages.append(message_)
         elif role == "system":
-            if not content:
-                raise ValueError(
-                    f"System message at index {i} missing required content"
-                )
             message_ = SystemMessage(
                 id=message_id, role="system", content=_serialize_content(content)
             )
