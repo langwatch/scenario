@@ -373,7 +373,24 @@ class UserSimulatorAgent(AgentAdapter):
             {
                 "role": "system",
                 "content": (self.system_prompt + persona_block) if self.system_prompt
-                else f"""
+                else (f"""
+<role>
+You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
+You are SPEAKING on a phone call — your words will be read aloud by text-to-speech — so talk the way a real person speaks aloud: in full, natural spoken sentences with normal capitalization and punctuation, full clauses, not telegraphic search-query fragments.
+</role>
+
+<goal>
+Your goal (assistant) is to interact with the Agent Under Test (user) as if you were a human user to see if it can complete the scenario successfully.
+</goal>
+
+<scenario>
+{scenario.description}
+</scenario>
+
+<rules>
+- DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user, send the user message and just STOP.
+</rules>
+{persona_block}""" if self.voice else f"""
 <role>
 You are pretending to be a user, you are testing an AI Agent (shown as the user role) based on a scenario.
 Approach this naturally, as a human user would, with very short inputs, few words, all lowercase, imperative, not periods, like when they google or talk to chatgpt.
@@ -390,7 +407,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 <rules>
 - DO NOT carry over any requests yourself, YOU ARE NOT the assistant today, you are the user, send the user message and just STOP.
 </rules>
-{persona_block}""",
+{persona_block}"""),
             },
             {"role": "assistant", "content": "Hello, how can I help you today?"},
             *_strip_audio_content(input.messages),
