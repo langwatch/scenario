@@ -271,7 +271,17 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       timer = setTimeout(() => {
         const idx = this.waiters.indexOf(waiter);
         if (idx >= 0) this.waiters.splice(idx, 1);
-        reject(new Error("ElevenLabsAgentAdapter: receiveAudio timed out"));
+        reject(
+          new Error(
+            "ElevenLabsAgentAdapter: receiveAudio timed out. Hosted ElevenLabs " +
+              "ConvAI is server-VAD-driven and supports only a single exchange " +
+              "(agent() → user() → agent() → judge()); a scripted 2nd user() turn " +
+              "does not re-engage its turn-taking, so the next agent() never " +
+              "receives a response. For multi-turn voice use a composable adapter " +
+              "(ElevenLabsVoiceAgent / pipecatAgent). See " +
+              "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
+          ),
+        );
       }, timeout * 1000);
       this.waiters.push(waiter);
     });

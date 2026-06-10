@@ -7,6 +7,12 @@ import { Callout } from "vocs/components";
 
 # Multi-Turn Conversations
 
+<Callout type="warning">
+**Multi-turn is not supported on hosted `elevenLabsAgent` (ElevenLabs Conversational AI).** That transport is server-VAD-driven: it segments turns from a continuous audio stream, so a *scripted* second `user()` turn after the agent has already replied does not re-engage its turn-taking, and the next `agent()` fails with `receiveAudio timed out`. Hosted ElevenLabs supports only a **single greeting-led exchange** (`agent() → user() → agent() → judge()`) — see [happy-path-elevenlabs](/voice/happy-path-elevenlabs) and [troubleshooting](/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs).
+
+**For multi-turn voice, use a composable adapter with full in-process turn control:** `ElevenLabsVoiceAgent` (ElevenLabs STT + LLM + ElevenLabs TTS), `pipecatAgent`, Gemini Live, or OpenAI Realtime. `proceed(n)` is also reliable on these adapters but NOT on hosted `elevenLabsAgent`. The script below is validated on those adapters — the worked example uses `pipecatAgent`.
+</Callout>
+
 This recipe shows how to script a voice scenario with multiple back-and-forth turns, and
 how to configure the `JudgeAgent` to verify the agent maintains conversational continuity
 across turns — not just that individual replies are coherent, but that the second reply

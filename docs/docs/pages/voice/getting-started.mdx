@@ -58,6 +58,8 @@ The assistant reads your codebase, detects which voice transport your agent is o
 
 Here's what the generated test looks like for a **Pipecat WS bot**, the most common path — the `url` is the connection point to YOUR running bot:
 
+> **Note:** `proceed()` drives auto-generated turns reliably on composable/pipecat/realtime voice adapters, but **not** on the hosted `elevenLabsAgent` (single-exchange only — see the [multi-turn recipe](/voice/recipes/multi-turn)).
+
 :::code-group
 
 ```python [python]
@@ -114,7 +116,7 @@ async def test_voice_agent_handles_billing_question():
         script=[
             scenario.agent(),
             scenario.user(),
-            scenario.proceed(turns=5),
+            scenario.proceed(turns=5),  # not reliable on hosted elevenLabsAgent — see multi-turn recipe
             scenario.judge(),
         ],
     )
@@ -176,7 +178,7 @@ describe("Voice agent — billing inquiry", () => {
         script: [
           scenario.agent(),
           scenario.user(),
-          scenario.proceed(5),
+          scenario.proceed(5),  // not reliable on hosted elevenLabsAgent — see multi-turn recipe
           scenario.judge(),
         ],
       });

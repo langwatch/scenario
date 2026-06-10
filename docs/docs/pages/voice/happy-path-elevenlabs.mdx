@@ -74,6 +74,7 @@ async def test_greeting_is_warm():
             ),
         ],
         script=[
+            scenario.agent(),  # greeting drains first (EL sends first_message on connect)
             scenario.user("Hi, I have a question about my account"),
             scenario.agent(),
             scenario.judge(),
