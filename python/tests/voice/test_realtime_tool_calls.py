@@ -276,6 +276,44 @@ async def test_ac1_item_only_form_surfaced():
     assert json.loads(calls[0]["function"]["arguments"]) == {"q": "langwatch"}
 
 
+# --- #646: tool-only (no-audio) turn ---
+
+
+@pytest.mark.asyncio
+async def test_issue646_tool_only_no_audio_returns_tool_call():
+    """
+    #646 (AC1): a tool-only turn — a function call with NO response.output_audio.delta
+    before response.done — must RETURN the assistant tool_calls message, NOT time out.
+
+    This FAILS on the pre-fix code: call() drains via recv_audio which returns only on
+    an audio delta; with no audio it loops to the response_timeout deadline and raises
+    asyncio.TimeoutError. The function-call events ARE accumulated (parsed) and then lost.
+    """
+    # Tool-only: function-call events with NO _audio_delta_events() prepended.
+    events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_streaming_events("call_weather", "get_weather", '{"location":"Paris"}')
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = _make_adapter(events)
+    adapter.response_timeout = 0.5  # fail fast — bound the drain so the test is quick
+
+    returned = _normalize(await adapter.call(_FakeInput()))  # type: ignore[arg-type]
+
+    # The function-call events were consumed by the dedicated branch (accumulator effect).
+    assert adapter._completed_tool_calls, (
+        "tool-call events were dropped — _completed_tool_calls is empty"
+    )
+
+    calls = _all_tool_calls(returned)
+    assert len(calls) == 1, f"expected 1 tool_call on a tool-only turn, got {calls}"
+    tc = calls[0]
+    assert tc["type"] == "function"
+    assert tc["id"] == "call_weather"
+    assert tc["function"]["name"] == "get_weather"
+    assert json.loads(tc["function"]["arguments"]) == {"location": "Paris"}
+
+
 # ---------------------------------------------------------------------------
 # AC2 — assertion API works (full scenario run, live ScenarioState)
 # ---------------------------------------------------------------------------
