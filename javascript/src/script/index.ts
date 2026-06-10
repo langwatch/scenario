@@ -9,6 +9,27 @@
 import { ModelMessage } from "ai";
 import { ScenarioExecutionStateLike, ScriptStep } from "../domain";
 
+import {
+  voiceAgentStep,
+  withUserStepOverride,
+  type VoiceAgentOptions,
+  type VoiceUserOptions,
+} from "./voice-steps";
+
+export {
+  sleep,
+  silence,
+  audio,
+  dtmf,
+  interrupt,
+  backgroundNoise,
+  proceed as voiceProceed,
+  type InterruptOptions,
+  type VoiceAgentOptions,
+  type VoiceProceedOptions,
+  type VoiceUserOptions,
+} from "./voice-steps";
+
 /**
  * Add a specific message to the conversation.
  *
@@ -26,17 +47,71 @@ export const message = (message: ModelMessage): ScriptStep => {
 /**
  * Generate or specify an agent response in the conversation.
  *
- * If content is provided, it will be used as the agent response. If no content
- * is provided, the agent under test will be called to generate its response
- * based on the current conversation state.
+ * This is the single agent step for both text and voice scenarios (PRD §9,
+ * §6.2; EDR §0). It accepts either response content **or** a voice-options
+ * object:
  *
- * @param content Optional agent response content. Can be a string or full message object.
- *                If undefined, the agent under test will generate content automatically.
+ * - `agent()` — the agent under test generates its response (blocking).
+ * - `agent("text")` / `agent(modelMessage)` — use the provided content.
+ * - `agent({ wait: false, content? })` — fire the agent turn **without
+ *   awaiting** it (the non-blocking voice primitive for interruption /
+ *   barge-in testing). Control returns immediately so subsequent steps
+ *   (`sleep`, `silence`, `user`) run while the agent keeps speaking. This is
+ *   the flagship interruption flow: `agent({ wait: false })` → `sleep(n)` →
+ *   `user("…")` → `agent()` → `judge()`.
+ *
+ * The two forms are disambiguated structurally: a `ModelMessage` carries a
+ * `role` discriminant, whereas {@link VoiceAgentOptions} (`{ wait?, content? }`)
+ * does not — so a plain options object is never mistaken for a message, and a
+ * message is never mistaken for options.
+ *
+ * `scenario.voiceAgent` is exported as a thin alias of this step for callers
+ * that prefer an explicit voice-named symbol; both resolve to the same
+ * behavior.
+ *
+ * @param contentOrOptions Optional agent response content (string / message)
+ *                         or a voice-options object (`{ wait, content }`).
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const agent = (content?: string | ModelMessage): ScriptStep => {
-  return (_state, executor) => executor.agent(content);
-};
+export function agent(content?: string | ModelMessage): ScriptStep;
+export function agent(options: VoiceAgentOptions): ScriptStep;
+export function agent(
+  contentOrOptions?: string | ModelMessage | VoiceAgentOptions,
+): ScriptStep {
+  if (isVoiceAgentOptions(contentOrOptions)) {
+    return voiceAgentStep(contentOrOptions);
+  }
+  return voiceAgentStep({ content: contentOrOptions });
+}
+
+/**
+ * Voice-named alias of {@link agent}. Identical behavior — kept so existing
+ * `scenario.voiceAgent({ wait: false })` call sites (demos, tests, docs)
+ * continue to work unchanged. New code can use either name; the PRD idiom is
+ * `scenario.agent({ wait: false })`.
+ */
+export const voiceAgent = (options: VoiceAgentOptions = {}): ScriptStep =>
+  voiceAgentStep(options);
+
+/**
+ * Discriminate a voice-options object from agent response content.
+ *
+ * A {@link VoiceAgentOptions} is a plain object with NO `role` field; every
+ * `ModelMessage` carries a required `role` discriminant (`"user"` /
+ * `"assistant"` / `"system"` / `"tool"`). Strings, `undefined`, arrays, and
+ * messages are therefore routed to the content branch; only a bare
+ * `{ wait?, content? }` object is treated as options.
+ */
+function isVoiceAgentOptions(
+  value: string | ModelMessage | VoiceAgentOptions | undefined,
+): value is VoiceAgentOptions {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !("role" in value)
+  );
+}
 
 /**
  * Invoke the judge agent to evaluate the current conversation state.
@@ -49,10 +124,13 @@ export const agent = (content?: string | ModelMessage): ScriptStep => {
  * When no criteria are provided, the judge uses its own configured criteria
  * and returns a final verdict (success or failure), ending the scenario.
  *
- * @param options Optional options object with inline criteria to evaluate.
+ * @param options Optional options object with inline criteria and/or context to evaluate.
+ *   - `criteria`: Criteria to evaluate (overrides judge's configured criteria).
+ *   - `context`: Additional context for the judge, e.g. filesystem state or command output.
+ *     Included in the judge's prompt under `<additional_context>`.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const judge = (options?: { criteria: string[] }): ScriptStep => {
+export const judge = (options?: { criteria?: string[]; context?: string }): ScriptStep => {
   return async (_state, executor) => {
     await executor.judge(options);
   };
@@ -65,12 +143,22 @@ export const judge = (options?: { criteria: string[] }): ScriptStep => {
  * is provided, the user simulator agent will automatically generate an
  * appropriate message based on the scenario context.
  *
+ * Voice (PRD §4.2): pass `{ voiceStyle }` and/or `{ audioEffects }` to apply
+ * a per-step override to ONLY this turn's synthesized audio
+ * (`scenario.user("I'm upset!", { voiceStyle: "angry" })`). The simulator's
+ * default voice/effects resume on subsequent turns.
+ *
  * @param content Optional user message content. Can be a string or full message object.
  *                If undefined, the user simulator will generate content automatically.
+ * @param options Optional per-step voice overrides (`voiceStyle`, `audioEffects`).
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const user = (content?: string | ModelMessage): ScriptStep => {
-  return (_state, executor) => executor.user(content);
+export const user = (
+  content?: string | ModelMessage,
+  options?: VoiceUserOptions,
+): ScriptStep => {
+  return (_state, executor) =>
+    withUserStepOverride(executor, options, () => executor.user(content));
 };
 
 /**

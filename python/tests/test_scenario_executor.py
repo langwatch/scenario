@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 import scenario
 from scenario import JudgeAgent, UserSimulatorAgent
@@ -456,3 +458,43 @@ async def test_inline_criteria_fail_includes_accumulated():
     assert not result.success, "Expected failure"
     assert "criterion A passes" in result.passed_criteria, "Previously accumulated criteria should be present"
     assert "this will fail" in result.failed_criteria
+
+
+# --------------------------------------------------------------------- #
+# Voice disconnect logging — issue #488                                  #
+# --------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_voice_disconnect_logs_adapter_failures(caplog):
+    """A voice adapter whose disconnect() raises must produce a WARNING
+    record carrying both the adapter name and a traceback, and must not
+    propagate the exception out of _voice_disconnect_all.
+    """
+    from scenario.voice.adapter import VoiceAgentAdapter
+
+    class ExplodingVoiceAdapter(VoiceAgentAdapter):
+        async def connect(self) -> None:
+            pass
+        async def disconnect(self) -> None:
+            raise RuntimeError("twilio voice_url restore failed")
+        async def send_audio(self, chunk):  # type: ignore[override]
+            pass
+        async def recv_audio(self, timeout):  # type: ignore[override]
+            raise NotImplementedError
+
+    executor = ScenarioExecutor(
+        name="voice disconnect logging",
+        description="ensure cleanup failures are surfaced via logging",
+        agents=[ExplodingVoiceAdapter()],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="scenario"):
+        await executor._voice_disconnect_all()
+
+    voice_records = [r for r in caplog.records if "disconnect failed" in r.getMessage()]
+    assert voice_records, "expected a WARNING log when adapter disconnect raises"
+    record = voice_records[0]
+    assert record.levelno == logging.WARNING
+    assert "ExplodingVoiceAdapter" in record.getMessage()
+    assert record.exc_info is not None, "exc_info must be attached so operators see the traceback"

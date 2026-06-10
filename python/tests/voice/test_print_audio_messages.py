@@ -1,7 +1,7 @@
 """
 Tests that print_openai_messages renders audio content cleanly.
 
-AC: specs/voice-agents.feature "AC-16 — Audio messages render cleanly in the terminal"
+Covers specs/voice-agents.feature "Audio messages render cleanly in the terminal".
 
 Without this guarantee the terminal fills with base64-encoded WAV data on every
 voice turn, which buries the actual scenario flow in noise.

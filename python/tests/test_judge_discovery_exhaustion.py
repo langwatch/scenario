@@ -11,6 +11,7 @@ transfer_to_agent, upsert_workflow), and multi-agent handoff.
 
 import json
 import logging
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -967,3 +968,422 @@ async def test_real_llm_discovery_on_nance_trace():
     print(f"Reasoning: {result.reasoning}")
     print(f"Passed: {result.passed_criteria}")
     print(f"Failed: {result.failed_criteria}")
+
+
+# ---------------------------------------------------------------------------
+# Integration: the renderer fix (#631) reaches the judge's assembled context
+# ---------------------------------------------------------------------------
+#
+# AC1-3/8-13 (in tests/test_judge_utilities.py) prove the RENDERER —
+# JudgeUtils.build_transcript_from_messages — emits tool calls. These ACs
+# prove the INTEGRATION: that the rendered tool name+args actually land inside
+# the <transcript>...</transcript> block of `content_for_judge`, the user
+# message JudgeAgent.call() sends to litellm.completion. We mock completion to
+# capture that message hermetically (no network, no OPENAI_API_KEY) and assert
+# the tool name is in the transcript SLICE specifically — not merely anywhere
+# in the string — so the assertion can't be satisfied by the tool name leaking
+# from the <opentelemetry_traces> digest.
+
+
+def _extract_transcript_section(content_for_judge: str) -> str:
+    """Return the substring strictly BETWEEN <transcript> and </transcript>.
+
+    The assertion target is this slice, not the whole `content_for_judge`: the
+    digest (<opentelemetry_traces>) is a separate channel, and AC4 requires the
+    tool name be confirmed in the transcript section specifically — proving it
+    is the renderer, not the digest, that surfaces it.
+    """
+    start_marker = "<transcript>"
+    end_marker = "</transcript>"
+    start = content_for_judge.index(start_marker) + len(start_marker)
+    end = content_for_judge.index(end_marker)
+    assert start < end, "Malformed content_for_judge: markers out of order"
+    return content_for_judge[start:end]
+
+
+def _capture_first_content_for_judge() -> tuple[list, "object"]:
+    """Build a mock_completion that records `content_for_judge` from the FIRST
+    completion call (the user message carrying the transcript), then returns a
+    minimal finishing `finish_test` verdict so `JudgeAgent.call()` returns
+    immediately without erroring.
+
+    Returns (captured, mock_completion). `captured` is a single-element list
+    populated in place: captured[0] is the first user-message content string.
+    """
+    captured: list = []
+
+    def mock_completion(**kwargs):
+        if not captured:
+            messages = kwargs.get("messages", [])
+            user_msgs = [m for m in messages if m.get("role") == "user"]
+            # The first user message is `content_for_judge` (the transcript +
+            # digest envelope); a later forcing message may also be user-role,
+            # so take the FIRST.
+            captured.append(user_msgs[0]["content"] if user_msgs else "")
+        # Minimal valid finishing verdict. One criterion -> one verdict key.
+        return _mock_finish_response(
+            criteria_verdicts={"agent_uses_the_tool": "true"},
+            reasoning="Captured transcript; finishing.",
+            verdict="success",
+        )
+
+    return captured, mock_completion
+
+
+def _text_input_with_tool_call() -> AgentInput:
+    """A text-agent conversation that includes an assistant tool_calls message.
+
+    `get_weather` / `Tokyo` appear ONLY here — they are absent from any OTEL
+    digest (this input pairs with an empty span collector), so a hit inside the
+    <transcript> slice is attributable to the renderer.
+    """
+    mock_state = MagicMock()
+    mock_state.description = "Verify the agent calls the weather tool"
+    mock_state.current_turn = 1
+    mock_state.config.max_turns = 8
+    return AgentInput(
+        thread_id="test-thread",
+        messages=cast(Any, [
+            {"role": "user", "content": "What's the weather in Tokyo?"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "18C and sunny"},
+            {"role": "assistant", "content": "It's 18C and sunny in Tokyo."},
+        ]),
+        new_messages=[],
+        judgment_request=None,
+        scenario_state=mock_state,
+    )
+
+
+def _voice_input_with_tool_call() -> AgentInput:
+    """A synthetic AUDIO conversation that ALSO carries a tool_calls message.
+
+    An assistant turn includes an `input_audio` content part (so the message
+    list is voice-shaped); a SEPARATE assistant turn carries the tool_calls.
+    The renderer is the single transcript call site, so the tool name must
+    surface for voice exactly as it does for text. `get_weather` / `Tokyo`
+    appear only in the tool_call, not the audio bytes.
+    """
+    mock_state = MagicMock()
+    mock_state.description = "Verify the voice agent calls the weather tool"
+    mock_state.current_turn = 1
+    mock_state.config.max_turns = 8
+    # ~1KB of base64-ish bytes so the audio part is a realistic voice payload
+    # (it gets truncated to [AUDIO: ...] by the renderer regardless).
+    fake_audio_b64 = "A" * 1024
+    return AgentInput(
+        thread_id="test-thread",
+        messages=cast(Any, [
+            {"role": "user", "content": "What's the weather in Tokyo?"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "input_audio",
+                        "input_audio": {"data": fake_audio_b64, "format": "wav"},
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "18C and sunny"},
+        ]),
+        new_messages=[],
+        judgment_request=None,
+        scenario_state=mock_state,
+    )
+
+
+def _realtime_adapter_output_with_tool_call() -> AgentInput:
+    """The EXACT message list ``OpenAIRealtimeAgentAdapter.call()`` returns when
+    the agent calls a tool during a spoken turn (openai_realtime.py:595-600):
+    ``[audio_message, tool_call_message]``.
+
+    - ``audio_message``: an assistant turn carrying an ``input_audio`` part (the
+      spoken reply). Mirrors what ``create_audio_message`` emits.
+    - ``tool_call_message``: a SEPARATE assistant turn with ``content=None`` and
+      a ``tool_calls`` list — byte-for-byte the dict the realtime adapter
+      appends.
+
+    ``book_flight`` / ``Paris`` appear ONLY in the tool_call (this input pairs
+    with an empty span collector), so a hit inside the <transcript> slice is
+    attributable to the renderer, not the OTEL digest.
+    """
+    mock_state = MagicMock()
+    mock_state.description = "Verify the realtime agent calls the booking tool"
+    mock_state.current_turn = 1
+    mock_state.config.max_turns = 8
+    # ~1KB of base64-ish bytes so the audio part is a realistic spoken payload
+    # (truncated to [AUDIO: ...] by the renderer regardless).
+    fake_audio_b64 = "A" * 1024
+    audio_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "input_audio",
+                "input_audio": {"data": fake_audio_b64, "format": "wav"},
+            }
+        ],
+    }
+    # Literal shape returned by OpenAIRealtimeAgentAdapter.call() (the second
+    # list element): one assistant message, content=None, one tool call.
+    tool_call_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                    "name": "book_flight",
+                    "arguments": '{"location":"Paris"}',
+                },
+            }
+        ],
+    }
+    return AgentInput(
+        thread_id="test-thread",
+        messages=cast(Any, [
+            {"role": "user", "content": "Book me a flight to Paris."},
+            audio_message,
+            tool_call_message,
+        ]),
+        new_messages=[],
+        judgment_request=None,
+        scenario_state=mock_state,
+    )
+
+
+class TestToolCallReachesJudgeContext:
+    """#631 integration: a rendered tool call reaches `content_for_judge`'s
+    <transcript> block — across the text path, the voice path, and the
+    large-trace path where the OTEL digest is truncated to structure-only.
+
+    #630 AC5 additionally proves the realtime adapter's exact
+    ``[audio_message, tool_call_message]`` output surfaces the tool call in the
+    transcript with an empty span collector (digest cannot be the source)."""
+
+    @pytest.mark.asyncio
+    async def test_ac4_text_path_tool_name_in_transcript_section(self):
+        """AC4: text-agent conversation with an assistant tool_calls message ->
+        the tool name+args land INSIDE <transcript>, not merely anywhere in the
+        judge context (so it can't be leaking from the digest)."""
+        # Empty span collector -> digest is "No spans recorded.", so
+        # `get_weather` cannot come from the OTEL channel.
+        judge = JudgeAgent(
+            criteria=["Agent uses the tool"],
+            span_collector=_create_collector([]),
+        )
+
+        captured, mock_completion = _capture_first_content_for_judge()
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            await judge.call(_text_input_with_tool_call())
+
+        assert captured, "completion was never called; content_for_judge not captured"
+        content_for_judge = captured[0]
+        transcript = _extract_transcript_section(content_for_judge)
+
+        # Attributable to the transcript: absent from the digest channel.
+        assert "get_weather" not in content_for_judge.split("<transcript>")[0]
+        assert "get_weather" in transcript
+        assert "Tokyo" in transcript
+        # The renderer's tool-call shape, and the tool-result attribution.
+        assert "[tool_call: get_weather(" in transcript
+        assert "tool (get_weather):" in transcript
+
+    @pytest.mark.asyncio
+    async def test_ac5_voice_path_tool_name_in_transcript_section(self):
+        """AC5: a synthetic AUDIO message list that ALSO carries a tool_calls
+        message -> the tool name renders in <transcript>. Proves the
+        path-agnostic builder covers voice (the renderer is the single call
+        site). include_audio=True keeps it hermetic: the audio-transcription
+        fallback (which would hit the network) is skipped."""
+        judge = JudgeAgent(
+            criteria=["Agent uses the tool"],
+            span_collector=_create_collector([]),
+            # Skip the transcribe-audio fallback branch -> no network. Does NOT
+            # rely on _enrich_messages_with_transcripts to render tool calls.
+            include_audio=True,
+        )
+
+        captured, mock_completion = _capture_first_content_for_judge()
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            await judge.call(_voice_input_with_tool_call())
+
+        assert captured, "completion was never called; content_for_judge not captured"
+        content_for_judge = captured[0]
+        transcript = _extract_transcript_section(content_for_judge)
+
+        assert "get_weather" not in content_for_judge.split("<transcript>")[0]
+        assert "get_weather" in transcript
+        assert "Tokyo" in transcript
+        # The audio part is present (rendered as a truncated AUDIO marker) AND
+        # the tool call surfaces alongside it.
+        assert "[AUDIO:" in transcript
+        assert "[tool_call: get_weather(" in transcript
+
+    @pytest.mark.asyncio
+    async def test_ac6_large_trace_structure_only_digest_still_carries_tool_call(self):
+        """AC6 (load-bearing): with a large trace, `_build_trace_digest` returns
+        the STRUCTURE-ONLY digest (span skeleton, NO attributes/args). The
+        transcript is an independent channel, so the tool name+args must STILL
+        appear in <transcript> even though the digest dropped them. Tool name
+        `check_inventory` and arg `SKU-42` are absent from the structure-only
+        digest, so a hit is attributable solely to the transcript."""
+        spans = create_nance_agent_trace()  # ~45 spans, digest ~2800 tokens
+        judge = JudgeAgent(
+            criteria=["Agent uses the tool"],
+            span_collector=_create_collector(spans),
+            # Tiny threshold -> is_large_trace=True -> structure-only digest.
+            token_threshold=50,
+            max_discovery_steps=4,
+        )
+
+        mock_state = MagicMock()
+        mock_state.description = "Verify the agent checks inventory"
+        mock_state.current_turn = 1
+        mock_state.config.max_turns = 8
+        large_trace_input = AgentInput(
+            thread_id="test-thread",
+            messages=cast(Any, [
+                {"role": "user", "content": "Check stock for SKU-42."},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {
+                                "name": "check_inventory",
+                                "arguments": '{"sku":"SKU-42"}',
+                            },
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "c1", "content": "12 units in stock"},
+            ]),
+            new_messages=[],
+            judgment_request=None,
+            scenario_state=mock_state,
+        )
+
+        captured, mock_completion = _capture_first_content_for_judge()
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            await judge.call(large_trace_input)
+
+        assert captured, "completion was never called; content_for_judge not captured"
+        content_for_judge = captured[0]
+        transcript = _extract_transcript_section(content_for_judge)
+        digest_section = content_for_judge.split("</transcript>", 1)[1]
+
+        # Precondition: structure-only mode actually engaged — the digest tells
+        # the judge to use expand/grep (only emitted for large traces) and does
+        # NOT carry the tool name/args itself.
+        assert "expand_trace" in digest_section, (
+            "Expected structure-only digest (large trace) but digest looks full"
+        )
+        assert "check_inventory" not in digest_section
+        assert "SKU-42" not in digest_section
+
+        # Load-bearing: the transcript is the ONLY channel carrying the tool
+        # name+args; it survived digest truncation.
+        assert "check_inventory" in transcript
+        assert "SKU-42" in transcript
+        assert "[tool_call: check_inventory(" in transcript
+
+        # Make the transcript slice visible so a reviewer can SEE the tool call
+        # is in it (AC6 must not be vacuous).
+        print("\n--- AC6 captured <transcript> slice ---")
+        print(transcript)
+        print("--- end <transcript> slice ---")
+
+    @pytest.mark.asyncio
+    async def test_ac5_realtime_tool_call_shape_reaches_judge_transcript(self):
+        """AC5 of #630 — realtime tool calls reach the judge via the transcript
+        channel (post-#631 renderer), asserted with an empty span collector so
+        the digest cannot be the source.
+
+        This drives the EXACT message list that ``OpenAIRealtimeAgentAdapter.call()``
+        now returns when the agent calls a tool during a spoken turn:
+        ``[audio_message, tool_call_message]`` where the audio message is an
+        assistant turn carrying an ``input_audio`` part and the tool-call message
+        is a SEPARATE assistant turn ``{"role":"assistant","content":None,
+        "tool_calls":[...]}`` (openai_realtime.py:595-600). With an empty span
+        collector the OTEL digest is "No spans recorded.", so a hit on the tool
+        name inside <transcript> is attributable solely to the renderer — proving
+        realtime tool calls reach the judge through the TRANSCRIPT channel, the
+        post-#631 reality (no OTEL span needs to be emitted)."""
+        # Empty span collector -> digest is "No spans recorded.", so the tool
+        # name `book_flight` cannot come from the OTEL channel.
+        judge = JudgeAgent(
+            criteria=["Agent uses the tool"],
+            span_collector=_create_collector([]),
+            # Skip the transcribe-audio fallback (would hit the network); the
+            # tool call is rendered by build_transcript_from_messages regardless.
+            include_audio=True,
+        )
+
+        captured, mock_completion = _capture_first_content_for_judge()
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            await judge.call(_realtime_adapter_output_with_tool_call())
+
+        assert captured, "completion was never called; content_for_judge not captured"
+        content_for_judge = captured[0]
+        transcript = _extract_transcript_section(content_for_judge)
+
+        # Attributable to the transcript channel: the tool name is absent from
+        # everything BEFORE <transcript> (system prompt + the "No spans recorded."
+        # digest), so it cannot be leaking from the digest / system prompt.
+        pre_transcript = content_for_judge.split("<transcript>")[0]
+        assert "book_flight" not in pre_transcript
+        assert "Paris" not in pre_transcript
+        # Precondition: the empty span collector really did yield an empty digest,
+        # so the transcript is provably the only channel that could carry it.
+        assert "No spans recorded." in content_for_judge
+
+        # Load-bearing: the realtime-shaped tool call surfaces in <transcript>.
+        assert "book_flight" in transcript
+        assert "Paris" in transcript
+        # The renderer's tool-call shape, alongside the spoken (audio) turn.
+        assert "[tool_call: book_flight(" in transcript
+        assert "[AUDIO:" in transcript
+
+        # Make the transcript slice visible so a reviewer can SEE the realtime
+        # tool call is inside it (AC5 must not be vacuous).
+        print("\n--- AC5 (#630) captured <transcript> slice ---")
+        print(transcript)
+        print("--- end <transcript> slice ---")

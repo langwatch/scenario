@@ -56,9 +56,9 @@ BOT_WS_URL = os.environ.get("PIPECAT_BOT_URL", "ws://localhost:8765/stream")
 async def main(demo_name: str = "pipecat_scenario") -> scenario.ScenarioResult:
     """Run the Pipecat smoke scenario. Returns the ScenarioResult.
 
-    `demo_name` controls which recordings/<name>/ dir the artifacts land in.
-    Defaults to 'pipecat_scenario'; pipecat_ws.py overrides to keep its
-    recording separate from this demo's.
+    `demo_name` controls which outputs/recordings/<name>/ dir the artifacts
+    land in. Defaults to 'pipecat_scenario'; pipecat_ws.py overrides to keep
+    its recording separate from this demo's.
     """
     async with ensure_pipecat_bot():
         result = await scenario.run(

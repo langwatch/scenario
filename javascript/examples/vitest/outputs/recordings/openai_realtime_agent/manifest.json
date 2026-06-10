@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T14:33:28.108Z",
+  "duration": 16.75,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2.95,
+      "duration": 2.95,
+      "transcript": "Hello, can you help me plan a weekend trip?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2950ms.wav",
+      "role": "agent",
+      "start_time": 2.95,
+      "end_time": 7.65,
+      "duration": 4.7,
+      "transcript": "Of course, where would you like to go and what kind of activities are you interested in?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-7650ms.wav",
+      "role": "user",
+      "start_time": 7.65,
+      "end_time": 11.05,
+      "duration": 3.4000000000000004,
+      "transcript": "Great — what should I pack for cold weather?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-11050ms.wav",
+      "role": "agent",
+      "start_time": 11.05,
+      "end_time": 16.75,
+      "duration": 5.699999999999999,
+      "transcript": "You'll want to pack warm layers, a good jacket, gloves, a hat, and waterproof boots."
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.95,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2.95,
+      "type": "agent_start_speaking",
+      "latency": 0.7832799130000001
+    },
+    {
+      "time": 7.65,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 7.65,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 11.05,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 11.05,
+      "type": "agent_start_speaking",
+      "latency": 0.6974735149999995
+    },
+    {
+      "time": 16.75,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

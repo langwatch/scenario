@@ -14,9 +14,12 @@ for offline review, performance measurement, and debugging without modifying you
 
 ### Hooks
 
-Register `on_audio_chunk` and `on_voice_event` callbacks on `scenario.run()`:
+Register `on_audio_chunk` / `onAudioChunk` and `on_voice_event` / `onVoiceEvent`
+callbacks on `scenario.run()`:
 
-```python
+:::code-group
+
+```python [python]
 from scenario.voice import AudioChunk, VoiceEvent
 
 audio_chunks: list[AudioChunk] = []
@@ -37,37 +40,73 @@ result = await scenario.run(
 )
 ```
 
-`on_audio_chunk` fires for every raw PCM16 audio chunk that flows through the pipeline.
-`on_voice_event` fires for higher-level events (turn start, turn end, VAD detection, etc.)
+```typescript [typescript]
+import scenario, { voice } from "@langwatch/scenario";
+
+const audioChunks: voice.AudioChunk[] = [];
+const voiceEvents: voice.VoiceEvent[] = [];
+
+const result = await scenario.run({
+  name: "my_scenario",
+  // ...agents, script...
+  onAudioChunk: (chunk) => {
+    audioChunks.push(chunk);
+  },
+  onVoiceEvent: (event) => {
+    console.log(`[voice_event] ${event.type} @ ${event.time.toFixed(3)}s`);
+    voiceEvents.push(event);
+  },
+});
+```
+
+:::
+
+`onAudioChunk` fires for every raw PCM16 audio chunk that flows through the pipeline.
+`onVoiceEvent` fires for higher-level events (turn start, turn end, VAD detection, etc.)
 and includes a wall-clock timestamp at `event.time`.
 
 ### Saving the conversation audio
 
 After the run, call `result.audio.save(path)` to write the conversation audio to disk:
 
-```python
+:::code-group
+
+```python [python]
 if result.audio is not None:
     result.audio.save("recordings/my_scenario.wav")
 ```
 
+```typescript [typescript]
+if (result.audio) {
+  result.audio.save("recordings/my_scenario.wav");
+  // WAV is written natively; .mp3/.ogg/.flac transcode via the system ffmpeg.
+}
+```
+
+:::
+
 <Callout type="info">
-`result.audio` is `None` when no audio turns were recorded (e.g. the adapter disconnected
-before any exchange). Always guard with `if result.audio is not None`.
+`result.audio` is `None` / `undefined` when no audio turns were recorded (e.g. the
+adapter disconnected before any exchange). Always guard before reading it
+(`if result.audio is not None` / `if (result.audio)`).
 </Callout>
 
 ### Latency metrics
 
-`result.latency` exposes a `LatencyMetrics` object with the following fields:
+`result.latency` exposes a `LatencyMetrics` object. Field names are `snake_case`
+in Python and `camelCase` in TypeScript:
 
-| Field | Description |
-|---|---|
-| `time_to_first_byte` | Wall-clock seconds from when the user turn ended to when the first byte of agent audio arrived. |
-| `avg_response_time` | Mean agent response time across all turns. |
-| `p50_response_time` | Median agent response time across all turns. |
-| `p95_response_time` | 95th-percentile agent response time across all turns. |
-| `interrupt_response_time` | Time from interrupt signal to agent resume (populated only when `scenario.interrupt()` was used). |
+| Python | TypeScript | Description |
+|---|---|---|
+| `time_to_first_byte` | `timeToFirstByte` | Wall-clock seconds from when the user turn ended to when the first byte of agent audio arrived. |
+| `avg_response_time` | `avgResponseTime` | Mean agent response time across all turns. |
+| `p50_response_time` | `p50ResponseTime` | Median agent response time across all turns. |
+| `p95_response_time` | `p95ResponseTime` | 95th-percentile agent response time across all turns. |
+| `interrupt_response_time` | `interruptResponseTime` | Time from interrupt signal to agent resume (populated only when `interrupt` was used). |
 
-```python
+:::code-group
+
+```python [python]
 if result.latency is not None:
     print(f"TTFB: {result.latency.time_to_first_byte:.3f}s")
     print(f"avg:  {result.latency.avg_response_time:.3f}s")
@@ -75,18 +114,37 @@ if result.latency is not None:
     print(f"p95:  {result.latency.p95_response_time:.3f}s")
 ```
 
+```typescript [typescript]
+if (result.latency) {
+  console.log(`TTFB: ${result.latency.timeToFirstByte?.toFixed(3)}s`);
+  console.log(`avg:  ${result.latency.avgResponseTime?.toFixed(3)}s`);
+  console.log(`p50:  ${result.latency.p50ResponseTime?.toFixed(3)}s`);
+  console.log(`p95:  ${result.latency.p95ResponseTime?.toFixed(3)}s`);
+}
+```
+
+:::
+
 <Callout type="warning">
-`result.latency` is `None` when no agent audio turns were recorded. Assert it is not `None`
-before reading its fields, especially in CI — a latency pipeline regression will silently
-report `None` rather than fail otherwise.
+`result.latency` is `None` / `undefined` when no agent audio turns were recorded.
+Guard before reading its fields, especially in CI — a latency pipeline regression
+will silently report a missing value rather than fail otherwise.
 </Callout>
 
 ## Worked example
+
+**Python:**
 
 [`observability.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/observability.py)
 — wires `on_audio_chunk` and `on_voice_event` callbacks, prints chunk and event counts
 post-run, asserts `time_to_first_byte > 0`, and raises a hard assertion if `result.latency`
 is `None`. Canonical reference for the full observability surface.
+
+**TypeScript:**
+
+[`recording-playback.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/recording-playback.test.ts)
+— exercises `result.audio.save()` / `saveSegments()` round-trip; also demonstrates
+`onAudioChunk` / `onVoiceEvent` hooks for capture and post-run assertions.
 
 ## See also
 

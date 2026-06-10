@@ -4,6 +4,11 @@ import {
   ToolModelMessage,
   UserModelMessage,
 } from "ai";
+import type {
+  LatencyMetrics,
+  VoiceEvent,
+  VoiceRecording,
+} from "../../voice/recording.types";
 import type { ScenarioConfig } from "../scenarios";
 
 /**
@@ -55,6 +60,26 @@ export interface ScenarioResult {
    * An optional error message if the scenario failed due to an error.
    */
   error?: string;
+
+  /**
+   * Voice-only: the full audio record of the conversation, segmented by
+   * speaker. Populated by the executor at end-of-scenario when a voice
+   * adapter participated; absent for text-only runs (back-compat).
+   */
+  audio?: VoiceRecording;
+
+  /**
+   * Voice-only: timestamped events on the voice conversation timeline
+   * (user_start_speaking, agent_start_speaking, user_interrupt, etc.).
+   * Absent for text-only runs (back-compat).
+   */
+  timeline?: VoiceEvent[];
+
+  /**
+   * Voice-only: aggregate response-time statistics across the agent's
+   * turns. Absent for text-only runs (back-compat).
+   */
+  latency?: LatencyMetrics;
 }
 
 /**

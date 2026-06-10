@@ -1,4 +1,7 @@
 import { ModelMessage } from "ai";
+import type { AudioChunk } from "../../voice/audio-chunk";
+import type { VoiceConfig } from "../../voice/config";
+import type { VoiceEvent } from "../../voice/recording.types";
 import { AgentAdapter } from "../agents/index";
 import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
@@ -68,6 +71,35 @@ export interface ScenarioConfig {
    * The `langwatch` key is reserved for platform-internal use.
    */
   metadata?: Record<string, unknown>;
+
+  /**
+   * Optional callback invoked for every audio chunk that flows through
+   * a voice adapter (both user-side and agent-side).
+   *
+   * Mirrors Python `scenario.run(on_audio_chunk=...)`. Best-effort — if
+   * the hook throws, the scenario continues uninterrupted.
+   */
+  onAudioChunk?: (chunk: AudioChunk) => void;
+
+  /**
+   * Optional callback invoked for every {@link VoiceEvent} appended to
+   * the timeline (`user_start_speaking`, `agent_stop_speaking`, etc.).
+   *
+   * Mirrors Python `scenario.run(on_voice_event=...)`. Best-effort — if
+   * the hook throws, the scenario continues uninterrupted.
+   */
+  onVoiceEvent?: (event: VoiceEvent) => void;
+
+  /**
+   * Per-run voice configuration (ADR-002). This is the carrier that reaches
+   * every `call()` via {@link AgentInput.scenarioConfig} — the STT/TTS
+   * providers the judge's transcription pass and the user-simulator's TTS
+   * pass read live here, NOT in a module global. An optional
+   * {@link RunOptions.voice} override seeds this at the `run()` boundary
+   * (`options?.voice ?? cfg.voice ?? default`); the resolved provider is
+   * always read off `cfg.voice`. See `voice/config.ts#resolveVoiceConfig`.
+   */
+  voice?: VoiceConfig;
 }
 
 /**
@@ -120,6 +152,15 @@ export interface ScenarioExecutionLike {
    * @param content The content of the agent message.
    */
   agent(content?: string | ModelMessage): Promise<void>;
+  /**
+   * Voice-only: fire an agent turn WITHOUT awaiting it — the non-blocking
+   * primitive behind `agent({ wait: false })` (PRD §4.4). The executor tracks
+   * the in-flight turn so a subsequent {@link user} call lands as a mid-stream
+   * barge-in (interruption) rather than a separate turn. Optional: text-only
+   * executors may omit it, in which case the `{ wait: false }` step falls back
+   * to a fire-and-forget `agent()` with no barge-in coordination.
+   */
+  agentNonBlocking?(content?: string | ModelMessage): void;
   /**
    * Invokes the judge agent to evaluate the current state.
    * @param options Optional options with inline criteria to evaluate as a checkpoint.

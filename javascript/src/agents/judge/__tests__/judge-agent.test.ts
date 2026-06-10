@@ -776,4 +776,81 @@ describe("JudgeAgent", () => {
       expect(result!.unmetCriteria).toContain("Agent works correctly");
     });
   });
+
+  describe("additional context via judgmentRequest.context", () => {
+    it("includes <additional_context> in the user message when context is provided", async () => {
+      const collector = createMockSpanCollector([]);
+
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent installed the dependency"],
+        spanCollector: collector,
+      };
+
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_installed_the_dependency: "true" },
+          reasoning: "npm install exited 0",
+          verdict: "success",
+        });
+      };
+
+      const inputWithContext = createBaseInput({
+        judgmentRequest: {
+          context:
+            "The agent ran `npm install -g git-orchard` which exited 0. The binary is now at /usr/local/bin/orchard.",
+        },
+      });
+
+      await agent.call(inputWithContext);
+
+      expect(capturedParams).toBeDefined();
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
+      const userContent =
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
+      expect(userContent).toContain("<additional_context>");
+      expect(userContent).toContain("npm install -g git-orchard");
+      expect(userContent).toContain("</additional_context>");
+    });
+
+    it("omits <additional_context> when no context is provided", async () => {
+      const collector = createMockSpanCollector([]);
+
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent responded"],
+        spanCollector: collector,
+      };
+
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_responded: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      await agent.call(createBaseInput());
+
+      expect(capturedParams).toBeDefined();
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
+      const userContent =
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
+      expect(userContent).not.toContain("<additional_context>");
+    });
+  });
 });

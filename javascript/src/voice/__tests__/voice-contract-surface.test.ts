@@ -30,14 +30,34 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");
+// Capability matrix is now sourced from the published docs page (single
+// source-of-truth across Python + TS). The wrapper page documents the
+// adapters; the per-capability table itself is auto-generated from the
+// Python declarations into _generated/ and imported by the wrapper.
 const MATRIX_DOC_PATH = resolve(
   HERE,
   "..",
   "..",
   "..",
+  "..",
   "docs",
+  "docs",
+  "pages",
   "voice",
-  "capability-matrix.md",
+  "capability-matrix.mdx",
+);
+const GENERATED_MATRIX_PATH = resolve(
+  HERE,
+  "..",
+  "..",
+  "..",
+  "..",
+  "docs",
+  "docs",
+  "pages",
+  "_generated",
+  "voice",
+  "capability-matrix.mdx",
 );
 
 /**
@@ -131,9 +151,8 @@ describeFeature(
         Given(
           "a user subclass of VoiceAgentAdapter implementing connect/send_audio/recv_audio/disconnect",
           () => {
+            // Arrange only — no assertions in Given.
             adapter = new StubVoiceAdapter();
-            expect(adapter).toBeInstanceOf(VoiceAgentAdapter);
-            expect(adapter).toBeInstanceOf(AgentAdapter);
           },
         );
 
@@ -145,6 +164,10 @@ describeFeature(
         });
 
         Then("it works identically to built-in adapters", async () => {
+          // Type-hierarchy assertions: the subclass IS a VoiceAgentAdapter / AgentAdapter.
+          expect(adapter).toBeInstanceOf(VoiceAgentAdapter);
+          expect(adapter).toBeInstanceOf(AgentAdapter);
+          // Behavioural assertions: connect/send/recv/disconnect all exercised.
           const received = await adapter.receiveAudio(1);
           expect(adapter.connectCount).toBe(1);
           expect(adapter.disconnectCount).toBe(1);
@@ -171,12 +194,13 @@ describeFeature(
         });
 
         And(
-          "it declares: streaming_transcripts, native_vad, dtmf, input_formats, output_formats",
+          "it declares: streaming_transcripts, native_vad, dtmf, interruption, input_formats, output_formats",
           () => {
             const caps = adapter.capabilities;
             expect(typeof caps.streamingTranscripts).toBe("boolean");
             expect(typeof caps.nativeVad).toBe("boolean");
             expect(typeof caps.dtmf).toBe("boolean");
+            expect(typeof caps.interruption).toBe("boolean");
             expect(Array.isArray(caps.inputFormats)).toBe(true);
             expect(Array.isArray(caps.outputFormats)).toBe(true);
 
@@ -219,7 +243,7 @@ describeFeature(
             expect(err.capability).toBe("dtmf");
             expect(err.message).toContain("StubVoiceAdapter");
             expect(err.message).toContain("dtmf");
-            expect(err.message).toContain("docs/voice/capability-matrix.md");
+            expect(err.message).toContain("scenario-docs.langwatch.ai/voice/capability-matrix");
 
             // The base interrupt() throws UnsupportedCapabilityError on adapters
             // without an override — tests the raise-only contract from the spec.
@@ -252,7 +276,12 @@ describeFeature(
         let doc: string;
 
         Given("the voice-agents documentation", () => {
-          doc = readFileSync(MATRIX_DOC_PATH, "utf8");
+          // Wrapper page (adapter docs) + the auto-generated capability table
+          // it imports — together they are "the documentation" for the matrix.
+          doc =
+            readFileSync(MATRIX_DOC_PATH, "utf8") +
+            "\n" +
+            readFileSync(GENERATED_MATRIX_PATH, "utf8");
         });
 
         Then("a capability matrix table lists every built-in adapter", () => {
@@ -275,14 +304,22 @@ describeFeature(
         And(
           "each row shows streaming_transcripts, native_vad, dtmf, input/output formats",
           () => {
-            expect(doc.toLowerCase()).toContain("streaming transcripts");
-            expect(doc.toLowerCase()).toContain("native vad");
+            // The generated table's column headers — the literal capability
+            // keys, exactly as the feature step names them.
+            expect(doc.toLowerCase()).toContain("streaming_transcripts");
+            expect(doc.toLowerCase()).toContain("native_vad");
             expect(doc.toLowerCase()).toContain("dtmf");
-            expect(doc.toLowerCase()).toContain("wire formats");
+            expect(doc.toLowerCase()).toContain("input_formats");
+            expect(doc.toLowerCase()).toContain("output_formats");
           },
         );
       },
     );
   },
-  { includeTags: ["ts-bound"] },
+  // AND-match: this file owns exactly the scenarios tagged both @ts-bound and
+  // @ts-contract-surface. Other PR-N test files bind their own @ts-<scope>
+  // sets (script-step, interruption-cfg, result-ext, twilio-proto, …); the
+  // co-tag keeps those out without an exclude list that must track every new
+  // scope.
+  { includeTags: [["ts-bound", "ts-contract-surface"]] },
 );

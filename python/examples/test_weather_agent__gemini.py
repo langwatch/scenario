@@ -25,7 +25,7 @@ async def test_weather_agent():
 
     # Set up JudgeAgent with Gemini model and minimum helpfulness criteria
     judge = JudgeAgent(
-        model="gemini/gemini-3-pro-preview",
+        model="gemini/gemini-2.5-pro",
         criteria=[
             "The agent uses the get_current_weather tool to answer the question.",
             "The agent does not guess the city if the user does not provide it.",
@@ -93,7 +93,7 @@ def weather_agent(messages, response_messages=[]) -> scenario.AgentReturnTypes:
     ]
 
     response = litellm.completion(
-        model="gemini/gemini-3-pro-preview",
+        model="gemini/gemini-2.5-pro",
         messages=[
             {
                 "role": "system",

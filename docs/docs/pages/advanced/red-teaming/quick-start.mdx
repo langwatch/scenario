@@ -1,6 +1,6 @@
 ---
 title: Red Teaming Quick Start
-description: Generate and run your first adversarial test against your agent in under five minutes using the LangWatch MCP.
+description: Generate and run your first adversarial test against your agent in under five minutes using the LangWatch /scenarios skill.
 ---
 
 import { Callout } from "vocs/components";
@@ -31,32 +31,22 @@ npm install @langwatch/scenario
 
 :::
 
-## 2. Add the LangWatch MCP to your coding assistant
+## 2. Install the `/scenarios` LangWatch skill
 
-Works with Claude Code, Cursor, Claude Desktop, Codex, and any MCP-compatible client. Add to your MCP config:
+The skill teaches your coding assistant the Scenario API, the `RedTeamAgent` attack strategies, and the per-turn scoring loop. Once installed it shows up as a slash command in Claude Code, Cursor, Codex, and any other AgentSkills-compatible assistant:
 
-```json
-{
-  "mcpServers": {
-    "langwatch": {
-      "command": "npx",
-      "args": ["-y", "@langwatch/mcp-server"],
-      "env": {
-        "LANGWATCH_API_KEY": "your-api-key-here"
-      }
-    }
-  }
-}
+```bash
+npx skills add langwatch/skills/scenarios
 ```
 
-Grab your API key from [app.langwatch.ai](https://app.langwatch.ai) → **Settings → API Keys**, then restart your client. Full reference: [LangWatch MCP Server](https://langwatch.ai/docs/integration/mcp).
+Other LangWatch skills (tracing, evaluations, prompts, datasets, recipes) live at the [skills directory](https://langwatch.ai/docs/skills/directory).
 
 ## 3. Ask your assistant to generate the test
 
-Open your project and paste:
+Open your project and run:
 
 ```plaintext
-redteam my agents using langwatch
+/scenarios add red-teaming to my agent
 ```
 
 The assistant reads your codebase, finds your agent, and writes a test that looks like this:

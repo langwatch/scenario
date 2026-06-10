@@ -1,0 +1,88 @@
+{
+  "generated_at": "2026-05-27T22:43:56.542Z",
+  "duration": 32.370000000000005,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 3.7,
+      "duration": 3.7,
+      "transcript": "Tell me everything you can about your platform, in detail."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-3700ms.wav",
+      "role": "agent",
+      "start_time": 3.7,
+      "end_time": 4.66,
+      "duration": 0.96,
+      "transcript": "I am a",
+      "transcript_truncated": true
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-4660ms.wav",
+      "role": "user",
+      "start_time": 4.66,
+      "end_time": 7.41,
+      "duration": 2.75,
+      "transcript": "Sorry — what are your business hours?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-7410ms.wav",
+      "role": "agent",
+      "start_time": 7.41,
+      "end_time": 32.370000000000005,
+      "duration": 24.960000000000004,
+      "transcript": "I don't have  traditional  \"business  hours,\"  as  I am  an artificial  intelligence  platform  developed  by Google.  This  means that  I am  available  to  assist  you  24  hours  a day,  seven  days  a week,  every  day  of the  year.  There  are no  time  constraints  or  holidays  that  affect  my  operational  capabilities,  ensuring  that  you can  access  my  services  whenever  you  need  them."
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 3.7,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 3.7,
+      "type": "agent_start_speaking",
+      "latency": 7.9090066189999995
+    },
+    {
+      "time": 3.7,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_after_speech",
+        "native": true
+      }
+    },
+    {
+      "time": 4.66,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 4.66,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7.41,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 7.41,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 32.370000000000005,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

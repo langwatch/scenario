@@ -8,6 +8,7 @@ at @integration scope (requires real platform creds).
 
 import base64
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -203,7 +204,12 @@ ALL_ADAPTER_CLASSES = [
 def test_every_adapter_publishes_capabilities(cls):
     caps = cls.capabilities
     assert isinstance(caps, AdapterCapabilities)
-    # Every adapter must declare its formats.
+    # Every adapter must declare each capability flag so the capability
+    # matrix doc and feature file stay in lock-step with the runtime.
+    assert isinstance(caps.streaming_transcripts, bool)
+    assert isinstance(caps.native_vad, bool)
+    assert isinstance(caps.dtmf, bool)
+    assert isinstance(caps.interruption, bool)
     assert isinstance(caps.input_formats, list)
     assert isinstance(caps.output_formats, list)
 
@@ -475,7 +481,18 @@ def test_branded_elevenlabs_voice_agent_is_voice_adapter():
 
 @pytest.mark.asyncio
 async def test_openai_realtime_adapter_connects_and_sends_pcm16():
-    """Verify URL construction, session.update on connect, audio send/recv round-trip."""
+    """Send/commit/response round-trip: send_audio → recv_audio commits the buffer and
+    requests a response before returning the decoded AudioChunk.
+
+    Asserts:
+    - send_audio emits input_audio_buffer.append with base64 PCM16.
+    - recv_audio (when _pending_audio_bytes > 0) sends input_audio_buffer.commit
+      followed by response.create BEFORE awaiting the audio delta.
+    - recv_audio returns the decoded AudioChunk from response.output_audio.delta.
+
+    Session-shape and header assertions are owned solely by
+    test_openai_realtime_adapter_uses_ga_wire_protocol_not_beta.
+    """
     adapter = OpenAIRealtimeAgentAdapter(
         model="gpt-realtime-mini",
         voice="alloy",
@@ -488,7 +505,83 @@ async def test_openai_realtime_adapter_connects_and_sends_pcm16():
     events = [
         json.dumps({"type": "session.created", "session": {}}),
         json.dumps({"type": "session.updated", "session": {}}),
-        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
+        json.dumps({"type": "response.output_audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+
+        # Minimal check: connect emits session.update as the first send.
+        first_sent = json.loads(mock_ws.send.call_args_list[0][0][0])
+        assert first_sent["type"] == "session.update"
+
+        # send_audio must emit input_audio_buffer.append with base64 PCM16.
+        chunk = AudioChunk(data=b"\x10\x20" * 100)
+        await adapter.send_audio(chunk)
+        audio_send = json.loads(mock_ws.send.call_args_list[1][0][0])
+        assert audio_send["type"] == "input_audio_buffer.append"
+        assert base64.b64decode(audio_send["audio"]) == chunk.data
+
+        # recv_audio must commit the buffer and request a response BEFORE
+        # returning audio — assert commit then response.create ordering.
+        result = await adapter.recv_audio(timeout=5.0)
+
+        send_types = [
+            json.loads(c[0][0])["type"] for c in mock_ws.send.call_args_list
+        ]
+        commit_idx = send_types.index("input_audio_buffer.commit")
+        create_idx = send_types.index("response.create")
+        assert commit_idx < create_idx, (
+            "input_audio_buffer.commit must precede response.create"
+        )
+        # Both must appear before the audio delta is returned.
+        assert "input_audio_buffer.commit" in send_types
+        assert "response.create" in send_types
+
+        # recv_audio must return the decoded PCM16 AudioChunk.
+        assert isinstance(result, AudioChunk)
+        assert result.data == pcm_payload
+
+        await adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_uses_ga_wire_protocol_not_beta():
+    """GA wire protocol regression guard — issue #602.
+
+    The adapter previously spoke the retired OpenAI beta Realtime protocol
+    (OpenAI-Beta header + flat session fields + response.audio.delta event).
+    This test asserts the three GA layers together so CI catches any regression:
+      (a) no OpenAI-Beta header in the WebSocket handshake (AC1),
+      (b) GA-shaped session.update payload with nested audio objects (AC2),
+      (c) recv_audio returns PCM16 from the GA response.output_audio.delta event (AC3).
+    """
+    adapter = OpenAIRealtimeAgentAdapter(
+        model="gpt-realtime-mini",
+        voice="alloy",
+        api_key="sk-test",
+    )
+
+    pcm_payload = b"\x00\x01" * 8  # 16 bytes of dummy PCM16
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    events = [
+        json.dumps({"type": "session.created", "session": {}}),
+        json.dumps({"type": "session.updated", "session": {}}),
+        json.dumps({"type": "response.output_audio.delta", "delta": b64_audio}),
     ]
     call_index = 0
 
@@ -507,31 +600,51 @@ async def test_openai_realtime_adapter_connects_and_sends_pcm16():
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)) as mock_connect:
         await adapter.connect()
 
-        # Verify the URL contains the model.
-        connect_url = mock_connect.call_args[0][0]
-        assert "model=gpt-realtime-mini" in connect_url
-        assert "api.openai.com" in connect_url
+        # --- AC1: no beta header; auth header present ---
+        headers = mock_connect.call_args.kwargs["additional_headers"]
+        assert "Authorization" in headers, "Authorization header must be present"
+        assert "OpenAI-Beta" not in headers, (
+            "OpenAI-Beta header must be absent in GA protocol"
+        )
 
-        # Verify session.update was emitted (first send call).
+        # --- AC2: GA session.update shape ---
         first_send_raw = mock_ws.send.call_args_list[0][0][0]
-        first_sent = json.loads(first_send_raw)
-        assert first_sent["type"] == "session.update"
-        assert first_sent["session"]["input_audio_format"] == "pcm16"
-        assert first_sent["session"]["output_audio_format"] == "pcm16"
+        payload = json.loads(first_send_raw)
+        assert payload["type"] == "session.update"
+        session = payload["session"]
 
-        # send_audio must emit input_audio_buffer.append with base64 PCM16.
-        chunk = AudioChunk(data=b"\x10\x20" * 100)
-        await adapter.send_audio(chunk)
-        send_calls = mock_ws.send.call_args_list
-        audio_send = json.loads(send_calls[1][0][0])
-        assert audio_send["type"] == "input_audio_buffer.append"
-        decoded = base64.b64decode(audio_send["audio"])
-        assert decoded == chunk.data
+        # GA requires session.type == "realtime"
+        assert session["type"] == "realtime", (
+            "session.type must be 'realtime' in GA protocol"
+        )
 
-        # recv_audio must skip housekeeping events and return the audio delta.
+        # Audio formats must be nested objects, not flat strings
+        assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 24000}, (
+            "session.audio.input.format must be GA object shape"
+        )
+        assert session["audio"]["output"]["format"] == {"type": "audio/pcm", "rate": 24000}, (
+            "session.audio.output.format must be GA object shape"
+        )
+
+        # Voice and transcription/turn_detection must be under audio subtree
+        assert session["audio"]["output"]["voice"] == "alloy"
+        assert session["audio"]["input"]["turn_detection"] is None
+        assert session["audio"]["input"]["transcription"]["model"] == "gpt-4o-transcribe"
+
+        # Beta flat fields must NOT be present
+        assert "input_audio_format" not in session, (
+            "flat input_audio_format must be absent in GA protocol"
+        )
+        assert "output_audio_format" not in session, (
+            "flat output_audio_format must be absent in GA protocol"
+        )
+
+        # --- AC3: recv_audio handles GA event name response.output_audio.delta ---
         result = await adapter.recv_audio(timeout=5.0)
         assert isinstance(result, AudioChunk)
-        assert result.data == pcm_payload
+        assert result.data == pcm_payload, (
+            "recv_audio must decode PCM16 from response.output_audio.delta"
+        )
 
         await adapter.disconnect()
 
@@ -571,22 +684,24 @@ async def test_openai_realtime_adapter_send_text_routes_user_role():
 
 
 @pytest.mark.asyncio
-async def test_openai_realtime_adapter_tracks_transcripts():
-    """Transcript delta events update last_agent_transcript / last_user_transcript."""
+async def test_openai_realtime_adapter_tracks_agent_transcript():
+    """AC4 (agent side) — response.output_audio_transcript.delta/.done update last_agent_transcript.
+
+    Feeds two delta events ("Hello " then "world") followed by a .done event whose
+    ``transcript`` field is the canonical assembled string, then a
+    ``response.output_audio.delta`` so recv_audio returns.  Asserts that
+    ``adapter.last_agent_transcript`` equals the .done transcript value.
+    """
     adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
 
     pcm_payload = b"\x00\x00" * 8
     b64_audio = base64.b64encode(pcm_payload).decode()
 
     events = [
-        json.dumps({"type": "response.audio_transcript.delta", "delta": "Hello "}),
-        json.dumps({"type": "response.audio_transcript.delta", "delta": "world"}),
-        json.dumps({"type": "response.audio_transcript.done", "transcript": "Hello world"}),
-        json.dumps({
-            "type": "conversation.item.input_audio_transcription.completed",
-            "transcript": "user said hello",
-        }),
-        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
+        json.dumps({"type": "response.output_audio_transcript.delta", "delta": "Hello "}),
+        json.dumps({"type": "response.output_audio_transcript.delta", "delta": "world"}),
+        json.dumps({"type": "response.output_audio_transcript.done", "transcript": "Hello world"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": b64_audio}),
     ]
     call_index = 0
 
@@ -607,7 +722,139 @@ async def test_openai_realtime_adapter_tracks_transcripts():
         await adapter.recv_audio(timeout=5.0)
 
     assert adapter.last_agent_transcript == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_tracks_user_transcript():
+    """AC4 (user side) — conversation.item.input_audio_transcription.completed updates last_user_transcript.
+
+    Feeds the user-transcription completed event (event name unchanged in GA),
+    then a ``response.output_audio.delta`` so recv_audio returns.  Asserts that
+    ``adapter.last_user_transcript`` holds the transcript text.
+    """
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    pcm_payload = b"\x00\x00" * 8
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    events = [
+        json.dumps({
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "user said hello",
+        }),
+        json.dumps({"type": "response.output_audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        await adapter.recv_audio(timeout=5.0)
+
     assert adapter.last_user_transcript == "user said hello"
+
+
+def test_openai_realtime_adapter_docstring_documents_ga():
+    """AC7 / issue #602 — module docstring reflects GA wire protocol, not the retired beta one.
+
+    Inspects the adapter MODULE docstring directly to guard against doc-drift.
+    The docstring legitimately says "no OpenAI-Beta header" (describing removal)
+    and "legacy response.audio.delta accepted defensively", so we do NOT assert
+    bare-string absence of those substrings.  Instead we assert:
+      - The retired beta header VALUE ("realtime=v1") is absent.
+      - The GA primary event name ("response.output_audio.delta") is documented.
+      - The auth-only header pattern ("Authorization: Bearer") is documented.
+      - The string "GA" is present (explicitly marks the protocol generation).
+    """
+    import scenario.voice.adapters.openai_realtime as _mod
+
+    doc = _mod.__doc__
+    assert doc is not None, "Module docstring must be present"
+
+    # Retired beta header value must be gone from the docstring.
+    assert "realtime=v1" not in doc, (
+        "Module docstring must not document the retired beta header value 'realtime=v1'"
+    )
+
+    # GA primary audio-delta event name must be documented.
+    assert "response.output_audio.delta" in doc, (
+        "Module docstring must document the GA event name 'response.output_audio.delta'"
+    )
+
+    # Auth-only header pattern must be documented.
+    assert "Authorization: Bearer" in doc, (
+        "Module docstring must document the auth-only header 'Authorization: Bearer'"
+    )
+
+    # The protocol generation must be explicitly stated.
+    assert "GA" in doc, (
+        "Module docstring must explicitly reference GA (General Availability) protocol"
+    )
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_session_update_keeps_tools_instructions_top_level():
+    """AC2 / issue #602 — tools and instructions are top-level under session, not under audio.
+
+    Constructs the adapter with both ``instructions`` and a tool, connects with a
+    mocked WebSocket, and inspects the session.update payload.  Asserts:
+      - ``session["instructions"]`` is the supplied string (top-level).
+      - ``session["tools"]`` is the supplied list (top-level).
+      - ``session["audio"]`` does not contain "instructions" or "tools".
+      - ``session`` does not contain "tool_choice" (the adapter does not set it).
+    """
+    tool = {"type": "function", "name": "f", "description": "d", "parameters": {"type": "object", "properties": {}}}
+    adapter = OpenAIRealtimeAgentAdapter(
+        instructions="be brief",
+        tools=[tool],
+        api_key="sk-test",
+    )
+
+    mock_ws = AsyncMock()
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+
+    first_send_raw = mock_ws.send.call_args_list[0][0][0]
+    payload = json.loads(first_send_raw)
+    assert payload["type"] == "session.update"
+    session = payload["session"]
+
+    # instructions and tools must be top-level under session.
+    assert session["instructions"] == "be brief", (
+        "instructions must be top-level under session"
+    )
+    assert session["tools"] == [tool], (
+        "tools must be top-level under session"
+    )
+
+    # Neither must appear nested under audio.
+    assert "instructions" not in session["audio"], (
+        "instructions must not be nested under session.audio"
+    )
+    assert "tools" not in session["audio"], (
+        "tools must not be nested under session.audio"
+    )
+
+    # The adapter does not set tool_choice.
+    assert "tool_choice" not in session, (
+        "adapter must not set tool_choice (not part of the GA session.update shape)"
+    )
+
+    await adapter.disconnect()
 
 
 @pytest.mark.asyncio
@@ -644,6 +891,93 @@ def test_openai_realtime_adapter_repr_redacts_api_key():
     r = repr(adapter)
     assert "super_secret_key_xyz" not in r
     assert "***" in r
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_interrupt_sends_response_cancel():
+    """AC5 / issue #602: interrupt() sends exactly one ``response.cancel`` message.
+
+    The GA Realtime API exposes ``response.cancel`` as the first-class interrupt
+    signal — the model stops generating immediately. This test guards that
+    ``interrupt()`` emits that exact payload and nothing else, so any accidental
+    regression (e.g. wrong event name, extra sends) is caught in CI.
+    """
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    mock_ws = AsyncMock()
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        # Reset send calls so only interrupt()'s output is under scrutiny.
+        mock_ws.send.reset_mock()
+
+        await adapter.interrupt()
+
+    assert mock_ws.send.call_count == 1
+    payload = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert payload == {"type": "response.cancel"}
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_adapter_accepts_legacy_audio_delta_defensively(caplog):
+    """AC3 defensive scenario: legacy response.audio.delta still delivers audio.
+
+    A live gpt-realtime* server may emit the pre-GA beta event name even after
+    the GA migration. The adapter must not drop the frame — it returns the
+    AudioChunk normally and emits a one-time WARNING so the divergence is
+    observable in logs without spamming on every frame.
+
+    Feeds the legacy event TWICE to prove the "one-time" dedup: exactly one
+    warning must be emitted across both calls (validates _legacy_events_warned).
+    """
+    adapter = OpenAIRealtimeAgentAdapter(api_key="sk-test")
+
+    pcm_payload = b"\x00\x01" * 8  # 16 bytes of dummy PCM16
+    b64_audio = base64.b64encode(pcm_payload).decode()
+
+    # Feed the legacy (pre-GA) event name twice.
+    events = [
+        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
+        json.dumps({"type": "response.audio.delta", "delta": b64_audio}),
+    ]
+    call_index = 0
+
+    mock_ws = AsyncMock()
+
+    async def fake_recv():
+        nonlocal call_index
+        msg = events[call_index]
+        call_index += 1
+        return msg
+
+    mock_ws.recv = fake_recv
+    mock_ws.send = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+
+        with caplog.at_level(logging.WARNING, logger="scenario.voice.openai_realtime"):
+            result1 = await adapter.recv_audio(timeout=5.0)
+            result2 = await adapter.recv_audio(timeout=5.0)
+
+    # Both recv calls must return the decoded PCM16 bytes.
+    assert isinstance(result1, AudioChunk)
+    assert result1.data == pcm_payload
+    assert isinstance(result2, AudioChunk)
+    assert result2.data == pcm_payload
+
+    # Exactly ONE warning mentioning the legacy event must have been emitted
+    # across both calls — _legacy_events_warned dedup prevents log spam.
+    warning_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.levelno == logging.WARNING and "response.audio.delta" in r.getMessage()
+    ]
+    assert len(warning_msgs) == 1, (
+        f"Expected exactly 1 WARNING for 'response.audio.delta', got {len(warning_msgs)}"
+    )
 
 
 # ---------------------------------------------------------------- GeminiLive transport

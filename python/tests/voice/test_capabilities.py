@@ -11,6 +11,7 @@ def test_default_capabilities_are_conservative():
     assert caps.streaming_transcripts is False
     assert caps.native_vad is False
     assert caps.dtmf is False
+    assert caps.interruption is False
     assert caps.input_formats == []
     assert caps.output_formats == []
 
@@ -39,3 +40,31 @@ def test_error_names_adapter_and_capability():
 def test_error_message_points_to_capability_matrix_docs():
     err = UnsupportedCapabilityError("X", "streaming_transcripts")
     assert "capability matrix" in str(err).lower()
+
+
+@pytest.mark.asyncio
+async def test_interrupt_raises_unsupported_when_interruption_false():
+    """An adapter that does not declare ``interruption=True`` must reject
+    ``await adapter.interrupt()`` with ``UnsupportedCapabilityError`` —
+    the contract that lets ``scenario.interrupt()`` fall back to
+    timing-based barge-in instead of silently no-op'ing.
+    """
+    from scenario.voice.adapter import VoiceAgentAdapter
+
+    class BareVoiceAdapter(VoiceAgentAdapter):
+        # Inherits the default AdapterCapabilities() → interruption=False.
+        async def connect(self) -> None:
+            pass
+        async def disconnect(self) -> None:
+            pass
+        async def send_audio(self, chunk) -> None:  # type: ignore[override]
+            pass
+        async def recv_audio(self, timeout):  # type: ignore[override]
+            raise NotImplementedError
+
+    adapter = BareVoiceAdapter()
+    assert adapter.capabilities.interruption is False
+    with pytest.raises(UnsupportedCapabilityError) as exc_info:
+        await adapter.interrupt()
+    assert exc_info.value.capability == "interruption"
+    assert exc_info.value.adapter_name == "BareVoiceAdapter"

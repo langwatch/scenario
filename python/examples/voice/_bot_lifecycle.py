@@ -72,6 +72,11 @@ async def ensure_pipecat_bot(
     # Capture VAD + STT decisions so a failed demo run is debuggable from
     # /tmp/voice-pipecat-bot.log.
     env.setdefault("BOT_LOG_LEVEL", "DEBUG")
+    # Force unbuffered stdout/stderr so the log file reflects what happened up
+    # to the moment of a crash or timeout. Without this, Python's default
+    # block-buffering (8 KB) means the log is near-empty when the bot is
+    # killed — exact failure mode from #501.
+    env["PYTHONUNBUFFERED"] = "1"
 
     # Tee bot logs to /tmp/voice-pipecat-bot.log so failed runs are debuggable.
     # Truncate on each spawn — if you need history, grab the file before the

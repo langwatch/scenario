@@ -11,7 +11,9 @@ user simulator.
 
 ## Constructor
 
-```python
+:::code-group
+
+```python [python]
 import scenario
 from scenario.config.voice_models import OPENAI_REALTIME_MODEL
 from scenario.types import AgentRole
@@ -24,8 +26,28 @@ adapter = scenario.OpenAIRealtimeAgentAdapter(
 )
 ```
 
-`api_key` is read from `OPENAI_API_KEY` by default; pass it explicitly to
-override. `tools` accepts function-calling schemas.
+```typescript [typescript]
+import scenario, { AgentRole, voice } from "@langwatch/scenario";
+
+const { OPENAI_REALTIME_MODEL } = voice;
+
+const adapter = scenario.openAIRealtimeAgent({
+  model: OPENAI_REALTIME_MODEL,
+  voice: "alloy",
+  instructions: "You are a helpful assistant. Keep responses brief.",
+  role: AgentRole.AGENT,
+  // tools: [ /* RealtimeToolDef[] — passed straight to the Realtime session */ ],
+});
+```
+
+:::
+
+`api_key` / `apiKey` is read from `OPENAI_API_KEY` by default; pass it explicitly
+to override. `tools` accepts function-calling schemas.
+
+To use the OpenAI Realtime model as a **voice user simulator** instead of the
+agent under test, set `role` to the user role
+(`role=AgentRole.USER` / `role: AgentRole.USER`).
 
 ## Capabilities
 
@@ -35,6 +57,5 @@ override. `tools` accepts function-calling schemas.
 
 ## Worked examples
 
-- [`openai_realtime_agent.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_agent.py) — OpenAI Realtime as the agent under test with a judge step.
-- [`openai_realtime_user.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_user.py) — OpenAI Realtime as a voice user simulator.
-- [`getting_started.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/getting_started.py) — minimal runnable scenario from the [getting-started](/voice/getting-started) page.
+- **Python:** [`openai_realtime_agent.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_agent.py) — agent under test with a judge step; [`openai_realtime_user.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/openai_realtime_user.py) — Realtime as a voice user simulator; [`getting_started.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/getting_started.py) — minimal scenario from the [getting-started](/voice/getting-started) page.
+- **TypeScript:** [`openai-realtime-agent.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/openai-realtime-agent.test.ts) — agent under test; [`openai-realtime-user.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/openai-realtime-user.test.ts) — Realtime as a voice user simulator.

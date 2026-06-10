@@ -252,7 +252,27 @@ jobs:
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json title,body --template '{{.title}}' > /tmp/pr_title.txt
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json title,body --template '{{.body}}' > /tmp/pr_body.txt
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path' > /tmp/pr_files.txt
-          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr_diff.txt
+
+          if ! gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr_diff.txt 2>/tmp/pr_diff_err.txt; then
+            # GitHub PR-diff API returns HTTP 406 when the diff exceeds 20k lines.
+            # Treat as oversized — downstream "Fail fast for oversized diffs" handles
+            # this by setting qualifies=false and exiting cleanly.
+            if grep -q "diff exceeded the maximum number of lines" /tmp/pr_diff_err.txt; then
+              ERR_MSG=$(head -c 500 /tmp/pr_diff_err.txt 2>/dev/null || echo "(no stderr captured)")
+              echo "Diff exceeds GitHub API 20k-line limit; treating as oversized."
+              echo "oversized=true" >> "$GITHUB_OUTPUT"
+              # Use a heredoc so multi-line stderr doesn't corrupt GITHUB_OUTPUT format.
+              {
+                printf 'oversized_reason<<__EOF_OVERSIZE__\n'
+                printf 'Diff too large to fetch via GitHub API (fetch error: %s)\n' "$ERR_MSG"
+                printf '__EOF_OVERSIZE__\n'
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              cat /tmp/pr_diff_err.txt >&2
+              exit 1
+            fi
+          fi
 
           # Fail closed if diff exceeds model window — large PRs could hide risky changes.
           DIFF_LIMIT=100000
@@ -260,6 +280,12 @@ jobs:
           if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
             echo "PR diff is ${DIFF_SIZE} chars (> ${DIFF_LIMIT}); too large for automated evaluation."
             echo "oversized=true" >> "$GITHUB_OUTPUT"
+            # Use a heredoc so the reason string doesn't corrupt GITHUB_OUTPUT format.
+            {
+              printf 'oversized_reason<<__EOF_OVERSIZE__\n'
+              printf 'Diff too large for automated evaluation (%s chars exceeds %s-char limit)\n' "$DIFF_SIZE" "$DIFF_LIMIT"
+              printf '__EOF_OVERSIZE__\n'
+            } >> "$GITHUB_OUTPUT"
           else
             echo "oversized=false" >> "$GITHUB_OUTPUT"
             cp /tmp/pr_diff.txt /tmp/pr_diff_truncated.txt
@@ -268,20 +294,30 @@ jobs:
       - name: Fail fast for oversized diffs
         id: oversized
         if: steps.pr-data.outputs.oversized == 'true'
+        # Pass oversized_reason via env: (not ${{ }} direct expansion in run:) — the
+        # documented GitHub Actions pattern for shell-injection hardening even when the
+        # source is trusted (gh CLI stderr). See:
+        # https://docs.github.com/en/actions/learn-github-actions/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+        env:
+          OVERSIZED_REASON: ${{ steps.pr-data.outputs.oversized_reason }}
         run: |
           {
             echo "qualifies=false"
             echo "scope=Diff too large for automated evaluation"
-            echo "reasoning=This PR's diff exceeds the size limit for automated low-risk evaluation. Manual review required."
+            # Use heredoc for reasoning since OVERSIZED_REASON can be multi-line
+            # (gh CLI stderr) and would otherwise corrupt the GITHUB_OUTPUT format.
+            printf 'reasoning<<__EOF_REASON__\n'
+            printf 'This PR'\''s diff could not be evaluated automatically: %s. Manual review required.\n' "$OVERSIZED_REASON"
+            printf '__EOF_REASON__\n'
           } >> "$GITHUB_OUTPUT"
 
       - name: Check for restricted paths
         id: path-check
         if: steps.pr-data.outputs.oversized == 'false'
         run: |
-          # docs/LOW_RISK_PULL_REQUESTS.md is the policy doc the LLM
+          # .github/LOW_RISK_PULL_REQUESTS.md is the policy doc the LLM
           # evaluator reads — changes to it are never themselves low-risk.
-          RESTRICTED_PATTERN='^(\.github/workflows/|docs/LOW_RISK_PULL_REQUESTS\.md$|(auth|security|migrations)/|.*/(auth|security|migrations)/)'
+          RESTRICTED_PATTERN='^(\.github/workflows/|\.github/LOW_RISK_PULL_REQUESTS\.md$|(auth|security|migrations)/|.*/(auth|security|migrations)/)'
           if grep -qE "$RESTRICTED_PATTERN" /tmp/pr_files.txt; then
             echo "Restricted paths detected:"
             grep -E "$RESTRICTED_PATTERN" /tmp/pr_files.txt
@@ -308,11 +344,11 @@ jobs:
         run: |
           # Fail closed if the policy doc is missing or empty — without it the
           # LLM evaluates against an empty rulebook and silently mislabels.
-          if [ ! -s docs/LOW_RISK_PULL_REQUESTS.md ]; then
-            echo "::error::Policy doc docs/LOW_RISK_PULL_REQUESTS.md is missing or empty on base SHA"
+          if [ ! -s .github/LOW_RISK_PULL_REQUESTS.md ]; then
+            echo "::error::Policy doc .github/LOW_RISK_PULL_REQUESTS.md is missing or empty on base SHA"
             exit 1
           fi
-          POLICY=$(cat docs/LOW_RISK_PULL_REQUESTS.md)
+          POLICY=$(cat .github/LOW_RISK_PULL_REQUESTS.md)
           PR_TITLE=$(cat /tmp/pr_title.txt)
           PR_BODY=$(cat /tmp/pr_body.txt)
           PR_DIFF=$(cat /tmp/pr_diff_truncated.txt)
@@ -446,7 +482,7 @@ jobs:
                 body: [
                   "**Automated low-risk assessment**",
                   "",
-                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/docs/LOW_RISK_PULL_REQUESTS.md) procedure.",
+                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/.github/LOW_RISK_PULL_REQUESTS.md) procedure.",
                   `- **Scope:** ${scope}`,
                   "- **Exclusions confirmed:** no changes to auth, security settings, database schema, business-critical logic, or external integrations.",
                   "- **Classification:** `low-risk-change` under the documented policy.",
@@ -485,7 +521,7 @@ jobs:
                 body: [
                   "**Automated low-risk assessment**",
                   "",
-                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/docs/LOW_RISK_PULL_REQUESTS.md) procedure and **does not qualify** as low risk.",
+                  "This PR was evaluated against the repository's [Low-Risk Pull Requests](https://github.com/langwatch/scenario/blob/main/.github/LOW_RISK_PULL_REQUESTS.md) procedure and **does not qualify** as low risk.",
                   "",
                   `> ${reasoning}`,
                   "",

@@ -223,3 +223,305 @@ class TestJudgeUtils:
         result = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
         assert "Describe this image" in result
         assert "[IMAGE:" in result
+
+    def test_build_transcript_renders_tool_call_name_and_args(self) -> None:
+        """AC1: assistant content:None + one tool_call renders name + args; no `assistant: null`."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    }
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "get_weather" in r
+        assert "Tokyo" in r
+        assert "assistant: null" not in r
+
+    def test_build_transcript_renders_multiple_tool_calls_in_order(self) -> None:
+        """AC2: two tool_calls in one assistant turn render both names + args, in emission order."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {
+                            "name": "get_time",
+                            "arguments": '{"tz":"JST"}',
+                        },
+                    },
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "get_weather" in r
+        assert "Tokyo" in r
+        assert "get_time" in r
+        assert "JST" in r
+        # Emission order: get_weather before get_time.
+        assert r.index("get_weather") < r.index("get_time")
+
+    def test_build_transcript_attributes_tool_results_to_function(self) -> None:
+        """AC3: each role:"tool" result names its originating function via tool_call_id match."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {
+                            "name": "get_time",
+                            "arguments": '{"tz":"JST"}',
+                        },
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "18C and sunny"},
+            {"role": "tool", "tool_call_id": "c2", "content": "3:00 PM JST"},
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        lines = r.split("\n")
+        # The two tool-result lines (last two) each name their own function.
+        weather_result_line = lines[-2]
+        time_result_line = lines[-1]
+        assert "18C and sunny" in weather_result_line
+        assert "get_weather" in weather_result_line
+        assert "3:00 PM JST" in time_result_line
+        assert "get_time" in time_result_line
+
+    def test_build_transcript_truncates_base64_in_tool_args(self) -> None:
+        """AC8: a tool_call arg containing a data-URL base64 value renders [IMAGE: ...] not raw base64."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "send_image",
+                            "arguments": '{"img":"data:image/png;base64,'
+                            + "A" * 2000
+                            + '"}',
+                        },
+                    }
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "send_image" in r
+        assert "[IMAGE: image/png" in r
+        assert "A" * 200 not in r
+
+    def test_build_transcript_renders_content_and_tool_calls_together(self) -> None:
+        """AC9: assistant with BOTH non-null content AND tool_calls renders both; neither clobbers the other."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Let me look that up for you.",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    }
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "Let me look that up for you." in r
+        assert "get_weather" in r
+        assert "Tokyo" in r
+
+    def test_build_transcript_handles_empty_tool_args(self) -> None:
+        """AC10: tool_call with arguments:"" and "{}" renders the name, no raise."""
+        messages_empty = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "ping", "arguments": ""},
+                    }
+                ],
+            }
+        ]
+        r_empty = JudgeUtils.build_transcript_from_messages(cast(Any, messages_empty))
+        assert "ping" in r_empty
+
+        messages_braces = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "ping", "arguments": "{}"},
+                    }
+                ],
+            }
+        ]
+        r_braces = JudgeUtils.build_transcript_from_messages(cast(Any, messages_braces))
+        assert "ping" in r_braces
+        assert "{}" in r_braces
+
+    def test_build_transcript_renders_orphan_tool_call(self) -> None:
+        """AC11: orphan tool_call (no matching tool result) still renders name+args, no raise."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "orphan",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    }
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "get_weather" in r
+        assert "Tokyo" in r
+
+    def test_build_transcript_tool_call_line_precedes_results(self) -> None:
+        """AC12: assistant tool-call line precedes both result lines (index ordering)."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"city":"Tokyo"}',
+                        },
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {
+                            "name": "get_time",
+                            "arguments": '{"tz":"JST"}',
+                        },
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "18C and sunny"},
+            {"role": "tool", "tool_call_id": "c2", "content": "3:00 PM JST"},
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        # The assistant tool_call segment appears before both result payloads.
+        assert r.index("[tool_call:") < r.index("18C and sunny")
+        assert r.index("[tool_call:") < r.index("3:00 PM JST")
+
+    def test_build_transcript_handles_invalid_json_args(self) -> None:
+        """AC13: arguments="{not json" renders the raw string, NO exception, name present."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{not json",
+                        },
+                    }
+                ],
+            }
+        ]
+        # Must not raise.
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        # AC13 requires BOTH: the raw string renders AND the function name is
+        # present. Assert the name and the raw fragment render together in the
+        # SAME tool-call segment — strictly stronger than two independent
+        # membership checks, so a regression that renders the args but drops the
+        # name (or vice versa) on the malformed path is caught.
+        assert "get_weather" in r
+        assert "not json" in r
+        assert 'get_weather("{not json")' in r
+
+    def test_render_tool_arguments_none_renders_json_null(self) -> None:
+        """T2 (#635): _render_tool_arguments(None) renders explicit JSON ``null``.
+
+        Distinct from the ``""``/``"{}"`` cases (AC10) — those are real
+        JSON-string inputs. ``arguments`` is *absent* when an assistant
+        ``function`` dict has no ``arguments`` key, so ``None`` flows in. The
+        explicit guard pins the contract so a future refactor of the non-str
+        branch can't silently funnel ``None`` into ``_truncate_base64_media``
+        or change the rendered value.
+        """
+        from scenario._judge.judge_utils import _render_tool_arguments
+
+        assert _render_tool_arguments(None) == "null"
+        # Distinct from the empty-string / empty-object string inputs.
+        assert _render_tool_arguments("") == '""'
+        assert _render_tool_arguments("{}") == "{}"
+
+    def test_build_transcript_renders_tool_call_with_absent_arguments(self) -> None:
+        """T2 (#635): a tool_call whose ``function`` omits ``arguments`` renders
+        the name + ``null`` args, no raise (the None path end-to-end)."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        # No "arguments" key at all → function.get("arguments")
+                        # returns None inside _render_tool_call.
+                        "function": {"name": "ping"},
+                    }
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "ping" in r
+        assert "ping(null)" in r
+        assert "assistant: null" not in r

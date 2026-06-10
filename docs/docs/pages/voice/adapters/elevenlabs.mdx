@@ -13,15 +13,44 @@ test it end-to-end.
 
 ## Constructor
 
-```python
+:::code-group
+
+```python [python]
 import os
 import scenario
 
 adapter = scenario.ElevenLabsAgentAdapter(
     agent_id=os.environ["ELEVENLABS_AGENT_ID"],
     api_key=os.environ["ELEVENLABS_API_KEY"],
+    # Optional per-session overrides (sent via conversation_initiation_client_data):
+    # system_prompt_override="Be terse for this test.",
+    # first_message_override="Hi — this is the test harness.",
 )
 ```
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+
+const adapter = scenario.elevenLabsAgent({
+  agentId: process.env.ELEVENLABS_AGENT_ID!,
+  apiKey: process.env.ELEVENLABS_API_KEY!,
+  // Optional per-session overrides (sent via conversation_initiation_client_data):
+  // systemPromptOverride: "Be terse for this test.",
+  // firstMessageOverride: "Hi — this is the test harness.",
+});
+```
+
+:::
+
+The two optional per-session override fields let you adjust the hosted agent's
+behaviour for a specific test run without modifying the shared ElevenLabs dashboard
+configuration. They are transmitted in the WebSocket
+`conversation_initiation_client_data` handshake at connect time:
+
+| Python | TypeScript | Description |
+|---|---|---|
+| `system_prompt_override` | `systemPromptOverride` | Replaces the agent's system prompt for this session only. Useful for pinning a test persona without touching the shared dashboard agent. |
+| `first_message_override` | `firstMessageOverride` | Overrides the agent's opening message for this session. |
 
 ## Capabilities
 
@@ -31,9 +60,8 @@ adapter = scenario.ElevenLabsAgentAdapter(
 
 ## Worked examples
 
-- [`elevenlabs_hosted.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_hosted.py) — hosted Convai scenario with a judge step.
-- [`elevenlabs_branded.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_branded.py) — branded voice variant.
-- [`elevenlabs_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_interruption.py) — barge-in handling.
+- **Python:** [`elevenlabs_hosted.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_hosted.py) — hosted Convai scenario with a judge step; [`elevenlabs_branded.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_branded.py) — branded voice variant; [`elevenlabs_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_interruption.py) — barge-in handling.
+- **TypeScript:** [`elevenlabs-hosted.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/elevenlabs-hosted.test.ts) — hosted ConvAI path **and** the branded `ElevenLabsVoiceAgent` composable variant.
 
 ## Common failures
 
@@ -45,7 +73,9 @@ adapter = scenario.ElevenLabsAgentAdapter(
 If you'd rather pair ElevenLabs STT/TTS with a different LLM, use
 `ElevenLabsVoiceAgent`:
 
-```python
+:::code-group
+
+```python [python]
 import os
 import scenario
 
@@ -54,8 +84,20 @@ agent = scenario.ElevenLabsVoiceAgent(
 )
 ```
 
-Optional keyword-only args: `llm` (default `"openai/gpt-5.4-mini"`), `voice`,
-`stt` (custom `STTProvider`), `system_prompt`.
+```typescript [typescript]
+import { voice } from "@langwatch/scenario";
+
+const agent = new voice.ElevenLabsVoiceAgent({
+  apiKey: process.env.ELEVENLABS_API_KEY!,
+});
+```
+
+:::
+
+Optional args: `voice`, `stt` (custom `STTProvider`), `system_prompt` /
+`systemPrompt`, and `llm`. The `llm` default differs by SDK — Python takes a
+model string (default `"openai/gpt-5.4-mini"`); TypeScript takes an AI-SDK
+`LanguageModel` (e.g. `llm: anthropic("claude-sonnet-4-6")`).
 
 <Callout type="tip">
   For a fully composable stack with provider-defined STT + LLM + TTS, see the

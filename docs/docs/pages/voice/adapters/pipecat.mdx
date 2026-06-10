@@ -3,6 +3,8 @@ title: Pipecat Adapter
 description: Test a custom Pipecat bot over WebSocket or WebRTC with PipecatAgentAdapter.
 ---
 
+import { Callout } from "vocs/components";
+
 # `PipecatAgentAdapter`
 
 Drives a custom Pipecat bot. Connects to your bot's WebSocket endpoint (which
@@ -11,7 +13,9 @@ endpoint.
 
 ## Constructor
 
-```python
+:::code-group
+
+```python [python]
 import scenario
 
 adapter = scenario.PipecatAgentAdapter(
@@ -21,16 +25,36 @@ adapter = scenario.PipecatAgentAdapter(
 )
 ```
 
-Other keyword-only arguments: `signaling_url` (for `transport="webrtc"`),
-`transport` (`"websocket"` default or `"webrtc"`), `stream_sid`, `call_sid`.
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+
+const adapter = scenario.pipecatAgent({
+  url: "ws://localhost:8765/stream",
+  audioFormat: "mulaw", // or "pcm16"
+  sampleRate: 8000, // match your bot's config
+});
+```
+
+:::
+
+Other arguments: `signalingUrl` / `signaling_url` (for `transport: "webrtc"`),
+`transport` (`"websocket"` default or `"webrtc"`), `streamSid` / `stream_sid`,
+`callSid` / `call_sid`.
+
+<Callout type="warning">
+  **TypeScript: WebRTC mode is pending.**
+  `scenario.pipecatAgent({ transport: "webrtc", signalingUrl })` constructs fine
+  but raises `voice.PendingTransportError` at `connect()` until the SmallWebRTC
+  transport lands. WebSocket mode (above) is fully shipped.
+</Callout>
 
 ## Capabilities
 
 | streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
 | --- | --- | --- | --- | --- | --- |
-| ✅ | ✅ | ❌ | ✅ | `pcm16/24000`, `mulaw/8000`, `opus` | `pcm16/24000`, `mulaw/8000`, `opus` |
+| ✅ | ✅ | ❌ | ✅ | `pcm16/24000`, `mulaw/8000` | `pcm16/24000`, `mulaw/8000` |
 
 ## Worked examples
 
-- [`pipecat_ws.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_ws.py) — full Pipecat WebSocket test with multi-turn conversation and a judge step.
-- [`pipecat_scenario.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_scenario.py) — multi-scenario Pipecat example.
+- **Python:** [`pipecat_ws.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_ws.py) — full Pipecat WebSocket test with multi-turn conversation and a judge step; [`pipecat_scenario.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/pipecat_scenario.py) — multi-scenario Pipecat example.
+- **TypeScript:** [`pipecat-ws.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/pipecat-ws.test.ts) — Pipecat WebSocket happy path over the Twilio Media Streams protocol.

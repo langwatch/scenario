@@ -17,7 +17,9 @@ builds on the context of the first.
 Each `scenario.user()` / `scenario.agent()` pair is one turn. Repeat the pair for
 each scripted exchange, then call `scenario.judge()` at the end.
 
-```python
+:::code-group
+
+```python [python]
 script=[
     scenario.agent(),           # agent's opening greeting (turn 1)
     scenario.user("Hello, I have a question about my account."),
@@ -29,12 +31,28 @@ script=[
 max_turns=6,
 ```
 
+```typescript [typescript]
+script: [
+  scenario.agent(),            // agent's opening greeting (turn 1)
+  scenario.user("Hello, I have a question about my account."),
+  scenario.agent(),            // agent's reply to turn 1
+  scenario.user("What information do you need from me to look it up?"),
+  scenario.agent(),            // agent's reply to turn 2 — must reference turn 1 context
+  scenario.judge(),
+],
+maxTurns: 6,
+```
+
+:::
+
 ### Asserting continuity
 
-The `JudgeAgent` only evaluates what you put in `criteria`. For multi-turn scenarios,
+The judge only evaluates what you put in `criteria`. For multi-turn scenarios,
 add an explicit continuity criterion that pins the second reply to the first exchange:
 
-```python
+:::code-group
+
+```python [python]
 scenario.JudgeAgent(
     criteria=[
         "The agent greeted the user naturally",
@@ -45,6 +63,19 @@ scenario.JudgeAgent(
 )
 ```
 
+```typescript [typescript]
+scenario.judgeAgent({
+  criteria: [
+    "The agent greeted the user naturally",
+    "The agent offered help in a friendly tone",
+    // Continuity: the second reply must make sense in context of turn 1.
+    "The agent's second reply addresses the user's follow-up question coherently",
+  ],
+})
+```
+
+:::
+
 <Callout type="info">
 A 1-turn happy path only proves the socket opens. The continuity criterion proves the
 platform maintains state across turns — a meaningfully stronger claim. This pattern was
@@ -54,6 +85,8 @@ for bug-bash sign-off.
 
 ## Worked example
 
+**Python:**
+
 [`basic_greeting.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/basic_greeting.py)
 — a clean 2-turn greeting flow: agent greets, user responds, agent follows up; judge
 checks naturalness and that audio turns exchanged.
@@ -61,6 +94,11 @@ checks naturalness and that audio turns exchanged.
 [`accent_loop.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/accent_loop.py)
 — a 3-turn scripted loop where the user spells their name across turns; demonstrates
 multi-turn scripting with a persona-driven user simulator.
+
+**TypeScript:**
+
+[`basic-greeting.test.ts`](https://github.com/langwatch/scenario/blob/a4b7365566773b372f99481eddea9be469b491d3/javascript/examples/vitest/tests/voice/basic-greeting.test.ts)
+— multi-turn conversation with a judge step; mirrors the Python example above.
 
 ## See also
 

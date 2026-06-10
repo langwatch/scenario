@@ -20,7 +20,7 @@
     "lucide-react": "^0.555.0",
     "react": "latest",
     "react-dom": "latest",
-    "react-router": "^7.9.6",
+    "react-router": "^7.15.0",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.17",
     "vocs": "github:langwatch/vocs#build",

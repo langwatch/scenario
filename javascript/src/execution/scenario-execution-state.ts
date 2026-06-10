@@ -27,6 +27,26 @@ export class ScenarioExecutionState implements ScenarioExecutionStateLike {
   private _threadId: string = "";
   private _onRollback?: (removedSet: Set<object>) => void;
 
+  /**
+   * Back-reference to the {@link ScenarioExecution} that owns this state.
+   *
+   * The voice adapter runtime (see `voice/adapter.runtime.ts`) reads this
+   * to reach the executor's {@link
+   * import("../voice/voice-executor-state").VoiceExecutorState} surface
+   * (`voiceRecording`, `voiceTimeline`, `voiceLatency`, etc.). Mirrors
+   * Python `ScenarioState._executor`.
+   *
+   * Underscored to keep callers out of the internal coupling — only the
+   * voice subsystem reaches in. Set once by the constructor of
+   * {@link ScenarioExecution} via {@link setExecutor}.
+   */
+  _executor: object | null = null;
+
+  /** Set the back-reference; called once by the executor's constructor. */
+  setExecutor(executor: object): void {
+    this._executor = executor;
+  }
+
   /** Event stream for message additions */
   private eventSubject = new Subject<StateChangeEvent>();
   public readonly events$: Observable<StateChangeEvent> =
