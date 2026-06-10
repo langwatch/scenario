@@ -10,7 +10,7 @@ Feature: User-facing docs surface for the voice-agent adapter system
   Background:
     Given the Scenario Vocs docs site is configured at docs/vocs.config.tsx
     And the VoiceAgentAdapter system shipped by #350 / PR #355 is the canonical voice path
-    And the legacy OpenAiVoiceAgent / gpt-4o-audio-preview pages exist under docs/docs/pages/examples/multimodal/
+    And the legacy gpt-4o-audio-preview voice surface has been retired under docs/docs/pages/examples/multimodal/
 
   # ============================================================
   # Group: Getting started
@@ -147,37 +147,37 @@ Feature: User-facing docs surface for the voice-agent adapter system
     And the page links to specs/voice-agents.feature for the 99-scenario behavioral contract
 
   # ============================================================
-  # Group: Legacy OpenAiVoiceAgent / gpt-4o-audio-preview deprecation
+  # Group: Legacy gpt-4o-audio-preview voice surface retirement
   # ============================================================
 
   @integration
-  Scenario: Deprecated multimodal pages stay reachable by URL
-    Given the legacy pages voice-to-voice.mdx, audio-to-audio.mdx, audio-to-text.mdx, and testing-voice-agents.mdx
-    When the Vocs site is built after the deprecation pass
-    Then each page still resolves to its original URL on the published site
-    And no 404 is produced for inbound links from Google or external sites
+  Scenario: Retired voice pages tombstone to the canonical entrypoint without 404ing
+    Given the legacy pages voice-to-voice.mdx and testing-voice-agents.mdx
+    When the Vocs site is built after the retirement pass
+    Then each page still resolves to its original URL on the published site with no 404 for inbound links from Google or external sites
+    And each page renders only a "this guide has moved" tombstone that points to /voice/getting-started
+    And the supported audio-to-audio.mdx and audio-to-text.mdx pages remain live, migrated to gpt-audio-mini rather than tombstoned
 
   @integration
-  Scenario: Deprecated multimodal pages no longer appear in the sidebar
+  Scenario: Retired multimodal voice pages no longer appear in the sidebar
     Given docs/vocs.config.tsx lines ~391-416 currently list Multimodal -> Voice Agents
-    When the deprecation pass is complete
+    When the retirement pass is complete
     Then the sidebar no longer surfaces those pages as primary nav
-    And the only way to land on them is via a deep link or the redirect banner
+    And the only way to land on them is via a deep link that hits the tombstone pointer
 
   @integration
-  Scenario: A deprecation banner appears on every legacy voice page
-    Given the four legacy multimodal voice pages
+  Scenario: Each retired voice page is a self-contained tombstone pointer
+    Given the retired voice pages voice-to-voice.mdx and testing-voice-agents.mdx
     When a reader opens any of them
-    Then the page renders a deprecation callout at the top
-    And the callout points to docs/voice/getting-started as the canonical entrypoint
-    And the banner text comes from a single shared MDX snippet so future edits propagate
+    Then the page renders an inline "this guide has moved" pointer to /voice/getting-started at the top
+    And the shared LegacyVoiceDeprecation.mdx snippet no longer exists, the pointer living directly in each page
 
   @integration
-  Scenario: Legacy example file in the repo signposts users to the canonical voice demos
-    Given python/examples/test_voice_to_voice_conversation.py is the legacy voice example in the repo
-    When a developer opens that file
-    Then a header docstring (or an adjacent DEPRECATED.md) points at python/examples/voice/* as the canonical demos
-    And the source file is not deleted
+  Scenario: The legacy voice-to-voice example file is retired in favour of the canonical voice demos
+    Given python/examples/test_voice_to_voice_conversation.py was the legacy single-call gpt-4o-audio-preview example in the repo
+    When a developer looks for a voice-to-voice demo
+    Then the legacy source file is deleted from the repo
+    And the canonical voice demos live under python/examples/voice/ (e.g. openai_realtime_user.py, openai_realtime_agent.py)
 
   # ============================================================
   # AC Coverage Map
@@ -211,11 +211,12 @@ Feature: User-facing docs surface for the voice-agent adapter system
   #       -> Scenario: New voice section replaces the legacy Multimodal voice sub-tree in the sidebar
   # AC 14 (Cross-links to the proposal and to the feature file)
   #       -> Scenario: The voice docs cross-link to the proposal and the behavioral contract
-  # AC 15 (Deprecated pages stay live, preserving SEO + inbound links)
-  #       -> Scenario: Deprecated multimodal pages stay reachable by URL
-  # AC 16 (Remove deprecated pages from Vocs sidebar at lines ~391-416)
-  #       -> Scenario: Deprecated multimodal pages no longer appear in the sidebar
-  # AC 17 (Deprecation banner at the top of each deprecated page, single source)
-  #       -> Scenario: A deprecation banner appears on every legacy voice page
-  # AC 18 (Repo-side header docstring/DEPRECATED.md on python/examples/test_voice_to_voice_conversation.py)
-  #       -> Scenario: Legacy example file in the repo signposts users to the canonical voice demos
+  # AC 15 (Retired voice pages tombstone to /voice/getting-started, still 200, preserving SEO + inbound links;
+  #        supported audio pages stay live + migrated, not tombstoned)
+  #       -> Scenario: Retired voice pages tombstone to the canonical entrypoint without 404ing
+  # AC 16 (Remove retired voice pages from Vocs sidebar at lines ~391-416)
+  #       -> Scenario: Retired multimodal voice pages no longer appear in the sidebar
+  # AC 17 (Each retired page carries an inline tombstone pointer; the shared LegacyVoiceDeprecation.mdx snippet is removed)
+  #       -> Scenario: Each retired voice page is a self-contained tombstone pointer
+  # AC 18 (python/examples/test_voice_to_voice_conversation.py is deleted; canonical demos live at python/examples/voice/*)
+  #       -> Scenario: The legacy voice-to-voice example file is retired in favour of the canonical voice demos
