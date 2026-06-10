@@ -186,7 +186,7 @@ never appended to the internal `VoiceRecording` buffer, so `save_segments()`
 
 ---
 
-## `receiveAudio timed out` (hosted ElevenLabs) {#receiveaudio-timed-out-hosted-elevenlabs}
+## `receiveAudio timed out` (hosted ElevenLabs)
 
 If a hosted `elevenLabsAgent` scenario fails with `ElevenLabsAgentAdapter: receiveAudio timed out`, you almost certainly scripted **more than one `user()` turn**. The hosted ElevenLabs Conversational AI transport is **server-VAD-driven** and supports only a **single greeting-led exchange**: a scripted second `user()` turn does not re-engage the server's turn-taking, so the following `agent()` waits for a response that never arrives and times out.
 
