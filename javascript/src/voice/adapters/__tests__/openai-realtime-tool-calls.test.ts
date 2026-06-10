@@ -296,13 +296,6 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
       toolName: "get_weather",
     });
 
-    // PROOF — the actual message that lands in the run's messages.
-     
-    console.log(
-      "[#630 PROOF] tool message added to run:",
-      JSON.stringify(toolMsg, null, 2),
-    );
-
     // The real consumer (ScenarioExecutionState) recognizes it.
     const state = stateWith(messages);
     expect(state.hasToolCall("get_weather")).toBe(true);
@@ -342,6 +335,169 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
 
     // The real consumer recognizes it.
     expect(stateWith(messages).hasToolCall("get_weather")).toBe(true);
+  });
+
+  // --- #646: tool-only coverage + failure modes ---
+
+  it("#646 (AC3) — tool-only turn is consumable via hasToolCall/lastToolCall", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+
+    const messages = await runTurn(adapter, () => {
+      pushStreamingCall("call_ac3", "get_weather", '{"city":"London"}');
+      push({ type: "response.done" });
+    });
+
+    const state = stateWith(messages);
+    expect(state.hasToolCall("get_weather")).toBe(true);
+    const last = state.lastToolCall("get_weather");
+    expect(
+      last.content.some(
+        (p) => p.type === "tool-result" && p.toolName === "get_weather",
+      ),
+    ).toBe(true);
+  });
+
+  it("#646 (AC4) — streaming-args form terminates a tool-only turn", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+
+    const messages = await runTurn(adapter, () => {
+      pushStreamingCall("call_ac4s", "get_weather", '{"city":"Berlin"}');
+      push({ type: "response.done" });
+    });
+
+    const toolMsg = toolMessageOf(messages);
+    expect(toolMsg).toBeDefined();
+    const part = toolMsg!.content.find(
+      (p) => p.type === "tool-result" && p.toolName === "get_weather",
+    );
+    expect(part).toBeDefined();
+    expect(part).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call_ac4s",
+      toolName: "get_weather",
+    });
+  });
+
+  it("#646 (AC4) — output-item form terminates a tool-only turn", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+
+    const messages = await runTurn(adapter, () => {
+      pushOutputItemCall("call_ac4o", "lookup_order", '{"id":99}');
+      push({ type: "response.done" });
+    });
+
+    const toolMsg = toolMessageOf(messages);
+    expect(toolMsg).toBeDefined();
+    const part = toolMsg!.content.find(
+      (p) => p.type === "tool-result" && p.toolName === "lookup_order",
+    );
+    expect(part).toBeDefined();
+    expect(part).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call_ac4o",
+      toolName: "lookup_order",
+    });
+  });
+
+  it("#646 (AC5) — two calls on a tool-only turn both surface", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+
+    const messages = await runTurn(adapter, () => {
+      pushStreamingCall("call_1", "get_weather", '{"city":"NYC"}');
+      pushOutputItemCall("call_2", "get_time", '{"tz":"UTC"}');
+      push({ type: "response.done" });
+    });
+
+    const toolMsg = toolMessageOf(messages);
+    expect(toolMsg).toBeDefined();
+    const names = toolMsg!.content
+      .filter((p) => p.type === "tool-result")
+      .map((p) => (p as { toolName: string }).toolName)
+      .sort();
+    expect(names).toEqual(["get_time", "get_weather"]);
+
+    const state = stateWith(messages);
+    expect(state.hasToolCall("get_weather")).toBe(true);
+    expect(state.hasToolCall("get_time")).toBe(true);
+  });
+
+  it("#646 (AC7) — audio+tool turn still returns BOTH the audio message AND the tool message", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+
+    const messages = await runTurn(adapter, () => {
+      pushAudioDelta();
+      pushStreamingCall("call_co", "fetch", '{"k":"v"}');
+    });
+
+    expect(messages.length).toBe(2);
+    expect(messages.some((m) => m.role === "assistant")).toBe(true);
+    expect(toolMessageOf(messages)).toBeDefined();
+  });
+
+  it("#646 (AC8) — turn 1 tool-only, turn 2 audio-only — no bleed", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+    await adapter.connect();
+    await socketReady;
+    await waitForType("session.update");
+
+    // Turn 1: no-audio tool-only — must push response.done to terminate drain.
+    const turn1 = await feedAndCall(adapter, () => {
+      pushOutputItemCall("call_t1", "get_weather", "{}");
+      push({ type: "response.done" });
+    });
+    expect(toolMessageOf(turn1)).toBeDefined();
+
+    // Turn 2: audio-only — terminates on tail-silence; must not carry turn-1's tool.
+    adapter.responseTimeout = 2; // restore default for the audio-bearing turn
+    const turn2 = await feedAndCall(adapter, () => {
+      pushAudioDelta();
+    });
+    await adapter.disconnect();
+
+    expect(toolMessageOf(turn2)).toBeUndefined();
+    expect(turn2.length).toBe(1);
+  });
+
+  it("#646 (AC9) — empty turn (no audio, no tool call) still times out", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+
+    await adapter.connect();
+    await socketReady;
+    await waitForType("session.update");
+    try {
+      // Empty turn: no audio, no function call — just response.done. The
+      // accumulator stays empty, so the new terminal path does NOT fire and
+      // the drain must still hit the receiveAudio timeout (proves the
+      // discriminator is the non-empty accumulator, not response.done alone).
+      await expect(
+        feedAndCall(adapter, () => {
+          push({ type: "response.done" });
+        }),
+      ).rejects.toThrow("receiveAudio timed out");
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  it("#646 (AC10) — malformed args degrade on a tool-only turn", async () => {
+    const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
+    adapter.responseTimeout = 0.5;
+
+    const messages = await runTurn(adapter, () => {
+      pushOutputItemCall("call_bad", "noop", "{not json");
+      push({ type: "response.done" });
+    });
+
+    const part = toolMessageOf(messages)!.content.find(
+      (p) => p.type === "tool-result" && p.toolName === "noop",
+    ) as { output: { type: string; value: unknown } };
+    expect(part.output).toEqual({ type: "text", value: "{not json" });
   });
 
   it("AC4 (variant) — a call delivered ONLY via output_item.done is surfaced", async () => {
