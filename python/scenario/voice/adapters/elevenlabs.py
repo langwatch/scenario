@@ -214,6 +214,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
 
             raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            deadline = asyncio.get_running_loop().time() + timeout
             try:
                 event = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
             except Exception:
