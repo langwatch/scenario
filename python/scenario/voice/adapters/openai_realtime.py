@@ -497,6 +497,16 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # Response finished or was cancelled — mark it so the next
                 # drain re-entry returns an empty chunk (clean exit).
                 self._response_active = False
+                # Issue #646: a tool-only turn (function call, NO audio delta) would
+                # otherwise loop here to the deadline and raise — the accumulated tool
+                # call is parsed but never returned. When the response is done and at
+                # least one tool call has been finalized this turn, return an empty
+                # chunk so the drain exits cleanly and call() surfaces the tool_calls
+                # message. A genuinely empty turn (done + EMPTY accumulator) must still
+                # fall through to the timeout — the non-empty accumulator is the
+                # discriminator, NOT response.done alone.
+                if self._completed_tool_calls:
+                    return AudioChunk(data=b"")
 
             elif etype == "conversation.item.input_audio_transcription.completed":
                 # User-side transcript from Whisper.
