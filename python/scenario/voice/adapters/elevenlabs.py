@@ -199,10 +199,25 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         """
         Receive the next audio chunk from ElevenLabs.
 
-        Loops over incoming events until an ``audio`` event arrives or
-        ``timeout`` expires. Pings are replied to inline; transcript events
-        update instance attributes for observability; all other event types
-        are swallowed without error.
+        ``timeout`` bounds **inter-message silence** — the maximum gap between
+        any two received frames — NOT the total duration of the call. Every
+        received frame (**keep-alive pings included**) resets the idle
+        deadline, so this returns when an ``audio`` event arrives and raises
+        :class:`asyncio.TimeoutError` only after ``timeout`` seconds elapse
+        with **no message of any kind**. Pings are replied to inline;
+        transcript events update instance attributes for observability; all
+        other event types are swallowed without error.
+
+        Design decision (issue #493 — intentional, not an oversight): because
+        a received ping is treated as proof of liveness, a hosted agent that
+        keeps pinging but never sends audio (e.g. a wedged tool/RAG call) will
+        make this method wait **indefinitely**. There is deliberately **no
+        total-duration ceiling** here — a legitimate 30s+ silent-but-pinging
+        stretch must not abort the turn, which a cumulative budget would do.
+        The caller's ``response_max_duration`` is checked *between*
+        ``recv_audio`` calls and does **not** bound a single in-progress recv.
+        (An absolute caller-side backstop for the wedged-agent case is tracked
+        as a separate follow-up; it is intentionally not implemented here.)
         """
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
@@ -214,6 +229,9 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
 
             raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            # A received message (ping included) proves the socket is alive, so
+            # re-arm the idle deadline. Placed BEFORE json.loads so ANY frame —
+            # even a non-JSON/malformed one — counts as a liveness signal.
             deadline = asyncio.get_running_loop().time() + timeout
             try:
                 event = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())

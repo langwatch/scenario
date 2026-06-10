@@ -52,6 +52,13 @@ PING_GAP = 0.08         # delay before each ping frame; < TIMEOUT
 NUM_PINGS = 8           # 8 * 0.08 = 0.64s of pinging > TIMEOUT (0.30s)
 AUDIO_GAP = 0.08        # delay before the final audio frame
 
+# Invariant: the total pinging stretch MUST exceed TIMEOUT, else the test is
+# no longer RED on pre-fix code (it would pass trivially).
+assert NUM_PINGS * PING_GAP > TIMEOUT, (
+    f"timing invariant broken: {NUM_PINGS} * {PING_GAP} = {NUM_PINGS * PING_GAP} "
+    f"<= TIMEOUT={TIMEOUT}; adjust NUM_PINGS/PING_GAP so the ping stretch exceeds TIMEOUT"
+)
+
 
 def _make_pinging_then_audio_ws(pcm_payload: bytes) -> AsyncMock:
     """A mock WS whose ``recv()`` yields a run of pings then one audio frame.
