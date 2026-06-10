@@ -80,13 +80,27 @@ ${personaBlock}`.trim();
 }
 
 /**
- * Remove audio content blocks from messages before sending to a text-only LLM.
+ * Remove audio content blocks from messages before sending to a text-only LLM,
+ * and apply echo-safety reframing for voiced agent turns.
  *
  * Voice turns carry the canonical AI-SDK audio `file` part (`{ type: "file",
  * mediaType: "audio/pcm16", … }`, see `voice/messages.ts`) which text-only
  * models like `gpt-4.1-mini` reject. This helper keeps `text` parts as-is and
  * replaces audio-only messages with an `[audio message]` placeholder so the
  * LLM still has a structural turn in the right position.
+ *
+ * Echo-safety (AC-JS1'): when an **assistant** message carries BOTH an audio
+ * part AND a text part, it is a voiced agent turn whose transcript was
+ * auto-surfaced by the realtime adapter. The simulator must NOT receive that
+ * text verbatim — after `messageRoleReversal` the assistant turn becomes a
+ * `user` turn, which the LLM reads as its own prior words and parrots back as
+ * the candidate's answer. Instead we reframe the text as third-person context
+ * (`[the agent said: Q]`) so the simulator understands it as the OTHER party's
+ * utterance to respond to, not its own line.
+ *
+ * This reframing applies ONLY to the copy passed into `invokeLLM`. The
+ * original messages (and `result.messages`) are never mutated — a new array
+ * is built via spread (`{ ...msg, content: … }`), satisfying AC-JS2'.
  *
  * Port of `python/scenario/user_simulator_agent.py:_strip_audio_content`.
  */
@@ -96,12 +110,30 @@ function stripAudioContent(messages: ModelMessage[]): ModelMessage[] {
     if (!Array.isArray(content)) return msg;
 
     const parts = content as Array<Record<string, unknown>>;
+
+    const hasAudio = parts.some(
+      (p) =>
+        p?.type === "input_audio" ||
+        p?.type === "audio" ||
+        (p?.type === "file" &&
+          typeof p["mediaType"] === "string" &&
+          p["mediaType"].startsWith("audio/")),
+    );
+
     const textParts = parts
       .filter((p) => p?.type === "text" && typeof p["text"] === "string")
       .map((p) => p["text"] as string);
 
     if (textParts.length > 0) {
-      return { ...msg, content: textParts.join(" ") } as ModelMessage;
+      let joined = textParts.join(" ");
+      // Echo-safety: an assistant turn with BOTH audio and text parts is a
+      // voiced agent turn (transcript auto-surfaced by the realtime adapter).
+      // Reframe as third-person context so the simulator sees it as the
+      // agent's utterance to answer, not its own words to repeat. (AC-JS1')
+      if (hasAudio && msg.role === "assistant") {
+        joined = `[the agent said: ${joined}]`;
+      }
+      return { ...msg, content: joined } as ModelMessage;
     }
     return { ...msg, content: "[audio message]" } as ModelMessage;
   });
