@@ -9,6 +9,7 @@ Public surface:
     - VoiceAgentAdapter — base class for voice-capable agents
     - AudioChunk — canonical internal audio (PCM16 @ 24kHz mono)
     - AdapterCapabilities / UnsupportedCapabilityError — capability matrix
+    - FirstChunkTimeoutError — attributable first-chunk recv timeout
     - VoiceRecording / VoiceEvent / LatencyMetrics — result-side types
     - AudioSegment — per-speaker slice of the recording
     - synthesize / STTProvider / set_stt_provider / get_stt_provider —
@@ -21,7 +22,7 @@ Public surface:
 
 from __future__ import annotations
 
-from .adapter import VoiceAgentAdapter
+from .adapter import FirstChunkTimeoutError, VoiceAgentAdapter
 from .adapters import (
     ComposableVoiceAgent,
     ElevenLabsAgentAdapter,
@@ -62,6 +63,7 @@ __all__ = [
     "ElevenLabsAgentAdapter",
     "ElevenLabsSTTProvider",
     "ElevenLabsVoiceAgent",
+    "FirstChunkTimeoutError",
     "GeminiLiveAgentAdapter",
     "InterruptionConfig",
     "LatencyMetrics",

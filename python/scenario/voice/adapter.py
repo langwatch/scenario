@@ -48,12 +48,12 @@ class FirstChunkTimeoutError(asyncio.TimeoutError):
     transport error via ``__cause__``.
     """
 
-    def __init__(self, *, timeout: float, phase: str) -> None:
+    def __init__(self, *, timeout: float) -> None:
         self.timeout = timeout
-        self.phase = phase
+        self.phase = _FIRST_CHUNK_PHASE
         super().__init__(
             f"agent did not send its first audio chunk within {timeout}s "
-            f"(phase={phase})"
+            f"(phase={_FIRST_CHUNK_PHASE})"
         )
 
 
@@ -231,9 +231,7 @@ class VoiceAgentAdapter(AgentAdapter):
         try:
             first = await self.recv_audio(timeout=self.response_timeout)
         except asyncio.TimeoutError as err:
-            raise FirstChunkTimeoutError(
-                timeout=self.response_timeout, phase=_FIRST_CHUNK_PHASE
-            ) from err
+            raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
         # First chunk arrived → agent is now speaking. Wakes anyone awaiting
         # _agent_speaking_event (the interruption path).
         if first.data and on_first_chunk is not None:

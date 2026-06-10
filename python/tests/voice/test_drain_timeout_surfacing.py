@@ -48,10 +48,8 @@ from scenario.voice import (
     VoiceAgentAdapter,
 )
 
-# Reach the raise site's phase marker through the MODULE, not a direct import:
-# a direct ``from ... import _FIRST_CHUNK_PHASE`` would fail at COLLECTION
-# (taking Test 2 down with it). Going through the module means a missing
-# constant fails only the test that dereferences it. The module itself exists.
+# Import the module (not the constant directly) so a missing _FIRST_CHUNK_PHASE
+# fails only the test that dereferences it, not collection.
 from scenario.voice import adapter as _adapter_mod
 
 # A deliberately non-default value so the assertion proves the *configured*
@@ -66,21 +64,16 @@ class _FirstChunkTimeoutAdapter(VoiceAgentAdapter):
     test is inherited from ``VoiceAgentAdapter`` unchanged.
     """
 
-    capabilities = AdapterCapabilities(
-        streaming_transcripts=True,
-        native_vad=True,
-        dtmf=False,
-        input_formats=["pcm16/24000"],
-        output_formats=["pcm16/24000"],
-    )
+    # The drain/timeout path reads no capability field; bare defaults suffice.
+    capabilities = AdapterCapabilities()
 
-    async def connect(self) -> None:  # pragma: no cover - trivial
+    async def connect(self) -> None:
         pass
 
-    async def disconnect(self) -> None:  # pragma: no cover - trivial
+    async def disconnect(self) -> None:
         pass
 
-    async def send_audio(self, chunk: AudioChunk) -> None:  # pragma: no cover
+    async def send_audio(self, chunk: AudioChunk) -> None:
         pass
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
@@ -103,25 +96,20 @@ class _TailSilenceTimeoutAdapter(VoiceAgentAdapter):
     # ``first.data`` branch fires and the chunk is collected.
     FIRST_CHUNK = AudioChunk(data=b"\x01\x02" * 600, transcript="hello")
 
-    capabilities = AdapterCapabilities(
-        streaming_transcripts=True,
-        native_vad=True,
-        dtmf=False,
-        input_formats=["pcm16/24000"],
-        output_formats=["pcm16/24000"],
-    )
+    # The drain/timeout path reads no capability field; bare defaults suffice.
+    capabilities = AdapterCapabilities()
 
     def __init__(self) -> None:
         super().__init__()
         self._calls = 0
 
-    async def connect(self) -> None:  # pragma: no cover - trivial
+    async def connect(self) -> None:
         pass
 
-    async def disconnect(self) -> None:  # pragma: no cover - trivial
+    async def disconnect(self) -> None:
         pass
 
-    async def send_audio(self, chunk: AudioChunk) -> None:  # pragma: no cover
+    async def send_audio(self, chunk: AudioChunk) -> None:
         pass
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
