@@ -88,7 +88,11 @@
     "picomatch": ">=2.3.2 <3.0.0",
     "glob": ">=10.5.0",
     "lodash": ">=4.18.0",
-    "@remix-run/router": ">=1.23.2"
+    "@remix-run/router": ">=1.23.2",
+    "react-router": ">=6.30.4 <7",
+    "@babel/runtime": ">=7.26.10",
+    "js-yaml": ">=4.1.1",
+    "yaml": ">=2.8.3"
   },
   "pnpm": {
     "overrides": {
@@ -99,7 +103,12 @@
       "picomatch": ">=2.3.2 <3.0.0",
       "glob": ">=10.5.0",
       "lodash": ">=4.18.0",
-      "@remix-run/router@<1.23.2": ">=1.23.2"
+      "@remix-run/router@<1.23.2": ">=1.23.2",
+      "react-router@>=6.0.0 <6.30.4": ">=6.30.4 <7",
+      "@babel/runtime@<7.26.10": ">=7.26.10",
+      "js-yaml@>=4.0.0 <4.1.1": ">=4.1.1",
+      "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
+      "brace-expansion@>=5.0.0 <5.0.6": ">=5.0.6"
     }
   }
 }
