@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T14:37:03.184Z",
+  "duration": 18.560000000000002,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2.9,
+      "duration": 2.9,
+      "transcript": "Hi! I'd love some help today."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2900ms.wav",
+      "role": "agent",
+      "start_time": 2.9,
+      "end_time": 6.6,
+      "duration": 3.6999999999999997,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6600ms.wav",
+      "role": "user",
+      "start_time": 6.6,
+      "end_time": 10.25,
+      "duration": 3.6500000000000004,
+      "transcript": "Great — can you tell me a little about what you can do?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-10250ms.wav",
+      "role": "agent",
+      "start_time": 10.25,
+      "end_time": 18.560000000000002,
+      "duration": 8.310000000000002,
+      "transcript": "Of course, I'm happy to help. What can I assist you with? Billing, account access, or store hours and general info?"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.9,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2.9,
+      "type": "agent_start_speaking",
+      "latency": 0.00035775100000101645
+    },
+    {
+      "time": 6.6,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.6,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 10.25,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 10.25,
+      "type": "agent_start_speaking",
+      "latency": 0.00005708099999957028
+    },
+    {
+      "time": 18.560000000000002,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

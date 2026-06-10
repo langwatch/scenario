@@ -13,7 +13,9 @@ call-state lifecycle.
 
 ## Constructor
 
-```python
+:::code-group
+
+```python [python]
 import os
 import scenario
 
@@ -25,19 +27,36 @@ adapter = scenario.TwilioAgentAdapter(
 )
 ```
 
-All arguments are keyword-only. Beyond the three above:
-`public_base_url`, `allowed_callers`, `on_dtmf`, `http_port` (default `8765`),
-`role` (default `AgentRole.AGENT`), `validate_signature` (default `True` — set
-to `False` only when running against a local test harness that can't sign
-webhook requests).
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+
+const adapter = scenario.twilioAgent({
+  accountSid: process.env.TWILIO_ACCOUNT_SID!,
+  authToken: process.env.TWILIO_AUTH_TOKEN!,
+  phoneNumber: "+14155551234", // E.164, your Twilio-owned number
+  // publicBaseUrl is required at connect() — an HTTPS URL routing to this
+  // machine (e.g. an ngrok tunnel). See voice.openTwilioTunnel.
+});
+```
+
+:::
+
+All arguments are keyword/option-named. Beyond the core ones:
+`public_base_url` / `publicBaseUrl`, `allowed_callers`, `on_dtmf`,
+`http_port` / `httpPort` (default `8765`), `role` (default `AgentRole.AGENT`),
+`validate_signature` (default `True` — set to `False` only when running against a
+local test harness that can't sign webhook requests).
 
 ## Test harness (recommended)
 
-For end-to-end tests, use `TwilioHarness` — it spins up a cloudflared quick
-tunnel, configures the Twilio webhook for the lifetime of the `async with`
-block, and tears down on exit.
+For end-to-end tests you need a public HTTPS URL that routes Twilio's webhook to
+this machine.
 
-```python
+:::code-group
+
+```python [python]
+# Python: TwilioHarness spins up a cloudflared quick tunnel, configures the
+# Twilio webhook for the lifetime of the `async with` block, and tears down on exit.
 import os
 from scenario.voice.testing import TwilioHarness
 
@@ -51,22 +70,40 @@ async with TwilioHarness(
     ...
 ```
 
+```typescript [typescript]
+// TypeScript: open a tunnel with voice.openTwilioTunnel and pass its public
+// HTTPS URL as publicBaseUrl. Real-phone demos require a tunnel + a second
+// number and are gated manual.
+import scenario, { voice } from "@langwatch/scenario";
+
+const tunnel = await voice.openTwilioTunnel({ port: 8765 });
+const adapter = scenario.twilioAgent({
+  accountSid: process.env.TWILIO_ACCOUNT_SID!,
+  authToken: process.env.TWILIO_AUTH_TOKEN!,
+  phoneNumber: process.env.TWILIO_PHONE_NUMBER!,
+  publicBaseUrl: tunnel.url,
+});
+// ...pass `adapter` to scenario.run({ ... }); close the tunnel when done.
+```
+
+:::
+
 ## Capabilities
 
 | streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
 | --- | --- | --- | --- | --- | --- |
 | ❌ | ❌ | ✅ | ✅ | `mulaw/8000` | `mulaw/8000` |
 
-DTMF tones: send them with `scenario.dtmf("1")` in your script step.
+DTMF tones: send them with `scenario.dtmf("1")` in your script step (same step
+name in both SDKs).
 
 VAD: Twilio has no native VAD; the SDK falls back to `webrtcvad`. See
 [Troubleshooting → VAD didn't fire](/voice/troubleshooting#vad-didnt-fire).
 
 ## Worked examples
 
-- [`dtmf_ivr.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/dtmf_ivr.py) — DTMF-driven IVR menu test from dial-in to hang-up.
-- [`twilio_inbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_inbound.py) — inbound call test.
-- [`twilio_outbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_outbound.py) — dialer-side outbound test.
+- **Python:** [`dtmf_ivr.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/dtmf_ivr.py) — DTMF-driven IVR menu test from dial-in to hang-up; [`twilio_inbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_inbound.py) — inbound call test; [`twilio_outbound.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/twilio_outbound.py) — dialer-side outbound test.
+- **TypeScript:** the Twilio tunnel + adapter path is covered by the `@ts-twilio-tunnel` binding in [`specs/voice-agents.feature`](https://github.com/langwatch/scenario/blob/main/specs/voice-agents.feature) (real-phone demos are gated manual — they need a tunnel + a second number).
 
 ## Common failures
 

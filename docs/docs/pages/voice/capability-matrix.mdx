@@ -4,23 +4,59 @@ description: What each Scenario voice adapter can and cannot do — streaming tr
 ---
 
 import CapabilityMatrix from "../_generated/voice/capability-matrix.mdx";
+import { LanguageTabs } from "../../components/LanguageTabs";
 
 # Voice Adapter Capability Matrix
 
 Every voice adapter in Scenario declares its capabilities via a frozen
-[`AdapterCapabilities`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/capabilities.py)
-dataclass. The table below is auto-generated from those declarations and kept
-in sync by a CI gate — if you change an adapter's capabilities, regenerate
-with:
+`AdapterCapabilities` record
+([Python `capabilities.py`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/capabilities.py),
+TypeScript `voice.AdapterCapabilities`). The Python table is auto-generated from
+those declarations and kept in sync by a CI gate — if you change an adapter's
+capabilities, regenerate with:
 
 ```bash
 cd python
 uv run python scripts/gen_capability_matrix.py
 ```
 
+The TypeScript SDK ships a subset of adapters (see
+[javascript/docs/voice/capability-matrix.md](https://github.com/langwatch/scenario/blob/main/javascript/docs/voice/capability-matrix.md)
+for the authoritative TS render).
+
 ## Capabilities
 
+<LanguageTabs>
+<LanguageTabs.MarkdownTab language="python">
+
 <CapabilityMatrix />
+
+</LanguageTabs.MarkdownTab>
+<LanguageTabs.MarkdownTab language="typescript">
+
+Shipped TypeScript adapters only (values read from
+`javascript/src/voice/adapters/*.ts`). Adapters not listed here are Python-only —
+see [Not yet ported to TypeScript](#not-yet-ported-to-typescript) below.
+
+| Adapter (factory) | streaming_transcripts | native_vad | dtmf | interruption | input_formats | output_formats |
+| --- | --- | --- | --- | --- | --- | --- |
+| `pipecatAgent` | ✅ | ✅ | ❌ | ✅ | `pcm16/24000`, `mulaw/8000` | `pcm16/24000`, `mulaw/8000` |
+| `twilioAgent` | ❌ | ❌ | ✅ | ✅ | `mulaw/8000` | `mulaw/8000` |
+| `openAIRealtimeAgent` | ✅ | ✅ | ❌ | ✅ | `pcm16/24000` | `pcm16/24000` |
+| `elevenLabsAgent` | ✅ | ✅ | ❌ | ❌ | `pcm16/24000` | `pcm16/24000` |
+| `geminiLiveAgent` | ✅ | ✅ | ❌ | ✅ | `pcm16/16000` | `pcm16/24000` |
+| `composableAgent` | ✅ | ❌ | ❌ | ❌ | `pcm16/24000` | `pcm16/24000` |
+
+> `ElevenLabsVoiceAgent` (`new voice.ElevenLabsVoiceAgent({ apiKey })`) is a
+> provider-branded preset over `composableAgent` and inherits the composable row.
+
+> **Note vs. Python:** the TS `geminiLiveAgent` declares `interruption: true`
+> (it cuts in-flight audio on the next activity-start marker); the Python matrix
+> currently lists Gemini interruption as deferred. The TS values above are
+> authoritative for the TypeScript SDK.
+
+</LanguageTabs.MarkdownTab>
+</LanguageTabs>
 
 **Column key**
 
@@ -39,6 +75,12 @@ The capabilities table above describes *what* each adapter supports.
 The table below describes *how* each adapter is wired and *whether* it is
 shipping or still stubbed behind `PendingTransportError`.
 
+> **TypeScript readers:** class names in this table match the **Python** SDK.
+> TypeScript exports factory functions instead — `pipecatAgent`, `twilioAgent`,
+> `openAIRealtimeAgent`, `elevenLabsAgent`, `geminiLiveAgent`, `composableAgent`.
+> Python-only adapters are noted in the
+> [Not yet ported to TypeScript](#not-yet-ported-to-typescript) section below.
+
 | Adapter | Wire transport | Real I/O? |
 |---|---|---|
 | `ComposableVoiceAgent` | STT + LLM + TTS pipeline (provider-defined) | ✅ shipping |
@@ -56,11 +98,31 @@ Adapters marked 🚧 raise `PendingTransportError` on `connect()` and are tracke
 as follow-up issues. Their capability declarations are final (they match the
 wire spec); only the transport glue code is pending.
 
+## Not yet ported to TypeScript
+
+These adapters exist in the **Python** SDK but are **not exported** from
+`@langwatch/scenario` today — do not try to import them in TypeScript
+(tracked in [#563](https://github.com/langwatch/scenario/issues/563)):
+
+| Adapter | Status in TypeScript |
+|---|---|
+| `LiveKitAgentAdapter` | not ported (Python-only) |
+| `VapiAgentAdapter` | not ported (Python-only) |
+| `WebRTCAgentAdapter` (generic) | not ported (Python-only) |
+| `WebSocketAgentAdapter` (generic) | not ported — subclass `voice.VoiceAgentAdapter` for a custom protocol |
+
+**Pending transport in TypeScript:** WebRTC mode on Pipecat
+(`scenario.pipecatAgent({ transport: "webrtc", signalingUrl })`) constructs fine
+but raises `voice.PendingTransportError` at `connect()` until the SmallWebRTC
+transport lands.
+
 ## Source of truth
 
-Capability values live in each adapter's `capabilities: ClassVar[AdapterCapabilities]`
-declaration. The canonical source file is
-[`python/scenario/voice/capabilities.py`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/capabilities.py).
+Capability values live in each adapter's `capabilities` declaration.
 
-The generator script that produces the auto-generated table above is
-[`python/scripts/gen_capability_matrix.py`](https://github.com/langwatch/scenario/blob/main/python/scripts/gen_capability_matrix.py).
+- **Python:** `capabilities: ClassVar[AdapterCapabilities]` per adapter. Canonical
+  source [`python/scenario/voice/capabilities.py`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/capabilities.py);
+  generator [`python/scripts/gen_capability_matrix.py`](https://github.com/langwatch/scenario/blob/main/python/scripts/gen_capability_matrix.py).
+- **TypeScript:** `capabilities: voice.AdapterCapabilities` per adapter, read from
+  [`javascript/src/voice/adapters/*.ts`](https://github.com/langwatch/scenario/tree/main/javascript/src/voice/adapters);
+  authoritative render in [`javascript/docs/voice/capability-matrix.md`](https://github.com/langwatch/scenario/blob/main/javascript/docs/voice/capability-matrix.md).

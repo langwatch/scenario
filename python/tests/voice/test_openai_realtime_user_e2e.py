@@ -1,12 +1,11 @@
 """
-E2E wrapper for Demo — OpenAI Realtime as the user simulator.
+E2E check — OpenAI Realtime adapter (USER role) against the GA Realtime API.
 
-AC: scripted user("text") lines are delivered with natural prosody;
-text TTS is bypassed for the user simulator; result.success is True.
-
-Note: transport is Phase-2 stub; skipped via capability probe on the adapter's
-send_audio path (connect/disconnect are wired, but audio I/O raises
-PendingTransportError until the real Realtime WebSocket transport ships).
+Integration / nightly, key-gated (``requires_llm``).  Runs the
+``openai_realtime_user`` demo script end-to-end against the real OpenAI
+Realtime WebSocket API and asserts ``result.success`` is True.  Verifies that
+scripted ``user("text")`` lines are delivered via the text-input channel
+(bypassing TTS) and that the full scenario completes successfully.
 """
 
 from __future__ import annotations
@@ -20,29 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples" / "voice
 
 
 @pytest.mark.asyncio
-async def test_demo_openai_realtime_user_e2e_success(requires_llm, requires_transport_ready):
+async def test_demo_openai_realtime_user_e2e_success(requires_llm):
     """OpenAI Realtime adapter (USER role) drives simulator; result.success is True."""
-    from scenario.voice import OpenAIRealtimeAgentAdapter
-    from scenario.voice.audio_chunk import AudioChunk
-    from scenario.voice.adapters._stub import PendingTransportError
-
-    # Probe the audio I/O path — connect/disconnect succeed on the stub, but
-    # send_audio raises PendingTransportError until the real transport ships.
-    adapter = OpenAIRealtimeAgentAdapter()
-    await adapter.connect()
-    try:
-        await adapter.send_audio(AudioChunk(data=b"\x00\x00"))
-    except PendingTransportError as exc:
-        await adapter.disconnect()
-        pytest.skip(f"transport not yet shipped: {exc}")
-    except Exception:
-        # Probe-only path: send_audio failed for some reason other than
-        # PendingTransportError (network, auth, etc). We swallow it here
-        # because the real test body below runs against the actual demo
-        # script; that will surface a richer error than the probe could.
-        pass
-    await adapter.disconnect()
-
     from openai_realtime_user import main  # type: ignore[import]
 
     result = await main()

@@ -3,6 +3,7 @@
 import warnings
 
 import numpy as np
+import pytest
 
 from scenario.voice import AudioChunk, WebRTCVadFallback
 
@@ -21,26 +22,46 @@ def _silence_pcm(duration_s: float) -> bytes:
     return b"\x00\x00" * int(duration_s * SR)
 
 
-def test_vad_fallback_emits_userwarning_once_per_adapter():
+def test_vad_fallback_warning_message_names_adapter_and_accuracy_caveat():
+    """Content-shape assertion separate from the rate-limit shape below."""
     WebRTCVadFallback.reset_warnings()
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
         WebRTCVadFallback("TwilioAgentAdapter")
-        WebRTCVadFallback("TwilioAgentAdapter")  # second instance must NOT re-warn
     user_warnings = [w for w in captured if issubclass(w.category, UserWarning)]
     assert len(user_warnings) == 1
-    assert "TwilioAgentAdapter" in str(user_warnings[0].message)
-    assert "native VAD" in str(user_warnings[0].message)
-    assert "accuracy" in str(user_warnings[0].message).lower()
+    msg = str(user_warnings[0].message)
+    assert "TwilioAgentAdapter" in msg
+    assert "native VAD" in msg
+    assert "accuracy" in msg.lower()
 
 
-def test_vad_fallback_warns_per_adapter_name():
+@pytest.mark.parametrize(
+    "adapter_names, expected_warning_count",
+    [
+        # Same name twice on same instance pair → one warning. The
+        # ClassVar set memoizes by adapter_name string, not class identity.
+        (["A", "A"], 1),
+        # Two distinct names → two warnings.
+        (["A", "B"], 2),
+        # Cross-instance with the same string → still one warning. Locks
+        # in that the dedupe is across *all* instances of the fallback,
+        # not just within a single instance's lifetime.
+        (["SameName", "SameName"], 1),
+    ],
+)
+def test_vad_fallback_rate_limits_by_adapter_name(adapter_names, expected_warning_count):
+    """``WebRTCVadFallback._warned_adapters`` rate-limits the
+    "no native VAD" UserWarning by the caller-supplied adapter_name
+    string, regardless of how many fallback instances are constructed.
+    """
     WebRTCVadFallback.reset_warnings()
     with warnings.catch_warnings(record=True) as captured:
         warnings.simplefilter("always")
-        WebRTCVadFallback("AdapterA")
-        WebRTCVadFallback("AdapterB")
-    assert len([w for w in captured if issubclass(w.category, UserWarning)]) == 2
+        for name in adapter_names:
+            WebRTCVadFallback(name)
+    user_warnings = [w for w in captured if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == expected_warning_count
 
 
 def test_vad_detects_silence_to_voice_to_silence_transitions():

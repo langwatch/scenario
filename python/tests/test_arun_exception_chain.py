@@ -75,3 +75,42 @@ async def test_user_traceback_survives_arun():
         assert isinstance(e.__cause__, ZeroDivisionError)
     else:  # pragma: no cover
         pytest.fail("arun did not raise, but the adapter did")
+
+
+class _TimeoutAgent(AgentAdapter):
+    """Raises a no-args TimeoutError, reproducing the blank-body bug."""
+
+    async def call(self, input: AgentInput) -> AgentReturnTypes:
+        raise TimeoutError()
+
+
+@pytest.mark.asyncio
+async def test_no_args_exception_includes_type_name_in_message():
+    """RuntimeError body must never be blank for no-args exceptions.
+
+    Regression for #500: ``str(TimeoutError())`` returns ``""`` so the old
+    ``f"[{agent_name}] {e}"`` produced ``"[_TimeoutAgent] "`` — unreadable.
+    The fix uses ``type(e).__name__`` as a fallback so the body always names
+    the exception kind.
+    """
+    try:
+        await scenario.arun(
+            name="timeout",
+            description="adapter raises bare TimeoutError()",
+            agents=[_TimeoutAgent(), _User(), _Judge()],
+            script=[
+                scenario.user("hi"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+        )
+    except RuntimeError as e:
+        msg = str(e)
+        assert msg.strip(), f"RuntimeError body must not be blank; got: {msg!r}"
+        assert "TimeoutError" in msg, (
+            f"expected exception type name in message; got: {msg!r}"
+        )
+        assert e.__cause__ is not None
+        assert isinstance(e.__cause__, TimeoutError)
+    else:  # pragma: no cover
+        pytest.fail("arun did not raise, but the adapter did")

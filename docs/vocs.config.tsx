@@ -317,6 +317,14 @@ export default defineConfig({
           link: "/voice/capability-matrix",
         },
         {
+          text: "Happy Path: ElevenLabs",
+          link: "/voice/happy-path-elevenlabs",
+        },
+        {
+          text: "Happy Path: OpenAI Realtime",
+          link: "/voice/happy-path-openai-realtime",
+        },
+        {
           text: "How to choose an adapter",
           link: "/voice/choosing-an-adapter",
           collapsed: true,

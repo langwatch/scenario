@@ -219,6 +219,8 @@ A `ScriptStep` is a function that receives the current `ScenarioExecutionState` 
 - `succeed(reasoning?)`: Ends the scenario with a success verdict.
 - `fail(reasoning?)`: Ends the scenario with a failure verdict.
 
+For voice tests, additional steps are available: `sleep(seconds)`, `silence(duration)`, `audio(pathOrBytes)`, `dtmf(tones)`, `interrupt(options)`, plus the non-blocking `agent({ wait: false })` and `voiceProceed({ interruptions })`. See the [TypeScript voice guide](https://scenario.langwatch.ai/voice/getting-started).
+
 You can also provide your own functions as script steps for making assertions:
 
 ```typescript
@@ -234,6 +236,44 @@ const script = [
   succeed(),
 ];
 ```
+
+## Voice Agents
+
+Scenario treats voice as a first-class citizen: same `scenario.run()` entrypoint, same script DSL, same judge — only the medium changes. You make a test a voice test by passing a voice-capable agent and a `voice` on the user simulator. Voice runs need the system `ffmpeg` on PATH (audio decode/transcode).
+
+```typescript
+import scenario, { userSimulatorAgent, judgeAgent } from "@langwatch/scenario";
+
+const result = await scenario.run({
+  name: "billing dispute",
+  description: "Customer calls angry about a double charge; agent should de-escalate",
+  agents: [
+    scenario.pipecatAgent({ url: "ws://localhost:8765/ws" }),
+    userSimulatorAgent({ voice: "openai/nova" }),
+    judgeAgent({ criteria: ["Agent stays calm and offers a concrete resolution"] }),
+  ],
+  script: [
+    scenario.user("I just got charged TWICE for my subscription!"),
+    scenario.agent({ wait: false }), // non-blocking — agent starts speaking
+    scenario.sleep(2),
+    scenario.user("No, listen to me!"), // interrupts
+    scenario.agent(),
+    scenario.judge(),
+  ],
+});
+
+expect(result.success).toBe(true);
+```
+
+**Shipped adapters** (factory on `scenario`, also exported as classes under the `voice` namespace): `scenario.pipecatAgent` (Pipecat WebSocket), `scenario.openAIRealtimeAgent` (model-as-agent + model-as-user-simulator via `role`), `scenario.geminiLiveAgent`, `scenario.elevenLabsAgent` (hosted ConvAI), `scenario.twilioAgent` (Media Streams), and `scenario.composableAgent` (bring-your-own STT + LLM + TTS). LiveKit / Vapi / generic WebRTC / generic WebSocket are Python-only for now and **not** exported in TS.
+
+**Additional surface:** new script steps `scenario.sleep` / `scenario.silence` / `scenario.audio` / `scenario.dtmf` / `scenario.interrupt` (+ the non-blocking `scenario.agent({ wait: false })` turn, also exported as the alias `scenario.voiceAgent({ wait: false })`, and `scenario.voiceProceed({ interruptions })`); audio effects under `voice.effects` (`backgroundNoise`, `phoneQuality`, `packetLoss`, …); per-run provider config via `run({ voice: { stt, tts } })`; and `result.audio` / `result.timeline` / `result.latency` on the result.
+
+- **Full TypeScript voice guide:** [scenario.langwatch.ai/voice/getting-started](https://scenario.langwatch.ai/voice/getting-started) — the real public API, mirroring the worked examples.
+- **Capability matrix (TS):** [`docs/voice/capability-matrix.md`](./docs/voice/capability-matrix.md) — per-adapter features, wire formats, and the errors that reference them.
+- **Recorded demos (audio evidence):** [`examples/vitest/outputs/recordings/README.md`](./examples/vitest/outputs/recordings/README.md) — `full.wav` + `manifest.json` per `@e2e` demo.
+
+> The judge and the user simulator use LLMs — even for an ElevenLabs-only or Twilio-only test, an `OPENAI_API_KEY` is required for those (or swap them via `run({ voice })`).
 
 ## Configuration
 

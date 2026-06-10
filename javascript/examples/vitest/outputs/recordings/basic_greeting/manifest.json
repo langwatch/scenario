@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-05-27T14:25:17.690Z",
+  "duration": 29.31,
+  "segment_count": 5,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-agent-0000ms.wav",
+      "role": "agent",
+      "start_time": 0,
+      "end_time": 3.6,
+      "duration": 3.6,
+      "transcript": "Hello, thank you for calling. How can I help you today?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-3600ms.wav",
+      "role": "user",
+      "start_time": 3.6,
+      "end_time": 7.9,
+      "duration": 4.300000000000001,
+      "transcript": "Hi, I'd like to order a large pepperoni pizza for delivery."
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-agent-7900ms.wav",
+      "role": "agent",
+      "start_time": 7.9,
+      "end_time": 15.9,
+      "duration": 8,
+      "transcript": "Sure, I can help with that. What's your delivery address and the phone number for the order? And would you like any sides or drinks with the large pepperoni pizza?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-15900ms.wav",
+      "role": "user",
+      "start_time": 15.9,
+      "end_time": 18.9,
+      "duration": 2.9999999999999982,
+      "transcript": "Great — how long will delivery take?"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-18900ms.wav",
+      "role": "agent",
+      "start_time": 18.9,
+      "end_time": 29.31,
+      "duration": 10.41,
+      "transcript": "Delivery typically takes about 30 to 45 minutes, depending on distance and current order volume. What's your delivery address so I can estimate more accurately?"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "agent_start_speaking"
+    },
+    {
+      "time": 3.6,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 3.6,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7.9,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 7.9,
+      "type": "agent_start_speaking",
+      "latency": 4.070010422000001
+    },
+    {
+      "time": 15.9,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 15.9,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 18.9,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 18.9,
+      "type": "agent_start_speaking",
+      "latency": 8.160023619
+    },
+    {
+      "time": 29.31,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

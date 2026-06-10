@@ -405,6 +405,7 @@ Additional surface: `scenario.audio()` to inject recorded clips, `scenario.backg
 - **ElevenLabs happy path** (hosted agent): [docs/voice/happy-path-elevenlabs.md](docs/voice/happy-path-elevenlabs.md)
 - **OpenAI Realtime happy path** (model is the agent): [docs/voice/happy-path-openai-realtime.md](docs/voice/happy-path-openai-realtime.md)
 - **Capability matrix** (per-adapter features): [docs/voice/capability-matrix.md](docs/voice/capability-matrix.md)
+- **TypeScript voice guide** (the TS public API, `scenario.pipecatAgent({...})` etc.): [scenario.langwatch.ai/voice/getting-started](https://scenario.langwatch.ai/voice/getting-started)
 
 Note: the judge and the user simulator use LLMs — even for an ElevenLabs-only test, an `OPENAI_API_KEY` is required for those (or swap both via `scenario.configure`).
 

@@ -44,12 +44,23 @@ class VoiceAgentAdapter(AgentAdapter):
         capabilities: Declaration of what the adapter can and cannot do. Each
             concrete subclass must set this as a class attribute.
         response_timeout: Seconds to wait for agent audio after sending user
-            audio. Defaults to 30 seconds.
+            audio. Defaults to 60 seconds.
+
+            60 seconds covers a typical real-world STT → LLM → TTS round-trip
+            including backoff/retry inside each provider, tool calls, and RAG
+            lookups. If you see TimeoutError flakes against a fast LLM-only
+            chain, you can lower this; if your agent does heavy processing
+            (MCP roundtrips, multi-step tool chains), consider raising it.
+
+            Override per-adapter at construction time::
+
+                adapter = MyVoiceAdapter()
+                adapter.response_timeout = 90.0  # slow tool-call chain
     """
 
     role: ClassVar[AgentRole] = AgentRole.AGENT
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities()
-    response_timeout: float = 30.0
+    response_timeout: float = 60.0  # 60s: STT + LLM + TTS budget (see docstring)
     # Tail silence: once the first agent chunk arrives, keep draining recv_audio
     # until no chunk shows up within this many seconds — that's how we detect the
     # agent finished talking. Without this, demos record only the first ~100ms.

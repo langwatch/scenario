@@ -88,7 +88,7 @@ export class UnsupportedCapabilityError extends Error {
     const suffix = hint ? ` ${hint}` : "";
     super(
       `Adapter '${adapterName}' does not support capability '${capability}'. ` +
-        `See the adapter capability matrix at docs/voice/capability-matrix.md.${suffix}`,
+        `See the adapter capability matrix at https://scenario-docs.langwatch.ai/voice/capability-matrix.${suffix}`,
     );
     this.name = "UnsupportedCapabilityError";
     this.adapterName = adapterName;

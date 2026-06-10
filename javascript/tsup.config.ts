@@ -7,4 +7,6 @@ export default defineConfig({
   clean: true,
   external: ["vitest"],
   splitting: false,
+  onSuccess:
+    "node -e \"require('fs').cpSync('src/voice/assets', 'dist/voice/assets', { recursive: true })\"",
 });

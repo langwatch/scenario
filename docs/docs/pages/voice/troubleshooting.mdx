@@ -47,12 +47,13 @@ match the current token on the account — not when the account SID is wrong.
 1. Regenerate the auth token at
    [console.twilio.com → Account → General settings → Auth token](https://console.twilio.com/us1/account/manage-account/general-settings).
 2. Copy the new primary auth token.
-3. Update `TWILIO_AUTH_TOKEN` in `python/.env`.
+3. Update `TWILIO_AUTH_TOKEN` in your `.env` (`python/.env` for the Python SDK;
+   the env your test runner loads for TypeScript).
 4. Re-run the scenario.
 
 <Callout type="warning">
   If you rotated the token in the Twilio console but the old token is still in
-  `python/.env`, every scenario run will fail until the env file is updated.
+  your `.env`, every scenario run will fail until the env file is updated.
   Double-check with `echo $TWILIO_AUTH_TOKEN` in your shell.
 </Callout>
 
@@ -66,24 +67,35 @@ agent never receives the user's audio, or `result.turns` is empty.
 **Diagnosis:** The adapter's voice-activity detection did not fire on the incoming
 audio. Two sub-causes:
 
-1. **Native VAD missing** — adapters such as `TwilioAgentAdapter` have
-   `capabilities.native_vad = False`. When this is the case, the SDK falls back to
-   [`webrtcvad`](https://pypi.org/project/webrtcvad-wheels/) running on the incoming
-   PCM16 audio stream. A `UserWarning` is emitted once per process when the fallback
-   activates:
+1. **Native VAD missing** — adapters such as `TwilioAgentAdapter` /
+   `twilioAgent` have `native_vad`/`nativeVad = false`. When this is the case, the
+   SDK falls back to `webrtcvad` running on the incoming PCM16 audio stream
+   (the [Python `webrtcvad-wheels`](https://pypi.org/project/webrtcvad-wheels/)
+   build; a WASM `webrtcvad` build in TypeScript). A warning is emitted once per
+   process when the fallback activates:
    ```
    Adapter 'TwilioAgentAdapter' has no native VAD — using SDK-side webrtcvad. Accuracy may differ from native VAD.
    ```
 
-2. **Aggressiveness too high** — the `WebRTCVadFallback` default aggressiveness is
-   `2` (0 = least selective, 3 = most selective). At level 3, low-energy speech or
+2. **Aggressiveness too high** — the `WebRTCVadFallback` (Python) /
+   `voice.WebRTCVadFallback` (TypeScript) default aggressiveness is `2`
+   (0 = least selective, 3 = most selective). At level 3, low-energy speech or
    TTS audio may be classified as silence.
 
 **Fix:**
 
-- `webrtcvad-wheels` is a base dependency of `langwatch-scenario` (see [pyproject.toml](https://github.com/langwatch/scenario/blob/main/python/pyproject.toml)). If somehow it's not installed in your environment, `pip install webrtcvad-wheels` will fix it.
+- **Python:** `webrtcvad-wheels` is a base dependency of `langwatch-scenario`
+  (see [pyproject.toml](https://github.com/langwatch/scenario/blob/main/python/pyproject.toml)).
+  If somehow it's not installed, `pip install webrtcvad-wheels` will fix it. See
+  [`scenario.voice.vad.WebRTCVadFallback`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/vad.py).
 
-- Lowering aggressiveness is not yet exposed as an adapter constructor parameter; track this in a follow-up issue. See [`scenario.voice.vad.WebRTCVadFallback`](https://github.com/langwatch/scenario/blob/main/python/scenario/voice/vad.py) for the implementation.
+- **TypeScript:** a pure-JS RMS-energy + hysteresis VAD ships with
+  `@langwatch/scenario` as `voice.WebRTCVadFallback` — no extra install
+  needed. Accuracy may differ from a native `webrtcvad` build; a WASM
+  `webrtcvad` backend is deferred (see `javascript/src/voice/vad.ts`).
+
+- Lowering aggressiveness is not yet exposed as an adapter constructor parameter
+  in either SDK; track this in a follow-up issue.
 
 - For adapters with **native VAD** (Pipecat, ElevenLabs, Gemini Live), a missing
   speech-start event usually means the bot-side VAD threshold is set too aggressively.
@@ -97,28 +109,42 @@ audio. Two sub-causes:
 or `imageio_ffmpeg.get_ffmpeg_exe() failed`, or the scenario exits without playing
 audio during a live demo run.
 
-**Diagnosis:** `imageio-ffmpeg` ships its own `ffmpeg` binary as a Python package
-data file and exposes it via `imageio_ffmpeg.get_ffmpeg_exe()`. The Scenario SDK
-uses this binary for live PCM → speaker playback. If `imageio-ffmpeg` is not
-installed, or the binary path is not resolvable, playback silently degrades (a
-`DEBUG`-level log is emitted) — but a missing dependency can also surface as an
-import error.
+**Diagnosis:** The Scenario SDK uses `ffmpeg` for live PCM → speaker playback and
+for transcoding recordings to compressed formats (`.mp3` / `.ogg` / `.flac`).
+
+- **Python** bundles its own `ffmpeg` binary via `imageio-ffmpeg`
+  (`imageio_ffmpeg.get_ffmpeg_exe()`). If `imageio-ffmpeg` is missing or its
+  binary path is not resolvable, playback silently degrades (a `DEBUG`-level log)
+  — but a missing dependency can also surface as an import error.
+- **TypeScript** uses the system `ffmpeg` on your `PATH`. WAV is written
+  natively (no ffmpeg needed); only compressed-format transcoding and live
+  playback require `ffmpeg` to be installed.
 
 **Fix:**
 
-`imageio-ffmpeg` is a base dependency of `langwatch-scenario` (see [pyproject.toml](https://github.com/langwatch/scenario/blob/main/python/pyproject.toml)) — voice support is first-class. If you somehow have it uninstalled, reinstall:
+:::code-group
 
-```bash
+```bash [python]
+# imageio-ffmpeg is a base dependency of langwatch-scenario; reinstall if missing
 pip install imageio-ffmpeg
 ```
 
-Then re-run the scenario — the SDK will pick up the binary automatically via
-`imageio_ffmpeg.get_ffmpeg_exe()`.
+```bash [typescript]
+# Install the system ffmpeg (macOS shown; use your package manager elsewhere)
+brew install ffmpeg
+ffmpeg -version   # confirm it's on PATH
+```
+
+:::
+
+Then re-run the scenario — the SDK picks up the binary automatically (Python via
+`imageio_ffmpeg.get_ffmpeg_exe()`; TypeScript via the `ffmpeg` on `PATH`).
 
 <Callout type="info">
-  Live playback is optional — it is only active when you pass `audio_playback=True`
-  to `scenario.run()`. If you only need to save recordings or run assertions, you
-  do not need ffmpeg at all.
+  Live playback is optional — it is only active when you pass
+  `audio_playback=True` (Python) / `scenario.configure({ audioPlayback: true })`
+  (TypeScript). If you only need to save WAV recordings or run assertions, you do
+  not need ffmpeg at all.
 </Callout>
 
 ---
@@ -129,8 +155,8 @@ Then re-run the scenario — the SDK will pick up the binary automatically via
 audio file is empty, `manifest.json` reports zero segments, or no audio plays back.
 
 **Diagnosis:** The adapter's audio path was not wired correctly — audio chunks were
-never appended to the internal `VoiceRecording` buffer, so `save_segments()` wrote
-an empty recording. Common causes:
+never appended to the internal `VoiceRecording` buffer, so `save_segments()`
+(Python) / `saveSegments()` (TypeScript) wrote an empty recording. Common causes:
 
 - The adapter's `on_audio_chunk` callback was not registered, or was registered after
   the scenario started streaming audio.
@@ -139,7 +165,8 @@ an empty recording. Common causes:
 
 **Fix:**
 
-1. Check `recordings/<demo>/manifest.json` (written by `result.audio.save_segments()`):
+1. Check `recordings/<demo>/manifest.json` (written by `save_segments()` /
+   `saveSegments()`):
    ```bash
    cat recordings/<demo>/manifest.json
    ```
@@ -152,8 +179,10 @@ an empty recording. Common causes:
 3. Check the bot-side logs to confirm it is sending audio frames. The adapter can
    only record what it receives.
 
-4. If using a custom adapter subclass, verify that `self._recording.append(chunk)`
-   is called inside the audio-receive loop.
+4. If using a custom adapter subclass, verify the recording buffer is appended
+   inside the audio-receive loop — `self._recording.append(chunk)` in Python, or
+   the equivalent append in your `receiveAudio()` override (subclass
+   `voice.VoiceAgentAdapter`) in TypeScript.
 
 ---
 

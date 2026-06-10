@@ -1,5 +1,5 @@
 """
-AC-15 — judge auto-transcribes agent audio when model is non-multimodal.
+Judge auto-transcribes agent audio when model is non-multimodal.
 
 Tests the _enrich_messages_with_transcripts helper directly (surgical) and
 the JudgeAgent._conversation_has_audio / _extract_recording helpers.

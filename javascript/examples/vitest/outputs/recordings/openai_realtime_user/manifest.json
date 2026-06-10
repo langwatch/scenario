@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-05-27T14:34:47.395Z",
+  "duration": 19.35,
+  "segment_count": 2,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 10.35,
+      "duration": 10.35,
+      "transcript": "Of course, I can help you with that. Let’s go step by step. Um, can you tell me what site or service you’re trying to log in to? That might help us get started."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-user-10350ms.wav",
+      "role": "user",
+      "start_time": 10.35,
+      "end_time": 19.35,
+      "duration": 9.000000000000002,
+      "transcript": "That's okay. We can work through this together. Let's try to recall some details. Do you remember the email address you might have used, or any part of the username?"
+    }
+  ],
+  "events": []
+}

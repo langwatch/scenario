@@ -1,0 +1,168 @@
+name: javascript-voice-integration
+
+# On-demand workflow for the JavaScript voice e2e demos that hit live providers
+# (OpenAI Realtime, ElevenLabs, Gemini Live) and the bundled Pipecat stub bot.
+# These tests cost real API money, so they do NOT run on every PR and do NOT run
+# on a schedule — invocation is explicit via the Actions tab or
+# `gh workflow run`. The TS twin of `voice-integration.yml` (which covers the
+# Python demos); both upload their per-demo recordings as an artifact.
+#
+# Scope:
+#   - javascript/examples/vitest/tests/voice/*.test.ts — the `@e2e` per-demo
+#     wrappers (openai_realtime_agent/user, elevenlabs_hosted/branded,
+#     gemini_live, composable_stt_swap, recording_playback, voice_text_parity,
+#     pipecat_ws). Each self-skips when its required key/infra is absent.
+#
+# Secrets required (configure in repo settings):
+#   - OPENAI_API_KEY     — STT, TTS, Realtime API, judge LLM, user-sim TTS
+#   - LANGWATCH_API_KEY  — telemetry export
+#   - GEMINI_API_KEY     — Gemini Live adapter
+#   - ELEVENLABS_API_KEY — ElevenLabs hosted + branded adapters + STT
+#
+# Twilio inbound/outbound demos stay MANUAL (real phone + ngrok tunnel +
+# TWILIO_PHONE_NUMBER_2) and are NOT run here — matching the capability matrix's
+# "⏸ real phone" gate. Normal PR CI (javascript-ci.yml) does NOT depend on this
+# workflow, so a flaky real-key run never blocks a merge.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  voice-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: true
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: 10.22.0
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          cache-dependency-path: "javascript/pnpm-lock.yaml"
+          node-version: 24.x
+          cache: "pnpm"
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: javascript
+
+      # The Pipecat stub bot is a Python process; install uv to run it.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install Python deps (for the stub bot + provisioning)
+        run: uv sync --frozen
+        working-directory: python
+
+      # ---------------------------------------------------------------
+      # @e2e bring-up: start the bundled stub bot so the pipecat_ws demo
+      # stops skipping. Mirrors voice-integration.yml's bring-up.
+      # ---------------------------------------------------------------
+      - name: Start bundled Pipecat stub bot
+        run: |
+          uv run python examples/voice/_bot/bot.py \
+            >> /tmp/voice-pipecat-bot.log 2>&1 &
+          echo "$!" > /tmp/voice-bot.pid
+          # Poll until port 8765 accepts connections (up to 30 s).
+          for i in $(seq 1 60); do
+            if python3 -c "import socket; socket.create_connection(('127.0.0.1', 8765), 0.5)" 2>/dev/null; then
+              echo "voice stub bot: ready (PID=$(cat /tmp/voice-bot.pid))"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "ERROR: voice stub bot did not start within 30 s"
+          cat /tmp/voice-pipecat-bot.log || true
+          exit 1
+        working-directory: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      # ---------------------------------------------------------------
+      # @e2e bring-up: provision ElevenLabs agent (if API key present).
+      # Exports ELEVENLABS_AGENT_ID into GITHUB_ENV for subsequent steps.
+      # Reuses the same provisioning script the Python workflow uses.
+      # ---------------------------------------------------------------
+      - name: Provision ElevenLabs test agent
+        if: ${{ env.ELEVENLABS_API_KEY != '' }}
+        run: |
+          AGENT_ID=$(uv run python ../scripts/provision_elevenlabs_agent.py)
+          # Mask BEFORE writing to GITHUB_ENV so any later step that echos
+          # $ELEVENLABS_AGENT_ID gets `***` instead of the raw ID.
+          echo "::add-mask::${AGENT_ID}"
+          echo "ELEVENLABS_AGENT_ID=${AGENT_ID}" >> "${GITHUB_ENV}"
+        working-directory: python
+
+      # ---------------------------------------------------------------
+      # Run the JS @e2e voice demos. The vitest-examples package builds
+      # the SDK (buildpack) then runs every voice demo; each demo self-
+      # skips when its required key is absent, so a partial key set still
+      # produces a green run for the demos that DID run.
+      # ---------------------------------------------------------------
+      - name: Run @e2e voice demos
+        run: pnpm -F vitest-examples test run tests/voice 2>&1 | tee /tmp/js-e2e-voice-results.log
+        working-directory: javascript
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          # The bundled Pipecat stub bot was brought up + readiness-polled above,
+          # so the bot-gated demos (angry_customer, basic_greeting,
+          # background_handoff, interruption_recovery, random_interruptions,
+          # pipecat_scenario) must NOT self-skip. Without this flag `botUp` is
+          # always false and all six silently skip even with the bot running
+          # (review P3 / T1).
+          SCENARIO_PIPECAT_BOT_UP: "1"
+
+      # ---------------------------------------------------------------
+      # Teardown: stop the bot regardless of pass/fail. (`make
+      # voice-pipecat-down` is unreliable — it kills the uv wrapper, not
+      # the .venv child — so kill the recorded PID directly.)
+      # ---------------------------------------------------------------
+      - name: Stop Pipecat stub bot
+        if: always()
+        run: |
+          if [ -f /tmp/voice-bot.pid ]; then
+            kill -TERM "$(cat /tmp/voice-bot.pid)" 2>/dev/null || true
+            rm -f /tmp/voice-bot.pid
+          fi
+          pkill -KILL -f examples/voice/_bot/bot.py 2>/dev/null || true
+
+      - name: Upload voice demo recordings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: js-voice-demo-recordings
+          path: javascript/examples/vitest/outputs/recordings/**
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: js-voice-integration-logs
+          path: |
+            /tmp/voice-pipecat-bot.log
+            /tmp/js-e2e-voice-results.log
+          retention-days: 14
+          if-no-files-found: ignore

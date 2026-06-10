@@ -17,27 +17,69 @@ Two equivalent forms produce identical runtime behaviour.
 
 ### Unrolled form
 
-```python
+:::code-group
+
+```python [python]
 scenario.user("Tell me about my billing"),
 scenario.agent(wait=False),          # start agent reply in background
 scenario.user("Wait — I meant account support"),  # interrupt when agent begins speaking
 scenario.agent(),                    # let the agent finish the recovery turn
 ```
 
-`agent(wait=False)` starts the adapter's reply in the background without blocking the script.
-The following `user()` call waits until the agent begins producing audio, then fires the
-interrupt signal and sends the replacement user turn.
+```typescript [typescript]
+scenario.user("Tell me about my billing"),
+scenario.agent({ wait: false }),     // start agent reply in background (non-blocking)
+scenario.sleep(2),                   // let it talk for ~2s
+scenario.user("Wait — I meant account support"),  // interrupt mid-reply
+scenario.agent(),                    // let the agent finish the recovery turn
+```
+
+:::
+
+`agent(wait=False)` / `agent({ wait: false })` starts the adapter's reply in the
+background without blocking the script. The following steps run while the agent
+keeps speaking; the next `user()` turn fires the interrupt and sends the
+replacement user audio. (In TypeScript, `scenario.voiceAgent({ wait: false })` is
+an exported alias of the same step.)
+
+<Callout type="tip">
+In TypeScript, `scenario.sleep(2)` before the `user()` call is optional padding,
+not a synchronization primitive. The executor automatically waits for the agent to
+start speaking before firing the barge-in — the `user()` call itself is what
+triggers the interrupt, not the sleep.
+</Callout>
 
 ### Sugar form
 
-```python
+:::code-group
+
+```python [python]
 scenario.user("Tell me about every product feature you offer"),
 scenario.interrupt("Sorry — what are your business hours?"),
 scenario.agent(),
 ```
 
-`scenario.interrupt(text)` is shorthand for the unrolled form above. Prefer it when you
-only need to express a single interrupt.
+```typescript [typescript]
+scenario.user("Tell me about every product feature you offer"),
+// Time-based: let the agent speak ~2s, then interrupt.
+scenario.interrupt({ after: 2, content: "Sorry — what are your business hours?" }),
+scenario.agent(),
+```
+
+:::
+
+`scenario.interrupt(...)` is shorthand for the unrolled form above. Prefer it when
+you only need to express a single interrupt. In **TypeScript**, `interrupt` takes
+an options object with three trigger modes:
+
+```typescript
+scenario.interrupt({ after: 2, content: "Wait, that's wrong!" });        // time-based
+scenario.interrupt({ afterWords: 5, content: "No, that's not it" });     // word-count (needs streaming transcripts)
+scenario.interrupt({ content: "Hold on—" });                            // first-chunk barge-in
+```
+
+`afterWords` requires an adapter with streaming transcripts; otherwise it raises
+`voice.UnsupportedCapabilityError` suggesting `interrupt({ content })` instead.
 
 <Callout type="info">
 Both forms call into the same executor path. The sugar is purely syntactic — there is no
@@ -57,7 +99,92 @@ interrupt support (the `interruption` column in the [capability matrix](/voice/c
 Check the adapter row in the [capability matrix](/voice/capability-matrix) to see which
 mode applies to your deployment.
 
+## Random interruptions across a proceed loop
+
+The patterns above script a single deterministic barge-in. For multi-turn
+probabilistic interruptions — where any agent turn may be cut off with a given
+probability — use `voiceProceed` with an `InterruptionConfig`:
+
+:::code-group
+
+```typescript [typescript]
+import scenario, { voice } from "@langwatch/scenario";
+
+const { InterruptionConfig } = voice;
+
+script: [
+  scenario.agent(),                        // capture the opening greeting
+  scenario.user("I need help with my account"),
+  scenario.voiceProceed({
+    turns: 5,
+    interruptions: new InterruptionConfig({
+      probability: 0.5,          // interrupt ~50% of agent turns
+      delayRange: [0.5, 2.0],   // barge-in 0.5–2s after agent starts speaking
+      strategy: "random_phrase", // pick from the built-in canned-phrase pool
+    }),
+  }),
+  scenario.judge(),
+]
+```
+
+```python [python]
+from scenario import InterruptionConfig
+
+script=[
+    scenario.agent(),
+    scenario.user("I need help with my account"),
+    scenario.proceed(
+        turns=5,
+        interruptions=InterruptionConfig(
+            probability=0.5,
+            delay_range=(0.5, 2.0),
+            strategy="random_phrase",
+        ),
+    ),
+    scenario.judge(),
+]
+```
+
+:::
+
+`InterruptionConfig` options:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `probability` | `number` | `0.3` | Fraction of agent turns to interrupt. |
+| `delayRange` | `[number, number]` | `[0.5, 3.0]` | Seconds to wait after agent starts speaking before firing the barge-in. |
+| `strategy` | `"random_phrase" \| "contextual"` | `"random_phrase"` | `"random_phrase"` picks from the canned phrase pool; `"contextual"` generates a realistic interjection via an LLM from the running conversation. |
+| `phrases` | `string[]` | built-in pool | Phrase pool for `"random_phrase"` (and few-shot examples for `"contextual"`). |
+
+### Per-simulator interrupt probability
+
+As an alternative to `voiceProceed({ interruptions })`, set `interruptProbability`
+directly on the user simulator. This drives barge-ins on any plain `scenario.proceed()`
+loop without needing an explicit `InterruptionConfig`:
+
+:::code-group
+
+```typescript [typescript]
+scenario.userSimulatorAgent({
+  voice: "openai/nova",
+  interruptProbability: 0.3,   // 30% of agent turns get a barge-in
+})
+```
+
+```python [python]
+scenario.UserSimulatorAgent(
+    voice="openai/nova",
+    interrupt_probability=0.3,
+)
+```
+
+:::
+
+When both are configured, the `voiceProceed({ interruptions })` config wins.
+
 ## Worked example
+
+**Python:**
 
 [`interruption_recovery.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/interruption_recovery.py)
 — demonstrates both unrolled and sugar forms back-to-back in a single scenario, with a
@@ -68,6 +195,13 @@ Adapter-specific variants:
 - [`random_interruptions.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/random_interruptions.py) — randomised interrupt timing across turns
 - [`gemini_live_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/gemini_live_interruption.py) — Gemini Live adapter with native barge-in
 - [`elevenlabs_interruption.py`](https://github.com/langwatch/scenario/blob/main/python/examples/voice/elevenlabs_interruption.py) — ElevenLabs adapter interrupt path
+
+**TypeScript:**
+
+- [`interruption-recovery.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/interruption-recovery.test.ts) — unrolled and sugar forms in a multi-turn Pipecat scenario, with a JudgeAgent verifying recovery
+- [`random-interruptions.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/random-interruptions.test.ts) — `voiceProceed({ interruptions: new InterruptionConfig({...}) })` across 5 turns; asserts barge-ins fired mid-utterance and canned-phrase strategy ran
+- [`gemini-live-interruption.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/gemini-live-interruption.test.ts) — Gemini Live adapter with server-side native barge-in
+- [`elevenlabs-interruption.test.ts`](https://github.com/langwatch/scenario/blob/main/javascript/examples/vitest/tests/voice/elevenlabs-interruption.test.ts) — ElevenLabs adapter interrupt path
 
 ## See also
 

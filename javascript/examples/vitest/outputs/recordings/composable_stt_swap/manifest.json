@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T14:33:18.198Z",
+  "duration": 15.8,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 3.1,
+      "duration": 3.1,
+      "transcript": "Hello, can you help me with a quick question?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-3100ms.wav",
+      "role": "agent",
+      "start_time": 3.1,
+      "end_time": 6.300000000000001,
+      "duration": 3.2000000000000006,
+      "transcript": "Of course, I'm here to help. What's your question?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-6300ms.wav",
+      "role": "user",
+      "start_time": 6.300000000000001,
+      "end_time": 9.200000000000001,
+      "duration": 2.9000000000000004,
+      "transcript": "Thanks — and what time zone are you in?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-9200ms.wav",
+      "role": "agent",
+      "start_time": 9.200000000000001,
+      "end_time": 15.8,
+      "duration": 6.6,
+      "transcript": "I'm not tied to a specific time zone, but I can adjust to your local time if you'd like. Just let me know where you are."
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 3.1,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 3.1,
+      "type": "agent_start_speaking",
+      "latency": 0.737948512
+    },
+    {
+      "time": 6.300000000000001,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 6.300000000000001,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 9.200000000000001,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 9.200000000000001,
+      "type": "agent_start_speaking",
+      "latency": 1.0259804629999998
+    },
+    {
+      "time": 15.8,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

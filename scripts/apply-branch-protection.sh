@@ -38,12 +38,12 @@ echo ""
 #
 # Fields and their rationale:
 #   required_status_checks.strict         — require branch to be up-to-date
-#   required_status_checks.contexts       — new aggregator checks (AC-3.2)
-#   required_approving_review_count       — raised 0 → 1 (AC-3.3)
-#   dismiss_stale_reviews                 — unchanged from current state (AC-3.4)
+#   required_status_checks.contexts       — new aggregator checks
+#   required_approving_review_count       — raised 0 → 1
+#   dismiss_stale_reviews                 — unchanged from current state
 #   require_code_owner_reviews            — false (not currently set)
-#   bypass_pull_request_allowances.users  — rogeriochaves + drewdrewthis (AC-3.5)
-#   enforce_admins                        — false (unchanged; AC-3.6)
+#   bypass_pull_request_allowances.users  — rogeriochaves + drewdrewthis
+#   enforce_admins                        — false (unchanged)
 #   restrictions                          — null (no push restrictions currently)
 #   allow_force_pushes                    — true (unchanged; out of scope)
 #   allow_deletions                       — false (unchanged)

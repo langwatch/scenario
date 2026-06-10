@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-27T14:33:11.713Z",
+  "duration": 11.5,
+  "segment_count": 4,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 1.6,
+      "duration": 1.6,
+      "transcript": "Hello, can you help me?"
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-1600ms.wav",
+      "role": "agent",
+      "start_time": 1.6,
+      "end_time": 5.5,
+      "duration": 3.9,
+      "transcript": "Of course, I'm here to help. What do you need assistance with?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-5500ms.wav",
+      "role": "user",
+      "start_time": 5.5,
+      "end_time": 7.9,
+      "duration": 2.4000000000000004,
+      "transcript": "Can you also tell me a fun fact?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-7900ms.wav",
+      "role": "agent",
+      "start_time": 7.9,
+      "end_time": 11.5,
+      "duration": 3.5999999999999996,
+      "transcript": "Absolutely. Did you know that octopuses have three hearts?"
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 1.6,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 1.6,
+      "type": "agent_start_speaking",
+      "latency": 0.7210692909999992
+    },
+    {
+      "time": 5.5,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 5.5,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 7.9,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 7.9,
+      "type": "agent_start_speaking",
+      "latency": 0.7644757779999996
+    },
+    {
+      "time": 11.5,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}

@@ -9,3 +9,7 @@ onlyBuiltDependencies:
   - unrs-resolver
   - "@swc/core"
   - sharp
+  # ffmpeg-static downloads the platform ffmpeg binary in its postinstall;
+  # without this allowlist pnpm skips the script and resolveFfmpegPath()
+  # would point at a non-existent file (and CI would still lack ffmpeg).
+  - ffmpeg-static
