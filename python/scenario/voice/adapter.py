@@ -31,6 +31,32 @@ from .messages import create_audio_message, extract_audio
 from .recording import AudioSegment, VoiceEvent
 
 
+_FIRST_CHUNK_PHASE = "first-chunk"
+"""Phase marker for the first-chunk recv timeout (used in FirstChunkTimeoutError)."""
+
+
+class FirstChunkTimeoutError(asyncio.TimeoutError):
+    """Raised when the agent fails to send its first audio chunk within ``response_timeout``.
+
+    WHY this subclass exists: operators could not distinguish a first-chunk hang
+    (agent never spoke — wrong endpoint, VAD never fired, response_timeout too
+    short) from a tail-silence cutoff (agent finished speaking normally).  The
+    bare ``asyncio.TimeoutError`` that escaped previously had an empty ``str()``
+    and no structured attributes, so log aggregators and re-raise chains had no
+    signal.  This class embeds the phase marker (``_FIRST_CHUNK_PHASE``) in its
+    message, a machine-readable ``.timeout`` attribute, and chains the original
+    transport error via ``__cause__``.
+    """
+
+    def __init__(self, *, timeout: float, phase: str) -> None:
+        self.timeout = timeout
+        self.phase = phase
+        super().__init__(
+            f"agent did not send its first audio chunk within {timeout}s "
+            f"(phase={phase})"
+        )
+
+
 class VoiceAgentAdapter(AgentAdapter):
     """
     Abstract base for voice agents that exchange audio with the agent under test.
@@ -202,7 +228,12 @@ class VoiceAgentAdapter(AgentAdapter):
         agent.start at a real flow point rather than back-computing from
         the merged-chunk duration.
         """
-        first = await self.recv_audio(timeout=self.response_timeout)
+        try:
+            first = await self.recv_audio(timeout=self.response_timeout)
+        except asyncio.TimeoutError as err:
+            raise FirstChunkTimeoutError(
+                timeout=self.response_timeout, phase=_FIRST_CHUNK_PHASE
+            ) from err
         # First chunk arrived → agent is now speaking. Wakes anyone awaiting
         # _agent_speaking_event (the interruption path).
         if first.data and on_first_chunk is not None:
