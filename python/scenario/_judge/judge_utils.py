@@ -115,6 +115,14 @@ def _render_tool_arguments(arguments: Any) -> str:
     string. ``build_transcript_from_messages`` runs on every judge call, so an
     exception here would break all judging.
     """
+    # Absent arguments: render explicit JSON null. Guarding here keeps the
+    # None case from depending on the incidental ``json.dumps(None) == "null"``
+    # behaviour of the non-str branch below (which would also funnel None into
+    # ``_truncate_base64_media``). Distinct from ``""``/``"{}"``, which are real
+    # JSON-string inputs handled by the parse path.
+    if arguments is None:
+        return "null"
+
     # Already-parsed dict/list: truncate in place and serialize.
     if not isinstance(arguments, str):
         return json.dumps(_truncate_base64_media(arguments))

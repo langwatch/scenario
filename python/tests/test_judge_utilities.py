@@ -477,5 +477,51 @@ class TestJudgeUtils:
         ]
         # Must not raise.
         r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        # AC13 requires BOTH: the raw string renders AND the function name is
+        # present. Assert the name and the raw fragment render together in the
+        # SAME tool-call segment — strictly stronger than two independent
+        # membership checks, so a regression that renders the args but drops the
+        # name (or vice versa) on the malformed path is caught.
         assert "get_weather" in r
         assert "not json" in r
+        assert 'get_weather("{not json")' in r
+
+    def test_render_tool_arguments_none_renders_json_null(self) -> None:
+        """T2 (#635): _render_tool_arguments(None) renders explicit JSON ``null``.
+
+        Distinct from the ``""``/``"{}"`` cases (AC10) — those are real
+        JSON-string inputs. ``arguments`` is *absent* when an assistant
+        ``function`` dict has no ``arguments`` key, so ``None`` flows in. The
+        explicit guard pins the contract so a future refactor of the non-str
+        branch can't silently funnel ``None`` into ``_truncate_base64_media``
+        or change the rendered value.
+        """
+        from scenario._judge.judge_utils import _render_tool_arguments
+
+        assert _render_tool_arguments(None) == "null"
+        # Distinct from the empty-string / empty-object string inputs.
+        assert _render_tool_arguments("") == '""'
+        assert _render_tool_arguments("{}") == "{}"
+
+    def test_build_transcript_renders_tool_call_with_absent_arguments(self) -> None:
+        """T2 (#635): a tool_call whose ``function`` omits ``arguments`` renders
+        the name + ``null`` args, no raise (the None path end-to-end)."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        # No "arguments" key at all → function.get("arguments")
+                        # returns None inside _render_tool_call.
+                        "function": {"name": "ping"},
+                    }
+                ],
+            }
+        ]
+        r = JudgeUtils.build_transcript_from_messages(cast(Any, messages))
+        assert "ping" in r
+        assert "ping(null)" in r
+        assert "assistant: null" not in r

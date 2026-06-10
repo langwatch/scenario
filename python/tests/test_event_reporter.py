@@ -389,3 +389,116 @@ async def test_message_snapshot_post_carries_tool_call_structured_not_flattened(
         # the serialized content of any posted message.
         for message in body["messages"]:
             assert json.dumps(expected_args) != message.get("content")
+
+
+@pytest.mark.asyncio
+async def test_message_snapshot_post_truncates_base64_in_tool_call_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T7 (#635, BLOCKING): tool-call ``arguments`` carrying a base64 blob must
+    be TRUNCATED in the emitted SCENARIO_MESSAGE_SNAPSHOT POST body — they must
+    NOT serialize verbatim to the backend.
+
+    The Realtime API can pass base64 file/audio/image content as function
+    arguments. The judge-transcript arm already runs args through
+    ``_truncate_base64_media``; before this fix the persistence arm
+    (``convert_messages_to_api_client_messages``) serialized
+    ``toolCalls[].function.arguments`` verbatim, leaking a large/binary arg
+    wholesale. This drives the raw realtime tool-call shape through the REAL
+    mapper into a ``ScenarioMessageSnapshotEvent`` and POSTs it via
+    ``EventReporter`` with a mocked HTTP layer, then asserts the data-URL blob
+    is replaced by an ``[IMAGE: ...]`` marker on the wire.
+    """
+    from scenario._events.events import ScenarioMessageSnapshotEvent
+    from scenario._events.utils import convert_messages_to_api_client_messages
+
+    big_b64 = "A" * 5000
+    # Raw OpenAI-shaped assistant message with a base64 data-URL nested inside a
+    # JSON-string arguments payload (exactly the realtime adapter shape).
+    raw_messages = [
+        {
+            "id": "msg-tool-b64",
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "send_image",
+                        "arguments": json.dumps(
+                            {"img": "data:image/png;base64," + big_b64}
+                        ),
+                    },
+                }
+            ],
+        }
+    ]
+
+    # (a) The REAL mapper must already truncate before we even POST.
+    api_messages = convert_messages_to_api_client_messages(raw_messages)  # type: ignore[arg-type]
+    mapped_args = api_messages[0].tool_calls[0].function.arguments  # type: ignore[union-attr]
+    assert big_b64 not in mapped_args, "base64 blob leaked through the mapper"
+    assert "[IMAGE: image/png" in mapped_args
+    # Still valid JSON (parse → marker value), not a mangled string.
+    assert json.loads(mapped_args)["img"].startswith("[IMAGE: image/png")
+
+    event = ScenarioMessageSnapshotEvent(
+        batch_run_id="batch-1",
+        scenario_id="scenario-1",
+        scenario_run_id="run-1",
+        messages=api_messages,
+        timestamp=int(time.time() * 1000),
+    )
+
+    monkeypatch.setenv("LANGWATCH_ENDPOINT", "https://app.langwatch.ai")
+    monkeypatch.setenv("LANGWATCH_API_KEY", "sk-test")
+    reporter = EventReporter()
+
+    with respx.mock as mock:
+        route = mock.post("https://app.langwatch.ai/api/scenario-events").respond(
+            200, json={"ok": True}
+        )
+        await reporter.post_event(event)
+
+        assert route.called
+        # (b) Assert on the actual serialized POST body that goes over the wire.
+        request: httpx.Request = route.calls[0].request
+        raw_body = request.content.decode()
+        # The base64 blob must NOT appear ANYWHERE in the outbound payload.
+        assert big_b64 not in raw_body, "base64 blob leaked into the POST body"
+
+        body = json.loads(raw_body)
+        posted_args = body["messages"][0]["toolCalls"][0]["function"]["arguments"]
+        assert "[IMAGE: image/png" in posted_args
+        assert big_b64 not in posted_args
+
+
+@pytest.mark.asyncio
+async def test_message_snapshot_post_passes_malformed_tool_call_arguments_verbatim() -> None:
+    """T7 (#635): malformed (non-JSON) tool-call ``arguments`` survive the
+    persistence mapper VERBATIM — the truncation step must never parse-and-
+    reraise (AC7 degraded behaviour, preserved through the persistence arm).
+    """
+    from scenario._events.utils import convert_messages_to_api_client_messages
+
+    raw_messages = [
+        {
+            "id": "msg-tool-bad",
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "do_thing", "arguments": "not json {{{"},
+                }
+            ],
+        }
+    ]
+
+    api_messages = convert_messages_to_api_client_messages(raw_messages)  # type: ignore[arg-type]
+    mapped_args = api_messages[0].tool_calls[0].function.arguments  # type: ignore[union-attr]
+    # Verbatim pass-through — the raw malformed string is preserved (defensively
+    # truncated only if it were itself base64 media, which it is not).
+    assert mapped_args == "not json {{{"

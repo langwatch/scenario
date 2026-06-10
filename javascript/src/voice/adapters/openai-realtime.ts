@@ -29,10 +29,17 @@ import WebSocket, { type RawData } from "ws";
 import type { AgentReturnTypes, AgentInput } from "../../domain/agents";
 
 import { AgentRole } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
+
+// LOG_LEVEL-gated logger so the degraded-path debug line below doesn't bypass
+// the repo Logger (the rest of this file has zero direct console calls).
+// Silent by default for library callers; matches how the Twilio adapter routes
+// its operational signals through a Logger instead of bare console.* calls.
+const logger = Logger.create("OpenAIRealtimeAgentAdapter");
 
 /**
  * One logical realtime function call, accumulated across the several wire
@@ -524,8 +531,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   ): void {
     if (!callId) {
       // AC7 degraded path: no call_id to key the call on. Skip, don't throw.
-       
-      console.debug(
+      logger.debug(
         "OpenAIRealtimeAgentAdapter: function-call event with no call_id; " +
           "skipping (AC7 degraded path)",
       );
