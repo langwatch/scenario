@@ -185,6 +185,12 @@ describeFeature(
         let llmCalls: { current: number };
         const sttCalls: { transcribed: AudioChunk[] } = { transcribed: [] };
         const ttsCalls: { text: string[] } = { text: [] };
+        // Captures the EL SDK `textToSpeech.convert` spy so the scenario can
+        // assert the request body (modelId/outputFormat), not just the
+        // recorded text — a wrong-model regression must fail here.
+        const ttsConvertSpy: { current: ReturnType<typeof vi.fn> | null } = {
+          current: null,
+        };
 
         Given(
           "an STTProvider implementation, an LLM identifier, and a TTSProvider identifier from any supported providers",
@@ -203,7 +209,8 @@ describeFeature(
               tts: "elevenlabs/test-voice",
               ttsOptions: {
                 apiKey: "sk_fake_eleven",
-                elevenLabsClientFactory: () => makeFakeElevenClient(ttsCalls.text),
+                elevenLabsClientFactory: () =>
+                  makeFakeElevenClient(ttsCalls.text, ttsConvertSpy),
               },
             });
           },
@@ -231,6 +238,18 @@ describeFeature(
             expect(sttCalls.transcribed).toHaveLength(1);
             expect(llmCalls.current).toBe(1);
             expect(ttsCalls.text).toEqual(["hello back"]);
+            // Pin the EL `textToSpeech.convert` request body, not just the
+            // recorded text: voiceId is positional arg 1, the body is arg 2.
+            // The concrete modelId/outputFormat catch a wrong-model regression
+            // that a call-count-only assertion would let through silently.
+            expect(ttsConvertSpy.current).toHaveBeenCalledWith(
+              "test-voice",
+              expect.objectContaining({
+                text: "hello back",
+                modelId: "eleven_v3",
+                outputFormat: "pcm_24000",
+              }),
+            );
             expect(out).toBeInstanceOf(AudioChunk);
             expect(out.data.length).toBeGreaterThan(0);
 
@@ -399,6 +418,12 @@ describeFeature(
             expect(typeof text).toBe("string");
             expect(text).toBe("transcribed text");
             expect(fakeClient.speechToText.convert).toHaveBeenCalledTimes(1);
+            // `speechToText.convert` takes a single body object (arg 1). Pin the
+            // concrete modelId so a wrong-model regression fails — call-count
+            // alone would pass with the wrong scribe model.
+            expect(fakeClient.speechToText.convert).toHaveBeenCalledWith(
+              expect.objectContaining({ modelId: "scribe_v1" }),
+            );
           },
         );
 
@@ -440,18 +465,26 @@ function silentChunkBytes(seconds: number): Uint8Array {
   return new Uint8Array(samples * 2);
 }
 
-function makeFakeElevenClient(recordedText: string[]): never {
-  const fake = {
-    textToSpeech: {
-      convert: vi.fn(async (_voiceId: string, request: { text: string }) => {
-        recordedText.push(request.text);
-        // Return an async iterable of one PCM16 chunk.
-        const buf = Buffer.from(new Uint8Array([0x01, 0x00, 0x02, 0x00]));
-        return (async function* () {
-          yield buf;
-        })();
-      }),
+function makeFakeElevenClient(
+  recordedText: string[],
+  spyRef?: { current: ReturnType<typeof vi.fn> | null },
+): never {
+  // The real adapter calls `textToSpeech.convert(voiceId, { text, modelId,
+  // outputFormat })`. The spy records BOTH args verbatim, so a body assertion
+  // on `spyRef.current` sees the actual modelId/outputFormat the adapter sent.
+  const convert = vi.fn(
+    async (_voiceId: string, request: { text: string }) => {
+      recordedText.push(request.text);
+      // Return an async iterable of one PCM16 chunk.
+      const buf = Buffer.from(new Uint8Array([0x01, 0x00, 0x02, 0x00]));
+      return (async function* () {
+        yield buf;
+      })();
     },
+  );
+  if (spyRef) spyRef.current = convert;
+  const fake = {
+    textToSpeech: { convert },
   };
   return fake as never;
 }

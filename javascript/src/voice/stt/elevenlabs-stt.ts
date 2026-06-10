@@ -2,7 +2,7 @@
  * ElevenLabs STT leaf — {@link ElevenLabsSTTProvider} (Scribe). Same
  * {@link STTProvider} contract as the OpenAI leaf, different backend.
  *
- * Uses the `scribe_v1` model via the `elevenlabs` SDK's
+ * Uses the `scribe_v1` model via the `@elevenlabs/elevenlabs-js` SDK's
  * `speechToText.convert`. PCM16/24 kHz audio is wrapped in a minimal WAV
  * container before posting (EL's endpoint expects a file payload, not raw
  * PCM). Only `text` crosses the {@link STTProvider} boundary — no
