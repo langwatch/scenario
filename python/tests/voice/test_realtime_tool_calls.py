@@ -25,6 +25,7 @@ connection is needed. Two test surfaces:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from typing import Any, List, Optional, Sequence
@@ -652,3 +653,242 @@ async def test_ac11_no_tool_result_message_emitted():
         f"adapter emitted a role:'tool' result message (out of scope): "
         f"{tool_role_msgs}"
     )
+
+
+# --- #646: tool-only coverage + failure modes ---
+
+
+@pytest.mark.asyncio
+async def test_issue646_tool_only_consumable_via_scenario_state(_configure_scenario):
+    """
+    AC3: a tool-only (no-audio) turn is consumable end-to-end through a real
+    scenario run — state.has_tool_call / last_tool_call work against integrated
+    adapter output.
+
+    Mirrors test_ac2 exactly but swaps the event list for a pure tool-only
+    sequence (no _audio_delta_events): [response.created] +
+    _function_call_streaming_events(...) + [response.done].
+    """
+    events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_streaming_events(
+            "call_w646", "get_weather", '{"city":"London"}'
+        )
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = OpenAIRealtimeAgentAdapter(speaks_first=True)
+    _wire_adapter(adapter, events)
+
+    captured: dict[str, Optional[ScenarioState]] = {"state": None}
+
+    def _capture_state(state: ScenarioState):
+        captured["state"] = state
+
+    result = await scenario.arun(
+        name="ac3-tool-only-scenario",
+        description="Agent calls a tool with no audio",
+        agents=[adapter],
+        script=[
+            scenario.agent(),
+            _capture_state,
+            scenario.succeed("done"),
+        ],
+    )
+
+    state = captured["state"]
+    assert state is not None, "script callable did not capture state"
+
+    # Real consumer API must reflect the tool-only turn.
+    assert state.has_tool_call("get_weather") is True
+    tc = state.last_tool_call("get_weather")
+    assert tc is not None
+    assert json.loads(tc["function"]["arguments"]) == {"city": "London"}
+
+    # Also present in result.messages.
+    calls = _all_tool_calls(list(result.messages))
+    assert any(c["function"]["name"] == "get_weather" for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_issue646_tool_only_streaming_args_form():
+    """
+    AC4 (streaming-args variant): the _function_call_streaming_events form alone
+    (delta × N + .done), with no audio, terminates the turn and surfaces the call.
+    """
+    events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_streaming_events(
+            "call_stream", "get_weather", '{"city":"Berlin"}'
+        )
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = _make_adapter(events)
+    adapter.response_timeout = 0.5
+
+    returned = _normalize(await adapter.call(_FakeInput()))  # type: ignore[arg-type]
+
+    calls = _all_tool_calls(returned)
+    assert len(calls) == 1, f"AC4 streaming: expected 1 tool_call, got {calls}"
+    assert calls[0]["function"]["name"] == "get_weather"
+    assert json.loads(calls[0]["function"]["arguments"]) == {"city": "Berlin"}
+
+
+@pytest.mark.asyncio
+async def test_issue646_tool_only_output_item_form():
+    """
+    AC4 (output-item variant): the _function_call_item_events form alone
+    (single response.output_item.done), with no audio, terminates the turn and
+    surfaces the call.
+    """
+    events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_item_events(
+            "call_item646", "get_weather", '{"city":"Paris"}'
+        )
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = _make_adapter(events)
+    adapter.response_timeout = 0.5
+
+    returned = _normalize(await adapter.call(_FakeInput()))  # type: ignore[arg-type]
+
+    calls = _all_tool_calls(returned)
+    assert len(calls) == 1, f"AC4 item: expected 1 tool_call, got {calls}"
+    assert calls[0]["function"]["name"] == "get_weather"
+    assert json.loads(calls[0]["function"]["arguments"]) == {"city": "Paris"}
+
+
+@pytest.mark.asyncio
+async def test_issue646_tool_only_two_calls_both_surface():
+    """
+    AC5: two simultaneous calls (one streaming-args, one output-item) on a
+    tool-only turn — both surface in ONE assistant tool_calls message.
+    """
+    events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_streaming_events("call_A", "get_weather", '{"city":"NYC"}')
+        + _function_call_item_events("call_B", "get_time", '{"tz":"UTC"}')
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = _make_adapter(events)
+    adapter.response_timeout = 0.5
+
+    returned = _normalize(await adapter.call(_FakeInput()))  # type: ignore[arg-type]
+
+    all_calls = _all_tool_calls(returned)
+    assert len(all_calls) == 2, (
+        f"AC5: expected 2 tool_calls, got {len(all_calls)}: {all_calls}"
+    )
+    names = {c["function"]["name"] for c in all_calls}
+    assert "get_weather" in names
+    assert "get_time" in names
+
+    # Both live in exactly ONE assistant tool_calls message.
+    tc_msgs = _tool_call_messages(returned)
+    assert len(tc_msgs) == 1, (
+        f"AC5: expected 1 tool_calls message, got {len(tc_msgs)}"
+    )
+    assert len(tc_msgs[0]["tool_calls"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_issue646_cross_turn_no_bleed():
+    """
+    AC8: ONE adapter instance, two sequential call() invocations — tool calls
+    from turn 1 do NOT bleed into turn 2.
+
+    Turn 1: tool-only (no audio).
+    Turn 2: audio-only (no tool call) — re-point adapter._ws to a fresh MockWS.
+
+    Asserts:
+    - Turn 1 returns the tool_calls message.
+    - Turn 2 returns a single audio dict with no tool_calls key.
+    - adapter._completed_tool_calls == [] after turn 2 (reset cleared turn 1).
+    """
+    turn1_events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_streaming_events(
+            "call_t1", "get_weather", '{"city":"Rome"}'
+        )
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = _make_adapter(turn1_events)
+    adapter.response_timeout = 0.5
+
+    # --- Turn 1 ---
+    returned1 = _normalize(await adapter.call(_FakeInput()))  # type: ignore[arg-type]
+    calls1 = _all_tool_calls(returned1)
+    assert len(calls1) == 1, (
+        f"AC8 turn-1: expected 1 tool_call, got {calls1}"
+    )
+    assert calls1[0]["function"]["name"] == "get_weather"
+
+    # --- Swap WS to an audio-only turn ---
+    adapter._ws = _MockWS(_audio_delta_events())
+
+    # --- Turn 2 ---
+    returned2 = await adapter.call(_FakeInput())  # type: ignore[arg-type]
+
+    # Audio-only turn returns a single dict (base adapter shape).
+    assert isinstance(returned2, dict), (
+        f"AC8 turn-2: expected single dict, got {type(returned2)}"
+    )
+    assert "tool_calls" not in returned2, (
+        "AC8 turn-2: tool_calls bled from turn 1 into turn 2"
+    )
+
+    # Accumulator was cleared by turn 2's reset.
+    assert adapter._completed_tool_calls == [], (
+        "AC8: _completed_tool_calls not cleared after turn 2"
+    )
+
+
+@pytest.mark.asyncio
+async def test_issue646_empty_turn_still_times_out():
+    """
+    AC9: a turn with response.created + response.done but NO function-call events
+    and NO audio must still raise asyncio.TimeoutError.
+
+    This proves the discriminator is the non-empty _completed_tool_calls
+    accumulator, not response.done alone — an empty accumulator cannot terminate
+    the turn early.
+    """
+    events = [
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.done"}),
+    ]
+    adapter = _make_adapter(events)
+    adapter.response_timeout = 0.5
+
+    with pytest.raises(asyncio.TimeoutError):
+        await adapter.call(_FakeInput())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_issue646_tool_only_malformed_args_degrade():
+    """
+    AC10: malformed (non-JSON) arguments on a tool-only (no-audio) path are
+    surfaced verbatim — the call is NOT dropped, does NOT raise, and
+    arguments == the raw string (per the #635 contract, mirroring test_ac7a).
+    """
+    events = (
+        [json.dumps({"type": "response.created"})]
+        + _function_call_item_events("call_bad", "do_thing", "not json {{{")
+        + [json.dumps({"type": "response.done"})]
+    )
+    adapter = _make_adapter(events)
+    adapter.response_timeout = 0.5
+
+    # Must NOT raise even on the no-audio path.
+    returned = _normalize(await adapter.call(_FakeInput()))  # type: ignore[arg-type]
+
+    calls = _all_tool_calls(returned)
+    assert len(calls) == 1, (
+        f"AC10: expected 1 tool_call (malformed args surfaced), got {calls}"
+    )
+    tc = calls[0]
+    assert tc["function"]["name"] == "do_thing"
+    # Raw string passed through verbatim — no silent dropping, no re-raise.
+    assert tc["function"]["arguments"] == "not json {{{"
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(tc["function"]["arguments"])
