@@ -460,6 +460,18 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
             this._finalizeToolCall(fc.call_id, fc.name, fc.arguments);
           }
         }
+      } else if (etype === "response.done" || etype === "response.cancelled") {
+        // Issue #646: a tool-only turn (function call, NO audio delta) would
+        // otherwise loop here forever and hit the receiveAudio timeout — the
+        // accumulated tool call is parsed but never returned. When the response
+        // is done and >=1 tool call has been finalized this turn, return an
+        // empty chunk so the base drain (drainAgentResponse) terminates cleanly
+        // and call() surfaces the role:"tool" message. A genuinely empty turn
+        // (done + EMPTY accumulator) must still fall through to the timeout —
+        // the non-empty accumulator is the discriminator, NOT response.done alone.
+        if (this._completedToolCalls.length > 0) {
+          return new AudioChunk({ data: new Uint8Array(0) });
+        }
       } else if (etype === "error") {
         const errDetail =
           (event as { error?: { message?: string } }).error ?? {};
