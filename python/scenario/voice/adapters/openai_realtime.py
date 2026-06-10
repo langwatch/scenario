@@ -505,6 +505,8 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # message. A genuinely empty turn (done + EMPTY accumulator) must still
                 # fall through to the timeout — the non-empty accumulator is the
                 # discriminator, NOT response.done alone.
+                # (Distinct from the drain-re-entry empty-chunk path above at the
+                # _response_ever_active guard, which handles a COMPLETED prior response.)
                 if self._completed_tool_calls:
                     return AudioChunk(data=b"")
 

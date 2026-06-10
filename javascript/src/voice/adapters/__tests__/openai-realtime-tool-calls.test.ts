@@ -380,7 +380,7 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     });
   });
 
-  it("#646 (AC4) — output-item form terminates a tool-only turn", async () => {
+  it("#646 (AC4, variant) — output-item form terminates a tool-only turn", async () => {
     const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
     adapter.responseTimeout = 0.5;
 
@@ -431,6 +431,8 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     const messages = await runTurn(adapter, () => {
       pushAudioDelta();
       pushStreamingCall("call_co", "fetch", '{"k":"v"}');
+      // audio delta + tool call + explicit response.done — exercises the coexistence terminal (both messages must survive).
+      push({ type: "response.done" });
     });
 
     expect(messages.length).toBe(2);
@@ -470,19 +472,22 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     await adapter.connect();
     await socketReady;
     await waitForType("session.update");
+    let caught: unknown;
     try {
       // Empty turn: no audio, no function call — just response.done. The
       // accumulator stays empty, so the new terminal path does NOT fire and
       // the drain must still hit the receiveAudio timeout (proves the
       // discriminator is the non-empty accumulator, not response.done alone).
-      await expect(
-        feedAndCall(adapter, () => {
-          push({ type: "response.done" });
-        }),
-      ).rejects.toThrow("receiveAudio timed out");
+      await feedAndCall(adapter, () => {
+        push({ type: "response.done" });
+      });
+    } catch (e) {
+      caught = e;
     } finally {
       await adapter.disconnect();
     }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("receiveAudio timed out");
   });
 
   it("#646 (AC10) — malformed args degrade on a tool-only turn", async () => {
