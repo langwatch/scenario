@@ -2,7 +2,6 @@ import { MessagesSnapshotEvent } from "@ag-ui/core";
 import { ModelMessage } from "ai";
 
 import { generateMessageId } from "./ids";
-import { truncateBase64Media } from "../agents/judge/judge-utils";
 
 type AgUiMessage = MessagesSnapshotEvent["messages"][number];
 
@@ -93,17 +92,9 @@ export function convertModelMessagesToAguiMessages(
           toolCalls: toolCalls.map((c) => ({
             id: c.toolCallId,
             type: "function",
-            // Truncate base64 media nested in the tool-call input before it
-            // reaches the message-snapshot POST body. The Realtime API can pass
-            // base64 file/audio/image content as function arguments; without
-            // this a large/binary arg would leak wholesale to the backend.
-            // `c.input` is the already-parsed input object, so we truncate it
-            // directly (no JSON.parse needed) then serialize — the parity of
-            // the Python persistence arm, which runs args through the same
-            // `_truncate_base64_media`.
             function: {
               name: c.toolName,
-              arguments: JSON.stringify(truncateBase64Media(c.input)),
+              arguments: JSON.stringify(c.input),
             },
           })),
         });

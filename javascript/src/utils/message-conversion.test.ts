@@ -66,44 +66,6 @@ describe("convertModelMessagesToAguiMessages", () => {
     ]);
   });
 
-  it("truncates base64 media nested in tool-call arguments (T7 #635)", () => {
-    // The Realtime API can pass base64 file/audio/image content as function
-    // arguments. The persistence converter must truncate it so a large/binary
-    // blob does not serialize verbatim into the message-snapshot POST body.
-    const bigB64 = "A".repeat(5000);
-    const arr = [
-      {
-        type: "tool-call",
-        toolCallId: "t1",
-        toolName: "send_image",
-        input: { img: `data:image/png;base64,${bigB64}` },
-      },
-    ];
-    const input = [makeModelMessage({ role: "assistant", content: arr })];
-    const result = convertModelMessagesToAguiMessages(input);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const args = (result[0] as any).toolCalls[0].function.arguments as string;
-    // The base64 blob must NOT survive into the serialized arguments.
-    expect(args).not.toContain(bigB64);
-    // It is replaced by the human-readable media marker.
-    expect(args).toContain("[IMAGE: image/png");
-    // Still valid JSON (parse → marker value), not a mangled string.
-    expect(JSON.parse(args).img).toMatch(/^\[IMAGE: image\/png/);
-  });
-
-  it("leaves non-media tool-call arguments unchanged (T7 #635 regression)", () => {
-    const arr = [
-      { type: "tool-call", toolCallId: "t1", toolName: "fn", input: { foo: 1 } },
-    ];
-    const input = [makeModelMessage({ role: "assistant", content: arr })];
-    const result = convertModelMessagesToAguiMessages(input);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((result[0] as any).toolCalls[0].function.arguments).toBe(
-      JSON.stringify({ foo: 1 })
-    );
-  });
-
   it("converts a tool message with multiple parts", () => {
     const arr = [
       { type: "tool-result", toolName: "tool1", toolCallId: "t1", output: { type: "json", value: { foo: "bar" } } },

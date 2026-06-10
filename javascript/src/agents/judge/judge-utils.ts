@@ -9,7 +9,7 @@ import { ModelMessage } from "ai";
  * @param value - Any value to process
  * @returns Value with base64 media replaced by markers
  */
-export function truncateBase64Media(value: unknown): unknown {
+function truncateBase64Media(value: unknown): unknown {
   if (typeof value === "string") {
     // Handle data URLs
     const dataUrlMatch = value.match(
