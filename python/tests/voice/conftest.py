@@ -158,9 +158,36 @@ def requires_llm():
 
 @pytest.fixture
 def requires_pipecat_bot():
-    """Ensure a Pipecat-compatible bot is on :8765, auto-starting if needed."""
-    if not _tcp_port_open("localhost", 8765):
-        _start_pipecat_bot()
+    """Ensure a Pipecat-compatible bot is on :8765, with liveness check + auto-restart.
+
+    If the bot was previously started but has since crashed, we restart it and
+    fail the current test so the operator knows the infrastructure hiccuped —
+    subsequent tests will find a healthy bot and run normally.
+    """
+    import logging
+
+    bot_was_known_running = (
+        _bot_process is not None and _bot_process.poll() is None
+    )
+    port_open = _tcp_port_open("localhost", 8765, timeout=0.5)
+
+    if not port_open:
+        if bot_was_known_running:
+            # Bot died between tests — restart it, then fail this test so the
+            # operator knows it was an infrastructure failure, not a test bug.
+            logging.getLogger("scenario.voice").warning(
+                "Pipecat stub bot (:8765) died between tests; restarting for "
+                "subsequent tests."
+            )
+            _start_pipecat_bot()
+            pytest.fail(
+                "[infrastructure] Pipecat stub bot died mid-suite and was restarted. "
+                "This test is an infrastructure failure, not a bug in the code under test. "
+                "Subsequent tests should run normally with the restarted bot."
+            )
+        else:
+            # Bot was never started — auto-provision it (nominal path).
+            _start_pipecat_bot()
 
 
 @pytest.fixture

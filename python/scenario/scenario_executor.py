@@ -903,7 +903,10 @@ class ScenarioExecutor:
                 return messages
         except Exception as e:
             agent_name = agent.__class__.__name__
-            raise RuntimeError(f"[{agent_name}] {e}") from e
+            # str(e) is empty for no-args exceptions like asyncio.TimeoutError().
+            # Fall back to the exception type name so the error body is never blank.
+            error_detail = str(e) or type(e).__name__
+            raise RuntimeError(f"[{agent_name}] {error_detail}") from e
 
     def _scenario_name(self):
         if self.config.verbose == 2:
@@ -1524,6 +1527,16 @@ class ScenarioExecutor:
             if self.config.verbose:
                 print_openai_messages(self._scenario_name(), [message])
             return
+
+        # Gap 1 (AC9/AC10): signal the voice adapter that an agent turn is about
+        # to be dispatched. This per-turn flag lets recv_audio fire a bare
+        # response.create for agent-initiated turns (no user audio committed) —
+        # both the opening turn AND subsequent agent turns in multi-turn scripts.
+        # Guards with hasattr so non-realtime adapters are unaffected.
+        if role == AgentRole.AGENT:
+            _notify = getattr(next_agent, "notify_agent_turn", None)
+            if callable(_notify):
+                _notify()
 
         result = await self._call_agent(
             idx, role=role, judgment_request=judgment_request

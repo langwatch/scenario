@@ -4,7 +4,7 @@ Utilities for the Judge agent.
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -102,6 +102,81 @@ def _truncate_base64_media(value: Any) -> Any:
     return deep_transform(value, transform_fn)
 
 
+def _render_tool_arguments(arguments: Any) -> str:
+    """
+    Renders a tool call's ``arguments`` for the judge transcript, truncating any
+    base64 media nested inside.
+
+    ``arguments`` arrives either as a JSON string (the OpenAI wire shape) or as an
+    already-parsed dict. We parse strings so that ``_truncate_base64_media`` can
+    reach data-URL values nested in the args, then re-serialize.
+
+    NEVER raises: malformed JSON falls back to defensively truncating the raw
+    string. ``build_transcript_from_messages`` runs on every judge call, so an
+    exception here would break all judging.
+    """
+    # Absent arguments: render explicit JSON null. Guarding here keeps the
+    # None case from depending on the incidental ``json.dumps(None) == "null"``
+    # behaviour of the non-str branch below (which would also funnel None into
+    # ``_truncate_base64_media``). Distinct from ``""``/``"{}"``, which are real
+    # JSON-string inputs handled by the parse path.
+    if arguments is None:
+        return "null"
+
+    # Already-parsed dict/list: truncate in place and serialize.
+    if not isinstance(arguments, str):
+        return json.dumps(_truncate_base64_media(arguments))
+
+    # JSON string: parse so truncation reaches nested data-URL values, then
+    # re-serialize. On parse failure, truncate the raw string defensively.
+    try:
+        parsed = json.loads(arguments)
+    except (ValueError, TypeError):
+        return json.dumps(_truncate_base64_media(arguments))
+
+    return json.dumps(_truncate_base64_media(parsed))
+
+
+def _build_tool_call_id_to_name(
+    messages: List[ChatCompletionMessageParam],
+) -> Dict[str, str]:
+    """
+    First pass over the messages: map every assistant ``tool_calls[].id`` to its
+    ``function.name`` so that paired ``role:"tool"`` result messages — which carry
+    only ``tool_call_id`` and no name — can be attributed to their function.
+    """
+    id_to_name: Dict[str, str] = {}
+    for msg in messages:
+        tool_calls = msg.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            call_id = call.get("id")
+            function = call.get("function")
+            name = function.get("name") if isinstance(function, dict) else None
+            if isinstance(call_id, str) and isinstance(name, str):
+                id_to_name[call_id] = name
+    return id_to_name
+
+
+def _render_tool_call(call: Any) -> Optional[str]:
+    """
+    Renders one assistant tool call as ``<name>(<truncated-args>)``. Returns None
+    when the entry is not a usable tool-call dict.
+    """
+    if not isinstance(call, dict):
+        return None
+    function = call.get("function")
+    name = function.get("name") if isinstance(function, dict) else None
+    if not isinstance(name, str):
+        name = "unknown"
+    arguments = function.get("arguments") if isinstance(function, dict) else None
+    rendered_args = _render_tool_arguments(arguments)
+    return f"{name}({rendered_args})"
+
+
 class JudgeUtils:
     """Utilities for the Judge agent."""
 
@@ -112,7 +187,11 @@ class JudgeUtils:
         """
         Builds a minimal transcript from messages for judge evaluation.
 
-        Truncates base64 media to reduce token usage.
+        Truncates base64 media to reduce token usage. Renders assistant tool
+        calls inline (``[tool_call: name(args)]``) and attributes ``role:"tool"``
+        result messages to their originating function via a ``tool_call_id`` →
+        name map, so tool usage is visible to the judge instead of collapsing to
+        a bare ``assistant: null`` line.
 
         Args:
             messages: Array of ChatCompletionMessageParam from conversation
@@ -120,10 +199,43 @@ class JudgeUtils:
         Returns:
             Plain text transcript with one message per line
         """
+        id_to_name = _build_tool_call_id_to_name(messages)
+
         lines = []
         for msg in messages:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
             truncated_content = _truncate_base64_media(content)
+
+            tool_calls = msg.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                # Assistant turn with tool calls. Render one [tool_call: ...]
+                # segment per call, in emission order, alongside any text content.
+                # When content is None/empty (the common pure-tool-call shape),
+                # omit the bare `null`/`""` so the line never reads `assistant: null`.
+                rendered_calls = [
+                    f"[tool_call: {rendered}]"
+                    for call in tool_calls
+                    if (rendered := _render_tool_call(call)) is not None
+                ]
+                segments: List[str] = []
+                if content not in (None, ""):
+                    segments.append(json.dumps(truncated_content))
+                segments.extend(rendered_calls)
+                lines.append(f"{role}: {' '.join(segments)}")
+                continue
+
+            if role == "tool":
+                # Tool result. Resolve the originating function name from the
+                # id->name map built in the first pass.
+                tool_call_id = msg.get("tool_call_id")
+                name = (
+                    id_to_name.get(tool_call_id)
+                    if isinstance(tool_call_id, str)
+                    else None
+                ) or "unknown"
+                lines.append(f"tool ({name}): {json.dumps(truncated_content)}")
+                continue
+
             lines.append(f"{role}: {json.dumps(truncated_content)}")
         return "\n".join(lines)
