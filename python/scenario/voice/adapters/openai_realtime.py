@@ -29,7 +29,9 @@ import base64
 import json
 import logging
 import os
-from typing import Any, ClassVar, List, Optional
+from typing import Any, ClassVar, List, Optional, cast
+
+from openai.types.chat import ChatCompletionMessageParam
 
 from ...config.voice_models import OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL
 from ...types import AgentInput, AgentReturnTypes, AgentRole
@@ -604,12 +606,15 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
 
         # One assistant message carrying ALL of this turn's tool calls — the
         # conventional OpenAI shape (one assistant turn, many tool_calls).
-        tool_call_message: dict[str, Any] = {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": list(self._completed_tool_calls),
-        }
-        return [audio_message, tool_call_message]
+        tool_call_message: ChatCompletionMessageParam = cast(
+            ChatCompletionMessageParam,
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": list(self._completed_tool_calls),
+            },
+        )
+        return [cast(ChatCompletionMessageParam, audio_message), tool_call_message]
 
     async def _drain_agent_response(
         self, on_first_chunk=None
