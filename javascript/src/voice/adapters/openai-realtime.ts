@@ -24,13 +24,43 @@
  *   `response.create`.
  */
 
+import type { ModelMessage, ToolModelMessage, ToolResultPart } from "ai";
 import WebSocket, { type RawData } from "ws";
+import type { AgentReturnTypes, AgentInput } from "../../domain/agents";
 
 import { AgentRole } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
+
+// LOG_LEVEL-gated logger so the degraded-path debug line below doesn't bypass
+// the repo Logger (the rest of this file has zero direct console calls).
+// Silent by default for library callers; matches how the Twilio adapter routes
+// its operational signals through a Logger instead of bare console.* calls.
+const logger = Logger.create("OpenAIRealtimeAgentAdapter");
+
+/**
+ * One logical realtime function call, accumulated across the several wire
+ * events that describe it (Issue #630). `name`/`args` fill in as the
+ * streaming-args deltas and the output-item shell arrive; `args` is the raw
+ * JSON arguments STRING (never parsed-and-reraised — AC7).
+ */
+interface ToolCallAccumulator {
+  name: string | null;
+  args: string;
+}
+
+/** A finalized realtime function call for the current turn (Issue #630). */
+interface CompletedToolCall {
+  /** The Realtime `call_id`, used as the AI-SDK `toolCallId`. */
+  id: string;
+  /** Function name (`""` if the wire never carried one). */
+  name: string;
+  /** Raw JSON arguments string — `"{}"` when absent, verbatim when malformed. */
+  arguments: string;
+}
 
 const REALTIME_URL_TEMPLATE = "wss://api.openai.com/v1/realtime?model={model}";
 
@@ -124,6 +154,19 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   private _waitReject: ((err: Error) => void) | null = null;
   private _closeReason: Error | null = null;
 
+  // --- Issue #630: realtime function-call (tool-call) surfacing ---
+  // In-progress function calls keyed by call_id, assembled from the streaming
+  // `response.function_call_arguments.delta`/`.done` events and the
+  // `response.output_item.added`/`.done` (function_call item) events.
+  // receiveAudio() returns an AudioChunk, so it can't carry tool calls in its
+  // return value — instead the function-call branches accumulate here and the
+  // overridden call() drains them into the run's messages.
+  private _toolCallAccumulators = new Map<string, ToolCallAccumulator>();
+  // Finalized calls for the CURRENT turn, in arrival order. Reset at the start
+  // of each call() so calls never leak across turns (mirrors the transcript
+  // reset). De-duplicated on call_id so each call yields exactly one entry (AC6).
+  private _completedToolCalls: CompletedToolCall[] = [];
+
   constructor(init: OpenAIRealtimeAgentAdapterInit = {}) {
     super();
     this.model = init.model ?? OPENAI_REALTIME_MODEL;
@@ -149,8 +192,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     );
   }
 
-  // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
-  // runtime drives the audio loop (Gap #11). No leaf-level override.
+  // call() is overridden below (Issue #630) to append realtime tool calls
+  // after the inherited audio turn. The audio loop itself is still driven by
+  // the base defaultVoiceCall via super.call() (Gap #11).
 
   // ------------------------------------------------------------ lifecycle
 
@@ -376,6 +420,46 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       ) {
         this.lastUserTranscript =
           (event as { transcript?: string }).transcript ?? "";
+      } else if (etype === "response.function_call_arguments.delta") {
+        // Issue #630: streaming arguments fragment for a function call.
+        // Accumulate per call_id; finalized on `.done` or the output_item form.
+        const e = event as { call_id?: string; delta?: string };
+        this._accumulateToolCallDelta(e.call_id ?? "", e.delta ?? "");
+      } else if (etype === "response.function_call_arguments.done") {
+        // Issue #630: streaming-args path complete. `name` is typically NOT on
+        // this event (it arrives via the output_item) — resolved from the
+        // accumulator inside finalize. A missing call_id degrades safely (AC7).
+        const e = event as {
+          call_id?: string;
+          name?: string;
+          arguments?: string;
+        };
+        this._finalizeToolCall(e.call_id, e.name, e.arguments);
+      } else if (
+        etype === "response.output_item.added" ||
+        etype === "response.output_item.done"
+      ) {
+        // Issue #630: the output-item form carries the authoritative `name` +
+        // `call_id` (and, on `.done`, the full `arguments`). Non-function items
+        // (e.g. an audio message item) are benign housekeeping — fall through.
+        const item =
+          (event as { item?: { type?: string } }).item ?? {};
+        if (item && item.type === "function_call") {
+          const fc = item as {
+            call_id?: string;
+            name?: string;
+            arguments?: string;
+          };
+          if (etype === "response.output_item.added") {
+            // Shell arrives before args stream — record the name so a later
+            // delta/done can attach to it. Do not finalize yet.
+            this._noteToolCallName(fc.call_id ?? "", fc.name);
+          } else {
+            // `.done`: authoritative full call. Finalize (idempotent on call_id
+            // — merges with any streaming-args entry, AC6).
+            this._finalizeToolCall(fc.call_id, fc.name, fc.arguments);
+          }
+        }
       } else if (etype === "error") {
         const errDetail =
           (event as { error?: { message?: string } }).error ?? {};
@@ -384,6 +468,174 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       }
       // Housekeeping events (session.created, response.created, ...) are
       // ignored and the loop continues.
+    }
+  }
+
+  // ------------------------------------------------------------- tool calls
+  // Issue #630: surface OpenAI Realtime function-call events into the run's
+  // messages. The Realtime wire describes ONE logical call across several
+  // events (`response.function_call_arguments.delta` × N → `.done`, and/or
+  // `response.output_item.added`/`.done` carrying the function_call item). We
+  // accumulate per call_id, finalize into `_completedToolCalls`, de-duplicating
+  // so each call_id yields exactly one call (AC6).
+  //
+  // NOTE on the surfaced shape (AC4 / AC11): the JS consumer
+  // (`ScenarioExecutionState.hasToolCall` / `lastToolCall`) recognizes a tool
+  // call ONLY as a `role:"tool"` message whose content has a part
+  // `{ type:"tool-result", toolName: T }` (the AI-SDK `ToolModelMessage`
+  // shape). So to make a realtime tool-call REQUEST visible we emit that
+  // `tool-result` shape — but its `output` is just the call's ARGUMENTS, a
+  // placeholder for the request, NOT a real tool-execution result (the result
+  // round-trip is out of scope, AC11). This is the JS-native way to make the
+  // call visible to `hasToolCall`.
+
+  /** Append a streaming arguments fragment for `callId`. */
+  private _accumulateToolCallDelta(callId: string, delta: string): void {
+    const acc = this._getOrCreateAccumulator(callId);
+    acc.args += delta ?? "";
+  }
+
+  /** Record the function name for `callId` (the output-item shell event). */
+  private _noteToolCallName(callId: string, name?: string): void {
+    if (!name) return;
+    const acc = this._getOrCreateAccumulator(callId);
+    acc.name = name;
+  }
+
+  private _getOrCreateAccumulator(callId: string): ToolCallAccumulator {
+    let acc = this._toolCallAccumulators.get(callId);
+    if (!acc) {
+      acc = { name: null, args: "" };
+      this._toolCallAccumulators.set(callId, acc);
+    }
+    return acc;
+  }
+
+  /**
+   * Resolve one logical function call into `_completedToolCalls`.
+   *
+   * Idempotent on `callId` (AC6): the streaming-args path and the output-item
+   * path both describe the SAME call, so a second finalize for an already-
+   * completed `callId` MERGES (fills a missing name / upgrades to a more
+   * complete arguments string) rather than appending a duplicate.
+   *
+   * Degrades safely (AC7): a finalize with NO `callId` is skipped with a debug
+   * log and emits nothing. Missing arguments become `"{}"`; a malformed
+   * (non-JSON) arguments string is passed through verbatim — never
+   * parsed-and-reraised here.
+   */
+  private _finalizeToolCall(
+    callId: string | undefined,
+    name?: string,
+    args?: string,
+  ): void {
+    if (!callId) {
+      // AC7 degraded path: no call_id to key the call on. Skip, don't throw.
+      logger.debug(
+        "OpenAIRealtimeAgentAdapter: function-call event with no call_id; " +
+          "skipping (AC7 degraded path)",
+      );
+      return;
+    }
+
+    const acc = this._toolCallAccumulators.get(callId);
+    const resolvedName = name || acc?.name || "";
+    // Most complete arguments source: explicit (item/done) arg if non-empty,
+    // else the accumulated streaming deltas, else "{}".
+    const candidates = [args, acc?.args];
+    let resolvedArgs = candidates.find((c) => c != null && c !== "");
+    if (resolvedArgs == null) resolvedArgs = "{}";
+
+    // De-dup / merge on call_id (AC6).
+    const existing = this._completedToolCalls.find((c) => c.id === callId);
+    if (existing) {
+      if (!existing.name && resolvedName) existing.name = resolvedName;
+      // Upgrade to a longer/more-complete arguments string if the new source
+      // carries more (item arguments arriving after the streaming deltas).
+      if (
+        resolvedArgs !== "" &&
+        resolvedArgs !== "{}" &&
+        resolvedArgs.length > existing.arguments.length
+      ) {
+        existing.arguments = resolvedArgs;
+      }
+      return;
+    }
+
+    this._completedToolCalls.push({
+      id: callId,
+      name: resolvedName,
+      arguments: resolvedArgs,
+    });
+  }
+
+  /**
+   * Surface realtime tool calls alongside the spoken audio turn (#630).
+   *
+   * The base `call()` (defaultVoiceCall) returns a single assistant audio
+   * message and does all the recording bookkeeping. We keep that intact and,
+   * when the agent called any tools this turn, append ONE extra `role:"tool"`
+   * message carrying every call as AI-SDK `tool-result` parts — the shape
+   * `state.hasToolCall` / `state.lastToolCall` consume (AC4).
+   *
+   * Returns:
+   * - the single audio message when no tools were called — byte-identical to
+   *   the base behaviour (AC8 regression), OR
+   * - `[audioMessage, toolMessage]` when ≥1 tool was called (AC4/AC10).
+   *   `convertAgentReturnTypesToMessages` passes a list through verbatim into
+   *   the run's messages.
+   *
+   * Per-turn tool state is reset HERE (turn start) so tool calls never leak
+   * across turns; the function-call events for THIS turn are consumed inside
+   * `super.call()`'s drain and finalized onto `_completedToolCalls`.
+   */
+  override async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Reset per-turn tool-call state so a prior turn's calls don't bleed
+    // through (mirrors the transcript reset in the drain path).
+    this._completedToolCalls = [];
+    this._toolCallAccumulators = new Map();
+
+    const audioMessage = await super.call(input);
+
+    if (this._completedToolCalls.length === 0) {
+      return audioMessage;
+    }
+
+    return [audioMessage as ModelMessage, this._buildToolMessage()];
+  }
+
+  /**
+   * Build the JS-native `ToolModelMessage` (`role:"tool"`) carrying every
+   * completed call of the turn as a `tool-result` part — the exact shape
+   * `hasToolCall`/`lastToolCall` match (`part.type === "tool-result" &&
+   * part.toolName === T`). Multiple distinct calls → multiple parts (AC10).
+   *
+   * Each part's `output` is the call's ARGUMENTS (parsed to a JSON value when
+   * valid, raw string otherwise — AC7), a placeholder for the REQUEST. It is
+   * NOT a real tool-execution result; the result round-trip is out of scope
+   * (AC11). The consumer only inspects `type` + `toolName`, so any valid
+   * `ToolResultOutput` keeps the call visible.
+   */
+  private _buildToolMessage(): ToolModelMessage {
+    const content: ToolResultPart[] = this._completedToolCalls.map((tc) => ({
+      type: "tool-result" as const,
+      toolCallId: tc.id,
+      toolName: tc.name,
+      output: this._argsToOutput(tc.arguments),
+    }));
+    return { role: "tool", content };
+  }
+
+  /**
+   * Wrap the raw arguments string in an AI-SDK `ToolResultOutput`. Valid JSON
+   * becomes `{ type:"json", value }`; a malformed/raw string is surfaced
+   * verbatim as `{ type:"text", value }` (AC7 — no parse-and-reraise).
+   */
+  private _argsToOutput(args: string): ToolResultPart["output"] {
+    try {
+      return { type: "json", value: JSON.parse(args) };
+    } catch {
+      return { type: "text", value: args };
     }
   }
 

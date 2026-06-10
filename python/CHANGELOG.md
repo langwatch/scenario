@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.30](https://github.com/langwatch/scenario/compare/python/v0.7.29...python/v0.7.30) (2026-06-10)
+
+
+### Bug Fixes
+
+* **voice+judge:** surface dropped model tool calls ([#630](https://github.com/langwatch/scenario/issues/630) + [#631](https://github.com/langwatch/scenario/issues/631)) ([#635](https://github.com/langwatch/scenario/issues/635)) ([de60f82](https://github.com/langwatch/scenario/commit/de60f82c2dadc20d2081bf4f3cbbd3c332442070))
+
 ## [0.7.29](https://github.com/langwatch/scenario/compare/python/v0.7.28...python/v0.7.29) (2026-06-09)
 
 

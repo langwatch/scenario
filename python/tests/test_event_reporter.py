@@ -1,4 +1,5 @@
 import httpx
+import json
 import pytest
 import respx
 import logging
@@ -293,3 +294,98 @@ def test_redacted_event_repr_scrubs_b64_inside_stringified_content() -> None:
 
     assert big_b64 not in rendered
     assert "<audio:" in rendered
+
+
+@pytest.mark.asyncio
+async def test_message_snapshot_post_carries_tool_call_structured_not_flattened(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC3a (#630): a realtime tool-call message must round-trip into the
+    outbound SCENARIO_MESSAGE_SNAPSHOT POST as
+    ``messages[].tool_calls[].function.{name,arguments}`` — structured, not a
+    text-flattened marker baked into ``content``.
+
+    The #630 adapter fix now emits the realtime tool call as an OpenAI-shaped
+    assistant message with ``tool_calls`` (content ``None``). This test drives
+    that raw shape through the REAL persistence mapper
+    (``convert_messages_to_api_client_messages``) into a
+    ``ScenarioMessageSnapshotEvent`` and POSTs it via ``EventReporter`` with a
+    mocked HTTP layer, then asserts on the serialized wire body. We feed the raw
+    OpenAI dict (NOT a hand-built ``ToolCall``) so the test proves the mapper
+    itself handles the realtime tool-call shape.
+    """
+    from scenario._events.events import ScenarioMessageSnapshotEvent
+    from scenario._events.utils import convert_messages_to_api_client_messages
+
+    expected_args = {"x": 1}
+    # Raw OpenAI-shaped assistant message, exactly as the #630 realtime adapter
+    # fix produces it: content is None, the tool call lives under `tool_calls`.
+    raw_messages = [
+        {
+            "id": "msg-tool-1",
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "T",
+                        "arguments": json.dumps(expected_args),
+                    },
+                }
+            ],
+        }
+    ]
+
+    # (a) Exercise the REAL mapper and assert it produced a structured ToolCall.
+    api_messages = convert_messages_to_api_client_messages(raw_messages)  # type: ignore[arg-type]
+    assert len(api_messages) == 1
+    mapped = api_messages[0]
+    assert mapped.tool_calls is not None  # type: ignore[union-attr]
+    assert mapped.tool_calls[0].function.name == "T"  # type: ignore[union-attr]
+    assert json.loads(mapped.tool_calls[0].function.arguments) == expected_args  # type: ignore[union-attr]
+
+    event = ScenarioMessageSnapshotEvent(
+        batch_run_id="batch-1",
+        scenario_id="scenario-1",
+        scenario_run_id="run-1",
+        messages=api_messages,
+        timestamp=int(time.time() * 1000),
+    )
+
+    monkeypatch.setenv("LANGWATCH_ENDPOINT", "https://app.langwatch.ai")
+    monkeypatch.setenv("LANGWATCH_API_KEY", "sk-test")
+    reporter = EventReporter()
+
+    with respx.mock as mock:
+        route = mock.post("https://app.langwatch.ai/api/scenario-events").respond(
+            200, json={"ok": True}
+        )
+        await reporter.post_event(event)
+
+        assert route.called
+        # (b) Assert on the actual serialized POST body that goes over the wire.
+        request: httpx.Request = route.calls[0].request
+        body = json.loads(request.content)
+        assert body["type"] == "SCENARIO_MESSAGE_SNAPSHOT"
+
+        posted_message = body["messages"][0]
+        # The generated API model serializes tool calls under the camelCase
+        # `toolCalls` wire key (see PostApiScenarioEventsBodyType2MessagesItemType2.to_dict).
+        tool_calls = posted_message["toolCalls"]
+        assert tool_calls[0]["type"] == "function"
+        assert tool_calls[0]["function"]["name"] == "T"
+        assert json.loads(tool_calls[0]["function"]["arguments"]) == expected_args
+
+        # NOT text-flattened: the tool call is structured under `toolCalls`, and
+        # no marker string for it leaks into `content`.
+        content = posted_message.get("content")
+        assert content in (None, "")
+        if isinstance(content, str):
+            assert "T" not in content
+            assert "tool" not in content.lower()
+        # Defensive: the literal arguments payload must not appear flattened in
+        # the serialized content of any posted message.
+        for message in body["messages"]:
+            assert json.dumps(expected_args) != message.get("content")
