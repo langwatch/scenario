@@ -6,8 +6,7 @@ level with exc_info instead of silently swallowed.
 
 import logging
 import pytest
-from typing import Any
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.voice.adapter import VoiceAgentAdapter
