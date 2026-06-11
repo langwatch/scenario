@@ -13,7 +13,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # Root cause: the user-audio branch at line 407–411 lacks the
   # `not self._response_active` guard already present on the agent-turn branch
   # at line 423.  The fix adds the guard and defers response.create by setting
-  # _agent_turn_pending=True so the agent-turn branch fires it after
+  # _deferred_response_create=True so the response.done handler fires it after
   # response.done clears _response_active.
   #
   # Scope guard (documented here, not a test scenario):
@@ -34,7 +34,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # AC1 — guard present: response.create suppressed while response is active
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Guard suppresses response.create when a response is already active
     # AC1: _response_active is True (mock pre-loaded with response.created, no
     # response.done yet).  Calling recv_audio with pending audio bytes must send
@@ -49,7 +49,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # AC2 — deferred response.create fires after response.done (ordering)
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Deferred response.create fires after response.done is yielded, with ordering asserted
     # AC2: after the guard fires (response active), the mock then yields
     # response.done.  response.create must appear in mock_ws.sent AFTER the
@@ -65,7 +65,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # AC3 — single commit, single create across the full event sequence
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Exactly one commit and one response.create appear across the full guarded sequence
     # AC3: across the full sequence (guard fires, response.done received, deferred
     # send fires), mock_ws.sent contains input_audio_buffer.commit exactly once
@@ -80,7 +80,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # AC4 — agent-turn branch unaffected
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Agent-turn branch still sends response.create exactly once when no response is active
     # AC4: recv_audio with _agent_turn_pending=True and _response_active=False
     # must still fire response.create exactly once — the guard must not bleed
@@ -94,7 +94,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # AC5 — no regression on normal path (no active response)
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Normal path sends commit then response.create when no response is active
     # AC5: _pending_audio_bytes > 0 and _response_active=False — the common
     # uncontested path.  Both commit and create must fire as before.
@@ -109,7 +109,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # AC6 — explicit rejection face raises RuntimeError (falsifiable)
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Explicit server rejection event raises RuntimeError
     # AC6: a _MockWS test that bypasses the guard (or runs against pre-fix code)
     # and injects the server error event "Conversation already has an active
@@ -125,7 +125,7 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   #        now returns a valid AudioChunk
   # ======================================================================
 
-  @unit
+  @integration
   Scenario: Previously-timing-out sequence resolves to a valid AudioChunk after the fix
     # AC7: construct the exact race that pre-fix caused asyncio.TimeoutError:
     # response.created is yielded (response in flight), user audio arrives
@@ -145,32 +145,32 @@ Feature: OpenAI Realtime adapter guards response.create against in-flight respon
   # --- AC Coverage Map ---
   # AC1 — guard present: recv_audio does NOT send response.create when
   #        _response_active is True and _pending_audio_bytes > 0 ->
-  #   Scenario: Guard suppresses response.create when a response is already active (@unit)
+  #   Scenario: Guard suppresses response.create when a response is already active (@integration)
   #
   # AC2 — response.create deferred, not dropped (ordering): after response.done
   #        clears _response_active, response.create IS sent, ordering asserted
   #        on mock_ws.sent index positions ->
-  #   Scenario: Deferred response.create fires after response.done is yielded, with ordering asserted (@unit)
+  #   Scenario: Deferred response.create fires after response.done is yielded, with ordering asserted (@integration)
   #
   # AC3 — single commit, single create: mock_ws.sent contains
   #        input_audio_buffer.commit exactly once and response.create exactly once ->
-  #   Scenario: Exactly one commit and one response.create appear across the full guarded sequence (@unit)
+  #   Scenario: Exactly one commit and one response.create appear across the full guarded sequence (@integration)
   #
   # AC4 — agent-turn branch unaffected: recv_audio with _agent_turn_pending=True
   #        and _response_active=False still sends response.create exactly once ->
-  #   Scenario: Agent-turn branch still sends response.create exactly once when no response is active (@unit)
+  #   Scenario: Agent-turn branch still sends response.create exactly once when no response is active (@integration)
   #
   # AC5 — no regression on normal path: _pending_audio_bytes > 0 and
   #        _response_active=False still sends commit then response.create as before ->
-  #   Scenario: Normal path sends commit then response.create when no response is active (@unit)
+  #   Scenario: Normal path sends commit then response.create when no response is active (@integration)
   #
   # AC6 — explicit rejection face (falsifiable): injected server error event
   #        raises RuntimeError; pytest.raises assertion ->
-  #   Scenario: Explicit server rejection event raises RuntimeError (@unit)
+  #   Scenario: Explicit server rejection event raises RuntimeError (@integration)
   #
   # AC7 — timeout face eliminated: sequence that pre-fix triggers
   #        asyncio.TimeoutError post-fix returns a valid AudioChunk without timing out ->
-  #   Scenario: Previously-timing-out sequence resolves to a valid AudioChunk after the fix (@unit)
+  #   Scenario: Previously-timing-out sequence resolves to a valid AudioChunk after the fix (@integration)
   #
   # AC-scope — manual VAD only: server-VAD sessions are OUT OF SCOPE.
   #        No scenario exercises server-VAD behaviour. Documented as a scope

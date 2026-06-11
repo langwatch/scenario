@@ -8,7 +8,7 @@ response.done/response.cancelled).  The agent-turn elif at ~line 423 already
 guards on ``not self._response_active``.
 
 Fix (NOT in this file): add the same guard to the user-audio branch and defer
-the create by setting ``_agent_turn_pending=True`` so it fires after
+the create by setting ``_deferred_response_create=True`` so it fires after
 response.done clears ``_response_active``.
 
 Test layout
@@ -125,16 +125,6 @@ class _MockWS:
         return -1
 
 
-def _audio_delta_events() -> List[str]:
-    """Normal audio-delta sequence ending with response.done."""
-    chunk = _b64_pcm(480)
-    return [
-        json.dumps({"type": "response.output_audio.delta", "delta": chunk}),
-        json.dumps({"type": "response.output_audio.delta", "delta": chunk}),
-        json.dumps({"type": "response.done"}),
-    ]
-
-
 def _make_adapter(events: List[str], *, short_timeout: bool = False) -> tuple[OpenAIRealtimeAgentAdapter, _MockWS]:
     """Build an adapter wired to a _MockWS pre-loaded with ``events``."""
     adapter = OpenAIRealtimeAgentAdapter(speaks_first=False)
@@ -153,14 +143,7 @@ def _make_adapter(events: List[str], *, short_timeout: bool = False) -> tuple[Op
 
 @pytest.mark.asyncio
 async def test_ac1_response_create_suppressed_while_response_active():
-    """
-    AC1: when _response_active is True (mock pre-loaded with response.created,
-    no response.done) and _pending_audio_bytes > 0, recv_audio must send
-    ``input_audio_buffer.commit`` but NOT ``response.create``.
-
-    Pre-fix: the user-audio branch fires response.create unconditionally.
-    Post-fix: the guard prevents it.
-    """
+    """AC1: recv_audio sends commit but NOT response.create when _response_active=True."""
     # response.created fires, but no response.done — response stays active.
     # Tail silence terminates the recv loop via TimeoutError from MockWS.
     events = [
@@ -179,7 +162,7 @@ async def test_ac1_response_create_suppressed_while_response_active():
     adapter._response_active = True
 
     # recv_audio will time out (no audio delta) — that's expected.
-    with pytest.raises((asyncio.TimeoutError, Exception)):
+    with pytest.raises((asyncio.TimeoutError, RuntimeError)):
         await adapter.recv_audio(timeout=0.2)
 
     # MUST have committed audio.
@@ -201,28 +184,7 @@ async def test_ac1_response_create_suppressed_while_response_active():
 
 @pytest.mark.asyncio
 async def test_ac2_deferred_response_create_fires_after_response_done():
-    """
-    AC2: After the guard fires (response active during commit), once the mock
-    yields response.done, response.create must NOT have been sent before the
-    recv loop processed response.done.
-
-    Pre-fix: response.create fires IMMEDIATELY in the user-audio branch preamble
-    (before the event loop starts) — so response.create count is already 1 when
-    the loop begins.
-
-    Post-fix: response.create count is 0 until after response.done is processed.
-    We detect the pre-fix shape by asserting response.create count == 0 at the
-    preamble boundary, proxied by: if _response_active=True pre-fix sends it
-    unconditionally, then the loop sees another response.created + audio delta
-    and also the agent-turn branch would fire ANOTHER one — giving count==2.
-    Post-fix: exactly 1 deferred create.
-
-    Simpler proxy: pre-fix fires response.create at index 1 (right after commit at
-    index 0) — before the event loop begins (index 0=commit, 1=create). Post-fix:
-    response.create appears at index >= 1 but ONLY after response.done was received,
-    meaning the recv loop ran first. We assert: if response.create appears at sent
-    index position 1 (immediately after commit, preamble), that's the pre-fix shape.
-    """
+    """AC2: deferred response.create appears in the interleaved log AFTER response.done is received."""
     chunk = _b64_pcm(480)
     # Sequence: response.done clears in-flight, then audio delta from deferred create.
     events = [
@@ -279,24 +241,7 @@ async def test_ac2_deferred_response_create_fires_after_response_done():
 
 @pytest.mark.asyncio
 async def test_ac3_exactly_one_commit_and_one_create():
-    """
-    AC3: across the full guarded sequence (guard fires, response.done received,
-    deferred send fires), mock_ws.sent contains input_audio_buffer.commit
-    exactly once and response.create exactly once.
-
-    Pre-fix: response.create fires in the user-audio branch preamble (count=1
-    before the event loop even starts). After the loop processes response.done
-    and response.created and audio delta, count is still 1 — but the preamble
-    create came BEFORE response.done was received.
-
-    The pre-fix falsification: after the preamble, count_of("response.create")==1
-    already. We assert this equals 0 at that point (proxy: total count must
-    equal 1 AND the only create must appear AFTER response.done was received,
-    i.e., not at index commit_idx+1).
-
-    Combined assertion: count==1 AND create is NOT at preamble position.
-    This mirrors AC1 + AC2 but proves the FULL sequence property.
-    """
+    """AC3: full guarded sequence produces exactly one commit and one response.create, ordered after response.done."""
     chunk = _b64_pcm(480)
     events = [
         # In-flight response completes.
@@ -346,12 +291,7 @@ async def test_ac3_exactly_one_commit_and_one_create():
 
 @pytest.mark.asyncio
 async def test_ac4_agent_turn_branch_still_fires_response_create():
-    """
-    AC4 (control — should PASS on current code): recv_audio with
-    _agent_turn_pending=True and _response_active=False must still fire
-    response.create exactly once. The guard must not bleed into the
-    agent-turn branch.
-    """
+    """AC4 (control): agent-turn branch fires response.create exactly once; guard does not bleed into it."""
     chunk = _b64_pcm(480)
     events = [
         json.dumps({"type": "response.created"}),
@@ -380,11 +320,7 @@ async def test_ac4_agent_turn_branch_still_fires_response_create():
 
 @pytest.mark.asyncio
 async def test_ac5_normal_path_commit_then_create():
-    """
-    AC5 (control — should PASS on current code): _pending_audio_bytes > 0
-    and _response_active=False (uncontested path). Both commit and create must
-    fire, and commit must appear before create.
-    """
+    """AC5 (control): normal uncontested path sends commit then response.create in order."""
     chunk = _b64_pcm(480)
     events = [
         json.dumps({"type": "response.created"}),
@@ -420,11 +356,7 @@ async def test_ac5_normal_path_commit_then_create():
 
 @pytest.mark.asyncio
 async def test_ac6_server_rejection_raises_runtime_error():
-    """
-    AC6: a mock that emits the server error event
-    "Conversation already has an active response in progress" must surface as
-    RuntimeError, not be swallowed.
-    """
+    """AC6: server error event "Conversation already has an active response in progress" surfaces as RuntimeError."""
     error_msg = "Conversation already has an active response in progress: resp_abc123"
     events = [
         json.dumps({"type": "error", "error": {"message": error_msg}}),
@@ -449,29 +381,7 @@ async def test_ac6_server_rejection_raises_runtime_error():
 
 @pytest.mark.asyncio
 async def test_ac7_race_sequence_returns_audio_chunk_not_timeout():
-    """
-    AC7: with a two-call sequence through call() that exercises the drain loop,
-    the pre-fix fires response.create twice (preamble + agent-turn branch),
-    post-fix fires exactly once (deferred after response.done).
-
-    We exercise this via two sequential recv_audio calls on the same adapter +
-    mock: call 1 has the race (_response_active=True + pending audio), call 2
-    is the drain re-entry. Pre-fix: call 1 preamble fires response.create
-    immediately; call 2 (agent-turn branch) fires it again → total == 2.
-    Post-fix: call 1 defers; call 2 fires exactly the deferred create → total == 1.
-
-    Actually: the simplest falsifiable shape is that pre-fix fires response.create
-    with count=1 on call 1 preamble (before the loop), then the loop reads events
-    and the test can observe that create happened before recv events were consumed.
-    We prove this via: after recv_audio returns, check that the number of sends
-    before the first recv event was processed is already 2 (commit + create in
-    preamble), proving it fired pre-loop.
-
-    Since we cannot observe "before first recv" post-hoc, we proxy this via AC1's
-    assertion: count_of("response.create") == 0 when _response_active=True. AC7
-    adds the "full sequence resolves to non-empty AudioChunk" assertion so that
-    both the guard AND the deferred firing are proven together.
-    """
+    """AC7: race sequence that pre-fix timed out now returns a non-empty AudioChunk; response.create ordered after response.done."""
     chunk = _b64_pcm(480)
     # Events: in-flight completes, deferred create acknowledged, audio delta.
     events = [
