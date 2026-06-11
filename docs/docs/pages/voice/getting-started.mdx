@@ -116,7 +116,7 @@ async def test_voice_agent_handles_billing_question():
         script=[
             scenario.agent(),
             scenario.user(),
-            scenario.proceed(turns=5),  # not reliable on hosted elevenLabsAgent — see multi-turn recipe
+            scenario.proceed(turns=5),
             scenario.judge(),
         ],
     )
@@ -178,7 +178,7 @@ describe("Voice agent — billing inquiry", () => {
         script: [
           scenario.agent(),
           scenario.user(),
-          scenario.proceed(5),  // not reliable on hosted elevenLabsAgent — see multi-turn recipe
+          scenario.proceed(5),
           scenario.judge(),
         ],
       });
