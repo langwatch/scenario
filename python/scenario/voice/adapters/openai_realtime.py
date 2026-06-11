@@ -406,9 +406,17 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # If send_audio was called since last recv, commit and request response.
         if self._pending_audio_bytes > 0:
             await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
-            await self._ws.send(json.dumps({"type": "response.create"}))
             self._pending_audio_bytes = 0
-            self._agent_turn_pending = False  # user spoke → per-turn signal consumed
+            if self._response_active:
+                # Race guard (#657): server rejects/ignores a duplicate
+                # response.create while a response is in flight, which causes the
+                # recv loop to drain to timeout instead of completing.  Defer by
+                # re-arming _agent_turn_pending so the response.done handler below
+                # fires response.create as soon as the in-flight response clears.
+                self._agent_turn_pending = True
+            else:
+                await self._ws.send(json.dumps({"type": "response.create"}))
+                self._agent_turn_pending = False  # user spoke → per-turn signal consumed
 
         # Gap 1: agent-speaks-first / multi-turn agent initiation.
         # When the executor signals an agent turn via notify_agent_turn() and
@@ -499,6 +507,13 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # Response finished or was cancelled — mark it so the next
                 # drain re-entry returns an empty chunk (clean exit).
                 self._response_active = False
+                # Issue #657: if user audio was committed while a response was
+                # in flight, _agent_turn_pending was set as a deferral flag.
+                # Now that _response_active is cleared, fire the deferred create.
+                if self._agent_turn_pending:
+                    await self._ws.send(json.dumps({"type": "response.create"}))
+                    self._agent_turn_pending = False
+                    self._response_active = True
                 # Issue #646: a tool-only turn (function call, NO audio delta) would
                 # otherwise loop here to the deadline and raise — the accumulated tool
                 # call is parsed but never returned. When the response is done and at

@@ -61,24 +61,29 @@ class _MockWS:
     ``recv()`` pops pre-loaded JSON event strings in order; once exhausted it
     raises asyncio.TimeoutError (tail silence).  ``send()`` is recorded in
     ``self.sent`` as a list of parsed dicts so callers can inspect event types.
+
+    ``log`` is a single interleaved chronological sequence of
+    ``("sent", type_str)`` and ``("recv", type_str)`` tuples — one entry per
+    adapter send and one per mock yield.  This allows true ordering assertions
+    (e.g. "response.create was not sent before response.done was received")
+    without relying on send-only position proxies.
     """
 
     def __init__(self, events: List[str]) -> None:
         self._events = list(events)
         self._idx = 0
         self.sent: List[Any] = []
-        # Also track raw send order as (index, parsed_dict) for AC2 ordering.
-        self.sent_indexed: List[tuple[int, dict]] = []
-        self._send_counter = 0
+        # Interleaved chronological log: ("sent"|"recv", type_str)
+        self.log: List[tuple[str, str]] = []
 
     async def send(self, msg: Any) -> None:
         self.sent.append(msg)
         try:
-            parsed = json.loads(msg) if isinstance(msg, str) else msg
+            d = json.loads(msg) if isinstance(msg, str) else msg
+            t = d.get("type", "")
         except Exception:
-            parsed = {"_raw": msg}
-        self.sent_indexed.append((self._send_counter, parsed))
-        self._send_counter += 1
+            t = ""
+        self.log.append(("sent", t))
 
     async def recv(self) -> str:
         if self._idx >= len(self._events):
@@ -86,6 +91,11 @@ class _MockWS:
             raise asyncio.TimeoutError("mock WS: no more events")
         evt = self._events[self._idx]
         self._idx += 1
+        try:
+            t = json.loads(evt).get("type", "")
+        except Exception:
+            t = ""
+        self.log.append(("recv", t))
         return evt
 
     async def close(self) -> None:
@@ -95,17 +105,10 @@ class _MockWS:
 
     def sent_types(self) -> List[str]:
         """Ordered list of ``type`` values from sent messages."""
-        types = []
-        for msg in self.sent:
-            try:
-                d = json.loads(msg) if isinstance(msg, str) else msg
-                types.append(d.get("type", ""))
-            except Exception:
-                types.append("")
-        return types
+        return [t for (kind, t) in self.log if kind == "sent"]
 
     def first_index_of(self, event_type: str) -> int:
-        """Index of the first send with the given type, or -1."""
+        """Index of the first send with the given type in sent_types(), or -1."""
         for i, t in enumerate(self.sent_types()):
             if t == event_type:
                 return i
@@ -113,6 +116,13 @@ class _MockWS:
 
     def count_of(self, event_type: str) -> int:
         return self.sent_types().count(event_type)
+
+    def log_index_of_first(self, kind: str, event_type: str) -> int:
+        """Index in the interleaved log of the first entry matching (kind, event_type), or -1."""
+        for i, entry in enumerate(self.log):
+            if entry == (kind, event_type):
+                return i
+        return -1
 
 
 def _audio_delta_events() -> List[str]:
@@ -239,21 +249,23 @@ async def test_ac2_deferred_response_create_fires_after_response_done():
         f"AC2 FAIL: response.create never sent; sent={sent}"
     )
 
-    commit_idx = mock_ws.first_index_of("input_audio_buffer.commit")
-    create_idx = mock_ws.first_index_of("response.create")
+    assert mock_ws.first_index_of("input_audio_buffer.commit") >= 0, (
+        "AC2: input_audio_buffer.commit not sent"
+    )
 
-    assert commit_idx >= 0, "AC2: input_audio_buffer.commit not sent"
+    # True ordering assertion using the interleaved log: the first
+    # ("sent","response.create") entry must appear AFTER the first
+    # ("recv","response.done") entry.  Pre-fix fires response.create in the
+    # preamble before the recv loop starts, so it precedes every recv entry.
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done   = mock_ws.log_index_of_first("recv", "response.done")
 
-    # Pre-fix shape: response.create fired in preamble (sent index 1, immediately
-    # after commit at sent index 0) — before the event loop ran at all.
-    # Post-fix: response.create deferred; must NOT be at position commit_idx+1
-    # with no recv events between them.
-    assert create_idx != commit_idx + 1, (
-        f"AC2 FAIL (pre-fix): response.create at sent[{create_idx}] is immediately "
-        f"after input_audio_buffer.commit at sent[{commit_idx}], indicating it was "
-        f"fired in the preamble (before the event loop processed response.done). "
-        f"Post-fix: it should be deferred until after response.done is received. "
-        f"sent_types={sent}"
+    assert log_done >= 0, f"AC2: response.done never received; log={mock_ws.log}"
+    assert log_create > log_done, (
+        f"AC2 FAIL (pre-fix): response.create appeared at log[{log_create}] "
+        f"before or at response.done at log[{log_done}], indicating it was fired "
+        f"in the preamble (before the event loop processed response.done). "
+        f"Post-fix: deferred until after response.done is received. log={mock_ws.log}"
     )
 
 
@@ -304,8 +316,6 @@ async def test_ac3_exactly_one_commit_and_one_create():
 
     commit_count = mock_ws.count_of("input_audio_buffer.commit")
     create_count = mock_ws.count_of("response.create")
-    commit_idx = mock_ws.first_index_of("input_audio_buffer.commit")
-    create_idx = mock_ws.first_index_of("response.create")
 
     assert commit_count == 1, (
         f"AC3 FAIL: expected exactly 1 input_audio_buffer.commit, got {commit_count}; "
@@ -315,13 +325,17 @@ async def test_ac3_exactly_one_commit_and_one_create():
         f"AC3 FAIL: expected exactly 1 response.create, got {create_count}; "
         f"sent_types={mock_ws.sent_types()}"
     )
-    # The create must NOT be at the preamble position (immediately after commit).
-    # Pre-fix fires it at commit_idx+1 (before the event loop ran).
-    assert create_idx != commit_idx + 1, (
-        f"AC3 FAIL (pre-fix): response.create at sent[{create_idx}] is immediately "
-        f"after commit at sent[{commit_idx}] — fired in the preamble before "
-        f"response.done was processed. Post-fix: deferred until after response.done. "
-        f"sent_types={mock_ws.sent_types()}"
+    # True ordering assertion: response.create must appear after response.done
+    # in the interleaved log.  Pre-fix fires response.create in the preamble,
+    # which always precedes any recv entry.
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done   = mock_ws.log_index_of_first("recv", "response.done")
+    assert log_done >= 0, f"AC3: response.done never received; log={mock_ws.log}"
+    assert log_create > log_done, (
+        f"AC3 FAIL (pre-fix): response.create at log[{log_create}] appeared before "
+        f"response.done at log[{log_done}] — fired in the preamble before the event "
+        f"loop processed response.done. Post-fix: deferred until after response.done. "
+        f"log={mock_ws.log}"
     )
 
 
@@ -474,26 +488,21 @@ async def test_ac7_race_sequence_returns_audio_chunk_not_timeout():
 
     result = await adapter.recv_audio(timeout=2.0)
 
-    # AC7a: the guard held (no premature create) — count == 0 pre-loop means pre-fix.
-    # On pre-fix, this assertion matches AC1: count == 1 here → fails.
-    # We assert it a different way: total sent before recv events = 2 on pre-fix.
-    # Proxy: sent_types list starts with ['input_audio_buffer.commit', 'response.create']
-    # on pre-fix (both fired before recv loop). Post-fix starts with
-    # ['input_audio_buffer.commit'] only (create deferred to after response.done recv).
-    sent = mock_ws.sent_types()
-    assert sent[0] == "input_audio_buffer.commit", (
-        f"AC7: expected first sent to be commit, got {sent[0]}"
+    # AC7a: true ordering — response.create must appear after response.done in
+    # the interleaved log.  Pre-fix fires response.create in the preamble before
+    # any recv event, so log_create < log_done on pre-fix code.
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done   = mock_ws.log_index_of_first("recv", "response.done")
+
+    assert "response.create" in mock_ws.sent_types(), (
+        f"AC7 FAIL: response.create never sent; log={mock_ws.log}"
     )
-    # Pre-fix: sent[1] == "response.create" (preamble fire). Post-fix: sent[1] is absent
-    # or is the deferred create that appeared after response.done was received.
-    # Falsify pre-fix: assert sent does NOT have response.create at index 1
-    # (the preamble position immediately after commit).
-    if len(sent) > 1:
-        assert sent[1] != "response.create", (
-            f"AC7 FAIL (pre-fix): response.create at sent[1] was fired in the "
-            f"preamble (before any recv event). Post-fix: deferred until after "
-            f"response.done is processed. sent_types={sent}"
-        )
+    assert log_done >= 0, f"AC7: response.done never received; log={mock_ws.log}"
+    assert log_create > log_done, (
+        f"AC7 FAIL (pre-fix): response.create at log[{log_create}] appeared before "
+        f"response.done at log[{log_done}] — fired in the preamble before any recv "
+        f"event. Post-fix: deferred until after response.done. log={mock_ws.log}"
+    )
 
     # AC7b: the full sequence resolved to a non-empty AudioChunk (not timeout/empty).
     assert result is not None, "AC7 FAIL: recv_audio returned None"
