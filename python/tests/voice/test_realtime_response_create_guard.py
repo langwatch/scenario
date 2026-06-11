@@ -202,7 +202,7 @@ async def test_ac2_deferred_response_create_fires_after_response_done():
     adapter._response_ever_active = True
     adapter._pending_audio_bytes = 960
 
-    result = await adapter.recv_audio(timeout=2.0)
+    await adapter.recv_audio(timeout=2.0)
 
     sent = mock_ws.sent_types()
 
