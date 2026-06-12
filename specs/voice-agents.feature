@@ -976,7 +976,7 @@ Feature: Voice agent testing in Scenario SDK
     When scenario.dtmf("1") runs
     Then UnsupportedCapabilityError is raised naming the adapter and the "dtmf" capability
 
-  @docs
+  @unit @docs
   Scenario: Capability matrix is rendered into adapter docs
     Given the voice-agents documentation
     Then a capability matrix table lists every built-in adapter
