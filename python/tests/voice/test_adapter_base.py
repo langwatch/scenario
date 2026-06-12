@@ -86,7 +86,7 @@ def test_capabilities_matrix_is_published():
 # showed a coherent-looking transcript.
 
 import asyncio
-from typing import Optional
+from typing import Any, Optional, cast
 
 from scenario.voice import STTProvider, get_stt_provider, set_stt_provider
 
@@ -143,10 +143,10 @@ def _audio_input():
     return _FakeInput()
 
 
-def _text_parts(message) -> list[str]:
+def _text_parts(message: Any) -> list[str]:
     return [
         p["text"]
-        for p in message["content"]
+        for p in cast(dict, message)["content"]
         if isinstance(p, dict) and p.get("type") == "text"
     ]
 
@@ -189,7 +189,7 @@ async def test_default_call_returns_audio_only_when_stt_fails():
         assert _text_parts(result) == []
         assert any(
             isinstance(p, dict) and p.get("type") == "input_audio"
-            for p in result["content"]
+            for p in cast(dict, result)["content"]
         )
     finally:
         set_stt_provider(prev)
