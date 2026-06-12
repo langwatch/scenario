@@ -55,9 +55,13 @@ def test_pipecat_websocket_rejects_missing_url():
         PipecatAgentAdapter(transport="websocket")
 
 
-def test_pipecat_capabilities_advertise_streaming_and_vad():
+def test_pipecat_capabilities_advertise_vad_but_not_streaming_transcripts():
+    # The Twilio Media Streams wire protocol carries audio only — claiming
+    # streaming_transcripts would let interrupt(after_words=N) pass the
+    # capability gate and then poll a streaming_transcript attribute this
+    # adapter never populates, hanging forever.
     caps = PipecatAgentAdapter.capabilities
-    assert caps.streaming_transcripts is True
+    assert caps.streaming_transcripts is False
     assert caps.native_vad is True
     assert caps.dtmf is False
 

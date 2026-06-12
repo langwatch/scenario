@@ -215,8 +215,47 @@ class VoiceAgentAdapter(AgentAdapter):
         # mark_agent_start, so agent.start is "first chunk on the wire,"
         # not "now minus merged.duration."
         merged = await self._drain_agent_response(on_first_chunk=recorder.mark_agent_start)
+        # Mark agent.end BEFORE the STT round-trip below — the agent stopped
+        # speaking when drain settled, not after transcription returned.
+        recorder.mark_agent_end()
+        merged = await self._ensure_transcript(merged)
         recorder.record_agent(merged)
         return create_audio_message(merged, role="assistant")
+
+    async def _ensure_transcript(self, merged: AudioChunk) -> AudioChunk:
+        """Best-effort runtime STT for adapters whose transport carries no text.
+
+        The assistant message built from this chunk feeds the conversation
+        history that the user simulator (a text-only LLM) reads. Without a
+        text part the simulator sees the ``[audio message]`` placeholder for
+        every agent turn and replies blind — both sides talk past each other
+        while the judge, which transcribes the recording post-hoc, still
+        renders a perfectly readable transcript. Transcribing here closes
+        that gap; it also fills the recording segment's transcript, so the
+        judge fallback (``transcribe_segments(only_missing=True)``) skips
+        these turns.
+
+        Adapters that already ship transcripts on their chunks (realtime
+        APIs) return them merged — ``merged.transcript`` is set and this is
+        a no-op. STT failures are logged and the audio-only chunk is
+        returned unchanged, same contract as ``transcribe_segments``.
+        """
+        if not merged.data or merged.transcript:
+            return merged
+        try:
+            from .stt import transcribe
+
+            text = await transcribe(merged)
+        except Exception:
+            logger.warning(
+                "voice: agent-turn STT failed; the user simulator will see "
+                "'[audio message]' instead of this turn's words",
+                exc_info=True,
+            )
+            return merged
+        if not text:
+            return merged
+        return AudioChunk(data=merged.data, transcript=text)
 
     async def _drain_agent_response(
         self, on_first_chunk: Optional[Callable[[], None]] = None
@@ -274,6 +313,7 @@ class _AdapterRecorder:
         self._user_start: Optional[float] = None
         self._user_end: Optional[float] = None
         self._agent_start: Optional[float] = None
+        self._agent_end: Optional[float] = None
 
     def _offset(self) -> float:
         anchor = getattr(self._executor, "_voice_recording_started_at", None)
@@ -314,17 +354,27 @@ class _AdapterRecorder:
         """
         self._agent_start = self._offset()
 
+    def mark_agent_end(self) -> None:
+        """Capture the moment drain settles — the agent has stopped speaking.
+
+        Called before any post-drain processing (runtime STT) so the agent
+        segment's end and the agent_stop_speaking event reflect when audio
+        stopped flowing, not when transcription returned.
+        """
+        self._agent_end = self._offset()
+
     def record_agent(self, chunk: AudioChunk) -> None:
         """Finalise the agent segment after drain completes.
 
         start = when first chunk arrived (captured by mark_agent_start).
-        end = now (drain has settled).
+        end = when drain settled (captured by mark_agent_end), falling back
+        to now for subclasses that call record_agent directly.
         latency = agent.start - user.end. Real measurement; no clamp.
         """
         if self._executor is None or not chunk.data:
             return
         _fire_audio_chunk(self._executor, chunk)
-        end = self._offset()
+        end = self._agent_end if self._agent_end is not None else self._offset()
         # Fall back if a subclass bypassed the on_first_chunk hook.
         start = self._agent_start if self._agent_start is not None else max(
             0.0, end - chunk.duration_seconds
