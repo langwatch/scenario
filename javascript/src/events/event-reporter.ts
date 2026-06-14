@@ -10,13 +10,15 @@ import { Logger } from "../utils/logger";
  */
 export class EventReporter {
   private readonly apiKey: string;
+  private readonly projectId: string | undefined;
   private readonly eventsEndpoint: URL;
   private readonly eventAlertMessageLogger: EventAlertMessageLogger;
   private readonly logger = new Logger("scenario.events.EventReporter");
   private readonly isEnabled: boolean;
 
-  constructor(config: { endpoint: string; apiKey: string | undefined }) {
+  constructor(config: { endpoint: string; apiKey: string | undefined; projectId?: string }) {
     this.apiKey = config.apiKey ?? "";
+    this.projectId = config.projectId;
     this.eventsEndpoint = new URL("/api/scenario-events", config.endpoint);
     this.eventAlertMessageLogger = new EventAlertMessageLogger();
     this.eventAlertMessageLogger.handleGreeting();
@@ -39,13 +41,17 @@ export class EventReporter {
     const processedEvent = this.processEventForApi(event);
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-Auth-Token": this.apiKey,
+      };
+      if (this.projectId) {
+        headers["X-Project-Id"] = this.projectId;
+      }
       const response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
         body: JSON.stringify(processedEvent),
-        headers: {
-          "Content-Type": "application/json",
-          "X-Auth-Token": this.apiKey,
-        },
+        headers,
       });
 
       this.logger.debug(

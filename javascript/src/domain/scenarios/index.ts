@@ -17,6 +17,8 @@ export interface LangwatchConfig {
   endpoint?: string;
   /** The API key for authentication. Falls back to LANGWATCH_API_KEY env var. */
   apiKey?: string;
+  /** The project ID to send events to. Required when using organization-level or bearer API keys. */
+  projectId?: string;
 }
 
 /**

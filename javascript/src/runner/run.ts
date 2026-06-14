@@ -155,6 +155,7 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
     eventBus = new EventBus({
       endpoint: options?.langwatch?.endpoint ?? cfg.langwatch?.endpoint ?? envConfig.LANGWATCH_ENDPOINT,
       apiKey: options?.langwatch?.apiKey ?? cfg.langwatch?.apiKey ?? envConfig.LANGWATCH_API_KEY,
+      projectId: options?.langwatch?.projectId ?? cfg.langwatch?.projectId,
     });
     eventBus.listen();
 
