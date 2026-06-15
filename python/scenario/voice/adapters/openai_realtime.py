@@ -425,6 +425,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # the response.done handler fires response.create once the in-flight
                 # response clears.
                 self._deferred_response_create = True
+                self._agent_turn_pending = False  # user spoke → consume turn signal even when deferred
             else:
                 await self._ws.send(json.dumps({"type": "response.create"}))
                 self._agent_turn_pending = False  # user spoke → per-turn signal consumed
