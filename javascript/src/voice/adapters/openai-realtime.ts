@@ -168,6 +168,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   // reset). De-duplicated on call_id so each call yields exactly one entry (AC6).
   private _completedToolCalls: CompletedToolCall[] = [];
 
+  // --- Issue #662: response-lifecycle guard ---
+  // True while the server has an active response in progress (set on
+  // response.created, cleared on response.done / response.cancelled).
+  // Prevents double-firing response.create from the receiveAudio preamble
+  // or sendText while a response is already streaming.
+  private _responseActive = false;
+  // Set to true by receiveAudio preamble or sendText when a response.create
+  // was deferred due to _responseActive. Consumed (fired + cleared) by the
+  // response.done / response.cancelled branch in the receiveAudio loop.
+  private _deferredResponseCreate = false;
+
   constructor(init: OpenAIRealtimeAgentAdapterInit = {}) {
     super();
     this.model = init.model ?? OPENAI_REALTIME_MODEL;
@@ -374,7 +385,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
     if (this._pendingAudioBytes > 0) {
       this._ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      this._ws.send(JSON.stringify({ type: "response.create" }));
+      if (this._responseActive) {
+        this._deferredResponseCreate = true;
+      } else {
+        this._ws.send(JSON.stringify({ type: "response.create" }));
+      }
       this._pendingAudioBytes = 0;
     }
 
@@ -462,6 +477,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
           }
         }
       } else if (etype === "response.done" || etype === "response.cancelled") {
+        this._responseActive = false;
+        if (this._deferredResponseCreate) {
+          this._ws.send(JSON.stringify({ type: "response.create" }));
+          this._deferredResponseCreate = false;
+        }
         // Issue #646: a tool-only turn (function call, NO audio delta) would
         // otherwise loop here forever and hit the receiveAudio timeout — the
         // accumulated tool call is parsed but never returned. When the response
@@ -473,13 +493,15 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         if (this._completedToolCalls.length > 0) {
           return new AudioChunk({ data: new Uint8Array(0) });
         }
+      } else if (etype === "response.created") {
+        this._responseActive = true;
       } else if (etype === "error") {
         const errDetail =
           (event as { error?: { message?: string } }).error ?? {};
         const msg = errDetail.message ?? JSON.stringify(errDetail);
         throw new Error(`OpenAIRealtimeAgentAdapter: server error — ${msg}`);
       }
-      // Housekeeping events (session.created, response.created, ...) are
+      // Housekeeping events (session.created, ...) are
       // ignored and the loop continues.
     }
   }
@@ -694,7 +716,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         },
       }),
     );
-    this._ws.send(JSON.stringify({ type: "response.create" }));
+    if (this._responseActive) {
+      this._deferredResponseCreate = true;
+    } else {
+      this._ws.send(JSON.stringify({ type: "response.create" }));
+    }
   }
 
   /**
