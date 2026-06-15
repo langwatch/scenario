@@ -18,7 +18,6 @@ import base64
 import json
 import logging
 import sys
-import time
 from pathlib import Path
 from typing import Any, List
 
@@ -40,19 +39,19 @@ from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
 
 class LoggingWS:
     """
-    Minimal WebSocket stub — records every send/recv in a timestamped log.
+    Minimal WebSocket stub — records every send/recv.
     Not pytest infrastructure: no assertions, no fixtures, no marks.
     Exists solely to capture adapter wire traffic for the demo.
     """
     def __init__(self, server_events: List[str]) -> None:
         self._queue = list(server_events)
         self._idx = 0
-        self.log: List[tuple] = []   # (direction, type, t)
+        self.log: List[tuple] = []   # (direction, type)
 
     async def send(self, msg: Any) -> None:
         d = json.loads(msg) if isinstance(msg, str) else msg
         t = d.get("type", "?")
-        self.log.append(("SEND", t, time.monotonic()))
+        self.log.append(("SEND", t))
         print(f"      → SEND  [{t}]")
 
     async def recv(self) -> str:
@@ -62,7 +61,7 @@ class LoggingWS:
         evt = self._queue[self._idx]
         self._idx += 1
         t = json.loads(evt).get("type", "?")
-        self.log.append(("RECV", t, time.monotonic()))
+        self.log.append(("RECV", t))
         print(f"      ← RECV  [{t}]")
         return evt
 
@@ -70,13 +69,13 @@ class LoggingWS:
         pass
 
     def sent_types(self) -> List[str]:
-        return [t for (d, t, _) in self.log if d == "SEND"]
+        return [t for (d, t) in self.log if d == "SEND"]
 
     def ordered_log(self) -> List[str]:
-        return [f"{d:4s}  {t}" for (d, t, _) in self.log]
+        return [f"{d:4s}  {t}" for (d, t) in self.log]
 
     def first_log_idx(self, direction: str, etype: str) -> int:
-        for i, (d, t, _) in enumerate(self.log):
+        for i, (d, t) in enumerate(self.log):
             if d == direction and t == etype:
                 return i
         return -1
