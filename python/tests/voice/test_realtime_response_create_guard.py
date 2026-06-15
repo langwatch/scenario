@@ -549,3 +549,99 @@ async def test_wrapper_normal_path_full_call_flow(monkeypatch):
     assert audio_parts and audio_parts[0]["input_audio"].get("data"), (
         "assistant turn has no non-empty input_audio part"
     )
+
+
+# ---------------------------------------------------------------------------
+# Issue #662 — send_text response.create guard (AC-PY1, AC-PY2, AC-DEFER)
+# MUST FAIL on pre-fix code (send_text sends response.create unconditionally).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ac_py1_send_text_suppressed_while_response_active():
+    """AC-PY1: send_text must NOT send response.create when _response_active=True."""
+    events = []  # send_text doesn't use recv, just WS.send
+    adapter, mock_ws = _make_adapter(events)
+    adapter._response_active = True
+
+    await adapter.send_text("hello")
+
+    # MUST NOT have fired response.create while response was active.
+    assert mock_ws.count_of("response.create") == 0, (
+        f"AC-PY1 FAIL (pre-fix): response.create was sent while _response_active=True; "
+        f"sent_types={mock_ws.sent_types()}"
+    )
+    # MUST have set the deferred flag.
+    assert adapter._deferred_response_create is True, (
+        f"AC-PY1 FAIL (pre-fix): _deferred_response_create was not set to True; "
+        f"value={adapter._deferred_response_create}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ac_py2_send_text_deferred_create_fires_after_response_done():
+    """AC-PY2: deferred response.create from send_text appears AFTER response.done in the interleaved log."""
+    chunk = _b64_pcm(480)
+    events = [
+        json.dumps({"type": "response.done"}),
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": chunk}),
+        json.dumps({"type": "response.done"}),
+    ]
+    adapter, mock_ws = _make_adapter(events, short_timeout=True)
+    adapter._response_active = True
+    adapter._response_ever_active = True
+    adapter._pending_audio_bytes = 960
+
+    await adapter.send_text("hello")
+    await adapter.recv_audio(timeout=2.0)
+
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done = mock_ws.log_index_of_first("recv", "response.done")
+
+    assert log_done >= 0, f"AC-PY2: response.done never received; log={mock_ws.log}"
+    assert log_create >= 0, f"AC-PY2: response.create never sent; log={mock_ws.log}"
+    assert log_create > log_done, (
+        f"AC-PY2 FAIL (pre-fix): response.create at log[{log_create}] appeared before "
+        f"response.done at log[{log_done}] -- send_text fired it immediately instead of "
+        f"deferring until after response.done. log={mock_ws.log}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ac_defer_send_text_deferred_create_fires_exactly_once():
+    """AC-DEFER: recv_audio consumes the deferred flag and fires response.create exactly once after response.done."""
+    chunk = _b64_pcm(480)
+    events = [
+        json.dumps({"type": "response.done"}),
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": chunk}),
+        json.dumps({"type": "response.done"}),
+    ]
+    adapter, mock_ws = _make_adapter(events, short_timeout=True)
+    adapter._response_active = True
+    adapter._response_ever_active = True
+    adapter._pending_audio_bytes = 960
+
+    await adapter.send_text("hello")
+
+    count_after_send_text = mock_ws.count_of("response.create")
+    assert count_after_send_text == 0, (
+        f"AC-DEFER FAIL (pre-fix): response.create was sent immediately by send_text "
+        f"instead of being deferred; count={count_after_send_text}; "
+        f"sent_types={mock_ws.sent_types()}"
+    )
+
+    await adapter.recv_audio(timeout=2.0)
+
+    total_creates = mock_ws.count_of("response.create")
+    assert total_creates == 1, (
+        f"AC-DEFER FAIL: expected exactly 1 response.create total, got {total_creates}; "
+        f"sent_types={mock_ws.sent_types()}"
+    )
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done = mock_ws.log_index_of_first("recv", "response.done")
+    assert log_create > log_done, (
+        f"AC-DEFER FAIL: response.create at log[{log_create}] was before "
+        f"response.done at log[{log_done}]; log={mock_ws.log}"
+    )
