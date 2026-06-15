@@ -772,4 +772,32 @@ describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => 
       await adapter.disconnect();
     },
   );
+
+  it("AC-KA5: socket close drains cleanly with no surviving timer", { timeout: 5000 }, async () => {
+    // Use fake timers so we can inspect surviving timer count after drain
+    vi.useFakeTimers();
+    try {
+      const { adapter, socket } = await makeConnected();
+
+      // Start a receiveAudio with a long timeout (5s) — we'll close before it fires
+      const receivePromise = adapter.receiveAudio(5);
+
+      // One timer should be active (the receiveAudio deadline)
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Emit close — triggers drainPendingWaiters
+      socket.emit("close");
+
+      // The promise resolves to the empty drain chunk
+      const result = await receivePromise;
+      expect(result.data.length).toBe(0); // empty chunk = drained, not a real audio payload
+
+      // No surviving timers — the waiter cancelled the timer on drain
+      expect(vi.getTimerCount()).toBe(0);
+
+      await adapter.disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
