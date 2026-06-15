@@ -588,11 +588,15 @@ class ScenarioExecutor:
         for agent in self.agents:
             if isinstance(agent, UserSimulatorAgent):
                 decl = getattr(agent, 'modality', None)
-                tier, _ = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                for w in _mod_warnings:
+                    logger.warning(w)
                 self._modality_resolutions['simulator'] = tier.value
             elif isinstance(agent, JudgeAgent):
                 decl = getattr(agent, 'modality', None)
-                tier, _ = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                for w in _mod_warnings:
+                    logger.warning(w)
                 self._modality_resolutions['judge'] = tier.value
 
         try:
@@ -750,7 +754,9 @@ class ScenarioExecutor:
             if isinstance(agent, VoiceAgentAdapter):
                 model_id = getattr(agent, 'model', None) or getattr(agent, '_model', '') or ''
                 if model_id:
-                    tier, _ = resolve_modality(declaration=None, model_id=model_id)
+                    tier, _mod_warnings = resolve_modality(declaration=None, model_id=model_id)
+                    for w in _mod_warnings:
+                        logger.warning(w)
                     validate_modality_setup(
                         tier=tier,
                         adapter_input_formats=list(agent.capabilities.input_formats),
