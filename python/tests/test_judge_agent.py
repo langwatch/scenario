@@ -479,7 +479,7 @@ def _make_audio_agent_input(recording=None) -> AgentInput:
     mock_state._executor = mock_executor
     return AgentInput(
         thread_id="spy-test",
-        messages=[audio_message],
+        messages=cast(Any, [audio_message]),
         new_messages=[],
         judgment_request=JudgmentRequest(),
         scenario_state=mock_state,
@@ -506,8 +506,6 @@ async def test_ac9_transcribe_segments_invoked_for_text_judge():
     Confirms the post-hoc transcription path still executes after the resolver change:
     gpt-4o (advisory=False, no declaration) → TEXT tier → transcribe_segments called.
     """
-    from scenario.voice.recording import VoiceRecording
-
     from scenario.voice.recording import VoiceRecording as _VR
     recording = _VR(segments=[])
     judge = JudgeAgent(criteria=["test criterion"], model="openai/gpt-4o")
@@ -535,8 +533,6 @@ async def test_ac5b_stt_bridge_judge_invokes_transcribe_segments():
 
     stt-bridge tier → effective_include_audio=False → transcribe_segments called with recording.
     """
-    from scenario.voice.recording import VoiceRecording
-
     from scenario.voice.recording import VoiceRecording as _VR
     recording = _VR(segments=[])
     judge = JudgeAgent(criteria=["test criterion"], model="openai/gpt-4o", modality="stt-bridge")
