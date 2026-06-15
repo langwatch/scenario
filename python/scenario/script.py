@@ -174,7 +174,7 @@ def agent(
 
 def judge(
     criteria: Optional[List[str]] = None,
-    context: Optional[str] = None,
+    additional_context: Optional[str] = None,
 ) -> ScriptStep:
     """
     Invoke the judge agent to evaluate the current conversation state.
@@ -190,7 +190,7 @@ def judge(
     Args:
         criteria: Optional list of criteria to evaluate inline. When provided,
                  acts as a checkpoint rather than a final judgment.
-        context: Additional context for the judge, e.g. filesystem state
+        additional_context: Additional context for the judge, e.g. filesystem state
                 or command output. Included in the judge's evaluation prompt under
                 <additional_context>. Empty strings are treated as absent (no block emitted).
 
@@ -228,7 +228,7 @@ def judge(
         )
         ```
     """
-    return lambda state: state._executor.judge(criteria=criteria, context=context)
+    return lambda state: state._executor.judge(criteria=criteria, additional_context=additional_context)
 
 
 def proceed(

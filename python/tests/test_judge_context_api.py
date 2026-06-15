@@ -1,7 +1,7 @@
-"""Tests for the context parameter on ScenarioExecutor.judge() and script.judge().
+"""Tests for the additional_context parameter on ScenarioExecutor.judge() and script.judge().
 
 These tests enter through ScenarioExecutor.judge() — NOT through a hand-built
-JudgmentRequest — to verify that the public API wires context all the way down
+JudgmentRequest — to verify that the public API wires additional_context all the way down
 to the LLM call. See issue #660.
 """
 
@@ -57,7 +57,7 @@ def _get_system_message(mock_completion: MagicMock) -> str:
 
 @pytest.mark.asyncio
 async def test_executor_judge_context_forwarded_to_llm_input():
-    """executor.judge(context=...) must include <additional_context> in the LLM user message."""
+    """executor.judge(additional_context=...) must include <additional_context> in the LLM user message."""
     ctx_text = "the agent ran npm install which exited 0"
     executor = _make_executor()
     mock_response = _make_mock_litellm_response()
@@ -66,7 +66,7 @@ async def test_executor_judge_context_forwarded_to_llm_input():
         with patch(
             "scenario.judge_agent.litellm.completion", return_value=mock_response
         ) as mock_completion:
-            await executor.judge(context=ctx_text)
+            await executor.judge(additional_context=ctx_text)
 
             assert mock_completion.called
             content = _get_user_message(mock_completion)
@@ -79,7 +79,7 @@ async def test_executor_judge_context_forwarded_to_llm_input():
 
 @pytest.mark.asyncio
 async def test_executor_judge_criteria_and_context_forwarded_independently():
-    """executor.judge(criteria=[...], context=...) forwards both criteria and context."""
+    """executor.judge(criteria=[...], additional_context=...) forwards both criteria and additional_context."""
     ctx_text = "exit code 0"
     executor = _make_executor()
     mock_response = _make_mock_litellm_response()
@@ -89,7 +89,7 @@ async def test_executor_judge_criteria_and_context_forwarded_independently():
             "scenario.judge_agent.litellm.completion", return_value=mock_response
         ) as mock_completion:
             await executor.judge(
-                criteria=["agent installed dependency"], context=ctx_text
+                criteria=["agent installed dependency"], additional_context=ctx_text
             )
 
             assert mock_completion.called
@@ -145,7 +145,7 @@ async def test_executor_judge_no_context_no_additional_context_block_criteria_on
 
 @pytest.mark.asyncio
 async def test_executor_judge_empty_string_context_no_additional_context_block():
-    """executor.judge(context='') must NOT emit <additional_context> (truthy guard)."""
+    """executor.judge(additional_context='') must NOT emit <additional_context> (truthy guard)."""
     executor = _make_executor()
     mock_response = _make_mock_litellm_response()
 
@@ -153,7 +153,7 @@ async def test_executor_judge_empty_string_context_no_additional_context_block()
         with patch(
             "scenario.judge_agent.litellm.completion", return_value=mock_response
         ) as mock_completion:
-            await executor.judge(context="")
+            await executor.judge(additional_context="")
 
             assert mock_completion.called
             content = _get_user_message(mock_completion)
