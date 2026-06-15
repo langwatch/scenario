@@ -455,10 +455,14 @@ class ScenarioExecutor:
         ).__enter__()
 
         if self._trace.root_span is not None:
-            self._trace.root_span.set_attributes({
+            attrs = {
                 "langwatch.origin": "simulation",
                 "scenario.run_id": self._scenario_run_id,
-            })
+            }
+            for role, tier_value in getattr(self, '_modality_resolutions', {}).items():
+                attrs[f"scenario.modality.{role}.resolved"] = tier_value
+                attrs[f"scenario.modality.{role}.tier"] = tier_value
+            self._trace.root_span.set_attributes(attrs)
 
         self._pending_agents_on_turn = set(self.agents)
         self._pending_roles_on_turn = [
@@ -574,6 +578,22 @@ class ScenarioExecutor:
 
         # Connect all voice adapters before script runs; disconnect in finally.
         await self._voice_connect_all()
+
+        # Resolve modality per role and store for span stamping.
+        from .voice.modality_resolver import resolve_modality
+        from .user_simulator_agent import UserSimulatorAgent
+        from .judge_agent import JudgeAgent
+
+        self._modality_resolutions: dict = {}  # role -> tier value string
+        for agent in self.agents:
+            if isinstance(agent, UserSimulatorAgent):
+                decl = getattr(agent, 'modality', None)
+                tier, _ = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                self._modality_resolutions['simulator'] = tier.value
+            elif isinstance(agent, JudgeAgent):
+                decl = getattr(agent, 'modality', None)
+                tier, _ = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                self._modality_resolutions['judge'] = tier.value
 
         try:
             self._emit_run_started_event(scenario_run_id)
