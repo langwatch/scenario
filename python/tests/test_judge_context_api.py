@@ -56,7 +56,7 @@ def _get_system_message(mock_completion: MagicMock) -> str:
 
 
 @pytest.mark.asyncio
-async def test_executor_judge_context_forwarded_to_llm_input():
+async def test_executor_judge_additional_context_forwarded_to_llm_input():
     """executor.judge(additional_context=...) must include <additional_context> in the LLM user message."""
     ctx_text = "the agent ran npm install which exited 0"
     executor = _make_executor()
@@ -78,7 +78,7 @@ async def test_executor_judge_context_forwarded_to_llm_input():
 
 
 @pytest.mark.asyncio
-async def test_executor_judge_criteria_and_context_forwarded_independently():
+async def test_executor_judge_criteria_and_additional_context_forwarded_independently():
     """executor.judge(criteria=[...], additional_context=...) forwards both criteria and additional_context."""
     ctx_text = "exit code 0"
     executor = _make_executor()
@@ -144,7 +144,7 @@ async def test_executor_judge_no_context_no_additional_context_block_criteria_on
 
 
 @pytest.mark.asyncio
-async def test_executor_judge_empty_string_context_no_additional_context_block():
+async def test_executor_judge_empty_string_additional_context_no_additional_context_block():
     """executor.judge(additional_context='') must NOT emit <additional_context> (truthy guard)."""
     executor = _make_executor()
     mock_response = _make_mock_litellm_response()
