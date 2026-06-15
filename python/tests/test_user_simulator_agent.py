@@ -134,7 +134,7 @@ async def test_audio_in_simulator_retains_audio_parts():
     agent_input = AgentInput(
         thread_id="test",
         messages=[
-            {"role": "assistant", "content": [audio_part, text_part]},
+            {"role": "assistant", "content": [audio_part, text_part]},  # type: ignore[arg-type]
         ],
         new_messages=[],
         scenario_state=mock_scenario_state,
@@ -200,7 +200,7 @@ async def test_text_simulator_strips_audio_with_placeholders():
         thread_id="test",
         messages=[
             # assistant turn with both audio and text — voiced agent turn
-            {"role": "assistant", "content": [audio_part, text_part]},
+            {"role": "assistant", "content": [audio_part, text_part]},  # type: ignore[arg-type]
             # user turn with audio only
             {"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": "BBBB", "format": "wav"}}]},
         ],
