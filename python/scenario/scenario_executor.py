@@ -724,9 +724,47 @@ class ScenarioExecutor:
 
             self._on_audio_chunk = _playback_and_forward
 
+        # Phase 1: static validation against adapter ClassVars (before connect)
+        from .voice.modality_resolver import ModalityNegotiationError, validate_modality_setup, resolve_modality
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
-                await agent.connect()
+                model_id = getattr(agent, 'model', None) or getattr(agent, '_model', '') or ''
+                if model_id:
+                    tier, _ = resolve_modality(declaration=None, model_id=model_id)
+                    validate_modality_setup(
+                        tier=tier,
+                        adapter_input_formats=list(agent.capabilities.input_formats),
+                        adapter_name=type(agent).__name__,
+                    )
+
+        # Phase 2: connect with live-transport failure catching
+        for agent in self.agents:
+            if isinstance(agent, VoiceAgentAdapter):
+                try:
+                    await agent.connect()
+                except Exception as e:
+                    raise ModalityNegotiationError(
+                        f"Live transport {type(agent).__name__!r} cannot honor "
+                        f"required modality — connect failed: {e}. "
+                        f"Negotiated requirement: audio-in (pcm16/24000)"
+                    ) from e
+
+        # Phase 3: validate script step requirements against connected adapter capabilities
+        from .voice.capabilities import UnsupportedCapabilityError
+        for step in self.script:
+            if getattr(step, '_requires_streaming_transcripts', False):
+                for agent in self.agents:
+                    if isinstance(agent, VoiceAgentAdapter):
+                        if not agent.capabilities.streaming_transcripts:
+                            raise UnsupportedCapabilityError(
+                                type(agent).__name__,
+                                "streaming_transcripts",
+                                hint=(
+                                    "interrupt(after_words=N) needs incremental transcripts. "
+                                    "Use interrupt(content) without after_words on this adapter — "
+                                    "the executor fires barge-in at the agent's first audio chunk."
+                                ),
+                            )
 
     def _attach_voice_output(self, result: ScenarioResult) -> ScenarioResult:
         """Populate result.audio/timeline/latency if any voice adapter ran."""

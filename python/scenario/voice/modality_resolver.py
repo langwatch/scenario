@@ -82,3 +82,26 @@ def resolve_modality(
         )
 
     return declared_tier, warnings
+
+
+def validate_modality_setup(
+    *,
+    tier: ModalityTier,
+    adapter_input_formats: list[str],
+    adapter_name: str,
+) -> None:
+    """Raise ModalityNegotiationError if tier is statically incompatible with adapter.
+
+    'audio-in' requires a pcm16-family input format. Adapters that only offer
+    mulaw/* (telephony) cannot pass audio directly to the LLM.
+    """
+    if tier == ModalityTier.AUDIO_IN:
+        pcm_formats = [f for f in adapter_input_formats if f.startswith("pcm16")]
+        if adapter_input_formats and not pcm_formats:
+            # Has formats, none are pcm16-compatible — static impossible
+            raise ModalityNegotiationError(
+                f"Declared modality 'audio-in' is incompatible with adapter "
+                f"{adapter_name!r}: input formats {adapter_input_formats!r} "
+                f"contain no pcm16 path (conflicting capability: "
+                f"{adapter_input_formats[0]!r}). No resample path exists."
+            )
