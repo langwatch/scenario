@@ -101,6 +101,13 @@ export interface OpenAIRealtimeAgentAdapterInit {
    * a loopback WS server without subclassing the adapter.
    */
   url?: string;
+  /**
+   * Optional factory that creates the WebSocket instead of `new WebSocket(url,
+   * headers)`. Intended for testing — lets tests inject a fake WS without
+   * subclassing or monkey-patching. The factory receives the resolved URL and
+   * Authorization header value.
+   */
+  wsFactory?: (url: string, authHeader: string) => WebSocket;
 }
 
 /**
@@ -142,6 +149,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
   private readonly _apiKey: string;
   private readonly _urlOverride: string | null;
+  private readonly _wsFactory:
+    | ((url: string, authHeader: string) => WebSocket)
+    | null;
   private _ws: WebSocket | null = null;
   // Streaming agent transcript buffer — accumulates deltas, flushed on done.
   private _agentTranscriptBuf = "";
@@ -188,6 +198,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this.role = init.role ?? AgentRole.AGENT;
     this._apiKey = init.apiKey ?? process.env.OPENAI_API_KEY ?? "";
     this._urlOverride = init.url ?? null;
+    this._wsFactory = init.wsFactory ?? null;
   }
 
   get url(): string {
@@ -223,11 +234,10 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     // with "The Realtime Beta API is no longer supported." (observed in
     // CI 2026-05-22). Python parity is intentionally broken here; track
     // for back-port.
-    const ws = new WebSocket(this.url, {
-      headers: {
-        Authorization: `Bearer ${this._apiKey}`,
-      },
-    });
+    const authHeader = `Bearer ${this._apiKey}`;
+    const ws = this._wsFactory
+      ? this._wsFactory(this.url, authHeader)
+      : new WebSocket(this.url, { headers: { Authorization: authHeader } });
 
     await new Promise<void>((resolve, reject) => {
       const onOpen = () => {

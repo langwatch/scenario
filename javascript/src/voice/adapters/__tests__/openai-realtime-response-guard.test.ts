@@ -16,13 +16,17 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { EventEmitter } from "node:events";
+import type WebSocket from "ws";
 import { OpenAIRealtimeAgentAdapter } from "../openai-realtime";
 
 // ---------------------------------------------------------------------------
-// FakeWS — an in-process fake that records frames without touching the network
+// FakeWS — an in-process fake that records frames without touching the network.
+// Extends EventEmitter so the adapter can register message/close/error listeners
+// exactly as it does on a real ws.WebSocket (via .on() / .once()).
 // ---------------------------------------------------------------------------
 
-class FakeWS {
+class FakeWS extends EventEmitter {
   sent: string[] = [];
   closed = false;
 
@@ -33,6 +37,7 @@ class FakeWS {
 
   close(): void {
     this.closed = true;
+    this.emit("close");
   }
 
   /** Ordered list of `type` fields from every sent frame. */
@@ -49,17 +54,36 @@ class FakeWS {
   indexOfSent(type: string): number {
     return this.sentTypes().indexOf(type);
   }
+
+  /**
+   * Push a server event into the adapter's receive loop.
+   * Serialises to JSON and emits as a "message" event — the same path a real
+   * WebSocket frame takes through _handleMessage.
+   */
+  receive(event: unknown): void {
+    this.emit("message", Buffer.from(JSON.stringify(event)));
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeAdapter(): { adapter: OpenAIRealtimeAgentAdapter; ws: FakeWS } {
-  const adapter = new OpenAIRealtimeAgentAdapter({ apiKey: "test-key" });
+async function makeAdapter(): Promise<{
+  adapter: OpenAIRealtimeAgentAdapter;
+  ws: FakeWS;
+}> {
   const ws = new FakeWS();
-  // Inject the fake WS directly — bypasses the real connect() call.
-  (adapter as unknown as Record<string, unknown>)._ws = ws;
+  const adapter = new OpenAIRealtimeAgentAdapter({
+    apiKey: "test-key",
+    wsFactory: (url, _authHeader) => {
+      // Emit "open" asynchronously so the awaited Promise in connect() resolves.
+      queueMicrotask(() => ws.emit("open"));
+      void url;
+      return ws as unknown as WebSocket;
+    },
+  });
+  await adapter.connect();
   return { adapter, ws };
 }
 
@@ -78,7 +102,7 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
   it(
     "AC-JS1: receiveAudio sends commit but NOT response.create when _responseActive is true",
     async () => {
-      const { adapter, ws } = makeAdapter();
+      const { adapter, ws } = await makeAdapter();
 
       // Simulate pending audio that triggers the preamble.
       (adapter as unknown as Record<string, unknown>)._pendingAudioBytes = 960;
@@ -111,7 +135,7 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
   it(
     "AC-JS2: deferred receiveAudio response.create fires after response.done frame",
     async () => {
-      const { adapter, ws } = makeAdapter();
+      const { adapter, ws } = await makeAdapter();
 
       (adapter as unknown as Record<string, unknown>)._pendingAudioBytes = 960;
       (adapter as unknown as Record<string, unknown>)._responseActive = true;
@@ -129,23 +153,14 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
       // Post-fix: 0 (deferred because _responseActive is true).
       const countBeforeDone = ws.sentCount("response.create");
 
-      // Now inject the event sequence that drives receiveAudio to completion:
+      // Inject the event sequence that drives receiveAudio to completion:
       // response.done  → clears _responseActive, fires deferred response.create
       // response.created → sets _responseActive = true for the new response
       // response.output_audio.delta → the actual audio frame that resolves receiveAudio
-      // response.done  → completes the second response
-      const enqueue = (event: unknown): void => {
-        (
-          adapter as unknown as {
-            _enqueueEvent: (e: unknown) => void;
-          }
-        )._enqueueEvent(event);
-      };
-
-      enqueue({ type: "response.done" });
+      ws.receive({ type: "response.done" });
       await new Promise<void>((r) => setTimeout(r, 5));
-      enqueue({ type: "response.created" });
-      enqueue({ type: "response.output_audio.delta", delta: b64audio });
+      ws.receive({ type: "response.created" });
+      ws.receive({ type: "response.output_audio.delta", delta: b64audio });
 
       await receivePromise;
 
@@ -168,7 +183,7 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
   it(
     "AC-JS3: sendText does not send response.create when _responseActive is true",
     async () => {
-      const { adapter, ws } = makeAdapter();
+      const { adapter, ws } = await makeAdapter();
 
       (adapter as unknown as Record<string, unknown>)._responseActive = true;
 
@@ -195,17 +210,13 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
   it(
     "AC-ERR1: receiveAudio rejects with Error on server active-response error",
     async () => {
-      const { adapter } = makeAdapter();
+      const { adapter, ws } = await makeAdapter();
 
       const receivePromise = adapter.receiveAudio(5.0);
 
       await new Promise<void>((r) => setTimeout(r, 10));
 
-      (
-        adapter as unknown as {
-          _enqueueEvent: (e: unknown) => void;
-        }
-      )._enqueueEvent({
+      ws.receive({
         type: "error",
         error: {
           message:
