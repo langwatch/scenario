@@ -460,7 +460,6 @@ class ScenarioExecutor:
                 "scenario.run_id": self._scenario_run_id,
             }
             for role, tier_value in getattr(self, '_modality_resolutions', {}).items():
-                attrs[f"scenario.modality.{role}.resolved"] = tier_value
                 attrs[f"scenario.modality.{role}.tier"] = tier_value
             self._trace.root_span.set_attributes(attrs)
 

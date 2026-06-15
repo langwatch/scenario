@@ -68,7 +68,7 @@ def _new_turn_with_resolutions(
 
 @pytest.mark.asyncio
 async def test_ac5_modality_attributes_stamped_on_root_span():
-    """AC5: resolved modality and tier per role appear as span attributes."""
+    """AC5: resolved tier per role appears as span attribute."""
     executor = _make_executor()
     resolutions = {
         "simulator": ModalityTier.AUDIO_IN.value,
@@ -77,9 +77,7 @@ async def test_ac5_modality_attributes_stamped_on_root_span():
 
     captured = _new_turn_with_resolutions(executor, resolutions)
 
-    assert captured.get("scenario.modality.simulator.resolved") == "audio-in"
     assert captured.get("scenario.modality.simulator.tier") == "audio-in"
-    assert captured.get("scenario.modality.judge.resolved") == "stt-bridge"
     assert captured.get("scenario.modality.judge.tier") == "stt-bridge"
 
 
@@ -103,12 +101,28 @@ async def test_ac5_degraded_run_has_different_tier():
 
 @pytest.mark.asyncio
 async def test_ac5b_stt_bridge_tier_stamped_correctly():
-    """AC5b: when resolver returns stt-bridge, the tier stamp reads stt-bridge."""
-    executor = _make_executor()
-    resolutions = {
-        "simulator": ModalityTier.STT_BRIDGE.value,
-    }
+    """AC5b: declaration 'stt-bridge' resolves through resolve_modality and stamps correctly.
 
+    Exercises the full path: declaration -> resolve_modality -> _modality_resolutions -> span stamp.
+    """
+    from unittest.mock import patch as mock_patch
+    from scenario.voice.modality_resolver import resolve_modality
+
+    executor = _make_executor()
+
+    # Exercise resolve_modality with an explicit stt-bridge declaration.
+    # Patch litellm advisory so the test is deterministic (no network).
+    with mock_patch(
+        "scenario.voice.modality_resolver._litellm_advisory", return_value=False
+    ):
+        tier, warnings = resolve_modality(declaration="stt-bridge", model_id="openai/gpt-4o")
+
+    assert tier == ModalityTier.STT_BRIDGE, (
+        f"resolve_modality must return STT_BRIDGE for declaration='stt-bridge'; got {tier!r}"
+    )
+
+    # Feed the resolved tier into the executor and verify the span stamp.
+    resolutions = {"simulator": tier.value}
     captured = _new_turn_with_resolutions(executor, resolutions)
 
     assert captured.get("scenario.modality.simulator.tier") == "stt-bridge"
