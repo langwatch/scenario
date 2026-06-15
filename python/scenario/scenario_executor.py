@@ -764,11 +764,12 @@ class ScenarioExecutor:
                     )
 
         # Phase 2: connect with live-transport failure catching
+        from .voice.adapters._stub import PendingTransportError
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
                 try:
                     await agent.connect()
-                except Exception as e:
+                except PendingTransportError as e:
                     raise ModalityNegotiationError(
                         f"Live transport {type(agent).__name__!r} cannot honor "
                         f"required modality — connect failed: {e}. "
