@@ -51,6 +51,7 @@ from .stt import (
     transcribe,
 )
 from ._transcribe import transcribe_segments
+from .modality_resolver import ModalityNegotiationError, ModalityTier, resolve_modality
 from .tts import register_tts_provider, synthesize
 from .vad import WebRTCVadFallback
 
@@ -86,7 +87,10 @@ __all__ = [
     "extract_audio",
     "get_stt_provider",
     "message_has_audio",
+    "ModalityNegotiationError",
+    "ModalityTier",
     "register_tts_provider",
+    "resolve_modality",
     "set_stt_provider",
     "silent_chunk",
     "synthesize",
