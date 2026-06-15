@@ -22,6 +22,7 @@ from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
 from .types import AgentInput, AgentReturnTypes, AgentRole
+from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
@@ -364,10 +365,19 @@ class UserSimulatorAgent(AgentAdapter):
 
         scenario = input.scenario_state
 
+        tier, _warnings = resolve_modality(declaration=None, model_id=self.model or "")
+        for w in _warnings:
+            logger.warning(w)
+
         persona_block = (
             f"\n\n<persona>\n{self.persona}\n</persona>\n"
             if self.persona
             else ""
+        )
+        _history = (
+            list(input.messages)
+            if tier == ModalityTier.AUDIO_IN
+            else _strip_audio_content(input.messages)
         )
         messages = [
             {
@@ -410,7 +420,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 {persona_block}"""),
             },
             {"role": "assistant", "content": "Hello, how can I help you today?"},
-            *_strip_audio_content(input.messages),
+            *_history,
         ]
 
         # User to assistant role reversal
