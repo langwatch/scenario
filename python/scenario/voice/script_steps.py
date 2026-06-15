@@ -159,6 +159,8 @@ def interrupt(
         else:
             await executor.user(content if content else None)  # type: ignore[arg-type]
 
+    if after_words is not None:
+        _step._requires_streaming_transcripts = True  # type: ignore[attr-defined]
     return _step
 
 
