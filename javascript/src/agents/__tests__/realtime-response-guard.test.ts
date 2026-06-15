@@ -58,8 +58,7 @@ describe("RealtimeEventHandler — isResponseActive() lifecycle", () => {
     const transport = new FakeTransport();
     const session = makeFakeSession(transport);
     const handler = new RealtimeEventHandler(session);
-    // isResponseActive() doesn't exist pre-fix → throws TypeError
-    expect((handler as any).isResponseActive()).toBe(false);
+    expect(handler.isResponseActive()).toBe(false);
   });
 
   it("AC-JS6b: isResponseActive() returns true after response.created", () => {
@@ -67,7 +66,7 @@ describe("RealtimeEventHandler — isResponseActive() lifecycle", () => {
     const session = makeFakeSession(transport);
     const handler = new RealtimeEventHandler(session);
     transport.fire("response.created");
-    expect((handler as any).isResponseActive()).toBe(true);
+    expect(handler.isResponseActive()).toBe(true);
   });
 
   it("AC-JS6c: isResponseActive() returns false after response.done", () => {
@@ -76,7 +75,16 @@ describe("RealtimeEventHandler — isResponseActive() lifecycle", () => {
     const handler = new RealtimeEventHandler(session);
     transport.fire("response.created");
     transport.fire("response.done");
-    expect((handler as any).isResponseActive()).toBe(false);
+    expect(handler.isResponseActive()).toBe(false);
+  });
+
+  it("AC-JS6d: isResponseActive() returns false after response.cancelled", () => {
+    const transport = new FakeTransport();
+    const session = makeFakeSession(transport);
+    const handler = new RealtimeEventHandler(session);
+    transport.fire("response.created");
+    transport.fire("response.cancelled");
+    expect(handler.isResponseActive()).toBe(false);
   });
 });
 

@@ -111,9 +111,13 @@ export class RealtimeEventHandler {
       }
     });
 
-    // Track response lifecycle — set on response.created, clear on response.done
+    // Track response lifecycle — set on response.created, clear on response.done/cancelled
     transport.on("response.created", () => {
       this._active = true;
+    });
+
+    transport.on("response.cancelled", () => {
+      this._active = false;
     });
 
     // Listen for response completion
@@ -177,6 +181,7 @@ export class RealtimeEventHandler {
    * Resets the internal state for the next response
    */
   private reset(): void {
+    this._active = false;
     this.responseResolver = null;
     this.errorRejecter = null;
     this.currentResponse = "";
