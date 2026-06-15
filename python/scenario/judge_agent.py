@@ -27,6 +27,7 @@ from ._judge.trace_tools import expand_trace, grep_trace
 from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 from .voice._transcribe import transcribe_segments
+from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
@@ -361,18 +362,24 @@ class JudgeAgent(AgentAdapter):
             raise Exception(agent_not_configured_error_message("JudgeAgent"))
 
     # --------------------------------------------- voice auto-detection (§4.3)
-    # Small single-purpose helpers; kept out of call() to preserve SRP.
-    _AUDIO_CAPABLE_MODEL_SUBSTRINGS = ("gpt-4o", "gemini-2.5", "gemini-2.0-flash")
-
-    def _model_supports_audio(self) -> bool:
-        m = (self.model or "").lower()
-        return any(s in m for s in self._AUDIO_CAPABLE_MODEL_SUBSTRINGS)
-
     def effective_include_audio(self, conversation_has_audio: bool) -> bool:
-        """Resolve include_audio: explicit wins, otherwise auto from model capability."""
+        """Resolve include_audio: explicit wins, otherwise use modality resolver.
+
+        Intentional behavior change (Bundle 3 / AC3b):
+          Before: gpt-4o → audio-capable (substring match).
+          After:  gpt-4o → text path (litellm advisory returns False).
+          Before: gpt-audio-mini → NOT audio-capable (not in list).
+          After:  gpt-audio-mini → audio-capable (litellm advisory returns True).
+        The old substring list was wrong; the resolver is the source of truth.
+        """
         if self.include_audio is not None:
+            # Explicit override always wins (AC3c)
             return self.include_audio and conversation_has_audio
-        return conversation_has_audio and self._model_supports_audio()
+        # Use resolver — no per-role declaration wired yet (AC0 is Bundle 6)
+        tier, warnings = resolve_modality(declaration=None, model_id=self.model or "")
+        for w in warnings:
+            logger.warning(w)
+        return conversation_has_audio and (tier == ModalityTier.AUDIO_IN)
 
     def effective_include_timeline(self, conversation_has_audio: bool) -> bool:
         """Default timeline True for voice, False for text — unless explicitly set."""

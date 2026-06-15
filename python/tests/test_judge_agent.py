@@ -7,6 +7,7 @@ from scenario.config import ModelConfig, ScenarioConfig
 from scenario.types import AgentInput, JudgmentRequest
 from scenario.cache import context_scenario
 from scenario.scenario_executor import ScenarioExecutor
+from scenario.voice.modality_resolver import ModalityTier
 
 
 class FakeOpenAIClient:
@@ -403,3 +404,55 @@ async def test_judge_omits_additional_context_when_none():
     finally:
         context_scenario.reset(token)
         ScenarioConfig.default_config = None
+
+
+# ------------------------------------------------------------------ Bundle 3 / AC3a, AC3b, AC3c
+
+
+def test_gpt_audio_mini_judge_receives_audio():
+    """AC3a — gpt-audio-mini judge receives audio parts when resolver returns AUDIO_IN."""
+    judge = JudgeAgent(
+        criteria=["agent replied correctly"],
+        model="openai/gpt-audio-mini",
+    )
+    with patch(
+        "scenario.judge_agent.resolve_modality",
+        return_value=(ModalityTier.AUDIO_IN, []),
+    ):
+        assert judge.effective_include_audio(conversation_has_audio=True) is True
+
+
+def test_gpt4o_judge_no_declaration_takes_transcript_path():
+    """AC3b intentional behavior change: gpt-4o via litellm advisory (False) → text path.
+
+    Before Bundle 3: gpt-4o matched the old substring list → audio-capable (True).
+    After Bundle 3:  litellm advisory for gpt-4o returns False → text path (False).
+    This is the correct behavior — gpt-4o does not ingest raw audio input parts.
+    """
+    judge = JudgeAgent(
+        criteria=["agent replied correctly"],
+        model="openai/gpt-4o",
+    )
+    with patch(
+        "scenario.judge_agent.resolve_modality",
+        return_value=(ModalityTier.TEXT, []),
+    ):
+        # AC3b intentional behavior change: gpt-4o via litellm advisory (False) → text path
+        assert judge.effective_include_audio(conversation_has_audio=True) is False
+
+
+def test_explicit_include_audio_false_wins():
+    """AC3c — explicit include_audio=False wins even for an audio-capable model."""
+    judge = JudgeAgent(
+        criteria=["agent replied correctly"],
+        model="openai/gpt-audio-mini",
+        include_audio=False,
+    )
+    # resolve_modality must NOT be called when include_audio is explicitly set
+    with patch(
+        "scenario.judge_agent.resolve_modality",
+        return_value=(ModalityTier.AUDIO_IN, []),
+    ) as mock_resolver:
+        result = judge.effective_include_audio(conversation_has_audio=True)
+    assert result is False
+    mock_resolver.assert_not_called()
