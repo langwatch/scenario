@@ -29,6 +29,7 @@ from ..types import AgentInput, AgentReturnTypes, AgentRole
 from .audio_chunk import AudioChunk
 from .capabilities import AdapterCapabilities
 from .messages import create_audio_message, extract_audio
+from .stt import transcribe
 from .recording import AudioSegment, VoiceEvent
 
 
@@ -244,8 +245,6 @@ class VoiceAgentAdapter(AgentAdapter):
         if not merged.data or merged.transcript:
             return merged
         try:
-            from .stt import transcribe
-
             text = await transcribe(merged)
         except Exception:
             logger.warning(

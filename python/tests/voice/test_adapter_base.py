@@ -133,6 +133,11 @@ class _BoomSTT(STTProvider):
         raise RuntimeError("stt down")
 
 
+class _EmptySTT(STTProvider):
+    async def transcribe(self, audio: AudioChunk) -> str:
+        return ""
+
+
 def _audio_input():
     msg = create_audio_message(AudioChunk(data=b"\x00\x00" * 1200), role="user")
 
@@ -182,6 +187,22 @@ async def test_default_call_skips_stt_when_adapter_ships_transcript():
 async def test_default_call_returns_audio_only_when_stt_fails():
     prev = get_stt_provider()
     set_stt_provider(_BoomSTT())
+    try:
+        a = _OneShotAdapter(AudioChunk(data=b"\x00\x00" * 1200))
+        result = await a.call(_audio_input())  # type: ignore[arg-type]
+        assert _text_parts(result) == []
+        assert any(
+            isinstance(p, dict) and p.get("type") == "input_audio"
+            for p in cast(dict, result)["content"]
+        )
+    finally:
+        set_stt_provider(prev)
+
+
+@pytest.mark.asyncio
+async def test_default_call_returns_audio_only_when_stt_returns_empty():
+    prev = get_stt_provider()
+    set_stt_provider(_EmptySTT())
     try:
         a = _OneShotAdapter(AudioChunk(data=b"\x00\x00" * 1200))
         result = await a.call(_audio_input())  # type: ignore[arg-type]
