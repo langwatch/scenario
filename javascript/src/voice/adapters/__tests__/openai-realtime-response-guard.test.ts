@@ -76,10 +76,9 @@ async function makeAdapter(): Promise<{
   const ws = new FakeWS();
   const adapter = new OpenAIRealtimeAgentAdapter({
     apiKey: "test-key",
-    wsFactory: (url, _authHeader) => {
+    wsFactory: (_url, _authHeader) => {
       // Emit "open" asynchronously so the awaited Promise in connect() resolves.
       queueMicrotask(() => ws.emit("open"));
-      void url;
       return ws as unknown as WebSocket;
     },
   });
