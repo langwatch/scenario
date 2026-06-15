@@ -6,7 +6,7 @@ dict and a mocked langwatch.trace so no real tracing infrastructure is needed.
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 
 from scenario.voice.modality_resolver import ModalityTier
 from scenario.scenario_executor import ScenarioExecutor
