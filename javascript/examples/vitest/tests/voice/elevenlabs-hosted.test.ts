@@ -128,14 +128,15 @@ if (hasHostedKey || hasComposableKey) {
             );
             // #567: the explicit user_message turn-commit re-engages the agent
             // on the scripted 2nd user turn, so the live socket now carries
-            // multiple agent audio turns (greeting + ≥2 responses). Assert the
-            // multi-turn shape — more segments than the old single-exchange
-            // limit could produce — as the load-bearing live proof.
+            // greeting + user1 + agent1 + user2 + agent2 = 5 segments. Assert
+            // the full 5-segment shape — the pre-fix silence path stalls on
+            // user2 and produces at most 4 segments before the timeout, so ≥5
+            // is the falsifying floor that separates fixed from broken.
             expect(
               result!.audio!.segments.length,
-              "expected ≥3 audio segments (greeting + 2 agent responses) — " +
-                "a scripted 2nd-turn re-engagement is the #567 fix",
-            ).toBeGreaterThanOrEqual(3);
+              "expected ≥5 audio segments (greeting + user1 + agent1 + user2 + agent2) — " +
+                "the pre-fix silence path stalls on user2 and cannot produce 5",
+            ).toBeGreaterThanOrEqual(5);
             // The judge verdict is informative; surface success for the reviewer.
             expect(result!.success, `judge verdict: ${result!.reasoning}`).toBe(true);
           });

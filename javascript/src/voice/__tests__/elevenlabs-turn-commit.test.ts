@@ -264,4 +264,34 @@ describe("ElevenLabsAgentAdapter silence-tail fallbacks (#567)", () => {
     expect(socket.audioChunks).toContain(expectedTail);
     expect(socket.audioChunks).not.toContain(Buffer.alloc(16000).toString("base64"));
   });
+
+  it("silence mode — 2nd user turn emits no user_message; receiveAudio times out if server VAD does not fire (the pre-#567 bug path)", async () => {
+    // This is the NEGATIVE case that proves the fix is necessary: the pre-#567
+    // "silence" path sends only audio + tail and relies on server-side VAD, which
+    // does NOT reliably fire on a scripted non-mic stream (EL ConvAI 2.0 hybrid
+    // VAD + DL turn-detector). Without a user_message commit, if the server's
+    // VAD doesn't fire, no agent audio arrives and receiveAudio times out.
+    const { adapter, socket } = await connectedAdapter({ turnCommitMode: "silence" });
+
+    // Greeting.
+    socket.deliverAudio();
+    await adapter.receiveAudio(1);
+
+    // Turn 1: user sends, we manually deliver agent audio (simulating VAD firing).
+    await adapter.sendAudio(userTurn("Hello."));
+    socket.deliverAudio();
+    await adapter.receiveAudio(1);
+
+    // Turn 2: silence mode — no user_message emitted, server VAD does not fire
+    // (we do NOT call socket.deliverAudio() — simulating the real production stall).
+    await adapter.sendAudio(userTurn("What are my options?"));
+
+    // Confirm: silence path sends NO user_message commit.
+    expect(socket.userMessages).toHaveLength(0);
+
+    // Without a commit, the server never re-engages → receiveAudio times out.
+    // This is exactly the #567 bug. On the "text" path (default), sendAudio
+    // sends a user_message which deterministically triggers agent audio — no stall.
+    await expect(adapter.receiveAudio(0.01)).rejects.toThrow("receiveAudio timed out");
+  });
 });

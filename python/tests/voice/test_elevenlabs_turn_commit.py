@@ -277,3 +277,37 @@ async def test_silence_tail_bytes_resizes_the_fallback_tail():
     expected_tail = base64.b64encode(b"\x00" * 2400).decode()
     assert expected_tail in socket.audio_chunks
     assert base64.b64encode(b"\x00" * 16000).decode() not in socket.audio_chunks
+
+
+@pytest.mark.asyncio
+async def test_silence_mode_second_turn_times_out_without_user_message_commit():
+    """The pre-#567 bug: silence mode emits no user_message commit.
+
+    When server-side VAD does not fire on the scripted non-mic stream (EL
+    ConvAI 2.0 hybrid VAD + DL turn-detector), no agent audio arrives and
+    ``recv_audio`` times out. This is the NEGATIVE counterexample that proves
+    the fix is necessary: the default ``"text"`` path (issue #567 fix) avoids
+    this stall by sending an explicit ``user_message`` commit.
+    """
+    adapter, socket = await _connected_adapter(turn_commit_mode="silence")
+
+    # Greeting.
+    socket.deliver_audio()
+    await adapter.recv_audio(timeout=1.0)
+
+    # Turn 1: user sends, manually deliver agent audio (simulating VAD firing).
+    await adapter.send_audio(_user_turn("Hello."))
+    socket.deliver_audio()
+    await adapter.recv_audio(timeout=1.0)
+
+    # Turn 2: silence mode — no user_message emitted.
+    # We do NOT call socket.deliver_audio() — simulating the production stall
+    # where server VAD doesn't fire on the scripted non-mic stream.
+    await adapter.send_audio(_user_turn("What are my options?"))
+
+    # Confirm: silence path sends NO user_message commit.
+    assert socket.user_messages == []
+
+    # Without a commit, the server never re-engages → recv_audio times out.
+    with pytest.raises(asyncio.TimeoutError):
+        await adapter.recv_audio(timeout=0.01)

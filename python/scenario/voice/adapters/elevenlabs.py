@@ -129,7 +129,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
     ) -> None:
         super().__init__()
         self.agent_id = agent_id
-        self.api_key = api_key
+        self._api_key = api_key
         # Per-session overrides applied via conversation_initiation_client_data
         # at the start of every WS connect. Used by demos that need a
         # different prompt shape (e.g. verbose for interrupt demos) without
@@ -155,7 +155,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         return CONVAI_URL_TEMPLATE.format(agent_id=self.agent_id)
 
     def __repr__(self) -> str:  # redact credentials
-        return f"ElevenLabsAgentAdapter(agent_id={self.agent_id!r}, api_key='***')"
+        return f"ElevenLabsAgentAdapter(agent_id={self.agent_id!r}, api_key='***')"  # noqa: S105
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -174,7 +174,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
 
         self._ws = await websockets.connect(
             self.url,
-            additional_headers={"xi-api-key": self.api_key},
+            additional_headers={"xi-api-key": self._api_key},
         )
         logger.debug("ElevenLabsAgentAdapter: connected to %s", self.url)
 
@@ -264,9 +264,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         b64 = base64.b64encode(chunk.data).decode()
         await self._ws.send(json.dumps({"user_audio_chunk": b64}))
 
-        silence = b"\x00" * self._silence_tail_bytes
-        silence_b64 = base64.b64encode(silence).decode()
-        await self._ws.send(json.dumps({"user_audio_chunk": silence_b64}))
+        await self._send_silence_tail()
 
     async def _send_user_message(self, text: str) -> None:
         """Explicit turn-commit: tell EL the user is done and force an agent
@@ -274,6 +272,12 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         shape matches the official SDK's ``user_message`` event.
         """
         await self._ws.send(json.dumps({"type": "user_message", "text": text}))
+
+    async def _send_silence_tail(self) -> None:
+        """Legacy end-of-turn nudge: a fixed zero-byte tail to coax server VAD."""
+        silence = b"\x00" * self._silence_tail_bytes
+        silence_b64 = base64.b64encode(silence).decode()
+        await self._ws.send(json.dumps({"user_audio_chunk": silence_b64}))
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
