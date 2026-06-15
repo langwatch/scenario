@@ -1,12 +1,17 @@
 """Unit tests for VoiceAgentAdapter base class."""
 
+import asyncio
 import pytest
+from typing import Any, Optional, cast
 
 from scenario.voice import (
     AdapterCapabilities,
     AudioChunk,
+    STTProvider,
     VoiceAgentAdapter,
     create_audio_message,
+    get_stt_provider,
+    set_stt_provider,
 )
 
 
@@ -84,12 +89,6 @@ def test_capabilities_matrix_is_published():
 # "[audio message]" placeholder, and the simulator replied blind to every
 # agent turn — while the judge, transcribing the recording post-hoc, still
 # showed a coherent-looking transcript.
-
-import asyncio
-from typing import Any, Optional, cast
-
-from scenario.voice import STTProvider, get_stt_provider, set_stt_provider
-
 
 class _OneShotAdapter(VoiceAgentAdapter):
     """Audio-only transport: one agent chunk, then silence (drain timeout)."""

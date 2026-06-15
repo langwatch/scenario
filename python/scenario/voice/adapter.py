@@ -251,8 +251,8 @@ class VoiceAgentAdapter(AgentAdapter):
             logger.warning(
                 "voice: agent-turn STT failed; the user simulator will see "
                 "'[audio message]' instead of this turn's words",
-                exc_info=True,
             )
+            logger.debug("voice: agent-turn STT failure detail", exc_info=True)
             return merged
         if not text:
             return merged
@@ -335,13 +335,8 @@ class _AdapterRecorder:
         """
         if self._executor is None or not chunk.data:
             return
-        # mark_user_start should have been called; if not (e.g. an adapter
-        # subclass invokes record_user directly), fall back to back-
-        # computation so the segment is at least roughly placed.
         end = self._offset()
-        start = self._user_start if self._user_start is not None else max(
-            0.0, end - chunk.duration_seconds
-        )
+        start = self._user_start if self._user_start is not None else end
         self._user_end = end
         write_user_segment(self._executor, chunk, start, end)
 
@@ -368,18 +363,14 @@ class _AdapterRecorder:
         """Finalise the agent segment after drain completes.
 
         start = when first chunk arrived (captured by mark_agent_start).
-        end = when drain settled (captured by mark_agent_end), falling back
-        to now for subclasses that call record_agent directly.
+        end = when drain settled (captured by mark_agent_end).
         latency = agent.start - user.end. Real measurement; no clamp.
         """
         if self._executor is None or not chunk.data:
             return
         _fire_audio_chunk(self._executor, chunk)
         end = self._agent_end if self._agent_end is not None else self._offset()
-        # Fall back if a subclass bypassed the on_first_chunk hook.
-        start = self._agent_start if self._agent_start is not None else max(
-            0.0, end - chunk.duration_seconds
-        )
+        start = self._agent_start if self._agent_start is not None else end
         _append_segment(self._executor, "agent", start, end, chunk)
         latency = None
         if self._user_end is not None:
