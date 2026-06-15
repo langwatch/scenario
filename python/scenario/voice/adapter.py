@@ -16,6 +16,7 @@ each adapter needing its own bookkeeping.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import time
 from abc import abstractmethod
@@ -255,7 +256,7 @@ class VoiceAgentAdapter(AgentAdapter):
             return merged
         if not text:
             return merged
-        return AudioChunk(data=merged.data, transcript=text)
+        return dataclasses.replace(merged, transcript=text)
 
     async def _drain_agent_response(
         self, on_first_chunk: Optional[Callable[[], None]] = None
