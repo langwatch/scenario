@@ -248,6 +248,7 @@ class JudgeAgent(AgentAdapter):
         include_audio: Optional[bool] = None,
         include_timeline: Optional[bool] = None,
         include_traces: Optional[bool] = None,
+        modality: Optional[str] = None,
         **extra_params,
     ):
         """
@@ -275,6 +276,13 @@ class JudgeAgent(AgentAdapter):
             max_discovery_steps: Maximum number of expand/grep tool calls the judge
                                 can make before being forced to return a verdict.
                                 Defaults to 10.
+            modality: Explicit modality declaration for this role. Accepted values:
+                     ``"audio-in"`` (LLM receives raw audio), ``"stt-bridge"``
+                     (audio transcribed to text before the LLM), or ``"text"``
+                     (no audio in the stack). Complementary to ``include_audio``:
+                     ``include_audio=True/False`` takes precedence; ``modality=``
+                     applies when ``include_audio`` is ``None``. When ``None``
+                     (default), the modality is auto-detected from litellm capabilities.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -319,6 +327,7 @@ class JudgeAgent(AgentAdapter):
         self.include_audio = include_audio
         self.include_timeline = include_timeline
         self.include_traces = include_traces
+        self.modality = modality
 
         if model:
             self.model = model
@@ -375,8 +384,8 @@ class JudgeAgent(AgentAdapter):
         if self.include_audio is not None:
             # Explicit override always wins (AC3c)
             return self.include_audio and conversation_has_audio
-        # Use resolver — no per-role declaration wired yet (AC0 is Bundle 6)
-        tier, warnings = resolve_modality(declaration=None, model_id=self.model or "")
+        # Use resolver with per-role declaration (AC0, Bundle 6)
+        tier, warnings = resolve_modality(declaration=self.modality, model_id=self.model or "")
         for w in warnings:
             logger.warning(w)
         return conversation_has_audio and (tier == ModalityTier.AUDIO_IN)
