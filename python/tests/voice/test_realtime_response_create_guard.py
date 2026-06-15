@@ -424,3 +424,47 @@ async def test_ac7_race_sequence_returns_audio_chunk_not_timeout():
         "Post-fix: guard defers response.create until response.done is processed, "
         "then the audio-delta sequence completes with a non-empty chunk."
     )
+
+
+# ---------------------------------------------------------------------------
+# Deferred path also consumes the agent-turn signal: when user audio is
+# committed while a response is in flight, recv_audio takes the deferral
+# branch (_deferred_response_create=True) and MUST also clear
+# _agent_turn_pending (openai_realtime.py line 428) — the user spoke, so the
+# pending agent-turn signal is consumed even though the create is deferred.
+# Without that clear, a later drain re-entry would fire a spurious
+# response.create off the still-pending agent-turn flag.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_deferred_path_clears_agent_turn_pending():
+    """Deferred branch clears _agent_turn_pending (line 428) when user audio is committed mid-response."""
+    # response.created fires, but no response.done — response stays active and
+    # no audio delta arrives, so the drain terminates via TimeoutError from the
+    # MockWS (same shape as AC1). The flag clear happens in the preamble before
+    # the recv loop, so the timeout does not affect what we assert.
+    events = [
+        json.dumps({"type": "response.created"}),
+    ]
+    adapter, _mock_ws = _make_adapter(events, short_timeout=True)
+
+    # Both flags set: an agent turn is pending AND a response is already in
+    # flight. User audio committed below → preamble takes the deferral branch.
+    adapter._agent_turn_pending = True
+    adapter._response_active = True
+    adapter._pending_audio_bytes = 960  # 480 samples × 2 bytes
+
+    # recv_audio times out (no audio delta, no response.done) — expected.
+    with pytest.raises((asyncio.TimeoutError, RuntimeError)):
+        await adapter.recv_audio(timeout=0.2)
+
+    # The deferral branch must have consumed the agent-turn signal (line 428).
+    assert adapter._agent_turn_pending is False, (
+        "deferred path did not clear _agent_turn_pending; a later drain "
+        "re-entry would fire a spurious response.create off the stale flag"
+    )
+    # Sanity: it really was the deferral branch (flag set), not the else branch.
+    assert adapter._deferred_response_create is True, (
+        "expected the deferral branch (_deferred_response_create=True) to be taken"
+    )

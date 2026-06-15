@@ -623,6 +623,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         """
         # Reset per-turn tool-call state so a prior turn's calls don't bleed
         # through (mirrors the transcript reset in _drain_agent_response).
+        self._deferred_response_create = False
         self._completed_tool_calls = []
         self._tool_call_accumulators = {}
 
