@@ -121,7 +121,6 @@ async def test_ac2_log_turn_emits_child_llm_span_with_attributes(
     turn_spans = [s for s in spans if s.name == "realtime_turn"]
     assert len(turn_spans) == 1
     span = turn_spans[0]
-    assert span.name == "realtime_turn"
     assert span.attributes["type"] == "llm"
     assert span.attributes["input"] == "Hello"
     assert span.attributes["output"] == "Hi there"

@@ -132,7 +132,6 @@ class RealtimeLangWatchSession:
         self._api_key = api_key or os.environ.get("LANGWATCH_API_KEY")
 
         # Lifecycle flags.
-        self._entered = False  # has __aenter__ run at least once?
         self._active = False  # is the context currently open (guards log_turn)?
         self._noop = False  # no key → emit nothing, but still guard log_turn
 
@@ -144,8 +143,6 @@ class RealtimeLangWatchSession:
         self._ctx_token = None
 
     async def __aenter__(self) -> "RealtimeLangWatchSession":
-        self._entered = True
-
         if not self._api_key:
             # No-op mode: the context is "active" (so log_turn does not raise the
             # not-active RuntimeError), but it emits nothing.
@@ -170,6 +167,8 @@ class RealtimeLangWatchSession:
 
             self._tracer = trace.get_tracer("scenario.realtime")
             self._root_span = self._tracer.start_span(self._name)
+            if self._model is not None:
+                self._root_span.set_attribute("model", self._model)
             self._ctx_token = context.attach(
                 trace.set_span_in_context(self._root_span)
             )
@@ -226,7 +225,7 @@ class RealtimeLangWatchSession:
                 exc_info=True,
             )
 
-    async def __aexit__(self, exc_type, exc, tb) -> bool:
+    async def __aexit__(self, exc_type, exc, tb) -> None:
         # Guard first so log_turn raises if called after exit.
         self._active = False
 
@@ -255,5 +254,3 @@ class RealtimeLangWatchSession:
                 "Failed to flush realtime_langwatch_session provider.", exc_info=True
             )
 
-        # Never suppress an exception raised inside the with-block.
-        return False
