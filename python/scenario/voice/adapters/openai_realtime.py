@@ -716,6 +716,11 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             )
         )
         # Prompt the model to generate audio output.
+        # Guard: if a response is already in flight, defer the create rather than
+        # firing unconditionally — mirrors the recv_audio user-audio branch guard.
+        if self._response_active:
+            self._deferred_response_create = True
+            return
         await self._ws.send(json.dumps({"type": "response.create"}))
         logger.debug(
             "OpenAIRealtimeAgentAdapter: send_text injected %r", text[:60]
