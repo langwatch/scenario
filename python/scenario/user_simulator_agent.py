@@ -159,6 +159,7 @@ class UserSimulatorAgent(AgentAdapter):
         persona: Optional[str] = None,
         audio_effects: Optional[List[Callable[[bytes], bytes]]] = None,
         interrupt_probability: float = 0.0,
+        modality: Optional[str] = None,
         **extra_params,
     ):
         """
@@ -177,6 +178,11 @@ class UserSimulatorAgent(AgentAdapter):
                        If not provided, uses model defaults.
             system_prompt: Custom system prompt to override default user simulation behavior.
                           Use this to create specialized user personas or behaviors.
+            modality: Explicit modality declaration for this role. Accepted values:
+                     ``"audio-in"`` (LLM receives raw audio), ``"stt-bridge"``
+                     (audio transcribed to text before the LLM), or ``"text"``
+                     (no audio in the stack). When ``None`` (default), the modality
+                     is auto-detected from the model's litellm capabilities.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -218,6 +224,7 @@ class UserSimulatorAgent(AgentAdapter):
         if not 0.0 <= interrupt_probability <= 1.0:
             raise ValueError("interrupt_probability must be in [0, 1]")
         self.interrupt_probability = interrupt_probability
+        self.modality = modality
 
         if model:
             self.model = model
@@ -365,7 +372,7 @@ class UserSimulatorAgent(AgentAdapter):
 
         scenario = input.scenario_state
 
-        tier, _warnings = resolve_modality(declaration=None, model_id=self.model or "")
+        tier, _warnings = resolve_modality(declaration=self.modality, model_id=self.model or "")
         for w in _warnings:
             logger.warning(w)
 
