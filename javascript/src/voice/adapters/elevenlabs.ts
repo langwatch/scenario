@@ -126,6 +126,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly audioQueue: AudioChunk[] = [];
   /** Resolvers waiting on the next audio chunk (FIFO). */
   private readonly waiters: Array<(chunk: AudioChunk) => void> = [];
+  /** Timer-reset callbacks for active receiveAudio calls — called on every inbound WS frame. */
+  private readonly timerResetters: Array<() => void> = [];
 
   lastUserTranscript: string | null = null;
   lastAgentTranscript: string | null = null;
@@ -262,15 +264,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (queued) return queued;
 
     return await new Promise<AudioChunk>((resolve, reject) => {
-      // Forward-declared so both the timer and the waiter can close over it.
+      // Forward-declared so both the timer, the resetter, and the waiter share it.
       let timer: ReturnType<typeof setTimeout>;
-      const waiter = (chunk: AudioChunk) => {
-        clearTimeout(timer);
-        resolve(chunk);
-      };
-      timer = setTimeout(() => {
-        const idx = this.waiters.indexOf(waiter);
-        if (idx >= 0) this.waiters.splice(idx, 1);
+
+      const onTimeout = () => {
+        const timerIdx = this.timerResetters.indexOf(resetTimer);
+        if (timerIdx >= 0) this.timerResetters.splice(timerIdx, 1);
+        const waiterIdx = this.waiters.indexOf(waiter);
+        if (waiterIdx >= 0) this.waiters.splice(waiterIdx, 1);
         reject(
           new Error(
             "ElevenLabsAgentAdapter: receiveAudio timed out. Hosted ElevenLabs " +
@@ -282,7 +283,25 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
               "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
           ),
         );
-      }, timeout * 1000);
+      };
+
+      // Re-arm the idle deadline on every received message (pings included) so a
+      // slow-but-healthy server that keeps pinging while processing does not
+      // trip the timer. Matches Python recv_audio sliding-idle-deadline (PR #649).
+      const resetTimer = () => {
+        clearTimeout(timer);
+        timer = setTimeout(onTimeout, timeout * 1000);
+      };
+
+      const waiter = (chunk: AudioChunk) => {
+        clearTimeout(timer);
+        const timerIdx = this.timerResetters.indexOf(resetTimer);
+        if (timerIdx >= 0) this.timerResetters.splice(timerIdx, 1);
+        resolve(chunk);
+      };
+
+      timer = setTimeout(onTimeout, timeout * 1000);
+      this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });
   }
@@ -290,6 +309,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   // ---------------------------------------------------------------- internals
   /** Handle one inbound WS frame. Exported via class for unit-test injection. */
   onMessage(data: RawData): void {
+    // Any inbound frame (ping, audio, transcript) is a liveness signal — reset all
+    // active receiveAudio timers so a slow-but-pinging server does not spuriously
+    // time out. Matches Python recv_audio sliding-idle-deadline fix (PR #649).
+    for (const resetter of this.timerResetters) resetter();
+
     const raw = data instanceof Buffer ? data.toString("utf-8") : String(data);
     let event: Record<string, unknown>;
     try {
