@@ -1,5 +1,5 @@
 """
-Issue #657 — regression tests for recv_audio response.create race condition.
+Issues #657 + #662 — regression tests for response.create race guards (recv_audio + send_text + JS adapters).
 
 The user-audio branch at lines ~407-411 of openai_realtime.py sends
 ``response.create`` unconditionally after ``input_audio_buffer.commit``, even

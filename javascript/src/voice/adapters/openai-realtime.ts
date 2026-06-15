@@ -481,6 +481,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         if (this._deferredResponseCreate) {
           this._ws.send(JSON.stringify({ type: "response.create" }));
           this._deferredResponseCreate = false;
+          this._responseActive = true; // mirror Python: close the window before response.created arrives
         }
         // Issue #646: a tool-only turn (function call, NO audio delta) would
         // otherwise loop here forever and hit the receiveAudio timeout — the

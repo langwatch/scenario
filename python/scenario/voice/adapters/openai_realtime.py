@@ -417,6 +417,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         if self._pending_audio_bytes > 0:
             await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
             self._pending_audio_bytes = 0
+            self._agent_turn_pending = False  # user spoke → per-turn signal consumed (always)
             if self._response_active:
                 # Race guard (#657): server rejects/ignores a duplicate
                 # response.create while a response is in flight, which causes the
@@ -428,7 +429,6 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 self._agent_turn_pending = False  # user spoke → consume turn signal even when deferred
             else:
                 await self._ws.send(json.dumps({"type": "response.create"}))
-                self._agent_turn_pending = False  # user spoke → per-turn signal consumed
 
         # Gap 1: agent-speaks-first / multi-turn agent initiation.
         # When the executor signals an agent turn via notify_agent_turn() and
@@ -723,5 +723,5 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             return
         await self._ws.send(json.dumps({"type": "response.create"}))
         logger.debug(
-            "OpenAIRealtimeAgentAdapter: send_text injected %r", text[:60]
+            "OpenAIRealtimeAgentAdapter: send_text injected text (%d chars)", len(text)
         )
