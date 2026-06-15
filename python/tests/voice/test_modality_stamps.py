@@ -78,7 +78,9 @@ async def test_ac5_modality_attributes_stamped_on_root_span():
     captured = _new_turn_with_resolutions(executor, resolutions)
 
     assert captured.get("scenario.modality.simulator.tier") == "audio-in"
+    assert captured.get("scenario.modality.simulator.resolved") == "audio-in"
     assert captured.get("scenario.modality.judge.tier") == "stt-bridge"
+    assert captured.get("scenario.modality.judge.resolved") == "stt-bridge"
 
 
 @pytest.mark.asyncio
@@ -126,6 +128,7 @@ async def test_ac5b_stt_bridge_tier_stamped_correctly():
     captured = _new_turn_with_resolutions(executor, resolutions)
 
     assert captured.get("scenario.modality.simulator.tier") == "stt-bridge"
+    assert captured.get("scenario.modality.simulator.resolved") == "stt-bridge"
 
 
 def test_no_modality_resolutions_does_not_crash():
