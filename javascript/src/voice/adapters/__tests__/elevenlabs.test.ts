@@ -776,8 +776,11 @@ describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => 
   it("AC-KA5: socket close drains cleanly with no surviving timer", { timeout: 5000 }, async () => {
     // Use fake timers so we can inspect surviving timer count after drain
     vi.useFakeTimers();
+    let adapter: ElevenLabsAgentAdapter | undefined;
     try {
-      const { adapter, socket } = await makeConnected();
+      const connected = await makeConnected();
+      adapter = connected.adapter;
+      const socket = connected.socket;
 
       // Start a receiveAudio with a long timeout (5s) — we'll close before it fires
       const receivePromise = adapter.receiveAudio(5);
@@ -794,9 +797,8 @@ describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => 
 
       // No surviving timers — the waiter cancelled the timer on drain
       expect(vi.getTimerCount()).toBe(0);
-
-      await adapter.disconnect();
     } finally {
+      await adapter?.disconnect();
       vi.useRealTimers();
     }
   });
