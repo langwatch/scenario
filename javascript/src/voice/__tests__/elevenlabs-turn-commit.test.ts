@@ -72,12 +72,10 @@ class FakeElevenLabsSocket implements WebSocketLike {
 
   once(event: "open", listener: () => void): this;
   once(event: "error", listener: (err: Error) => void): this;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   once(event: string, listener: (...args: never[]) => void): this {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wrapped = (...args: any[]): void => {
+    const wrapped = (...args: unknown[]): void => {
       this.off(event, wrapped as (...a: never[]) => void);
-      (listener as (...a: any[]) => void)(...args);
+      (listener as (...a: unknown[]) => void)(...args);
     };
     return this.on(event as "open", wrapped as () => void);
   }

@@ -318,7 +318,7 @@ async def test_silence_mode_second_turn_times_out_without_user_message_commit():
 
 def test_rejects_unknown_turn_commit_mode():
     with pytest.raises(ValueError, match="Unknown turn_commit_mode"):
-        ElevenLabsAgentAdapter(agent_id="x", api_key="y", turn_commit_mode="vad")  # type: ignore[arg-type]
+        ElevenLabsAgentAdapter(agent_id="x", api_key="y", turn_commit_mode="vad")  # type: ignore[arg-type]  # intentionally invalid value to test runtime validation
 
 
 def test_rejects_zero_silence_tail_bytes():
