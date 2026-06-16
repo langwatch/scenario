@@ -42,6 +42,10 @@ export interface JudgmentRequest {
    * tool-call JSON that is difficult for the judge to interpret directly.
    */
   additionalContext?: string;
+  /**
+   * @deprecated Use `additionalContext` instead.
+   */
+  context?: string;
 }
 
 /**

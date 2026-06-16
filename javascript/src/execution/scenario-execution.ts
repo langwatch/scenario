@@ -1281,11 +1281,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * });
    * ```
    */
-  async judge(options?: { criteria?: string[]; additionalContext?: string }): Promise<ScenarioResult | null> {
+  async judge(options?: {
+    criteria?: string[];
+    additionalContext?: string;
+    /** @deprecated Use `additionalContext` instead. */
+    context?: string;
+  }): Promise<ScenarioResult | null> {
     return await this.scriptCallAgent(
       AgentRole.JUDGE,
       undefined,
-      { criteria: options?.criteria, additionalContext: options?.additionalContext }
+      { criteria: options?.criteria, additionalContext: options?.additionalContext ?? options?.context }
     );
   }
 
