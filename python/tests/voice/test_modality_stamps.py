@@ -117,7 +117,7 @@ async def test_ac5b_stt_bridge_tier_stamped_correctly():
     with mock_patch(
         "scenario.voice.modality_resolver._litellm_advisory", return_value=False
     ):
-        tier, warnings = resolve_modality(declaration="stt-bridge", model_id="openai/gpt-4o")
+        tier, _warnings = resolve_modality(declaration="stt-bridge", model_id="openai/gpt-4o")
 
     assert tier == ModalityTier.STT_BRIDGE, (
         f"resolve_modality must return STT_BRIDGE for declaration='stt-bridge'; got {tier!r}"
