@@ -197,10 +197,15 @@ export interface ScenarioExecutionLike {
   agentNonBlocking?(content?: string | ModelMessage): void;
   /**
    * Invokes the judge agent to evaluate the current state.
-   * @param options Optional options with inline criteria to evaluate as a checkpoint.
+   * @param options Optional options with inline criteria and/or additional context.
    * @returns The result of the scenario if the judge makes a final decision.
    */
-  judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null>;
+  judge(options?: {
+    criteria?: string[];
+    additionalContext?: string;
+    /** @deprecated Use `additionalContext` instead. */
+    context?: string;
+  }): Promise<ScenarioResult | null>;
   /**
    * Proceeds with the scenario automatically for a number of turns.
    * @param turns The number of turns to proceed. Defaults to running until the scenario ends.

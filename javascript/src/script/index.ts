@@ -124,11 +124,10 @@ function isVoiceAgentOptions(
  * When no criteria are provided, the judge uses its own configured criteria
  * and returns a final verdict (success or failure), ending the scenario.
  *
- * @param options Optional options object with inline criteria and/or context to evaluate.
+ * @param options Optional options object with inline criteria and/or additional context.
  *   - `criteria`: Criteria to evaluate (overrides judge's configured criteria).
  *   - `additionalContext`: Additional context for the judge, e.g. filesystem state or command output.
  *     Included in the judge's prompt under `<additional_context>`.
- *   - `context`: @deprecated Use `additionalContext` instead.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
 export const judge = (options?: {
