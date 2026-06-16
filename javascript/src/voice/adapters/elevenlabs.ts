@@ -367,11 +367,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         reject(
           new Error(
             "ElevenLabsAgentAdapter: receiveAudio timed out. Hosted ElevenLabs " +
-              "ConvAI is server-VAD-driven and supports only a single exchange " +
-              "(agent() → user() → agent() → judge()); a scripted 2nd user() turn " +
-              "does not re-engage its turn-taking, so the next agent() never " +
-              "receives a response. For multi-turn voice use a composable adapter " +
-              "(ElevenLabsVoiceAgent / pipecatAgent). See " +
+              "ConvAI supports multi-turn via the default text turn-commit mode " +
+              "(turnCommitMode: \"text\"). If you are using turnCommitMode: \"silence\" " +
+              "(legacy server-VAD path), a scripted 2nd user() turn may not re-engage " +
+              "the agent because ConvAI 2.0 hybrid VAD does not reliably fire on a " +
+              "non-mic stream — switch to the default \"text\" mode. See " +
               "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
           ),
         );
