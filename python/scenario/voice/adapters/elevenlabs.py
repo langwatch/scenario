@@ -18,7 +18,7 @@ Wire protocol:
     deep-learning turn-detector (prosody, rhythm, micro-pauses), not a pure
     silence threshold — so a fixed zero-byte tail does NOT reliably commit
     a scripted, non-mic turn 2+ (issue #567). See ``send_audio`` and
-    ``TURN_COMMIT_MODES``.
+    ``TurnCommitMode``.
 - Recv events:
   - ``conversation_initiation_metadata`` — checked for audio-format
     mismatch against advertised capability; warning logged on drift
@@ -140,6 +140,14 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # ``user_message`` commit) so scripted turn 2+ reliably re-engages an
         # agent response (issue #567). ``"silence"`` selects the legacy
         # pure-audio server-VAD path. See ``TurnCommitMode`` / ``send_audio``.
+        if turn_commit_mode not in ("text", "silence"):
+            raise ValueError(
+                f'Unknown turn_commit_mode: {turn_commit_mode!r}. Expected "text" or "silence".'
+            )
+        if not isinstance(silence_tail_bytes, int) or silence_tail_bytes <= 0:
+            raise ValueError(
+                f"silence_tail_bytes must be a positive integer, got {silence_tail_bytes!r}."
+            )
         self._turn_commit_mode: TurnCommitMode = turn_commit_mode
         # Zero-byte silence-tail length, consulted only on the ``"silence"``
         # path (and the ``"text"`` fallback when no transcript is available).

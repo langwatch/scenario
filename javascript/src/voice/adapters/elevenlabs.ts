@@ -179,6 +179,16 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     this.firstMessageOverride = options.firstMessageOverride;
     this.turnCommitMode = options.turnCommitMode ?? "text";
     this.silenceTailBytes = options.silenceTailBytes ?? SILENCE_TAIL_BYTES;
+    if (this.turnCommitMode !== "text" && this.turnCommitMode !== "silence") {
+      throw new Error(
+        `Unknown turnCommitMode: "${this.turnCommitMode}". Expected "text" or "silence".`,
+      );
+    }
+    if (!Number.isInteger(this.silenceTailBytes) || this.silenceTailBytes <= 0) {
+      throw new Error(
+        `silenceTailBytes must be a positive integer, got ${this.silenceTailBytes}.`,
+      );
+    }
     this.webSocketFactory =
       options.webSocketFactory ??
       ((url, headers) => new WebSocket(url, { headers }) as unknown as WebSocketLike);

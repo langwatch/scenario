@@ -73,7 +73,16 @@ class FakeElevenLabsSocket implements WebSocketLike {
   once(event: "open", listener: () => void): this;
   once(event: "error", listener: (err: Error) => void): this;
   once(event: string, listener: (...args: never[]) => void): this {
-    return this.on(event as "open", listener as () => void);
+    const key = event as keyof (typeof this.listeners);
+    const wrapped = ((...args: unknown[]) => {
+      (this.listeners as Record<string, Array<(...a: unknown[]) => void>>)[key] =
+        (this.listeners as Record<string, Array<(...a: unknown[]) => void>>)[key].filter(
+          (l) => l !== wrapped,
+        );
+      (listener as (...a: unknown[]) => void)(...args);
+    }) as (...a: never[]) => void;
+    (this.listeners as Record<string, Array<(...a: never[]) => void>>)[key]?.push(wrapped);
+    return this;
   }
 
   removeAllListeners(): void {
