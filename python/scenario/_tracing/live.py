@@ -57,12 +57,18 @@ def _get_concrete_provider(provider) -> Optional[TracerProvider]:
 def _add_langwatch_exporter(provider: TracerProvider, api_key: str) -> None:
     """Attach the LangWatch OTLP exporter to ``provider``.
 
+    Idempotent: does nothing if a LangWatch exporter is already attached to
+    this provider instance (prevents duplicate processors on sequential sessions).
+
     Best-effort: if the OTLP HTTP exporter dependency is missing we log a
     warning and return rather than raising into the host app.
 
     NOTE: intentionally duplicated/simplified from ``scenario._tracing.setup``
     — see the module docstring for why this file must not import from setup.
     """
+    if getattr(provider, "_scenario_langwatch_exporter_attached", False):
+        return
+
     endpoint = os.environ.get("LANGWATCH_ENDPOINT", "https://app.langwatch.ai")
 
     try:
@@ -83,6 +89,7 @@ def _add_langwatch_exporter(provider: TracerProvider, api_key: str) -> None:
         headers={"Authorization": f"Bearer {api_key}"},
     )
     provider.add_span_processor(BatchSpanProcessor(exporter))
+    setattr(provider, "_scenario_langwatch_exporter_attached", True)
 
 
 class RealtimeLangWatchSession:

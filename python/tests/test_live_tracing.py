@@ -25,11 +25,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from opentelemetry.trace import ProxyTracerProvider
 from opentelemetry.util._once import Once
 
+import scenario
 import scenario._tracing.setup as setup_mod
-from scenario._tracing.setup import (
-    ensure_tracing_initialized,
-    _reset_tracing_for_tests,
-)
 from scenario import realtime_langwatch_session
 from scenario._tracing.live import RealtimeLangWatchSession
 
@@ -46,7 +43,7 @@ def reset_otel():
         # Without resetting the Once guard, only the FIRST set_tracer_provider
         # in the whole process takes effect; every later one is dropped.
         trace._TRACER_PROVIDER_SET_ONCE = Once()
-        _reset_tracing_for_tests()
+        setup_mod._reset_tracing_for_tests()
 
     _reset()
     yield
@@ -83,8 +80,6 @@ def _install_in_memory_provider() -> InMemorySpanExporter:
 
 def test_ac1_importable_from_scenario_package():
     """AC1: realtime_langwatch_session is importable from the scenario package."""
-    import scenario
-
     assert hasattr(scenario, "realtime_langwatch_session")
     assert scenario.realtime_langwatch_session is RealtimeLangWatchSession
     assert "realtime_langwatch_session" in scenario.__all__
@@ -178,7 +173,7 @@ async def test_ac4_usable_without_scenario_run_ever_called(
 ):
     """AC4: the helper works in a process where scenario.run() / setup was never called.
 
-    ensure_tracing_initialized() is the function run() calls; we assert it was
+    setup_mod.ensure_tracing_initialized() is the function run() calls; we assert it was
     never triggered (setup remains uninitialized) yet the helper still functions.
     """
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
@@ -378,7 +373,7 @@ async def test_ac10_run_then_helper_no_duplicate_provider(
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
 
     # Simulate scenario.run() having initialized tracing already.
-    ensure_tracing_initialized()
+    setup_mod.ensure_tracing_initialized()
     provider_before = trace.get_tracer_provider()
     provider_id = id(provider_before)
 
@@ -405,7 +400,7 @@ async def test_ac11_helper_then_run_coexistence(monkeypatch: pytest.MonkeyPatch)
         )
 
     # run()'s init path must proceed without an OTel conflict.
-    ensure_tracing_initialized()
+    setup_mod.ensure_tracing_initialized()
     assert setup_mod._initialized is True
 
 
