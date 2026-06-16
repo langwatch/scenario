@@ -27,7 +27,6 @@ from opentelemetry.util._once import Once
 
 import scenario
 import scenario._tracing.setup as setup_mod
-from scenario import realtime_langwatch_session
 from scenario._tracing.live import RealtimeLangWatchSession
 
 
@@ -104,7 +103,7 @@ async def test_ac2_log_turn_emits_child_llm_span_with_attributes(
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
     exporter = _install_in_memory_provider()
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="Hello",
             agent_transcript="Hi there",
@@ -133,7 +132,7 @@ async def test_ac3_no_op_when_api_key_absent():
     # clear_langwatch_key already removed the env var.
     exporter = _install_in_memory_provider()
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="anything",
             agent_transcript="anything back",
@@ -181,7 +180,7 @@ async def test_ac4_usable_without_scenario_run_ever_called(
 
     assert setup_mod._initialized is False
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="u",
             agent_transcript="a",
@@ -207,7 +206,7 @@ async def test_ac5a_creates_new_tracer_provider_when_none_exists(
     # reset_otel leaves a fresh proxy; do NOT install a concrete one here.
     assert isinstance(trace.get_tracer_provider(), ProxyTracerProvider)
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview"):
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview"):
         provider = trace.get_tracer_provider()
         assert isinstance(provider, TracerProvider)
         assert not isinstance(provider, ProxyTracerProvider)
@@ -226,7 +225,7 @@ async def test_ac5b_attaches_to_existing_provider_without_replacing(
     existing = trace.get_tracer_provider()
     existing_id = id(existing)
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         assert id(trace.get_tracer_provider()) == existing_id
         await session.log_turn(
             user_transcript="hi",
@@ -264,7 +263,7 @@ async def test_ac6_export_failure_does_not_propagate_and_warns(
     trace.set_tracer_provider(provider)
 
     with caplog.at_level(logging.WARNING, logger="scenario.tracing"):
-        async with realtime_langwatch_session(
+        async with scenario.realtime_langwatch_session(
             model="gpt-4o-realtime-preview"
         ) as session:
             # Must not raise out of log_turn even though on_end blows up.
@@ -377,7 +376,7 @@ async def test_ac10_run_then_helper_no_duplicate_provider(
     provider_before = trace.get_tracer_provider()
     provider_id = id(provider_before)
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview"):
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview"):
         assert id(trace.get_tracer_provider()) == provider_id
 
     assert id(trace.get_tracer_provider()) == provider_id
@@ -391,7 +390,7 @@ async def test_ac11_helper_then_run_coexistence(monkeypatch: pytest.MonkeyPatch)
     """AC11: after the helper exits, ensure_tracing_initialized() runs cleanly and flips _initialized."""
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="u",
             agent_transcript="a",
@@ -415,7 +414,7 @@ async def test_ac12_empty_transcripts_and_zero_latency(
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
     exporter = _install_in_memory_provider()
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="",
             agent_transcript="",
@@ -443,7 +442,7 @@ async def test_ac13_multiple_sequential_turns_emit_independent_spans(
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
     exporter = _install_in_memory_provider()
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="Turn 1 user",
             agent_transcript="Turn 1 agent",
@@ -482,7 +481,7 @@ async def test_ac14_aexit_flushes_span_visible_after_block(
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
     exporter = _install_in_memory_provider()
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview") as session:
         await session.log_turn(
             user_transcript="hi",
             agent_transcript="hello",
@@ -503,7 +502,7 @@ async def test_ac14_aexit_does_not_raise_with_no_turns(
     monkeypatch.setenv("LANGWATCH_API_KEY", API_KEY)
     _install_in_memory_provider()
 
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview"):
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview"):
         pass  # no turns logged
 
     # Reaching here without an exception is the assertion.
@@ -513,5 +512,5 @@ async def test_ac14_aexit_does_not_raise_with_no_turns(
 async def test_ac14_aexit_does_not_raise_with_no_key():
     """AC14 (no-op branch): exiting a keyless session with no turns does not raise."""
     # clear_langwatch_key removed the key.
-    async with realtime_langwatch_session(model="gpt-4o-realtime-preview"):
+    async with scenario.realtime_langwatch_session(model="gpt-4o-realtime-preview"):
         pass
