@@ -121,6 +121,7 @@ async def test_ac2_log_turn_emits_child_llm_span_with_attributes(
     turn_spans = [s for s in spans if s.name == "realtime_turn"]
     assert len(turn_spans) == 1
     span = turn_spans[0]
+    assert span.attributes is not None
     assert span.attributes["type"] == "llm"
     assert span.attributes["input"] == "Hello"
     assert span.attributes["output"] == "Hi there"
@@ -430,6 +431,7 @@ async def test_ac12_empty_transcripts_and_zero_latency(
     turn_spans = [s for s in exporter.get_finished_spans() if s.name == "realtime_turn"]
     assert len(turn_spans) == 1
     span = turn_spans[0]
+    assert span.attributes is not None
     assert span.attributes["input"] == ""
     assert span.attributes["output"] == ""
     assert span.attributes["latency_ms"] == 0
@@ -463,9 +465,13 @@ async def test_ac13_multiple_sequential_turns_emit_independent_spans(
     turn_spans = [s for s in exporter.get_finished_spans() if s.name == "realtime_turn"]
     assert len(turn_spans) == 2
 
-    by_input = {s.attributes["input"]: s for s in turn_spans}
+    for s in turn_spans:
+        assert s.attributes is not None
+    by_input = {s.attributes["input"]: s for s in turn_spans if s.attributes is not None}
+    assert by_input["Turn 1 user"].attributes is not None
     assert by_input["Turn 1 user"].attributes["output"] == "Turn 1 agent"
     assert by_input["Turn 1 user"].attributes["latency_ms"] == 100
+    assert by_input["Turn 2 user"].attributes is not None
     assert by_input["Turn 2 user"].attributes["output"] == "Turn 2 agent"
     assert by_input["Turn 2 user"].attributes["latency_ms"] == 200
 
