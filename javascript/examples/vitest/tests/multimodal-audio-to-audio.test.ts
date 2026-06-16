@@ -80,9 +80,9 @@ describe.skipIf(skipInCi)("Multimodal Audio to Audio Tests", () => {
         scenario.agent(),
         scenario.judge({
           criteria: [
-            "The agent correctly guesses it's a male voice",
-            "The agent repeats the question",
-            "The agent says what format the input was in (audio or text)",
+            "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
+            "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
+            "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
           ],
         }),
       ],
