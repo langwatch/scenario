@@ -121,6 +121,11 @@ async def test_ac2_log_turn_emits_child_llm_span_with_attributes(
     assert span.attributes["output"] == "Hi there"
     assert span.attributes["model"] == "gpt-4o-realtime-preview"
     assert span.attributes["latency_ms"] == 450
+    # AC2 requires the turn span to be a *child* of the root span — verify the link
+    root_spans = [s for s in spans if s.name != "realtime_turn"]
+    assert len(root_spans) >= 1, "expected a root span"
+    assert span.parent is not None, "turn span should have a parent"
+    assert span.parent.span_id == root_spans[0].context.span_id
 
 
 # --- AC3 --------------------------------------------------------------------

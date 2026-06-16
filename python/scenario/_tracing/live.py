@@ -179,11 +179,11 @@ class RealtimeLangWatchSession:
             self._ctx_token = context.attach(
                 trace.set_span_in_context(self._root_span)
             )
-        except Exception:  # noqa: BLE001 - never raise into the host app
+        except Exception as exc:  # noqa: BLE001 - never raise into the host app
             logger.warning(
                 "Failed to start realtime_langwatch_session root span; "
-                "continuing as a no-op.",
-                exc_info=True,
+                "continuing as a no-op. (error type: %s)",
+                type(exc).__name__,
             )
             self._noop = True
 
