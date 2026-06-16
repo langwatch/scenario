@@ -177,13 +177,16 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     this.apiKey = options.apiKey;
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
-    this.turnCommitMode = options.turnCommitMode ?? "text";
-    this.silenceTailBytes = options.silenceTailBytes ?? SILENCE_TAIL_BYTES;
-    if (this.turnCommitMode !== "text" && this.turnCommitMode !== "silence") {
+    // Validate raw option before defaulting so JS callers hitting the boundary
+    // get a clear error even when TypeScript types are bypassed.
+    const rawMode = options.turnCommitMode ?? "text";
+    if (rawMode !== "text" && rawMode !== "silence") {
       throw new Error(
-        `Unknown turnCommitMode: "${this.turnCommitMode}". Expected "text" or "silence".`,
+        `Unknown turnCommitMode: "${rawMode}". Expected "text" or "silence".`,
       );
     }
+    this.turnCommitMode = rawMode;
+    this.silenceTailBytes = options.silenceTailBytes ?? SILENCE_TAIL_BYTES;
     if (!Number.isInteger(this.silenceTailBytes) || this.silenceTailBytes <= 0) {
       throw new Error(
         `silenceTailBytes must be a positive integer, got ${this.silenceTailBytes}.`,

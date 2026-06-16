@@ -72,17 +72,20 @@ class FakeElevenLabsSocket implements WebSocketLike {
 
   once(event: "open", listener: () => void): this;
   once(event: "error", listener: (err: Error) => void): this;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   once(event: string, listener: (...args: never[]) => void): this {
-    const key = event as keyof (typeof this.listeners);
-    const wrapped = ((...args: unknown[]) => {
-      (this.listeners as Record<string, Array<(...a: unknown[]) => void>>)[key] =
-        (this.listeners as Record<string, Array<(...a: unknown[]) => void>>)[key].filter(
-          (l) => l !== wrapped,
-        );
-      (listener as (...a: unknown[]) => void)(...args);
-    }) as (...a: never[]) => void;
-    (this.listeners as Record<string, Array<(...a: never[]) => void>>)[key]?.push(wrapped);
-    return this;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wrapped = (...args: any[]): void => {
+      this.off(event, wrapped as (...a: never[]) => void);
+      (listener as (...a: any[]) => void)(...args);
+    };
+    return this.on(event as "open", wrapped as () => void);
+  }
+
+  private off(event: string, listener: (...args: never[]) => void): void {
+    const arr = (this.listeners as Record<string, Array<(...a: never[]) => void>>)[event];
+    const idx = arr?.indexOf(listener) ?? -1;
+    if (idx >= 0) arr!.splice(idx, 1);
   }
 
   removeAllListeners(): void {
@@ -302,5 +305,33 @@ describe("ElevenLabsAgentAdapter silence-tail fallbacks (#567)", () => {
     // This is exactly the #567 bug. On the "text" path (default), sendAudio
     // sends a user_message which deterministically triggers agent audio — no stall.
     await expect(adapter.receiveAudio(0.01)).rejects.toThrow("receiveAudio timed out");
+  });
+});
+
+describe("ElevenLabsAgentAdapter constructor validation", () => {
+  const base = { agentId: "x", apiKey: "y" };
+
+  it("throws on unknown turnCommitMode", () => {
+    expect(
+      () => new ElevenLabsAgentAdapter({ ...base, turnCommitMode: "vad" as never }),
+    ).toThrow(/Unknown turnCommitMode/);
+  });
+
+  it("throws on zero silenceTailBytes", () => {
+    expect(
+      () => new ElevenLabsAgentAdapter({ ...base, silenceTailBytes: 0 }),
+    ).toThrow(/positive integer/);
+  });
+
+  it("throws on negative silenceTailBytes", () => {
+    expect(
+      () => new ElevenLabsAgentAdapter({ ...base, silenceTailBytes: -1 }),
+    ).toThrow(/positive integer/);
+  });
+
+  it("throws on fractional silenceTailBytes", () => {
+    expect(
+      () => new ElevenLabsAgentAdapter({ ...base, silenceTailBytes: 1.5 }),
+    ).toThrow(/positive integer/);
   });
 });

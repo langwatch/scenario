@@ -311,3 +311,21 @@ async def test_silence_mode_second_turn_times_out_without_user_message_commit():
     # Without a commit, the server never re-engages → recv_audio times out.
     with pytest.raises(asyncio.TimeoutError):
         await adapter.recv_audio(timeout=0.01)
+
+
+# ------------------------------------------------------------------ constructor validation
+
+
+def test_rejects_unknown_turn_commit_mode():
+    with pytest.raises(ValueError, match="Unknown turn_commit_mode"):
+        ElevenLabsAgentAdapter(agent_id="x", api_key="y", turn_commit_mode="vad")  # type: ignore[arg-type]
+
+
+def test_rejects_zero_silence_tail_bytes():
+    with pytest.raises(ValueError, match="positive integer"):
+        ElevenLabsAgentAdapter(agent_id="x", api_key="y", silence_tail_bytes=0)
+
+
+def test_rejects_negative_silence_tail_bytes():
+    with pytest.raises(ValueError, match="positive integer"):
+        ElevenLabsAgentAdapter(agent_id="x", api_key="y", silence_tail_bytes=-1)
