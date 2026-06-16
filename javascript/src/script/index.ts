@@ -126,11 +126,11 @@ function isVoiceAgentOptions(
  *
  * @param options Optional options object with inline criteria and/or context to evaluate.
  *   - `criteria`: Criteria to evaluate (overrides judge's configured criteria).
- *   - `context`: Additional context for the judge, e.g. filesystem state or command output.
+ *   - `additionalContext`: Additional context for the judge, e.g. filesystem state or command output.
  *     Included in the judge's prompt under `<additional_context>`.
  * @returns A ScriptStep function that can be used in scenario scripts.
  */
-export const judge = (options?: { criteria?: string[]; context?: string }): ScriptStep => {
+export const judge = (options?: { criteria?: string[]; additionalContext?: string }): ScriptStep => {
   return async (_state, executor) => {
     await executor.judge(options);
   };

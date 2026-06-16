@@ -512,7 +512,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       messagesForTranscript,
     );
 
-    const extraContext = input.judgmentRequest?.context;
+    const extraContext = input.judgmentRequest?.additionalContext;
     const additionalContextSection = extraContext
       ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
       : "";

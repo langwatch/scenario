@@ -777,8 +777,8 @@ describe("JudgeAgent", () => {
     });
   });
 
-  describe("additional context via judgmentRequest.context", () => {
-    it("includes <additional_context> in the user message when context is provided", async () => {
+  describe("additional context via judgmentRequest.additionalContext", () => {
+    it("includes <additional_context> in the user message when additionalContext is provided", async () => {
       const collector = createMockSpanCollector([]);
 
       const config: JudgeAgentConfig = {
@@ -800,7 +800,7 @@ describe("JudgeAgent", () => {
 
       const inputWithContext = createBaseInput({
         judgmentRequest: {
-          context:
+          additionalContext:
             "The agent ran `npm install -g git-orchard` which exited 0. The binary is now at /usr/local/bin/orchard.",
         },
       });
@@ -820,7 +820,7 @@ describe("JudgeAgent", () => {
       expect(userContent).toContain("</additional_context>");
     });
 
-    it("omits <additional_context> when no context is provided", async () => {
+    it("omits <additional_context> when no additionalContext is provided", async () => {
       const collector = createMockSpanCollector([]);
 
       const config: JudgeAgentConfig = {
