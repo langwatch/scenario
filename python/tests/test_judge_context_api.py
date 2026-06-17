@@ -189,9 +189,8 @@ def test_judgment_request_additional_context_wins_over_deprecated_context():
     assert not any(issubclass(w.category, DeprecationWarning) for w in caught)
 
 
-def test_judgment_request_deprecated_context_alias_included_in_llm_prompt():
-    """JudgmentRequest built via deprecated context field should reach the judge's LLM call."""
+def test_judgment_request_deprecated_context_alias_migrates_field():
+    """JudgmentRequest(context=...) normalises to additional_context at construction time."""
     ctx_text = "legacy context via deprecated field"
     req = JudgmentRequest(context=ctx_text)
-    # After migration the field is normalised to additional_context.
     assert req.additional_context == ctx_text

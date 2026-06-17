@@ -1,3 +1,4 @@
+import warnings
 from enum import Enum
 from pydantic import BaseModel, SkipValidation, model_validator
 from typing import (
@@ -119,7 +120,6 @@ class JudgmentRequest(BaseModel):
     @model_validator(mode="after")
     def _migrate_context_alias(self) -> "JudgmentRequest":
         if self.context is not None and self.additional_context is None:
-            import warnings
             warnings.warn(
                 "JudgmentRequest.context is deprecated; use additional_context instead.",
                 DeprecationWarning,
