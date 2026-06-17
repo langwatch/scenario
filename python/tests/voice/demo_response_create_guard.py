@@ -241,7 +241,7 @@ async def scenario_c() -> bool:
     print(f"    _deferred_response_create?       {'YES ✓' if deferred_ok else 'NO  ✗  (BUG)'}")
     print(f"    conversation.item.create sent?   {'YES ✓' if item_ok else 'NO  ✗'}")
 
-    return guard_ok and deferred_ok
+    return guard_ok and deferred_ok and item_ok
 
 
 # ── main ─────────────────────────────────────────────────────────────────────

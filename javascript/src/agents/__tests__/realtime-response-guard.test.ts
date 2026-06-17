@@ -112,8 +112,10 @@ describe("RealtimeAgentAdapter — response.create guard", () => {
     // handleInitialResponse is private — call via any
     const promise = (adapter as any).handleInitialResponse();
 
-    // Give it a moment to call transport.sendEvent (or not)
-    await new Promise((r) => setTimeout(r, 20));
+    // Allow the synchronous preamble (transport.sendEvent) to flush before asserting.
+    // 100ms is sufficient on a loaded CI runner; the assertion is about event ordering,
+    // not a timed window.
+    await new Promise((r) => setTimeout(r, 100));
 
     // Cancel the timeout by firing response.done (resolves waitForResponse)
     transport.fire("response.done");
@@ -133,7 +135,8 @@ describe("RealtimeAgentAdapter — response.create guard", () => {
     const b64audio = Buffer.from(new Uint8Array(160)).toString("base64");
     const promise = (adapter as any).handleAudioInput(b64audio);
 
-    await new Promise((r) => setTimeout(r, 20));
+    // Same flush wait as AC-JS4 — 100ms is sufficient on a loaded CI runner.
+    await new Promise((r) => setTimeout(r, 100));
     transport.fire("response.done");
     await promise.catch(() => {});
 
