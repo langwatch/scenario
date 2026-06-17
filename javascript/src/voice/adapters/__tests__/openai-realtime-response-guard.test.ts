@@ -144,8 +144,13 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
 
       const receivePromise = adapter.receiveAudio(2.0);
 
-      // Let the preamble run before injecting server events.
-      await new Promise<void>((r) => setTimeout(r, 20));
+      // Yield one macrotask so the async receiveAudio loop drains its queued
+      // events. A zero-delay timer is a deterministic macrotask boundary (it
+      // runs only after the microtask queue is empty, regardless of runner
+      // load) — not an arbitrary timed wait. The preamble already ran
+      // synchronously before receiveAudio's first await, so this only flushes
+      // the loop's event processing.
+      await new Promise<void>((r) => setTimeout(r, 0));
 
       // Snapshot: how many response.create frames have been sent so far?
       // Pre-fix: 1 (fired unconditionally in preamble).
@@ -157,7 +162,7 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
       // response.created → sets _responseActive = true for the new response
       // response.output_audio.delta → the actual audio frame that resolves receiveAudio
       ws.receive({ type: "response.done" });
-      await new Promise<void>((r) => setTimeout(r, 5));
+      await new Promise<void>((r) => setTimeout(r, 0));
       ws.receive({ type: "response.created" });
       ws.receive({ type: "response.output_audio.delta", delta: b64audio });
 
@@ -213,7 +218,9 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
 
       const receivePromise = adapter.receiveAudio(5.0);
 
-      await new Promise<void>((r) => setTimeout(r, 10));
+      // Macrotask yield so the loop reaches its first _nextEvent await before
+      // the error frame is injected (see AC-JS2 note above).
+      await new Promise<void>((r) => setTimeout(r, 0));
 
       ws.receive({
         type: "error",
