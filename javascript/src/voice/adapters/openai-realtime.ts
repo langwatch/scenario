@@ -223,6 +223,15 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
   /** Open the Realtime WebSocket and send the initial `session.update`. */
   async connect(): Promise<void> {
+    // Issue #662 / reconnect hygiene: a reused adapter instance must start each
+    // connection with a clean slate. Clear session-lifecycle state left over
+    // from a prior connection — the guard flags AND `_closeReason` (which
+    // `_nextEvent` rejects on immediately, so resetting the guard flags alone
+    // would leave a reconnected adapter unable to receive).
+    this._responseActive = false;
+    this._deferredResponseCreate = false;
+    this._closeReason = null;
+
     if (!this._apiKey) {
       throw new Error(
         "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
@@ -319,6 +328,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     const ws = this._ws;
     if (!ws) return;
     this._ws = null;
+    // Issue #662: clear response-lifecycle guard state on teardown so a
+    // reused adapter instance does not carry a stale active/deferred flag
+    // into its next connection.
+    this._responseActive = false;
+    this._deferredResponseCreate = false;
     // Synchronously fail any in-flight receiveAudio waiter so callers
     // unblock immediately on disconnect — don't rely on the async close
     // handler firing first. Also drain queued events: a partially-

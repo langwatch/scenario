@@ -229,4 +229,50 @@ describe("OpenAIRealtimeAgentAdapter — response.create guard (#662)", () => {
     },
     6000,
   );
+
+  /**
+   * Reconnect hygiene (#662, CodeRabbit): disconnect() must clear the
+   * response-lifecycle guard flags, and a subsequent connect() must start from
+   * a clean slate — including clearing `_closeReason`, without which
+   * `_nextEvent` would reject every receiveAudio on the reused adapter and the
+   * guard-flag reset alone would be cosmetic.
+   */
+  it(
+    "resets response-lifecycle state on disconnect and reconnects clean",
+    async () => {
+      const { adapter } = await makeAdapter();
+      const state = adapter as unknown as Record<string, unknown>;
+
+      // Simulate mid-response state present when the socket drops.
+      state._responseActive = true;
+      state._deferredResponseCreate = true;
+
+      await adapter.disconnect();
+
+      // Teardown clears the guard flags so they cannot leak into a new session.
+      expect(state._responseActive).toBe(false);
+      expect(state._deferredResponseCreate).toBe(false);
+
+      // Reconnect the same instance: connect() must reset the guard flags AND
+      // the stale close reason.
+      const ws2 = new FakeWS();
+      (adapter as unknown as { _wsFactory: unknown })._wsFactory = (
+        _url: string,
+        _authHeader: string,
+      ) => {
+        queueMicrotask(() => ws2.emit("open"));
+        return ws2 as unknown as WebSocket;
+      };
+      await adapter.connect();
+
+      expect(state._responseActive).toBe(false);
+      expect(state._deferredResponseCreate).toBe(false);
+      expect(state._closeReason).toBe(null);
+
+      // Prove reconnect actually works: receiveAudio reaches its own timeout
+      // instead of rejecting immediately on the prior disconnect error.
+      await expect(adapter.receiveAudio(0.05)).rejects.toThrow(/timed out/);
+    },
+    2000,
+  );
 });
