@@ -112,14 +112,14 @@ describe("RealtimeAgentAdapter — response.create guard", () => {
     // handleInitialResponse is private — call via any
     const promise = (adapter as any).handleInitialResponse();
 
-    // Allow the synchronous preamble (transport.sendEvent) to flush before asserting.
-    // 100ms is sufficient on a loaded CI runner; the assertion is about event ordering,
-    // not a timed window.
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Cancel the timeout by firing response.done (resolves waitForResponse)
+    // The send decision is made synchronously, before the method's first `await`
+    // (waitForResponse), so response.create has already been sent or suppressed by
+    // the time the promise is returned. Flush the microtask queue, then resolve
+    // waitForResponse promptly by firing response.done — so it settles well before
+    // responseTimeout (100ms) and the test is deterministic, not racing the clock.
+    await Promise.resolve();
     transport.fire("response.done");
-    await promise.catch(() => {}); // ignore timeout error
+    await promise.catch(() => {}); // ignore any rejection
 
     // response.create must NOT have been sent when handler was active
     expect(transport.sentCount("response.create")).toBe(0);
@@ -135,8 +135,9 @@ describe("RealtimeAgentAdapter — response.create guard", () => {
     const b64audio = Buffer.from(new Uint8Array(160)).toString("base64");
     const promise = (adapter as any).handleAudioInput(b64audio);
 
-    // Same flush wait as AC-JS4 — 100ms is sufficient on a loaded CI runner.
-    await new Promise((r) => setTimeout(r, 100));
+    // Same deterministic settle as AC-JS4: sends are synchronous before the first
+    // await, so flush microtasks then resolve waitForResponse promptly.
+    await Promise.resolve();
     transport.fire("response.done");
     await promise.catch(() => {});
 
