@@ -1594,7 +1594,7 @@ wheels = [
 
 [[package]]
 name = "langwatch-scenario"
-version = "0.7.30"
+version = "0.7.31"
 source = { editable = "." }
 dependencies = [
     { name = "audioop-lts", marker = "python_full_version >= '3.13'" },

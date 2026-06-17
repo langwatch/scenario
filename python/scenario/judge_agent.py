@@ -466,8 +466,8 @@ class JudgeAgent(AgentAdapter):
         logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
         extra_context = (
-            input.judgment_request.context
-            if input.judgment_request and input.judgment_request.context
+            input.judgment_request.additional_context
+            if input.judgment_request and input.judgment_request.additional_context
             else None
         )
         extra_context_section = (

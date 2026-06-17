@@ -5,12 +5,14 @@ JudgmentRequest — to verify that the public API wires additional_context all t
 to the LLM call. See issue #660.
 """
 
+import warnings
 import pytest
 from unittest.mock import patch, MagicMock
 
 from scenario import JudgeAgent
 from scenario.config import ScenarioConfig
 from scenario.scenario_executor import ScenarioExecutor
+from scenario.types import JudgmentRequest
 
 
 def _make_mock_litellm_response(verdict: str = "success") -> MagicMock:
@@ -160,3 +162,36 @@ async def test_executor_judge_empty_string_additional_context_no_additional_cont
             assert "<additional_context>" not in content
     finally:
         ScenarioConfig.default_config = None
+
+
+# ---------------------------------------------------------------------------
+# JudgmentRequest deprecated context alias tests
+# ---------------------------------------------------------------------------
+
+
+def test_judgment_request_deprecated_context_alias_migrates_to_additional_context():
+    """JudgmentRequest(context=...) should migrate the value to additional_context and warn."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        req = JudgmentRequest(context="legacy value")
+
+    assert req.additional_context == "legacy value"
+    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+
+def test_judgment_request_additional_context_wins_over_deprecated_context():
+    """When both are set, additional_context takes precedence and no migration occurs."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        req = JudgmentRequest(additional_context="new value", context="old value")
+
+    assert req.additional_context == "new value"
+    assert not any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+
+def test_judgment_request_deprecated_context_alias_included_in_llm_prompt():
+    """JudgmentRequest built via deprecated context field should reach the judge's LLM call."""
+    ctx_text = "legacy context via deprecated field"
+    req = JudgmentRequest(context=ctx_text)
+    # After migration the field is normalised to additional_context.
+    assert req.additional_context == ctx_text

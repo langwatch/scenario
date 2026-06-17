@@ -300,10 +300,10 @@ async def test_judge_result_messages_is_conversation_not_judge_context():
 
 @pytest.mark.asyncio
 async def test_judge_includes_additional_context_in_prompt():
-    """JudgmentRequest.context is injected into the judge's user message under <additional_context>.
+    """Deprecated JudgmentRequest.context alias is injected into the judge's user message under <additional_context>.
 
-    Test for #318: allows callers to pass structured observations (e.g. command
-    output, filesystem state) to the judge without polluting the message history.
+    Tests backward compat: callers still using the old context= field should see the value
+    forwarded to the judge prompt. See #660 for the rename to additional_context.
     """
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
     judge = JudgeAgent(criteria=["Agent installed the dependency"])

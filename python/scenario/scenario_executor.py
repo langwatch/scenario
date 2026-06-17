@@ -1421,7 +1421,7 @@ class ScenarioExecutor:
     ) -> Optional[ScenarioResult]:
         return await self._script_call_agent(
             AgentRole.JUDGE,
-            judgment_request=JudgmentRequest(criteria=criteria, context=additional_context),
+            judgment_request=JudgmentRequest(criteria=criteria, additional_context=additional_context),
         )
 
     async def proceed(
