@@ -99,12 +99,16 @@ function renderToolResultContent(content: unknown): string {
   return safeStringify(content);
 }
 
-/** `JSON.stringify` that never throws (circular refs → fallback string). */
+/** `JSON.stringify` that never throws (circular refs, custom toString, etc. → fallback string). */
 export function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value) ?? "";
   } catch {
-    return String(value);
+    try {
+      return String(value);
+    } catch {
+      return "[unserializable value]";
+    }
   }
 }
 

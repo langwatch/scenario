@@ -183,6 +183,11 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     const args = this.buildArgs(prompt);
     const cwd = this.config.workingDirectory;
     const timeoutMs = this.config.timeout ?? DEFAULT_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(
+        `ClaudeCodeAgentAdapter timeout must be a positive, finite number of milliseconds; received ${timeoutMs}`,
+      );
+    }
     const logger = this.logger;
 
     logger.log(`Starting claude in: ${cwd}`);
@@ -249,8 +254,18 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         finish(() => reject(err));
       });
 
-      child.on("close", (exitCode) => {
+      child.on("close", (exitCode, signal) => {
         finish(() => {
+          if (signal) {
+            const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+            const detail = stderr ? `: ${stderr}` : "";
+            reject(
+              new Error(
+                `Claude Code CLI was terminated by signal ${signal}${detail}`,
+              ),
+            );
+            return;
+          }
           if (exitCode !== 0 && exitCode !== null) {
             const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
             const detail = stderr ? `: ${stderr}` : "";

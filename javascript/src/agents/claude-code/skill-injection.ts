@@ -95,7 +95,8 @@ export function assertSkillWasRead(
     .join("\n");
 
   const hasSkillRead =
-    allContent.includes("SKILL.md") ||
+    allContent.includes(`.skills/${skillName}/SKILL.md`) ||
+    allContent.includes(`skills/${skillName}/SKILL.md`) ||
     allContent.includes(`.skills/${skillName}`) ||
     allContent.includes(`skills/${skillName}`);
 

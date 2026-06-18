@@ -72,6 +72,7 @@ import {
   assertSkillWasRead,
   type Logger,
 } from "../claude-code/index.js";
+import { safeStringify } from "../claude-code/stream-json.js";
 
 /**
  * A fake spawned child: an EventEmitter exposing `.stdout`/`.stderr` (each an
@@ -503,6 +504,125 @@ describe("claudeCodeAgent factory skillPath injection", () => {
     expect(fs.readFileSync(claudeMd, "utf8")).toContain(
       `.skills/${skillName}/SKILL.md`,
     );
+  });
+});
+
+// --- 5c. timeout validation -------------------------------------------------
+
+describe("ClaudeCodeAgentAdapter timeout validation", () => {
+  it("rejects with a config error when timeout is 0", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      timeout: 0,
+    });
+    await expect(
+      adapter.call(makeInput([{ role: "user", content: "hello" }])),
+    ).rejects.toThrow(/positive, finite/);
+  });
+
+  it("rejects with a config error when timeout is negative", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      timeout: -5,
+    });
+    await expect(
+      adapter.call(makeInput([{ role: "user", content: "hello" }])),
+    ).rejects.toThrow(/positive, finite/);
+  });
+
+  it("rejects with a config error when timeout is NaN", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      timeout: NaN,
+    });
+    await expect(
+      adapter.call(makeInput([{ role: "user", content: "hello" }])),
+    ).rejects.toThrow(/positive, finite/);
+  });
+});
+
+// --- 5d. signal termination -------------------------------------------------
+
+describe("ClaudeCodeAgentAdapter signal termination", () => {
+  it("rejects with a signal error when close fires with exitCode null and a signal", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+    const p = adapter.call(SIMPLE_INPUT);
+    child.emit("close", null, "SIGKILL");
+
+    await expect(p).rejects.toThrow(/terminated by signal SIGKILL/);
+  });
+
+  it("includes captured stderr in the signal rejection message", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+    const p = adapter.call(SIMPLE_INPUT);
+    child.pushStderr("OOM killer struck");
+    child.emit("close", null, "SIGKILL");
+
+    await expect(p).rejects.toThrow(/OOM killer struck/);
+  });
+});
+
+// --- 7b. assertSkillWasRead scoping -----------------------------------------
+
+describe("assertSkillWasRead scoping", () => {
+  it("throws when only a DIFFERENT skill's SKILL.md is referenced", () => {
+    const state = stateWith([
+      {
+        role: "assistant",
+        content: "I read .skills/other-skill/SKILL.md and followed it.",
+      },
+    ]);
+    expect(() => assertSkillWasRead(state, "my-skill")).toThrow(/my-skill/);
+  });
+
+  it("passes when the named skill's SKILL.md is referenced (dot-skills path)", () => {
+    const state = stateWith([
+      {
+        role: "assistant",
+        content: "I read .skills/my-skill/SKILL.md and followed it.",
+      },
+    ]);
+    expect(() => assertSkillWasRead(state, "my-skill")).not.toThrow();
+  });
+
+  it("passes when the named skill's SKILL.md is referenced (no-dot path)", () => {
+    const state = stateWith([
+      {
+        role: "assistant",
+        content: "I read skills/my-skill/SKILL.md and followed it.",
+      },
+    ]);
+    expect(() => assertSkillWasRead(state, "my-skill")).not.toThrow();
+  });
+});
+
+// --- 9. safeStringify never throws ------------------------------------------
+
+describe("safeStringify", () => {
+  it("returns '[unserializable value]' when both JSON.stringify and String() throw", () => {
+    const evil = {
+      toJSON() {
+        throw new Error("toJSON throws");
+      },
+      toString() {
+        throw new Error("toString throws");
+      },
+    };
+    // JSON.stringify invokes toJSON → throws; String() invokes toString → throws;
+    // inner fallback must return the sentinel string without propagating.
+    expect(safeStringify(evil)).toBe("[unserializable value]");
+  });
+
+  it("still serializes normal values correctly", () => {
+    expect(safeStringify({ a: 1 })).toBe('{"a":1}');
+    expect(safeStringify("hello")).toBe('"hello"');
+    expect(safeStringify(null)).toBe("null");
   });
 });
 
