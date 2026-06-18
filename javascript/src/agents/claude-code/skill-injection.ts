@@ -18,6 +18,8 @@
 import fs from "fs";
 import path from "path";
 
+import { safeStringify } from "./stream-json.js";
+
 import type { ScenarioExecutionStateLike } from "../../domain";
 
 /**
@@ -77,8 +79,9 @@ function writeClaudeMdPointingToSkills(workingDirectory: string): void {
 
 /**
  * Assert that the agent actually read the named skill's `SKILL.md` during the
- * run. Scans every message's content (stringifying array/object content) for a
- * reference to `SKILL.md` or the skill's `.skills/<name>` path.
+ * run. Scans every message's content (stringifying array/object content via
+ * `safeStringify`) for a reference to the named skill's
+ * `.skills/<name>/SKILL.md` (or `skills/<name>/SKILL.md`) path.
  *
  * @param state - The scenario execution state (exposes `messages`).
  * @param skillName - The skill directory name to look for.
@@ -90,15 +93,13 @@ export function assertSkillWasRead(
 ): void {
   const allContent = state.messages
     .map((m) =>
-      typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      typeof m.content === "string" ? m.content : safeStringify(m.content),
     )
     .join("\n");
 
   const hasSkillRead =
     allContent.includes(`.skills/${skillName}/SKILL.md`) ||
-    allContent.includes(`skills/${skillName}/SKILL.md`) ||
-    allContent.includes(`.skills/${skillName}`) ||
-    allContent.includes(`skills/${skillName}`);
+    allContent.includes(`skills/${skillName}/SKILL.md`);
 
   if (!hasSkillRead) {
     throw new Error(

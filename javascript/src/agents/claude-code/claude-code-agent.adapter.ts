@@ -256,9 +256,9 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
 
       child.on("close", (exitCode, signal) => {
         finish(() => {
+          const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+          const detail = stderr ? `: ${stderr}` : "";
           if (signal) {
-            const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-            const detail = stderr ? `: ${stderr}` : "";
             reject(
               new Error(
                 `Claude Code CLI was terminated by signal ${signal}${detail}`,
@@ -267,8 +267,6 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
             return;
           }
           if (exitCode !== 0 && exitCode !== null) {
-            const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-            const detail = stderr ? `: ${stderr}` : "";
             reject(
               new Error(
                 `Claude Code CLI failed with exit code ${exitCode}${detail}`,

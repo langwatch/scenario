@@ -600,6 +600,16 @@ describe("assertSkillWasRead scoping", () => {
     ]);
     expect(() => assertSkillWasRead(state, "my-skill")).not.toThrow();
   });
+
+  it("throws when only a bare directory path (without /SKILL.md) is referenced", () => {
+    const state = stateWith([
+      {
+        role: "assistant",
+        content: "I see the .skills/my-skill directory exists.",
+      },
+    ]);
+    expect(() => assertSkillWasRead(state, "my-skill")).toThrow(/my-skill/);
+  });
 });
 
 // --- 9. safeStringify never throws ------------------------------------------
