@@ -148,6 +148,20 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
     return out
 
 
+def _criteria_keys(criteria: Sequence[str]) -> List[str]:
+    """Sanitized schema property names for each criterion.
+
+    Must stay the single source of truth for these keys: the finish_test
+    tool schema declares them as required properties, and _parse_response
+    maps the LLM's verdicts back to criteria BY these keys. If the two ever
+    computed them differently, every verdict would silently fail to map.
+    """
+    return [
+        re.sub(r"[^a-zA-Z0-9]", "_", c.replace(" ", "_").replace("'", "").lower())[:70]
+        for c in criteria
+    ]
+
+
 class JudgeAgent(AgentAdapter):
     """
     Agent that evaluates conversations against success criteria.
@@ -541,14 +555,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )
 
         # Define the tools
-        criteria_names = [
-            re.sub(
-                r"[^a-zA-Z0-9]",
-                "_",
-                criterion.replace(" ", "_").replace("'", "").lower(),
-            )[:70]
-            for criterion in effective_criteria
-        ]
+        criteria_names = _criteria_keys(effective_criteria)
         tools: List[dict] = [
             {
                 "type": "function",
@@ -978,40 +985,78 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         if tool_call.function.name == "finish_test":
             try:
                 args = json.loads(tool_call.function.arguments)
-                verdict = args.get("verdict", "inconclusive")
-                reasoning = args.get("reasoning", "No reasoning provided")
-                criteria_verdicts = args.get("criteria", {})
-                # LLMs sometimes serialise nested objects as a JSON string
-                # instead of an inline dict, especially with complex dynamic
-                # schemas. Re-parse if that happens (issue #161).
-                if isinstance(criteria_verdicts, str):
-                    try:
-                        criteria_verdicts = json.loads(criteria_verdicts)
-                    except (json.JSONDecodeError, ValueError):
-                        criteria_verdicts = {}
-
-                passed_criteria = [
-                    effective_criteria[idx]
-                    for idx, criterion in enumerate(criteria_verdicts.values())
-                    if criterion == "true"
-                ]
-                failed_criteria = [
-                    effective_criteria[idx]
-                    for idx, criterion in enumerate(criteria_verdicts.values())
-                    if criterion == "false" or criterion == "inconclusive"
-                ]
-
-                return ScenarioResult(
-                    success=verdict == "success" and len(failed_criteria) == 0,
-                    messages=cast(Any, input_messages),
-                    reasoning=reasoning,
-                    passed_criteria=passed_criteria,
-                    failed_criteria=failed_criteria,
-                )
             except json.JSONDecodeError:
                 raise Exception(
                     f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
                 )
+
+            verdict = args.get("verdict", "inconclusive")
+            reasoning = args.get("reasoning", "No reasoning provided")
+            criteria_verdicts = args.get("criteria", {})
+
+            # LLMs sometimes serialise the criteria object as a JSON *string*
+            # instead of an inline dict, especially with complex dynamic
+            # schemas (issue #161). Re-parse one level if that happens.
+            if isinstance(criteria_verdicts, str):
+                try:
+                    criteria_verdicts = json.loads(criteria_verdicts)
+                except (json.JSONDecodeError, ValueError):
+                    criteria_verdicts = None  # unparseable — handled below
+
+            # If the criteria payload is not a usable object, we cannot trust
+            # any per-criterion verdict. Do NOT fall back to {}: an empty dict
+            # makes failed_criteria empty and lets a "success" verdict slip
+            # through having evaluated ZERO criteria, masking the real problem
+            # (issue #161 follow-up). Surface it as an explicit, fail-closed
+            # result instead of swallowing it.
+            if not isinstance(criteria_verdicts, dict):
+                raw = args.get("criteria")
+                logger.warning(
+                    "JudgeAgent could not resolve criteria verdicts to an "
+                    "object (got %s); failing the judgment instead of "
+                    "reporting an unverified success.",
+                    type(raw).__name__,
+                )
+                return ScenarioResult(
+                    success=False,
+                    messages=cast(Any, input_messages),
+                    reasoning=(
+                        "JudgeAgent could not parse the per-criterion verdicts "
+                        "returned by the LLM, so the judgment could not be "
+                        f"verified (raw criteria value was of type "
+                        f"{type(raw).__name__}). Original verdict was "
+                        f"{verdict!r}. Treating the judgment as failed."
+                    ),
+                    passed_criteria=[],
+                    failed_criteria=list(effective_criteria),
+                )
+
+            # Map each verdict back to its criterion BY the schema key we
+            # generated for it. Positional .values() mapping silently
+            # mislabels partial / reordered payloads and IndexErrors on extra
+            # keys; key-based lookup is robust. A criterion passes ONLY on an
+            # explicit "true"; anything else (false, inconclusive, missing, or
+            # a nested/unexpected value) is a failure, so an unevaluated
+            # criterion can never slip through as success.
+            criteria_keys = _criteria_keys(effective_criteria)
+            passed_criteria = [
+                effective_criteria[idx]
+                for idx, key in enumerate(criteria_keys)
+                if criteria_verdicts.get(key) == "true"
+            ]
+            failed_criteria = [
+                effective_criteria[idx]
+                for idx, key in enumerate(criteria_keys)
+                if criteria_verdicts.get(key) != "true"
+            ]
+
+            return ScenarioResult(
+                success=verdict == "success" and len(failed_criteria) == 0,
+                messages=cast(Any, input_messages),
+                reasoning=reasoning,
+                passed_criteria=passed_criteria,
+                failed_criteria=failed_criteria,
+            )
 
         if tool_call.function.name in _DISCOVERY_TOOL_NAMES:
             logger.warning(
