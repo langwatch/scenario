@@ -186,6 +186,22 @@ never appended to the internal `VoiceRecording` buffer, so `save_segments()`
 
 ---
 
+## `receiveAudio timed out` (hosted ElevenLabs)
+
+If a hosted `elevenLabsAgent` scenario fails with `ElevenLabsAgentAdapter: receiveAudio timed out`, you almost certainly scripted **more than one `user()` turn**. The hosted ElevenLabs Conversational AI transport is **server-VAD-driven** and supports only a **single greeting-led exchange**: a scripted second `user()` turn does not re-engage the server's turn-taking, so the following `agent()` waits for a response that never arrives and times out.
+
+**Fix:**
+- Use the single greeting-led shape: `agent() → user("...") → agent() → judge()`. **Lead with `agent()`** so the on-connect greeting (`first_message`) drains before your user audio hits the wire.
+- For genuine **multi-turn** voice (more than one user→agent exchange), switch to a composable adapter — `ElevenLabsVoiceAgent`, `pipecatAgent`, Gemini Live, or OpenAI Realtime — which own turn-taking in-process. See the [multi-turn recipe](/voice/recipes/multi-turn).
+
+---
+
+## "Audio duration mismatch" / "non-continuous audio input" warning
+
+This warning is emitted **by the ElevenLabs server, not the Scenario SDK**. It is benign: it reflects that a *scripted* voice turn sends a discrete speech chunk plus a short silence pad rather than the continuous microphone stream ElevenLabs' VAD expects. It does not by itself indicate an SDK bug, and the single greeting-led exchange completes normally despite it. If you also see `receiveAudio timed out`, the cause is the multi-turn limitation above, not this warning.
+
+---
+
 ## Historical fixes
 
 <details>

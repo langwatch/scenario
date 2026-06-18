@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.13](https://github.com/langwatch/scenario/compare/javascript/v0.4.12...javascript/v0.4.13) (2026-06-11)
+
+
+### Bug Fixes
+
+* **deps:** close 16 npm security alerts in scenario examples ([#637](https://github.com/langwatch/scenario/issues/637)) ([ced16fe](https://github.com/langwatch/scenario/commit/ced16fee797723c49c4a67036065c7ddafc47eed))
+* **deps:** close 25 npm security alerts in docs and the JS SDK ([#620](https://github.com/langwatch/scenario/issues/620)) ([ca91380](https://github.com/langwatch/scenario/commit/ca91380ff41430eb16bdfd31833453be40b047f9))
+* **deps:** close CRITICAL shell-quote and uuid alerts in JS SDK ([#636](https://github.com/langwatch/scenario/issues/636)) ([abdc38f](https://github.com/langwatch/scenario/commit/abdc38f171762c41df1df353c617697c7afea188))
+* **voice/#623:** reframe realtime agent audio turns so the voiced sim does not echo them ([#653](https://github.com/langwatch/scenario/issues/653)) ([9302877](https://github.com/langwatch/scenario/commit/9302877d9b98e6e5be25e85aee854151a958b28f))
+* **voice/sdk/#451:** stop re-stringifying input_audio array in event-reporter ([#639](https://github.com/langwatch/scenario/issues/639)) ([d5188d3](https://github.com/langwatch/scenario/commit/d5188d369f979b7c8ddfe56e8268567ea99e99c3))
+* **voice/sdk/#451:** stop re-stringifying input_audio array in event-reporter (see+listen) ([d5188d3](https://github.com/langwatch/scenario/commit/d5188d369f979b7c8ddfe56e8268567ea99e99c3))
+* **voice+judge:** surface dropped model tool calls ([#630](https://github.com/langwatch/scenario/issues/630) + [#631](https://github.com/langwatch/scenario/issues/631)) ([#635](https://github.com/langwatch/scenario/issues/635)) ([de60f82](https://github.com/langwatch/scenario/commit/de60f82c2dadc20d2081bf4f3cbbd3c332442070))
+* **voice:** hosted ElevenLabs single-exchange ceiling — docs + enriched timeout error ([#643](https://github.com/langwatch/scenario/issues/643)) ([aae16be](https://github.com/langwatch/scenario/commit/aae16beec4d5b74ee331c29ad960c43632434da0))
+* **voice:** surface tool-only realtime turns (no audio chunk) ([#647](https://github.com/langwatch/scenario/issues/647)) ([6041447](https://github.com/langwatch/scenario/commit/6041447b1740646c6543e951096f00031dd825dc))
+
+
+### Miscellaneous
+
+* **deps/#608:** migrate elevenlabs@1.59.0 → @elevenlabs/elevenlabs-js ([#611](https://github.com/langwatch/scenario/issues/611)) ([6498df4](https://github.com/langwatch/scenario/commit/6498df44265f3f0cfc9a5262809ba65501d721db))
+* **examples/voice/#486:** retire legacy gpt-4o-audio-preview surface, migrate supported audio examples to gpt-audio-mini ([#612](https://github.com/langwatch/scenario/issues/612)) ([1ebdd1c](https://github.com/langwatch/scenario/commit/1ebdd1ce2782c95cf2b41fcc16b405804b1f5a10))
+
+
+### Documentation
+
+* **voice/#606:** document STT/TTS model choices as deliberate current-gen ([#610](https://github.com/langwatch/scenario/issues/610)) ([6211df3](https://github.com/langwatch/scenario/commit/6211df3c1386520a59de165f5a7ccd57d6a8eaf2))
+
+
+### Code Refactoring
+
+* **#518:** move capability-matrix doc assertion to dedicated voice-docs suite ([#550](https://github.com/langwatch/scenario/issues/550)) ([68df34c](https://github.com/langwatch/scenario/commit/68df34c4b9fd55af890c0abae8fd439ccfaf859b)), closes [#518](https://github.com/langwatch/scenario/issues/518)
+
 ## [0.4.12](https://github.com/langwatch/scenario/compare/javascript/v0.4.11...javascript/v0.4.12) (2026-06-04)
 
 

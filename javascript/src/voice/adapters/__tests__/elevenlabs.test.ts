@@ -678,3 +678,128 @@ describe("ElevenLabsAgentAdapter wire-protocol (onMessage branches)", () => {
     await adapter.disconnect();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #661 — keepalive-aware sliding idle deadline
+// ---------------------------------------------------------------------------
+describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => {
+  // Timing constants
+  const TIMEOUT_S = 0.30;
+  const NUM_PINGS = 8;
+  const PING_GAP_MS = 80;
+  const AUDIO_GAP_MS = 80;
+
+  // PCM payload: 8 bytes of valid PCM16 (even-byte count)
+  const pcmB64 = Buffer.from("\x12\x34".repeat(4)).toString("base64");
+
+  // Helper: build adapter + connected FakeWebSocket
+  async function makeConnected(): Promise<{
+    adapter: ElevenLabsAgentAdapter;
+    socket: FakeWebSocket;
+  }> {
+    const fake = makeFakeSocketFactory();
+    const adapter = new ElevenLabsAgentAdapter({
+      agentId: "agt-keepalive",
+      apiKey: "sk-keepalive",
+      webSocketFactory: fake.factory,
+    });
+    await adapter.connect();
+    return { adapter, socket: fake.socket.current! };
+  }
+
+  it("timing invariant: ping stretch exceeds timeout budget", () => {
+    // If this fails, the test scenario is misconfigured — it must be RED on pre-fix code.
+    expect(NUM_PINGS * PING_GAP_MS).toBeGreaterThan(TIMEOUT_S * 1000);
+  });
+
+  it(
+    "AC-KA1: receiveAudio tolerates a silent-but-pinging stretch longer than timeout",
+    { timeout: 10000 },
+    async () => {
+      const { adapter, socket } = await makeConnected();
+
+      // Schedule 8 ping frames at 80 ms real intervals, then one audio frame.
+      // Total ping stretch = 640 ms; audio arrives at 720 ms.
+      // Fixed-timer code fires at 300 ms → RED.
+      // Sliding-deadline code resets on each ping → GREEN.
+      for (let i = 0; i < NUM_PINGS; i++) {
+        setTimeout(() => {
+          socket.emit(
+            "message",
+            Buffer.from(
+              JSON.stringify({
+                type: "ping",
+                ping_event: { event_id: i, ping_ms: 5 },
+              }),
+            ),
+          );
+        }, (i + 1) * PING_GAP_MS);
+      }
+      setTimeout(() => {
+        socket.emit(
+          "message",
+          Buffer.from(
+            JSON.stringify({
+              type: "audio",
+              audio_event: { audio_base_64: pcmB64 },
+            }),
+          ),
+        );
+      }, NUM_PINGS * PING_GAP_MS + AUDIO_GAP_MS);
+
+      const start = performance.now();
+      const result = await adapter.receiveAudio(TIMEOUT_S);
+      const elapsed = performance.now() - start;
+
+      // Resolved with a valid AudioChunk containing the PCM bytes
+      expect(result).toBeInstanceOf(AudioChunk);
+      expect(result.data.length).toBeGreaterThan(0);
+
+      // Proved we waited past what a fixed timer would have allowed
+      expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT_S * 1000);
+
+      await adapter.disconnect();
+    },
+  );
+
+  it(
+    "AC-KA2 regression guard: truly silent socket still times out",
+    { timeout: 10000 },
+    async () => {
+      // No messages emitted — the idle deadline must still fire.
+      const { adapter } = await makeConnected();
+      await expect(adapter.receiveAudio(TIMEOUT_S)).rejects.toThrow(/timed out/);
+      await adapter.disconnect();
+    },
+  );
+
+  it("AC-KA5: socket close drains cleanly with no surviving timer", { timeout: 5000 }, async () => {
+    // Use fake timers so we can inspect surviving timer count after drain
+    vi.useFakeTimers();
+    let adapter: ElevenLabsAgentAdapter | undefined;
+    try {
+      const connected = await makeConnected();
+      adapter = connected.adapter;
+      const socket = connected.socket;
+
+      // Start a receiveAudio with a long timeout (5s) — we'll close before it fires
+      const receivePromise = adapter.receiveAudio(5);
+
+      // One timer should be active (the receiveAudio deadline)
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Emit close — triggers drainPendingWaiters
+      socket.emit("close");
+
+      // The promise resolves to the empty drain chunk
+      const result = await receivePromise;
+      expect(result.data.length).toBe(0); // empty chunk = drained, not a real audio payload
+
+      // No surviving timers — the waiter cancelled the timer on drain
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await adapter?.disconnect();
+      vi.useRealTimers();
+    }
+  });
+});

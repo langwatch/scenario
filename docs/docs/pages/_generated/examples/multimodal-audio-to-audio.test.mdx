@@ -11,9 +11,12 @@ import {
 } from "./helpers";
 import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
 
-// Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
-// returns 404 model_not_found as of 2026-05-19. Tracked separately — the
-// voice work PR will unskip these tests once model access is restored.
+// Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
+// model and the real LangWatch backend (cost, API keys, non-deterministic
+// audio), so it runs live/locally rather than in CI. The skip historically
+// also guarded the now-deleted `gpt-4o-audio-preview` (404 model_not_found
+// since 2026-05-19); #607 swapped that dead model for `gpt-audio-mini`, so the
+// model is no longer the blocker — the skip is CI-cost/live-only now.
 const skipInCi = process.env.CI === "true";
 
 class AudioAgent extends OpenAiVoiceAgent {

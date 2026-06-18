@@ -41,6 +41,10 @@ export interface JudgmentRequest {
    * `<additional_context>`. Useful when conversation messages contain raw
    * tool-call JSON that is difficult for the judge to interpret directly.
    */
+  additionalContext?: string;
+  /**
+   * @deprecated Use `additionalContext` instead.
+   */
   context?: string;
 }
 

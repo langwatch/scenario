@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.31](https://github.com/langwatch/scenario/compare/python/v0.7.30...python/v0.7.31) (2026-06-11)
+
+
+### Features
+
+* **voice/#597:** voice-mode user-simulator prompt — spoken sentences, not telegraphic ([#641](https://github.com/langwatch/scenario/issues/641)) ([3a7f660](https://github.com/langwatch/scenario/commit/3a7f660a14eec74af3728967fba8423fc04d93b2))
+
+
+### Bug Fixes
+
+* **#221:** return actual conversation in ScenarioResult.messages instead of judge context ([#553](https://github.com/langwatch/scenario/issues/553)) ([b32125f](https://github.com/langwatch/scenario/commit/b32125ffdd054e1f674a1dd2a656bdb4487b82c2))
+* **#496:** stop str()-coercing multimodal content in OTel trace + red-team refusal detection ([#546](https://github.com/langwatch/scenario/issues/546)) ([83842e1](https://github.com/langwatch/scenario/commit/83842e1eb38c76cfff74e403780b1ea473bd0d68))
+* **deps:** close 16 npm security alerts in scenario examples ([#637](https://github.com/langwatch/scenario/issues/637)) ([ced16fe](https://github.com/langwatch/scenario/commit/ced16fee797723c49c4a67036065c7ddafc47eed))
+* **voice/#493:** keepalive-aware recv_audio — tolerate silent-but-pinging stretches ([#649](https://github.com/langwatch/scenario/issues/649)) ([1e6e1f3](https://github.com/langwatch/scenario/commit/1e6e1f376f413d6d9b319d5e0414d499c48c5176))
+* **voice/#498:** surface attributable first-chunk timeout (phase + timeout + cause) ([#652](https://github.com/langwatch/scenario/issues/652)) ([02e3e3e](https://github.com/langwatch/scenario/commit/02e3e3e574dcc05eec4e74b6074757524cfc9987))
+* **voice/#623:** reframe realtime agent audio turns so the voiced sim does not echo them ([#653](https://github.com/langwatch/scenario/issues/653)) ([9302877](https://github.com/langwatch/scenario/commit/9302877d9b98e6e5be25e85aee854151a958b28f))
+* **voice:** surface tool-only realtime turns (no audio chunk) ([#647](https://github.com/langwatch/scenario/issues/647)) ([6041447](https://github.com/langwatch/scenario/commit/6041447b1740646c6543e951096f00031dd825dc))
+
+
+### Miscellaneous
+
+* **examples/voice/#486:** retire legacy gpt-4o-audio-preview surface, migrate supported audio examples to gpt-audio-mini ([#612](https://github.com/langwatch/scenario/issues/612)) ([1ebdd1c](https://github.com/langwatch/scenario/commit/1ebdd1ce2782c95cf2b41fcc16b405804b1f5a10))
+
 ## [0.7.30](https://github.com/langwatch/scenario/compare/python/v0.7.29...python/v0.7.30) (2026-06-10)
 
 

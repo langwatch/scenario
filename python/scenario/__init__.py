@@ -107,6 +107,7 @@ from .config import ScenarioConfig
 
 # Tracing public API
 from ._tracing import setup_scenario_tracing, scenario_only, with_custom_scopes
+from ._tracing.live import RealtimeLangWatchSession as realtime_langwatch_session
 
 # Then import modules with dependencies
 from .scenario_executor import run, arun
@@ -222,6 +223,7 @@ __all__ = [
     "setup_scenario_tracing",
     "scenario_only",
     "with_custom_scopes",
+    "realtime_langwatch_session",
     # Types
     "ScenarioResult",
     "AgentInput",

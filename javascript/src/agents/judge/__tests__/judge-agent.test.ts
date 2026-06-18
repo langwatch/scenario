@@ -777,8 +777,8 @@ describe("JudgeAgent", () => {
     });
   });
 
-  describe("additional context via judgmentRequest.context", () => {
-    it("includes <additional_context> in the user message when context is provided", async () => {
+  describe("additional context via judgmentRequest.additionalContext", () => {
+    it("includes <additional_context> in the user message when additionalContext is provided", async () => {
       const collector = createMockSpanCollector([]);
 
       const config: JudgeAgentConfig = {
@@ -800,7 +800,7 @@ describe("JudgeAgent", () => {
 
       const inputWithContext = createBaseInput({
         judgmentRequest: {
-          context:
+          additionalContext:
             "The agent ran `npm install -g git-orchard` which exited 0. The binary is now at /usr/local/bin/orchard.",
         },
       });
@@ -820,7 +820,7 @@ describe("JudgeAgent", () => {
       expect(userContent).toContain("</additional_context>");
     });
 
-    it("omits <additional_context> when no context is provided", async () => {
+    it("omits <additional_context> when no additionalContext is provided", async () => {
       const collector = createMockSpanCollector([]);
 
       const config: JudgeAgentConfig = {
@@ -851,6 +851,158 @@ describe("JudgeAgent", () => {
           ? userMessage.content
           : JSON.stringify(userMessage.content);
       expect(userContent).not.toContain("<additional_context>");
+    });
+
+    it("includes <additional_context> when deprecated context field is used (backward compat)", async () => {
+      const collector = createMockSpanCollector([]);
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent installed the dependency"],
+        spanCollector: collector,
+      };
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_installed_the_dependency: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const inputWithDeprecatedContext = createBaseInput({
+        judgmentRequest: {
+          context: "Legacy context string passed via deprecated field.",
+        },
+      });
+
+      await agent.call(inputWithDeprecatedContext);
+
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
+      const userContent =
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
+      expect(userContent).toContain("<additional_context>");
+      expect(userContent).toContain("Legacy context string passed via deprecated field.");
+      expect(userContent).toContain("</additional_context>");
+    });
+
+    it("additionalContext wins when both additionalContext and deprecated context are set", async () => {
+      const collector = createMockSpanCollector([]);
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent responded"],
+        spanCollector: collector,
+      };
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_responded: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const inputWithBoth = createBaseInput({
+        judgmentRequest: {
+          additionalContext: "New field value.",
+          context: "Old field value.",
+        },
+      });
+
+      await agent.call(inputWithBoth);
+
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
+      const userContent =
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
+      expect(userContent).toContain("New field value.");
+      expect(userContent).not.toContain("Old field value.");
+    });
+  });
+
+  describe("when no criteria provided and judgment requested", () => {
+    it("returns failure with 'No criteria' reasoning without calling the LLM", async () => {
+      // Reproduces issue #184: judge must short-circuit and not call the LLM
+      // when enforcement is requested (judgmentRequest != null) but the agent
+      // has no criteria to evaluate against.
+      const collector = createMockSpanCollector([]);
+
+      const config: JudgeAgentConfig = {
+        criteria: [],
+        spanCollector: collector,
+      };
+
+      const agent = judgeAgent(config);
+
+      let llmCalled = false;
+      agent.invokeLLM = async () => {
+        llmCalled = true;
+        return mockLLMResult("finish_test", {
+          criteria: {},
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const result = await agent.call(
+        createBaseInput({ judgmentRequest: {} })
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.reasoning).toContain("No criteria");
+      expect(result!.metCriteria).toEqual([]);
+      expect(result!.unmetCriteria).toEqual([]);
+      // Must not have called the LLM — this is a fast early return.
+      expect(llmCalled).toBe(false);
+    });
+
+    it("uses inline criteria from judgmentRequest when provided", async () => {
+      // If judgmentRequest carries its own criteria, the judge should use those
+      // instead of its own (empty) list and NOT short-circuit.
+      const smallTrace = createSmallTrace();
+      const collector = createMockSpanCollector(smallTrace);
+      for (const span of smallTrace) {
+        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] = "test-thread";
+      }
+
+      const config: JudgeAgentConfig = {
+        criteria: [],          // agent has no criteria of its own
+        spanCollector: collector,
+      };
+
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { inline_criterion: "true" },
+          reasoning: "passed",
+          verdict: "success",
+        });
+      };
+
+      const result = await agent.call(
+        createBaseInput({
+          judgmentRequest: { criteria: ["Inline criterion"] },
+        })
+      );
+
+      expect(capturedParams).toBeDefined();   // LLM was called
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(true);
+      expect(result!.metCriteria).toContain("Inline criterion");
     });
   });
 });

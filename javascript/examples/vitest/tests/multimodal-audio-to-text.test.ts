@@ -15,9 +15,12 @@ import {
 } from "./helpers";
 import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
-// CI-skipped: this test still pins `gpt-4o-audio-preview` (deleted, 404 since 2026-05-19) on line 48.
-// The model swap → gpt-audio-mini and the skip-marker removal are tracked in PR #607 (not yet merged).
-// This commit (#606) relaxes the judge criteria below so they're robust once that model swap lands.
+// Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
+// model and the real LangWatch backend (cost, API keys, non-deterministic
+// audio), so it runs live/locally rather than in CI. The skip historically
+// also guarded the now-deleted `gpt-4o-audio-preview` (404 model_not_found
+// since 2026-05-19); #607 swapped that dead model for `gpt-audio-mini`, so the
+// model is no longer the blocker — the skip is CI-cost/live-only now.
 const skipInCi = process.env.CI === "true";
 
 class AudioAgent extends AgentAdapter {
@@ -45,7 +48,7 @@ class AudioAgent extends AgentAdapter {
 
   private async respond(messages: ChatCompletionMessageParam[]) {
     return await this.openai.chat.completions.create({
-      model: "gpt-4o-audio-preview",
+      model: "gpt-audio-mini",
       modalities: ["text", "audio"],
       audio: { voice: "alloy", format: "wav" },
       // We need to strip the id, or the openai client will throw an error

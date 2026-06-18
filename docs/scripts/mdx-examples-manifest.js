@@ -1,13 +1,6 @@
 export const examples = [
   {
     sourcePath:
-      "javascript/examples/vitest/tests/multimodal-voice-to-voice-conversation.test.ts",
-  },
-  {
-    sourcePath: "python/examples/test_voice_to_voice_conversation.py",
-  },
-  {
-    sourcePath:
       "javascript/examples/vitest/tests/multimodal-audio-to-text.test.ts",
   },
   {

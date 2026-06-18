@@ -126,7 +126,7 @@ jobs:
           TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
       - name: Run example-suite voice integration tests
-        run: uv run pytest examples/test_voice_to_voice_conversation.py examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
+        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

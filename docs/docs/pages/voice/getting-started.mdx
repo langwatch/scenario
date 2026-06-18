@@ -58,6 +58,8 @@ The assistant reads your codebase, detects which voice transport your agent is o
 
 Here's what the generated test looks like for a **Pipecat WS bot**, the most common path — the `url` is the connection point to YOUR running bot:
 
+> **Note:** `proceed()` drives auto-generated turns reliably on composable/pipecat/realtime voice adapters, but **not** on the hosted `elevenLabsAgent` (single-exchange only — see the [multi-turn recipe](/voice/recipes/multi-turn)).
+
 :::code-group
 
 ```python [python]

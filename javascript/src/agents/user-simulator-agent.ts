@@ -288,7 +288,17 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   ): Promise<ModelMessage> {
     const voice = this.cfg?.voice ?? runVoiceConfig?.tts?.voice;
     const textMessage: ModelMessage = { role: "user", content: text };
-    if (!voice || !text) return textMessage;
+    if (!voice || !text) {
+      if (!voice && text) {
+        console.warn(
+          "[scenario] UserSimulatorAgent.voiceifyText: no voice resolved — " +
+            "sending a TEXT user turn to the agent under test. A voice agent " +
+            "(e.g. ElevenLabs) will receive text, not audio. Set `voice` on the " +
+            "UserSimulatorAgent (e.g. { voice: 'openai/nova' }) or via run-level voice config.",
+        );
+      }
+      return textMessage;
+    }
     return this.synthesizeToAudioMessage(text, voice);
   }
 
@@ -301,7 +311,17 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     input: AgentInput,
   ): Promise<ModelMessage> {
     const voice = this.effectiveVoice(input);
-    if (!voice) return textMessage;
+    if (!voice) {
+      const c = typeof textMessage.content === "string" ? textMessage.content : "";
+      if (c) {
+        console.warn(
+          "[scenario] UserSimulatorAgent.voiceify: no voice resolved — sending a " +
+            "TEXT user turn to the agent under test. A voice agent will receive " +
+            "text, not audio. Set `voice` on the UserSimulatorAgent or run config.",
+        );
+      }
+      return textMessage;
+    }
 
     const content =
       typeof textMessage.content === "string" ? textMessage.content : "";

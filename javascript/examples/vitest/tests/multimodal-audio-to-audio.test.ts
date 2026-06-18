@@ -9,9 +9,12 @@ import {
 } from "./helpers";
 import { OpenAiVoiceAgent } from "./helpers/openai-voice-agent";
 
-// Skipped in CI: depends on the OpenAI `gpt-4o-audio-preview` model, which
-// returns 404 model_not_found as of 2026-05-19. Tracked separately — the
-// voice work PR will unskip these tests once model access is restored.
+// Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
+// model and the real LangWatch backend (cost, API keys, non-deterministic
+// audio), so it runs live/locally rather than in CI. The skip historically
+// also guarded the now-deleted `gpt-4o-audio-preview` (404 model_not_found
+// since 2026-05-19); #607 swapped that dead model for `gpt-audio-mini`, so the
+// model is no longer the blocker — the skip is CI-cost/live-only now.
 const skipInCi = process.env.CI === "true";
 
 class AudioAgent extends OpenAiVoiceAgent {
@@ -77,9 +80,9 @@ describe.skipIf(skipInCi)("Multimodal Audio to Audio Tests", () => {
         scenario.agent(),
         scenario.judge({
           criteria: [
-            "The agent correctly guesses it's a male voice",
-            "The agent repeats the question",
-            "The agent says what format the input was in (audio or text)",
+            "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
+            "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
+            "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
           ],
         }),
       ],

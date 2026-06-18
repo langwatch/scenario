@@ -27,6 +27,7 @@ from ._judge.trace_tools import expand_trace, grep_trace
 from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 from .voice._transcribe import transcribe_segments
+from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
@@ -261,6 +262,7 @@ class JudgeAgent(AgentAdapter):
         include_audio: Optional[bool] = None,
         include_timeline: Optional[bool] = None,
         include_traces: Optional[bool] = None,
+        modality: Optional[str] = None,
         **extra_params,
     ):
         """
@@ -288,6 +290,13 @@ class JudgeAgent(AgentAdapter):
             max_discovery_steps: Maximum number of expand/grep tool calls the judge
                                 can make before being forced to return a verdict.
                                 Defaults to 10.
+            modality: Explicit modality declaration for this role. Accepted values:
+                     ``"audio-in"`` (LLM receives raw audio), ``"stt-bridge"``
+                     (audio transcribed to text before the LLM), or ``"text"``
+                     (no audio in the stack). Complementary to ``include_audio``:
+                     ``include_audio=True/False`` takes precedence; ``modality=``
+                     applies when ``include_audio`` is ``None``. When ``None``
+                     (default), the modality is auto-detected from litellm capabilities.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -332,6 +341,7 @@ class JudgeAgent(AgentAdapter):
         self.include_audio = include_audio
         self.include_timeline = include_timeline
         self.include_traces = include_traces
+        self.modality = modality
 
         if model:
             self.model = model
@@ -375,18 +385,24 @@ class JudgeAgent(AgentAdapter):
             raise Exception(agent_not_configured_error_message("JudgeAgent"))
 
     # --------------------------------------------- voice auto-detection (§4.3)
-    # Small single-purpose helpers; kept out of call() to preserve SRP.
-    _AUDIO_CAPABLE_MODEL_SUBSTRINGS = ("gpt-4o", "gemini-2.5", "gemini-2.0-flash")
-
-    def _model_supports_audio(self) -> bool:
-        m = (self.model or "").lower()
-        return any(s in m for s in self._AUDIO_CAPABLE_MODEL_SUBSTRINGS)
-
     def effective_include_audio(self, conversation_has_audio: bool) -> bool:
-        """Resolve include_audio: explicit wins, otherwise auto from model capability."""
+        """Resolve include_audio: explicit wins, otherwise use modality resolver.
+
+        Intentional behavior change (Bundle 3 / AC3b):
+          Before: gpt-4o → audio-capable (substring match).
+          After:  gpt-4o → text path (litellm advisory returns False).
+          Before: gpt-audio-mini → NOT audio-capable (not in list).
+          After:  gpt-audio-mini → audio-capable (litellm advisory returns True).
+        The old substring list was wrong; the resolver is the source of truth.
+        """
         if self.include_audio is not None:
+            # Explicit override always wins (AC3c)
             return self.include_audio and conversation_has_audio
-        return conversation_has_audio and self._model_supports_audio()
+        # Use resolver with per-role declaration (AC0, Bundle 6)
+        tier, warnings = resolve_modality(declaration=self.modality, model_id=self.model or "")
+        for w in warnings:
+            logger.warning(w)
+        return conversation_has_audio and (tier == ModalityTier.AUDIO_IN)
 
     def effective_include_timeline(self, conversation_has_audio: bool) -> bool:
         """Default timeline True for voice, False for text — unless explicitly set."""
@@ -480,8 +496,8 @@ class JudgeAgent(AgentAdapter):
         logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
         extra_context = (
-            input.judgment_request.context
-            if input.judgment_request and input.judgment_request.context
+            input.judgment_request.additional_context
+            if input.judgment_request and input.judgment_request.additional_context
             else None
         )
         extra_context_section = (

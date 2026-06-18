@@ -1,13 +1,14 @@
 import json
 import pytest
 from typing import Any, cast
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from openai import OpenAI
 from scenario import JudgeAgent
 from scenario.config import ModelConfig, ScenarioConfig
 from scenario.types import AgentInput, JudgmentRequest, ScenarioResult
 from scenario.cache import context_scenario
 from scenario.scenario_executor import ScenarioExecutor
+from scenario.voice.modality_resolver import ModalityTier
 
 
 class FakeOpenAIClient:
@@ -301,10 +302,10 @@ async def test_judge_result_messages_is_conversation_not_judge_context():
 
 @pytest.mark.asyncio
 async def test_judge_includes_additional_context_in_prompt():
-    """JudgmentRequest.context is injected into the judge's user message under <additional_context>.
+    """Deprecated JudgmentRequest.context alias is injected into the judge's user message under <additional_context>.
 
-    Test for #318: allows callers to pass structured observations (e.g. command
-    output, filesystem state) to the judge without polluting the message history.
+    Tests backward compat: callers still using the old context= field should see the value
+    forwarded to the judge prompt. See #660 for the rename to additional_context.
     """
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
     judge = JudgeAgent(criteria=["Agent installed the dependency"])
@@ -635,3 +636,151 @@ async def test_judge_boolean_criterion_values_are_coerced():
     )
     assert failing.success is False
     assert failing.failed_criteria == ["Agent must cite a source"]
+
+
+# ------------------------------------------------------------------ Bundle 3 / AC3a, AC3b, AC3c
+
+
+def test_gpt_audio_mini_judge_receives_audio():
+    """AC3a — gpt-audio-mini judge receives audio parts when resolver returns AUDIO_IN."""
+    judge = JudgeAgent(
+        criteria=["agent replied correctly"],
+        model="openai/gpt-audio-mini",
+    )
+    with patch(
+        "scenario.judge_agent.resolve_modality",
+        return_value=(ModalityTier.AUDIO_IN, []),
+    ):
+        assert judge.effective_include_audio(conversation_has_audio=True) is True
+
+
+def test_gpt4o_judge_no_declaration_takes_transcript_path():
+    """AC3b intentional behavior change: gpt-4o via litellm advisory (False) → text path.
+
+    Before Bundle 3: gpt-4o matched the old substring list → audio-capable (True).
+    After Bundle 3:  litellm advisory for gpt-4o returns False → text path (False).
+    This is the correct behavior — gpt-4o does not ingest raw audio input parts.
+    """
+    judge = JudgeAgent(
+        criteria=["agent replied correctly"],
+        model="openai/gpt-4o",
+    )
+    with patch(
+        "scenario.judge_agent.resolve_modality",
+        return_value=(ModalityTier.TEXT, []),
+    ):
+        # AC3b intentional behavior change: gpt-4o via litellm advisory (False) → text path
+        assert judge.effective_include_audio(conversation_has_audio=True) is False
+
+
+def test_explicit_include_audio_false_wins():
+    """AC3c — explicit include_audio=False wins even for an audio-capable model."""
+    judge = JudgeAgent(
+        criteria=["agent replied correctly"],
+        model="openai/gpt-audio-mini",
+        include_audio=False,
+    )
+    # resolve_modality must NOT be called when include_audio is explicitly set
+    with patch(
+        "scenario.judge_agent.resolve_modality",
+        return_value=(ModalityTier.AUDIO_IN, []),
+    ) as mock_resolver:
+        result = judge.effective_include_audio(conversation_has_audio=True)
+    assert result is False
+    mock_resolver.assert_not_called()
+
+
+# ---- AC9 / AC5b: transcribe_segments spy tests ----
+
+def _make_audio_agent_input(recording=None) -> AgentInput:
+    """AgentInput with one assistant message containing an input_audio part.
+
+    If recording is provided it is placed on scenario_state._executor._voice_recording
+    so that JudgeAgent._extract_recording() finds it.
+    """
+    audio_message = {
+        "role": "assistant",
+        "content": [{"type": "input_audio", "input_audio": {"data": "abc123"}}],
+    }
+    mock_executor = MagicMock()
+    mock_executor._voice_recording = recording
+    mock_state = MagicMock()
+    mock_state.description = "spy test"
+    mock_state.current_turn = 1
+    mock_state.config.max_turns = 5
+    mock_state._executor = mock_executor
+    return AgentInput(
+        thread_id="spy-test",
+        messages=cast(Any, [audio_message]),
+        new_messages=[],
+        judgment_request=JudgmentRequest(),
+        scenario_state=mock_state,
+    )
+
+
+def _make_llm_mock_response() -> MagicMock:
+    """Minimal litellm response that makes judge.call() return without error."""
+    resp = MagicMock()
+    resp.choices = [MagicMock()]
+    resp.choices[0].message.tool_calls = [MagicMock()]
+    resp.choices[0].message.tool_calls[0].function.name = "finish_test"
+    resp.choices[0].message.tool_calls[0].function.arguments = (
+        '{"verdict": "success", "reasoning": "spy test", '
+        '"criteria": {"test_criterion": true}}'
+    )
+    return resp
+
+
+@pytest.mark.asyncio
+async def test_ac9_transcribe_segments_invoked_for_text_judge():
+    """AC9: transcribe_segments runs over VoiceRecording for a text-modality judge.
+
+    Confirms the post-hoc transcription path still executes after the resolver change:
+    gpt-4o (advisory=False, no declaration) → TEXT tier → transcribe_segments called.
+    """
+    from scenario.voice.recording import VoiceRecording as _VR
+    recording = _VR(segments=[])
+    judge = JudgeAgent(criteria=["test criterion"], model="openai/gpt-4o")
+    agent_input = _make_audio_agent_input(recording=recording)
+
+    mock_cache_executor = MagicMock()
+    mock_cache_executor.config = MagicMock()
+    mock_cache_executor.config.cache_key = None
+    token = context_scenario.set(mock_cache_executor)
+
+    try:
+        with patch("scenario.judge_agent.resolve_modality", return_value=(ModalityTier.TEXT, [])), \
+             patch("scenario.judge_agent.transcribe_segments", new_callable=AsyncMock) as mock_ts, \
+             patch("scenario.judge_agent.litellm.completion", return_value=_make_llm_mock_response()):
+            await judge.call(agent_input)
+
+        mock_ts.assert_called_once_with(recording)
+    finally:
+        context_scenario.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_ac5b_stt_bridge_judge_invokes_transcribe_segments():
+    """AC5b: judge with explicit modality='stt-bridge' invokes transcribe_segments.
+
+    stt-bridge tier → effective_include_audio=False → transcribe_segments called with recording.
+    """
+    from scenario.voice.recording import VoiceRecording as _VR
+    recording = _VR(segments=[])
+    judge = JudgeAgent(criteria=["test criterion"], model="openai/gpt-4o", modality="stt-bridge")
+    agent_input = _make_audio_agent_input(recording=recording)
+
+    mock_cache_executor = MagicMock()
+    mock_cache_executor.config = MagicMock()
+    mock_cache_executor.config.cache_key = None
+    token = context_scenario.set(mock_cache_executor)
+
+    try:
+        with patch("scenario.voice.modality_resolver._litellm_advisory", return_value=False), \
+             patch("scenario.judge_agent.transcribe_segments", new_callable=AsyncMock) as mock_ts, \
+             patch("scenario.judge_agent.litellm.completion", return_value=_make_llm_mock_response()):
+            await judge.call(agent_input)
+
+        mock_ts.assert_called_once_with(recording)
+    finally:
+        context_scenario.reset(token)

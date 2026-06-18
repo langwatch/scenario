@@ -13,6 +13,7 @@ import { getEnv } from "../config";
 import {
   allAgentRoles,
   AgentRole,
+  LangwatchConfig,
   ScenarioConfig,
   ScenarioResult,
 } from "../domain";
@@ -24,17 +25,6 @@ import { generateThreadId, getBatchRunId } from "../utils/ids";
 import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { ensureTracingInitialized } from "../tracing/setup";
 import { getProjectConfig } from "../config/get-project-config";
-/**
- * Configuration for LangWatch event reporting.
- * All fields are optional — any omitted fields fall back to environment variables.
- */
-export interface LangwatchConfig {
-  /** The endpoint URL to send events to. Falls back to LANGWATCH_ENDPOINT env var. */
-  endpoint?: string;
-  /** The API key for authentication. Falls back to LANGWATCH_API_KEY env var. */
-  apiKey?: string;
-}
-
 /**
  * Options for running a scenario.
  */
@@ -161,10 +151,11 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
     ensureTracingInitialized(projectConfig?.observability);
 
     const envConfig = getEnv();
-    // Use programmatic config if provided, otherwise fall back to env vars
+    // Priority: options.langwatch > cfg.langwatch > env vars
     eventBus = new EventBus({
-      endpoint: options?.langwatch?.endpoint ?? envConfig.LANGWATCH_ENDPOINT,
-      apiKey: options?.langwatch?.apiKey ?? envConfig.LANGWATCH_API_KEY,
+      endpoint: options?.langwatch?.endpoint ?? cfg.langwatch?.endpoint ?? envConfig.LANGWATCH_ENDPOINT,
+      apiKey: options?.langwatch?.apiKey ?? cfg.langwatch?.apiKey ?? envConfig.LANGWATCH_API_KEY,
+      projectId: options?.langwatch?.projectId ?? cfg.langwatch?.projectId,
     });
     eventBus.listen();
 
