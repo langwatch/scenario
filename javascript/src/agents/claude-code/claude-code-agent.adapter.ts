@@ -163,6 +163,22 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
     const prompt = formatMessagesAsPrompt(input.messages);
+
+    // Agent-first / empty-input guard. The realtime sibling handles a missing
+    // initial turn by making the agent SPEAK first (`response.create` against
+    // loaded session instructions). A `claude -p` CLI has no such channel — it
+    // requires a prompt — so `claude -p ""` would be meaningless and would
+    // silently mask a wiring bug (agent placed first with no `user()` step).
+    // We therefore reject loudly rather than guess a default prompt.
+    if (!hasRenderableContent(prompt)) {
+      throw new Error(
+        "ClaudeCodeAgentAdapter received no messages to send to the CLI. " +
+          "The Claude Code CLI is prompt-driven and cannot open a conversation " +
+          "on its own; ensure a user turn precedes the agent (e.g. a " +
+          "scenario.user(...) step before scenario.agent()).",
+      );
+    }
+
     const bin = this.resolveBin();
     const args = this.buildArgs(prompt);
     const cwd = this.config.workingDirectory;
@@ -311,4 +327,17 @@ function formatMessagesAsPrompt(messages: ModelMessage[]): string {
   return messages
     .map((message) => `${message.role}: ${extractText(message.content)}`)
     .join("\n\n");
+}
+
+/**
+ * Whether a formatted prompt carries actual content to send to the CLI.
+ *
+ * Returns false for an empty prompt (no messages) AND for one whose every line
+ * is just a bare `role:` label with no rendered content (messages that produced
+ * nothing renderable) — both of which would degenerate to `claude -p ""`.
+ */
+function hasRenderableContent(prompt: string): boolean {
+  return prompt
+    .split("\n")
+    .some((line) => line.replace(/^[^:]*:/, "").trim().length > 0);
 }

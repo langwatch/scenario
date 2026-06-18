@@ -318,6 +318,23 @@ describe("ClaudeCodeAgentAdapter CLI absent", () => {
   });
 });
 
+// --- 4b. empty messages (agent-first guard) ---------------------------------
+
+describe("ClaudeCodeAgentAdapter empty messages", () => {
+  it("rejects with a descriptive error and never spawns when there are no messages", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    await expect(adapter.call(makeInput([]))).rejects.toThrow(
+      /received no messages to send to the CLI/,
+    );
+    // The agent-first guard short-circuits before spawning anything.
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
 // --- 5. timeout -------------------------------------------------------------
 
 describe("ClaudeCodeAgentAdapter timeout", () => {
