@@ -2,7 +2,7 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
-  hono: '>=4.12.21'
+  hono: '>=4.12.25'
   lodash-es: '>=4.18.0'
   minimatch@<3.1.3: 3.1.3
   minimatch@>=9.0.0 <9.0.7: 9.0.7
