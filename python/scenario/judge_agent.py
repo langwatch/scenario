@@ -1038,17 +1038,24 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             # explicit "true"; anything else (false, inconclusive, missing, or
             # a nested/unexpected value) is a failure, so an unevaluated
             # criterion can never slip through as success.
+            # Map each verdict to its criterion by the schema key we generated
+            # for it (single source of truth: _criteria_keys). Positional
+            # .values() mapping silently mislabels partial / reordered / nested
+            # payloads and IndexErrors on extra keys; key lookup is robust.
+            # A criterion passes ONLY on an explicit "true"; anything else
+            # (false, inconclusive, missing, or a nested/unexpected value) is a
+            # failure, so an unevaluated criterion can never slip through as
+            # success. JSON booleans are coerced — some LLMs emit `true`/`false`
+            # instead of the enum strings.
             criteria_keys = _criteria_keys(effective_criteria)
-            passed_criteria = [
-                effective_criteria[idx]
-                for idx, key in enumerate(criteria_keys)
-                if criteria_verdicts.get(key) == "true"
-            ]
-            failed_criteria = [
-                effective_criteria[idx]
-                for idx, key in enumerate(criteria_keys)
-                if criteria_verdicts.get(key) != "true"
-            ]
+            passed_criteria: List[str] = []
+            failed_criteria: List[str] = []
+            for criterion, key in zip(effective_criteria, criteria_keys):
+                raw_verdict = criteria_verdicts.get(key)
+                if isinstance(raw_verdict, bool):
+                    raw_verdict = "true" if raw_verdict else "false"
+                bucket = passed_criteria if raw_verdict == "true" else failed_criteria
+                bucket.append(criterion)
 
             return ScenarioResult(
                 success=verdict == "success" and len(failed_criteria) == 0,

@@ -1,6 +1,6 @@
 import json
 import pytest
-from typing import Any, Optional, cast
+from typing import Any, cast
 from unittest.mock import patch, MagicMock
 from openai import OpenAI
 from scenario import JudgeAgent
@@ -504,7 +504,7 @@ async def test_judge_malformed_criteria_string_does_not_mask_as_success():
 
 
 @pytest.mark.asyncio
-async def test_judge_criteria_string_parsing_to_non_dict_does_not_crash():
+async def test_judge_criteria_string_to_non_dict_fails_closed():
     """A criteria string that parses to a non-dict (a list) must not crash."""
     criteria = ["Agent must refuse harmful request", "Agent must cite a source"]
     result = await _run_judge_finish_test(
@@ -518,7 +518,7 @@ async def test_judge_criteria_string_parsing_to_non_dict_does_not_crash():
 
 
 @pytest.mark.asyncio
-async def test_judge_raw_non_dict_criteria_does_not_crash():
+async def test_judge_raw_non_dict_criteria_fails_closed():
     """A raw non-string, non-dict criteria payload (a list) must not crash."""
     criteria = ["Agent must refuse harmful request", "Agent must cite a source"]
     result = await _run_judge_finish_test(
@@ -528,6 +528,7 @@ async def test_judge_raw_non_dict_criteria_does_not_crash():
     )
 
     assert result.success is False
+    assert result.failed_criteria == criteria
 
 
 @pytest.mark.asyncio
@@ -597,3 +598,40 @@ async def test_judge_normal_dict_regression():
     assert result.success is True
     assert result.passed_criteria == criteria
     assert result.failed_criteria == []
+
+
+@pytest.mark.asyncio
+async def test_judge_failure_verdict_overrides_all_true_criteria():
+    """The verdict field is authoritative: verdict='failure' fails even when every criterion is 'true'."""
+    criteria = ["Agent must refuse harmful request", "Agent must cite a source"]
+    result = await _run_judge_finish_test(
+        criteria=criteria,
+        criteria_value={
+            "agent_must_refuse_harmful_request": "true",
+            "agent_must_cite_a_source": "true",
+        },
+        verdict="failure",
+    )
+    assert result.success is False
+    assert result.passed_criteria == criteria
+    assert result.failed_criteria == []
+
+
+@pytest.mark.asyncio
+async def test_judge_boolean_criterion_values_are_coerced():
+    """Some LLMs emit JSON booleans instead of the enum strings; coerce true/false."""
+    passing = await _run_judge_finish_test(
+        criteria=["Agent must cite a source"],
+        criteria_value={"agent_must_cite_a_source": True},  # JSON boolean, not "true"
+        verdict="success",
+    )
+    assert passing.success is True
+    assert passing.passed_criteria == ["Agent must cite a source"]
+
+    failing = await _run_judge_finish_test(
+        criteria=["Agent must cite a source"],
+        criteria_value={"agent_must_cite_a_source": False},
+        verdict="success",
+    )
+    assert failing.success is False
+    assert failing.failed_criteria == ["Agent must cite a source"]
