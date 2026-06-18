@@ -25,6 +25,9 @@
 
 import type { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import type { ModelMessage } from "ai";
 import {
@@ -64,6 +67,7 @@ import {
 } from "../../domain/index.js";
 import {
   ClaudeCodeAgentAdapter,
+  claudeCodeAgent,
   parseStreamJson,
   assertSkillWasRead,
   type Logger,
@@ -345,6 +349,23 @@ describe("ClaudeCodeAgentAdapter timeout", () => {
   });
 });
 
+// --- 5b. nonzero exit code --------------------------------------------------
+
+describe("ClaudeCodeAgentAdapter nonzero exit", () => {
+  it("rejects with the exit code and the captured stderr when close fires nonzero", async () => {
+    const child = new FakeChild();
+    withChild(child);
+
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+    const p = adapter.call(SIMPLE_INPUT);
+    child.pushStderr("Invalid API key (rate limit / auth)");
+    child.close(1);
+
+    await expect(p).rejects.toThrow(/exit code 1/);
+    await expect(p).rejects.toThrow(/Invalid API key/);
+  });
+});
+
 // --- 6. logger isolation ----------------------------------------------------
 
 describe("ClaudeCodeAgentAdapter logger isolation", () => {
@@ -370,9 +391,9 @@ describe("ClaudeCodeAgentAdapter logger isolation", () => {
       child.close(0);
       await p;
 
-      // The injected logger saw the "Starting claude" line and the stderr line.
-      const logged = logger.log.mock.calls.flat().join(" ");
-      expect(logged).toContain("/tmp/diag");
+      // The injected logger received diagnostics (don't pin the exact wording
+      // — that breaks on any message rewording; routing is what matters).
+      expect(logger.log).toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalled();
       const warned = logger.warn.mock.calls.flat().join(" ");
       expect(warned).toContain("some stderr noise");
@@ -426,6 +447,48 @@ describe("assertSkillWasRead", () => {
   });
 });
 
+// --- 8. factory skillPath injection -----------------------------------------
+
+describe("claudeCodeAgent factory skillPath injection", () => {
+  let tmpDir: string;
+  let skillSrcDir: string;
+
+  beforeEach(() => {
+    // A trusted-fixture working dir + a source skill directory whose NAME is
+    // the skill name (`injectSkill` derives it from the SKILL.md's parent dir).
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-skill-wd-"));
+    skillSrcDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-skill-src-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(skillSrcDir, { recursive: true, force: true });
+  });
+
+  it("injects the SKILL.md and writes a pointing CLAUDE.md as a construction side effect", () => {
+    const skillName = "demo-skill";
+    const skillHome = path.join(skillSrcDir, skillName);
+    fs.mkdirSync(skillHome, { recursive: true });
+    const skillPath = path.join(skillHome, "SKILL.md");
+    fs.writeFileSync(skillPath, "# Demo Skill\nDo the demo thing.\n");
+
+    const agent = claudeCodeAgent({ workingDirectory: tmpDir, skillPath });
+    expect(agent).toBeInstanceOf(ClaudeCodeAgentAdapter);
+
+    // The skill was copied into <wd>/.skills/<name>/SKILL.md ...
+    const injectedSkill = path.join(tmpDir, ".skills", skillName, "SKILL.md");
+    expect(fs.existsSync(injectedSkill)).toBe(true);
+    expect(fs.readFileSync(injectedSkill, "utf8")).toContain("Demo Skill");
+
+    // ... and a CLAUDE.md pointing at it was written.
+    const claudeMd = path.join(tmpDir, "CLAUDE.md");
+    expect(fs.existsSync(claudeMd)).toBe(true);
+    expect(fs.readFileSync(claudeMd, "utf8")).toContain(
+      `.skills/${skillName}/SKILL.md`,
+    );
+  });
+});
+
 // --- env-gated integration --------------------------------------------------
 
 describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
@@ -475,12 +538,19 @@ describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
         ],
       });
 
-      expect(typeof result.success).toBe("boolean");
-      expect(Array.isArray(result.messages)).toBe(true);
-      // The agent under test produced at least one assistant turn.
-      expect(
-        result.messages.some((m) => m.role === "assistant"),
-      ).toBe(true);
+      // The judge must actually PASS — not merely return a boolean. This fails
+      // loudly if the judge verdict is success:false.
+      expect(result.success).toBe(true);
+
+      // And the agent under test must have produced the real answer "4" in an
+      // assistant turn (content may be a string or an array of parts).
+      const assistantText = result.messages
+        .filter((m) => m.role === "assistant")
+        .map((m) =>
+          typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+        )
+        .join("\n");
+      expect(assistantText).toContain("4");
     }, 120000);
   },
 );

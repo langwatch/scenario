@@ -100,7 +100,7 @@ function renderToolResultContent(content: unknown): string {
 }
 
 /** `JSON.stringify` that never throws (circular refs → fallback string). */
-function safeStringify(value: unknown): string {
+export function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value) ?? "";
   } catch {

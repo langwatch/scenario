@@ -28,6 +28,11 @@ import type { ScenarioExecutionStateLike } from "../../domain";
  * The skill name is derived from the SKILL.md's parent directory name, matching
  * the reference helper (`path.basename(path.dirname(skillPath))`).
  *
+ * NOTE: this performs EAGER filesystem writes (`mkdirSync` + `copyFileSync`),
+ * and `copyFileSync` CLOBBERS any existing same-named skill copy at
+ * `<workingDirectory>/.skills/<name>/SKILL.md`. This assumes a trusted-fixture
+ * setup (a test/scratch working directory), not an arbitrary user dir.
+ *
  * @param workingDirectory - The directory Claude Code is spawned in.
  * @param skillPath - Absolute path to a `SKILL.md` to inject.
  */

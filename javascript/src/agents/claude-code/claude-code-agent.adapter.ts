@@ -26,7 +26,7 @@ import { spawn } from "node:child_process";
 
 import type { ModelMessage } from "ai";
 
-import { parseStreamJson } from "./stream-json.js";
+import { parseStreamJson, safeStringify } from "./stream-json.js";
 import { AgentAdapter, AgentRole } from "../../domain/agents/index.js";
 import type { AgentInput, AgentReturnTypes } from "../../domain/agents/index.js";
 
@@ -178,13 +178,23 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
-      let stdout = "";
+      // Accumulate raw stdout chunks and decode ONCE at close: a multibyte
+      // UTF-8 character split across two `data` events would corrupt if each
+      // chunk were `toString`-ed independently.
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
       let settled = false;
+      let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
 
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
+        // Graceful terminate first…
         child.kill();
+        // …then a hard SIGKILL shortly after so a wedged child can't leak.
+        // Cleared in `finish` if the child exits on its own first.
+        sigkillTimer = setTimeout(() => child.kill("SIGKILL"), 2000);
+        sigkillTimer.unref?.();
         reject(
           new Error(
             `Claude Code CLI timed out after ${timeoutMs}ms in ${cwd}`,
@@ -196,14 +206,16 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (sigkillTimer) clearTimeout(sigkillTimer);
         fn();
       };
 
       child.stdout?.on("data", (data: Buffer) => {
-        stdout += data.toString();
+        stdoutChunks.push(data);
       });
 
       child.stderr?.on("data", (data: Buffer) => {
+        stderrChunks.push(data);
         logger.warn(`Claude Code stderr: ${data.toString()}`);
       });
 
@@ -224,9 +236,16 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       child.on("close", (exitCode) => {
         finish(() => {
           if (exitCode !== 0 && exitCode !== null) {
-            reject(new Error(`Claude Code CLI failed with exit code ${exitCode}`));
+            const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+            const detail = stderr ? `: ${stderr}` : "";
+            reject(
+              new Error(
+                `Claude Code CLI failed with exit code ${exitCode}${detail}`,
+              ),
+            );
             return;
           }
+          const stdout = Buffer.concat(stdoutChunks).toString("utf8");
           const { text } = parseStreamJson(stdout, logger);
           resolve(text);
         });
@@ -236,35 +255,57 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
 }
 
 /**
- * Extract the plain-text portion of a single message's content. `content` may
- * be a string (returned as-is) or an array of parts, in which case the `text`
- * parts are joined. Non-text parts are dropped so the prompt never contains
- * `[object Object]`.
+ * Render a single `ai`-SDK message content part to a readable string.
+ *
+ * Mirrors the OUTPUT parser's intent ({@link parseStreamJson} in
+ * `stream-json.ts`): structured parts are made readable rather than dropped, so
+ * an assistant tool-call turn or a `tool` result is preserved in the prompt
+ * instead of collapsing to a bare label. Note the `ai`-SDK part discriminators
+ * are HYPHENATED (`tool-call`, `tool-result`) — distinct from Claude Code's
+ * underscored stream-json blocks (`tool_use`, `tool_result`) — so the rendering
+ * is shaped here while the circular-safe `safeStringify` helper is reused.
+ */
+function renderContentPart(part: unknown): string {
+  if (typeof part === "string") return part;
+  if (!part || typeof part !== "object") return "";
+
+  const p = part as Record<string, unknown>;
+  switch (p["type"]) {
+    case "text":
+    case "reasoning":
+      return typeof p["text"] === "string" ? p["text"] : "";
+    case "tool-call":
+      return `[tool-call: ${String(p["toolName"] ?? "unknown")}(${safeStringify(
+        p["input"],
+      )})]`;
+    case "tool-result":
+      return `[tool-result: ${String(p["toolName"] ?? "unknown")} -> ${safeStringify(
+        p["output"] ?? p["result"],
+      )}]`;
+    case "file":
+      return `[file: ${String(p["mediaType"] ?? "application/octet-stream")}]`;
+    default:
+      // Unknown part: still surface it readably rather than dropping it.
+      return safeStringify(part);
+  }
+}
+
+/**
+ * Render a single message's content. A string is returned as-is; an array of
+ * parts is rendered part-by-part via {@link renderContentPart} (text AND
+ * structured tool parts) and joined. A message whose content is only tool
+ * parts therefore renders to those tool parts — never an empty string.
  */
 function extractText(content: ModelMessage["content"]): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      if (
-        part &&
-        typeof part === "object" &&
-        "text" in part &&
-        typeof (part as { text?: unknown }).text === "string"
-      ) {
-        return (part as { text: string }).text;
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join(" ");
+  return content.map(renderContentPart).filter(Boolean).join("\n");
 }
 
 /**
  * Format the full message history into a single `role: content` prompt block,
- * one message per double-newline-separated paragraph. Array content is reduced
- * to its text parts via {@link extractText}.
+ * one message per double-newline-separated paragraph. Array content is rendered
+ * via {@link extractText} (text + structured parts).
  */
 function formatMessagesAsPrompt(messages: ModelMessage[]): string {
   return messages
