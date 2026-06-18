@@ -1,0 +1,111 @@
+---
+title: Claude Code Adapter
+description: Drive the Claude Code CLI as an agent-under-test in a Scenario run — tests real skill discovery and permission behaviour, not a mock.
+---
+
+# `ClaudeCodeAgentAdapter`
+
+Drives the Claude Code CLI (`claude -p --output-format stream-json`) as an
+agent-under-test inside a Scenario run. Because it spawns the real binary,
+skill loading, CLAUDE.md discovery, and permission prompts behave exactly as
+they do in production — making it the right tool for testing Claude Code skills
+and subagents end-to-end.
+
+> **Placement note:** This page lives under `agent-integration/` rather than
+> `voice/adapters/`. The decision to back this adapter with the CLI (not the
+> Anthropic SDK) is intentional — see PR / issue #686 for rationale. Maintainers
+> may relocate this page once a canonical non-voice adapter section is
+> established.
+
+:::info TypeScript only
+
+The Claude Code adapter is TypeScript-only today. Python parity is tracked as a
+follow-up.
+
+:::
+
+## Constructor
+
+:::code-group
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+import { claudeCodeAgent } from "@langwatch/scenario";
+import path from "path";
+
+const result = await scenario.run({
+  name: "My skill scenario",
+  agents: [
+    claudeCodeAgent({
+      workingDirectory: "/tmp/my-project",
+      model: "claude-sonnet-4-5",
+      skillPath: path.resolve(__dirname, "../skills/my-skill/SKILL.md"),
+      skipPermissions: true, // only in sandboxed / CI environments
+      timeout: 60_000,
+    }),
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: ["Agent completed the task correctly"],
+    }),
+  ],
+  script: [scenario.user("Do something"), scenario.agent(), scenario.judge()],
+});
+```
+
+:::
+
+`claudeCodeAgent(config)` is the recommended factory. It wraps
+`new ClaudeCodeAgentAdapter(config)` and additionally injects the skill (if
+`skillPath` is set) before the adapter is returned.
+
+## Configuration
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `workingDirectory` | `string` | **required** | Directory the CLI is spawned in. All file reads/writes resolve relative to this. |
+| `model` | `string` | CLI default | Passed as `--model <model>`. Omit to let the CLI use its own default. |
+| `timeout` | `number` | `120000` | Per-call timeout in ms. The child is killed and the call rejects on exceed. |
+| `skipPermissions` | `boolean` | `false` | When `true`, passes `--dangerously-skip-permissions`. Off by default — opt in only in sandboxed or CI contexts. |
+| `skillPath` | `string` | — | Absolute path to a `SKILL.md` to inject into the working directory before the CLI runs (see [Skill testing](#skill-testing)). |
+| `logger` | `Logger` | no-op | Receives all diagnostic output (`log` and `warn`). Omit for silent operation. |
+| `extraArgs` | `string[]` | `[]` | Extra CLI arguments inserted before the prompt. Use for flags not modelled by config fields. |
+| `claudeBin` | `string` | `"claude"` | Path or name of the Claude Code binary. Resolution order: `claudeBin` → `CLAUDE_BIN` env var → `"claude"`. |
+
+## Skill testing
+
+The adapter's distinguishing feature is first-class skill testing:
+
+**Injection via `skillPath`** — pass an absolute path to a `SKILL.md` and the
+factory will copy it into `<workingDirectory>/.skills/<skill-name>/SKILL.md`
+and write a `CLAUDE.md` (if one does not already exist) that instructs Claude
+to read the skill before doing anything else. The injected layout matches
+Claude Code's native discovery conventions.
+
+**Asserting the skill was read** — after the scenario run, call
+`assertSkillWasRead(state, skillName)` to verify that the skill file actually
+appeared in the conversation. It throws (naming the skill) if no read evidence
+is found, catching cases where the agent hallucinated instructions rather than
+reading the skill.
+
+```typescript
+import { assertSkillWasRead } from "@langwatch/scenario";
+
+// inside your test, after scenario.run():
+assertSkillWasRead(result, "my-skill");
+```
+
+`skillName` is the parent directory name of the `SKILL.md` — i.e. the segment
+in `.skills/<skillName>/SKILL.md`.
+
+## Caveats
+
+- **`claude` must be on `PATH`** (or pointed to via `claudeBin` / `CLAUDE_BIN`).
+  The adapter does NOT install the CLI automatically — it is not an npm
+  dependency. Install it separately:
+  [claude.ai/code](https://claude.ai/code).
+- **stream-json format stability** — the adapter parses the CLI's
+  `--output-format stream-json` output. Output shape can change across CLI
+  versions; pin the CLI version in CI if you need reproducibility.
+- **`--dangerously-skip-permissions`** — `skipPermissions: true` runs the
+  agent without any permission prompts. Only enable this in sandboxed or CI
+  environments where you control the working directory.
