@@ -1102,5 +1102,71 @@ describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
         .join("\n");
       expect(assistantText).toContain("4");
     }, 120000);
+
+    it(
+      "continues a real multiturn session via --resume (turn 2 recalls a fact from turn 1)",
+      async () => {
+        // Same unmock/re-import rationale as the single-turn test above —
+        // doUnmock + resetModules rebinds the real spawn for this test.
+        vi.doUnmock("node:child_process");
+        vi.resetModules();
+        const scenario = (await import("../../index.js")).default;
+
+        const { openai } = await import("@ai-sdk/openai");
+        const judgeModelId =
+          process.env.SCENARIO_JUDGE_MODEL ?? "gpt-4.1-mini";
+
+        const agent = scenario.claudeCodeAgent({
+          workingDirectory: process.cwd(),
+          skipPermissions: true,
+          ...(process.env.CLAUDE_CODE_MODEL
+            ? { model: process.env.CLAUDE_CODE_MODEL }
+            : {}),
+        });
+
+        const result = await scenario.run({
+          name: "claude-code-e2e-multiturn",
+          description:
+            "Verifies the adapter's --resume path: agent must recall a token set in turn 1 when asked in turn 2.",
+          agents: [
+            agent,
+            scenario.userSimulatorAgent({ model: openai(judgeModelId) }),
+            scenario.judgeAgent({
+              model: openai(judgeModelId),
+              criteria: [
+                "The agent correctly recalls the token KUMQUAT77 from earlier in the conversation.",
+              ],
+            }),
+          ],
+          script: [
+            scenario.user(
+              "Remember this exact token for later: KUMQUAT77. Just acknowledge it.",
+            ),
+            scenario.agent(),
+            scenario.user(
+              "What was the exact token I asked you to remember? Reply with just the token.",
+            ),
+            scenario.agent(),
+            scenario.judge(),
+          ],
+        });
+
+        // Judge must pass — agent recalled the token across turns.
+        expect(result.success).toBe(true);
+
+        // The real assistant output must contain the token (proves --resume
+        // carried context, not a coincidental hallucination).
+        const assistantText = result.messages
+          .filter((m) => m.role === "assistant")
+          .map((m) =>
+            typeof m.content === "string"
+              ? m.content
+              : JSON.stringify(m.content),
+          )
+          .join("\n");
+        expect(assistantText).toContain("KUMQUAT77");
+      },
+      180000,
+    );
   },
 );
