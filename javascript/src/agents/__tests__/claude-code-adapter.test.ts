@@ -523,6 +523,71 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
     expect(prompt3).toContain("FIRST_TURN_TEXT");
     expect(prompt3).toContain("THIRD_TURN_DELTA");
   });
+
+  it("drops a stale session id when a resume turn is terminated by a signal, so the next turn rebuilds from full history", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes session "sess-sig".
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-sig") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2: a resume turn (delta only) whose CLI is terminated by a signal.
+    // It must reject with a signal error.
+    const child2 = new FakeChild();
+    withChild(child2);
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+
+    // Verify the resume turn DID pass --resume sess-sig before it was killed.
+    const argv2 = argvAt(1);
+    expect(argv2).toContain("--resume");
+    expect(argv2[argv2.indexOf("--resume") + 1]).toBe("sess-sig");
+
+    child2.emit("close", null, "SIGKILL");
+    await expect(turn2).rejects.toThrow(/terminated by signal SIGKILL/);
+
+    // Turn 3: same threadId. The stale id was evicted on the signal failure, so
+    // the adapter is no longer in continuation mode — it must spawn WITHOUT
+    // --resume and send the FULL history (self-healed).
+    const child3 = new FakeChild();
+    withChild(child3);
+    const turn3 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+          { role: "assistant", content: "(failed)" },
+          { role: "user", content: "THIRD_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "THIRD_TURN_DELTA" }] },
+      ),
+    );
+    child3.pushStdout(assistantLine("recovered") + "\n");
+    child3.close(0);
+    await turn3;
+
+    expect(argvAt(2)).not.toContain("--resume");
+    const prompt3 = lastPrompt();
+    expect(prompt3).toContain("FIRST_TURN_TEXT");
+    expect(prompt3).toContain("THIRD_TURN_DELTA");
+  });
 });
 
 // --- 2. stream-json parsing -------------------------------------------------
