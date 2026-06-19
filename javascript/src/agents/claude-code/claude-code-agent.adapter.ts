@@ -196,8 +196,11 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     // send ONLY the delta (`newMessages`); on the first turn we send the full
     // history (`messages`). The guard below is therefore computed against the
     // SAME set we will actually send.
-    const resumeSessionId = this.sessions.get(input.threadId);
-    const promptMessages = resumeSessionId ? input.newMessages : input.messages;
+    const isContinuation = this.sessions.has(input.threadId);
+    const resumeSessionId = isContinuation
+      ? this.sessions.get(input.threadId)
+      : undefined;
+    const promptMessages = isContinuation ? input.newMessages : input.messages;
     const prompt = formatMessagesAsPrompt(promptMessages);
 
     // Agent-first / empty-input guard. The realtime sibling handles a missing
@@ -295,7 +298,17 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         finish(() => {
           const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
           const detail = stderr ? `: ${stderr}` : "";
+          // A resume turn that failed likely means the stored session no longer
+          // resolves (e.g. `--resume <id>` → "No conversation found with session
+          // ID"). Drop the stale id in BOTH failure branches so the NEXT turn
+          // for this thread rebuilds from full history instead of re-resuming a
+          // dead session. Guarded on `resumeSessionId` so a first-turn (no
+          // stored id) failure evicts nothing, and never reached on the success
+          // path below.
           if (signal) {
+            if (resumeSessionId) {
+              this.sessions.delete(input.threadId);
+            }
             reject(
               new Error(
                 `Claude Code CLI was terminated by signal ${signal}${detail}`,
@@ -304,6 +317,9 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
             return;
           }
           if (exitCode !== 0 && exitCode !== null) {
+            if (resumeSessionId) {
+              this.sessions.delete(input.threadId);
+            }
             reject(
               new Error(
                 `Claude Code CLI failed with exit code ${exitCode}${detail}`,
@@ -313,8 +329,12 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
           }
           const stdout = Buffer.concat(stdoutChunks).toString("utf8");
           const { text, sessionId } = parseStreamJson(stdout, logger);
-          // Capture (first turn) or refresh (resume turn) the thread's session
-          // id so the next turn for this thread continues the same session.
+          // Capture/refresh the thread's session id from the CLI's own output
+          // and resume it next turn (--resume). We deliberately do NOT pin a
+          // self-generated --session-id: capture-then-resume can only ever
+          // resume an id the CLI just confirmed (0-exit), avoiding a pin/create
+          // split-brain where a turn-1 failure leaves a never-created id that
+          // --resume can't find.
           if (sessionId) {
             this.sessions.set(input.threadId, sessionId);
           }

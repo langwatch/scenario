@@ -56,6 +56,7 @@ export interface ClaudeStreamInnerMessage {
  */
 export interface ClaudeStreamMessage {
   type?: string;
+  session_id?: string;
   message?: ClaudeStreamInnerMessage;
   [key: string]: unknown;
 }
@@ -184,9 +185,10 @@ export function parseStreamJson(
 
     // Capture the conversation's session id. It rides as a top-level
     // `session_id` (distinct from any per-event `uuid`) on the `system`/init
-    // line and may reappear on later events; take the last one seen.
-    if (typeof message["session_id"] === "string") {
-      sessionId = message["session_id"];
+    // line and may reappear on later events; take the last one seen. Truthy
+    // check so an empty string never overwrites a real id.
+    if (message.session_id) {
+      sessionId = message.session_id;
     }
 
     if (

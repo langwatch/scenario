@@ -417,6 +417,112 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
     // The agent-first/no-delta guard short-circuits before spawning.
     expect(spawnMock.mock.calls.length).toBe(spawnsBefore);
   });
+
+  it("falls back to full history (no --resume) when the first turn captured no session_id", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1: ONLY an assistant line — no system/init line, so nothing stamps a
+    // session_id. The adapter must store nothing for this thread.
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(assistantLine("ok") + "\n");
+    child1.close(0);
+    await turn1;
+
+    expect(argvAt(0)).not.toContain("--resume");
+
+    // Turn 2: same threadId, narrow newMessages delta. With no captured id the
+    // adapter is NOT in continuation mode, so it must spawn WITHOUT --resume and
+    // send the FULL history (nothing was captured to resume against).
+    const child2 = new FakeChild();
+    withChild(child2);
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+    child2.pushStdout(assistantLine("done") + "\n");
+    child2.close(0);
+    await turn2;
+
+    expect(argvAt(1)).not.toContain("--resume");
+    const prompt = lastPrompt();
+    expect(prompt).toContain("FIRST_TURN_TEXT");
+    expect(prompt).toContain("SECOND_TURN_DELTA");
+  });
+
+  it("drops a stale session id when a resume turn fails, so the next turn rebuilds from full history", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes session "sess-heal".
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-heal") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2: a resume turn (delta only) whose CLI exits NON-ZERO because the
+    // server-side session is gone ("No conversation found"). It must reject.
+    const child2 = new FakeChild();
+    withChild(child2);
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+    child2.pushStderr("No conversation found with session ID");
+    child2.close(1);
+    await expect(turn2).rejects.toThrow(/exit code 1/);
+
+    // The failed resume DID pass --resume sess-heal (it was a continuation turn).
+    const argv2 = argvAt(1);
+    expect(argv2).toContain("--resume");
+    expect(argv2[argv2.indexOf("--resume") + 1]).toBe("sess-heal");
+
+    // Turn 3: same threadId. The stale id was evicted, so the adapter is no
+    // longer in continuation mode — it must spawn WITHOUT --resume and send the
+    // FULL history (self-healed).
+    const child3 = new FakeChild();
+    withChild(child3);
+    const turn3 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+          { role: "assistant", content: "(failed)" },
+          { role: "user", content: "THIRD_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "THIRD_TURN_DELTA" }] },
+      ),
+    );
+    child3.pushStdout(assistantLine("recovered") + "\n");
+    child3.close(0);
+    await turn3;
+
+    expect(argvAt(2)).not.toContain("--resume");
+    const prompt3 = lastPrompt();
+    expect(prompt3).toContain("FIRST_TURN_TEXT");
+    expect(prompt3).toContain("THIRD_TURN_DELTA");
+  });
 });
 
 // --- 2. stream-json parsing -------------------------------------------------
