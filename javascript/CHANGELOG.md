@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.14](https://github.com/langwatch/scenario/compare/javascript/v0.4.13...javascript/v0.4.14) (2026-06-19)
+
+
+### Features
+
+* **#660:** expose context param on scenario.judge() public API ([#667](https://github.com/langwatch/scenario/issues/667)) ([900f3d8](https://github.com/langwatch/scenario/commit/900f3d866d5787a015780965e9de4f518b753ad7))
+* **sdk:** add langwatch config to ScenarioConfig for race-condition-free multi-tenant runs ([#545](https://github.com/langwatch/scenario/issues/545)) ([eab72b3](https://github.com/langwatch/scenario/commit/eab72b369028ee269aeb036bce0b05f50988440e))
+
+
+### Bug Fixes
+
+* **#655:** replace brittle judge criteria with generic behavioral criteria in audio examples ([#679](https://github.com/langwatch/scenario/issues/679)) ([732d426](https://github.com/langwatch/scenario/commit/732d426ae4865c8027fb03182cf8211461c11514))
+* **security:** bump hono &gt;=4.12.25 and ws &gt;=8.21.0 ([#684](https://github.com/langwatch/scenario/issues/684)) ([5050488](https://github.com/langwatch/scenario/commit/5050488d51ef2c79c043616c28f2e4d6c77aaa27))
+* **voice/#661:** port sliding-idle-deadline to TypeScript receiveAudio ([#668](https://github.com/langwatch/scenario/issues/668)) ([c66ed6d](https://github.com/langwatch/scenario/commit/c66ed6d7a3db97de9fbf223db8a930122b292d78))
+* **voice/ts:** explicit EL ConvAI turn-commit so scripted next-turn receive re-engages ([#596](https://github.com/langwatch/scenario/issues/596)) ([795ae8e](https://github.com/langwatch/scenario/commit/795ae8eb7e672e180fea6a657d472e566431883b))
+
 ## [0.4.13](https://github.com/langwatch/scenario/compare/javascript/v0.4.12...javascript/v0.4.13) (2026-06-11)
 
 
