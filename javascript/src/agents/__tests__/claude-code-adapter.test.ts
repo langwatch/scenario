@@ -120,11 +120,17 @@ function lastArgv(): string[] {
 
 // --- input fixtures ---------------------------------------------------------
 
-function makeInput(messages: ModelMessage[]): AgentInput {
+function makeInput(
+  messages: ModelMessage[],
+  opts: { threadId?: string; newMessages?: ModelMessage[] } = {},
+): AgentInput {
   return {
-    threadId: "claude-code-thread",
+    threadId: opts.threadId ?? "claude-code-thread",
     messages,
-    newMessages: messages,
+    // Default `newMessages` to the full history, matching the framework's
+    // first-turn shape (whole transcript is "new"). Tests that exercise a
+    // resume turn pass a narrower `newMessages` delta explicitly.
+    newMessages: opts.newMessages ?? messages,
     requestedRole: AgentRole.AGENT,
     scenarioState: {} as unknown as AgentInput["scenarioState"],
     scenarioConfig: {
@@ -135,6 +141,33 @@ function makeInput(messages: ModelMessage[]): AgentInput {
 }
 
 const SIMPLE_INPUT = makeInput([{ role: "user", content: "hello" }]);
+
+/** A stream-json `system`/init line carrying a top-level `session_id`. */
+function systemInitLine(sessionId: string): string {
+  return JSON.stringify({
+    type: "system",
+    subtype: "init",
+    session_id: sessionId,
+  });
+}
+
+/** A normal assistant text line. */
+function assistantLine(text: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  });
+}
+
+/** The prompt positional arg (last argv entry) the adapter passed to spawn on the last call. */
+function lastPrompt(): string {
+  return lastArgv().at(-1) ?? "";
+}
+
+/** The argv of the Nth spawn call (0-indexed). */
+function argvAt(index: number): string[] {
+  return (spawnMock.mock.calls[index]?.[1] as string[]) ?? [];
+}
 
 /** A spy logger matching the structural `Logger` type. */
 function spyLogger(): Logger & { log: Mock<(...args: unknown[]) => void>; warn: Mock<(...args: unknown[]) => void> } {
@@ -216,6 +249,176 @@ describe("ClaudeCodeAgentAdapter argv", () => {
   });
 });
 
+// --- 1b. session continuation -----------------------------------------------
+
+describe("ClaudeCodeAgentAdapter session continuation", () => {
+  it("captures session_id on the first turn and resumes it on the next turn for the same threadId", async () => {
+    // The adapter instance is reused across turns; it must thread the session.
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1: a system/init line carries session_id "sess-abc". No --resume.
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "remember PINEAPPLE42" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-abc") + "\n" + assistantLine("noted") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    expect(argvAt(0)).not.toContain("--resume");
+
+    // Turn 2: same threadId → must spawn with `--resume sess-abc`.
+    const child2 = new FakeChild();
+    withChild(child2);
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "remember PINEAPPLE42" },
+          { role: "assistant", content: "noted" },
+          { role: "user", content: "what was the secret word?" },
+        ],
+        { newMessages: [{ role: "user", content: "what was the secret word?" }] },
+      ),
+    );
+    child2.pushStdout(assistantLine("PINEAPPLE42") + "\n");
+    child2.close(0);
+    await turn2;
+
+    const argv2 = argvAt(1);
+    const resumeIdx = argv2.indexOf("--resume");
+    expect(resumeIdx).toBeGreaterThanOrEqual(0);
+    expect(argv2[resumeIdx + 1]).toBe("sess-abc");
+  });
+
+  it("sends only the new-message delta (not the full transcript) on a resume turn", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes the session.
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-delta") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2: full history includes earlier turns, but newMessages is just the
+    // latest user message. The prompt positional must contain ONLY the delta.
+    const child2 = new FakeChild();
+    withChild(child2);
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+    child2.pushStdout(assistantLine("done") + "\n");
+    child2.close(0);
+    await turn2;
+
+    const prompt = lastPrompt();
+    expect(prompt).toContain("SECOND_TURN_DELTA");
+    expect(prompt).not.toContain("FIRST_TURN_TEXT");
+  });
+
+  it("keeps sessions distinct per threadId — neither thread resumes the other's session", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Thread A, turn 1.
+    const childA = new FakeChild();
+    withChild(childA);
+    const a1 = adapter.call(
+      makeInput([{ role: "user", content: "hi from A" }], { threadId: "thread-A" }),
+    );
+    childA.pushStdout(
+      systemInitLine("sess-A") + "\n" + assistantLine("hello A") + "\n",
+    );
+    childA.close(0);
+    await a1;
+
+    // Thread B, turn 1 — must start fresh (no --resume at all).
+    const childB = new FakeChild();
+    withChild(childB);
+    const b1 = adapter.call(
+      makeInput([{ role: "user", content: "hi from B" }], { threadId: "thread-B" }),
+    );
+    childB.pushStdout(
+      systemInitLine("sess-B") + "\n" + assistantLine("hello B") + "\n",
+    );
+    childB.close(0);
+    await b1;
+
+    expect(argvAt(1)).not.toContain("--resume");
+
+    // Thread B, turn 2 — must resume sess-B, NOT sess-A.
+    const childB2 = new FakeChild();
+    withChild(childB2);
+    const b2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "hi from B" },
+          { role: "assistant", content: "hello B" },
+          { role: "user", content: "follow-up B" },
+        ],
+        { threadId: "thread-B", newMessages: [{ role: "user", content: "follow-up B" }] },
+      ),
+    );
+    childB2.pushStdout(assistantLine("answer B") + "\n");
+    childB2.close(0);
+    await b2;
+
+    const argvB2 = argvAt(2);
+    const resumeIdx = argvB2.indexOf("--resume");
+    expect(resumeIdx).toBeGreaterThanOrEqual(0);
+    expect(argvB2[resumeIdx + 1]).toBe("sess-B");
+    expect(argvB2).not.toContain("sess-A");
+  });
+
+  it("rejects a resume turn with an empty delta (no newMessages) instead of spawning claude -p --resume \"\"", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes the session.
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "opener" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-empty") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    const spawnsBefore = spawnMock.mock.calls.length;
+
+    // Turn 2 on the same thread but with an empty delta → loud reject, no spawn.
+    await expect(
+      adapter.call(
+        makeInput(
+          [
+            { role: "user", content: "opener" },
+            { role: "assistant", content: "ok" },
+          ],
+          { newMessages: [] },
+        ),
+      ),
+    ).rejects.toThrow(/received no messages to send to the CLI/);
+
+    // The agent-first/no-delta guard short-circuits before spawning.
+    expect(spawnMock.mock.calls.length).toBe(spawnsBefore);
+  });
+});
+
 // --- 2. stream-json parsing -------------------------------------------------
 
 describe("ClaudeCodeAgentAdapter stream-json parsing", () => {
@@ -268,6 +471,35 @@ describe("ClaudeCodeAgentAdapter stream-json parsing", () => {
     const { text } = parseStreamJson(line);
     expect(text).toContain("OBJECT_RESULT");
     expect(text).not.toContain("[object Object]");
+  });
+
+  it("parseStreamJson surfaces the top-level session_id from a system/init line", () => {
+    const stdout = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "sess-xyz" }),
+      JSON.stringify({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+      }),
+    ].join("\n");
+    const { sessionId, text } = parseStreamJson(stdout);
+    expect(sessionId).toBe("sess-xyz");
+    expect(text).toContain("hi");
+  });
+
+  it("parseStreamJson returns the last session_id when more than one line carries it", () => {
+    const stdout = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "sess-old" }),
+      JSON.stringify({ type: "result", session_id: "sess-new" }),
+    ].join("\n");
+    expect(parseStreamJson(stdout).sessionId).toBe("sess-new");
+  });
+
+  it("parseStreamJson leaves sessionId undefined when no line carries one", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    });
+    expect(parseStreamJson(line).sessionId).toBeUndefined();
   });
 });
 

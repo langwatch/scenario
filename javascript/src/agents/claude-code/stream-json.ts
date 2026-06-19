@@ -150,14 +150,20 @@ function renderMessage(message: ClaudeStreamInnerMessage): string {
  * @param logger - Optional structural logger; receives an "unknown event"
  *   `warn` for any line whose parsed `type` is unrecognized. Never throws on a
  *   malformed line — non-JSON lines are skipped.
- * @returns `{ text, messages }` — `text` is the joined assistant-visible text,
- *   `messages` is every successfully-parsed line.
+ * @returns `{ text, messages, sessionId }` — `text` is the joined
+ *   assistant-visible text, `messages` is every successfully-parsed line, and
+ *   `sessionId` is the top-level `session_id` Claude Code stamps on its
+ *   `system`/init line (and may restamp on later events). Last-wins across
+ *   lines so a refreshed id on a `--resume` turn is the one returned; left
+ *   `undefined` when no line carries a `session_id`. The adapter threads this
+ *   to continue a session across turns (see the adapter's `call`).
  */
 export function parseStreamJson(
   stdout: string,
   logger?: StreamLogger,
-): { text: string; messages: ClaudeStreamMessage[] } {
+): { text: string; messages: ClaudeStreamMessage[]; sessionId?: string } {
   const messages: ClaudeStreamMessage[] = [];
+  let sessionId: string | undefined;
 
   for (const rawLine of stdout.split("\n")) {
     const line = rawLine.trim();
@@ -176,6 +182,13 @@ export function parseStreamJson(
     const message = parsed as ClaudeStreamMessage;
     messages.push(message);
 
+    // Capture the conversation's session id. It rides as a top-level
+    // `session_id` (distinct from any per-event `uuid`) on the `system`/init
+    // line and may reappear on later events; take the last one seen.
+    if (typeof message["session_id"] === "string") {
+      sessionId = message["session_id"];
+    }
+
     if (
       typeof message.type === "string" &&
       !KNOWN_EVENT_TYPES.has(message.type)
@@ -192,5 +205,5 @@ export function parseStreamJson(
     .filter(Boolean)
     .join("\n\n");
 
-  return { text, messages };
+  return { text, messages, sessionId };
 }

@@ -7,6 +7,20 @@
  * directory, parses the stream-json stdout (see {@link parseStreamJson}), and
  * returns the concatenated assistant-visible text as a `string`.
  *
+ * Session continuation (multiturn): `claude -p` is one-shot — each turn exits
+ * on its own — but the CLI keeps server-side session state keyed by a
+ * `session_id`. The adapter instance is reused across a scenario's turns, so it
+ * keeps a per-thread map (`threadId` → `session_id`):
+ *  - First turn for a `threadId`: format the prompt from the FULL history
+ *    (`input.messages`) and spawn WITHOUT `--resume`. The CLI stamps a
+ *    `session_id` on its `system`/init line; {@link parseStreamJson} surfaces
+ *    it and the adapter stores it under the `threadId`.
+ *  - Subsequent turns for that `threadId`: pass `--resume <session_id>` and
+ *    format the prompt from the DELTA ONLY (`input.newMessages`) — the resumed
+ *    session already holds the prior transcript, so re-sending it would
+ *    duplicate context. The stored id is refreshed from the response if the CLI
+ *    reports one. Distinct `threadId`s keep distinct sessions.
+ *
  * Hardening over the install-orchard reference helper this is ported from:
  *  a. Structured `tool_result` content is rendered readably, never
  *     `[object Object]` (in {@link parseStreamJson}).
@@ -20,6 +34,8 @@
  *     a no-op logger is used. No `console.*` and no `chalk` anywhere.
  *  f. The parsed stream-json message shape is exported
  *     ({@link ClaudeStreamMessage}, re-exported from `stream-json`).
+ *  g. Real multiturn session continuation via `--resume` (see above), instead
+ *     of replaying the whole transcript as a fresh prompt every turn.
  */
 
 import { spawn } from "node:child_process";
@@ -123,6 +139,14 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
   role: AgentRole = AgentRole.AGENT;
   name = "ClaudeCodeAgent";
 
+  /**
+   * Per-thread Claude Code session ids (`threadId` → `session_id`). Populated
+   * after a thread's first turn and consulted on every subsequent turn to pass
+   * `--resume <session_id>`. The adapter instance is reused across a scenario's
+   * turns, so this persists for the conversation's lifetime.
+   */
+  private sessions = new Map<string, string>();
+
   constructor(private config: ClaudeCodeAgentAdapterConfig) {
     super();
   }
@@ -139,9 +163,13 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
 
   /**
    * Build the CLI argv. Order is fixed:
-   * `-p --output-format stream-json --verbose [--model M] [--dangerously-skip-permissions] [...extraArgs] <prompt>`.
+   * `-p --output-format stream-json --verbose [--model M] [--dangerously-skip-permissions] [--resume <id>] [...extraArgs] <prompt>`.
+   *
+   * `--resume <id>` is inserted only on a continuation turn (when
+   * `resumeSessionId` is set), after the modelled flags and before
+   * `extraArgs`/prompt — so a first-turn (no-resume) argv is unchanged.
    */
-  private buildArgs(prompt: string): string[] {
+  private buildArgs(prompt: string, resumeSessionId?: string): string[] {
     const { model, skipPermissions, extraArgs } = this.config;
     return [
       "-p",
@@ -150,6 +178,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       "--verbose",
       ...(model ? ["--model", model] : []),
       ...(skipPermissions ? ["--dangerously-skip-permissions"] : []),
+      ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
       ...(extraArgs ?? []),
       prompt,
     ];
@@ -162,14 +191,22 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
    * @returns The concatenated assistant-visible text as a string.
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
-    const prompt = formatMessagesAsPrompt(input.messages);
+    // Continuation turn iff this thread already has a captured session id. On a
+    // resume, the server-side session already holds the prior transcript, so we
+    // send ONLY the delta (`newMessages`); on the first turn we send the full
+    // history (`messages`). The guard below is therefore computed against the
+    // SAME set we will actually send.
+    const resumeSessionId = this.sessions.get(input.threadId);
+    const promptMessages = resumeSessionId ? input.newMessages : input.messages;
+    const prompt = formatMessagesAsPrompt(promptMessages);
 
     // Agent-first / empty-input guard. The realtime sibling handles a missing
     // initial turn by making the agent SPEAK first (`response.create` against
     // loaded session instructions). A `claude -p` CLI has no such channel — it
-    // requires a prompt — so `claude -p ""` would be meaningless and would
-    // silently mask a wiring bug (agent placed first with no `user()` step).
-    // We therefore reject loudly rather than guess a default prompt.
+    // requires a prompt — so `claude -p ""` (or `claude -p --resume <id> ""`)
+    // would be meaningless and would silently mask a wiring bug (agent placed
+    // first with no `user()` step, or a resume turn with no new delta). We
+    // therefore reject loudly rather than guess a default prompt.
     if (!hasRenderableContent(prompt)) {
       throw new Error(
         "ClaudeCodeAgentAdapter received no messages to send to the CLI. " +
@@ -180,7 +217,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
     }
 
     const bin = this.resolveBin();
-    const args = this.buildArgs(prompt);
+    const args = this.buildArgs(prompt, resumeSessionId);
     const cwd = this.config.workingDirectory;
     const timeoutMs = this.config.timeout ?? DEFAULT_TIMEOUT_MS;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -275,7 +312,12 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
             return;
           }
           const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-          const { text } = parseStreamJson(stdout, logger);
+          const { text, sessionId } = parseStreamJson(stdout, logger);
+          // Capture (first turn) or refresh (resume turn) the thread's session
+          // id so the next turn for this thread continues the same session.
+          if (sessionId) {
+            this.sessions.set(input.threadId, sessionId);
+          }
           resolve(text);
         });
       });
