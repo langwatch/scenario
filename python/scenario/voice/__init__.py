@@ -11,6 +11,7 @@ Public surface:
     - AdapterCapabilities / UnsupportedCapabilityError — capability matrix
     - FirstChunkTimeoutError — attributable first-chunk recv timeout
     - AgentStreamEndedError — recv_audio's transport terminated (crash/clean close)
+    - PipecatRecvError — Pipecat recv-loop ended (attributable; subclass of above)
     - VoiceRecording / VoiceEvent / LatencyMetrics — result-side types
     - AudioSegment — per-speaker slice of the recording
     - synthesize / STTProvider / set_stt_provider / get_stt_provider —
@@ -32,6 +33,7 @@ from .adapters import (
     LiveKitAgentAdapter,
     OpenAIRealtimeAgentAdapter,
     PipecatAgentAdapter,
+    PipecatRecvError,
     TwilioAgentAdapter,
     VapiAgentAdapter,
     WebRTCAgentAdapter,
@@ -74,6 +76,7 @@ __all__ = [
     "OpenAIRealtimeAgentAdapter",
     "OpenAISTTProvider",
     "PipecatAgentAdapter",
+    "PipecatRecvError",
     "STTProvider",
     "TwilioAgentAdapter",
     "UnsupportedCapabilityError",

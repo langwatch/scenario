@@ -360,10 +360,9 @@ async def test_tail_stream_ended_ends_drain_without_raising():
     adapter = _StreamEndedAfterFirstChunkAdapter()
     adapter.response_timeout = _SENTINEL_TIMEOUT
 
-    # Dereference contract symbol (fails RED if absent — same as test above).
-    _AgentStreamEndedError = _adapter_mod.AgentStreamEndedError  # noqa: F841
-
-    # Must RETURN, not raise.
+    # Must RETURN, not raise. (The adapter's recv_audio dereferences
+    # _adapter_mod.AgentStreamEndedError directly, so a missing contract symbol
+    # still fails this test RED — no separate dereference needed here.)
     result = await adapter._drain_agent_response()
 
     assert isinstance(result, AudioChunk), (
