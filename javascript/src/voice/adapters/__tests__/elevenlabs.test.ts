@@ -631,10 +631,31 @@ describe("ElevenLabsAgentAdapter wire-protocol (onMessage branches)", () => {
     const { adapter, socket } = await makeConnected();
     emit(socket, { type: "interruption" });
     emit(socket, { type: "vad_score", vad_event: { score: 0.5 } });
-    emit(socket, { type: "client_tool_call", payload: {} });
-    // No throw, no mutation visible to callers.
+    emit(socket, { type: "agent_response_metadata", metadata: {} });
+    // No throw, no mutation visible to callers. (`client_tool_call` is NOT here:
+    // it is a non-audio terminal, covered by its own test below — issue #648.)
     expect(adapter.lastAgentTranscript).toBeNull();
     expect(adapter.lastUserTranscript).toBeNull();
+    await adapter.disconnect();
+  });
+
+  it("client_tool_call (tool-only turn) resolves the receiver with an empty chunk (#648)", async () => {
+    const { adapter, socket } = await makeConnected();
+    const recv = adapter.receiveAudio(2);
+    emit(socket, {
+      type: "client_tool_call",
+      client_tool_call: {
+        tool_name: "lookup_order",
+        tool_call_id: "call_1",
+        parameters: { order_id: "42" },
+      },
+    });
+    const chunk = await recv;
+    // A tool-only turn yields no spoken audio (this adapter has no
+    // client_tool_result path). The drain must exit cleanly with an empty chunk
+    // rather than swallowing the event and hanging to the receiveAudio timeout.
+    expect(chunk).toBeInstanceOf(AudioChunk);
+    expect(chunk.data.length).toBe(0);
     await adapter.disconnect();
   });
 
