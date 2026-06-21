@@ -90,8 +90,8 @@ _CLOSE_CLASSES = [ConnectionClosedOK, ConnectionClosedError]
 
 
 @pytest.mark.asyncio
-async def test_elevenlabs_client_tool_call_terminates_drain():
-    """A tool-only turn (``client_tool_call``, no audio) returns an empty chunk.
+async def test_elevenlabs_client_tool_call_returns_empty_chunk():
+    """Unit: a tool-only turn (``client_tool_call``, no audio) returns empty.
 
     EL ConvAI emits ``client_tool_call`` when the agent invokes a client-side
     tool. This adapter never sends ``client_tool_result``, so the agent produces
@@ -124,8 +124,8 @@ async def test_elevenlabs_client_tool_call_terminates_drain():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("close_cls", _CLOSE_CLASSES)
-async def test_elevenlabs_socket_close_terminates_drain(close_cls):
-    """A server close mid-receive returns an empty chunk, not an error.
+async def test_elevenlabs_socket_close_returns_empty_chunk(close_cls):
+    """Unit: a server close mid-receive returns an empty chunk, not an error.
 
     Runs against both a clean close (``ConnectionClosedOK``) and an abnormal one
     (``ConnectionClosedError``): production catches the base ``ConnectionClosed``,
@@ -165,6 +165,45 @@ async def test_elevenlabs_normal_audio_still_returned():
     assert result.data == pcm_payload  # real audio, non-empty
 
 
+@pytest.mark.asyncio
+async def test_elevenlabs_tool_only_turn_drain_exits_cleanly():
+    """Drain-level: a tool-only turn makes ``_drain_agent_response`` exit cleanly.
+
+    This is the end-to-end guard for the bug as reported — a *drain*-level hang —
+    above the unit tests that pin ``recv_audio`` alone. With a ``client_tool_call``
+    and no audio: the first ``recv_audio`` returns an empty chunk; the drain marks
+    no first-chunk, enters its tail loop, and breaks on the next recv (the now-
+    silent socket times out at ``response_tail_silence``), returning an empty
+    merged turn. Pre-fix, the first ``recv_audio`` looped to ``response_timeout``
+    and the drain raised :class:`FirstChunkTimeoutError`.
+    """
+    adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
+    # After the empty first chunk the drain does one more recv that must time out
+    # fast against the now-silent socket — keep the tail-silence wait tiny.
+    adapter.response_tail_silence = 0.1
+    tool_call = json.dumps(
+        {
+            "type": "client_tool_call",
+            "client_tool_call": {
+                "tool_name": "lookup_order",
+                "tool_call_id": "call_1",
+                "parameters": {},
+            },
+        }
+    )
+    mock_ws = _scripted_ws([tool_call])  # then blocks (silent-but-open) socket
+
+    with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
+        await adapter.connect()
+        merged = await asyncio.wait_for(
+            adapter._drain_agent_response(), timeout=OUTER_CEILING
+        )
+
+    # Drain returned an empty merged turn instead of raising FirstChunkTimeoutError.
+    assert isinstance(merged, AudioChunk)
+    assert merged.data == b""
+
+
 # ----------------------------------------------------------------- WebSocket (generic)
 
 
@@ -182,8 +221,8 @@ class _BytesAudioProtocol(WebSocketProtocol):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("close_cls", _CLOSE_CLASSES)
-async def test_websocket_socket_close_terminates_drain(close_cls):
-    """Generic WebSocket: a server close (end of stream) returns empty.
+async def test_websocket_socket_close_returns_empty_chunk(close_cls):
+    """Unit: generic WebSocket server close (end of stream) returns empty.
 
     Runs against both clean (``ConnectionClosedOK``) and abnormal
     (``ConnectionClosedError``) closes. Pre-fix, the ``while True`` loop returned
