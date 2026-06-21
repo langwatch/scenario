@@ -212,7 +212,11 @@ jobs:
           rc=0
           for f in "${files[@]}"; do
             echo "::group::${f} (isolated process)"
-            uv run pytest -p no:cacheprovider -x "$f" -v --tb=short || rc=1
+            # External per-file wall-clock cap. pytest-timeout's signal/thread
+            # methods can't interrupt these asyncio teardown hangs (see
+            # pyproject.toml note), so if the drain wedge ever recurs, this caps
+            # one bad demo at 10 min instead of letting it ride the job timeout.
+            timeout 600 uv run pytest -p no:cacheprovider -x "$f" -v --tb=short || rc=1
             echo "::endgroup::"
           done
           exit $rc
