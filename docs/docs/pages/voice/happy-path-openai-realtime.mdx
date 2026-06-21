@@ -219,6 +219,54 @@ This is the thing you can't do with a hosted agent — you're configuring the ag
 
 ---
 
+## Getting LangWatch traces from your live app
+
+Scenario tests give you rich LangWatch traces automatically — each `scenario.run()` call sets up the OTLP exporter and emits per-turn spans. Your **live / production** app gets nothing by default; the test scaffolding stays in the test runner.
+
+Use `realtime_langwatch_session` to wrap your production Realtime session in the same span shape:
+
+```python
+import os
+import asyncio
+import websockets
+from scenario import realtime_langwatch_session
+
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+LANGWATCH_API_KEY = os.environ["LANGWATCH_API_KEY"]
+
+async def run_realtime_session():
+    async with realtime_langwatch_session(
+        name="my-production-session",
+        model="gpt-4o-realtime-preview",
+        api_key=LANGWATCH_API_KEY,
+    ) as session:
+        # Open your raw Realtime WebSocket here.
+        # After each agent turn, call session.log_turn() with the
+        # transcripts you receive from the Realtime event stream.
+        async with websockets.connect(
+            "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview",
+            additional_headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        ) as ws:
+            # ... send/receive events as normal ...
+            # When the agent finishes a turn:
+            await session.log_turn(
+                user_transcript="I want to cancel my subscription",
+                agent_transcript="Of course, I can help with that.",
+                model="gpt-4o-realtime-preview",
+                latency_ms=430,
+            )
+
+asyncio.run(run_realtime_session())
+```
+
+**What `log_turn` records**: a child LLM span with `input` (user transcript), `output` (agent transcript), `model`, and `latency_ms` — the same fields LangWatch renders in the trace explorer. Traces land at your LangWatch project and are queryable alongside your scenario-test traces.
+
+**When `LANGWATCH_API_KEY` is absent** the context manager is a no-op — no error, no side effects. Safe to ship in environments without a key set.
+
+**If you already call `langwatch.setup()` in your app** (e.g. to instrument other LLM calls), `realtime_langwatch_session` detects the existing provider and attaches to it — no duplicate initialization.
+
+---
+
 ## Next
 
 - **ElevenLabs (hosted provider)** happy path: [/voice/happy-path-elevenlabs](/voice/happy-path-elevenlabs)

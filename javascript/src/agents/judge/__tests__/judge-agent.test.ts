@@ -777,8 +777,8 @@ describe("JudgeAgent", () => {
     });
   });
 
-  describe("additional context via judgmentRequest.context", () => {
-    it("includes <additional_context> in the user message when context is provided", async () => {
+  describe("additional context via judgmentRequest.additionalContext", () => {
+    it("includes <additional_context> in the user message when additionalContext is provided", async () => {
       const collector = createMockSpanCollector([]);
 
       const config: JudgeAgentConfig = {
@@ -800,7 +800,7 @@ describe("JudgeAgent", () => {
 
       const inputWithContext = createBaseInput({
         judgmentRequest: {
-          context:
+          additionalContext:
             "The agent ran `npm install -g git-orchard` which exited 0. The binary is now at /usr/local/bin/orchard.",
         },
       });
@@ -820,7 +820,7 @@ describe("JudgeAgent", () => {
       expect(userContent).toContain("</additional_context>");
     });
 
-    it("omits <additional_context> when no context is provided", async () => {
+    it("omits <additional_context> when no additionalContext is provided", async () => {
       const collector = createMockSpanCollector([]);
 
       const config: JudgeAgentConfig = {
@@ -851,6 +851,82 @@ describe("JudgeAgent", () => {
           ? userMessage.content
           : JSON.stringify(userMessage.content);
       expect(userContent).not.toContain("<additional_context>");
+    });
+
+    it("includes <additional_context> when deprecated context field is used (backward compat)", async () => {
+      const collector = createMockSpanCollector([]);
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent installed the dependency"],
+        spanCollector: collector,
+      };
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_installed_the_dependency: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const inputWithDeprecatedContext = createBaseInput({
+        judgmentRequest: {
+          context: "Legacy context string passed via deprecated field.",
+        },
+      });
+
+      await agent.call(inputWithDeprecatedContext);
+
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
+      const userContent =
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
+      expect(userContent).toContain("<additional_context>");
+      expect(userContent).toContain("Legacy context string passed via deprecated field.");
+      expect(userContent).toContain("</additional_context>");
+    });
+
+    it("additionalContext wins when both additionalContext and deprecated context are set", async () => {
+      const collector = createMockSpanCollector([]);
+      const config: JudgeAgentConfig = {
+        criteria: ["Agent responded"],
+        spanCollector: collector,
+      };
+      const agent = judgeAgent(config);
+
+      let capturedParams: InvokeLLMParams | undefined;
+      agent.invokeLLM = async (params) => {
+        capturedParams = params;
+        return mockLLMResult("finish_test", {
+          criteria: { agent_responded: "true" },
+          reasoning: "ok",
+          verdict: "success",
+        });
+      };
+
+      const inputWithBoth = createBaseInput({
+        judgmentRequest: {
+          additionalContext: "New field value.",
+          context: "Old field value.",
+        },
+      });
+
+      await agent.call(inputWithBoth);
+
+      const messages = capturedParams!.messages ?? [];
+      const userMessage = messages.find((m) => m.role === "user");
+      if (!userMessage) throw new Error("Expected a user message in LLM call");
+      const userContent =
+        typeof userMessage.content === "string"
+          ? userMessage.content
+          : JSON.stringify(userMessage.content);
+      expect(userContent).toContain("New field value.");
+      expect(userContent).not.toContain("Old field value.");
     });
   });
 

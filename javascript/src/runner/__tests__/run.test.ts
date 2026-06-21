@@ -229,6 +229,102 @@ describe("run", () => {
       expect(EventBus).toHaveBeenCalledWith({
         endpoint: "https://custom.endpoint.com",
         apiKey: "custom-api-key",
+        projectId: undefined,
+      });
+    });
+
+    it("uses cfg.langwatch when provided in ScenarioConfig (no options)", async () => {
+      const { EventBus } = await import("../../events/event-bus");
+
+      const cfg: ScenarioConfig = {
+        ...createScenarioConfig(),
+        langwatch: {
+          endpoint: "https://cfg.endpoint.com",
+          apiKey: "cfg-api-key",
+        },
+      };
+
+      await run(cfg);
+
+      expect(EventBus).toHaveBeenCalledWith({
+        endpoint: "https://cfg.endpoint.com",
+        apiKey: "cfg-api-key",
+        projectId: undefined,
+      });
+    });
+
+    it("options.langwatch takes priority over cfg.langwatch", async () => {
+      const { EventBus } = await import("../../events/event-bus");
+
+      const cfg: ScenarioConfig = {
+        ...createScenarioConfig(),
+        langwatch: {
+          endpoint: "https://cfg.endpoint.com",
+          apiKey: "cfg-api-key",
+        },
+      };
+      const options: RunOptions = {
+        langwatch: {
+          endpoint: "https://options.endpoint.com",
+          apiKey: "options-api-key",
+        },
+      };
+
+      await run(cfg, options);
+
+      expect(EventBus).toHaveBeenCalledWith({
+        endpoint: "https://options.endpoint.com",
+        apiKey: "options-api-key",
+        projectId: undefined,
+      });
+    });
+
+    it("passes projectId from cfg.langwatch to EventBus", async () => {
+      const { EventBus } = await import("../../events/event-bus");
+
+      const cfg: ScenarioConfig = {
+        ...createScenarioConfig(),
+        langwatch: {
+          endpoint: "https://cfg.endpoint.com",
+          apiKey: "cfg-api-key",
+          projectId: "cfg-project-id",
+        },
+      };
+
+      await run(cfg);
+
+      expect(EventBus).toHaveBeenCalledWith({
+        endpoint: "https://cfg.endpoint.com",
+        apiKey: "cfg-api-key",
+        projectId: "cfg-project-id",
+      });
+    });
+
+    it("options.langwatch.projectId takes priority over cfg.langwatch.projectId", async () => {
+      const { EventBus } = await import("../../events/event-bus");
+
+      const cfg: ScenarioConfig = {
+        ...createScenarioConfig(),
+        langwatch: {
+          endpoint: "https://cfg.endpoint.com",
+          apiKey: "cfg-api-key",
+          projectId: "cfg-project-id",
+        },
+      };
+      const options: RunOptions = {
+        langwatch: {
+          endpoint: "https://options.endpoint.com",
+          apiKey: "options-api-key",
+          projectId: "options-project-id",
+        },
+      };
+
+      await run(cfg, options);
+
+      expect(EventBus).toHaveBeenCalledWith({
+        endpoint: "https://options.endpoint.com",
+        apiKey: "options-api-key",
+        projectId: "options-project-id",
       });
     });
   });
@@ -269,9 +365,9 @@ describe("run", () => {
   describe("concurrency safety", () => {
     it("creates separate EventBus instances for concurrent runs", async () => {
       const { EventBus } = await import("../../events/event-bus");
-      const eventBusConfigs: Array<{ endpoint: string; apiKey: string | undefined }> = [];
+      const eventBusConfigs: Array<{ endpoint: string; apiKey: string | undefined; projectId?: string }> = [];
 
-      vi.mocked(EventBus).mockImplementation(function (this: unknown, config: { endpoint: string; apiKey: string | undefined }) {
+      vi.mocked(EventBus).mockImplementation(function (this: unknown, config: { endpoint: string; apiKey: string | undefined; projectId?: string }) {
         eventBusConfigs.push(config);
         return {
           config,
@@ -309,7 +405,7 @@ describe("run", () => {
       const { EventBus } = await import("../../events/event-bus");
       const eventsByApiKey = new Map<string, ScenarioEvent[]>();
 
-      vi.mocked(EventBus).mockImplementation(function (this: unknown, config: { endpoint: string; apiKey: string | undefined }) {
+      vi.mocked(EventBus).mockImplementation(function (this: unknown, config: { endpoint: string; apiKey: string | undefined; projectId?: string }) {
         const events: ScenarioEvent[] = [];
         eventsByApiKey.set(config.apiKey ?? "", events);
 

@@ -56,7 +56,12 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     """
 
     capabilities: ClassVar[AdapterCapabilities] = AdapterCapabilities(
-        streaming_transcripts=True,
+        # The Twilio Media Streams wire protocol carries audio frames only,
+        # never transcript events. Advertising streaming_transcripts made
+        # interrupt(after_words=N) poll a ``streaming_transcript`` attribute
+        # this adapter never populates, hanging the script step forever.
+        # Turn-level transcripts come from the base call()'s runtime STT.
+        streaming_transcripts=False,
         native_vad=True,
         dtmf=False,
         # Pipecat over the Twilio WS transport speaks the Twilio Media Streams

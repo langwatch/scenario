@@ -142,6 +142,16 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # proceed()/resume). Consumed (cleared) when the kick fires.
         self._agent_turn_pending: bool = speaks_first  # first turn armed if speaks_first
 
+        # Issue #657: distinct deferral flag for the user-audio race guard.
+        # Set when user audio arrives while a response is in flight; cleared and
+        # consumed in the response.done/cancelled handler to fire the deferred
+        # response.create.  Kept separate from _agent_turn_pending so each flag
+        # retains its single original meaning.
+        # Known limitation: a second user-audio commit while one create is already
+        # deferred collapses into this single boolean.  Manual-VAD single-turn flow
+        # makes that path unreachable in practice; FSM refactor tracked as follow-up.
+        self._deferred_response_create: bool = False
+
         # --- Issue #630: realtime function-call (tool-call) surfacing ---
         # In-progress function calls keyed by call_id. Each value is a dict
         # {"name": str|None, "arguments": str} assembled from the streaming
@@ -406,9 +416,19 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         # If send_audio was called since last recv, commit and request response.
         if self._pending_audio_bytes > 0:
             await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
-            await self._ws.send(json.dumps({"type": "response.create"}))
             self._pending_audio_bytes = 0
-            self._agent_turn_pending = False  # user spoke → per-turn signal consumed
+            if self._response_active:
+                # Race guard (#657): server rejects/ignores a duplicate
+                # response.create while a response is in flight, which causes the
+                # recv loop to drain to timeout instead of completing.  Defer via
+                # _deferred_response_create (distinct from _agent_turn_pending) so
+                # the response.done handler fires response.create once the in-flight
+                # response clears.
+                self._deferred_response_create = True
+                self._agent_turn_pending = False  # user spoke → consume turn signal even when deferred
+            else:
+                await self._ws.send(json.dumps({"type": "response.create"}))
+                self._agent_turn_pending = False  # user spoke → per-turn signal consumed
 
         # Gap 1: agent-speaks-first / multi-turn agent initiation.
         # When the executor signals an agent turn via notify_agent_turn() and
@@ -499,6 +519,13 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # Response finished or was cancelled — mark it so the next
                 # drain re-entry returns an empty chunk (clean exit).
                 self._response_active = False
+                # Issue #657: if user audio was committed while a response was
+                # in flight, _deferred_response_create was set as a deferral flag.
+                # Now that _response_active is cleared, fire the deferred create.
+                if self._deferred_response_create:
+                    await self._ws.send(json.dumps({"type": "response.create"}))
+                    self._deferred_response_create = False
+                    self._response_active = True
                 # Issue #646: a tool-only turn (function call, NO audio delta) would
                 # otherwise loop here to the deadline and raise — the accumulated tool
                 # call is parsed but never returned. When the response is done and at
@@ -596,6 +623,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         """
         # Reset per-turn tool-call state so a prior turn's calls don't bleed
         # through (mirrors the transcript reset in _drain_agent_response).
+        self._deferred_response_create = False
         self._completed_tool_calls = []
         self._tool_call_accumulators = {}
 

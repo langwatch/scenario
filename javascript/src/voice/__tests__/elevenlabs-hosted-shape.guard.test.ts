@@ -1,7 +1,7 @@
-// Ungated CI guard for #638 — keyless, no live keys. Proves the hosted example
-// stays single greeting-led (AC8), the composable example stays multi-turn (AC9),
-// and the adapter timeout error is enriched (AC6). Fails if the bug pattern
-// (2nd user turn on hosted) is reintroduced.
+// Ungated CI guard for #638 / #567 — keyless, no live keys. Proves the hosted
+// example is greeting-led multi-turn (AC8 updated: #567 fixed the adapter so
+// multi-turn is now the expected shape), the composable example stays multi-turn
+// (AC9), and the adapter timeout error is enriched with actionable guidance (AC6).
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -74,13 +74,18 @@ function extractScriptBlock(source: string, scenarioTitle: string): string {
 // ---------------------------------------------------------------------------
 
 describe("elevenlabs-hosted-shape guard (#638)", () => {
-  it("AC8 — hosted example is greeting-led single exchange", () => {
+  it("AC8 — hosted example is greeting-led multi-turn (#567 load-bearing proof)", () => {
+    // Pre-#567: the adapter's server-VAD path timed out on the 2nd scripted user
+    // turn, so the hosted example was capped at 1 user turn. Post-#567: the
+    // adapter commits each user turn with an explicit user_message event, so
+    // multi-turn works reliably. This guard now enforces the opposite invariant:
+    // the hosted example MUST have ≥2 user turns (regression = reverting to 1).
     const source = fs.readFileSync(EXAMPLE_FILE, "utf-8");
     const block = extractScriptBlock(source, "Demo — ElevenLabs hosted Conversational AI");
 
     // Count occurrences of scenario.user( in the hosted script block.
     const userTurns = (block.match(/scenario\.user\(/g) ?? []).length;
-    expect(userTurns).toBe(1);
+    expect(userTurns).toBeGreaterThanOrEqual(2);
 
     // The FIRST scenario. step in the block must be scenario.agent() — greeting-led.
     // Strip leading `[` and whitespace, then match the first method call.
@@ -113,6 +118,8 @@ describe("elevenlabs-hosted-shape guard (#638)", () => {
     // After collapsing the join both appear in sequence.
     expect(collapsed).toContain("Hosted ElevenLabs");
     expect(collapsed).toContain("ConvAI");
-    expect(collapsed).toContain("single exchange");
+    // #567: the error now names the legacy silence-VAD path and recommends
+    // the "text" mode; the old "single exchange" framing is retired.
+    expect(collapsed).toContain("turnCommitMode");
   });
 });

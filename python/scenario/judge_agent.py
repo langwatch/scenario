@@ -27,6 +27,7 @@ from ._judge.trace_tools import expand_trace, grep_trace
 from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 from .voice._transcribe import transcribe_segments
+from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
@@ -148,6 +149,20 @@ def _collapse_discovery_history(messages: List[dict]) -> List[dict]:
     return out
 
 
+def _criteria_keys(criteria: Sequence[str]) -> List[str]:
+    """Sanitized schema property names for each criterion.
+
+    Must stay the single source of truth for these keys: the finish_test
+    tool schema declares them as required properties, and _parse_response
+    maps the LLM's verdicts back to criteria BY these keys. If the two ever
+    computed them differently, every verdict would silently fail to map.
+    """
+    return [
+        re.sub(r"[^a-zA-Z0-9]", "_", c.replace(" ", "_").replace("'", "").lower())[:70]
+        for c in criteria
+    ]
+
+
 class JudgeAgent(AgentAdapter):
     """
     Agent that evaluates conversations against success criteria.
@@ -247,6 +262,7 @@ class JudgeAgent(AgentAdapter):
         include_audio: Optional[bool] = None,
         include_timeline: Optional[bool] = None,
         include_traces: Optional[bool] = None,
+        modality: Optional[str] = None,
         **extra_params,
     ):
         """
@@ -274,6 +290,13 @@ class JudgeAgent(AgentAdapter):
             max_discovery_steps: Maximum number of expand/grep tool calls the judge
                                 can make before being forced to return a verdict.
                                 Defaults to 10.
+            modality: Explicit modality declaration for this role. Accepted values:
+                     ``"audio-in"`` (LLM receives raw audio), ``"stt-bridge"``
+                     (audio transcribed to text before the LLM), or ``"text"``
+                     (no audio in the stack). Complementary to ``include_audio``:
+                     ``include_audio=True/False`` takes precedence; ``modality=``
+                     applies when ``include_audio`` is ``None``. When ``None``
+                     (default), the modality is auto-detected from litellm capabilities.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -318,6 +341,7 @@ class JudgeAgent(AgentAdapter):
         self.include_audio = include_audio
         self.include_timeline = include_timeline
         self.include_traces = include_traces
+        self.modality = modality
 
         if model:
             self.model = model
@@ -361,18 +385,24 @@ class JudgeAgent(AgentAdapter):
             raise Exception(agent_not_configured_error_message("JudgeAgent"))
 
     # --------------------------------------------- voice auto-detection (§4.3)
-    # Small single-purpose helpers; kept out of call() to preserve SRP.
-    _AUDIO_CAPABLE_MODEL_SUBSTRINGS = ("gpt-4o", "gemini-2.5", "gemini-2.0-flash")
-
-    def _model_supports_audio(self) -> bool:
-        m = (self.model or "").lower()
-        return any(s in m for s in self._AUDIO_CAPABLE_MODEL_SUBSTRINGS)
-
     def effective_include_audio(self, conversation_has_audio: bool) -> bool:
-        """Resolve include_audio: explicit wins, otherwise auto from model capability."""
+        """Resolve include_audio: explicit wins, otherwise use modality resolver.
+
+        Intentional behavior change (Bundle 3 / AC3b):
+          Before: gpt-4o → audio-capable (substring match).
+          After:  gpt-4o → text path (litellm advisory returns False).
+          Before: gpt-audio-mini → NOT audio-capable (not in list).
+          After:  gpt-audio-mini → audio-capable (litellm advisory returns True).
+        The old substring list was wrong; the resolver is the source of truth.
+        """
         if self.include_audio is not None:
+            # Explicit override always wins (AC3c)
             return self.include_audio and conversation_has_audio
-        return conversation_has_audio and self._model_supports_audio()
+        # Use resolver with per-role declaration (AC0, Bundle 6)
+        tier, warnings = resolve_modality(declaration=self.modality, model_id=self.model or "")
+        for w in warnings:
+            logger.warning(w)
+        return conversation_has_audio and (tier == ModalityTier.AUDIO_IN)
 
     def effective_include_timeline(self, conversation_has_audio: bool) -> bool:
         """Default timeline True for voice, False for text — unless explicitly set."""
@@ -466,8 +496,8 @@ class JudgeAgent(AgentAdapter):
         logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
         extra_context = (
-            input.judgment_request.context
-            if input.judgment_request and input.judgment_request.context
+            input.judgment_request.additional_context
+            if input.judgment_request and input.judgment_request.additional_context
             else None
         )
         extra_context_section = (
@@ -541,14 +571,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )
 
         # Define the tools
-        criteria_names = [
-            re.sub(
-                r"[^a-zA-Z0-9]",
-                "_",
-                criterion.replace(" ", "_").replace("'", "").lower(),
-            )[:70]
-            for criterion in effective_criteria
-        ]
+        criteria_names = _criteria_keys(effective_criteria)
         tools: List[dict] = [
             {
                 "type": "function",
@@ -978,32 +1001,85 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         if tool_call.function.name == "finish_test":
             try:
                 args = json.loads(tool_call.function.arguments)
-                verdict = args.get("verdict", "inconclusive")
-                reasoning = args.get("reasoning", "No reasoning provided")
-                criteria_verdicts = args.get("criteria", {})
-
-                passed_criteria = [
-                    effective_criteria[idx]
-                    for idx, criterion in enumerate(criteria_verdicts.values())
-                    if criterion == "true"
-                ]
-                failed_criteria = [
-                    effective_criteria[idx]
-                    for idx, criterion in enumerate(criteria_verdicts.values())
-                    if criterion == "false" or criterion == "inconclusive"
-                ]
-
-                return ScenarioResult(
-                    success=verdict == "success" and len(failed_criteria) == 0,
-                    messages=cast(Any, input_messages),
-                    reasoning=reasoning,
-                    passed_criteria=passed_criteria,
-                    failed_criteria=failed_criteria,
-                )
             except json.JSONDecodeError:
                 raise Exception(
                     f"Failed to parse tool call arguments from judge agent: {tool_call.function.arguments}"
                 )
+
+            verdict = args.get("verdict", "inconclusive")
+            reasoning = args.get("reasoning", "No reasoning provided")
+            criteria_verdicts = args.get("criteria", {})
+
+            # LLMs sometimes serialise the criteria object as a JSON *string*
+            # instead of an inline dict, especially with complex dynamic
+            # schemas (issue #161). Re-parse one level if that happens.
+            if isinstance(criteria_verdicts, str):
+                try:
+                    criteria_verdicts = json.loads(criteria_verdicts)
+                except (json.JSONDecodeError, ValueError):
+                    criteria_verdicts = None  # unparseable — handled below
+
+            # If the criteria payload is not a usable object, we cannot trust
+            # any per-criterion verdict. Do NOT fall back to {}: an empty dict
+            # makes failed_criteria empty and lets a "success" verdict slip
+            # through having evaluated ZERO criteria, masking the real problem
+            # (issue #161 follow-up). Surface it as an explicit, fail-closed
+            # result instead of swallowing it.
+            if not isinstance(criteria_verdicts, dict):
+                raw = args.get("criteria")
+                logger.warning(
+                    "JudgeAgent could not resolve criteria verdicts to an "
+                    "object (got %s); failing the judgment instead of "
+                    "reporting an unverified success.",
+                    type(raw).__name__,
+                )
+                return ScenarioResult(
+                    success=False,
+                    messages=cast(Any, input_messages),
+                    reasoning=(
+                        "JudgeAgent could not parse the per-criterion verdicts "
+                        "returned by the LLM, so the judgment could not be "
+                        f"verified (raw criteria value was of type "
+                        f"{type(raw).__name__}). Original verdict was "
+                        f"{verdict!r}. Treating the judgment as failed."
+                    ),
+                    passed_criteria=[],
+                    failed_criteria=list(effective_criteria),
+                )
+
+            # Map each verdict back to its criterion BY the schema key we
+            # generated for it. Positional .values() mapping silently
+            # mislabels partial / reordered payloads and IndexErrors on extra
+            # keys; key-based lookup is robust. A criterion passes ONLY on an
+            # explicit "true"; anything else (false, inconclusive, missing, or
+            # a nested/unexpected value) is a failure, so an unevaluated
+            # criterion can never slip through as success.
+            # Map each verdict to its criterion by the schema key we generated
+            # for it (single source of truth: _criteria_keys). Positional
+            # .values() mapping silently mislabels partial / reordered / nested
+            # payloads and IndexErrors on extra keys; key lookup is robust.
+            # A criterion passes ONLY on an explicit "true"; anything else
+            # (false, inconclusive, missing, or a nested/unexpected value) is a
+            # failure, so an unevaluated criterion can never slip through as
+            # success. JSON booleans are coerced — some LLMs emit `true`/`false`
+            # instead of the enum strings.
+            criteria_keys = _criteria_keys(effective_criteria)
+            passed_criteria: List[str] = []
+            failed_criteria: List[str] = []
+            for criterion, key in zip(effective_criteria, criteria_keys):
+                raw_verdict = criteria_verdicts.get(key)
+                if isinstance(raw_verdict, bool):
+                    raw_verdict = "true" if raw_verdict else "false"
+                bucket = passed_criteria if raw_verdict == "true" else failed_criteria
+                bucket.append(criterion)
+
+            return ScenarioResult(
+                success=verdict == "success" and len(failed_criteria) == 0,
+                messages=cast(Any, input_messages),
+                reasoning=reasoning,
+                passed_criteria=passed_criteria,
+                failed_criteria=failed_criteria,
+            )
 
         if tool_call.function.name in _DISCOVERY_TOOL_NAMES:
             logger.warning(

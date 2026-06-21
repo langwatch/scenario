@@ -10,19 +10,15 @@ import { Logger } from "../utils/logger";
  */
 export class EventReporter {
   private readonly apiKey: string;
-  private readonly projectId: string;
+  private readonly projectId: string | undefined;
   private readonly eventsEndpoint: URL;
   private readonly eventAlertMessageLogger: EventAlertMessageLogger;
   private readonly logger = new Logger("scenario.events.EventReporter");
   private readonly isEnabled: boolean;
 
-  constructor(config: {
-    endpoint: string;
-    apiKey: string | undefined;
-    projectId?: string | undefined;
-  }) {
+  constructor(config: { endpoint: string; apiKey: string | undefined; projectId?: string }) {
     this.apiKey = config.apiKey ?? "";
-    this.projectId = config.projectId ?? "";
+    this.projectId = config.projectId;
     this.eventsEndpoint = new URL("/api/scenario-events", config.endpoint);
     this.eventAlertMessageLogger = new EventAlertMessageLogger();
     this.eventAlertMessageLogger.handleGreeting();

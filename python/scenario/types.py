@@ -1,5 +1,6 @@
+import warnings
 from enum import Enum
-from pydantic import BaseModel, SkipValidation
+from pydantic import BaseModel, SkipValidation, model_validator
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -103,15 +104,29 @@ class JudgmentRequest(BaseModel):
     Attributes:
         criteria: Optional list of criteria to evaluate. When provided, overrides
                  the judge agent's configured criteria for this evaluation.
-        context: Optional additional context for the judge, such as filesystem
-                 state, command outputs, or structured observations from custom
-                 assertion steps. Included in the judge's evaluation prompt under
-                 <additional_context>. Useful when the conversation messages
+        additional_context: Optional additional context for the judge, such as
+                 filesystem state, command outputs, or structured observations from
+                 custom assertion steps. Included in the judge's evaluation prompt
+                 under <additional_context>. Useful when the conversation messages
                  contain raw tool-call JSON that is hard for the judge to parse.
+        context: Deprecated. Use ``additional_context`` instead.
     """
 
     criteria: Optional[List[str]] = None
+    additional_context: Optional[str] = None
+    # Deprecated backward-compat alias — populated by the validator below.
     context: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _migrate_context_alias(self) -> "JudgmentRequest":
+        if self.context is not None and self.additional_context is None:
+            warnings.warn(
+                "JudgmentRequest.context is deprecated; use additional_context instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.additional_context = self.context
+        return self
 
 
 class AgentInput(BaseModel):

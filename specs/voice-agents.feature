@@ -717,7 +717,7 @@ Feature: Voice agent testing in Scenario SDK
     Given an ElevenLabsAgentAdapter with a live agent_id and ELEVENLABS_API_KEY
     When the demo script runs via scenario.run()
     Then the WS reaches wss://api.elevenlabs.io/v1/convai/conversation
-    And result.success is True after one turn
+    And result.success is True after ≥2 exchanges
 
   @e2e @ts-elevenlabs
   Scenario: Demo — ElevenLabs composable + branded agent
@@ -976,7 +976,7 @@ Feature: Voice agent testing in Scenario SDK
     When scenario.dtmf("1") runs
     Then UnsupportedCapabilityError is raised naming the adapter and the "dtmf" capability
 
-  @docs
+  @unit @docs
   Scenario: Capability matrix is rendered into adapter docs
     Given the voice-agents documentation
     Then a capability matrix table lists every built-in adapter

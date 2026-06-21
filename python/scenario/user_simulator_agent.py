@@ -22,6 +22,7 @@ from scenario.config import ModelConfig, ScenarioConfig
 
 from ._error_messages import agent_not_configured_error_message
 from .types import AgentInput, AgentReturnTypes, AgentRole
+from .voice.modality_resolver import ModalityTier, resolve_modality
 
 
 logger = logging.getLogger("scenario")
@@ -158,6 +159,7 @@ class UserSimulatorAgent(AgentAdapter):
         persona: Optional[str] = None,
         audio_effects: Optional[List[Callable[[bytes], bytes]]] = None,
         interrupt_probability: float = 0.0,
+        modality: Optional[str] = None,
         **extra_params,
     ):
         """
@@ -176,6 +178,11 @@ class UserSimulatorAgent(AgentAdapter):
                        If not provided, uses model defaults.
             system_prompt: Custom system prompt to override default user simulation behavior.
                           Use this to create specialized user personas or behaviors.
+            modality: Explicit modality declaration for this role. Accepted values:
+                     ``"audio-in"`` (LLM receives raw audio), ``"stt-bridge"``
+                     (audio transcribed to text before the LLM), or ``"text"``
+                     (no audio in the stack). When ``None`` (default), the modality
+                     is auto-detected from the model's litellm capabilities.
 
         Raises:
             Exception: If no model is configured either in parameters or global config
@@ -217,6 +224,7 @@ class UserSimulatorAgent(AgentAdapter):
         if not 0.0 <= interrupt_probability <= 1.0:
             raise ValueError("interrupt_probability must be in [0, 1]")
         self.interrupt_probability = interrupt_probability
+        self.modality = modality
 
         if model:
             self.model = model
@@ -364,10 +372,19 @@ class UserSimulatorAgent(AgentAdapter):
 
         scenario = input.scenario_state
 
+        tier, _warnings = resolve_modality(declaration=self.modality, model_id=self.model or "")
+        for w in _warnings:
+            logger.warning(w)
+
         persona_block = (
             f"\n\n<persona>\n{self.persona}\n</persona>\n"
             if self.persona
             else ""
+        )
+        _history = (
+            list(input.messages)
+            if tier == ModalityTier.AUDIO_IN
+            else _strip_audio_content(input.messages)
         )
         messages = [
             {
@@ -410,7 +427,7 @@ Your goal (assistant) is to interact with the Agent Under Test (user) as if you 
 {persona_block}"""),
             },
             {"role": "assistant", "content": "Hello, how can I help you today?"},
-            *_strip_audio_content(input.messages),
+            *_history,
         ]
 
         # User to assistant role reversal

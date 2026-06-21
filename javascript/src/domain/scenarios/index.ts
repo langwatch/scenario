@@ -9,6 +9,19 @@ export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
 
 /**
+ * Configuration for LangWatch event reporting.
+ * All fields are optional — any omitted fields fall back to environment variables.
+ */
+export interface LangwatchConfig {
+  /** The endpoint URL to send events to. Falls back to LANGWATCH_ENDPOINT env var. */
+  endpoint?: string;
+  /** The API key for authentication. Falls back to LANGWATCH_API_KEY env var. */
+  apiKey?: string;
+  /** The project ID to send events to. Required when using organization-level or bearer API keys. */
+  projectId?: string;
+}
+
+/**
  * Configuration for a scenario.
  */
 export interface ScenarioConfig {
@@ -100,6 +113,27 @@ export interface ScenarioConfig {
    * always read off `cfg.voice`. See `voice/config.ts#resolveVoiceConfig`.
    */
   voice?: VoiceConfig;
+
+  /**
+   * LangWatch reporting configuration.
+   * Takes precedence over LANGWATCH_API_KEY and LANGWATCH_ENDPOINT environment variables.
+   *
+   * Use this when running multiple scenarios concurrently for different projects
+   * to avoid race conditions from mutating process.env.
+   *
+   * @example
+   * ```typescript
+   * await run({
+   *   name: 'My scenario',
+   *   langwatch: {
+   *     apiKey: project.apiKey,
+   *     endpoint: 'https://app.langwatch.ai',
+   *   },
+   *   agents: [...],
+   * });
+   * ```
+   */
+  langwatch?: LangwatchConfig;
 }
 
 /**
@@ -163,10 +197,15 @@ export interface ScenarioExecutionLike {
   agentNonBlocking?(content?: string | ModelMessage): void;
   /**
    * Invokes the judge agent to evaluate the current state.
-   * @param options Optional options with inline criteria to evaluate as a checkpoint.
+   * @param options Optional options with inline criteria and/or additional context.
    * @returns The result of the scenario if the judge makes a final decision.
    */
-  judge(options?: { criteria?: string[] }): Promise<ScenarioResult | null>;
+  judge(options?: {
+    criteria?: string[];
+    additionalContext?: string;
+    /** @deprecated Use `additionalContext` instead. */
+    context?: string;
+  }): Promise<ScenarioResult | null>;
   /**
    * Proceeds with the scenario automatically for a number of turns.
    * @param turns The number of turns to proceed. Defaults to running until the scenario ends.

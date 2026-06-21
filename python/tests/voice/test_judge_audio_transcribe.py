@@ -3,10 +3,16 @@ Judge auto-transcribes agent audio when model is non-multimodal.
 
 Tests the _enrich_messages_with_transcripts helper directly (surgical) and
 the JudgeAgent._conversation_has_audio / _extract_recording helpers.
+
+After Bundle 3, audio capability is determined by modality_resolver (litellm
+advisory), not a substring list.  Tests that need a "multimodal" judge mock
+resolve_modality to return AUDIO_IN rather than relying on model-name matching.
 """
 from __future__ import annotations
 
+from unittest.mock import patch
 from scenario.judge_agent import JudgeAgent, _enrich_messages_with_transcripts
+from scenario.voice.modality_resolver import ModalityTier
 from scenario.voice.recording import AudioSegment, VoiceRecording
 
 
@@ -14,13 +20,13 @@ from scenario.voice.recording import AudioSegment, VoiceRecording
 
 
 def _text_only_judge() -> JudgeAgent:
-    """A judge whose model is text-only (gpt-4.1-mini is not in _AUDIO_CAPABLE_MODEL_SUBSTRINGS)."""
+    """A judge whose model is text-only (litellm advisory returns False for gpt-4.1-mini)."""
     return JudgeAgent(criteria=["agent replied correctly"], model="openai/gpt-4.1-mini")
 
 
 def _multimodal_judge() -> JudgeAgent:
-    """A judge whose model can ingest audio (gpt-4o is in _AUDIO_CAPABLE_MODEL_SUBSTRINGS)."""
-    return JudgeAgent(criteria=["agent replied correctly"], model="openai/gpt-4o")
+    """A judge model whose audio capability is declared via gpt-audio-mini."""
+    return JudgeAgent(criteria=["agent replied correctly"], model="openai/gpt-audio-mini")
 
 
 def _make_recording(agent_transcript: str | None = "agent reply text") -> VoiceRecording:
@@ -253,8 +259,18 @@ class TestEnrichMessagesWithTranscripts:
 class TestTextOnlyJudgeAutoDetection:
     def test_text_only_model_should_not_include_audio(self):
         j = _text_only_judge()
-        assert j.effective_include_audio(conversation_has_audio=True) is False
+        with patch(
+            "scenario.judge_agent.resolve_modality",
+            return_value=(ModalityTier.TEXT, []),
+        ):
+            assert j.effective_include_audio(conversation_has_audio=True) is False
 
     def test_multimodal_model_should_include_audio(self):
+        # AC3b intentional behavior change: gpt-4o via litellm advisory (False) → text path.
+        # Use gpt-audio-mini + mock AUDIO_IN to represent a genuinely audio-capable judge.
         j = _multimodal_judge()
-        assert j.effective_include_audio(conversation_has_audio=True) is True
+        with patch(
+            "scenario.judge_agent.resolve_modality",
+            return_value=(ModalityTier.AUDIO_IN, []),
+        ):
+            assert j.effective_include_audio(conversation_has_audio=True) is True
