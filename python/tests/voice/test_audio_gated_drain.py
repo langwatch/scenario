@@ -29,10 +29,11 @@ immediately and stays well under the ceiling.
 import asyncio
 import base64
 import json
+from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from websockets.exceptions import ConnectionClosedOK
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
 from scenario.voice import AudioChunk, ElevenLabsAgentAdapter
 from scenario.voice.adapters.websocket import (
@@ -48,16 +49,16 @@ RECV_TIMEOUT = 30.0
 OUTER_CEILING = 2.0
 
 
-def _scripted_ws(frames: list, *, then_close: bool = False) -> AsyncMock:
+def _scripted_ws(frames: list, *, close_with: Optional[Exception] = None) -> AsyncMock:
     """A mock WS whose ``recv()`` serves ``frames`` in order.
 
-    After the programmed frames are exhausted it either raises
-    ``ConnectionClosedOK`` (``then_close=True``, modelling a clean server close)
-    or blocks indefinitely (modelling a silent-but-open socket). The
-    block-forever tail is what makes the terminal-case tests RED on an un-fixed
-    adapter: without the empty-chunk return, ``recv_audio`` loops past the
-    swallowed non-audio frame into the blocking ``recv()`` and only the outer
-    ceiling unwinds it.
+    After the programmed frames are exhausted it either raises ``close_with`` (a
+    ``ConnectionClosed*`` instance, modelling a server close) or — when
+    ``close_with is None`` — blocks indefinitely (modelling a silent-but-open
+    socket). The block-forever tail is what makes the terminal-case tests RED on
+    an un-fixed adapter: without the empty-chunk return, ``recv_audio`` loops
+    past the swallowed non-audio frame into the blocking ``recv()`` and only the
+    outer ceiling unwinds it.
     """
     idx = 0
 
@@ -67,8 +68,8 @@ def _scripted_ws(frames: list, *, then_close: bool = False) -> AsyncMock:
             msg = frames[idx]
             idx += 1
             return msg
-        if then_close:
-            raise ConnectionClosedOK(None, None)
+        if close_with is not None:
+            raise close_with
         await asyncio.sleep(3600)  # silent-but-open socket
         raise AssertionError("unreachable")  # pragma: no cover
 
@@ -77,6 +78,12 @@ def _scripted_ws(frames: list, *, then_close: bool = False) -> AsyncMock:
     ws.send = AsyncMock()
     ws.close = AsyncMock()
     return ws
+
+
+# Production catches the base ``ConnectionClosed``; both a clean close
+# (``ConnectionClosedOK``) and an abnormal one (``ConnectionClosedError``) must
+# terminate the drain cleanly, so the socket-close tests run against both.
+_CLOSE_CLASSES = [ConnectionClosedOK, ConnectionClosedError]
 
 
 # --------------------------------------------------------------------- ElevenLabs
@@ -116,14 +123,18 @@ async def test_elevenlabs_client_tool_call_terminates_drain():
 
 
 @pytest.mark.asyncio
-async def test_elevenlabs_socket_close_terminates_drain():
-    """A clean server close mid-receive returns an empty chunk, not an error.
+@pytest.mark.parametrize("close_cls", _CLOSE_CLASSES)
+async def test_elevenlabs_socket_close_terminates_drain(close_cls):
+    """A server close mid-receive returns an empty chunk, not an error.
 
-    Pre-fix, the unhandled ``ConnectionClosed`` propagated out of ``recv_audio``
-    (the drain only catches ``asyncio.TimeoutError``) and crashed the turn.
+    Runs against both a clean close (``ConnectionClosedOK``) and an abnormal one
+    (``ConnectionClosedError``): production catches the base ``ConnectionClosed``,
+    so both subclasses must terminate the drain cleanly. Pre-fix, the unhandled
+    ``ConnectionClosed`` propagated out of ``recv_audio`` (the drain only catches
+    ``asyncio.TimeoutError``) and crashed the turn.
     """
     adapter = ElevenLabsAgentAdapter(agent_id="a", api_key="k")
-    mock_ws = _scripted_ws([], then_close=True)
+    mock_ws = _scripted_ws([], close_with=close_cls(None, None))
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
@@ -170,15 +181,17 @@ class _BytesAudioProtocol(WebSocketProtocol):
 
 
 @pytest.mark.asyncio
-async def test_websocket_socket_close_terminates_drain():
-    """Generic WebSocket: a clean server close (end of stream) returns empty.
+@pytest.mark.parametrize("close_cls", _CLOSE_CLASSES)
+async def test_websocket_socket_close_terminates_drain(close_cls):
+    """Generic WebSocket: a server close (end of stream) returns empty.
 
-    Pre-fix, the ``while True`` loop returned only on a decoded audio chunk and
-    had no end-of-stream path, so a clean close raised an unhandled
-    ``ConnectionClosed``.
+    Runs against both clean (``ConnectionClosedOK``) and abnormal
+    (``ConnectionClosedError``) closes. Pre-fix, the ``while True`` loop returned
+    only on a decoded audio chunk and had no end-of-stream path, so a close
+    raised an unhandled ``ConnectionClosed``.
     """
     adapter = WebSocketAgentAdapter(url="ws://x", protocol=_BytesAudioProtocol())
-    mock_ws = _scripted_ws([], then_close=True)
+    mock_ws = _scripted_ws([], close_with=close_cls(None, None))
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()

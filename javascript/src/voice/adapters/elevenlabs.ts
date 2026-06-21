@@ -494,10 +494,18 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // / non-audio terminal turn. Resolve the active `receiveAudio` waiter with
       // an empty chunk so the base drain (`drainAgentResponse`) exits cleanly
       // instead of hanging to the `receiveAudio` timeout. Mirrors the #646/PR647
-      // reference fix and the Python parity in `elevenlabs.py`. If no receive is
-      // in flight there is nothing to unblock — drop it (the close/error
-      // handlers use the same active-waiters-only semantics via
-      // `drainPendingWaiters`).
+      // reference fix and the Python parity in `elevenlabs.py`.
+      //
+      // If no receive is in flight we DROP the terminal rather than queue it
+      // (unlike the `audio` branch above, which buffers onto `audioQueue`). Safe
+      // because: (1) a terminal carries no payload to preserve, so nothing is
+      // lost; (2) the drain always parks a waiter before the agent acts
+      // (call -> drain -> receiveAudio awaits), so a mid-turn tool call always
+      // finds one. Queuing an empty sentinel would be WORSE — it would surface as
+      // the NEXT turn's first `receiveAudio` result, a spurious empty turn. This
+      // matches the active-waiters-only semantics of onSocketClose / onSocketError
+      // (`drainPendingWaiters`). Python differs only because its pull-loop
+      // `recv_audio` hands the terminal to whichever call asks next.
       const waiter = this.waiters.shift();
       if (waiter) waiter(new AudioChunk({ data: new Uint8Array(0) }));
       return;
