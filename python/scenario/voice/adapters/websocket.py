@@ -68,13 +68,30 @@ class WebSocketAgentAdapter(VoiceAgentAdapter):
         await self._ws.send(payload)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        """Loop inbound frames until the protocol decodes an audio chunk.
+
+        A clean server close (end of stream) with no final audio frame is a
+        terminal, not an error: ``recv_audio`` returns an empty ``AudioChunk``
+        so the base ``_drain_agent_response`` loop exits cleanly (issue #648),
+        mirroring the #646/PR647 reference pattern and the Gemini Live / Pipecat
+        idiom. ``asyncio.TimeoutError`` is still raised on inter-message silence.
+        """
+        import websockets  # for the ConnectionClosed terminal (issue #648)
+
         if self._ws is None:
             raise RuntimeError(f"{type(self).__name__}: not connected")
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while True:
             remaining = max(0.0, deadline - loop.time())
-            message = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            try:
+                message = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            except websockets.exceptions.ConnectionClosed:
+                # End of stream: the server closed without a trailing audio
+                # frame. Surface a clean terminal rather than letting
+                # ConnectionClosed propagate — the drain only catches
+                # asyncio.TimeoutError, so an unhandled close crashes the turn.
+                return AudioChunk(data=b"")
             chunk = self.protocol.decode_response(message)
             if chunk is not None:
                 return chunk

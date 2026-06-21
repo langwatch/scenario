@@ -28,10 +28,16 @@ Wire protocol:
     ``last_agent_transcript`` (post-barge-in update)
   - ``audio`` — decoded and returned from ``recv_audio``
   - ``ping`` — replied to with ``{"type": "pong", "event_id": <id>}``
+  - ``client_tool_call`` — tool-only / non-audio terminal turn: ends the
+    drain with an empty ``AudioChunk`` (issue #648) instead of hanging to
+    the ``response_timeout`` deadline. The adapter has no
+    ``client_tool_result`` path, so the agent cannot follow up with audio.
   - ``interruption`` — swallowed
-  - Other documented events (``vad_score``, ``client_tool_call``,
-    ``agent_response_metadata``, etc.) — silently skipped; the
-    provisioned test agent doesn't trigger them.
+  - Other documented events (``vad_score``, ``agent_response_metadata``,
+    etc.) — silently skipped; the provisioned test agent doesn't trigger them.
+
+A socket close mid-receive is also treated as a terminal: ``recv_audio``
+returns an empty ``AudioChunk`` so the drain exits cleanly (issue #648).
 """
 
 from __future__ import annotations
@@ -297,8 +303,14 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         deadline, so this returns when an ``audio`` event arrives and raises
         :class:`asyncio.TimeoutError` only after ``timeout`` seconds elapse
         with **no message of any kind**. Pings are replied to inline;
-        transcript events update instance attributes for observability; all
+        transcript events update instance attributes for observability; most
         other event types are swallowed without error.
+
+        Terminal (non-audio) completions return an **empty** ``AudioChunk``
+        rather than hanging to the deadline (issue #648): a ``client_tool_call``
+        (tool-only turn — this adapter has no ``client_tool_result`` path) and a
+        socket close mid-receive both end the drain cleanly, mirroring the
+        #646/PR647 reference fix and the Gemini Live / Pipecat idiom.
 
         Design decision (issue #493 — intentional, not an oversight): because
         a received ping is treated as proof of liveness, a hosted agent that
@@ -311,6 +323,8 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         (An absolute caller-side backstop for the wedged-agent case is tracked
         as a separate follow-up; it is intentionally not implemented here.)
         """
+        import websockets  # for the ConnectionClosed terminal (issue #648)
+
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
 
@@ -320,7 +334,21 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             if remaining <= 0:
                 raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
 
-            raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            try:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            except websockets.exceptions.ConnectionClosed:
+                # Issue #648: the hosted agent finished its turn and the server
+                # closed the socket WITHOUT a trailing audio frame (a silent /
+                # tool-only turn). Mirror the #646/PR647 reference pattern (and
+                # the Gemini Live / Pipecat idiom): return an empty AudioChunk so
+                # the base ``_drain_agent_response`` loop exits cleanly, instead
+                # of letting ConnectionClosed propagate — the drain only catches
+                # asyncio.TimeoutError, so an unhandled close would crash the turn.
+                logger.debug(
+                    "ElevenLabsAgentAdapter: socket closed during recv; "
+                    "ending turn with empty chunk"
+                )
+                return AudioChunk(data=b"")
             # A received message (ping included) proves the socket is alive, so
             # re-arm the idle deadline. Placed BEFORE json.loads so ANY frame —
             # even a non-JSON/malformed one — counts as a liveness signal.
@@ -413,6 +441,22 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                         "the agent may not understand audio we send.",
                         in_fmt,
                     )
+
+            elif etype == "client_tool_call":
+                # Issue #648: EL ConvAI emits ``client_tool_call`` when the agent
+                # invokes a CLIENT-side tool. This adapter is a black-box test
+                # harness and does NOT send ``client_tool_result`` back, so the
+                # hosted agent will never produce spoken audio for this turn — it
+                # is a tool-only / non-audio terminal turn. Mirror the #646/PR647
+                # reference pattern: return an empty AudioChunk so the drain exits
+                # cleanly instead of looping to the ``response_timeout`` deadline
+                # and raising. The tool call is observable on the wire; we surface
+                # the turn's completion, not its payload.
+                logger.debug(
+                    "ElevenLabsAgentAdapter: client_tool_call (tool-only turn); "
+                    "ending turn with empty chunk"
+                )
+                return AudioChunk(data=b"")
 
             elif etype == "interruption":
                 pass  # documented non-audio event, no action needed
