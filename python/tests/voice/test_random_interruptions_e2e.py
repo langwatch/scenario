@@ -15,8 +15,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "examples" / "voice"))
 
 
-@pytest.mark.asyncio
 @pytest.mark.voice_multiturn  # runs in its own process; see TESTING.md (issue #491)
+@pytest.mark.asyncio
 async def test_example_6_7_random_interruptions_e2e(requires_llm, requires_pipecat_bot):
     """Scenario with interrupt_probability=0.4 over 5 turns.
 

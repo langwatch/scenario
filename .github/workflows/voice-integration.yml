@@ -190,18 +190,27 @@ jobs:
       - name: Run multi-turn voice @e2e demos (isolated — one process each)
         run: |
           set -uo pipefail
-          files=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>/dev/null \
-            | grep '::' | cut -d: -f1 | sort -u)
-          echo "Isolated multi-turn demos:"; echo "$files"
-          # Fail loudly rather than silently passing if discovery returns nothing
-          # (e.g. a collection/import error, or the marker getting renamed) — an
-          # empty list must not look like "all multi-turn demos passed".
-          if [ -z "$files" ]; then
-            echo "ERROR: no voice_multiturn demos discovered — collection error or marker drift." >&2
+          # Capture collection output AND exit code (stderr merged in). A NON-zero
+          # exit means collection failed — including a PARTIAL failure where one
+          # demo errors on import while others collect: pytest exits non-zero and
+          # we must fail, not silently run the subset (that would re-introduce the
+          # very "asserted-but-never-run" hole this step closes).
+          collect_out=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>&1)
+          collect_rc=$?
+          if [ "$collect_rc" -ne 0 ]; then
+            echo "ERROR: collecting voice_multiturn demos failed (pytest exit $collect_rc):" >&2
+            printf '%s\n' "$collect_out" >&2
+            exit 1
+          fi
+          # Discover the demo set by marker so it can't drift from the test files.
+          mapfile -t files < <(printf '%s\n' "$collect_out" | grep '::' | cut -d: -f1 | sort -u)
+          echo "Isolated multi-turn demos:"; printf '  %s\n' "${files[@]:-}"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "ERROR: no voice_multiturn demos discovered — marker drift or rename." >&2
             exit 1
           fi
           rc=0
-          for f in $files; do
+          for f in "${files[@]}"; do
             echo "::group::${f} (isolated process)"
             uv run pytest -p no:cacheprovider -x "$f" -v --tb=short || rc=1
             echo "::endgroup::"
