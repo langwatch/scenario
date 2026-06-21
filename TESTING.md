@@ -70,33 +70,63 @@ This keeps the suite lean while ensuring real failures never recur.
 The voice `@e2e` demos under `python/tests/voice/test_*_e2e.py` are auto-marked
 `integration` by `python/tests/voice/conftest.py:pytest_collection_modifyitems`
 and the default `python-ci` job deselects them with `-m "not integration"`.
-They only run via the nightly `voice-integration.yml` dispatch.
+They only run via the on-demand `voice-integration.yml` dispatch.
 
-Several multi-turn demos additionally carry a `@pytest.mark.skip` marker
-(reason: *"Hangs in full suite (not in isolation) — multi-turn max_turns demos
-wedge pytest process"*). The wedge is reproducible only when the full voice
-e2e suite is run in a single pytest process. Likely contributors (not yet
-isolated):
+Several **multi-turn** demos additionally carry the `voice_multiturn` marker.
+They MUST run one pytest process each: collecting them together in a single
+process wedges the run (issue #491). The marker lets `voice-integration.yml`
+deselect them from the bulk run (`-m "not voice_multiturn"`) and execute each in
+a fresh process — replacing the earlier `@pytest.mark.skip` markers that left
+the `@e2e` contract asserted-but-never-run.
 
-- Background tasks (`asyncio.create_task`) spawned by adapters
-  (Gemini Live `_session_lifetime`, Twilio webhook server, Cloudflare tunnel
-  subprocess) that aren't fully reaped between function-scoped event loops.
-- The `ffmpeg` playback subprocess in `python/scenario/voice/playback.py`
-  not always exiting cleanly when `.stop()` runs.
-- `max_turns` runaway in demos that should converge in 2-3 turns but spin
-  against a quota when judged in batch.
+### Root cause (diagnosed in #491)
 
-Until the wedge is diagnosed (tracked in issue #491), run the multi-turn
-demos with one process per cluster:
+`scenario.run()` offloads each scenario to a worker thread with a private event
+loop and, in that thread's `finally`, calls `event_bus.drain()` synchronously
+(`python/scenario/_events/event_bus.py`). `drain()` does an **unbounded**
+`self._event_queue.join()` that only returns once the event-bus worker thread
+has POSTed every scenario event to the LangWatch telemetry endpoint. Each POST
+has a 30s httpx timeout (`event_reporter.py`) and the worker drains events
+**serially**, so teardown cost scales with `event_count × up-to-30s` whenever the
+endpoint is reachable-but-slow. Multi-turn voice demos emit the most events (one
+per turn, plus base64 audio snapshots), so their teardown is the most exposed;
+running several in one process compounds it past the 60s per-test timeout and the
+process appears wedged.
+
+Confirmed creds-free: point `LANGWATCH_ENDPOINT` at a socket that accepts but
+never responds and run any `scenario.run()` — the worker blocks in
+`socket.recv_into` (awaiting the HTTP response) while the calling thread blocks in
+`event_bus.drain()` → `queue.join()`. Locally the default endpoint fast-refuses,
+so the drain returns immediately — which is why the wedge is invisible in
+isolation and on a developer box but bites in the integration workflow, where
+`LANGWATCH_API_KEY` is set and telemetry actually posts.
+
+Other contributors that per-process isolation also neutralises: background
+`asyncio.create_task`s spawned by adapters (Gemini Live `_session_lifetime`,
+Twilio webhook server, Cloudflare tunnel subprocess) that aren't fully reaped
+between function-scoped event loops, and the `ffmpeg` playback subprocess in
+`python/scenario/voice/playback.py` not always exiting cleanly on `.stop()`.
+
+A narrower SDK-level fix — bounding `event_bus.drain()` so telemetry can never
+block test teardown indefinitely — is recommended as a follow-up. It changes the
+shared event-bus delivery guarantee for *every* `scenario.run()` caller, so it is
+tracked separately from this process-isolation resolution.
+
+### Running the multi-turn demos
 
 ```bash
-# OK — fresh process per demo cluster.
+# Supported: one process per demo (what voice-integration.yml does).
 pytest -p no:cacheprovider -x python/tests/voice/test_long_hold_e2e.py
 pytest -p no:cacheprovider -x python/tests/voice/test_emotional_escalation_e2e.py
-# …etc.
 
-# NOT OK — runs the whole suite in one process, will wedge.
-pytest -m integration python/tests/voice/
+# …or discover the whole set by marker and loop, one process each:
+for f in $(pytest python/tests/voice -m voice_multiturn --collect-only -q \
+            | grep '::' | cut -d: -f1 | sort -u); do
+  pytest -p no:cacheprovider -x "$f"
+done
+
+# NOT supported: collecting them together in one process — will wedge.
+pytest -m voice_multiturn python/tests/voice/
 ```
 ## WAV / Recording File Policy
 

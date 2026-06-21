@@ -115,13 +115,17 @@ jobs:
         # to tolerate "no tests matched the marker" (pytest exit 5) — but it
         # also hid real test failures. Tolerate exit 5 only; propagate every
         # other non-zero so a genuine failure fails the step and the workflow.
+        #
+        # `not voice_multiturn` keeps the multi-turn @e2e demos out of this
+        # single-process run — they wedge when collected together (issue #491)
+        # and are exercised one-process-each by the isolated step below.
         shell: bash
         run: |
           rc=0
           # `--reruns 1` (pytest-rerunfailures, already a dep): absorb a single
           # ambient hosted-EL flake (#708) while a genuine failure that fails
           # both attempts still propagates.
-          uv run pytest tests/voice -m integration -v --tb=short --reruns 1 || rc=$?
+          uv run pytest tests/voice -m "integration and not voice_multiturn" -v --tb=short --reruns 1 || rc=$?
           if [ "$rc" -eq 5 ]; then
             echo "No integration-marked tests collected — treating as pass."
             exit 0
@@ -148,6 +152,8 @@ jobs:
 
       # ---------------------------------------------------------------
       # Run the @e2e voice demos (fail-fast on missing infrastructure).
+      # `not voice_multiturn` excludes the demos that must run one-process-
+      # each (issue #491); those run in the dedicated isolated step below.
       # ---------------------------------------------------------------
       - name: Run @e2e voice demos
         # CI honesty (#708): `tee` masks pytest's exit without `pipefail` (same
@@ -159,7 +165,41 @@ jobs:
           # `--reruns 1` (pytest-rerunfailures): absorb a single ambient
           # hosted-EL flake (#708); a genuine failure that fails both attempts
           # still propagates through `pipefail` and fails the step.
-          uv run pytest tests/voice/ -v --tb=short -q --reruns 1 2>&1 | tee /tmp/e2e-voice-results.log
+          uv run pytest tests/voice/ -m "not voice_multiturn" -v --tb=short -q --reruns 1 2>&1 | tee /tmp/e2e-voice-results.log
+        working-directory: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
+
+      # ---------------------------------------------------------------
+      # Multi-turn @e2e demos — one pytest process EACH.
+      #
+      # These wedge when collected together in a single process (issue #491;
+      # see TESTING.md "Voice @e2e suite — isolation requirement"). Rather than
+      # paper over an unverifiable contract with @pytest.mark.skip, we run each
+      # in a fresh process so a leaked background task / socket / subprocess in
+      # one demo cannot wedge the next. The demo set is discovered by the
+      # `voice_multiturn` marker so this list never drifts from the test files.
+      # ---------------------------------------------------------------
+      - name: Run multi-turn voice @e2e demos (isolated — one process each)
+        run: |
+          set -uo pipefail
+          files=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>/dev/null \
+            | grep '::' | cut -d: -f1 | sort -u)
+          echo "Isolated multi-turn demos:"; echo "$files"
+          rc=0
+          for f in $files; do
+            echo "::group::${f} (isolated process)"
+            uv run pytest -p no:cacheprovider -x "$f" -v --tb=short || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
