@@ -265,36 +265,45 @@ export class TwilioWebhookServer {
       adapter._enqueueInbound(new AudioChunk({ data: pcm }));
     };
 
-    while (true) {
-      const text = await ws.receiveText();
-      if (text == null) return; // socket closed
-      const frame = parseMediaStreamFrame(text);
-      if (!frame) continue;
+    try {
+      while (true) {
+        const text = await ws.receiveText();
+        if (text == null) return; // socket closed
+        const frame = parseMediaStreamFrame(text);
+        if (!frame) continue;
 
-      if (frame.event === "start") {
-        if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
-        if (frame.callSid) adapter._setCallSid(frame.callSid);
-        adapter._signalStreamConnected();
-      } else if (frame.event === "media" && frame.payloadMulaw) {
-        for (const byte of frame.payloadMulaw) buffered.push(byte);
-        if (buffered.length >= flushThresholdBytes) flush();
-      } else if (frame.event === "dtmf" && frame.dtmfDigit) {
-        twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
-        if (adapter.onDtmf) {
-          try {
-            adapter.onDtmf(frame.dtmfDigit);
-          } catch (err) {
-            // Callback errors are swallowed — adapter contract says they don't
-            // tear down the stream — but they ARE worth logging.
-            twilioLogger.warn("onDtmf callback raised; continuing", {
-              error: err instanceof Error ? err.message : String(err),
-            });
+        if (frame.event === "start") {
+          if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
+          if (frame.callSid) adapter._setCallSid(frame.callSid);
+          adapter._signalStreamConnected();
+        } else if (frame.event === "media" && frame.payloadMulaw) {
+          for (const byte of frame.payloadMulaw) buffered.push(byte);
+          if (buffered.length >= flushThresholdBytes) flush();
+        } else if (frame.event === "dtmf" && frame.dtmfDigit) {
+          twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
+          if (adapter.onDtmf) {
+            try {
+              adapter.onDtmf(frame.dtmfDigit);
+            } catch (err) {
+              // Callback errors are swallowed — adapter contract says they don't
+              // tear down the stream — but they ARE worth logging.
+              twilioLogger.warn("onDtmf callback raised; continuing", {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
           }
+        } else if (frame.event === "stop") {
+          flush();
+          return;
         }
-      } else if (frame.event === "stop") {
-        flush();
-        return;
       }
+    } finally {
+      // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop
+      // exits on a "stop" frame, a socket close (`receiveText` resolves null),
+      // or a throw, enqueue an empty AudioChunk so a `receiveAudio` blocked on
+      // the inbound queue returns cleanly instead of timing out on a silent /
+      // tool-only turn.
+      adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
     }
   }
 }
