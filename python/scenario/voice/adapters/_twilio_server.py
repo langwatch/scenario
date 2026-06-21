@@ -220,49 +220,60 @@ class TwilioWebhookServer:
         buffered_mulaw = bytearray()
         BATCH_MS = 100
 
-        while True:
-            msg = await ws.receive_text()
-            frame = parse_media_stream_frame(msg)
-            if frame is None:
-                continue
+        try:
+            while True:
+                msg = await ws.receive_text()
+                frame = parse_media_stream_frame(msg)
+                if frame is None:
+                    continue
 
-            if frame.event == "start":
-                adapter._stream_sid = frame.stream_sid
-                if frame.call_sid and adapter._call_sid is None:
-                    adapter._call_sid = frame.call_sid
-                adapter._stream_connected.set()
+                if frame.event == "start":
+                    adapter._stream_sid = frame.stream_sid
+                    if frame.call_sid and adapter._call_sid is None:
+                        adapter._call_sid = frame.call_sid
+                    adapter._stream_connected.set()
 
-            elif frame.event == "media" and frame.payload_mulaw:
-                buffered_mulaw.extend(frame.payload_mulaw)
-                # 20ms per frame → flush every ~5 frames. Queue may be
-                # None if disconnect() raced ahead of the final frames;
-                # drop the chunk silently in that window.
-                if (
-                    len(buffered_mulaw) >= (BATCH_MS * 8)
-                    and adapter._inbound_queue is not None
-                ):
-                    pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
-                    buffered_mulaw.clear()
-                    await adapter._inbound_queue.put(AudioChunk(data=pcm))
+                elif frame.event == "media" and frame.payload_mulaw:
+                    buffered_mulaw.extend(frame.payload_mulaw)
+                    # 20ms per frame → flush every ~5 frames. Queue may be
+                    # None if disconnect() raced ahead of the final frames;
+                    # drop the chunk silently in that window.
+                    if (
+                        len(buffered_mulaw) >= (BATCH_MS * 8)
+                        and adapter._inbound_queue is not None
+                    ):
+                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        buffered_mulaw.clear()
+                        await adapter._inbound_queue.put(AudioChunk(data=pcm))
 
-            elif frame.event == "dtmf" and frame.dtmf_digit:
-                logger.debug("TwilioAgentAdapter: received DTMF %s", frame.dtmf_digit)
-                if adapter.on_dtmf is not None:
-                    try:
-                        adapter.on_dtmf(frame.dtmf_digit)
-                    except Exception:
-                        logger.warning(
-                            "TwilioAgentAdapter.on_dtmf callback raised; continuing",
-                            exc_info=True,
-                        )
+                elif frame.event == "dtmf" and frame.dtmf_digit:
+                    logger.debug("TwilioAgentAdapter: received DTMF %s", frame.dtmf_digit)
+                    if adapter.on_dtmf is not None:
+                        try:
+                            adapter.on_dtmf(frame.dtmf_digit)
+                        except Exception:
+                            logger.warning(
+                                "TwilioAgentAdapter.on_dtmf callback raised; continuing",
+                                exc_info=True,
+                            )
 
-            elif frame.event == "stop":
-                # Flush trailing audio then exit. After disconnect() has
-                # already reset state, _inbound_queue may be None — guard
-                # against a race where Twilio's final stop frame arrives
-                # after teardown started.
-                if buffered_mulaw and adapter._inbound_queue is not None:
-                    pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
-                    buffered_mulaw.clear()
-                    await adapter._inbound_queue.put(AudioChunk(data=pcm))
-                return
+                elif frame.event == "stop":
+                    # Flush trailing audio then exit. After disconnect() has
+                    # already reset state, _inbound_queue may be None — guard
+                    # against a race where Twilio's final stop frame arrives
+                    # after teardown started.
+                    if buffered_mulaw and adapter._inbound_queue is not None:
+                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        buffered_mulaw.clear()
+                        await adapter._inbound_queue.put(AudioChunk(data=pcm))
+                    return
+        finally:
+            # Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the
+            # loop exits on a "stop" frame, a socket close (``receive_text``
+            # raises ``WebSocketDisconnect``), or any error, enqueue an empty
+            # ``AudioChunk`` so a ``recv_audio`` blocked on the inbound queue
+            # returns cleanly instead of hanging to ``response_timeout`` on a
+            # silent / tool-only turn. Guard the disconnect race where
+            # ``disconnect()`` already nulled the queue.
+            if adapter._inbound_queue is not None:
+                await adapter._inbound_queue.put(AudioChunk(data=b""))
