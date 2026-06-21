@@ -193,6 +193,13 @@ jobs:
           files=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>/dev/null \
             | grep '::' | cut -d: -f1 | sort -u)
           echo "Isolated multi-turn demos:"; echo "$files"
+          # Fail loudly rather than silently passing if discovery returns nothing
+          # (e.g. a collection/import error, or the marker getting renamed) — an
+          # empty list must not look like "all multi-turn demos passed".
+          if [ -z "$files" ]; then
+            echo "ERROR: no voice_multiturn demos discovered — collection error or marker drift." >&2
+            exit 1
+          fi
           rc=0
           for f in $files; do
             echo "::group::${f} (isolated process)"
