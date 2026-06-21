@@ -302,7 +302,8 @@ export class TwilioWebhookServer {
       // exits on a "stop" frame, a socket close (`receiveText` resolves null),
       // or a throw, enqueue an empty AudioChunk so a `receiveAudio` blocked on
       // the inbound queue returns cleanly instead of timing out on a silent /
-      // tool-only turn.
+      // tool-only turn. Unlike the Python twin, no null-guard is needed here:
+      // the inbound queue object is never nulled — `disconnect()` only `reset()`s it.
       adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
     }
   }

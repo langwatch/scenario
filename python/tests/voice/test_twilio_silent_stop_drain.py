@@ -174,3 +174,11 @@ async def test_normal_audio_turn_still_drains():
     )
     assert isinstance(first, AudioChunk)
     assert len(first.data) > 0  # real audio survived; not clobbered by the sentinel
+
+    # And the terminal sentinel lands AFTER the real audio (FIFO), not instead
+    # of it: the next chunk is the empty sentinel. Pins the ordering invariant —
+    # a fix that enqueued the sentinel BEFORE the flush would fail here.
+    second = await asyncio.wait_for(
+        adapter.recv_audio(timeout=RECV_TIMEOUT), timeout=OUTER_CEILING
+    )
+    assert second.data == b""

@@ -133,5 +133,11 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
     // Real audio survived as the first chunk; the sentinel lands after it.
     expect(first.data.length).toBeGreaterThan(0);
+
+    // And the terminal sentinel lands AFTER the real audio (FIFO), not instead
+    // of it: the next chunk is the empty sentinel. Pins the ordering invariant —
+    // a fix that enqueued the sentinel before the flush would fail here.
+    const second = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(second.data.length).toBe(0);
   });
 });
