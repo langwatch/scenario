@@ -64,6 +64,32 @@ def test_vad_fallback_rate_limits_by_adapter_name(adapter_names, expected_warnin
     assert len(user_warnings) == expected_warning_count
 
 
+def test_vad_fallback_rate_limit_keys_on_name_string_not_python_class():
+    """The dedupe key is the caller-passed ``adapter_name`` string, not the
+    Python class.
+
+    The parametrized test above varies only the name, so on its own it cannot
+    distinguish "keyed on the string" from "keyed on the (single) class". This
+    pins the distinction explicitly with a *second* class: ``_warned_adapters``
+    is a ClassVar shared down the hierarchy, so a subclass instance built with a
+    string the base already warned for stays silent, while a fresh string warns.
+    Guards against a refactor that switches the key to ``type(self)`` / per-class
+    state — which would re-warn once per adapter class and defeat the rate-limit.
+    """
+
+    class _SubclassVad(WebRTCVadFallback):
+        pass
+
+    WebRTCVadFallback.reset_warnings()
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        WebRTCVadFallback("SharedName")  # base class warns for "SharedName"
+        _SubclassVad("SharedName")  # different class, same string → silent
+        _SubclassVad("OtherName")  # different class, new string → warns
+    user_warnings = [w for w in captured if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == 2
+
+
 def test_vad_detects_silence_to_voice_to_silence_transitions():
     # Use dense random-noise "voice" between two silence chunks. Broadband
     # high-energy audio is reliably classified as speech by webrtcvad at
