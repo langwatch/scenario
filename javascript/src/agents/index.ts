@@ -4,3 +4,4 @@ export * from "./user-simulator-agent";
 export * from "./realtime";
 export * from "./claude-code";
 export * from "./red-team";
+export * from "./opencode";

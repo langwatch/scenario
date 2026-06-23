@@ -57,6 +57,7 @@
     "@ag-ui/core": "^0.0.28",
     "@ai-sdk/openai": "^3.0.26",
     "@openai/agents": "^0.3.3",
+    "@opencode-ai/sdk": "1.17.9",
     "@opentelemetry/sdk-node": "0.212.0",
     "ai": "^6.0.0",
     "chalk": "^5.6.2",

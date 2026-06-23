@@ -296,6 +296,10 @@ export default defineConfig({
           link: "/agent-integration/openai",
         },
         {
+          text: "OpenCode",
+          link: "/agent-integration/opencode",
+        },
+        {
           text: "Pydantic AI",
           link: "/agent-integration/pydantic-ai",
         },

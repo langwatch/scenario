@@ -1,0 +1,559 @@
+/**
+ * Unit tests for the OpenCode agent adapter (`OpenCodeAgentAdapter`).
+ *
+ * Creds-free injection strategy (no real server, no spawn): the tests inject a
+ * fake `OpencodeClient` — a plain object whose `session.create` and
+ * `session.prompt` are `vi.fn()` spies. The adapter accepts the client via the
+ * `client` config field (injection seam; avoids `vi.mock` of the SDK).
+ *
+ * Coverage:
+ *   AC-1  — constructs, implements interface, factory works, call returns string.
+ *   AC-2  — one session per threadId; distinct threadIds → distinct sessions.
+ *   AC-3  — prompt body = latest user message; return = concatenated text parts.
+ *   AC-6  — partsToText: only text parts concatenated; unknown parts skipped (no
+ *            throw); info.error → reject (R2 HTTP-200 semantic error); transport
+ *            error → reject; empty parts → reject; non-text-only → non-empty
+ *            fallback (R3).
+ *   empty-input guard — agent-first (newMessages=[]) → reject before any RPC.
+ *   R4 continuation eviction — stale sessionId evicted after prompt error; next
+ *            call recreates session.
+ *   AC-4 (env-gated) — live multi-turn coding scenario.
+ *
+ * Plus an env-gated integration test (skipped unless `RUN_OPENCODE_E2E=1`)
+ * that runs a real `scenario.run(...)` with `openCodeAgent` and a real judge.
+ */
+
+import type { OpencodeClient } from "@opencode-ai/sdk";
+import type { ModelMessage } from "ai";
+import { describe, it, expect, vi, type Mock } from "vitest";
+
+// OpencodeClient is type-only — the adapter owns the real SDK import at
+// runtime. We import the type purely so we can cast our fake to it.
+
+import { AgentRole, type AgentInput } from "../../domain/index.js";
+// The source under test does NOT exist yet; these imports will fail at
+// collection time (expected RED) until the implementer ships the adapter.
+import { AgentAdapter } from "../../domain/index.js";
+import {
+  OpenCodeAgentAdapter,
+  openCodeAgent,
+  type OpenCodeAgentAdapterConfig,
+} from "../opencode/index.js";
+
+// ---------------------------------------------------------------------------
+// Fake client helpers
+// ---------------------------------------------------------------------------
+
+/** Minimal part shapes the tests push through. */
+interface FakePart {
+  type: string;
+  text?: string;
+  ignored?: boolean;
+  [k: string]: unknown;
+}
+
+/** Default prompt success response. */
+function promptOk(parts: FakePart[] = [{ type: "text", text: "hello" }]) {
+  return { data: { info: {}, parts }, error: undefined };
+}
+
+/** Default session create success response. */
+function sessionOk(id = "sess-1") {
+  return { data: { id }, error: undefined };
+}
+
+/**
+ * Build a typed fake `OpencodeClient`. The real SDK's `session.create` and
+ * `session.prompt` both follow the "fields" responseStyle — they resolve to
+ * `{ data, error }` — never throw. Our fakes mirror that contract exactly.
+ */
+function makeFakeClient(opts: {
+  createResult?: () => unknown;
+  promptResult?: () => unknown;
+} = {}): {
+  client: OpencodeClient;
+  createSpy: Mock;
+  promptSpy: Mock;
+} {
+  const createSpy = vi.fn(opts.createResult ?? (() => sessionOk()));
+  const promptSpy = vi.fn(opts.promptResult ?? (() => promptOk()));
+
+  const client = {
+    session: {
+      create: createSpy,
+      prompt: promptSpy,
+    },
+  } as unknown as OpencodeClient;
+
+  return { client, createSpy, promptSpy };
+}
+
+// ---------------------------------------------------------------------------
+// Input fixtures
+// ---------------------------------------------------------------------------
+
+function makeInput(
+  messages: ModelMessage[],
+  opts: {
+    threadId?: string;
+    newMessages?: ModelMessage[];
+  } = {},
+): AgentInput {
+  return {
+    threadId: opts.threadId ?? "opencode-thread",
+    messages,
+    // Mirror #687: default newMessages to full history (first-turn shape).
+    newMessages: opts.newMessages ?? messages,
+    requestedRole: AgentRole.AGENT,
+    scenarioState: {} as unknown as AgentInput["scenarioState"],
+    scenarioConfig: {
+      name: "opencode-test",
+      description: "A test scenario.",
+    } as unknown as AgentInput["scenarioConfig"],
+  } as AgentInput;
+}
+
+const SIMPLE_USER_MSG: ModelMessage = { role: "user", content: "hello" };
+
+const SIMPLE_INPUT = makeInput([SIMPLE_USER_MSG]);
+
+/** Build a minimal config with an injected client. */
+function makeConfig(
+  client: OpencodeClient,
+  overrides: Partial<Omit<OpenCodeAgentAdapterConfig, "client" | "model">> = {},
+): OpenCodeAgentAdapterConfig {
+  return {
+    model: { providerID: "openai", modelID: "gpt-4o-mini" },
+    client,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AC-1 — interface conformance
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter AC-1 — interface conformance", () => {
+  it("is an instance of AgentAdapter", () => {
+    const { client } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    expect(adapter).toBeInstanceOf(AgentAdapter);
+  });
+
+  it("exposes role === AgentRole.AGENT", () => {
+    const { client } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    expect(adapter.role).toBe(AgentRole.AGENT);
+  });
+
+  it('has name === "OpenCodeAgent"', () => {
+    const { client } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    expect(adapter.name).toBe("OpenCodeAgent");
+  });
+
+  it("openCodeAgent factory returns an OpenCodeAgentAdapter", () => {
+    const { client } = makeFakeClient();
+    const adapter = openCodeAgent(makeConfig(client));
+    expect(adapter).toBeInstanceOf(OpenCodeAgentAdapter);
+  });
+
+  it("call(input) resolves to a string through the fake client", async () => {
+    const { client } = makeFakeClient({
+      promptResult: () => promptOk([{ type: "text", text: "world" }]),
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    const result = await adapter.call(SIMPLE_INPUT);
+    expect(typeof result).toBe("string");
+    expect((result as string).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2 — session-per-threadId
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter AC-2 — session-per-threadId", () => {
+  it("calls session.create exactly once for three calls on the same threadId", async () => {
+    const { client, createSpy, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await adapter.call(makeInput([SIMPLE_USER_MSG]));
+    await adapter.call(makeInput([SIMPLE_USER_MSG]));
+    await adapter.call(makeInput([SIMPLE_USER_MSG]));
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("passes the created session id as path.id on every prompt call", async () => {
+    const sessionId = "sess-sticky";
+    const { client, createSpy, promptSpy } = makeFakeClient({
+      createResult: () => sessionOk(sessionId),
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await adapter.call(makeInput([SIMPLE_USER_MSG]));
+    await adapter.call(makeInput([SIMPLE_USER_MSG]));
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    for (const call of promptSpy.mock.calls) {
+      const opts = call[0] as { path?: { id?: string } };
+      expect(opts?.path?.id).toBe(sessionId);
+    }
+  });
+
+  it("calls session.create a second time for a different threadId", async () => {
+    const { client, createSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "thread-A" }));
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "thread-B" }));
+
+    expect(createSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses distinct session ids for distinct threadIds", async () => {
+    let callCount = 0;
+    const { client, promptSpy } = makeFakeClient({
+      createResult: () => sessionOk(`sess-${++callCount}`),
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "thread-A" }));
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "thread-B" }));
+
+    const promptCallA = promptSpy.mock.calls[0]?.[0] as { path?: { id?: string } };
+    const promptCallB = promptSpy.mock.calls[1]?.[0] as { path?: { id?: string } };
+    expect(promptCallA?.path?.id).not.toBe(promptCallB?.path?.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-3 — latest user message forwarded; reply returned
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter AC-3 — sends latest user message, returns reply", () => {
+  it("sends the new user message text as the prompt body text part", async () => {
+    const { client, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await adapter.call(makeInput([{ role: "user", content: "UNIQUE_USER_TEXT" }]));
+
+    const opts = promptSpy.mock.calls[0]?.[0] as {
+      body?: { parts?: Array<{ type: string; text?: string }> };
+    };
+    const textPart = opts?.body?.parts?.find((p) => p.type === "text");
+    expect(textPart?.text).toContain("UNIQUE_USER_TEXT");
+  });
+
+  it("returns the concatenated text parts from the assistant reply", async () => {
+    const { client } = makeFakeClient({
+      promptResult: () => promptOk([{ type: "text", text: "REPLY_CONTENT" }]),
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    const result = await adapter.call(SIMPLE_INPUT);
+    expect(result).toContain("REPLY_CONTENT");
+  });
+
+  it("renders array-shaped user content (content blocks) to text", async () => {
+    const { client, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    // User message whose content is an array of blocks (not a plain string).
+    await adapter.call(
+      makeInput([
+        {
+          role: "user",
+          content: [{ type: "text", text: "hi" }],
+        } as unknown as ModelMessage,
+      ]),
+    );
+
+    const opts = promptSpy.mock.calls[0]?.[0] as {
+      body?: { parts?: Array<{ type: string; text?: string }> };
+    };
+    const textPart = opts?.body?.parts?.find((p) => p.type === "text");
+    expect(textPart?.text).toContain("hi");
+  });
+
+  it("returns a non-empty string (the returned reply is not empty)", async () => {
+    const { client } = makeFakeClient({
+      promptResult: () => promptOk([{ type: "text", text: "not empty" }]),
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    const result = await adapter.call(SIMPLE_INPUT);
+    expect((result as string).trim().length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-6 + R2/R3 — partsToText filtering and error surfaces
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter AC-6/R2/R3 — parts filtering and error handling", () => {
+  describe("given mixed parts (text + non-text)", () => {
+    it("concatenates only text parts and does not throw", async () => {
+      const mixedParts: FakePart[] = [
+        { type: "text", text: "A" },
+        { type: "tool", name: "bash", input: { cmd: "ls" } },
+        { type: "step-start" },
+        { type: "reasoning", text: "think" },
+        { type: "made-up-future", foo: 1 },
+        { type: "text", text: "B" },
+      ];
+      const { client } = makeFakeClient({
+        promptResult: () => promptOk(mixedParts),
+      });
+      const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+      const result = await adapter.call(SIMPLE_INPUT);
+      expect(result).toContain("A");
+      expect(result).toContain("B");
+      // Non-text type discriminators must NOT appear verbatim in the final text.
+      expect(result).not.toContain("step-start");
+      expect(result).not.toContain("reasoning");
+    });
+  });
+
+  describe("given a text part with ignored: true", () => {
+    it("skips the ignored part and does not include its text", async () => {
+      const parts: FakePart[] = [
+        { type: "text", text: "IGNORED_PART", ignored: true },
+        { type: "text", text: "VISIBLE_PART" },
+      ];
+      const { client } = makeFakeClient({
+        promptResult: () => promptOk(parts),
+      });
+      const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+      const result = await adapter.call(SIMPLE_INPUT);
+      expect(result).not.toContain("IGNORED_PART");
+      expect(result).toContain("VISIBLE_PART");
+    });
+  });
+
+  describe("given a semantic error in info.error (R2 — HTTP 200 with error)", () => {
+    it("rejects with a non-empty error message when info.error is truthy", async () => {
+      const { client } = makeFakeClient({
+        promptResult: () => ({
+          data: {
+            info: { error: { name: "MessageOutputLengthError", message: "too long" } },
+            parts: [],
+          },
+          error: undefined,
+        }),
+      });
+      const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow();
+      try {
+        await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "err-thread" }));
+      } catch (e) {
+        expect((e as Error).message.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe("given a transport error (result.error is set) (R2 — transport layer)", () => {
+    it("rejects when result.error is truthy", async () => {
+      const { client } = makeFakeClient({
+        promptResult: () => ({
+          data: undefined,
+          error: { status: 500, message: "internal server error" },
+        }),
+      });
+      const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow();
+    });
+  });
+
+  describe("given an empty parts array with no info.error (R3 — truly empty response)", () => {
+    it("rejects when parts is empty and info has no error", async () => {
+      const { client } = makeFakeClient({
+        promptResult: () => ({ data: { info: {}, parts: [] }, error: undefined }),
+      });
+      const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow();
+    });
+  });
+
+  describe("given only non-text parts (R3 — non-empty fallback)", () => {
+    it("resolves to a non-empty string when all parts are non-text (tool-use fallback)", async () => {
+      const parts: FakePart[] = [
+        { type: "tool", name: "bash", input: { cmd: "echo hi" } },
+      ];
+      const { client } = makeFakeClient({
+        promptResult: () => promptOk(parts),
+      });
+      const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+      const result = await adapter.call(SIMPLE_INPUT);
+      // Must resolve (not reject) and the result must be a non-empty string.
+      expect(typeof result).toBe("string");
+      expect((result as string).trim().length).toBeGreaterThan(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Empty-input guard — agent-first (no user turn)
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter empty-input guard", () => {
+  it("rejects before calling session.create or session.prompt when newMessages is empty", async () => {
+    const { client, createSpy, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    // Agent-first shape: the newMessages delta is empty (no user content).
+    await expect(
+      adapter.call(makeInput([SIMPLE_USER_MSG], { newMessages: [] })),
+    ).rejects.toThrow();
+
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(promptSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects with a message indicating a user turn is required", async () => {
+    const { client } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await expect(
+      adapter.call(makeInput([SIMPLE_USER_MSG], { newMessages: [] })),
+    ).rejects.toThrow(/user/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R4 — continuation eviction after prompt error
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter R4 — stale session eviction after prompt error", () => {
+  it("calls session.create again on the third call after the second call's prompt fails", async () => {
+    let promptCallIndex = 0;
+    const { client, createSpy, promptSpy } = makeFakeClient({
+      promptResult: () => {
+        promptCallIndex++;
+        if (promptCallIndex === 2) {
+          // Second prompt call fails with a transport error.
+          return { data: undefined, error: { status: 503, message: "unavailable" } };
+        }
+        return promptOk();
+      },
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    // Call 1: succeeds — session created.
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "evict-thread" }));
+    expect(createSpy).toHaveBeenCalledTimes(1);
+
+    // Call 2: prompt fails — session should be evicted.
+    await expect(
+      adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "evict-thread" })),
+    ).rejects.toThrow();
+
+    // Call 3: same threadId — create must be called AGAIN (stale id evicted).
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "evict-thread" }));
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    expect(promptSpy).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// close() — teardown is callable
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter close()", () => {
+  it("resolves without error when close() is called on an injected-client adapter", async () => {
+    const { client } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    await expect(adapter.close()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-4 env-gated integration (RUN_OPENCODE_E2E=1) — live multi-turn scenario
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
+  "OpenCodeAgentAdapter integration (RUN_OPENCODE_E2E=1)",
+  () => {
+    it(
+      "runs a multi-turn coding scenario with a real judge and returns a passing verdict",
+      async () => {
+        // Re-import the real scenario barrel (no mocks in scope for this test).
+        const scenario = (await import("../../index.js")).default;
+        const { openai } = await import("@ai-sdk/openai");
+
+        const judgeModelId = process.env.SCENARIO_JUDGE_MODEL ?? "gpt-4o-mini";
+
+        // Use the real openCodeAgent — NO injected client, lets the adapter
+        // spawn the opencode binary (requires opencode on PATH + provider keys).
+        const agent = openCodeAgent({
+          model: {
+            providerID: process.env.OPENCODE_PROVIDER_ID ?? "openai",
+            modelID: process.env.OPENCODE_MODEL_ID ?? "gpt-4o-mini",
+          },
+          workingDirectory: process.cwd(),
+        });
+
+        try {
+          const result = await scenario.run({
+            name: "opencode-e2e-multiturn",
+            description:
+              "Verifies the OpenCode adapter in a multi-turn coding scenario: " +
+              "user asks the agent to write a simple function, then add a test for it.",
+            agents: [
+              agent,
+              scenario.userSimulatorAgent({ model: openai(judgeModelId) }),
+              scenario.judgeAgent({
+                model: openai(judgeModelId),
+                criteria: [
+                  "The agent writes a working JavaScript/TypeScript function that adds two numbers.",
+                  "The agent acknowledges or writes a test for the function when asked.",
+                ],
+              }),
+            ],
+            script: [
+              scenario.user(
+                "Write a JavaScript function called `add` that takes two numbers and returns their sum. " +
+                "Just the function definition, no file operations needed.",
+              ),
+              scenario.agent(),
+              scenario.user(
+                "Now write a simple unit test for the `add` function you just wrote. " +
+                "Just the test code, using any test style you like.",
+              ),
+              scenario.agent(),
+              scenario.judge(),
+            ],
+          });
+
+          expect(result.success).toBe(true);
+
+          // Verify there are at least two non-empty assistant turns.
+          const assistantTurns = result.messages.filter(
+            (m: ModelMessage) => m.role === "assistant",
+          );
+          expect(assistantTurns.length).toBeGreaterThanOrEqual(2);
+
+          // The last assistant turn must mention the function or test in some form.
+          const lastAssistant = assistantTurns.at(-1);
+          const lastText =
+            typeof lastAssistant?.content === "string"
+              ? lastAssistant.content
+              : JSON.stringify(lastAssistant?.content ?? "");
+          expect(lastText.trim().length).toBeGreaterThan(0);
+        } finally {
+          // Tear down the auto-spawned opencode server so it does not leak its
+          // port bind to the next run (serial e2e runs would otherwise collide).
+          await agent.close();
+        }
+      },
+      180000,
+    );
+  },
+);
