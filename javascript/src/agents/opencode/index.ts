@@ -4,12 +4,13 @@ import type { OpenCodeAgentAdapterConfig } from "./opencode-agent.adapter.js";
 export { OpenCodeAgentAdapter } from "./opencode-agent.adapter.js";
 export type {
   OpenCodeAgentAdapterConfig,
-  Logger,
+  OpenCodeLogger,
 } from "./opencode-agent.adapter.js";
 
 /**
- * Factory for {@link OpenCodeAgentAdapter}, mirroring the lowercase-factory idiom
- * used by `userSimulatorAgent` and the Claude Code sibling's `claudeCodeAgent`.
+ * Factory for {@link OpenCodeAgentAdapter}, following the lowercase-factory idiom
+ * used by `userSimulatorAgent` (and planned for the in-flight Claude Code adapter,
+ * PR #687).
  *
  * Pass an injected `config.client` to drive a fake/real OpencodeClient directly
  * (no server spawn); omit it to let the adapter lazily spawn and own an OpenCode
