@@ -48,6 +48,9 @@ importers:
       '@openai/agents':
         specifier: ^0.16.0
         version: 0.16.0(ws@8.21.3)(zod@3.25.76)
+      '@opencode-ai/sdk':
+        specifier: 1.17.9
+        version: 1.17.9
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -1244,6 +1247,9 @@ packages:
     resolution: {integrity: sha512-IINrp7Iajg6sHIoh56jD0WqIszk0+lEkyj/sWsNZgT/m6oFEuZC5UHsOhQX7Rc6uUhRyEQE7knzk8iyxpWd+Dg==}
     peerDependencies:
       zod: ^4.0.0
+
+  '@opencode-ai/sdk@1.17.9':
+    resolution: {integrity: sha512-MHmXEpGPHkg14v1p+cUlIOUxd6DQdSElfau9nqY7tcDI0x5r4Y8D0dKXcyAh0Gc73ptaGW67Vg84nkcV6O27Pw==}
 
   '@opentelemetry/api-logs@0.205.0':
     resolution: {integrity: sha512-wBlPk1nFB37Hsm+3Qy73yQSobVn28F4isnWIBvKpd5IUH/eat8bwcL02H9yzmHyyPmukeccSl2mbN5sDQZYnPg==}
@@ -3047,6 +3053,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -6565,6 +6572,10 @@ snapshots:
       - supports-color
       - utf-8-validate
       - ws
+
+  '@opencode-ai/sdk@1.17.9':
+    dependencies:
+      cross-spawn: 7.0.6
 
   '@opentelemetry/api-logs@0.205.0':
     dependencies:

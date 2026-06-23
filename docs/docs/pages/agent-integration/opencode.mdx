@@ -1,0 +1,158 @@
+---
+title: OpenCode Adapter
+description: Drive the OpenCode coding agent (sst/opencode) as an agent-under-test in a Scenario run — tests real tool use and multi-turn coding behavior against a live server.
+---
+
+# `OpenCodeAgentAdapter`
+
+Drives the [OpenCode](https://opencode.ai/) coding agent (`sst/opencode`) via
+`@opencode-ai/sdk` as an agent-under-test inside a Scenario run. The adapter
+keeps conversation state server-side — one OpenCode session per scenario thread
+— so each turn sends only the new user message, not a full-history replay.
+
+:::info TypeScript only
+
+The OpenCode adapter is TypeScript-only today. Python parity is tracked as a
+follow-up.
+
+:::
+
+## Install
+
+```bash
+npm install @langwatch/scenario @opencode-ai/sdk
+```
+
+The adapter does NOT install the `opencode` binary automatically. For **live
+runs** (no injected `client`), install the CLI separately:
+
+```bash
+npm install -g opencode-ai
+```
+
+Or follow the installation docs at [opencode.ai](https://opencode.ai/).
+
+## Usage
+
+:::code-group
+
+```typescript [typescript]
+import scenario, { openCodeAgent } from "@langwatch/scenario";
+import path from "path";
+
+let adapter: ReturnType<typeof openCodeAgent>;
+
+beforeAll(() => {
+  adapter = openCodeAgent({
+    model: { providerID: "openai", modelID: "gpt-4o-mini" },
+    workingDirectory: path.resolve(__dirname, "../fixtures/my-project"),
+    timeout: 60_000,
+  });
+});
+
+afterAll(async () => {
+  await adapter.close();
+});
+
+it("refactors the target file correctly", async () => {
+  const result = await scenario.run({
+    name: "OpenCode refactor scenario",
+    agents: [
+      adapter,
+      scenario.userSimulatorAgent(),
+      scenario.judgeAgent({
+        criteria: [
+          "Agent made the requested code change",
+          "Agent did not introduce new errors or regressions",
+        ],
+      }),
+    ],
+    script: [
+      scenario.user("Rename the `calculate` function to `computeTotal` in utils.ts"),
+      scenario.agent(),
+      scenario.user("Now add a JSDoc comment to the renamed function"),
+      scenario.agent(),
+      scenario.judge(),
+    ],
+  });
+
+  expect(result.success).toBe(true);
+});
+```
+
+:::
+
+`openCodeAgent(config)` is the recommended factory. It constructs a new
+`OpenCodeAgentAdapter` and is the idiomatic entry point — matching the lowercase
+factory pattern used by `userSimulatorAgent` and `claudeCodeAgent`.
+
+## Auto-start and teardown
+
+When you **omit** `client` from the config, the adapter automatically spawns and
+owns an `opencode serve` process on first use. There is no manual server startup
+step.
+
+- The adapter calls `createOpencode()` from `@opencode-ai/sdk`, which shells out
+  to the `opencode` binary on PATH. If the binary is absent, the first `call`
+  rejects with a clear spawn error.
+- Call `await adapter.close()` in `afterAll` to shut the auto-spawned server
+  down cleanly. Skipping this leaves an orphan process.
+
+```typescript
+afterAll(async () => {
+  await adapter.close(); // shuts down the auto-spawned opencode server
+});
+```
+
+When you provide your own `client`, `close()` is a no-op — you own the server
+lifecycle.
+
+## Provider API keys
+
+OpenCode reads provider credentials from its **own environment** — the adapter
+does not inject them. Which variable you need depends on the `providerID` you
+configure:
+
+| `providerID` | Required env var |
+|---|---|
+| `openai` | `OPENAI_API_KEY` |
+| `anthropic` | `ANTHROPIC_API_KEY` |
+| `google` | `GOOGLE_API_KEY` |
+| others | See `opencode auth login` or the OpenCode provider docs |
+
+Set the variable in your shell or CI environment before running tests. Scenario's
+own user-simulator and judge agents also need an LLM key — typically
+`OPENAI_API_KEY`.
+
+## Configuration
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | `{ providerID: string; modelID: string }` | **required** | Provider and model the OpenCode agent runs. Required as a product decision for reproducible, auditable evaluations — pin a deterministic model. Example: `{ providerID: "openai", modelID: "gpt-4o-mini" }`. |
+| `workingDirectory` | `string` | — | Directory the OpenCode agent operates on. Forwarded as `query.directory` on each SDK call. File reads and writes inside the agent resolve relative to this path. |
+| `timeout` | `number` | none (unbounded) | Per-call timeout in ms. Cancels the in-flight prompt via `AbortSignal` and rejects the call. Best-effort: depends on whether the underlying server honours the abort. |
+| `logger` | `Logger` | no-op | Receives all adapter diagnostics (`log` and `warn`). Omit for silent operation. |
+| `client` | `OpencodeClient` | — | Advanced injection seam. Provide a pre-built `OpencodeClient` to drive a custom or pre-started server, or to inject a fake for unit tests. When provided, `close()` is a no-op. |
+
+## How it differs from Claude Code
+
+The Claude Code adapter spawns `claude -p` fresh for every turn and replays the
+full conversation history as a flat prompt, because the CLI is stateless.
+OpenCode keeps the conversation server-side in a named session: the adapter
+creates one session per `threadId` on the first turn and sends only the new user
+message on every subsequent turn. As a result, there is no full-history rebuild
+per turn — the OpenCode server holds the transcript and the adapter delivers
+deltas only.
+
+## Caveats
+
+- **`opencode` must be on PATH** (or installed globally via `npm i -g opencode-ai`)
+  when no `client` is injected. The adapter does not install the binary.
+- **Provider keys are not injected** — configure them in the environment as
+  described above. A missing key produces a `ProviderAuthError` on the first
+  prompt call.
+- **Agent-first scenarios are unsupported** — OpenCode requires a user message to
+  begin a turn. If the scenario's script starts with `scenario.agent()` before
+  any `scenario.user()`, the adapter throws a descriptive error.
+- **`model` is required** — the OpenCode server has its own default, but scenario
+  evaluations must pin a deterministic model for reproducibility.
