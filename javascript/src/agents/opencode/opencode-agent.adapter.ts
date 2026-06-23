@@ -147,13 +147,15 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   name = "OpenCodeAgent";
 
   /**
-   * Per-thread OpenCode session ids (`threadId` → `session.id`). Populated after
-   * a thread's first turn and consulted on every subsequent turn to reuse the
-   * server-side session. The adapter instance is reused across a scenario's
-   * turns, so this persists for the conversation's lifetime. Evicted on a
-   * continuation prompt failure so the next turn rebuilds the session.
+   * Per-thread OpenCode session creation, keyed `threadId` → in-flight-or-resolved
+   * `Promise<session.id>`. Storing the PROMISE (not the resolved id) dedupes a
+   * check-then-create race: two concurrent first-calls on the same thread share
+   * ONE `session.create` instead of both creating (one-session-per-thread). The
+   * adapter instance is reused across a scenario's turns, so this persists for the
+   * conversation's lifetime; evicted on a failed create or a continuation prompt
+   * failure so the next turn rebuilds the session.
    */
-  private sessions = new Map<string, string>();
+  private sessions = new Map<string, Promise<string>>();
 
   /**
    * Memoized auto-spawned server promise — set only when no `client` is
@@ -197,6 +199,24 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   }
 
   /**
+   * Resolve the per-call abort signal from `config.timeout`. Returns undefined
+   * when no timeout is configured. Throws on a non-positive or non-finite value
+   * (e.g. an explicitly-set `0`) so a bad timeout fails loudly rather than being
+   * silently ignored by a truthiness check — mirroring the Claude Code sibling's
+   * timeout validation.
+   */
+  private timeoutSignal(): AbortSignal | undefined {
+    const timeout = this.config.timeout;
+    if (timeout == null) return undefined;
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      throw new Error(
+        `OpenCodeAgentAdapter timeout must be a positive, finite number of milliseconds; received ${timeout}`,
+      );
+    }
+    return AbortSignal.timeout(timeout);
+  }
+
+  /**
    * Resolve (creating if needed) the server-side session id for a thread. The
    * `create` happens AT MOST once per `threadId` (subsequent turns reuse the
    * stored id), satisfying the one-session-per-thread contract.
@@ -207,26 +227,42 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     threadId: string,
     client: OpencodeClient,
   ): Promise<{ sessionId: string; isContinuation: boolean }> {
+    // A stored promise (in-flight OR resolved) means the session already exists
+    // or is being created for this thread → a continuation turn that awaits the
+    // same `session.create`. This closes the check-then-create race.
     const existing = this.sessions.get(threadId);
     if (existing) {
-      return { sessionId: existing, isContinuation: true };
+      return { sessionId: await existing, isContinuation: true };
     }
 
-    const created = await client.session.create({
-      body: { title: `scenario:${threadId}` },
-      ...(this.directoryQuery() ? { query: this.directoryQuery() } : {}),
-    });
-    if (created.error || !created.data?.id) {
-      throw new Error(
-        `OpenCode session.create failed for thread "${threadId}": ${describeError(
-          created.error,
-        )}`,
-      );
-    }
+    const creating = (async () => {
+      const created = await client.session.create({
+        body: { title: `scenario:${threadId}` },
+        ...(this.directoryQuery() ? { query: this.directoryQuery() } : {}),
+      });
+      if (created.error || !created.data?.id) {
+        throw new Error(
+          `OpenCode session.create failed for thread "${threadId}": ${describeError(
+            created.error,
+          )}`,
+        );
+      }
+      return created.data.id;
+    })();
+    this.sessions.set(threadId, creating);
 
-    const sessionId = created.data.id;
-    this.sessions.set(threadId, sessionId);
-    return { sessionId, isContinuation: false };
+    try {
+      const sessionId = await creating;
+      return { sessionId, isContinuation: false };
+    } catch (err) {
+      // Create failed — evict the rejected promise so a later turn retries
+      // instead of awaiting a permanently-rejected create. Guard on identity so
+      // a newer create promise (if any) is not clobbered.
+      if (this.sessions.get(threadId) === creating) {
+        this.sessions.delete(threadId);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -250,6 +286,10 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       );
     }
 
+    // Resolve (and validate) the timeout signal before any RPC, so a bad
+    // `timeout` (e.g. 0) fails fast instead of after a session.create.
+    const signal = this.timeoutSignal();
+
     const client = await this.ensureClient();
     const { sessionId, isContinuation } = await this.resolveSessionId(
       input.threadId,
@@ -270,9 +310,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       // Best-effort cancellation: AbortSignal.timeout is a valid prompt option
       // (it survives on RequestOptions). If the server ignores it, the call
       // still settles when the prompt resolves.
-      ...(this.config.timeout
-        ? { signal: AbortSignal.timeout(this.config.timeout) }
-        : {}),
+      ...(signal ? { signal } : {}),
     });
 
     // Layer 1 — transport error. Evict a stale continuation session so the next

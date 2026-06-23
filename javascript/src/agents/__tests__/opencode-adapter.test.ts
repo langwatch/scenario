@@ -347,12 +347,12 @@ describe("OpenCodeAgentAdapter AC-6/R2/R3 — parts filtering and error handling
       });
       const adapter = new OpenCodeAgentAdapter(makeConfig(client));
 
-      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow();
-      try {
-        await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "err-thread" }));
-      } catch (e) {
-        expect((e as Error).message.length).toBeGreaterThan(0);
-      }
+      // Strict: a single rejects assertion that also proves the thrown message
+      // NAMES the semantic error variant (describeError surfaced info.error),
+      // rather than a try/catch that would silently pass if call() resolved.
+      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(
+        /MessageOutputLengthError/,
+      );
     });
   });
 
@@ -459,6 +459,42 @@ describe("OpenCodeAgentAdapter R4 — stale session eviction after prompt error"
     await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "evict-thread" }));
     expect(createSpy).toHaveBeenCalledTimes(2);
     expect(promptSpy).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrency + config validation
+// ---------------------------------------------------------------------------
+
+describe("OpenCodeAgentAdapter concurrency + config validation", () => {
+  it("dedupes concurrent first-calls on the same threadId to ONE session.create", async () => {
+    // Two calls fired together on the same thread must share one session.create
+    // (the stored in-flight promise closes the check-then-create race).
+    const { client, createSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await Promise.all([
+      adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race" })),
+      adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race" })),
+    ]);
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws on timeout=0 (explicitly set, not silently ignored) before any RPC", async () => {
+    const { client, createSpy, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client, { timeout: 0 }));
+
+    await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/timeout/i);
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(promptSpy).not.toHaveBeenCalled();
+  });
+
+  it("throws on a negative timeout", async () => {
+    const { client } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client, { timeout: -5 }));
+
+    await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/timeout/i);
   });
 });
 
