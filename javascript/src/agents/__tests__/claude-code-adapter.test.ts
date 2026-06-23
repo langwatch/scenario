@@ -1154,17 +1154,20 @@ describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
         // Judge must pass — agent recalled the token across turns.
         expect(result.success).toBe(true);
 
-        // The real assistant output must contain the token (proves --resume
-        // carried context, not a coincidental hallucination).
-        const assistantText = result.messages
-          .filter((m) => m.role === "assistant")
-          .map((m) =>
-            typeof m.content === "string"
-              ? m.content
-              : JSON.stringify(m.content),
-          )
-          .join("\n");
-        expect(assistantText).toContain("KUMQUAT77");
+        // Recall must appear in the LAST assistant turn (turn 2's reply on the
+        // RESUMED session) — not merely somewhere across both turns. Turn 1's
+        // acknowledgment echoes the token, so concatenating all assistant
+        // messages would pass even if --resume carried no context. Isolating the
+        // final assistant message is what actually proves session continuation.
+        const assistantMessages = result.messages.filter(
+          (m) => m.role === "assistant",
+        );
+        const lastAssistant = assistantMessages.at(-1);
+        const lastAssistantText =
+          typeof lastAssistant?.content === "string"
+            ? lastAssistant.content
+            : JSON.stringify(lastAssistant?.content ?? "");
+        expect(lastAssistantText).toContain("KUMQUAT77");
       },
       180000,
     );
