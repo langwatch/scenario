@@ -43,7 +43,6 @@ from scenario.voice.adapters.pipecat import PipecatRecvError
 #     draining all frames will raise StopAsyncIteration from __anext__.
 
 _SENTINEL_CLOSE = object()
-_SENTINEL_CRASH = object()
 
 
 class _ScriptedFakeWebSocket:
