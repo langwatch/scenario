@@ -7,9 +7,10 @@
  * thread, drives a single `session.prompt(...)` completion, and returns the
  * assistant-visible text as a `string`.
  *
- * Unlike the Claude Code sibling adapter — which spawns `claude -p` per turn and
- * REPLAYS the conversation as a flat prompt — OpenCode keeps the full transcript
- * SERVER-SIDE keyed by a session id. The SDK's `session.prompt(...)` resolves
+ * Unlike a replay-style coding adapter — e.g. the in-flight Claude Code adapter
+ * (PR #687), which spawns `claude -p` per turn and REPLAYS the conversation as a
+ * flat prompt — OpenCode keeps the full transcript SERVER-SIDE keyed by a session
+ * id. The SDK's `session.prompt(...)` resolves
  * only after the assistant finishes (a completion primitive; no SSE needed), and
  * the session already holds the prior turns. Therefore:
  *  - We send ONLY the NEW user text ({@link extractNewUserText} over
@@ -24,8 +25,8 @@
  *  - Subsequent turns: reuse the stored id as `path.id` on `session.prompt(...)`.
  *  - If a continuation `prompt(...)` fails at the transport layer, the stored id
  *    is EVICTED so the next turn for that thread recreates the session (the
- *    stored session may no longer resolve) — mirroring the Claude Code sibling's
- *    `--resume` eviction.
+ *    stored session may no longer resolve) — the same eviction-on-failure stance
+ *    the in-flight Claude Code adapter (PR #687) takes for its `--resume` id.
  *
  * Two-layer error handling (the SDK uses responseStyle "fields" with
  * `throwOnError` defaulting to `false`, so the calls resolve to `{ data, error }`
@@ -42,11 +43,11 @@
  * completion with NO parts at all is treated as a genuine empty response and
  * rejected.
  *
- * Hardening (mirrors the Claude Code sibling):
+ * Hardening (the same defenses the in-flight Claude Code adapter (PR #687) adopts):
  *  a. Structured non-text parts are rendered readably, never `[object Object]`.
  *  b. An optional `timeout` cancels the in-flight prompt via `AbortSignal`.
- *  c. All diagnostics route through an injectable {@link Logger}; absent one, a
- *     no-op logger is used. No `console.*` and no `chalk` anywhere.
+ *  c. All diagnostics route through an injectable {@link OpenCodeLogger}; absent
+ *     one, a no-op logger is used. No `console.*` and no `chalk` anywhere.
  *  d. The OpencodeClient is an injection seam (`config.client`): provide your own
  *     for tests (no real server, no spawn), or omit it to let the adapter lazily
  *     spawn and own an OpenCode server (closed by {@link OpenCodeAgentAdapter.close}).
@@ -56,22 +57,22 @@ import { createOpencode } from "@opencode-ai/sdk";
 import type { OpencodeClient, Part } from "@opencode-ai/sdk";
 import type { ModelMessage } from "ai";
 
-import { AgentAdapter, AgentRole } from "../../domain/agents/index.js";
-import type { AgentInput, AgentReturnTypes } from "../../domain/agents/index.js";
+import { AgentAdapter, AgentRole } from "../../domain/agents";
+import type { AgentInput, AgentReturnTypes } from "../../domain/agents";
 
 /**
  * Minimal structural logger the adapter routes ALL diagnostics through. Provide
- * your own (e.g. wrapping a real logger) or omit it for silent operation.
+ * your own (e.g. wrapping a real logger) or omit it for silent operation. Named
+ * `OpenCodeLogger` to avoid colliding with the `Logger` class in
+ * `src/utils/logger.ts` when re-exported from the package barrel.
  */
-export interface Logger {
+export interface OpenCodeLogger {
   log: (...args: unknown[]) => void;
-  warn: (...args: unknown[]) => void;
 }
 
 /** No-op logger used when none is injected — keeps the adapter silent and console-free. */
-const noopLogger: Logger = {
+const noopLogger: OpenCodeLogger = {
   log: () => undefined,
-  warn: () => undefined,
 };
 
 /**
@@ -83,6 +84,19 @@ interface OwnedServer {
   client: OpencodeClient;
   server: { close(): void };
 }
+
+/**
+ * The fields of an awaited `client.session.prompt(...)` the triage reads — under
+ * the SDK's "fields" responseStyle the call resolves to `{ data, error }` and
+ * never throws. Typed structurally (not via `Awaited<ReturnType<…>>`, whose
+ * generic `ThrowOnError` default collapses to the throw-branch and drops `error`)
+ * so {@link OpenCodeAgentAdapter.interpretPromptResult} reads exactly the surface
+ * it uses: the transport `error`, the semantic `data.info.error`, and `data.parts`.
+ */
+type PromptResult = {
+  error?: unknown;
+  data?: { info?: { error?: unknown }; parts?: Part[] };
+};
 
 /**
  * Configuration for {@link OpenCodeAgentAdapter}.
@@ -115,7 +129,7 @@ export interface OpenCodeAgentAdapterConfig {
   /**
    * Optional logger for all diagnostics. Defaults to a no-op logger (silent).
    */
-  logger?: Logger;
+  logger?: OpenCodeLogger;
 
   /**
    * Injection seam for the OpenCode SDK client. When provided, the adapter uses
@@ -170,7 +184,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   }
 
   /** The effective logger (injected or no-op). */
-  private get logger(): Logger {
+  private get logger(): OpenCodeLogger {
     return this.config.logger ?? noopLogger;
   }
 
@@ -202,8 +216,8 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
    * Resolve the per-call abort signal from `config.timeout`. Returns undefined
    * when no timeout is configured. Throws on a non-positive or non-finite value
    * (e.g. an explicitly-set `0`) so a bad timeout fails loudly rather than being
-   * silently ignored by a truthiness check — mirroring the Claude Code sibling's
-   * timeout validation.
+   * silently ignored by a truthiness check — the same timeout validation the
+   * in-flight Claude Code adapter (PR #687) performs.
    */
   private timeoutSignal(): AbortSignal | undefined {
     const timeout = this.config.timeout;
@@ -214,6 +228,24 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       );
     }
     return AbortSignal.timeout(timeout);
+  }
+
+  /**
+   * Evict a thread's stored session promise so the next turn rebuilds it.
+   *
+   * When `promise` is supplied, deletes ONLY if it is still the stored entry
+   * (identity guard) — so a newer create promise that replaced it is never
+   * clobbered. With no `promise`, deletes unconditionally (used when triaging a
+   * failed continuation prompt, where the stored entry is the one to drop).
+   */
+  private evictSession(threadId: string, promise?: Promise<string>): void {
+    if (promise === undefined) {
+      this.sessions.delete(threadId);
+      return;
+    }
+    if (this.sessions.get(threadId) === promise) {
+      this.sessions.delete(threadId);
+    }
   }
 
   /**
@@ -235,10 +267,11 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       return { sessionId: await existing, isContinuation: true };
     }
 
+    const query = this.directoryQuery();
     const creating = (async () => {
       const created = await client.session.create({
         body: { title: `scenario:${threadId}` },
-        ...(this.directoryQuery() ? { query: this.directoryQuery() } : {}),
+        ...(query ? { query } : {}),
       });
       if (created.error || !created.data?.id) {
         throw new Error(
@@ -256,11 +289,9 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       return { sessionId, isContinuation: false };
     } catch (err) {
       // Create failed — evict the rejected promise so a later turn retries
-      // instead of awaiting a permanently-rejected create. Guard on identity so
-      // a newer create promise (if any) is not clobbered.
-      if (this.sessions.get(threadId) === creating) {
-        this.sessions.delete(threadId);
-      }
+      // instead of awaiting a permanently-rejected create. Identity-guarded so a
+      // newer create promise (if any) is not clobbered.
+      this.evictSession(threadId, creating);
       throw err;
     }
   }
@@ -300,24 +331,45 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       `OpenCode prompting session ${sessionId} (thread ${input.threadId})`,
     );
 
+    const query = this.directoryQuery();
     const result = await client.session.prompt({
       path: { id: sessionId },
       body: {
         model: this.config.model,
         parts: [{ type: "text", text: promptText }],
       },
-      ...(this.directoryQuery() ? { query: this.directoryQuery() } : {}),
+      ...(query ? { query } : {}),
       // Best-effort cancellation: AbortSignal.timeout is a valid prompt option
       // (it survives on RequestOptions). If the server ignores it, the call
       // still settles when the prompt resolves.
       ...(signal ? { signal } : {}),
     });
 
+    return this.interpretPromptResult(result, input.threadId, isContinuation);
+  }
+
+  /**
+   * Triage a resolved `session.prompt` result into assistant text (or a throw).
+   *
+   * Two error layers then the success path:
+   *  1. Transport (`result.error`) — on a continuation, evict the stale session
+   *     so the next turn recreates it, then throw the prompt-failed error.
+   *  2. Semantic (`result.data.info.error`) — HTTP 200 but a provider/runtime
+   *     error; throw it by name.
+   *  3. Success — return the concatenated text parts; if there are parts but no
+   *     visible text (e.g. a tool-only turn) return a non-empty readable
+   *     fallback (R3); only a parts-less completion is a genuine empty response.
+   */
+  private interpretPromptResult(
+    result: PromptResult,
+    threadId: string,
+    isContinuation: boolean,
+  ): string {
     // Layer 1 — transport error. Evict a stale continuation session so the next
     // turn recreates it, then surface a friendly error.
     if (result.error) {
       if (isContinuation) {
-        this.sessions.delete(input.threadId);
+        this.evictSession(threadId);
       }
       throw new Error(
         `OpenCode prompt failed: ${describeError(result.error)}`,
@@ -356,8 +408,12 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     if (!this.serverPromise) {
       return;
     }
-    const { server } = await this.serverPromise;
-    server.close();
+    try {
+      const { server } = await this.serverPromise;
+      server.close();
+    } catch {
+      // The server never started (spawn failed) — nothing to close.
+    }
   }
 }
 
@@ -383,48 +439,31 @@ export function extractNewUserText(newMessages: ModelMessage[]): string {
 }
 
 /**
- * Render a single message's content to a string.
+ * Render a USER message's content to text for the OpenCode prompt.
  *
- * A string is returned as-is; an array of content blocks is rendered block by
- * block ({@link renderContentBlock}) and joined. A message whose content is only
- * structured (e.g. tool) blocks therefore renders to those blocks — never an
- * empty string from a non-empty input.
+ * A string is returned as-is; an array of content blocks keeps only the text
+ * blocks (joined by newlines). Non-text blocks (image/file) are dropped — user
+ * turns are prose and only the text is forwarded to opencode. `extractNewUserText`
+ * only ever feeds USER-role content here, which never carries tool-call /
+ * tool-result / reasoning blocks, so those need no handling.
  */
 export function renderContent(content: ModelMessage["content"]): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content.map(renderContentBlock).filter(Boolean).join("\n");
-}
-
-/**
- * Render a single `ai`-SDK content block to a readable string. Structured blocks
- * are made readable rather than dropped, so a tool-call/tool-result is preserved
- * in the prompt instead of collapsing to a bare label. NOTE the `ai`-SDK block
- * discriminators are HYPHENATED (`tool-call`, `tool-result`).
- */
-function renderContentBlock(block: unknown): string {
-  if (typeof block === "string") return block;
-  if (!block || typeof block !== "object") return "";
-
-  const b = block as Record<string, unknown>;
-  switch (b["type"]) {
-    case "text":
-    case "reasoning":
-      return typeof b["text"] === "string" ? b["text"] : "";
-    case "tool-call":
-      return `[tool-call: ${String(b["toolName"] ?? "unknown")}(${safeStringify(
-        b["input"],
-      )})]`;
-    case "tool-result":
-      return `[tool-result: ${String(b["toolName"] ?? "unknown")} -> ${safeStringify(
-        b["output"] ?? b["result"],
-      )}]`;
-    case "file":
-      return `[file: ${String(b["mediaType"] ?? "application/octet-stream")}]`;
-    default:
-      // Unknown block: still surface it readably rather than dropping it.
-      return safeStringify(block);
-  }
+  return content
+    .map((block) => {
+      if (typeof block === "string") return block;
+      if (
+        block && typeof block === "object" &&
+        (block as { type?: unknown }).type === "text" &&
+        typeof (block as { text?: unknown }).text === "string"
+      ) {
+        return (block as { text: string }).text;
+      }
+      return ""; // user turns are text; non-text blocks (image/file) are not forwarded to the prompt
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 /**
@@ -433,20 +472,15 @@ function renderContentBlock(block: unknown): string {
  * Keeps ONLY `type === "text"` parts that are not `ignored`, joins their `.text`
  * with newlines, and SKIPS every other part type (tool, reasoning, step-start,
  * step-finish, file, …) WITHOUT throwing — a real reply interleaves those and
- * only the text parts are the visible assistant message. Defensive indexing (via
- * a `Record<string, unknown>` cast) avoids fighting the large `Part` union for
- * the three fields we read.
+ * only the text parts are the visible assistant message. Narrows on the `Part`
+ * union discriminant (`type === "text"`) rather than casting to
+ * `Record<string, unknown>`, restoring compile-time safety: if the SDK renames
+ * or adds a text variant, the build fails here instead of silently dropping text.
  */
 export function partsToText(parts: Part[] | undefined): string {
   return (parts ?? [])
-    .filter((part) => {
-      const p = part as unknown as Record<string, unknown>;
-      return p?.["type"] === "text" && p?.["ignored"] !== true;
-    })
-    .map((part) => {
-      const p = part as unknown as Record<string, unknown>;
-      return typeof p["text"] === "string" ? p["text"] : "";
-    })
+    .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text" && p.ignored !== true)
+    .map((p) => p.text)
     .filter(Boolean)
     .join("\n");
 }
@@ -498,21 +532,18 @@ function describeError(error: unknown): string {
 }
 
 /**
- * Circular-safe `JSON.stringify`. A `WeakSet` seen-guard replaces any value
- * already on the current path with `"[Circular]"` so structured parts/blocks
- * never throw on a self-referential object. Non-serializable inputs fall back to
- * `String(value)`.
+ * Best-effort `JSON.stringify` for an unknown value. Mirrors the repo's
+ * `stringifyValue` helper in `agents/utils.ts`: strings pass through; a true
+ * circular reference makes `JSON.stringify` throw and we fall back to
+ * `String(value)`; an `undefined` result (e.g. a bare function/symbol) also
+ * falls back. No path-tracking — sibling references to the same object are
+ * serialized independently, not mislabelled `"[Circular]"`.
  */
 export function safeStringify(value: unknown): string {
-  const seen = new WeakSet<object>();
+  if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value, (_key, val) => {
-      if (val && typeof val === "object") {
-        if (seen.has(val as object)) return "[Circular]";
-        seen.add(val as object);
-      }
-      return val as unknown;
-    });
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? String(value) : serialized;
   } catch {
     return String(value);
   }

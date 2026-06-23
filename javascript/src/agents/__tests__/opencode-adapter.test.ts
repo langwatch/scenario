@@ -30,10 +30,10 @@ import { describe, it, expect, vi, type Mock } from "vitest";
 // OpencodeClient is type-only — the adapter owns the real SDK import at
 // runtime. We import the type purely so we can cast our fake to it.
 
-import { AgentRole, type AgentInput } from "../../domain/index.js";
+import { AgentRole, type AgentInput } from "../../domain";
 // The source under test does NOT exist yet; these imports will fail at
 // collection time (expected RED) until the implementer ships the adapter.
-import { AgentAdapter } from "../../domain/index.js";
+import { AgentAdapter } from "../../domain";
 import {
   OpenCodeAgentAdapter,
   openCodeAgent,
@@ -366,7 +366,7 @@ describe("OpenCodeAgentAdapter AC-6/R2/R3 — parts filtering and error handling
       });
       const adapter = new OpenCodeAgentAdapter(makeConfig(client));
 
-      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow();
+      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/prompt failed/);
     });
   });
 
@@ -460,6 +460,25 @@ describe("OpenCodeAgentAdapter R4 — stale session eviction after prompt error"
     expect(createSpy).toHaveBeenCalledTimes(2);
     expect(promptSpy).toHaveBeenCalledTimes(3);
   });
+
+  it("rejects when session.create fails and recreates the session on the next call", async () => {
+    let createCalls = 0;
+    const { client, createSpy } = makeFakeClient({
+      createResult: () => {
+        createCalls++;
+        return createCalls === 1
+          ? { data: undefined, error: { status: 503, message: "unavailable" } }
+          : sessionOk("sess-ok");
+      },
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    await expect(
+      adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "create-fail" })),
+    ).rejects.toThrow(/session\.create failed/);
+    // next call on the same thread must retry create (stale rejected promise evicted)
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "create-fail" }));
+    expect(createSpy).toHaveBeenCalledTimes(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -468,16 +487,20 @@ describe("OpenCodeAgentAdapter R4 — stale session eviction after prompt error"
 
 describe("OpenCodeAgentAdapter concurrency + config validation", () => {
   it("dedupes concurrent first-calls on the same threadId to ONE session.create", async () => {
-    // Two calls fired together on the same thread must share one session.create
-    // (the stored in-flight promise closes the check-then-create race).
-    const { client, createSpy } = makeFakeClient();
+    // Gate the create on a manual deferred so BOTH calls are genuinely in-flight
+    // before either resolves — otherwise the first call could finish creating
+    // before the second even starts, and the test would pass without the fix.
+    let releaseCreate!: () => void;
+    const gate = new Promise<void>((r) => { releaseCreate = r; });
+    const { client, createSpy } = makeFakeClient({
+      createResult: () => gate.then(() => sessionOk("sess-1")),
+    });
     const adapter = new OpenCodeAgentAdapter(makeConfig(client));
-
-    await Promise.all([
-      adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race" })),
-      adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race" })),
-    ]);
-
+    const p1 = adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race" }));
+    const p2 = adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race" }));
+    await Promise.resolve(); // let both reach resolveSessionId and share the in-flight create
+    releaseCreate();
+    await Promise.all([p1, p2]);
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -520,7 +543,7 @@ describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
     it(
       "runs a multi-turn coding scenario with a real judge and returns a passing verdict",
       async () => {
-        // Re-import the real scenario barrel (no mocks in scope for this test).
+        // Dynamic import keeps the heavy scenario barrel out of the unit-test path; loaded only when the env-gated e2e runs.
         const scenario = (await import("../../index.js")).default;
         const { openai } = await import("@ai-sdk/openai");
 
