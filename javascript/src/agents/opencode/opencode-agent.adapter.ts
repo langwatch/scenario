@@ -218,7 +218,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     });
     if (created.error || !created.data?.id) {
       throw new Error(
-        `OpenCode session.create failed for thread "${threadId}": ${describeTransportError(
+        `OpenCode session.create failed for thread "${threadId}": ${describeError(
           created.error,
         )}`,
       );
@@ -282,7 +282,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
         this.sessions.delete(input.threadId);
       }
       throw new Error(
-        `OpenCode prompt failed: ${describeTransportError(result.error)}`,
+        `OpenCode prompt failed: ${describeError(result.error)}`,
       );
     }
 
@@ -290,7 +290,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     // provider/runtime error (and usually empty text). Name the variant.
     const infoError = result.data?.info?.error;
     if (infoError) {
-      throw new Error(`OpenCode returned an error: ${describeInfoError(infoError)}`);
+      throw new Error(`OpenCode returned an error: ${describeError(infoError)}`);
     }
 
     const parts = result.data?.parts;
@@ -428,42 +428,33 @@ export function renderNonTextPart(part: unknown): string {
     : `[${type}]`;
 }
 
-/** Describe a transport-layer error object defensively (shape varies across endpoints). */
-function describeTransportError(error: unknown): string {
-  if (error == null) return "unknown error";
-  if (typeof error === "string") return error;
-  if (typeof error === "object") {
-    const e = error as Record<string, unknown>;
-    const message =
-      typeof e["message"] === "string" ? (e["message"] as string) : undefined;
-    const status = e["status"] ?? e["statusCode"] ?? e["code"];
-    if (message && status !== undefined) return `${message} (status ${String(status)})`;
-    if (message) return message;
-  }
-  return safeStringify(error);
-}
-
 /**
- * Describe a semantic `info.error` variant by NAME. The union is
- * `ProviderAuthError | UnknownError | MessageOutputLengthError |
- * MessageAbortedError | APIError`, each `{ name, data }` — but we read `.name`,
- * `.message`, and `.data.message` defensively since shapes vary.
+ * Describe an error object of unknown/varying shape for a friendly message.
+ *
+ * Used for BOTH layers: transport errors (`result.error` — and `created.error`
+ * at the `session.create` site, which may be null when only `!data.id` tripped)
+ * AND semantic `info.error` variants (`ProviderAuthError | UnknownError |
+ * MessageOutputLengthError | MessageAbortedError | APIError`, each `{ name, data }`).
+ * Reads `.name`, `.message`, `.data.message`, and a status/code defensively since
+ * shapes vary across endpoints; falls back to `safeStringify`. The `error == null`
+ * guard is reachable via the `session.create` call site (see {@link OpenCodeAgentAdapter}).
  */
-function describeInfoError(error: unknown): string {
+function describeError(error: unknown): string {
   if (error == null) return "unknown error";
   if (typeof error === "string") return error;
   if (typeof error === "object") {
     const e = error as Record<string, unknown>;
     const name = typeof e["name"] === "string" ? (e["name"] as string) : undefined;
-    const data = (e["data"] as Record<string, unknown> | undefined) ?? undefined;
+    const data = e["data"] as Record<string, unknown> | undefined;
     const message =
       (typeof e["message"] === "string" ? (e["message"] as string) : undefined) ??
       (data && typeof data["message"] === "string"
         ? (data["message"] as string)
         : undefined);
-    if (name && message) return `${name}: ${message}`;
-    if (name) return name;
-    if (message) return message;
+    const status = e["status"] ?? e["statusCode"] ?? e["code"];
+    const base = name && message ? `${name}: ${message}` : (name ?? message);
+    if (base && status !== undefined) return `${base} (status ${String(status)})`;
+    if (base) return base;
   }
   return safeStringify(error);
 }
