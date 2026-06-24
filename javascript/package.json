@@ -131,10 +131,14 @@
       "optional": true
     }
   },
+  "overrides": {
+    "protobufjs@>=8.0.0 <8.6.0": ">=8.6.0",
+    "protobufjs@<7.6.3": ">=7.6.3 <8"
+  },
   "pnpm": {
     "overrides": {
-      "protobufjs@>=8.0.0 <8.2.0": ">=8.2.0",
-      "protobufjs@<7.5.8": "7.5.8",
+      "protobufjs@>=8.0.0 <8.6.0": ">=8.6.0",
+      "protobufjs@<7.6.3": ">=7.6.3 <8",
       "handlebars@>=4.0.0 <=4.7.8": "4.7.9",
       "minimatch@<3.1.3": "3.1.3",
       "minimatch@>=9.0.0 <9.0.7": "9.0.7",
