@@ -150,7 +150,7 @@ describe("hosted-EL real voice-in multi-turn (live)", () => {
           scenario.agent(),
           scenario.user("Thanks. What are your support hours this week?"), // turn 2
           scenario.agent(),
-          scenario.user("Got it. And do you offer support on weekends?"), // turn 3
+          scenario.user("Got it. And what time do you open in the morning?"), // turn 3 (in-domain hours Q — a "weekend support" phrasing made the hosted agent hand off / end its turn)
           scenario.agent(),
           scenario.judge(),
         ],
