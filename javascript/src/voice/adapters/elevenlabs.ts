@@ -188,6 +188,20 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   lastUserTranscript: string | null = null;
   lastAgentTranscript: string | null = null;
 
+  /**
+   * How many user turns this adapter committed via a `user_message` TEXT
+   * injection (the `"text"` path) vs. by streaming real PCM (`"audio"` /
+   * `"silence"`). The #705 voice-specific assertion keys on these: a
+   * `user_transcript` that arrives while `textCommitCount === 0` was produced
+   * by EL's STT from the audio we sent — not echoed back from text we injected.
+   * A text-committed turn bypasses STT entirely, so it can never satisfy the
+   * "audio actually reached the agent" assertion (issue #596's weak
+   * `>=N segments` could).
+   */
+  textCommitCount = 0;
+  /** User turns committed by streaming real PCM (audio reached EL's STT). */
+  audioCommitCount = 0;
+
   constructor(options: ElevenLabsAgentAdapterOptions) {
     super();
     this.agentId = options.agentId;
@@ -368,6 +382,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    * (and the `"text"` no-transcript fallback).
    */
   private streamSpeechThenSilence(data: Uint8Array): void {
+    this.audioCommitCount += 1;
     const speechB64 = Buffer.from(data).toString("base64");
     this.ws?.send(JSON.stringify({ user_audio_chunk: speechB64 }));
     this.sendSilenceTail();
@@ -379,6 +394,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    * matches the official SDK's `user_message` event.
    */
   private sendUserMessage(text: string): void {
+    this.textCommitCount += 1;
     this.ws?.send(JSON.stringify({ type: "user_message", text }));
   }
 

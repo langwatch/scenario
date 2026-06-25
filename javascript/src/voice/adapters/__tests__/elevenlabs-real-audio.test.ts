@@ -98,9 +98,26 @@ function isUserMessage(frame: Record<string, unknown>): boolean {
  * Drive a greeting-led, 2-scripted-turn hosted-EL flow over the fake socket and
  * return the frames sent during turn 2 (the index past which the bug bites).
  */
+function emitUserTranscript(socket: FakeWebSocket, transcript: string): void {
+  socket.emit(
+    "message",
+    Buffer.from(
+      JSON.stringify({
+        type: "user_transcript",
+        user_transcription_event: { user_transcript: transcript },
+      }),
+      "utf-8",
+    ),
+  );
+}
+
 async function driveTwoTurns(
   turnCommitMode: "text" | "audio",
-): Promise<{ turn2Frames: Array<Record<string, unknown>>; allFrames: Array<Record<string, unknown>> }> {
+): Promise<{
+  turn2Frames: Array<Record<string, unknown>>;
+  allFrames: Array<Record<string, unknown>>;
+  adapter: ElevenLabsAgentAdapter;
+}> {
   const fake = makeFakeSocketFactory();
   const adapter = new ElevenLabsAgentAdapter({
     agentId: "agt_705",
@@ -128,8 +145,30 @@ async function driveTwoTurns(
   await adapter.sendAudio(speechChunk("Thanks. What are your support hours this week?"));
   const turn2Frames = socket.sent.slice(turn2Start);
 
+  // EL returns a user_transcript for turn 2. In "audio" mode this is EL's STT
+  // output for the PCM we streamed; in "text" mode it is just an echo of the
+  // text we injected. Same event shape — what tells them apart is whether the
+  // adapter text-committed the turn (textCommitCount), which the AC4 predicate
+  // below keys on.
+  emitUserTranscript(socket, "thanks what are your support hours this week");
+
   await adapter.disconnect();
-  return { turn2Frames, allFrames: socket.sent };
+  return { turn2Frames, allFrames: socket.sent, adapter };
+}
+
+/**
+ * The #705 voice-specific assertion (AC4): a turn-2+ `user_transcript` only
+ * proves "audio actually reached the agent" if it was produced by EL's STT —
+ * i.e. the adapter did NOT inject a `user_message` text commit for the turn.
+ * Returns false for the text-commit path, which is what makes this strictly
+ * stronger than #596's `>=N segments` (that passes even on the broken path).
+ */
+function userTurnsAreSttDriven(adapter: ElevenLabsAgentAdapter): boolean {
+  return (
+    adapter.textCommitCount === 0 &&
+    adapter.audioCommitCount >= 2 &&
+    (adapter.lastUserTranscript?.length ?? 0) > 0
+  );
 }
 
 describe("#705 hosted-EL real voice-in multi-turn (wsFactory seam)", () => {
@@ -162,5 +201,38 @@ describe("#705 hosted-EL real voice-in multi-turn (wsFactory seam)", () => {
       turn2Frames.filter(isUserMessage),
       "audio mode must NOT send a user_message text commit on turn 2",
     ).toHaveLength(0);
+  });
+});
+
+describe("#705 AC4 — voice-specific STT assertion (must FAIL on the text-commit path)", () => {
+  it("audio mode — turns 2+ user_transcript is STT-driven (no text injection, audio committed)", async () => {
+    const { adapter } = await driveTwoTurns("audio");
+
+    // The real audio reached EL: both scripted user turns were committed as PCM,
+    // none text-injected, and a non-empty transcript came back — so it was STT.
+    expect(adapter.audioCommitCount, "both user turns must be audio commits").toBeGreaterThanOrEqual(2);
+    expect(adapter.textCommitCount, "no user turn may be a text injection in audio mode").toBe(0);
+    expect(adapter.lastUserTranscript, "expected an STT user_transcript").toBeTruthy();
+
+    expect(
+      userTurnsAreSttDriven(adapter),
+      "audio mode must satisfy the STT-driven assertion",
+    ).toBe(true);
+  });
+
+  it("text mode — the SAME assertion FAILS, because the transcript is echoed text, not STT", async () => {
+    const { adapter } = await driveTwoTurns("text");
+
+    // A non-empty user_transcript still arrives (EL echoes our injected text) and
+    // #596's `>=N segments` would happily pass here — but no PCM ever reached
+    // EL's STT, so the voice-specific assertion must reject this path.
+    expect(adapter.lastUserTranscript, "text mode still surfaces an (echoed) transcript").toBeTruthy();
+    expect(adapter.textCommitCount, "text mode injects user_message commits").toBeGreaterThanOrEqual(2);
+    expect(adapter.audioCommitCount, "text mode streams no real audio").toBe(0);
+
+    expect(
+      userTurnsAreSttDriven(adapter),
+      "the STT-driven assertion MUST fail on the text-commit path (the #596 gap)",
+    ).toBe(false);
   });
 });
