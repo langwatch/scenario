@@ -8,13 +8,12 @@
  * support chatter on purpose: the #705 bug is transport-level (whether real PCM
  * reaches EL's STT on turns 2+), not prompt-dependent.
  *
- * The proof is the REAL-AUDIO commit mode (`turnCommitMode:"audio"`, issue #705)
- * paired with an agent provisioned for aggressive turn-taking (see
- * scripts/provision_elevenlabs_agent.py). The assertion is voice-specific and
- * strictly stronger than #596's `>=N segments` (which passes on the broken
- * text-commit path): for the run to count, the adapter must have committed every
- * scripted user turn as REAL PCM (`audioCommitCount >= 2`), injected NO
- * `user_message` text (`textCommitCount === 0`), and EL must have returned a
+ * The proof is the REAL-AUDIO streaming path (the adapter's only behavior, issue
+ * #705): the 1.5s trailing silence closes scripted turns on a vanilla agent — no
+ * agent-side turn config needed. The assertion is voice-specific and strictly
+ * stronger than #596's `>=N segments` (which passes on the broken text-commit
+ * path): for the run to count, the adapter must have committed every scripted
+ * user turn as REAL PCM (`audioCommitCount >= 2`) and EL must have returned a
  * non-empty STT `user_transcript` — i.e. audio actually reached the agent.
  *
  * Env-gated on ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY; self-
@@ -30,14 +29,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
 
-/** Build a fresh hosted-EL adapter in the #705 real-audio commit mode. */
+/** Build a fresh hosted-EL adapter (real-audio streaming is the only behavior). */
 function realAudioAgent(): voice.ElevenLabsAgentAdapter {
   return scenario.elevenLabsAgent({
     agentId: ELEVENLABS_AGENT_ID!,
     apiKey: ELEVENLABS_API_KEY!,
     // The #705 fix: stream REAL PCM for every user turn so EL's STT/VAD/
     // turn-detector run on turns 2+, instead of text-committing them.
-    turnCommitMode: "audio",
   });
 }
 
@@ -62,11 +60,6 @@ function assertRealVoiceMultiTurn(
     agent.audioCommitCount,
     `${label}: expected >=2 real-audio user commits (turns 2+ as PCM), got ${agent.audioCommitCount}`,
   ).toBeGreaterThanOrEqual(2);
-  // … and NONE were text-injected (which would discard the audio / bypass STT).
-  expect(
-    agent.textCommitCount,
-    `${label}: a user turn was text-committed — audio bypassed STT (the #705 bug)`,
-  ).toBe(0);
   // … and EL produced an STT transcript, i.e. the audio actually reached it.
   expect(
     agent.lastUserTranscript,
@@ -74,7 +67,7 @@ function assertRealVoiceMultiTurn(
   ).toBeTruthy();
   console.log(
     `[#705] ${label}: success=${result!.success} audioCommits=${agent.audioCommitCount} ` +
-      `textCommits=${agent.textCommitCount} lastUserTranscript=${JSON.stringify(agent.lastUserTranscript)} ` +
+      `lastUserTranscript=${JSON.stringify(agent.lastUserTranscript)} ` +
       `segments=${result!.audio?.segments.length ?? 0}`,
   );
 }

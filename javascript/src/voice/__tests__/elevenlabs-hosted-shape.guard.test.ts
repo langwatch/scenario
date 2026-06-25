@@ -118,8 +118,21 @@ describe("elevenlabs-hosted-shape guard (#638)", () => {
     // After collapsing the join both appear in sequence.
     expect(collapsed).toContain("Hosted ElevenLabs");
     expect(collapsed).toContain("ConvAI");
-    // #567: the error now names the legacy silence-VAD path and recommends
-    // the "text" mode; the old "single exchange" framing is retired.
-    expect(collapsed).toContain("turnCommitMode");
+  });
+
+  it("#705 — adapter streams real audio and never text-commits", () => {
+    // The real-audio-only contract (#705): sendAudio streams the user's actual
+    // PCM as a `user_audio_chunk` frame, so EL's STT runs on turns 2+. It must
+    // NOT inject a `user_message` text commit — that was the #705 bug (it
+    // discarded the audio and bypassed STT). This guard pins the shipped source
+    // to that contract: `user_audio_chunk` present, `user_message` absent from
+    // the CODE (the doc-comments may still name `user_message` to explain why
+    // the adapter deliberately does NOT send one, so we strip line-comments
+    // before that check — assert on behavior, not prose).
+    const source = fs.readFileSync(ADAPTER_FILE, "utf-8");
+    expect(source).toContain("user_audio_chunk");
+
+    const codeOnly = source.replace(/\/\/.*$/gm, "");
+    expect(codeOnly).not.toContain("user_message");
   });
 });

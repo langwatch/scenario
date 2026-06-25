@@ -1,0 +1,70 @@
+# scenario#705 SPIKE — recap (for --continue after a context reset)
+
+Branch: fix/705-real-voice-multiturn (pushed to origin). Worktree: .worktrees/iss705.
+Brief: ~/.claude/plans/2026-06-25-scenario-705-build-brief.md
+Mission: SPIKE — build+attempt REAL voice-in multi-turn on hosted EL ConvAI, report whether reliable. Do NOT change shipped defaults or pick A/B. NEVER merge.
+
+## KEY FINDING (load-bearing, corrects the brief)
+EL turn_timeout/turn_eagerness are NOT per-session overridable. The brief's "3-line
+conversation_config_override.turn" hypothesis is WRONG. Verified vs @elevenlabs/elevenlabs-js@2.51.0:
+TurnConfigOverride carries ONLY soft_timeout_config. BaseTurnConfig (agent persistent config) has
+turn_timeout/turn_eagerness("patient"|"normal"|"eager")/retranscribe_on_turn_timeout. So aggressive
+turn-taking MUST be provisioned on the agent (scripts/provision_elevenlabs_agent.py), not sent per-session.
+Memory: ~/.claude/.../memory/scenario-el-turn-config-not-overridable.md
+
+## DESIGN
+- New turnCommitMode "audio" (TS + PY): streams REAL PCM user_audio_chunk + silence tail, NO user_message
+  text commit → EL STT/VAD run on turns 2+. Shares transport w/ "silence"; differs by SUPPORTED pairing
+  with the provisioned aggressive-turn agent.
+- Provisioning sets conversation_config.turn: turn_eagerness="eager", retranscribe_on_turn_timeout=true,
+  turn_timeout=7 (all env-overridable: ELEVENLABS_TURN_TIMEOUT/EAGERNESS/RETRANSCRIBE).
+  retranscribe_on_turn_timeout is the deterministic backstop for a non-mic stream.
+  NO-OP for existing default text-mode demos (text closes turn via user_message, never VAD).
+- AC4 assertion: adapter counters text_commit_count/audio_commit_count + last_user_transcript →
+  STT-driven predicate (textCommitCount==0 && audioCommitCount>=2 && lastUserTranscript). FAILS on text path.
+
+## COMMITS (per AC, on branch)
+- AC1 1140b0b: failing repro test (RED) — text mode discards turn-2 PCM. javascript/src/voice/adapters/__tests__/elevenlabs-real-audio.test.ts
+- AC3 fb49d17: adapter "audio" mode (TS) + provisioning turn config. → AC1 GREEN
+- AC4 423e6a9: STT counters + voice-specific assertion (unit-proven both polarities)
+- AC2 3e19afb: live harness javascript/examples/vitest/tests/voice/elevenlabs-705-real-audio-multiturn.test.ts (3 patterns, audio mode, env-gated)
+- AC6 58d524e: Python parity — adapter audio mode + counters; fixed elevenlabs_hosted.py (stale single-exchange + FALSE comment) + test_elevenlabs_hosted_e2e.py (multi-turn assertion) + audio-mode unit tests
+
+## STATUS
+- AC0,AC1,AC2,AC3(build),AC4,AC6 DONE + committed + pushed. Unit suites GREEN: JS 355 pass, PY turn-commit 13 pass.
+- AC7 PR OPENED: https://github.com/langwatch/scenario/pull/707 (spike, do NOT merge).
+- AC5 BLOCKED: run 28167415319 showed ELEVENLABS_API_KEY is NOT a repo secret (gh secret list: GEMINI/LANGWATCH/
+  LOW_RISK_OPENAI/OPENAI/PYPI/RELEASE_PLEASE only). Provision step SKIPPED → all 3 hosted-EL tests SELF-SKIPPED.
+  Green run is hollow for #705. No EL key on box either. Verified 3 strategies (secrets list / #596 PR / box .env).
+  => Empirical "does real-audio multi-turn work 3/3?" is UNKNOWN, blocked on a cred only Drew can add.
+  Memory: scenario-elevenlabs-secret-missing-ci.md
+
+## DIRECTION UPDATE (HOLD lifted 2026-06-25 ~13:00Z) — SHIP THE FIX, no spike/AB
+Drew decided: real-audio is DEFAULT + ONLY behavior; DROP turnCommitMode knob entirely (no toggle).
+Done = PR #707 pr-ready-check READY (CI green incl live voice-integration; AC2 customer setup passes real voice-in turns 2+).
+Promise: 705-PR-READY.
+
+## CRUX — SOLVED CLEANLY (adapter-only, no agent config!)
+Reliability lever = LONGER TRAILING SILENCE TAIL, not agent turn-config.
+- Vanilla agent (turn_eagerness=normal, retranscribe=false, turn_v3) + 333ms tail = FLAKY (2.0s once, 35s-fail once).
+- Vanilla agent + 1.5s tail (72000 zero bytes) = 4/4 turns closed reliably, 5-6s each, correct distinct STT.
+=> Fix is adapter-only: stream real PCM + 1.5s silence tail. NO provisioning, NO prod mutation, NO clone, NO doc step.
+=> REVERT the provisioning turn-config (no longer needed); the silence tail handles reliability on ANY agent.
+- receiveAudio total-wait ceiling (committed 11ec820) = backstop so a non-closing turn times out at 45s not wedge.
+
+## STEPS (commit per step)
+1. DONE 11ec820: receiveAudio KEEPALIVE_HARD_CEILING_S backstop (TS+PY, tests green).
+2. Drop turnCommitMode knob: real-audio ONLY, silenceTailBytes default 72000 (1.5s). Adapter TS+PY.
+3. Rework tests: AC1 repro, turn-commit tests, real-audio test, AC4 assertion (textCommitCount gone), harness, py example/test.
+4. Revert provisioning turn-config (scripts/provision_elevenlabs_agent.py _turn_config).
+5. Reframe PR #707 (real fix not spike; #493 ceiling reversal; CRUX solved via silence tail).
+6. Live-validate: gh workflow run javascript-voice-integration.yml ... ; pr-ready-check READY.
+
+## OLD NEXT STEPS (superseded)
+1. If ELEVENLABS_API_KEY gets added as a repo secret: `gh workflow run javascript-voice-integration.yml -R
+   langwatch/scenario --ref fix/705-real-voice-multiturn` ×3; read each run's "[#705] patternN:" log line.
+   3 clean (audioCommits>=2 textCommits=0 + non-empty lastUserTranscript) => Option B viable. Timeout => Option A.
+   Turn-config is env-tunable: ELEVENLABS_TURN_TIMEOUT / _EAGERNESS / _RETRANSCRIBE (workflow env).
+2. If Drew relaxes AC5 to best-effort/nightly: spike is complete-to-extent-possible; PR ready for review (not merge).
+3. Promise "705 SPIKE COMPLETE" is NOT yet true (AC5 live verdict missing). Do not emit until live runs land OR
+   Drew explicitly redefines the bar.

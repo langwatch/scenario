@@ -57,19 +57,21 @@ export const ELEVENLABS_CONVAI_URL_TEMPLATE =
   "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}";
 
 /**
- * Default silence-tail length for the legacy {@link TurnCommitMode} `"silence"`
- * path. 16000 zero bytes at 24 kHz = ~333 ms silence — the empirical middle
- * ground that historically let the *greeting → first user turn* exchange work
- * (see Python adapter docstring).
+ * Trailing-silence length appended after each user turn's real PCM. 72000 zero
+ * bytes at 24 kHz = **1.5 s** of silence.
  *
- * This tail is NOT reliable for scripted turn 2+ (issue #567): EL ConvAI 2.0's
- * end-of-turn is a hybrid VAD + deep-learning turn-detector (prosody, rhythm,
- * micro-pauses), not a pure silence threshold, so a fixed zero-byte blob does
- * not deterministically trip it on a non-mic stream. The default commit mode is
- * therefore {@link TurnCommitMode} `"text"`; the silence tail survives as an
- * opt-in for callers who want the pure server-VAD audio path.
+ * This length is the load-bearing reliability mechanism for scripted real-voice
+ * multi-turn (issue #705). EL ConvAI's end-of-turn is a hybrid VAD +
+ * deep-learning turn-detector keyed on an end-of-speech *pause*; on a scripted,
+ * non-mic stream the old ~333 ms tail was too short to trip it reliably (turns
+ * stalled, then `receiveAudio` waited on keepalive pings — the #705 hang). A
+ * 1.5 s tail gives the detector an unambiguous end-of-speech, so a scripted
+ * turn closes and EL replies with a genuine ASR-driven response — verified
+ * against a *vanilla* hosted agent (no special turn config), 4/4 turns. That is
+ * why this works **without** the customer hand-provisioning or mutating their EL
+ * agent: the tail alone carries reliability.
  */
-const SILENCE_TAIL_BYTES = 16000;
+const SILENCE_TAIL_BYTES = 72000;
 
 /**
  * Absolute wall-clock ceiling (seconds) for a single {@link
@@ -87,32 +89,6 @@ const SILENCE_TAIL_BYTES = 16000;
  */
 const KEEPALIVE_HARD_CEILING_S = 45;
 
-/**
- * How {@link ElevenLabsAgentAdapter.sendAudio} signals end-of-turn to EL ConvAI.
- *
- * - `"text"` (default): after streaming the user audio, send an explicit
- *   `{"type":"user_message","text":<transcript>}` — the only client→server
- *   event EL's documented protocol exposes that *deterministically* commits a
- *   turn and forces an agent response, without relying on mic-style server VAD
- *   (issue #567). Requires a transcript on the outgoing {@link AudioChunk}
- *   (the voice runtime threads the `scenario.user("…")` script text through as
- *   the chunk transcript); when absent, falls back to the silence tail.
- * - `"silence"`: legacy behavior — stream the audio then a fixed
- *   {@link ElevenLabsAgentAdapterOptions.silenceTailBytes} zero-byte tail and
- *   hope server VAD fires. Kept for the pure-audio path and parity with the
- *   pre-#567 transport, but unreliable for scripted turn 2+.
- * - `"audio"` (issue #705 real-voice multi-turn): stream the REAL spoken PCM
- *   as `user_audio_chunk` then a trailing silence tail — identical wire shape
- *   to `"silence"`, but the SUPPORTED pairing is with an agent provisioned for
- *   aggressive turn-taking (low `turn_timeout` + `turn_eagerness:"eager"`, set
- *   on the agent because EL does NOT expose those as per-session
- *   `conversation_config_override.turn` fields — see
- *   `scripts/provision_elevenlabs_agent.py`). The point of difference from
- *   `"text"`: EL's STT/VAD/turn-detector actually run on the scripted audio, so
- *   turns 2+ get a genuine ASR-driven response instead of a text-injected one.
- */
-export type TurnCommitMode = "text" | "silence" | "audio";
-
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
   agentId: string;
@@ -127,18 +103,11 @@ export interface ElevenLabsAgentAdapterOptions {
   /** Per-session first message override. */
   firstMessageOverride?: string;
   /**
-   * How `sendAudio` commits a user turn. Defaults to `"text"` (explicit
-   * `user_message` commit) so scripted turn 2+ reliably re-engages an agent
-   * response (issue #567). Set to `"audio"` for the issue-#705 real-voice
-   * multi-turn path (real PCM reaches EL's STT; pair with an agent provisioned
-   * for aggressive turn-taking), or `"silence"` for the legacy pure-audio
-   * server-VAD path. See {@link TurnCommitMode}.
-   */
-  turnCommitMode?: TurnCommitMode;
-  /**
-   * Zero-byte silence-tail length appended after user audio. Only consulted on
-   * the `"silence"` commit path (and the `"text"` fallback when no transcript
-   * is available). Defaults to {@link SILENCE_TAIL_BYTES} (~333 ms @ 24 kHz).
+   * Trailing-silence length (zero bytes) appended after each user turn's real
+   * PCM, to trip EL's end-of-turn detector. Defaults to
+   * {@link SILENCE_TAIL_BYTES} (72000 = 1.5 s @ 24 kHz), the value verified to
+   * close scripted turns reliably on a vanilla hosted agent. A tuning knob, not
+   * a behavior toggle — the adapter always streams real audio (issue #705).
    */
   silenceTailBytes?: number;
   /**
@@ -186,7 +155,6 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly apiKey: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
-  private readonly turnCommitMode: TurnCommitMode;
   private readonly silenceTailBytes: number;
   private readonly webSocketFactory: (
     url: string,
@@ -205,17 +173,13 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   lastAgentTranscript: string | null = null;
 
   /**
-   * How many user turns this adapter committed via a `user_message` TEXT
-   * injection (the `"text"` path) vs. by streaming real PCM (`"audio"` /
-   * `"silence"`). The #705 voice-specific assertion keys on these: a
-   * `user_transcript` that arrives while `textCommitCount === 0` was produced
-   * by EL's STT from the audio we sent — not echoed back from text we injected.
-   * A text-committed turn bypasses STT entirely, so it can never satisfy the
-   * "audio actually reached the agent" assertion (issue #596's weak
-   * `>=N segments` could).
+   * How many user turns this adapter committed by streaming real PCM. The #705
+   * voice-specific assertion keys on this together with {@link
+   * lastUserTranscript}: a non-empty `user_transcript` after `audioCommitCount`
+   * turns proves EL's STT actually ran on the audio we sent (audio reached the
+   * agent) — strictly stronger than issue #596's `>=N segments`, which passed
+   * even on the old text-commit path where no PCM ever reached EL.
    */
-  textCommitCount = 0;
-  /** User turns committed by streaming real PCM (audio reached EL's STT). */
   audioCommitCount = 0;
 
   constructor(options: ElevenLabsAgentAdapterOptions) {
@@ -224,15 +188,6 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     this.apiKey = options.apiKey;
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
-    // Validate raw option before defaulting so JS callers hitting the boundary
-    // get a clear error even when TypeScript types are bypassed.
-    const rawMode = options.turnCommitMode ?? "text";
-    if (rawMode !== "text" && rawMode !== "silence" && rawMode !== "audio") {
-      throw new Error(
-        `Unknown turnCommitMode: "${rawMode}". Expected "text", "silence", or "audio".`,
-      );
-    }
-    this.turnCommitMode = rawMode;
     this.silenceTailBytes = options.silenceTailBytes ?? SILENCE_TAIL_BYTES;
     if (!Number.isInteger(this.silenceTailBytes) || this.silenceTailBytes <= 0) {
       throw new Error(
@@ -346,72 +301,31 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
 
-    // EL ConvAI exposes NO audio-flush / end-of-turn client event (verified
-    // against the official Python + JS SDKs — the full client→server union is
-    // pong | client_tool_result | conversation_initiation_client_data |
-    // feedback | contextual_update | user_message | user_activity |
-    // multimodal_message, plus the bare user_audio_chunk; none commit audio).
-    // Server-side turn detection (ConvAI 2.0 hybrid VAD + DL turn-detector) does
-    // NOT reliably fire on a scripted, non-mic stream, so the legacy "stream
-    // audio + silence tail" path stalls on turn 2+ (issue #567).
-    const transcript = chunk.transcript?.trim();
-
-    if (this.turnCommitMode === "text" && transcript) {
-      // Deterministic commit: send ONLY the user_message text turn. We do NOT
-      // also stream the raw audio to EL here — sending user_audio_chunk and then
-      // user_message in the same turn races the server's audio ingestion
-      // against the text commit and was empirically flaky (the agent receive
-      // intermittently timed out). The text turn alone forces an agent response
-      // every time. Nothing observable is lost: the voice runtime records the
-      // user audio locally (recorder.recordUser, independent of this send), and
-      // EL echoes the committed text back as a user_transcript event, so
-      // lastUserTranscript still populates.
-      //
-      // The trade-off — and the #705 bug — is that NO PCM reaches EL, so its
-      // STT/VAD/turn-taking never run on the scripted turn. For real ASR on
-      // turns 2+, use turnCommitMode "audio" instead.
-      this.sendUserMessage(transcript);
-      return;
-    }
-
-    // Real-audio ("audio", #705) and legacy server-VAD ("silence") paths both
-    // stream the spoken PCM then a trailing silence tail — EL's STT/VAD/
-    // turn-detector run on the ACTUAL audio, with no text injection. They share
-    // this wire shape; what differs is the agent's turn config:
-    //   - "audio": pair with an agent provisioned for aggressive turn-taking
-    //     (low turn_timeout + turn_eagerness:"eager", set on the agent because
-    //     EL exposes neither as a per-session conversation_config_override.turn
-    //     field — see scripts/provision_elevenlabs_agent.py) so a scripted,
-    //     non-mic turn closes deterministically and EL re-engages with an
-    //     ASR-driven response on turns 2+.
-    //   - "silence": default agent turn config; unreliable for scripted turn 2+
-    //     (issue #567), kept as an escape hatch.
-    //   - "text" fallback: reached only when a "text"-mode chunk carries no
-    //     transcript to commit.
+    // Real voice-in (issue #705), the adapter's ONLY behavior: stream the
+    // user's REAL spoken PCM as `user_audio_chunk`, then a trailing silence
+    // tail. EL's STT/VAD/turn-detector run on the ACTUAL audio, so a scripted
+    // turn 2+ gets a genuine ASR-driven agent response.
+    //
+    // We deliberately do NOT send a `{"type":"user_message","text":…}` commit:
+    // that injects text and DISCARDS the audio, so EL's STT never runs — that
+    // was the #705 bug (the old default). EL ConvAI also exposes no audio-flush
+    // / end-of-turn client event, so turn closure relies entirely on the
+    // server-side end-of-speech detector seeing the trailing silence — which is
+    // why {@link SILENCE_TAIL_BYTES} is a generous 1.5 s (it trips the detector
+    // reliably on a scripted, non-mic stream without any agent-side tuning).
     this.streamSpeechThenSilence(chunk.data);
   }
 
   /**
    * Stream the spoken PCM as a `user_audio_chunk` then a trailing silence tail,
-   * so EL's server-side VAD/turn-detector sees real audio followed by an
-   * end-of-speech pause. Shared by the `"audio"` and `"silence"` commit paths
-   * (and the `"text"` no-transcript fallback).
+   * so EL's server-side end-of-turn detector sees real audio followed by an
+   * unambiguous end-of-speech pause and closes the turn.
    */
   private streamSpeechThenSilence(data: Uint8Array): void {
     this.audioCommitCount += 1;
     const speechB64 = Buffer.from(data).toString("base64");
     this.ws?.send(JSON.stringify({ user_audio_chunk: speechB64 }));
     this.sendSilenceTail();
-  }
-
-  /**
-   * Explicit turn-commit: tells EL the user is done and forces an agent
-   * response without relying on mic-style server VAD (issue #567). Wire shape
-   * matches the official SDK's `user_message` event.
-   */
-  private sendUserMessage(text: string): void {
-    this.textCommitCount += 1;
-    this.ws?.send(JSON.stringify({ type: "user_message", text }));
   }
 
   /** Legacy end-of-turn nudge: a fixed zero-byte tail to coax server VAD. */

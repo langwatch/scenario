@@ -5,8 +5,8 @@ What this demo proves:
     ElevenLabsAgentAdapter connects to
     wss://api.elevenlabs.io/v1/convai/conversation?agent_id=<ID> and runs a
     MULTI-TURN voice scenario over the real WebSocket transport where turns 2+
-    are REAL voice-in: with turn_commit_mode="audio" (issue #705) the spoken PCM
-    is streamed to EL's STT instead of being text-committed, so each scripted
+    are REAL voice-in: the spoken PCM is streamed to EL's STT (issue #705 — the
+    adapter's only behavior) instead of being text-committed, so each scripted
     user turn gets a genuine ASR-driven agent response. Parity with the
     TypeScript twin javascript/examples/vitest/tests/voice/
     elevenlabs-705-real-audio-multiturn.test.ts.
@@ -60,15 +60,15 @@ scenario.configure(default_model="openai/gpt-5-mini")
 
 
 async def main() -> tuple[scenario.ScenarioResult, scenario.ElevenLabsAgentAdapter]:
-    # Real-audio commit mode (issue #705): stream the spoken PCM for every user
-    # turn so EL's STT/VAD/turn-detector run on turns 2+, instead of
-    # text-committing them. Pair with an agent provisioned for aggressive
-    # turn-taking (scripts/provision_elevenlabs_agent.py). We hold the adapter
-    # reference so the assertion below can prove the audio actually reached EL.
+    # Real-audio streaming (issue #705 — the adapter's only behavior): the spoken
+    # PCM for every user turn is streamed so EL's STT/VAD/turn-detector run on
+    # turns 2+, instead of text-committing them. The adapter's 1.5s trailing
+    # silence closes scripted turns on a vanilla agent — no agent-side turn config
+    # needed. We hold the adapter reference so the assertion below can prove the
+    # audio actually reached EL.
     agent = scenario.ElevenLabsAgentAdapter(
         agent_id=os.environ["ELEVENLABS_AGENT_ID"],
         api_key=os.environ["ELEVENLABS_API_KEY"],
-        turn_commit_mode="audio",
     )
     result = await scenario.run(
         name="demo_elevenlabs_hosted",
@@ -76,7 +76,7 @@ async def main() -> tuple[scenario.ScenarioResult, scenario.ElevenLabsAgentAdapt
             "Multi-turn REAL voice-in against a live ElevenLabs Conversational AI "
             "agent. Greeting plays on connect (real-voice convention); the user "
             "asks across several turns and each scripted turn 2+ is streamed as "
-            "real PCM to EL's STT (turn_commit_mode='audio', issue #705)."
+            "real PCM to EL's STT (issue #705)."
         ),
         agents=[
             agent,
@@ -92,10 +92,10 @@ async def main() -> tuple[scenario.ScenarioResult, scenario.ElevenLabsAgentAdapt
         script=[
             # Real voice convention: EL sends first_message on connect. Lead with
             # agent() so the greeting drains before user audio hits the wire.
-            # MULTI-TURN: with turn_commit_mode="audio" a scripted 2nd/3rd user
-            # turn streams real PCM that EL's STT transcribes and the agent
-            # responds to — the single-greeting-exchange ceiling is the #705 bug
-            # of the default text-commit mode, NOT a hosted-ConvAI limit.
+            # MULTI-TURN: a scripted 2nd/3rd user turn streams real PCM that EL's
+            # STT transcribes and the agent responds to — the single-greeting-
+            # exchange ceiling was the #705 bug of the old text-commit path, NOT a
+            # hosted-ConvAI limit.
             scenario.agent(),
             scenario.user("Hello, I have a question about my account balance."),
             scenario.agent(),
@@ -112,7 +112,6 @@ async def main() -> tuple[scenario.ScenarioResult, scenario.ElevenLabsAgentAdapt
     print(f"verdict: {result.reasoning}")
     print(
         f"real-voice commits: audio={agent.audio_commit_count} "
-        f"text={agent.text_commit_count} "
         f"last_user_transcript={agent.last_user_transcript!r}"
     )
     save_demo_recording(getattr(result, "audio", None))
