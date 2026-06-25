@@ -88,15 +88,18 @@ describe("hosted-EL real voice-in multi-turn (live)", () => {
     return;
   }
 
-  // Pattern 1 — user → agent → proceed(): the autonomous-continuation shape.
-  // Lead with agent() to drain EL's on-connect greeting, two scripted user turns
-  // (exercises the turn-2 bug), then hand off to proceed().
+  // Pattern 1 — proves AUTONOMOUS voice-to-voice: after two scripted voiced turns,
+  // an unscripted scenario.user() makes the simulator invent its own line and voice
+  // it (because the sim was built with { voice: "openai/nova" }), and the following
+  // scenario.agent() flushes that simulator-generated audio to EL, producing a 3rd
+  // real-audio commit and a fresh STT user_transcript. Content is generic support
+  // chatter on purpose — the proof is transport-level, not prompt-dependent.
   it(
-    "pattern 1 — user→agent→proceed() autonomous multi-turn",
+    "pattern 1 — autonomous sim-generated voiced user turn (user→agent→user()→agent)",
     async () => {
       const agent = realAudioAgent();
       const result = await scenario.run({
-        name: "real_audio_proceed",
+        name: "real_audio_autonomous_turn",
         description:
           "Representative hosted-EL voice flow: caller asks an account question, " +
           "a follow-up, then the simulation proceeds autonomously.",
@@ -111,12 +114,13 @@ describe("hosted-EL real voice-in multi-turn (live)", () => {
           scenario.agent(),
           scenario.user("Thanks. What are your support hours this week?"), // turn 2
           scenario.agent(),
-          scenario.proceed(1), // exercises the proceed() autonomous-continuation path
+          scenario.user(), // autonomous: the simulator GENERATES its own next line, then voices it
+          scenario.agent(), // flushes the sim-generated audio to EL → new audio commit + new STT transcript
           scenario.judge(),
         ],
         maxTurns: 10,
       });
-      assertRealVoiceMultiTurn(agent, result, "pattern1", 2);
+      assertRealVoiceMultiTurn(agent, result, "pattern1", 3);
     },
     240_000,
   );
