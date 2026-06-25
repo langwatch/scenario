@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.15](https://github.com/langwatch/scenario/compare/javascript/v0.4.14...javascript/v0.4.15) (2026-06-25)
+
+
+### Bug Fixes
+
+* **voice/#648:** terminal drain on non-audio completion (EL + WebSocket) ([#693](https://github.com/langwatch/scenario/issues/693)) ([c42320e](https://github.com/langwatch/scenario/commit/c42320e130ae3d0ea67a743ffea8195cc5f76825))
+
 ## [0.4.14](https://github.com/langwatch/scenario/compare/javascript/v0.4.13...javascript/v0.4.14) (2026-06-19)
 
 
