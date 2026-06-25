@@ -85,8 +85,17 @@ const SILENCE_TAIL_BYTES = 16000;
  *   {@link ElevenLabsAgentAdapterOptions.silenceTailBytes} zero-byte tail and
  *   hope server VAD fires. Kept for the pure-audio path and parity with the
  *   pre-#567 transport, but unreliable for scripted turn 2+.
+ * - `"audio"` (issue #705 real-voice multi-turn): stream the REAL spoken PCM
+ *   as `user_audio_chunk` then a trailing silence tail — identical wire shape
+ *   to `"silence"`, but the SUPPORTED pairing is with an agent provisioned for
+ *   aggressive turn-taking (low `turn_timeout` + `turn_eagerness:"eager"`, set
+ *   on the agent because EL does NOT expose those as per-session
+ *   `conversation_config_override.turn` fields — see
+ *   `scripts/provision_elevenlabs_agent.py`). The point of difference from
+ *   `"text"`: EL's STT/VAD/turn-detector actually run on the scripted audio, so
+ *   turns 2+ get a genuine ASR-driven response instead of a text-injected one.
  */
-export type TurnCommitMode = "text" | "silence";
+export type TurnCommitMode = "text" | "silence" | "audio";
 
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
@@ -104,7 +113,9 @@ export interface ElevenLabsAgentAdapterOptions {
   /**
    * How `sendAudio` commits a user turn. Defaults to `"text"` (explicit
    * `user_message` commit) so scripted turn 2+ reliably re-engages an agent
-   * response (issue #567). Set to `"silence"` for the legacy pure-audio
+   * response (issue #567). Set to `"audio"` for the issue-#705 real-voice
+   * multi-turn path (real PCM reaches EL's STT; pair with an agent provisioned
+   * for aggressive turn-taking), or `"silence"` for the legacy pure-audio
    * server-VAD path. See {@link TurnCommitMode}.
    */
   turnCommitMode?: TurnCommitMode;
@@ -186,9 +197,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // Validate raw option before defaulting so JS callers hitting the boundary
     // get a clear error even when TypeScript types are bypassed.
     const rawMode = options.turnCommitMode ?? "text";
-    if (rawMode !== "text" && rawMode !== "silence") {
+    if (rawMode !== "text" && rawMode !== "silence" && rawMode !== "audio") {
       throw new Error(
-        `Unknown turnCommitMode: "${rawMode}". Expected "text" or "silence".`,
+        `Unknown turnCommitMode: "${rawMode}". Expected "text", "silence", or "audio".`,
       );
     }
     this.turnCommitMode = rawMode;
@@ -325,15 +336,40 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // user audio locally (recorder.recordUser, independent of this send), and
       // EL echoes the committed text back as a user_transcript event, so
       // lastUserTranscript still populates.
+      //
+      // The trade-off — and the #705 bug — is that NO PCM reaches EL, so its
+      // STT/VAD/turn-taking never run on the scripted turn. For real ASR on
+      // turns 2+, use turnCommitMode "audio" instead.
       this.sendUserMessage(transcript);
       return;
     }
 
-    // Legacy / fallback path: stream the speech then a silence tail and let
-    // server VAD try. Used when turnCommitMode is "silence", or in "text" mode
-    // when the chunk carries no transcript to commit.
-    const speechB64 = Buffer.from(chunk.data).toString("base64");
-    this.ws.send(JSON.stringify({ user_audio_chunk: speechB64 }));
+    // Real-audio ("audio", #705) and legacy server-VAD ("silence") paths both
+    // stream the spoken PCM then a trailing silence tail — EL's STT/VAD/
+    // turn-detector run on the ACTUAL audio, with no text injection. They share
+    // this wire shape; what differs is the agent's turn config:
+    //   - "audio": pair with an agent provisioned for aggressive turn-taking
+    //     (low turn_timeout + turn_eagerness:"eager", set on the agent because
+    //     EL exposes neither as a per-session conversation_config_override.turn
+    //     field — see scripts/provision_elevenlabs_agent.py) so a scripted,
+    //     non-mic turn closes deterministically and EL re-engages with an
+    //     ASR-driven response on turns 2+.
+    //   - "silence": default agent turn config; unreliable for scripted turn 2+
+    //     (issue #567), kept as an escape hatch.
+    //   - "text" fallback: reached only when a "text"-mode chunk carries no
+    //     transcript to commit.
+    this.streamSpeechThenSilence(chunk.data);
+  }
+
+  /**
+   * Stream the spoken PCM as a `user_audio_chunk` then a trailing silence tail,
+   * so EL's server-side VAD/turn-detector sees real audio followed by an
+   * end-of-speech pause. Shared by the `"audio"` and `"silence"` commit paths
+   * (and the `"text"` no-transcript fallback).
+   */
+  private streamSpeechThenSilence(data: Uint8Array): void {
+    const speechB64 = Buffer.from(data).toString("base64");
+    this.ws?.send(JSON.stringify({ user_audio_chunk: speechB64 }));
     this.sendSilenceTail();
   }
 

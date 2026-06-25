@@ -79,6 +79,43 @@ SYSTEM_PROMPT = (
 ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
 
 
+def _turn_config() -> dict:
+    """Agent-level turn-taking config for the issue-#705 real-voice multi-turn
+    (``turnCommitMode="audio"``) path.
+
+    Why on the AGENT and not per-session: EL does NOT expose ``turn_timeout`` /
+    ``turn_eagerness`` as ``conversation_config_override.turn`` fields (the
+    per-session override only carries ``soft_timeout_config`` — verified against
+    ``@elevenlabs/elevenlabs-js`` ``TurnConfigOverride``). So aggressive
+    turn-taking for a scripted, non-mic stream has to be provisioned here.
+
+    The levers (all env-overridable so CI can tune without a code change):
+      - ``turn_eagerness="eager"`` — close the user's turn sooner once
+        end-of-speech is detected, so EL re-engages with an ASR-driven response.
+      - ``retranscribe_on_turn_timeout=True`` — the deterministic backstop: if
+        VAD never trips on our non-mic stream, EL re-transcribes the accumulated
+        audio at turn_timeout and responds to it (instead of a bare "are you
+        there?" re-prompt). This is what should make turns 2+ reliable.
+      - ``turn_timeout`` — the silence window; must stay above our inter-turn
+        harness latency (TTS gen + send) or the agent re-engages between turns.
+
+    This is a NO-OP for the default ``turnCommitMode="text"`` demos: a text
+    commit closes the turn via the ``user_message`` event, never via VAD /
+    turn_timeout, so they ignore this block entirely.
+    """
+    # Only fields verified present on EL's BaseTurnConfig (via
+    # @elevenlabs/elevenlabs-js@2.51.0) — sending an unknown key risks a 422 that
+    # would fail the whole (load-bearing) provisioning call.
+    return {
+        "turn_timeout": float(os.environ.get("ELEVENLABS_TURN_TIMEOUT", "7")),
+        "turn_eagerness": os.environ.get("ELEVENLABS_TURN_EAGERNESS", "eager"),
+        "retranscribe_on_turn_timeout": os.environ.get(
+            "ELEVENLABS_RETRANSCRIBE", "true"
+        ).lower()
+        in ("1", "true", "yes"),
+    }
+
+
 def _api_key() -> str:
     key = os.environ.get("ELEVENLABS_API_KEY", "")
     if not key:
@@ -125,6 +162,9 @@ def _create_agent(api_key: str) -> str:
             # need a per-edge resample at the adapter boundary.
             "asr": {"user_input_audio_format": "pcm_24000"},
             "tts": {"agent_output_audio_format": "pcm_24000"},
+            # Aggressive turn-taking for the #705 real-voice multi-turn
+            # ("audio") path. No-op for the default text-commit demos.
+            "turn": _turn_config(),
         },
         # Allow demo-specific overrides via conversation_initiation_client_data.
         # By default EL rejects ``conversation_config_override.agent.prompt``
@@ -176,6 +216,8 @@ def _patch_agent_prompt(api_key: str, agent_id: str) -> None:
             },
             "asr": {"user_input_audio_format": "pcm_24000"},
             "tts": {"agent_output_audio_format": "pcm_24000"},
+            # Keep reused agents in line with the #705 turn-taking config.
+            "turn": _turn_config(),
         },
         "platform_settings": {
             "overrides": {
