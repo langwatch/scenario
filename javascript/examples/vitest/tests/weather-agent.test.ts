@@ -95,7 +95,12 @@ describe("Weather Agent", () => {
         scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
       ],
       script: [
-        scenario.user(),
+        // Explicit city so the agent must call get_current_weather. A bare
+        // scenario.user() let the gpt-5-mini sim emit a city-less opener, and
+        // the agent (per its "do not guess the city" prompt) then asked for
+        // clarification instead of calling the tool — a flaky failure of this
+        // assertion (unrelated to #705; it intermittently reddened ci-checks).
+        scenario.user("What's the weather in Barcelona today?"),
         scenario.agent(),
         (state) => expect(state.hasToolCall("get_current_weather")).toBe(true),
         (state) => {
