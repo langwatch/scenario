@@ -82,7 +82,16 @@ SILENCE_TAIL_BYTES = 16000
 #:   ``silence_tail_bytes`` zero-byte tail and hope server VAD fires. Kept for
 #:   the pure-audio path and parity with the pre-#567 transport, but unreliable
 #:   for scripted turn 2+.
-TurnCommitMode = Literal["text", "silence"]
+#: - ``"audio"`` (issue #705 real-voice multi-turn): stream the REAL spoken PCM
+#:   as ``user_audio_chunk`` then a trailing silence tail — same wire shape as
+#:   ``"silence"``, but the SUPPORTED pairing is with an agent provisioned for
+#:   aggressive turn-taking (low ``turn_timeout`` + ``turn_eagerness="eager"``,
+#:   set on the agent because EL does NOT expose those as per-session
+#:   ``conversation_config_override.turn`` fields — see
+#:   ``scripts/provision_elevenlabs_agent.py``). Unlike ``"text"``, EL's
+#:   STT/VAD/turn-detector actually run on the scripted audio, so turns 2+ get a
+#:   genuine ASR-driven response.
+TurnCommitMode = Literal["text", "silence", "audio"]
 
 
 class ElevenLabsAgentAdapter(VoiceAgentAdapter):
@@ -146,9 +155,10 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # ``user_message`` commit) so scripted turn 2+ reliably re-engages an
         # agent response (issue #567). ``"silence"`` selects the legacy
         # pure-audio server-VAD path. See ``TurnCommitMode`` / ``send_audio``.
-        if turn_commit_mode not in ("text", "silence"):
+        if turn_commit_mode not in ("text", "silence", "audio"):
             raise ValueError(
-                f'Unknown turn_commit_mode: {turn_commit_mode!r}. Expected "text" or "silence".'
+                f"Unknown turn_commit_mode: {turn_commit_mode!r}. "
+                'Expected "text", "silence", or "audio".'
             )
         if not isinstance(silence_tail_bytes, int) or silence_tail_bytes <= 0:
             raise ValueError(
@@ -163,6 +173,17 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # Transcript observability — updated on each transcript event.
         self.last_user_transcript: Optional[str] = None
         self.last_agent_transcript: Optional[str] = None
+
+        # How many user turns were committed via a ``user_message`` TEXT
+        # injection ("text") vs. by streaming real PCM ("audio" / "silence").
+        # The #705 voice-specific assertion keys on these: a ``user_transcript``
+        # that arrives while ``text_commit_count == 0`` was produced by EL's STT
+        # from the audio we sent — not echoed back from text we injected. A
+        # text-committed turn bypasses STT, so it can never satisfy the "audio
+        # actually reached the agent" assertion (unlike #596's weak segment count).
+        self.text_commit_count = 0
+        #: User turns committed by streaming real PCM (audio reached EL's STT).
+        self.audio_commit_count = 0
 
     @property
     def url(self) -> str:
@@ -269,15 +290,39 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         if self._turn_commit_mode == "text" and transcript:
             # Deterministic commit: send ONLY the user_message text turn (no
             # racing user_audio_chunk). See method docstring for the rationale.
+            #
+            # The trade-off — and the #705 bug — is that NO PCM reaches EL, so
+            # its STT/VAD/turn-taking never run on the scripted turn. For real
+            # ASR on turns 2+, use turn_commit_mode "audio" instead.
             await self._send_user_message(transcript)
             return
 
-        # Legacy / fallback path: stream the speech then a silence tail and let
-        # server VAD try. Used when turn_commit_mode is "silence", or in "text"
-        # mode when the chunk carries no transcript to commit.
-        b64 = base64.b64encode(chunk.data).decode()
-        await self._ws.send(json.dumps({"user_audio_chunk": b64}))
+        # Real-audio ("audio", #705) and legacy server-VAD ("silence") paths both
+        # stream the spoken PCM then a trailing silence tail — EL's STT/VAD/
+        # turn-detector run on the ACTUAL audio, no text injection. They share
+        # this wire shape; what differs is the agent's turn config:
+        #   - "audio": pair with an agent provisioned for aggressive turn-taking
+        #     (low turn_timeout + turn_eagerness="eager", set on the agent
+        #     because EL exposes neither as a per-session
+        #     conversation_config_override.turn field — see
+        #     scripts/provision_elevenlabs_agent.py) so a scripted, non-mic turn
+        #     closes deterministically and EL re-engages with an ASR-driven
+        #     response on turns 2+.
+        #   - "silence": default agent turn config; unreliable for scripted turn
+        #     2+ (issue #567), kept as an escape hatch.
+        #   - "text" fallback: reached only when a "text"-mode chunk carries no
+        #     transcript to commit.
+        await self._stream_speech_then_silence(chunk.data)
 
+    async def _stream_speech_then_silence(self, data: bytes) -> None:
+        """Stream the spoken PCM as a ``user_audio_chunk`` then a trailing
+        silence tail, so EL's server-side VAD/turn-detector sees real audio
+        followed by an end-of-speech pause. Shared by the ``"audio"`` and
+        ``"silence"`` commit paths (and the ``"text"`` no-transcript fallback).
+        """
+        self.audio_commit_count += 1
+        b64 = base64.b64encode(data).decode()
+        await self._ws.send(json.dumps({"user_audio_chunk": b64}))
         await self._send_silence_tail()
 
     async def _send_user_message(self, text: str) -> None:
@@ -285,6 +330,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         response without relying on mic-style server VAD (issue #567). Wire
         shape matches the official SDK's ``user_message`` event.
         """
+        self.text_commit_count += 1
         await self._ws.send(json.dumps({"type": "user_message", "text": text}))
 
     async def _send_silence_tail(self) -> None:

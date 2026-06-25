@@ -131,6 +131,17 @@ def _user_turn(text: str) -> AudioChunk:
     return AudioChunk(data=b"\x00" * 8, transcript=text)
 
 
+def _real_speech_turn(text: str) -> AudioChunk:
+    """A user turn carrying NON-SILENT PCM — stands in for real spoken audio,
+    distinguishable from the zero-byte silence tail."""
+    return AudioChunk(data=b"\x10\x00\x20\x00\x30\x00\x40\x00", transcript=text)
+
+
+def _is_real_speech(b64: str) -> bool:
+    """True if a base64 user_audio_chunk carries any non-zero (speech) bytes."""
+    return any(byte != 0 for byte in base64.b64decode(b64))
+
+
 # --------------------------------------------------------------------------- #
 # Text turn-commit (default) — the #567 fix                                    #
 # --------------------------------------------------------------------------- #
@@ -311,6 +322,82 @@ async def test_silence_mode_second_turn_times_out_without_user_message_commit():
     # Without a commit, the server never re-engages → recv_audio times out.
     with pytest.raises(asyncio.TimeoutError):
         await adapter.recv_audio(timeout=0.01)
+
+
+# --------------------------------------------------------------------------- #
+# Real-audio turn-commit ("audio") — issue #705 (TS parity)                    #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_audio_mode_streams_real_pcm_on_turns_2plus_no_user_message():
+    """``turn_commit_mode="audio"`` streams REAL speech PCM for turns 2+ and
+    sends NO user_message text commit — so EL's STT runs on the scripted audio
+    (the #705 fix). Parity with elevenlabs-real-audio.test.ts."""
+    adapter, socket = await _connected_adapter(turn_commit_mode="audio")
+
+    # Greeting drains (real-voice convention).
+    socket.deliver_audio()
+    await adapter.recv_audio(timeout=1.0)
+
+    # Turn 1: user speaks, agent replies.
+    await adapter.send_audio(_real_speech_turn("Hi, a question about my balance."))
+    socket.deliver_audio()
+    await adapter.recv_audio(timeout=1.0)
+
+    # Turn 2 — the #705 bug turn. Snapshot the send boundary to isolate it.
+    sent_before = len(socket.sent)
+    await adapter.send_audio(_real_speech_turn("What are your support hours?"))
+    turn2 = socket.sent_parsed[sent_before:]
+
+    # Turn 2 streamed the real spoken PCM as a user_audio_chunk …
+    real_speech = [
+        m
+        for m in turn2
+        if isinstance(m.get("user_audio_chunk"), str) and _is_real_speech(m["user_audio_chunk"])
+    ]
+    assert real_speech, "audio mode must stream real PCM on turn 2"
+    # … and injected NO user_message text commit.
+    assert [m for m in turn2 if m.get("type") == "user_message"] == []
+    # Counters: both user turns were audio commits, none text-injected.
+    assert adapter.audio_commit_count >= 2
+    assert adapter.text_commit_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stt_driven_assertion_holds_for_audio_mode_and_fails_for_text():
+    """AC4 parity: the STT-driven predicate (no text injection + audio committed
+    + a transcript) holds for audio mode and MUST FAIL on the text-commit path,
+    which only echoes injected text back (the #596 `>=N segments` gap)."""
+
+    def stt_driven(adapter: ElevenLabsAgentAdapter) -> bool:
+        return (
+            adapter.text_commit_count == 0
+            and adapter.audio_commit_count >= 2
+            and bool(adapter.last_user_transcript)
+        )
+
+    # audio mode: real audio → EL returns an STT transcript → predicate TRUE.
+    a_adapter, a_socket = await _connected_adapter(turn_commit_mode="audio")
+    await a_adapter.send_audio(_real_speech_turn("turn one"))
+    await a_adapter.send_audio(_real_speech_turn("turn two"))
+    a_socket.deliver(
+        {"type": "user_transcript", "user_transcription_event": {"user_transcript": "turn two"}}
+    )
+    a_socket.deliver_audio()
+    await a_adapter.recv_audio(timeout=1.0)
+    assert stt_driven(a_adapter) is True
+
+    # text mode: transcript is an echo of injected text, not STT → predicate FALSE.
+    t_adapter, t_socket = await _connected_adapter()  # default "text"
+    await t_adapter.send_audio(_user_turn("turn one"))
+    await t_adapter.send_audio(_user_turn("turn two"))
+    t_socket.deliver(
+        {"type": "user_transcript", "user_transcription_event": {"user_transcript": "turn two"}}
+    )
+    t_socket.deliver_audio()
+    await t_adapter.recv_audio(timeout=1.0)
+    assert stt_driven(t_adapter) is False
 
 
 # ------------------------------------------------------------------ constructor validation
