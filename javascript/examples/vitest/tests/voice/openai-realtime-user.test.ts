@@ -7,15 +7,17 @@
  * server side. We capture that spoken audio across a MULTI-TURN sequence (two
  * scripted user lines → two spoken user segments) and save it as the recording.
  *
- * PARITY NOTE — cross-adapter bridging gap: the Python twin
- * (`python/examples/voice/openai_realtime_user.py`) SKIPS the full
- * `scenario.run()` because each adapter owns its own transport and there is
- * no bridge piping the USER-side realtime audio into a separate AGENT-side
- * adapter's input (its docstring: "Phase-2 gap"). The TS executor has the
- * identical limitation: the realtime-user `sendText` path puts a text message
- * on the bus, so a separate agent under test would hear no audio. We therefore
- * prove the load-bearing claim — scripted text → natural-prosody spoken audio
- * — at the adapter level (the exact seam §7.2 specifies) and commit that audio.
+ * SCOPE — adapter-level proof: this demo proves the §7.2 seam in isolation
+ * (scripted text → natural-prosody spoken audio off the realtime socket). The
+ * Python twin (`python/examples/voice/openai_realtime_user.py`) likewise SKIPS
+ * the full `scenario.run()` ("Phase-2 gap").
+ *
+ * The cross-adapter bridge is now CLOSED in the TS executor (#705): the
+ * realtime-user `user("...")` path drains the spoken audio and routes it (as an
+ * audio ModelMessage + the model's spoken transcript) to a separate agent under
+ * test. For the END-TO-END proof — a realtime user driving a hosted ElevenLabs
+ * agent over MULTI-TURN through `scenario.run()` — see
+ * `realtime-user-hosted-el.test.ts`. This file stays an isolated adapter demo.
  *
  * Binds `@e2e @ts-openai-realtime-user-demo`. Env-gated on `OPENAI_API_KEY`.
  */

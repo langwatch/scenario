@@ -56,7 +56,12 @@ import {
   type ResolvedVoiceConfig,
 } from "../voice/config";
 import { InterruptionConfig } from "../voice/interruption";
-import { extractAudio } from "../voice/messages";
+import {
+  createAudioMessage,
+  extractAudio,
+  extractTranscript,
+  messageHasAudio,
+} from "../voice/messages";
 import { AudioPlaybackSink } from "../voice/playback";
 import { sleep } from "../voice/utils";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
@@ -1016,10 +1021,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
           agentSpan.setMetrics(metrics);
 
+          // Voice bridge (issue #705): a user-simulator turn generated inside
+          // the `proceed()` loop returns TEXT; a voice agent under test needs
+          // AUDIO or it never commits the turn (`receiveAudio` times out). TTS
+          // the generated text into audio here — parity with the scripted
+          // `user("text")` path's voiceify — so every `proceed()` user turn
+          // re-engages the agent. No-op for text-only runs and non-user turns.
+          const outgoing = await this.voiceifyGeneratedUserTurn(
+            messages,
+            idx,
+            role,
+          );
+
           // Add traceId to each message for proper correlation
           const traceId = agentSpan.spanContext().traceId.toString();
 
-          for (const message of messages) {
+          for (const message of outgoing) {
             this.state.addMessage({
               ...message,
               traceId,
@@ -1033,10 +1050,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           // new audio lands mid-response. The proceed-loop path fires via
           // maybeScheduleInterruptedAgentTurn (inline, before `_step`); this
           // guard handles explicit `agent(wait:false)` script steps.
-          if (role === AgentRole.USER && messages.length > 0) {
+          if (role === AgentRole.USER && outgoing.length > 0) {
             const pendingTask = this.pendingAgentTask;
             if (pendingTask && !pendingTask.done) {
-              await this.fireUserInterrupt(messages[messages.length - 1]!);
+              await this.fireUserInterrupt(outgoing[outgoing.length - 1]!);
             }
           }
         }
@@ -1114,12 +1131,35 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // ModelMessage (already audio, or a deliberate text turn) passes straight
     // through.
     if (typeof content === "string") {
-      // (1) Realtime USER agent → route text through the realtime session's
-      //     text-input channel; the model generates audio natively (§7.2).
+      // (1) Realtime USER agent (e.g. OpenAI Realtime, role=USER) → speak the
+      //     scripted line on the realtime session AND drain the spoken audio
+      //     the model synthesizes for it (#705). The realtime model generates
+      //     the voice natively (no TTS, §7.2); we capture that real audio and
+      //     route it — as an AUDIO ModelMessage carrying the model's spoken
+      //     transcript — to the agent under test (e.g. hosted ElevenLabs).
+      //
+      //     Why an audio message and not the old text-only record: the agent
+      //     under test's voice adapter only "hears" a turn that carries audio
+      //     (defaultVoiceCall extracts audio from the incoming message). The
+      //     hosted EL transport additionally commits the turn from the chunk's
+      //     transcript (turnCommitMode:"text"). Recording text alone left EL
+      //     with nothing to commit, so its next agent() drained an unprompted
+      //     response and timed out (#638). Speaking + bridging the audio is the
+      //     realtime→realtime path "through the scenario API as is".
       const realtimeUser = this.findRealtimeUserAgent();
       if (realtimeUser) {
-        await realtimeUser.sendText(content);
-        this.state.addMessage({ role: "user", content });
+        const spoken = await realtimeUser.speakUserTurn(content);
+        const audioMessage = createAudioMessage(
+          new AudioChunk({
+            data: spoken.data,
+            transcript: spoken.transcript ?? content,
+          }),
+          "user",
+        );
+        // Barge-in parity with the voice-sim branch: if an agent({wait:false})
+        // turn is in flight, THIS user turn is the interrupt.
+        if (await this.maybeFireUserInterrupt(audioMessage)) return;
+        await this.scriptCallAgent(AgentRole.USER, audioMessage);
         return;
       }
       // (2) Voice-capable user simulator → TTS the scripted text so the agent
@@ -1188,6 +1228,72 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       if (isVoiceUserSim(agent)) return agent;
     }
     return null;
+  }
+
+  /**
+   * Voiceify the GENERATED text of a user-simulator turn into audio so a voice
+   * agent under test receives audio — not text — during the `proceed()` loop.
+   *
+   * ## Why this exists (issue #705)
+   *
+   * Scripted `user("text")` voices correctly because {@link user} intercepts the
+   * string and calls `sim.voiceifyText(content)` BEFORE broadcasting. But
+   * `proceed(N)` drives the user simulator through {@link callAgent} with no
+   * content — the simulator's `call()` returns a plain TEXT message, which is
+   * broadcast as text. A {@link VoiceAgentAdapter} (e.g. hosted ElevenLabs) then
+   * runs its default `call()`, finds NO audio in the latest message
+   * (`extractIncomingAudio` → null), never calls `sendAudio`, and so never
+   * commits a user turn — the next agent turn has nothing to answer and
+   * `receiveAudio` times out. The result: `proceed(N)` collapses to a single
+   * voiced exchange (only the scripted opener), exactly the #705 symptom.
+   *
+   * This bridges the gap: for each USER-role text message the simulator
+   * generated, it synthesizes the equivalent audio message via the SAME
+   * `voiceifyText` pipeline the scripted path uses, so the broadcast carries
+   * audio and every `proceed()` user turn re-engages the agent. It is a no-op
+   * (returns the input array unchanged) when:
+   *   - the turn was not the USER role, or
+   *   - no {@link VoiceAgentAdapter} participates (text-only run), or
+   *   - the producing agent is not a voice-capable user simulator, or
+   *   - the message already carries audio (scripted/realtime turns) or is empty.
+   *
+   * Mirrors the scripted-content voiceify branch of {@link user} (lines ~1128).
+   * Python parity (`scenario_executor.py:_call_agent`) is a follow-up.
+   *
+   * @param messages - Messages the agent at `idx` produced for `role`.
+   * @param idx - Index of the producing agent in {@link agents}.
+   * @param role - The role the agent was called for.
+   * @returns The messages to add/broadcast — voiced where applicable.
+   */
+  private async voiceifyGeneratedUserTurn(
+    messages: ModelMessage[],
+    idx: number,
+    role: AgentRole,
+  ): Promise<ModelMessage[]> {
+    if (role !== AgentRole.USER || messages.length === 0) return messages;
+    if (this.findVoiceAgentAdapter() === null) return messages;
+    const producer = this.agents[idx];
+    if (!producer || !isVoiceUserSim(producer)) return messages;
+
+    const voiced: ModelMessage[] = [];
+    for (const message of messages) {
+      // Already audio (defensive — generated user-sim turns are text) → pass
+      // through untouched so we never double-encode.
+      if (messageHasAudio(message)) {
+        voiced.push(message);
+        continue;
+      }
+      const text =
+        typeof message.content === "string"
+          ? message.content
+          : extractTranscript(message);
+      if (!text) {
+        voiced.push(message);
+        continue;
+      }
+      voiced.push(await producer.voiceifyText(text, this.config.voice));
+    }
+    return voiced;
   }
 
   /**

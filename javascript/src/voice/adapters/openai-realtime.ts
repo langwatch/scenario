@@ -680,6 +680,124 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this._ws.send(JSON.stringify({ type: "response.create" }));
   }
 
+  /**
+   * Speak a scripted user line AND drain the spoken audio the realtime model
+   * synthesizes for it — the bridge that lets a realtime USER feed a SEPARATE
+   * agent-under-test (e.g. hosted ElevenLabs) through `scenario.run()` (#705).
+   *
+   * Why NOT `sendText` here: `sendText` adds the line as a `role:"user"`
+   * conversation item and calls a bare `response.create`. Per the OpenAI
+   * Realtime semantics, the model then treats the scripted line as USER input
+   * and GENERATES an assistant reply to it — so a scripted user QUESTION ("what
+   * are your support hours?") comes back ANSWERED ("our hours are 8am–8pm"),
+   * which makes the realtime user sound like the agent and the conversation
+   * incoherent (observed live, #705). For a user SIMULATOR we instead drive a
+   * VERBATIM render: `response.create` with an `instructions` override telling
+   * the model to SPEAK the line as the customer, not answer it. The spoken
+   * audio then arrives as `response.output_audio.delta` frames.
+   *
+   * This method loops `receiveAudio` until the model stops speaking (the
+   * realtime adapter THROWS a timeout once the audio deltas stop — that is the
+   * natural end-of-turn signal, identical to the loop in the adapter-level demo
+   * test), merges the PCM16, and returns ONE {@link AudioChunk} carrying:
+   *  - the merged spoken bytes (the real user audio, recorded by the runtime), and
+   *  - `transcript` = the model's own spoken transcript
+   *    ({@link lastAgentTranscript}, populated from `response.output_audio_transcript.done`),
+   *    falling back to the scripted `text` if the transcript never arrived.
+   *
+   * The transcript is load-bearing for the hosted EL transport: its default
+   * `turnCommitMode:"text"` commits the user turn via a `user_message` event
+   * built from the AudioChunk transcript (it does not ingest raw user audio).
+   * So the realtime user genuinely speaks (audio out) AND the agent-under-test
+   * receives a real, committed turn (transcript in) — realtime → realtime over
+   * the scenario API, no TTS.
+   *
+   * Serial by construction: the turn is fully drained before returning, so the
+   * realtime session never has two concurrent `response.create`s in flight —
+   * sidestepping the active-response race (scenario#657) on the scripted path.
+   *
+   * @param text - The scripted user line to be spoken verbatim.
+   * @param tailTimeoutS - Per-frame idle timeout while draining (seconds). The
+   *   loop ends on the first frame that doesn't arrive within this window.
+   *   Defaults to 15 (matches the demo test's drain window).
+   * @returns The merged spoken-audio chunk (empty `data` if the model produced
+   *   no audio), with `transcript` set as described above.
+   */
+  async speakUserTurn(text: string, tailTimeoutS = 15): Promise<AudioChunk> {
+    this._speakVerbatim(text);
+
+    const chunks: Uint8Array[] = [];
+    // Bounded so a misbehaving stream can't loop forever; 400 frames at the
+    // typical ~tens-of-ms cadence is many seconds of speech — far beyond a
+    // one-sentence user line, while still finite.
+    for (let i = 0; i < 400; i++) {
+      let chunk: AudioChunk;
+      try {
+        chunk = await this.receiveAudio(tailTimeoutS);
+      } catch {
+        break; // timeout / socket close = end of the model's spoken turn
+      }
+      if (chunk.data.length === 0) break;
+      chunks.push(chunk.data);
+    }
+
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const merged = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      merged.set(c, off);
+      off += c.length;
+    }
+    // The model's own spoken transcript is authoritative; fall back to the
+    // scripted text so the downstream turn-commit always has something to send.
+    const transcript = this.lastAgentTranscript ?? text;
+    return new AudioChunk({ data: merged, transcript });
+  }
+
+  /**
+   * Drive a VERBATIM spoken render of `text` as the user/customer — ONE
+   * out-of-band `response.create` that voices the exact line and is fully
+   * isolated from the session's conversation history.
+   *
+   * Three response fields make this deterministic (OpenAI Realtime
+   * `response.create.response.*`):
+   *  - `conversation: "none"` — out-of-band: the response is NOT appended to the
+   *    default conversation AND prior context is bypassed.
+   *  - `input: []` — explicitly removes ALL prior context for this generation.
+   *  - `output_modalities: ["audio"]` — force a spoken (audio) response.
+   *
+   * Why isolation matters (#705, observed live): without it, each prior
+   * verbatim response stays in session history as the model's own assistant
+   * turn, so by ~turn 3 the model "continues the conversation" and ANSWERS the
+   * scripted line instead of speaking it (the realtime user starts sounding like
+   * the agent). `conversation:"none"` + `input:[]` removes that history entirely,
+   * so every turn is rendered the same way — the line, spoken, nothing else.
+   *
+   * Verbatim via `instructions` (not a `role:"user"` conversation item) because
+   * a user item makes the model GENERATE a reply to the line rather than voice
+   * it (see {@link speakUserTurn} jsdoc).
+   */
+  private _speakVerbatim(text: string): void {
+    if (!this._ws) {
+      throw new Error("OpenAIRealtimeAgentAdapter: not connected");
+    }
+    this._ws.send(
+      JSON.stringify({
+        type: "response.create",
+        response: {
+          conversation: "none",
+          input: [],
+          output_modalities: ["audio"],
+          instructions:
+            "You are voicing ONE line spoken by a customer in a support call. " +
+            "Say the line below OUT LOUD, in the first person, EXACTLY as written. " +
+            "Do NOT answer it, do NOT respond to it, do NOT add or change any " +
+            `words — just speak this line and nothing else: ${text}`,
+        },
+      }),
+    );
+  }
+
   // ----------------------------------------------------------------- inner
 
   private _handleMessage(raw: RawData): void {
