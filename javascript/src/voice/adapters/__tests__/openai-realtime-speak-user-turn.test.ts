@@ -5,7 +5,10 @@
  * `scenario.run()`.
  *
  * Drives the adapter against an in-process `ws` server (no network), asserting:
- *  - speak path emits `conversation.item.create` (input_text) then `response.create`;
+ *  - speak path emits exactly ONE `response.create` with `conversation:'none'`,
+ *    `input:[]`, `output_modalities:['audio']`, and verbatim `instructions` — and
+ *    NO `conversation.item.create` (emitting that item would make the model
+ *    answer the line instead of speaking it verbatim);
  *  - the spoken-audio deltas the "model" pushes back are merged into ONE chunk;
  *  - the chunk carries the model's spoken transcript (from
  *    `response.output_audio_transcript.done`), with the scripted text as fallback.

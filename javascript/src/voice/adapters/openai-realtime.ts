@@ -724,6 +724,12 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
    *   no audio), with `transcript` set as described above.
    */
   async speakUserTurn(text: string, tailTimeoutS = 15): Promise<AudioChunk> {
+    // Reset so the `?? text` fallback below can't read a stale prior-turn
+    // transcript: lastAgentTranscript is only written on
+    // `response.output_audio_transcript.done`, so if THIS turn emits audio but
+    // no transcript event, we must fall back to the verbatim `text`, not the
+    // previous turn's line.
+    this.lastAgentTranscript = null;
     this._speakVerbatim(text);
 
     const chunks: Uint8Array[] = [];

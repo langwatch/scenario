@@ -1204,9 +1204,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
   }
 
   /**
-   * Find a USER-role agent that speaks text into a realtime session (has a
-   * `sendText` method) — the OpenAI Realtime user-simulator path. Duck-typed
-   * to avoid coupling the executor to the concrete adapter class.
+   * Find a USER-role agent that speaks scripted lines verbatim into a realtime
+   * session via `speakUserTurn` (the model synthesizes the voice itself) — the
+   * OpenAI Realtime user-simulator path. Duck-typed to avoid coupling the
+   * executor to the concrete adapter class.
    */
   private findRealtimeUserAgent(): RealtimeUserAgent | null {
     for (const agent of this.agents) {
