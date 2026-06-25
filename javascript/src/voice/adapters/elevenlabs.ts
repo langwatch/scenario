@@ -18,13 +18,15 @@
  *    - `audio` — decoded base64 PCM16 and returned from `receiveAudio`
  *    - `ping` — replied with `{"type": "pong", "event_id": <id>}`
  *    - `client_tool_call` — tool-only / non-audio terminal turn: resolves the
- *      drain with an empty `AudioChunk` (issue #648) instead of hanging to the
- *      `receiveAudio` timeout (no `client_tool_result` path → no follow-up audio)
+ *      drain with an empty `AudioChunk` (the tool-call terminal-turn fix) instead
+ *      of hanging to the `receiveAudio` timeout (no `client_tool_result` path →
+ *      no follow-up audio)
  *    - `interruption` — swallowed
  *    - Anything else — silently skipped
  *
  * A socket close mid-receive is likewise terminal: `onSocketClose` resolves
- * pending waiters with an empty `AudioChunk` so the drain exits cleanly (#648).
+ * pending waiters with an empty `AudioChunk` so the drain exits cleanly (the same
+ * terminal-turn drain).
  *
  * {@link ElevenLabsVoiceAgent} — the typed *local* composable preset (distinct
  * responsibility, same vendor): you compose {@link ElevenLabsSTTProvider} + any
@@ -57,36 +59,38 @@ export const ELEVENLABS_CONVAI_URL_TEMPLATE =
   "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}";
 
 /**
- * Default silence-tail length for the legacy {@link TurnCommitMode} `"silence"`
- * path. 16000 zero bytes at 24 kHz = ~333 ms silence — the empirical middle
- * ground that historically let the *greeting → first user turn* exchange work
- * (see Python adapter docstring).
+ * Trailing-silence length appended after each user turn's real PCM. 72000 zero
+ * bytes at 24 kHz = **1.5 s** of silence.
  *
- * This tail is NOT reliable for scripted turn 2+ (issue #567): EL ConvAI 2.0's
- * end-of-turn is a hybrid VAD + deep-learning turn-detector (prosody, rhythm,
- * micro-pauses), not a pure silence threshold, so a fixed zero-byte blob does
- * not deterministically trip it on a non-mic stream. The default commit mode is
- * therefore {@link TurnCommitMode} `"text"`; the silence tail survives as an
- * opt-in for callers who want the pure server-VAD audio path.
+ * This length is the load-bearing reliability mechanism for scripted real-voice
+ * multi-turn. EL ConvAI's end-of-turn is a hybrid VAD + deep-learning
+ * turn-detector keyed on an end-of-speech *pause*; on a scripted, non-mic stream
+ * the old ~333 ms tail was too short to trip it reliably (turns stalled, then
+ * `receiveAudio` waited on keepalive pings — the no-audio hang). A 1.5 s tail
+ * gives the detector an unambiguous end-of-speech, so a scripted turn closes and
+ * EL replies with a genuine ASR-driven response — verified against a *vanilla*
+ * hosted agent (no special turn config), 4/4 turns. That is why this works
+ * **without** hand-provisioning or mutating the EL agent: the tail alone carries
+ * reliability.
  */
-const SILENCE_TAIL_BYTES = 16000;
+const SILENCE_TAIL_BYTES = 72000;
 
 /**
- * How {@link ElevenLabsAgentAdapter.sendAudio} signals end-of-turn to EL ConvAI.
+ * Absolute wall-clock ceiling (seconds) for a single {@link
+ * ElevenLabsAgentAdapter.receiveAudio} call that keepalive pings do NOT reset.
  *
- * - `"text"` (default): after streaming the user audio, send an explicit
- *   `{"type":"user_message","text":<transcript>}` — the only client→server
- *   event EL's documented protocol exposes that *deterministically* commits a
- *   turn and forces an agent response, without relying on mic-style server VAD
- *   (issue #567). Requires a transcript on the outgoing {@link AudioChunk}
- *   (the voice runtime threads the `scenario.user("…")` script text through as
- *   the chunk transcript); when absent, falls back to the silence tail.
- * - `"silence"`: legacy behavior — stream the audio then a fixed
- *   {@link ElevenLabsAgentAdapterOptions.silenceTailBytes} zero-byte tail and
- *   hope server VAD fires. Kept for the pure-audio path and parity with the
- *   pre-#567 transport, but unreliable for scripted turn 2+.
+ * The idle deadline (`timeout`) is re-armed on every inbound frame, pings
+ * included (the ping-driven idle-timer reset), so a slow-but-pinging server is
+ * not aborted mid-think. But EL ConvAI keeps pinging *indefinitely* on a turn it
+ * will never answer with audio (e.g. after it ends or transfers its turn) — with
+ * only the ping-resettable idle deadline, `receiveAudio` then waits forever and
+ * wedges the whole multi-turn run (the keepalive-ping wedge; the absolute
+ * backstop was explicitly deferred earlier). This ceiling bounds that
+ * pings-but-no-audio case: generous enough (45s) that a genuinely slow agent
+ * still gets to respond, but finite, so a non-responding turn times out cleanly
+ * and the drain moves on.
  */
-export type TurnCommitMode = "text" | "silence";
+const KEEPALIVE_HARD_CEILING_S = 45;
 
 export interface ElevenLabsAgentAdapterOptions {
   /** ID of the ElevenLabs Conversational AI agent (provisioned in the EL dashboard). */
@@ -102,16 +106,11 @@ export interface ElevenLabsAgentAdapterOptions {
   /** Per-session first message override. */
   firstMessageOverride?: string;
   /**
-   * How `sendAudio` commits a user turn. Defaults to `"text"` (explicit
-   * `user_message` commit) so scripted turn 2+ reliably re-engages an agent
-   * response (issue #567). Set to `"silence"` for the legacy pure-audio
-   * server-VAD path. See {@link TurnCommitMode}.
-   */
-  turnCommitMode?: TurnCommitMode;
-  /**
-   * Zero-byte silence-tail length appended after user audio. Only consulted on
-   * the `"silence"` commit path (and the `"text"` fallback when no transcript
-   * is available). Defaults to {@link SILENCE_TAIL_BYTES} (~333 ms @ 24 kHz).
+   * Trailing-silence length (zero bytes) appended after each user turn's real
+   * PCM, to trip EL's end-of-turn detector. Defaults to
+   * {@link SILENCE_TAIL_BYTES} (72000 = 1.5 s @ 24 kHz), the value verified to
+   * close scripted turns reliably on a vanilla hosted agent. A tuning knob, not
+   * a behavior toggle — the adapter always streams real audio.
    */
   silenceTailBytes?: number;
   /**
@@ -159,7 +158,6 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly apiKey: string;
   private readonly systemPromptOverride?: string;
   private readonly firstMessageOverride?: string;
-  private readonly turnCommitMode: TurnCommitMode;
   private readonly silenceTailBytes: number;
   private readonly webSocketFactory: (
     url: string,
@@ -177,21 +175,22 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   lastUserTranscript: string | null = null;
   lastAgentTranscript: string | null = null;
 
+  /**
+   * How many user turns this adapter committed by streaming real PCM. The
+   * voice-specific assertion keys on this together with {@link
+   * lastUserTranscript}: a non-empty `user_transcript` after `audioCommitCount`
+   * turns proves EL's STT actually ran on the audio we sent (audio reached the
+   * agent) — strictly stronger than the older `>=N segments` check, which passed
+   * even on the old text-commit path where no PCM ever reached EL.
+   */
+  audioCommitCount = 0;
+
   constructor(options: ElevenLabsAgentAdapterOptions) {
     super();
     this.agentId = options.agentId;
     this.apiKey = options.apiKey;
     this.systemPromptOverride = options.systemPromptOverride;
     this.firstMessageOverride = options.firstMessageOverride;
-    // Validate raw option before defaulting so JS callers hitting the boundary
-    // get a clear error even when TypeScript types are bypassed.
-    const rawMode = options.turnCommitMode ?? "text";
-    if (rawMode !== "text" && rawMode !== "silence") {
-      throw new Error(
-        `Unknown turnCommitMode: "${rawMode}". Expected "text" or "silence".`,
-      );
-    }
-    this.turnCommitMode = rawMode;
     this.silenceTailBytes = options.silenceTailBytes ?? SILENCE_TAIL_BYTES;
     if (!Number.isInteger(this.silenceTailBytes) || this.silenceTailBytes <= 0) {
       throw new Error(
@@ -214,7 +213,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   }
 
   // call() is inherited from VoiceAgentAdapter (defaultVoiceCall) — the executor
-  // drives the hosted ConvAI audio loop (Gap #11). No leaf-level override.
+  // drives the hosted ConvAI audio loop. No leaf-level override.
 
   // ---------------------------------------------------------------- lifecycle
   async connect(): Promise<void> {
@@ -282,7 +281,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     }
   }
 
-  /** Whether the ConvAI WebSocket is open (Gap #11). */
+  /** Whether the ConvAI WebSocket is open. */
   override isConnected(): boolean {
     return this.ws !== null;
   }
@@ -305,48 +304,39 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       throw new Error("ElevenLabsAgentAdapter: not connected");
     }
 
-    // EL ConvAI exposes NO audio-flush / end-of-turn client event (verified
-    // against the official Python + JS SDKs — the full client→server union is
-    // pong | client_tool_result | conversation_initiation_client_data |
-    // feedback | contextual_update | user_message | user_activity |
-    // multimodal_message, plus the bare user_audio_chunk; none commit audio).
-    // Server-side turn detection (ConvAI 2.0 hybrid VAD + DL turn-detector) does
-    // NOT reliably fire on a scripted, non-mic stream, so the legacy "stream
-    // audio + silence tail" path stalls on turn 2+ (issue #567).
-    const transcript = chunk.transcript?.trim();
-
-    if (this.turnCommitMode === "text" && transcript) {
-      // Deterministic commit: send ONLY the user_message text turn. We do NOT
-      // also stream the raw audio to EL here — sending user_audio_chunk and then
-      // user_message in the same turn races the server's audio ingestion
-      // against the text commit and was empirically flaky (the agent receive
-      // intermittently timed out). The text turn alone forces an agent response
-      // every time. Nothing observable is lost: the voice runtime records the
-      // user audio locally (recorder.recordUser, independent of this send), and
-      // EL echoes the committed text back as a user_transcript event, so
-      // lastUserTranscript still populates.
-      this.sendUserMessage(transcript);
-      return;
-    }
-
-    // Legacy / fallback path: stream the speech then a silence tail and let
-    // server VAD try. Used when turnCommitMode is "silence", or in "text" mode
-    // when the chunk carries no transcript to commit.
-    const speechB64 = Buffer.from(chunk.data).toString("base64");
-    this.ws.send(JSON.stringify({ user_audio_chunk: speechB64 }));
-    this.sendSilenceTail();
+    // Real voice-in, the adapter's ONLY behavior: stream the user's REAL spoken
+    // PCM as `user_audio_chunk`, then a trailing silence tail. EL's
+    // STT/VAD/turn-detector run on the ACTUAL audio, so a scripted turn 2+ gets a
+    // genuine ASR-driven agent response.
+    //
+    // We deliberately do NOT send a `{"type":"user_message","text":…}` commit:
+    // that injects text and DISCARDS the audio, so EL's STT never runs — that was
+    // the text-commit regression (the old default). EL ConvAI also exposes no
+    // audio-flush / end-of-turn client event, so turn closure relies entirely on
+    // the server-side end-of-speech detector seeing the trailing silence — which
+    // is why {@link SILENCE_TAIL_BYTES} is a generous 1.5 s (it trips the
+    // detector reliably on a scripted, non-mic stream without any agent-side
+    // tuning).
+    this.streamSpeechThenSilence(chunk.data);
   }
 
   /**
-   * Explicit turn-commit: tells EL the user is done and forces an agent
-   * response without relying on mic-style server VAD (issue #567). Wire shape
-   * matches the official SDK's `user_message` event.
+   * Stream the spoken PCM as a `user_audio_chunk` then a trailing silence tail,
+   * so EL's server-side end-of-turn detector sees real audio followed by an
+   * unambiguous end-of-speech pause and closes the turn.
    */
-  private sendUserMessage(text: string): void {
-    this.ws?.send(JSON.stringify({ type: "user_message", text }));
+  private streamSpeechThenSilence(data: Uint8Array): void {
+    // An empty chunk carries no speech: don't count it as a real-audio turn
+    // (that would inflate audioCommitCount and the STT assertion) and don't
+    // stream a meaningless empty frame.
+    if (data.length === 0) return;
+    this.audioCommitCount += 1;
+    const speechB64 = Buffer.from(data).toString("base64");
+    this.ws?.send(JSON.stringify({ user_audio_chunk: speechB64 }));
+    this.sendSilenceTail();
   }
 
-  /** Legacy end-of-turn nudge: a fixed zero-byte tail to coax server VAD. */
+  /** Trailing zero-byte tail — the end-of-speech pause that closes the turn. */
   private sendSilenceTail(): void {
     const silence = new Uint8Array(this.silenceTailBytes);
     const silenceB64 = Buffer.from(silence).toString("base64");
@@ -362,43 +352,59 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (queued) return queued;
 
     return await new Promise<AudioChunk>((resolve, reject) => {
-      // Forward-declared so both the timer, the resetter, and the waiter share it.
+      // Forward-declared so the timers, the resetter, and the waiter share them.
       let timer: ReturnType<typeof setTimeout>;
+      // Absolute wall-clock ceiling (the previously-deferred keepalive backstop).
+      // Unlike `timer`, this is set ONCE and NEVER reset by inbound frames, so endless
+      // keepalive pings cannot push it out — it always fires after a fixed
+      // wall-clock bound and unwedges a pings-but-no-audio receive. Sized as
+      // max(timeout, 45s): never below the caller's own idle budget (so it does
+      // not pre-empt a legitimately slow-but-responding agent), but at least 45s
+      // even for sub-second tail-probe calls. In the real drain `timeout` is the
+      // 30s response budget or the 0.6s tail probe, so the ceiling is 45s.
+      let hardTimer: ReturnType<typeof setTimeout>;
+      const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
 
-      const onTimeout = () => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        clearTimeout(hardTimer);
         const timerIdx = this.timerResetters.indexOf(resetTimer);
         if (timerIdx >= 0) this.timerResetters.splice(timerIdx, 1);
         const waiterIdx = this.waiters.indexOf(waiter);
         if (waiterIdx >= 0) this.waiters.splice(waiterIdx, 1);
+      };
+
+      const onTimeout = () => {
+        cleanup();
         reject(
           new Error(
-            "ElevenLabsAgentAdapter: receiveAudio timed out. Hosted ElevenLabs " +
-              "ConvAI supports multi-turn via the default text turn-commit mode " +
-              "(turnCommitMode: \"text\"). If you are using turnCommitMode: \"silence\" " +
-              "(legacy server-VAD path), a scripted 2nd user() turn may not re-engage " +
-              "the agent because ConvAI 2.0 hybrid VAD does not reliably fire on a " +
-              "non-mic stream — switch to the default \"text\" mode. See " +
+            "ElevenLabsAgentAdapter: receiveAudio timed out (no agent audio " +
+              "within the deadline — the hosted agent produced no audio, whether " +
+              "fully silent or only keepalive-pinging). For a scripted multi-turn " +
+              "run this usually means the agent ended or transferred its turn " +
+              "(e.g. an escalation/handoff request), or the user turn did not " +
+              "commit. See " +
               "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
           ),
         );
       };
 
-      // Re-arm the idle deadline on every received message (pings included) so a
+      // Re-arm the IDLE deadline on every received message (pings included) so a
       // slow-but-healthy server that keeps pinging while processing does not
-      // trip the timer. Matches Python recv_audio sliding-idle-deadline (PR #649).
+      // trip the timer. Matches the Python recv_audio sliding-idle-deadline.
+      // The hard ceiling is deliberately NOT reset here.
       const resetTimer = () => {
         clearTimeout(timer);
         timer = setTimeout(onTimeout, timeout * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
-        clearTimeout(timer);
-        const timerIdx = this.timerResetters.indexOf(resetTimer);
-        if (timerIdx >= 0) this.timerResetters.splice(timerIdx, 1);
+        cleanup();
         resolve(chunk);
       };
 
       timer = setTimeout(onTimeout, timeout * 1000);
+      hardTimer = setTimeout(onTimeout, hardCeilingMs);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });
@@ -409,7 +415,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   onMessage(data: RawData): void {
     // Any inbound frame (ping, audio, transcript) is a liveness signal — reset all
     // active receiveAudio timers so a slow-but-pinging server does not spuriously
-    // time out. Matches Python recv_audio sliding-idle-deadline fix (PR #649).
+    // time out. Matches the Python recv_audio sliding-idle-deadline fix.
     for (const resetter of this.timerResetters) resetter();
 
     const raw = data instanceof Buffer ? data.toString("utf-8") : String(data);
@@ -488,12 +494,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     }
 
     if (etype === "client_tool_call") {
-      // Issue #648: EL ConvAI emits `client_tool_call` when the agent invokes a
-      // CLIENT-side tool. This adapter has no `client_tool_result` path, so the
-      // agent will never produce spoken audio for this turn — it is a tool-only
-      // / non-audio terminal turn. Resolve the active `receiveAudio` waiter with
-      // an empty chunk so the base drain (`drainAgentResponse`) exits cleanly
-      // instead of hanging to the `receiveAudio` timeout. Mirrors the #646/PR647
+      // EL ConvAI emits `client_tool_call` when the agent invokes a CLIENT-side
+      // tool. This adapter has no `client_tool_result` path, so the agent will
+      // never produce spoken audio for this turn — it is a tool-only / non-audio
+      // terminal turn. Resolve the active `receiveAudio` waiter with an empty
+      // chunk so the base drain (`drainAgentResponse`) exits cleanly instead of
+      // hanging to the `receiveAudio` timeout. Mirrors the terminal-turn drain
       // reference fix and the Python parity in `elevenlabs.py`.
       //
       // If no receive is in flight we DROP the terminal rather than queue it

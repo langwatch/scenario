@@ -9,8 +9,8 @@
  *
  * Tag convention: `@ts-elevenlabs` (per-subject) instead of `@ts-bound`
  * to avoid colliding with PR1's `voice-contract-surface.test.ts` which
- * uses `includeTags: ["ts-bound"]`. Per-subject tagging matches PR #517,
- * #528, and #523's tag-convention decision.
+ * uses `includeTags: ["ts-bound"]`. Per-subject tagging matches the
+ * established per-subject tag-convention decision.
  */
 import { dirname, resolve } from "node:path";
 import { EventEmitter } from "node:events";
@@ -633,13 +633,13 @@ describe("ElevenLabsAgentAdapter wire-protocol (onMessage branches)", () => {
     emit(socket, { type: "vad_score", vad_event: { score: 0.5 } });
     emit(socket, { type: "agent_response_metadata", metadata: {} });
     // No throw, no mutation visible to callers. (`client_tool_call` is NOT here:
-    // it is a non-audio terminal, covered by its own test below — issue #648.)
+    // it is a non-audio terminal, covered by its own test below.)
     expect(adapter.lastAgentTranscript).toBeNull();
     expect(adapter.lastUserTranscript).toBeNull();
     await adapter.disconnect();
   });
 
-  it("client_tool_call (tool-only turn) resolves the receiver with an empty chunk (#648)", async () => {
+  it("client_tool_call (tool-only turn) resolves the receiver with an empty chunk", async () => {
     const { adapter, socket } = await makeConnected();
     const recv = adapter.receiveAudio(2);
     emit(socket, {
@@ -701,9 +701,9 @@ describe("ElevenLabsAgentAdapter wire-protocol (onMessage branches)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Issue #661 — keepalive-aware sliding idle deadline
+// Keepalive-aware sliding idle deadline (ping-driven idle-timer reset)
 // ---------------------------------------------------------------------------
-describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => {
+describe("receiveAudio — keepalive-aware sliding idle deadline", () => {
   // Timing constants
   const TIMEOUT_S = 0.30;
   const NUM_PINGS = 8;
@@ -806,8 +806,9 @@ describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => 
       // Start a receiveAudio with a long timeout (5s) — we'll close before it fires
       const receivePromise = adapter.receiveAudio(5);
 
-      // One timer should be active (the receiveAudio deadline)
-      expect(vi.getTimerCount()).toBe(1);
+      // Two timers are active: the ping-resettable idle deadline AND the
+      // absolute keepalive hard-ceiling backstop.
+      expect(vi.getTimerCount()).toBe(2);
 
       // Emit close — triggers drainPendingWaiters
       socket.emit("close");
@@ -818,6 +819,42 @@ describe("receiveAudio — keepalive-aware sliding idle deadline (#661)", () => 
 
       // No surviving timers — the waiter cancelled the timer on drain
       expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await adapter?.disconnect();
+      vi.useRealTimers();
+    }
+  });
+
+  it("hard ceiling fires despite endless keepalive pings (no infinite wedge)", { timeout: 5000 }, async () => {
+    // Pings reset the idle deadline forever (the ping-driven idle-timer reset);
+    // without the absolute ceiling, a pings-but-no-audio agent wedges receiveAudio
+    // indefinitely (the keepalive-ping wedge). With it, the call must still reject
+    // by the ceiling.
+    vi.useFakeTimers();
+    let adapter: ElevenLabsAgentAdapter | undefined;
+    try {
+      const connected = await makeConnected();
+      adapter = connected.adapter;
+      const socket = connected.socket;
+
+      const recv = adapter.receiveAudio(1); // idle 1s; hard ceiling = max(1,45) = 45s
+      let rejected = false;
+      recv.catch(() => {
+        rejected = true;
+      });
+
+      // Emit a ping every 0.9s (< the 1s idle deadline, so it always re-arms)
+      // across > 45s of fake time. The idle timer never fires; the hard ceiling
+      // must.
+      for (let t = 0; t < 55; t++) {
+        socket.emit(
+          "message",
+          Buffer.from(JSON.stringify({ type: "ping", ping_event: { event_id: t } })),
+        );
+        await vi.advanceTimersByTimeAsync(900);
+      }
+
+      expect(rejected, "hard ceiling did not fire despite > 45s of pings").toBe(true);
     } finally {
       await adapter?.disconnect();
       vi.useRealTimers();

@@ -1,7 +1,7 @@
-// Ungated CI guard for #638 / #567 — keyless, no live keys. Proves the hosted
-// example is greeting-led multi-turn (AC8 updated: #567 fixed the adapter so
-// multi-turn is now the expected shape), the composable example stays multi-turn
-// (AC9), and the adapter timeout error is enriched with actionable guidance (AC6).
+// Ungated CI guard — keyless, no live keys. Proves the hosted example is
+// greeting-led multi-turn (AC8 updated: the multi-turn adapter fix made
+// multi-turn the expected shape), the composable example stays multi-turn (AC9),
+// and the adapter timeout error is enriched with actionable guidance (AC6).
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -73,13 +73,15 @@ function extractScriptBlock(source: string, scenarioTitle: string): string {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("elevenlabs-hosted-shape guard (#638)", () => {
-  it("AC8 — hosted example is greeting-led multi-turn (#567 load-bearing proof)", () => {
-    // Pre-#567: the adapter's server-VAD path timed out on the 2nd scripted user
-    // turn, so the hosted example was capped at 1 user turn. Post-#567: the
-    // adapter commits each user turn with an explicit user_message event, so
-    // multi-turn works reliably. This guard now enforces the opposite invariant:
-    // the hosted example MUST have ≥2 user turns (regression = reverting to 1).
+describe("elevenlabs-hosted-shape guard", () => {
+  it("AC8 — hosted example is greeting-led multi-turn (multi-turn fix load-bearing proof)", () => {
+    // Before the multi-turn fix: the adapter's server-VAD path timed out on the
+    // 2nd scripted user turn, so the hosted example was capped at 1 user turn.
+    // After the real-audio fix: the adapter streams each user turn's real PCM (+ a
+    // trailing silence tail that trips EL's end-of-turn detector) so multi-turn
+    // works reliably. This guard
+    // enforces the invariant either fix preserves: the hosted example MUST have
+    // ≥2 user turns (regression = reverting to 1).
     const source = fs.readFileSync(EXAMPLE_FILE, "utf-8");
     const block = extractScriptBlock(source, "Demo — ElevenLabs hosted Conversational AI");
 
@@ -118,8 +120,26 @@ describe("elevenlabs-hosted-shape guard (#638)", () => {
     // After collapsing the join both appear in sequence.
     expect(collapsed).toContain("Hosted ElevenLabs");
     expect(collapsed).toContain("ConvAI");
-    // #567: the error now names the legacy silence-VAD path and recommends
-    // the "text" mode; the old "single exchange" framing is retired.
-    expect(collapsed).toContain("turnCommitMode");
+  });
+
+  it("adapter streams real audio and never text-commits", () => {
+    // The real-audio-only contract: sendAudio streams the user's actual PCM as a
+    // `user_audio_chunk` frame, so EL's STT runs on turns 2+. It must NOT inject a
+    // `user_message` text commit — that was the text-commit regression (it
+    // discarded the audio and bypassed STT). This guard pins the shipped source
+    // to that contract: `user_audio_chunk` present, `user_message` absent from
+    // the CODE (the doc-comments may still name `user_message` to explain why
+    // the adapter deliberately does NOT send one, so we strip line-comments
+    // before that check — assert on behavior, not prose).
+    const source = fs.readFileSync(ADAPTER_FILE, "utf-8");
+    expect(source).toContain("user_audio_chunk");
+
+    // Strip BOTH /* … */ block comments and // line comments before the negative
+    // check — the JSDoc deliberately names `user_message` to explain why the
+    // adapter does NOT send one; assert on code, not prose.
+    const codeOnly = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(codeOnly).not.toContain("user_message");
   });
 });
