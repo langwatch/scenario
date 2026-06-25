@@ -72,6 +72,22 @@ export const ELEVENLABS_CONVAI_URL_TEMPLATE =
 const SILENCE_TAIL_BYTES = 16000;
 
 /**
+ * Absolute wall-clock ceiling (seconds) for a single {@link
+ * ElevenLabsAgentAdapter.receiveAudio} call that keepalive pings do NOT reset.
+ *
+ * The idle deadline (`timeout`) is re-armed on every inbound frame, pings
+ * included (#661), so a slow-but-pinging server is not aborted mid-think. But
+ * EL ConvAI keeps pinging *indefinitely* on a turn it will never answer with
+ * audio (e.g. after it ends or transfers its turn) — with only the
+ * ping-resettable idle deadline, `receiveAudio` then waits forever and wedges
+ * the whole multi-turn run (issue #705; the absolute backstop explicitly
+ * deferred in #493). This ceiling bounds that pings-but-no-audio case: generous
+ * enough (45s) that a genuinely slow agent still gets to respond, but finite, so
+ * a non-responding turn times out cleanly and the drain moves on.
+ */
+const KEEPALIVE_HARD_CEILING_S = 45;
+
+/**
  * How {@link ElevenLabsAgentAdapter.sendAudio} signals end-of-turn to EL ConvAI.
  *
  * - `"text"` (default): after streaming the user audio, send an explicit
@@ -414,43 +430,53 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     if (queued) return queued;
 
     return await new Promise<AudioChunk>((resolve, reject) => {
-      // Forward-declared so both the timer, the resetter, and the waiter share it.
+      // Forward-declared so the timers, the resetter, and the waiter share them.
       let timer: ReturnType<typeof setTimeout>;
+      // Absolute wall-clock ceiling — set ONCE, never reset by pings (#705 /
+      // the deferred #493 backstop). At least the caller's `timeout` so it never
+      // fires before the idle deadline on a short-timeout call.
+      let hardTimer: ReturnType<typeof setTimeout>;
+      const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
 
-      const onTimeout = () => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        clearTimeout(hardTimer);
         const timerIdx = this.timerResetters.indexOf(resetTimer);
         if (timerIdx >= 0) this.timerResetters.splice(timerIdx, 1);
         const waiterIdx = this.waiters.indexOf(waiter);
         if (waiterIdx >= 0) this.waiters.splice(waiterIdx, 1);
+      };
+
+      const onTimeout = () => {
+        cleanup();
         reject(
           new Error(
-            "ElevenLabsAgentAdapter: receiveAudio timed out. Hosted ElevenLabs " +
-              "ConvAI supports multi-turn via the default text turn-commit mode " +
-              "(turnCommitMode: \"text\"). If you are using turnCommitMode: \"silence\" " +
-              "(legacy server-VAD path), a scripted 2nd user() turn may not re-engage " +
-              "the agent because ConvAI 2.0 hybrid VAD does not reliably fire on a " +
-              "non-mic stream — switch to the default \"text\" mode. See " +
+            "ElevenLabsAgentAdapter: receiveAudio timed out (no agent audio " +
+              "within the deadline). The hosted agent went silent — for a " +
+              "scripted multi-turn run this usually means the agent ended or " +
+              "transferred its turn (e.g. an escalation/handoff request), or the " +
+              "user turn did not commit. See " +
               "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
           ),
         );
       };
 
-      // Re-arm the idle deadline on every received message (pings included) so a
+      // Re-arm the IDLE deadline on every received message (pings included) so a
       // slow-but-healthy server that keeps pinging while processing does not
       // trip the timer. Matches Python recv_audio sliding-idle-deadline (PR #649).
+      // The hard ceiling is deliberately NOT reset here.
       const resetTimer = () => {
         clearTimeout(timer);
         timer = setTimeout(onTimeout, timeout * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
-        clearTimeout(timer);
-        const timerIdx = this.timerResetters.indexOf(resetTimer);
-        if (timerIdx >= 0) this.timerResetters.splice(timerIdx, 1);
+        cleanup();
         resolve(chunk);
       };
 
       timer = setTimeout(onTimeout, timeout * 1000);
+      hardTimer = setTimeout(onTimeout, hardCeilingMs);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });

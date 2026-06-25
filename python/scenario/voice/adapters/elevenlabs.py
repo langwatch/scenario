@@ -69,6 +69,16 @@ CONVAI_URL_TEMPLATE = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={
 #: tail survives as an opt-in for callers who want the pure server-VAD audio path.
 SILENCE_TAIL_BYTES = 16000
 
+#: Absolute wall-clock ceiling (seconds) for a single :meth:`recv_audio` call
+#: that keepalive pings do NOT reset. The idle deadline is re-armed on every
+#: inbound frame, pings included (#649), so a slow-but-pinging server is not
+#: aborted mid-think — but EL ConvAI pings *indefinitely* on a turn it will
+#: never answer with audio (e.g. after it ends/transfers its turn), which would
+#: otherwise wedge the whole multi-turn run (issue #705; the absolute backstop
+#: explicitly deferred in #493). 45s is generous enough for a genuinely slow
+#: agent to respond, but finite so a non-responding turn times out cleanly.
+KEEPALIVE_HARD_CEILING_S = 45.0
+
 #: How :meth:`ElevenLabsAgentAdapter.send_audio` signals end-of-turn to EL ConvAI.
 #:
 #: - ``"text"`` (default): send an explicit
@@ -374,9 +384,18 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
 
-        deadline = asyncio.get_running_loop().time() + timeout
+        start = asyncio.get_running_loop().time()
+        deadline = start + timeout
+        # Absolute wall-clock ceiling that keepalive pings do NOT reset (#705 /
+        # the deferred #493 backstop). EL ConvAI pings indefinitely on a turn it
+        # will never answer with audio (e.g. after it ends or transfers its
+        # turn); with only the ping-resettable idle ``deadline`` this loop would
+        # wedge forever. The ceiling bounds that pings-but-no-audio case. At
+        # least ``timeout`` so it never pre-empts the idle deadline.
+        hard_deadline = start + max(timeout, KEEPALIVE_HARD_CEILING_S)
         while True:
-            remaining = deadline - asyncio.get_running_loop().time()
+            now = asyncio.get_running_loop().time()
+            remaining = min(deadline, hard_deadline) - now
             if remaining <= 0:
                 raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
 
