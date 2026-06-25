@@ -152,14 +152,19 @@ export function indexSpans(spans: ReadableSpan[]): SpanNode[] {
 }
 
 /**
- * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
- * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
+ * Extracts the parent span ID from a ReadableSpan. The OTel SDK exposes the
+ * parent as a typed SpanContext (parentSpanContext); older span implementations
+ * exposed a flat parentSpanId string, which is handled as a fallback.
  */
 export function getParentSpanId(span: ReadableSpan): string | undefined {
-  if (span.parentSpanId) return span.parentSpanId;
-  const legacy = (span as unknown as Record<string, unknown>)
-    .parentSpanContext as { spanId?: string } | undefined;
-  return legacy?.spanId;
+  // The span tree can contain ReadableSpan instances from different OTel SDK
+  // versions, so read both shapes via a cast rather than relying on either
+  // field being present on the statically-resolved type.
+  const s = span as unknown as {
+    parentSpanContext?: { spanId?: string };
+    parentSpanId?: string;
+  };
+  return s.parentSpanContext?.spanId ?? s.parentSpanId;
 }
 
 /**
