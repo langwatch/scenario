@@ -202,6 +202,48 @@ describe("hosted-EL real voice-in multi-turn (wsFactory seam)", () => {
   });
 });
 
+// ─── REGRESSION BASELINE — what the old text-commit path looked like on the wire ────
+//
+// The guard tests above (in the parent describe) own the fix-path assertion: reverting
+// the fix makes them fail. This block documents the OPPOSITE SHAPE — the pre-fix
+// `{"type":"user_message","text":…}` frame that the old adapter emitted instead of
+// PCM. We reconstruct it in-place (no fake socket needed) so a maintainer reading this
+// file sees both sides of the bug in one place.
+//
+// Why the old shape was wrong: ElevenLabs' server-side STT/VAD keys on
+// `user_audio_chunk` frames. A `user_message` commit carries text, not audio
+// bytes — so EL had nothing to transcribe and turns 2+ were silently skipped.
+describe("REGRESSION — text-commit sent no PCM so EL had nothing to transcribe", () => {
+  it("a user_message text-commit frame is NOT a real-speech frame (carries no user_audio_chunk)", () => {
+    // Reproduced pre-fix wire shape.  The old adapter sent exactly this for every
+    // scripted user turn; the fix replaced it with streamed user_audio_chunk PCM.
+    const preFix: Record<string, unknown> = {
+      type: "user_message",
+      text: "Thanks. What are your support hours this week?",
+    };
+
+    // isUserMessage identifies this as the text-commit the fix removes.
+    expect(isUserMessage(preFix)).toBe(true);
+
+    // isRealSpeechFrame is false: no user_audio_chunk key → EL's STT had zero
+    // audio bytes to run its VAD/transcription on.
+    expect(isRealSpeechFrame(preFix)).toBe(false);
+  });
+
+  it("turn 2 frames in the current adapter contain NO frame matching the pre-fix text-commit shape", async () => {
+    // Cross-reference with the live adapter output: the pre-fix shape must be absent.
+    // (This mirrors the guard above; the comment here anchors the regression context.)
+    // See "turn 2 streams real user_audio_chunk PCM and sends NO user_message commit"
+    // in the parent describe for the positive-assertion counterpart.
+    const { turn2Frames } = await driveTwoTurns();
+
+    expect(
+      turn2Frames.filter(isUserMessage),
+      "pre-fix text-commit frame must not appear on the wire (the bug this PR fixed)",
+    ).toHaveLength(0);
+  });
+});
+
 describe("adapter construction", () => {
   it("rejects a non-positive or fractional silenceTailBytes", () => {
     for (const bad of [0, -1, 100.5]) {
