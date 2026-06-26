@@ -67,7 +67,7 @@ Assistant text lives in `result.data.parts` (filter `type === "text"`, skip
 
 ### 1. Shape: class + lowercase factory
 
-```
+```text
 javascript/src/agents/opencode/
   opencode-agent.adapter.ts    — class OpenCodeAgentAdapter + helpers
   index.ts                     — barrel + openCodeAgent(config) factory
@@ -86,7 +86,7 @@ interface OpenCodeAgentAdapterConfig {
   model: { providerID: string; modelID: string };  // REQUIRED
   workingDirectory?: string;
   timeout?: number;
-  logger?: Logger;
+  logger?: OpenCodeLogger;
   client?: OpencodeClient;  // injection seam — see §4
 }
 ```
