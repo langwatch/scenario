@@ -111,9 +111,19 @@ jobs:
         working-directory: python
 
       - name: Run marker-tagged integration tests
-        # `|| true` so the step doesn't fail when zero tests match the
-        # marker. Real failures are caught by the next two steps' assertions.
-        run: uv run pytest tests/voice -m integration -v --tb=short || true
+        # CI honesty (#708): `|| true` previously swallowed ALL non-zero exits
+        # to tolerate "no tests matched the marker" (pytest exit 5) — but it
+        # also hid real test failures. Tolerate exit 5 only; propagate every
+        # other non-zero so a genuine failure fails the step and the workflow.
+        shell: bash
+        run: |
+          rc=0
+          uv run pytest tests/voice -m integration -v --tb=short || rc=$?
+          if [ "$rc" -eq 5 ]; then
+            echo "No integration-marked tests collected — treating as pass."
+            exit 0
+          fi
+          exit "$rc"
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -137,7 +147,12 @@ jobs:
       # Run the @e2e voice demos (fail-fast on missing infrastructure).
       # ---------------------------------------------------------------
       - name: Run @e2e voice demos
+        # CI honesty (#708): `tee` masks pytest's exit without `pipefail` (same
+        # class of bug as the vitest step). Set it so a failing demo fails the
+        # step instead of being swallowed by tee's exit 0.
+        shell: bash
         run: |
+          set -o pipefail
           uv run pytest tests/voice/ -v --tb=short -q 2>&1 | tee /tmp/e2e-voice-results.log
         working-directory: python
         env:
