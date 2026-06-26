@@ -128,7 +128,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          pnpm -F vitest-examples test run tests/voice 2>&1 | tee /tmp/js-e2e-voice-results.log
+          # Flake tolerance (#708): the hosted-ElevenLabs live demos are
+          # ambiently flaky (intermittent `receiveAudio timed out` /
+          # `Event POST failed`). `--retry.count=1` reruns only a failing test
+          # once — a transient flake is absorbed, but a genuinely-failing test
+          # fails BOTH attempts and still goes red, so the gate stays both
+          # deterministic and honest (retry is not the same as swallowing).
+          pnpm -F vitest-examples test run tests/voice --retry.count=1 2>&1 | tee /tmp/js-e2e-voice-results.log
         working-directory: javascript
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

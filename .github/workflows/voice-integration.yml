@@ -118,7 +118,10 @@ jobs:
         shell: bash
         run: |
           rc=0
-          uv run pytest tests/voice -m integration -v --tb=short || rc=$?
+          # `--reruns 1` (pytest-rerunfailures, already a dep): absorb a single
+          # ambient hosted-EL flake (#708) while a genuine failure that fails
+          # both attempts still propagates.
+          uv run pytest tests/voice -m integration -v --tb=short --reruns 1 || rc=$?
           if [ "$rc" -eq 5 ]; then
             echo "No integration-marked tests collected — treating as pass."
             exit 0
@@ -153,7 +156,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest tests/voice/ -v --tb=short -q 2>&1 | tee /tmp/e2e-voice-results.log
+          # `--reruns 1` (pytest-rerunfailures): absorb a single ambient
+          # hosted-EL flake (#708); a genuine failure that fails both attempts
+          # still propagates through `pipefail` and fails the step.
+          uv run pytest tests/voice/ -v --tb=short -q --reruns 1 2>&1 | tee /tmp/e2e-voice-results.log
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
