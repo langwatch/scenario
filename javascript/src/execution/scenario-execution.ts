@@ -1274,6 +1274,31 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (role !== AgentRole.USER || messages.length === 0) return messages;
     if (this.findVoiceAgentAdapter() === null) return messages;
     const producer = this.agents[idx];
+
+    // A realtime USER agent cannot be driven by proceed()/autonomous
+    // generation, so fail loud rather than silently degrade the user side.
+    // It speaks SCRIPTED lines verbatim via `speakUserTurn` (the `user("...")`
+    // route — see {@link user}), which never reaches this method. proceed()
+    // instead drives the producer through `call()`, which — with the realtime
+    // session's `turn_detection:null` and no out-of-band `response.create` —
+    // yields no spoken user turn (and, even if it did, the model would ANSWER
+    // the agent rather than drive as the user). Emitting that as an empty/text
+    // user turn is exactly the silent voice→text substitution we never ship,
+    // so throw with the supported path instead. Only fires when a voice agent
+    // is under test (the case where the degradation actually breaks voice) and
+    // the producer is a realtime user with NO voiceify channel — a producer
+    // that also satisfies {@link isVoiceUserSim} falls through to voiceify.
+    if (producer && isRealtimeUserAgent(producer) && !isVoiceUserSim(producer)) {
+      throw new Error(
+        "Realtime user agents (OpenAI Realtime, role=USER) only support " +
+          'scripted `user("...")` turns, which the model speaks verbatim. ' +
+          "Driving a realtime user with proceed()/autonomous generation is " +
+          "not supported yet — use scripted user() turns, or a voice user " +
+          "simulator (userSimulatorAgent with a voice) for autonomously " +
+          "generated voiced turns.",
+      );
+    }
+
     if (!producer || !isVoiceUserSim(producer)) return messages;
 
     const voiced: ModelMessage[] = [];
