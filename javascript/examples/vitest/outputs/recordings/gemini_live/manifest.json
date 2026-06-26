@@ -1,34 +1,52 @@
 {
-  "generated_at": "2026-05-27T14:35:12.610Z",
-  "duration": 8.4,
-  "segment_count": 3,
+  "generated_at": "2026-06-26T16:21:53.445Z",
+  "duration": 17.22,
+  "segment_count": 5,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3.9,
-      "duration": 3.9,
+      "end_time": 2.9,
+      "duration": 2.9,
       "transcript": "Hello, I'm planning a trip to Japan next month."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3900ms.wav",
+      "file": "segments/01-agent-2900ms.wav",
       "role": "agent",
-      "start_time": 3.9,
-      "end_time": 5.5,
-      "duration": 1.6,
-      "transcript": "That sounds like a great plan!"
+      "start_time": 2.9,
+      "end_time": 4.06,
+      "duration": 1.1599999999999997,
+      "transcript": "That sounds exciting!"
     },
     {
       "idx": 2,
-      "file": "segments/02-user-5500ms.wav",
+      "file": "segments/02-user-4059ms.wav",
       "role": "user",
-      "start_time": 5.5,
-      "end_time": 8.4,
-      "duration": 2.9000000000000004,
+      "start_time": 4.06,
+      "end_time": 7.609999999999999,
+      "duration": 3.55,
       "transcript": "What's one thing I shouldn't miss in Kyoto?"
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-user-7609ms.wav",
+      "role": "user",
+      "start_time": 7.609999999999999,
+      "end_time": 11.459999999999999,
+      "duration": 3.8499999999999996,
+      "transcript": "And what is a good month to see the cherry blossoms?"
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-agent-11459ms.wav",
+      "role": "agent",
+      "start_time": 11.459999999999999,
+      "end_time": 17.22,
+      "duration": 5.76,
+      "transcript": "Don't miss Kinkaku-ji  in  Kyoto,  and  cherry  blossoms  peak  in  late  March  or  early  April."
     }
   ],
   "events": [
@@ -37,25 +55,42 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 3.9,
+      "time": 2.9,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3.9,
+      "time": 2.9,
       "type": "agent_start_speaking",
-      "latency": 7.037509108999998
+      "latency": 3.5106028689999995
     },
     {
-      "time": 5.5,
+      "time": 4.06,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 5.5,
+      "time": 4.06,
       "type": "user_start_speaking"
     },
     {
-      "time": 8.4,
+      "time": 7.609999999999999,
       "type": "user_stop_speaking"
+    },
+    {
+      "time": 7.609999999999999,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 11.459999999999999,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 11.459999999999999,
+      "type": "agent_start_speaking",
+      "latency": 5.508793092000001
+    },
+    {
+      "time": 17.22,
+      "type": "agent_stop_speaking"
     }
   ]
 }

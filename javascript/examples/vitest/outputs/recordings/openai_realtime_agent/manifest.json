@@ -1,43 +1,61 @@
 {
-  "generated_at": "2026-05-27T14:33:28.108Z",
-  "duration": 16.75,
-  "segment_count": 4,
+  "generated_at": "2026-06-26T16:17:49.188Z",
+  "duration": 21.6,
+  "segment_count": 6,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 2.95,
-      "duration": 2.95,
+      "end_time": 3.6,
+      "duration": 3.6,
       "transcript": "Hello, can you help me plan a weekend trip?"
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-2950ms.wav",
+      "file": "segments/01-agent-3600ms.wav",
       "role": "agent",
-      "start_time": 2.95,
-      "end_time": 7.65,
-      "duration": 4.7,
-      "transcript": "Of course, where would you like to go and what kind of activities are you interested in?"
+      "start_time": 3.6,
+      "end_time": 5.800000000000001,
+      "duration": 2.2000000000000006,
+      "transcript": "Of course, where would you like to go?"
     },
     {
       "idx": 2,
-      "file": "segments/02-user-7650ms.wav",
+      "file": "segments/02-user-5800ms.wav",
       "role": "user",
-      "start_time": 7.65,
-      "end_time": 11.05,
-      "duration": 3.4000000000000004,
+      "start_time": 5.800000000000001,
+      "end_time": 8.700000000000001,
+      "duration": 2.9000000000000004,
       "transcript": "Great — what should I pack for cold weather?"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-11050ms.wav",
+      "file": "segments/03-agent-8700ms.wav",
       "role": "agent",
-      "start_time": 11.05,
-      "end_time": 16.75,
-      "duration": 5.699999999999999,
-      "transcript": "You'll want to pack warm layers, a good jacket, gloves, a hat, and waterproof boots."
+      "start_time": 8.700000000000001,
+      "end_time": 14,
+      "duration": 5.299999999999999,
+      "transcript": "You'll want to pack layers, a warm jacket, gloves, a hat, and sturdy shoes."
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-user-14000ms.wav",
+      "role": "user",
+      "start_time": 14,
+      "end_time": 17.25,
+      "duration": 3.25,
+      "transcript": "And what is one local dish I should try there?"
+    },
+    {
+      "idx": 5,
+      "file": "segments/05-agent-17250ms.wav",
+      "role": "agent",
+      "start_time": 17.25,
+      "end_time": 21.6,
+      "duration": 4.350000000000001,
+      "transcript": "Could you tell me the destination so I can suggest the best local dish?"
     }
   ],
   "events": [
@@ -46,33 +64,50 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 2.95,
+      "time": 3.6,
       "type": "user_stop_speaking"
     },
     {
-      "time": 2.95,
+      "time": 3.6,
       "type": "agent_start_speaking",
-      "latency": 0.7832799130000001
+      "latency": 0.7354910420000014
     },
     {
-      "time": 7.65,
+      "time": 5.800000000000001,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 7.65,
+      "time": 5.800000000000001,
       "type": "user_start_speaking"
     },
     {
-      "time": 11.05,
+      "time": 8.700000000000001,
       "type": "user_stop_speaking"
     },
     {
-      "time": 11.05,
+      "time": 8.700000000000001,
       "type": "agent_start_speaking",
-      "latency": 0.6974735149999995
+      "latency": 0.5021277940000015
     },
     {
-      "time": 16.75,
+      "time": 14,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 14,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 17.25,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 17.25,
+      "type": "agent_start_speaking",
+      "latency": 0.4776742870000028
+    },
+    {
+      "time": 21.6,
       "type": "agent_stop_speaking"
     }
   ]

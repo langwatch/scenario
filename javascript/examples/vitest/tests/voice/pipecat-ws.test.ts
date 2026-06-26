@@ -23,8 +23,6 @@ import { expect } from "vitest";
 
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
-void voice;
-
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(
   HERE,
@@ -100,9 +98,11 @@ describeFeature(
               scenario.agent(),
               scenario.user("Great — can you tell me a little about what you can do?"),
               scenario.agent(),
+              scenario.user("Nice — and what else can you help me with?"),
+              scenario.agent(),
               scenario.judge(),
             ],
-            maxTurns: 6,
+            maxTurns: 8,
           });
           // 8kHz is the native phone-transport rate (mulaw/8000) and keeps the
           // committed full.wav under the 1MB cap for a multi-turn conversation.
@@ -116,15 +116,36 @@ describeFeature(
           expect(result!.success, `judge verdict: ${result!.reasoning}`).toBe(true);
         });
 
-        And("the recording contains both user-sim and agent audio", () => {
+        And("the recording contains both user-sim and agent audio", async () => {
           expect(result!.audio, "result.audio missing").toBeDefined();
-          const speakers = new Set(result!.audio!.segments.map((s) => s.speaker));
-          expect(speakers.has("user"), "no user-sim audio segment").toBe(true);
-          expect(speakers.has("agent"), "no agent audio segment").toBe(true);
+          const userSegs = result!.audio!.segments.filter((s) => s.speaker === "user");
+          const agentSegs = result!.audio!.segments.filter((s) => s.speaker === "agent");
+          // ≥3-exchange real-audio bar (D1/AC3) over the live Pipecat WS.
+          expect(userSegs.length, "expected ≥3 user audio turns").toBeGreaterThanOrEqual(3);
+          expect(agentSegs.length, "expected ≥3 agent audio turns").toBeGreaterThanOrEqual(3);
+          for (const s of userSegs) {
+            expect(s.audio.length, "a user turn carried no audio").toBeGreaterThan(0);
+          }
+          // Audio-DERIVED transcript proof: Pipecat (Twilio Media Streams)
+          // carries audio only, so STT over the recorded user bytes is the only
+          // source of a transcript — force it and require non-empty per turn.
+          await voice.transcribeSegments(
+            { segments: userSegs, timeline: [] },
+            { onlyMissing: false },
+          );
+          for (const s of userSegs) {
+            expect(
+              (s.transcript ?? "").trim().length,
+              "STT over a user audio turn returned empty (not audio-derived)",
+            ).toBeGreaterThan(0);
+          }
           expect(recordingDir, "recording was not written").not.toBeNull();
+          const roles = (result!.messages ?? []).map((m) => m.role);
           console.log(
             `[demo] pipecat_ws → ${recordingDir} ` +
-              `(${result!.audio!.segments.length} segments, speakers=${[...speakers].join("+")})`,
+              `(${result!.audio!.segments.length} segments [${userSegs.length}u/${agentSegs.length}a], ` +
+              `roles=${roles.join(",")}) ` +
+              `user_transcripts=${JSON.stringify(userSegs.map((s) => s.transcript))}`,
           );
         });
       },

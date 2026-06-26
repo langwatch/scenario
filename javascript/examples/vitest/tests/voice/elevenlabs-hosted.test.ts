@@ -189,38 +189,71 @@ if (hasHostedKey || hasComposableKey) {
                 }),
               ],
               // Composable agent: no hosted greeting on connect — start with
-              // user(). MULTI-TURN: two full user↔agent exchanges.
+              // user(). MULTI-TURN: THREE full user↔agent exchanges (≥3 is the
+              // real-audio multi-turn bar, D1/AC3).
               script: [
                 scenario.user("Hi there, I have a quick question about my plan."),
                 scenario.agent(),
                 scenario.user("Got it — can I switch to an annual plan?"),
                 scenario.agent(),
+                scenario.user("Thanks — would my price change right away?"),
+                scenario.agent(),
                 scenario.judge(),
               ],
-              maxTurns: 8,
+              maxTurns: 10,
             });
-            recordingDir = saveDemoRecording(result.audio, "elevenlabs_branded");
+            // Downsample the committed full.wav to 16kHz: a 3-exchange 24kHz
+            // mix sits at the 1MB per-file commit cap (duration / M1 invariant
+            // unchanged — only fidelity drops).
+            recordingDir = saveDemoRecording(result.audio, "elevenlabs_branded", {
+              downsampleHz: 16000,
+            });
           });
 
           Then("the STT, LLM, and TTS seams each fire at least once", () => {
             if (!hasComposableKey) return;
             expect(result, "scenario.run() returned no result").not.toBeNull();
-            // The composable seams fired: a user transcript (STT), an LLM
-            // response, and synthesized agent audio (TTS) in the recording.
+            // The composable seams fired: a user transcript (ElevenLabs STT —
+            // audio-derived), an LLM response, and synthesized agent audio (TTS).
             expect(agent!.lastUserTranscript, "STT seam did not fire").not.toBeNull();
-            expect(agent!.lastLlmResponse, "LLM seam did not fire").not.toBeNull();
             expect(
-              result!.audio?.segments.length ?? 0,
-              "no audio segments (TTS seam)",
+              (agent!.lastUserTranscript ?? "").trim().length,
+              "ElevenLabs STT produced an empty user transcript (not audio-derived)",
             ).toBeGreaterThan(0);
+            expect(agent!.lastLlmResponse, "LLM seam did not fire").not.toBeNull();
           });
 
-          And("result.success is True", () => {
+          And("result.success is True", async () => {
             if (!hasComposableKey) return;
             expect(recordingDir, "recording was not written").not.toBeNull();
+            // ≥3-exchange real-audio bar (D1/AC3): replaces the old weak
+            // segments>0 floor with three user + three agent audio segments.
+            const userSegs = result!.audio!.segments.filter((s) => s.speaker === "user");
+            const agentSegs = result!.audio!.segments.filter((s) => s.speaker === "agent");
+            expect(userSegs.length, "expected ≥3 user audio turns").toBeGreaterThanOrEqual(3);
+            expect(agentSegs.length, "expected ≥3 agent audio turns").toBeGreaterThanOrEqual(3);
+            for (const s of userSegs) {
+              expect(s.audio.length, "a user turn carried no audio").toBeGreaterThan(0);
+            }
+            // Audio-DERIVED transcript proof: force STT over the recorded user
+            // bytes (onlyMissing:false) and require non-empty speech per turn.
+            await voice.transcribeSegments(
+              { segments: userSegs, timeline: [] },
+              { onlyMissing: false },
+            );
+            for (const s of userSegs) {
+              expect(
+                (s.transcript ?? "").trim().length,
+                "STT over a user audio turn returned empty (not audio-derived)",
+              ).toBeGreaterThan(0);
+            }
+            const roles = (result!.messages ?? []).map((m) => m.role);
             console.log(
               `[demo] elevenlabs_branded → ${recordingDir} ` +
-                `(success=${result!.success}, userTranscript=${JSON.stringify(agent!.lastUserTranscript)})`,
+                `(success=${result!.success}, segments=${result!.audio!.segments.length} ` +
+                `[${userSegs.length}u/${agentSegs.length}a], roles=${roles.join(",")}) ` +
+                `lastUserTranscript=${JSON.stringify(agent!.lastUserTranscript)} ` +
+                `user_transcripts=${JSON.stringify(userSegs.map((s) => s.transcript))}`,
             );
             expect(result!.success, `judge verdict: ${result!.reasoning}`).toBe(true);
           });

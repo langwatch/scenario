@@ -1,43 +1,61 @@
 {
-  "generated_at": "2026-05-27T14:36:10.508Z",
-  "duration": 12.76,
-  "segment_count": 4,
+  "generated_at": "2026-06-26T16:16:12.147Z",
+  "duration": 20.910000000000004,
+  "segment_count": 6,
   "segments": [
     {
       "idx": 0,
       "file": "segments/00-user-0000ms.wav",
       "role": "user",
       "start_time": 0,
-      "end_time": 3.05,
-      "duration": 3.05,
+      "end_time": 3.4,
+      "duration": 3.4,
       "transcript": "Hi there, I have a quick question about my plan."
     },
     {
       "idx": 1,
-      "file": "segments/01-agent-3050ms.wav",
+      "file": "segments/01-agent-3400ms.wav",
       "role": "agent",
-      "start_time": 3.05,
-      "end_time": 5.6899999999999995,
-      "duration": 2.6399999999999997,
+      "start_time": 3.4,
+      "end_time": 5.96,
+      "duration": 2.56,
       "transcript": "Sure, what would you like to know about your plan?"
     },
     {
       "idx": 2,
-      "file": "segments/02-user-5689ms.wav",
+      "file": "segments/02-user-5960ms.wav",
       "role": "user",
-      "start_time": 5.6899999999999995,
-      "end_time": 8.84,
-      "duration": 3.1500000000000004,
+      "start_time": 5.96,
+      "end_time": 8.71,
+      "duration": 2.750000000000001,
       "transcript": "Got it — can I switch to an annual plan?"
     },
     {
       "idx": 3,
-      "file": "segments/03-agent-8840ms.wav",
+      "file": "segments/03-agent-8710ms.wav",
       "role": "agent",
-      "start_time": 8.84,
-      "end_time": 12.76,
-      "duration": 3.92,
-      "transcript": "Yes, tell me your account details and I'll help check availability."
+      "start_time": 8.71,
+      "end_time": 13.110000000000001,
+      "duration": 4.4,
+      "transcript": "Yes, check your account settings or contact support to switch plans."
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-user-13110ms.wav",
+      "role": "user",
+      "start_time": 13.110000000000001,
+      "end_time": 16.51,
+      "duration": 3.4000000000000004,
+      "transcript": "Thanks — would my price change right away?"
+    },
+    {
+      "idx": 5,
+      "file": "segments/05-agent-16510ms.wav",
+      "role": "agent",
+      "start_time": 16.51,
+      "end_time": 20.910000000000004,
+      "duration": 4.400000000000002,
+      "transcript": "It may change immediately, depending on your billing cycle and plan terms."
     }
   ],
   "events": [
@@ -46,131 +64,148 @@
       "type": "user_start_speaking"
     },
     {
-      "time": 1.854093546999998,
+      "time": 2.6240704549999982,
       "type": "user_start_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 1.8552395309999987,
+      "time": 2.6261286119999987,
       "type": "user_stop_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 1.8558632510000024,
+      "time": 2.626852507999999,
       "type": "user_start_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 1.8564852029999983,
+      "time": 2.627760651999999,
       "type": "user_stop_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 1.8566687430000002,
+      "time": 2.627903453000002,
       "type": "user_start_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 1.8569433340000003,
+      "time": 2.6308322440000005,
       "type": "user_stop_speaking",
       "metadata": {
         "source": "vad-fallback"
       }
     },
     {
-      "time": 1.857043325000003,
-      "type": "user_start_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 1.858740540000003,
-      "type": "user_stop_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 3.05,
+      "time": 3.4,
       "type": "user_stop_speaking"
     },
     {
-      "time": 3.05,
+      "time": 3.4,
       "type": "agent_start_speaking",
-      "latency": 2.1220599580000012
+      "latency": 1.545655624000002
     },
     {
-      "time": 5.6899999999999995,
+      "time": 5.930421491000001,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 5.9311282139999975,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 5.932101312,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 5.9342724780000005,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 5.96,
       "type": "agent_stop_speaking"
     },
     {
-      "time": 5.6899999999999995,
+      "time": 5.96,
       "type": "user_start_speaking"
     },
     {
-      "time": 6.173321416,
-      "type": "user_start_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 6.174179308999996,
-      "type": "user_stop_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 6.175798243999999,
-      "type": "user_start_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 6.178188511999998,
-      "type": "user_stop_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 6.178330111999998,
-      "type": "user_start_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 6.1787292140000005,
-      "type": "user_stop_speaking",
-      "metadata": {
-        "source": "vad-fallback"
-      }
-    },
-    {
-      "time": 8.84,
+      "time": 8.71,
       "type": "user_stop_speaking"
     },
     {
-      "time": 8.84,
+      "time": 8.71,
       "type": "agent_start_speaking",
-      "latency": 3.6903480490000007
+      "latency": 1.795055216999998
     },
     {
-      "time": 12.76,
+      "time": 10.602901483999997,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 10.603257639999999,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 10.603552506000003,
+      "type": "user_start_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 10.604437523000005,
+      "type": "user_stop_speaking",
+      "metadata": {
+        "source": "vad-fallback"
+      }
+    },
+    {
+      "time": 13.110000000000001,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 13.110000000000001,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 16.51,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 16.51,
+      "type": "agent_start_speaking",
+      "latency": 1.6446463249999965
+    },
+    {
+      "time": 20.910000000000004,
       "type": "agent_stop_speaking"
     }
   ]
