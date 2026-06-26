@@ -48,7 +48,7 @@ describe("OpenAIRealtimeAgentAdapter.call() realtime-user guard (#705)", () => {
     );
   });
 
-  it("does NOT throw the realtime-user guard when role=AGENT (different failure path)", async () => {
+  it("throws a non-guard transport error when role=AGENT and unconnected", async () => {
     // A role=AGENT realtime adapter is a normal agent under test: call() must
     // NOT hit the realtime-user guard. Unconnected, it fails with a transport
     // error instead — distinct from the guard message.
@@ -57,13 +57,10 @@ describe("OpenAIRealtimeAgentAdapter.call() realtime-user guard (#705)", () => {
       role: AgentRole.AGENT,
     });
 
-    let err: unknown;
-    try {
-      await adapter.call(emptyInput(AgentRole.AGENT));
-    } catch (e) {
-      err = e;
-    }
-    expect(err, "role=AGENT call() should fail for a non-guard reason").toBeDefined();
-    expect(String(err)).not.toContain(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
+    const err = await adapter
+      .call(emptyInput(AgentRole.AGENT))
+      .catch((e: unknown) => e);
+    expect(err, "role=AGENT call() should fail for a non-guard reason").toBeInstanceOf(Error);
+    expect((err as Error).message).not.toBe(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
   });
 });

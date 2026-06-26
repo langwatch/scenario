@@ -603,17 +603,13 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
    * `super.call()`'s drain and finalized onto `_completedToolCalls`.
    */
   override async call(input: AgentInput): Promise<AgentReturnTypes> {
-    // Fail loud on the unsupported "autonomous realtime user" mode (#705).
-    // A realtime USER agent speaks SCRIPTED lines via `speakUserTurn`, which
-    // the executor routes WITHOUT calling `call()` (scriptCallAgent add+
-    // broadcasts a pre-built audio message). So reaching `call()` with
-    // role=USER means the executor is driving this agent autonomously
-    // (proceed()/generated turns) — which the realtime session can't satisfy
-    // (turn_detection:null, no out-of-band response.create → no spoken turn).
-    // Reject HERE, before `defaultVoiceCall` sends audio and blocks on a
-    // `receiveAudio` that would time out — otherwise the clean guidance below
-    // never surfaces. The executor keeps a fail-closed backstop for any other
-    // realtime-user adapter that doesn't self-reject here.
+    // Fail loud on the unsupported "autonomous realtime user" mode (the why is
+    // on REALTIME_USER_AUTONOMOUS_UNSUPPORTED). Site-specific reason to reject
+    // HERE: a realtime USER's SCRIPTED turns route through `speakUserTurn`,
+    // which the executor add+broadcasts WITHOUT calling `call()` — so reaching
+    // `call()` with role=USER means autonomous/proceed drive. Rejecting at the
+    // top fires before `defaultVoiceCall` blocks on a `receiveAudio` that would
+    // time out, so the guidance actually surfaces instead of a stuck turn.
     if (this.role === AgentRole.USER) {
       throw new Error(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
     }

@@ -1282,15 +1282,15 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (this.findVoiceAgentAdapter() === null) return messages;
     const producer = this.agents[idx];
 
-    // Fail-closed backstop: a realtime USER agent driven by proceed()/
-    // autonomous generation can't speak (it supports only scripted `user()`
-    // turns via `speakUserTurn`), so throw rather than fall through and
-    // silently degrade the user side to text — the substitution we never ship.
-    // The OpenAI realtime adapter self-rejects earlier in its own `call()`
-    // (the primary guard, which fires before a wasted/timed-out turn); this
-    // catches any other realtime-user adapter that does not. Fail CLOSED: any
-    // realtime user reaching here throws — we do NOT route an unverified shape
-    // into voiceify (TTS), which would be the exact silent substitution.
+    // Fail-closed backstop for the unsupported autonomous-realtime-user mode
+    // (the why is on REALTIME_USER_AUTONOMOUS_UNSUPPORTED). The OpenAI realtime
+    // adapter self-rejects earlier in its own `call()` (the primary guard);
+    // this catches any other realtime-user adapter that does not. Throwing here
+    // converts what would otherwise be a silent TEXT broadcast (the line below
+    // returns a realtime producer's message unchanged) into a loud failure.
+    // LOAD-BEARING ORDER: this must precede the `!isVoiceUserSim` return so a
+    // hypothetical dual-shape adapter (realtime AND voiceify) fails closed
+    // rather than being silently TTS'd — the substitution we never ship.
     if (producer && isRealtimeUserAgent(producer)) {
       throw new Error(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
     }
