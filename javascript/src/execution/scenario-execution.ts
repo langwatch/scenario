@@ -78,6 +78,7 @@ import type { VoiceExecutorState } from "../voice/voice-executor-state";
 import {
   isRealtimeUserAgent,
   isVoiceUserSim,
+  REALTIME_USER_AUTONOMOUS_UNSUPPORTED,
   type RealtimeUserAgent,
   type VoiceUserSimulator,
 } from "../domain/agents/agent-shapes";
@@ -1265,6 +1266,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * @param idx - Index of the producing agent in {@link agents}.
    * @param role - The role the agent was called for.
    * @returns The messages to add/broadcast — voiced where applicable.
+   * @throws {Error} (fail-closed backstop) when the producer is a realtime
+   *   USER agent driven by proceed()/autonomous generation against a voice
+   *   agent under test — that path can't speak, so it fails loud rather than
+   *   silently degrade the user turn to text. The OpenAI realtime adapter
+   *   already self-rejects in its own `call()` (the primary, earlier guard);
+   *   this catches any other realtime-user adapter that does not.
    */
   private async voiceifyGeneratedUserTurn(
     messages: ModelMessage[],
@@ -1275,28 +1282,17 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (this.findVoiceAgentAdapter() === null) return messages;
     const producer = this.agents[idx];
 
-    // A realtime USER agent cannot be driven by proceed()/autonomous
-    // generation, so fail loud rather than silently degrade the user side.
-    // It speaks SCRIPTED lines verbatim via `speakUserTurn` (the `user("...")`
-    // route — see {@link user}), which never reaches this method. proceed()
-    // instead drives the producer through `call()`, which — with the realtime
-    // session's `turn_detection:null` and no out-of-band `response.create` —
-    // yields no spoken user turn (and, even if it did, the model would ANSWER
-    // the agent rather than drive as the user). Emitting that as an empty/text
-    // user turn is exactly the silent voice→text substitution we never ship,
-    // so throw with the supported path instead. Only fires when a voice agent
-    // is under test (the case where the degradation actually breaks voice) and
-    // the producer is a realtime user with NO voiceify channel — a producer
-    // that also satisfies {@link isVoiceUserSim} falls through to voiceify.
-    if (producer && isRealtimeUserAgent(producer) && !isVoiceUserSim(producer)) {
-      throw new Error(
-        "Realtime user agents (OpenAI Realtime, role=USER) only support " +
-          'scripted `user("...")` turns, which the model speaks verbatim. ' +
-          "Driving a realtime user with proceed()/autonomous generation is " +
-          "not supported yet — use scripted user() turns, or a voice user " +
-          "simulator (userSimulatorAgent with a voice) for autonomously " +
-          "generated voiced turns.",
-      );
+    // Fail-closed backstop: a realtime USER agent driven by proceed()/
+    // autonomous generation can't speak (it supports only scripted `user()`
+    // turns via `speakUserTurn`), so throw rather than fall through and
+    // silently degrade the user side to text — the substitution we never ship.
+    // The OpenAI realtime adapter self-rejects earlier in its own `call()`
+    // (the primary guard, which fires before a wasted/timed-out turn); this
+    // catches any other realtime-user adapter that does not. Fail CLOSED: any
+    // realtime user reaching here throws — we do NOT route an unverified shape
+    // into voiceify (TTS), which would be the exact silent substitution.
+    if (producer && isRealtimeUserAgent(producer)) {
+      throw new Error(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
     }
 
     if (!producer || !isVoiceUserSim(producer)) return messages;

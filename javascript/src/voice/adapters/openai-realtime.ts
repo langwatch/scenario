@@ -29,6 +29,7 @@ import WebSocket, { type RawData } from "ws";
 import type { AgentReturnTypes, AgentInput } from "../../domain/agents";
 
 import { AgentRole } from "../../domain/agents";
+import { REALTIME_USER_AUTONOMOUS_UNSUPPORTED } from "../../domain/agents/agent-shapes";
 import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
@@ -602,6 +603,21 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
    * `super.call()`'s drain and finalized onto `_completedToolCalls`.
    */
   override async call(input: AgentInput): Promise<AgentReturnTypes> {
+    // Fail loud on the unsupported "autonomous realtime user" mode (#705).
+    // A realtime USER agent speaks SCRIPTED lines via `speakUserTurn`, which
+    // the executor routes WITHOUT calling `call()` (scriptCallAgent add+
+    // broadcasts a pre-built audio message). So reaching `call()` with
+    // role=USER means the executor is driving this agent autonomously
+    // (proceed()/generated turns) — which the realtime session can't satisfy
+    // (turn_detection:null, no out-of-band response.create → no spoken turn).
+    // Reject HERE, before `defaultVoiceCall` sends audio and blocks on a
+    // `receiveAudio` that would time out — otherwise the clean guidance below
+    // never surfaces. The executor keeps a fail-closed backstop for any other
+    // realtime-user adapter that doesn't self-reject here.
+    if (this.role === AgentRole.USER) {
+      throw new Error(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
+    }
+
     // Reset per-turn tool-call state so a prior turn's calls don't bleed
     // through (mirrors the transcript reset in the drain path).
     this._completedToolCalls = [];

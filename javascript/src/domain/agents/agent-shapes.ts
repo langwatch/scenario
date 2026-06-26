@@ -19,6 +19,28 @@
 import type { ModelMessage } from "ai";
 
 /**
+ * Error message shared by the two fail-loud guards for the unsupported
+ * "drive a realtime user autonomously" mode (issue #705, follow-up #711).
+ *
+ * A realtime user agent (OpenAI Realtime, `role=USER`) speaks SCRIPTED lines
+ * verbatim via `speakUserTurn`. Driving it with `proceed()`/autonomous
+ * generation is not supported yet: the realtime session runs with
+ * `turn_detection:null` and the default voice `call()` issues no out-of-band
+ * `response.create`, so it produces no spoken user turn (and even if it did,
+ * the model would ANSWER the agent rather than drive as the user). Rather than
+ * silently degrade the user side to text/TTS, both the adapter's `call()`
+ * (primary, fires before the call wastes a turn) and the executor's
+ * `voiceifyGeneratedUserTurn` (fail-closed backstop) throw this message.
+ * Defined once here so the two sites can never drift.
+ */
+export const REALTIME_USER_AUTONOMOUS_UNSUPPORTED =
+  "Realtime user agents (e.g. OpenAI Realtime, role=USER) only support " +
+  'scripted `user("...")` turns, which the model speaks verbatim. Driving a ' +
+  "realtime user with proceed()/autonomous generation is not supported yet — " +
+  "use scripted user() turns, or a voice user simulator (userSimulatorAgent " +
+  "with a voice) for autonomously generated voiced turns.";
+
+/**
  * A user-sim agent that speaks scripted text into a realtime transport — the
  * realtime model synthesizes the voice itself, with NO TTS conversion step.
  * Implemented by the OpenAI Realtime adapter when `role=USER`.
