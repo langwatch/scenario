@@ -71,7 +71,29 @@ export function geminiLiveAgent(
 /**
  * ElevenLabs Conversational AI agent (hosted transport). PRD §4.1 / §5.4.
  *
+ * `dynamicVariables` and `overrides` thread per-call personalization through to the
+ * hosted agent's init handshake (`dynamic_variables` /
+ * `conversation_config_override`): EL resolves a per-call system prompt, first
+ * message, and task context from a call-init webhook keyed on the dynamic
+ * variables. Dynamic variables pass through with their native JSON type
+ * (Text/Numeric/Boolean) — no string coercion. The narrow `systemPromptOverride`/
+ * `firstMessageOverride` take precedence over the same keys in `overrides`, and the
+ * shared `agent` key deep-merges (so a caller's `agent.language` and the prompt
+ * override both survive).
+ *
+ * Both are applied only if the agent is configured to allow it — EL ignores
+ * variables and overrides the agent has not allowlisted server-side.
+ *
  * @example scenario.elevenLabsAgent({ agentId: "abc123", apiKey: "..." })
+ * @example
+ * // Per-call personalization — native dynamic-variable types pass through, and
+ * // `agent.language` survives the deep-merge alongside the adapter's prompt knob:
+ * scenario.elevenLabsAgent({
+ *   agentId: "abc123",
+ *   apiKey: "...",
+ *   dynamicVariables: { tenant_id: "acme", seat_tier: 2, is_vip: true },
+ *   overrides: { agent: { language: "es" } },
+ * });
  */
 export function elevenLabsAgent(
   options: ElevenLabsAgentAdapterOptions,

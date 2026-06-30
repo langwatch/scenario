@@ -115,6 +115,12 @@ describe("OpenAIRealtimeAgentAdapter.speakUserTurn (#705 bridge)", () => {
     };
     expect(typeof resp.instructions).toBe("string");
     expect(resp.instructions).toContain("hi, a question about my account");
+    // Persona anchor (#705 regression guard): the session `instructions` persona
+    // MUST be present in the per-response instructions. A per-response
+    // `instructions` OVERRIDES the session default, and conversation:"none" +
+    // input:[] strip session context — so dropping the persona here leaves the
+    // model with no domain anchor and it renders a wrong opener.
+    expect(resp.instructions).toContain("simulate a customer");
     // Isolation contract (#705): out-of-band + no prior context + audio out, so
     // accumulated history can't make the model answer the line by ~turn 3.
     expect(resp.conversation).toBe("none");

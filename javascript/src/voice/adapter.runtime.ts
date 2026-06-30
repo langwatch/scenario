@@ -263,16 +263,80 @@ export async function defaultVoiceCall(
     await adapter.sendAudio(incoming);
     feedVad(adapter, incoming);
     recorder.recordUser(incoming);
+    // This agent turn REPLIES to a user turn → turn-scope the transcript the
+    // back-fill below reads: null any value the adapter still holds from a PRIOR
+    // turn, so attachAgentTurnTranscript picks up only what THIS reply produces
+    // during the drain. Adapters set `lastAgentTranscript` during the drain
+    // (their transcript event); without this a reply that emits audio but no
+    // fresh transcript (hit maxDuration before `transcript.done`, an audio-only
+    // session, …) would inherit the previous turn's text — a coherence-breaking
+    // bleed (the OpenAI-Realtime-as-agent path, via super.call(), hit exactly
+    // this). Gated on `incoming` so a NO-incoming agent turn — the opening
+    // greeting, whose transcript is legitimately set on connect BEFORE this
+    // drain — is NOT wiped. Single owner of per-turn transcript scoping for the
+    // shared call() path.
+    resetAgentTurnTranscript(adapter);
   }
 
   const merged = await drainAgentResponse(adapter, speakingEvent, () => {
     recorder.markAgentStart();
   });
-  recorder.recordAgent(merged);
+  // Carry the agent turn's NATIVE transcript onto the chunk when the merged
+  // audio has none (#705). A live voice agent (hosted ElevenLabs, Gemini Live,
+  // OpenAI Realtime) streams raw PCM frames with NO per-chunk transcript but
+  // exposes the turn's text on `lastAgentTranscript` (set from its
+  // `agent_response`/transcript event). Without this, the assistant message AND
+  // the recording segment reach LangWatch as audio-only — the "missing AUT
+  // transcript" defect — and only the on-disk manifest got a (slower, lossy) STT
+  // back-fill. Done BEFORE recordAgent so the recording segment carries it too.
+  const spoken = attachAgentTurnTranscript(adapter, merged);
+  recorder.recordAgent(spoken);
   // Single shared encoder (messages.ts) — the canonical AI-SDK `file` audio
   // part (EDR §4.2). createAudioMessage returns AudioMessage (= ModelMessage),
   // which is one of the AgentReturnTypes union members; no cast needed.
-  return createAudioMessage(merged, "assistant");
+  return createAudioMessage(spoken, "assistant");
+}
+
+/**
+ * Return a chunk carrying the agent turn's transcript: the chunk's own
+ * transcript if present, else the adapter's `lastAgentTranscript` (the live
+ * voice agent's native turn text — EL `agent_response`, Gemini/Realtime
+ * transcript events). Returns the input chunk unchanged when neither is
+ * available (the recording's STT back-fill then fills the on-disk manifest).
+ *
+ * Duck-typed on `lastAgentTranscript` rather than a base-class field so it
+ * composes with every adapter that follows the harness convention
+ * (see `voice/adapters/composable.ts`) without widening the base contract.
+ */
+function attachAgentTurnTranscript(
+  adapter: VoiceAgentAdapter,
+  chunk: AudioChunk,
+): AudioChunk {
+  // A turn that produced NO audio must not be labeled with a spoken transcript:
+  // that would let a no-audio turn (e.g. the #708 "text arrived, audio did not"
+  // case) masquerade as a real spoken turn downstream. Audio-presence gates the
+  // label — the same stance as the USER-side audio-presence invariant.
+  if (chunk.data.length === 0) return chunk;
+  if (chunk.transcript) return chunk;
+  const native = (adapter as { lastAgentTranscript?: string | null })
+    .lastAgentTranscript;
+  if (typeof native === "string" && native.length > 0) {
+    return new AudioChunk({ data: chunk.data, transcript: native });
+  }
+  return chunk;
+}
+
+/**
+ * Null the adapter's `lastAgentTranscript` at agent-turn start so the back-fill
+ * ({@link attachAgentTurnTranscript}) reads only the transcript produced during
+ * THIS turn's drain. Duck-typed (symmetric with the read) — adapters that do not
+ * expose the convention field are left untouched.
+ */
+function resetAgentTurnTranscript(adapter: VoiceAgentAdapter): void {
+  if ("lastAgentTranscript" in (adapter as object)) {
+    (adapter as { lastAgentTranscript?: string | null }).lastAgentTranscript =
+      null;
+  }
 }
 
 /**

@@ -19,26 +19,35 @@
 import type { ModelMessage } from "ai";
 
 /**
- * Error message shared by the two fail-loud guards for the unsupported
- * "drive a realtime user autonomously" mode (issue #705, follow-up #711).
+ * Error message for the executor's adapter-AGNOSTIC fail-closed invariant: a
+ * USER turn produced for a voice agent under test MUST carry audio (issue #705).
  *
- * A realtime user agent (OpenAI Realtime, `role=USER`) speaks SCRIPTED lines
- * verbatim via `speakUserTurn`. Driving it with `proceed()`/autonomous
- * generation is not supported yet: the realtime session runs with
- * `turn_detection:null` and the default voice `call()` issues no out-of-band
- * `response.create`, so it produces no spoken user turn (and even if it did,
- * the model would ANSWER the agent rather than drive as the user). Rather than
- * silently degrade the user side to text/TTS, both the adapter's `call()`
- * (primary, fires before the call wastes a turn) and the executor's
- * `voiceifyGeneratedUserTurn` (fail-closed backstop) throw this message.
- * Defined once here so the two sites can never drift.
+ * Why this exists (and replaced the old realtime-user type-check): a voice agent
+ * only "hears" a turn that carries audio — its `call()` extracts audio from the
+ * incoming message (`extractIncomingAudio`). A text-only user turn never commits
+ * on the agent's transport, so the next agent turn has nothing to answer and its
+ * `receiveAudio` times out (the #705 symptom). Rather than silently degrade the
+ * user side to text, {@link ScenarioExecution.voiceifyGeneratedUserTurn} asserts
+ * audio-presence on the FINAL (post-voiceify) user turn and throws this when it
+ * is missing.
+ *
+ * This is strictly stronger than the prior `isRealtimeUserAgent` type-check it
+ * replaced: it catches ANY producer that yields a no-audio user turn against a
+ * voice agent — a realtime adapter that returns text, OR a non-realtime/
+ * non-voice-sim producer the old check let through silently — not just one class.
+ * The autonomous OpenAI Realtime user (`role=USER`) now PASSES it: its `call()`
+ * speaks a generative turn and returns audio. Defined once here so every site
+ * that references the invariant can never drift.
  */
-export const REALTIME_USER_AUTONOMOUS_UNSUPPORTED =
-  "Realtime user agents (e.g. OpenAI Realtime, role=USER) only support " +
-  'scripted `user("...")` turns, which the model speaks verbatim. Driving a ' +
-  "realtime user with proceed()/autonomous generation is not supported yet — " +
-  "use scripted user() turns, or a voice user simulator (userSimulatorAgent " +
-  "with a voice) for autonomously generated voiced turns.";
+export const USER_TURN_NO_AUDIO_FOR_VOICE_AUT =
+  "A user turn produced for a VOICE agent under test carried no audio. A voice " +
+  'agent only "hears" a turn that carries audio (its call() extracts audio from ' +
+  "the incoming message); a text-only user turn never commits, so the next agent " +
+  "turn has nothing to answer and times out. Ensure the user side voices its " +
+  "turn — a voice user simulator (userSimulatorAgent with a voice) TTS's its " +
+  "generated text to audio, and a realtime user (OpenAI Realtime, role=USER) " +
+  "speaks it natively. This fail-closed check prevents silently degrading the " +
+  "user side to text.";
 
 /**
  * A user-sim agent that speaks scripted text into a realtime transport — the

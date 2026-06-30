@@ -1,25 +1,27 @@
 /**
- * REAL voice-in multi-turn on hosted ElevenLabs ConvAI.
+ * REAL voice-in multi-turn on hosted ElevenLabs ConvAI (official-SDK transport).
  *
  * Real-audio streaming is the adapter's ONLY behavior: `sendAudio()` streams the
- * user's REAL spoken PCM as a `{"user_audio_chunk": …}` frame (then a trailing
- * silence tail that trips EL's end-of-turn detector), and NEVER injects a
- * `{"type":"user_message","text":…}` text commit. The old text-commit default
- * discarded the PCM, so EL's STT/VAD/turn-taking never ran on scripted turns 2+
- * — that was the text-commit regression; the text-commit path is gone.
+ * user's REAL spoken PCM (paced into 20 ms `user_audio_chunk` frames by the SDK,
+ * followed by the continuous mic pump's idle silence that lets EL's server VAD close
+ * the turn), and NEVER injects a `{"type":"user_message","text":…}` text commit. The
+ * old text-commit default discarded the PCM, so EL's STT/VAD/turn-taking never ran
+ * on scripted turns 2+ — that was the text-commit regression; the text-commit path
+ * is gone.
  *
- * These two regression guards pin the seam at the wire level via the
- * `webSocketFactory` fake socket (no network), provable without live EL creds:
+ * These regression guards pin the seam at the wire level through the REAL
+ * `@elevenlabs/elevenlabs-js` SDK `Conversation` running against an in-memory
+ * socket (`webSocketFactory`) + a fake signed-URL client (`conversationClient`),
+ * provable without live EL creds:
  *
  *  1. across a greeting-led ≥2-turn drive, turn 2 streams the REAL PCM speech as
- *     a `user_audio_chunk` frame and emits NO `user_message` text commit, so EL's
+ *     `user_audio_chunk` frames and emits NO `user_message` text commit, so EL's
  *     STT actually runs on the scripted audio.
  *  2. the voice-specific STT assertion — after the drive, both scripted user
  *     turns were committed as PCM (`audioCommitCount >= 2`) and a non-empty STT
  *     `user_transcript` came back (`lastUserTranscript` populated), i.e. audio
  *     actually reached the agent. Strictly stronger than the older `>=N segments`
- *     check, which passed even on the old text-commit path where no PCM reached
- *     EL.
+ *     check, which passed even on the old text-commit path where no PCM reached EL.
  */
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -27,34 +29,55 @@ import { EventEmitter } from "node:events";
 import { describe, it, expect } from "vitest";
 
 import { AudioChunk } from "../../audio-chunk";
-import { ElevenLabsAgentAdapter, type WebSocketLike } from "../index";
+import { ElevenLabsAgentAdapter, type ElevenLabsAgentAdapterOptions } from "../index";
 
-// In-memory fake of the `ws` socket — records each `send()` payload as a decoded
-// object so tests assert the wire shape directly (mirrors elevenlabs.test.ts).
+// The two SDK injection seams, derived from the public options type (no deep
+// SDK-path import needed).
+type WsFactory = NonNullable<ElevenLabsAgentAdapterOptions["webSocketFactory"]>;
+type ConvClient = NonNullable<ElevenLabsAgentAdapterOptions["conversationClient"]>;
+
+const WS_OPEN = 1;
+const WS_CLOSED = 3;
+
+// In-memory fake of the SDK's WebSocketInterface — records each `send()` payload as
+// a decoded object so tests assert the wire shape directly (mirrors elevenlabs.test.ts).
 class FakeWebSocket extends EventEmitter {
-  sent: Array<Record<string, unknown>> = [];
-  closed = false;
+  readonly sent: Array<Record<string, unknown>> = [];
+  readyState = WS_OPEN;
   send(data: string): void {
     this.sent.push(JSON.parse(data) as Record<string, unknown>);
   }
   close(): void {
-    this.closed = true;
-    this.emit("close");
+    if (this.readyState === WS_CLOSED) return;
+    this.readyState = WS_CLOSED;
+    this.emit("close", 1000, Buffer.from("closed"));
   }
 }
 
-function makeFakeSocketFactory(): {
-  factory: (url: string, headers: Record<string, string>) => WebSocketLike;
+function makeFakeConv(): {
+  webSocketFactory: WsFactory;
+  conversationClient: ConvClient;
   socket: { current: FakeWebSocket | null };
 } {
   const socketRef: { current: FakeWebSocket | null } = { current: null };
-  const factory = () => {
-    const socket = new FakeWebSocket();
-    socketRef.current = socket;
-    queueMicrotask(() => socket.emit("open"));
-    return socket as unknown as WebSocketLike;
+  const webSocketFactory: WsFactory = {
+    create: (_url: string) => {
+      const socket = new FakeWebSocket();
+      socketRef.current = socket;
+      queueMicrotask(() => socket.emit("open"));
+      return socket;
+    },
   };
-  return { factory, socket: socketRef };
+  const conversationClient: ConvClient = {
+    conversationalAi: {
+      conversations: {
+        getSignedUrl: async () => ({
+          signedUrl: "wss://fake-signed.elevenlabs.test/convai",
+        }),
+      },
+    },
+  };
+  return { webSocketFactory, conversationClient, socket: socketRef };
 }
 
 // 8 bytes of non-zero PCM16 stands in for real spoken audio. The voice runtime
@@ -108,6 +131,25 @@ function isUserMessage(frame: Record<string, unknown>): boolean {
 }
 
 /**
+ * The continuous mic pump feeds frames on a real 20 ms timer, so wait for the spoken
+ * PCM to actually reach the wire before snapshotting. Polls `socket.sent` (from an
+ * optional index) for a real-speech frame (the always-on idle silence frames are
+ * skipped by isRealSpeechFrame).
+ */
+async function flushUntilRealSpeech(
+  socket: FakeWebSocket,
+  fromIdx = 0,
+  budgetMs = 1500,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < budgetMs) {
+    if (socket.sent.slice(fromIdx).some(isRealSpeechFrame)) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("flushUntilRealSpeech: no real-speech frame within budget");
+}
+
+/**
  * Drive a greeting-led, 2-scripted-turn hosted-EL flow over the fake socket and
  * return the frames sent during turn 2 (the index past which the text-commit
  * regression bit).
@@ -117,11 +159,12 @@ async function driveTwoTurns(): Promise<{
   allFrames: Array<Record<string, unknown>>;
   adapter: ElevenLabsAgentAdapter;
 }> {
-  const fake = makeFakeSocketFactory();
+  const fake = makeFakeConv();
   const adapter = new ElevenLabsAgentAdapter({
     agentId: "agt_test",
     apiKey: "sk_test",
-    webSocketFactory: fake.factory,
+    webSocketFactory: fake.webSocketFactory,
+    conversationClient: fake.conversationClient,
   });
   await adapter.connect();
   const socket = fake.socket.current!;
@@ -131,16 +174,19 @@ async function driveTwoTurns(): Promise<{
   emitAudio(socket, AGENT_PCM);
   await recv;
 
-  // Turn 1: user speaks, agent replies.
+  // Turn 1: user speaks, agent replies. Wait for the pump to stream the PCM.
   await adapter.sendAudio(speechChunk("Hi, I have a question about my account balance."));
+  await flushUntilRealSpeech(socket);
   recv = adapter.receiveAudio(1);
   emitAudio(socket, AGENT_PCM);
   await recv;
 
   // Turn 2 — the turn the text-commit regression silently text-committed. Snapshot
-  // the send log boundary so we can isolate exactly what hit the wire for this turn.
+  // the send-log boundary so we can isolate exactly what hit the wire for this turn,
+  // then wait for turn 2's spoken PCM to be streamed.
   const turn2Start = socket.sent.length;
   await adapter.sendAudio(speechChunk("Thanks. What are your support hours this week?"));
+  await flushUntilRealSpeech(socket, turn2Start);
   const turn2Frames = socket.sent.slice(turn2Start);
 
   // EL returns a user_transcript for turn 2 — its STT output for the PCM we
@@ -151,7 +197,7 @@ async function driveTwoTurns(): Promise<{
   return { turn2Frames, allFrames: socket.sent, adapter };
 }
 
-describe("hosted-EL real voice-in multi-turn (wsFactory seam)", () => {
+describe("hosted-EL real voice-in multi-turn (SDK wsFactory seam)", () => {
   it("turn 2 streams real user_audio_chunk PCM and sends NO user_message commit", async () => {
     const { turn2Frames } = await driveTwoTurns();
 
@@ -183,21 +229,33 @@ describe("hosted-EL real voice-in multi-turn (wsFactory seam)", () => {
     ).toBeTruthy();
   });
 
-  it("an empty chunk is a no-op — not counted, no frame sent", async () => {
-    const fake = makeFakeSocketFactory();
+  it("an empty chunk is a no-op — not counted, only idle silence on the wire", async () => {
+    const fake = makeFakeConv();
     const adapter = new ElevenLabsAgentAdapter({
       agentId: "agt_test",
       apiKey: "sk_test",
-      webSocketFactory: fake.factory,
+      webSocketFactory: fake.webSocketFactory,
+      conversationClient: fake.conversationClient,
     });
     await adapter.connect();
     const socket = fake.socket.current!;
     const before = socket.sent.length;
 
     await adapter.sendAudio(new AudioChunk({ data: new Uint8Array(0) }));
+    // Give the continuous pump a few ticks. An empty chunk enqueues NO speech, so
+    // the only frames that reach the wire are the always-on idle SILENCE frames
+    // (B′) — never a real-speech (non-zero) frame — and the turn is not counted.
+    await new Promise((r) => setTimeout(r, 80));
 
-    expect(socket.sent.length, "an empty chunk must send no frames").toBe(before);
-    expect(adapter.audioCommitCount, "an empty chunk must not count as a real-audio turn").toBe(0);
+    const newFrames = socket.sent.slice(before);
+    expect(
+      newFrames.some(isRealSpeechFrame),
+      "an empty chunk must not stream any real-speech PCM",
+    ).toBe(false);
+    expect(
+      adapter.audioCommitCount,
+      "an empty chunk must not count as a real-audio turn",
+    ).toBe(0);
     await adapter.disconnect();
   });
 });
@@ -245,12 +303,16 @@ describe("REGRESSION — text-commit sent no PCM so EL had nothing to transcribe
 });
 
 describe("adapter construction", () => {
-  it("rejects a non-positive or fractional silenceTailBytes", () => {
-    for (const bad of [0, -1, 100.5]) {
+  it("accepts (and ignores) a deprecated silenceTailBytes — it no longer gates turn-end", () => {
+    // silenceTailBytes is a deprecated NO-OP under the continuous mic pump (B′):
+    // turn-end now emerges from the always-on audio→silence stream, not a bounded
+    // tail. Any value — including the non-positive/fractional ones the old validator
+    // rejected — is accepted and has no effect.
+    for (const value of [0, -1, 100.5, 960]) {
       expect(
-        () => new ElevenLabsAgentAdapter({ agentId: "a", apiKey: "k", silenceTailBytes: bad }),
-        `silenceTailBytes=${bad} must be rejected`,
-      ).toThrow(/silenceTailBytes must be a positive integer/);
+        () => new ElevenLabsAgentAdapter({ agentId: "a", apiKey: "k", silenceTailBytes: value }),
+        `silenceTailBytes=${value} must be accepted (deprecated no-op)`,
+      ).not.toThrow();
     }
   });
 });

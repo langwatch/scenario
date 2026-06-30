@@ -212,7 +212,6 @@ export {
   type ElevenLabsAgentAdapterOptions,
   type ElevenLabsVoiceAgentOptions,
   type SynthesizeOptions,
-  type WebSocketLike,
 } from "./adapters";
 
 // Pipecat adapter + the not-yet-connected transport error (Gap #6 resolved —

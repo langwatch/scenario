@@ -78,7 +78,7 @@ import type { VoiceExecutorState } from "../voice/voice-executor-state";
 import {
   isRealtimeUserAgent,
   isVoiceUserSim,
-  REALTIME_USER_AUTONOMOUS_UNSUPPORTED,
+  USER_TURN_NO_AUDIO_FOR_VOICE_AUT,
   type RealtimeUserAgent,
   type VoiceUserSimulator,
 } from "../domain/agents/agent-shapes";
@@ -1266,12 +1266,15 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * @param idx - Index of the producing agent in {@link agents}.
    * @param role - The role the agent was called for.
    * @returns The messages to add/broadcast — voiced where applicable.
-   * @throws {Error} (fail-closed backstop) when the producer is a realtime
-   *   USER agent driven by proceed()/autonomous generation against a voice
-   *   agent under test — that path can't speak, so it fails loud rather than
-   *   silently degrade the user turn to text. The OpenAI realtime adapter
-   *   already self-rejects in its own `call()` (the primary, earlier guard);
-   *   this catches any other realtime-user adapter that does not.
+   * @throws {Error} ({@link USER_TURN_NO_AUDIO_FOR_VOICE_AUT}, the fail-closed
+   *   invariant) when the FINAL (post-voiceify) user turn for a voice agent
+   *   under test carries no audio. Adapter-AGNOSTIC and strictly stronger than
+   *   the old realtime-user type-check it replaced: it trips on the produced
+   *   ARTIFACT (a no-audio turn) regardless of producer type — catching a
+   *   realtime adapter that returns text AND a non-realtime/non-voice-sim
+   *   producer the type-check let through silently — rather than degrade the
+   *   user side to a text turn the voice agent can't hear. The autonomous
+   *   OpenAI Realtime user PASSES it (its `call()` returns audio).
    */
   private async voiceifyGeneratedUserTurn(
     messages: ModelMessage[],
@@ -1282,40 +1285,58 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     if (this.findVoiceAgentAdapter() === null) return messages;
     const producer = this.agents[idx];
 
-    // Fail-closed backstop for the unsupported autonomous-realtime-user mode
-    // (the why is on REALTIME_USER_AUTONOMOUS_UNSUPPORTED). The OpenAI realtime
-    // adapter self-rejects earlier in its own `call()` (the primary guard);
-    // this catches any other realtime-user adapter that does not. Throwing here
-    // converts what would otherwise be a silent TEXT broadcast (the line below
-    // returns a realtime producer's message unchanged) into a loud failure.
-    // LOAD-BEARING ORDER: this must precede the `!isVoiceUserSim` return so a
-    // hypothetical dual-shape adapter (realtime AND voiceify) fails closed
-    // rather than being silently TTS'd — the substitution we never ship.
-    if (producer && isRealtimeUserAgent(producer)) {
-      throw new Error(REALTIME_USER_AUTONOMOUS_UNSUPPORTED);
+    // Voice-capable user simulator → TTS each generated TEXT turn into audio
+    // (parity with the scripted user("text") path) so the agent under test
+    // receives audio it can hear. A realtime user / any other producer is left
+    // unchanged here — its own call() is responsible for returning audio. The
+    // audio-presence invariant below is what makes leaving them unchanged safe.
+    let outgoing = messages;
+    if (producer && isVoiceUserSim(producer)) {
+      const voiced: ModelMessage[] = [];
+      for (const message of messages) {
+        // Already audio (defensive — generated user-sim turns are text) → pass
+        // through untouched so we never double-encode.
+        if (messageHasAudio(message)) {
+          voiced.push(message);
+          continue;
+        }
+        const text =
+          typeof message.content === "string"
+            ? message.content
+            : extractTranscript(message);
+        if (!text) {
+          voiced.push(message);
+          continue;
+        }
+        voiced.push(await producer.voiceifyText(text, this.config.voice));
+      }
+      outgoing = voiced;
     }
 
-    if (!producer || !isVoiceUserSim(producer)) return messages;
-
-    const voiced: ModelMessage[] = [];
-    for (const message of messages) {
-      // Already audio (defensive — generated user-sim turns are text) → pass
-      // through untouched so we never double-encode.
-      if (messageHasAudio(message)) {
-        voiced.push(message);
-        continue;
-      }
-      const text =
-        typeof message.content === "string"
-          ? message.content
-          : extractTranscript(message);
-      if (!text) {
-        voiced.push(message);
-        continue;
-      }
-      voiced.push(await producer.voiceifyText(text, this.config.voice));
+    // Fail-closed invariant (adapter-AGNOSTIC): a USER turn for a voice agent
+    // under test MUST carry REAL content — audio bytes the AUT can hear, or a
+    // transcript (for a text-commit adapter) — the why is on
+    // USER_TURN_NO_AUDIO_FOR_VOICE_AUT.
+    // LOAD-BEARING ORDER: this runs AFTER the voiceify/TTS step, on the FINAL
+    // outgoing turn — so a legitimate voice-user-sim TEXT turn (text is PRE-TTS)
+    // is allowed through ONCE voiced, while a realtime adapter that returns text,
+    // or any producer that yields a CONTENT-LESS user turn, fails loud rather
+    // than silently degrading the agent under test to a turn it can't hear.
+    // NB: test real content, not `messageHasAudio` — a ZERO-byte audio part still
+    // "has audio" (extractAudio is non-null), so an empty-audio #708-flake turn
+    // would sail through and feed the AUT silence (a receiveAudio-timeout hang).
+    // It is the produced ARTIFACT, not the producer's TYPE, that trips it —
+    // strictly stronger than the old isRealtimeUserAgent check.
+    const carriesContent = outgoing.some((message) => {
+      const audio = extractAudio(message);
+      return (
+        !!audio && (audio.data.length > 0 || (audio.transcript?.length ?? 0) > 0)
+      );
+    });
+    if (!carriesContent) {
+      throw new Error(USER_TURN_NO_AUDIO_FOR_VOICE_AUT);
     }
-    return voiced;
+    return outgoing;
   }
 
   /**

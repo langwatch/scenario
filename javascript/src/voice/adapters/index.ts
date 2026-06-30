@@ -11,7 +11,6 @@ export {
   ELEVENLABS_CONVAI_URL_TEMPLATE,
   type ElevenLabsAgentAdapterOptions,
   type ElevenLabsVoiceAgentOptions,
-  type WebSocketLike,
 } from "./elevenlabs";
 
 export {
