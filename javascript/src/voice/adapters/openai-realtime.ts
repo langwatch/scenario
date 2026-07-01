@@ -860,12 +860,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
           input: [],
           output_modalities: ["audio"],
           instructions:
-            // Per-response `instructions` OVERRIDE the session default, and
-            // `conversation:"none"` + `input:[]` strip all session context, so
-            // the persona set via session.update is gone here unless re-injected.
-            // Without it the model has no domain anchor and renders a WRONG opener
-            // (#705, live: "trouble with my internet connection" instead of the
-            // scripted account line). Prepend the persona, guarded for empty.
+            // Prepend the persona (guarded for empty); see the Persona anchor note
+            // in this method's JSDoc for why a per-response `instructions` must
+            // re-inject it.
             (this.instructions ? this.instructions + "\n\n" : "") +
             "You are voicing ONE line spoken by a customer in a support call. " +
             "Say the line below OUT LOUD, in the first person, EXACTLY as written. " +
@@ -966,10 +963,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
    * B): it sets NEITHER `conversation:"none"` NOR `input:[]`, so the committed
    * heard audio + the conversation so far condition the reply. The customer
    * persona/goal ({@link instructions}) is PREPENDED to the per-response
-   * `instructions` here: a per-response `instructions` OVERRIDES the session
-   * default, so relying on the session persona alone drops it every proceed()
-   * turn (#705). The per-turn nudge then keeps the model in the customer role
-   * (not answering as the agent).
+   * `instructions` here (see {@link _speakVerbatim} for why a per-response
+   * `instructions` must re-inject the persona). The per-turn nudge then keeps the
+   * model in the customer role (not answering as the agent).
    * `output_modalities:["audio"]` forces a spoken reply.
    *
    * RESET #2 (heard-audio buffer bleed): if heard audio was appended this turn,
@@ -993,11 +989,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         response: {
           output_modalities: ["audio"],
           instructions:
-            // Per-response `instructions` OVERRIDE the session default (it applies
-            // only "if this field is not set"), so the persona set via
-            // session.update is dropped on EVERY proceed() turn unless re-injected
-            // here. Prepend it so the customer goal/domain holds across the whole
-            // generated conversation (#705). Guarded for an empty persona.
+            // Prepend the persona so the customer goal/domain holds across the whole
+            // generated conversation (guarded for empty); see _speakVerbatim's JSDoc
+            // for why a per-response `instructions` must re-inject it.
             (this.instructions ? this.instructions + "\n\n" : "") +
             "You are the CUSTOMER on a support call — never the agent. Listen " +
             "to what the agent just said, then say your NEXT line: one short, " +

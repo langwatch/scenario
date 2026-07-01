@@ -26,62 +26,26 @@
  *    own (the `lastAgentTranscript` reset, the commit-`7d0d02d`-class fix).
  */
 
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { WebSocketServer, type WebSocket as WsServerSocket } from "ws";
+import { describe, expect, it } from "vitest";
 
 import { AgentRole, type AgentInput } from "../../../domain/agents";
 import { AudioChunk } from "../../audio-chunk";
 import { createAudioMessage, extractAudio } from "../../messages";
 import { OPENAI_REALTIME_MODEL, OpenAIRealtimeAgentAdapter } from "../../index";
+import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
 
-let http: Server;
-let wss: WebSocketServer;
-let activeSocket: WsServerSocket | null = null;
-let socketReadyResolve: (() => void) | null = null;
-let socketReady: Promise<void> = new Promise((r) => {
-  socketReadyResolve = r;
-});
 let observed: Array<{ type: string; data: Record<string, unknown> }> = [];
 
-beforeAll(
-  async () =>
-    await new Promise<void>((doneStart) => {
-      http = createServer();
-      wss = new WebSocketServer({ server: http });
-      wss.on("connection", (sock) => {
-        activeSocket = sock;
-        socketReadyResolve?.();
-        sock.on("message", (raw) => {
-          const text =
-            typeof raw === "string"
-              ? raw
-              : Buffer.isBuffer(raw)
-                ? raw.toString("utf8")
-                : Buffer.from(raw as ArrayBuffer).toString("utf8");
-          try {
-            const parsed = JSON.parse(text) as Record<string, unknown>;
-            observed.push({ type: String(parsed.type ?? ""), data: parsed });
-          } catch {
-            /* drop non-JSON */
-          }
-        });
-      });
-      http.listen(0, "127.0.0.1", doneStart);
-    }),
-);
-
-afterAll(async () => {
-  wss.close();
-  await new Promise<void>((done) => http.close(() => done()));
+const server = setupMockRealtimeServer((text) => {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    observed.push({ type: String(parsed.type ?? ""), data: parsed });
+  } catch {
+    /* drop non-JSON */
+  }
 });
 
-function push(payload: unknown): void {
-  if (!activeSocket) throw new Error("socket not connected");
-  activeSocket.send(JSON.stringify(payload));
-}
+const push = (payload: unknown): void => server.push(payload);
 
 /** Push an audio delta. An EMPTY string decodes to a 0-length chunk — the
  * adapter's drain loop treats that as end-of-turn, so it terminates the turn
@@ -128,12 +92,10 @@ function inputHearing(heard: Uint8Array | null): AgentInput {
 
 async function connectUser(): Promise<OpenAIRealtimeAgentAdapter> {
   observed = [];
-  socketReady = new Promise<void>((r) => {
-    socketReadyResolve = r;
-  });
-  const adapter = buildAdapter((http.address() as AddressInfo).port, AgentRole.USER);
+  server.arm();
+  const adapter = buildAdapter(server.port(), AgentRole.USER);
   await adapter.connect();
-  await socketReady;
+  await server.socketReady();
   await waitFor(() => observed.some((e) => e.type === "session.update"));
   return adapter;
 }
@@ -276,10 +238,7 @@ describe("OpenAIRealtimeAgentAdapter.call() autonomous realtime-user (#705)", ()
     // A role=AGENT adapter is a normal agent under test. Unconnected, its call()
     // must fail for a transport reason (the connected-state gate) — it must NOT
     // produce a user audio turn (the role=USER autonomous path).
-    const adapter = buildAdapter(
-      (http.address() as AddressInfo).port,
-      AgentRole.AGENT,
-    );
+    const adapter = buildAdapter(server.port(), AgentRole.AGENT);
     await expect(
       adapter.call({
         threadId: "t",

@@ -24,6 +24,8 @@
 import scenario, { voice, type ScenarioResult } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
+import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
+
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -40,10 +42,9 @@ function realAudioAgent(): voice.ElevenLabsAgentAdapter {
   });
 }
 
-const SUPPORT_CRITERIA = [
-  "the agent stayed on a coherent customer-support thread across every turn",
-  "the agent responded to each of the user's turns (no dropped or ignored turn)",
-];
+// The shared mutual-hearing/coherence gate: every agent turn must directly address
+// the user's preceding turn (no dropped or ignored turns), across the whole thread.
+const SUPPORT_CRITERIA = [AGENTS_HEARD_EACH_OTHER];
 
 /**
  * The live pass criteria. Three independent assertions, all required:

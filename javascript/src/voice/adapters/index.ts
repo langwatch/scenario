@@ -8,7 +8,6 @@
 export {
   ElevenLabsAgentAdapter,
   ElevenLabsVoiceAgent,
-  ELEVENLABS_CONVAI_URL_TEMPLATE,
   type ElevenLabsAgentAdapterOptions,
   type ElevenLabsVoiceAgentOptions,
 } from "./elevenlabs";

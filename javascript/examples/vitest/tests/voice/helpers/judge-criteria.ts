@@ -26,8 +26,3 @@ export const AGENTS_HEARD_EACH_OTHER =
   "ignores the user's words, NOT two scripts talking past each other. An agent " +
   "that declines or deflects a request still satisfies this ONLY IF the decline " +
   "is a direct, on-topic response to what the user actually asked.";
-
-/** Default coherence criteria bundle for a voice judge. */
-export const VOICE_COHERENCE_CRITERIA: readonly string[] = [
-  AGENTS_HEARD_EACH_OTHER,
-];

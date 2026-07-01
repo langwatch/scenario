@@ -29,16 +29,13 @@
 // conclusion (memory: voice-e2e-hollow-green — `| tee` swallows the exit code).
 
 import scenario, {
-  AgentRole,
-  voice,
   type ScenarioResult,
 } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
 import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
+import { realtimeUser } from "./helpers/realtime-user";
 import { saveDemoRecording } from "./helpers/save-demo-recording";
-
-const { OPENAI_REALTIME_MODEL } = voice;
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
@@ -106,43 +103,11 @@ function assertCoherentConversation(result: ScenarioResult): void {
   }
 }
 
-// Persona + goal for the AUTONOMOUS realtime user. With a realtime user (not a
-// userSimulatorAgent) this rides on the adapter `instructions`; a per-turn nudge
-// inside the adapter keeps the model in the customer role. Kept free of framework
-// jargon so nothing framework-y can be voiced (memory:
-// scenario-voice-description-is-sim-prompt).
-const CUSTOMER_INSTRUCTIONS =
-  "You are a customer who has called your bank's support line about your " +
-  "account. You are the one being helped — you are NEVER the agent. Speak one " +
-  "short, natural, first-person sentence per turn, in your own words: ask your " +
-  "next question, or answer what the agent just asked. Do not offer assistance, " +
-  "do not present menu options, and do not echo the agent's wording. Across the " +
-  "call you want to check your balance, ask about a recent transaction, and " +
-  "update a setting on your account.";
-
-// Realtime USER simulator — the model itself speaks (role=USER), driven
-// verbatim for the scripted opener and AUTONOMOUSLY for the proceed() turns.
-function realtimeUser() {
-  return scenario.openAIRealtimeAgent({
-    model: OPENAI_REALTIME_MODEL,
-    voice: "marin",
-    instructions: CUSTOMER_INSTRUCTIONS,
-    role: AgentRole.USER,
-  });
-}
-
 describe("repro #705 — proceed(N) drives an autonomous realtime user on hosted EL", () => {
-  it(
+  it.skipIf(!hasHostedKey)(
     "proceed(4) drives >=3 voiced realtime-user turns + >=3 agent replies (hosted EL)",
     { retry: 2, timeout: 300_000 },
     async () => {
-      if (!hasHostedKey) {
-        console.log(
-          "SKIP: no hosted creds (ELEVENLABS_API_KEY/AGENT_ID + OPENAI_API_KEY)",
-        );
-        return;
-      }
-
       let result: ScenarioResult | null = null;
       let caught: unknown = null;
       const turnsSeen: number[] = [];
@@ -229,15 +194,10 @@ describe("repro #705 — proceed(N) drives an autonomous realtime user on hosted
     },
   );
 
-  it(
+  it.skipIf(!hasHostedKey)(
     "proceed(3) + judge() proves the autonomous realtime user is COHERENT (hosted EL)",
     { retry: 2, timeout: 300_000 },
     async () => {
-      if (!hasHostedKey) {
-        console.log("SKIP: no hosted creds");
-        return;
-      }
-
       let result: ScenarioResult | null = null;
       let caught: unknown = null;
 

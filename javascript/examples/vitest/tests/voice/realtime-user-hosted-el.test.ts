@@ -25,6 +25,8 @@
 import scenario, { AgentRole, voice, type ScenarioResult } from "@langwatch/scenario";
 import { describe, it, expect } from "vitest";
 
+import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
+
 const { OPENAI_REALTIME_MODEL } = voice;
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
@@ -34,16 +36,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const hasHostedKey = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && OPENAI_API_KEY);
 
 describe("#705 — realtime user drives hosted EL via scenario.run()", () => {
-  it(
+  it.skipIf(!hasHostedKey)(
     "realtime USER + hosted EL agent: ≥3 user + ≥3 agent audio turns, coherent",
     async () => {
-      if (!hasHostedKey) {
-        console.log(
-          "SKIP: needs ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID + OPENAI_API_KEY",
-        );
-        return;
-      }
-
       const result: ScenarioResult = await scenario.run({
         name: "realtime_user_drives_hosted_el",
         description:
@@ -65,7 +60,7 @@ describe("#705 — realtime user drives hosted EL via scenario.run()", () => {
             role: AgentRole.USER,
           }),
           scenario.judgeAgent({
-            criteria: ["The conversation completed multiple coherent turns"],
+            criteria: [AGENTS_HEARD_EACH_OTHER],
           }),
         ],
         // EL sends first_message on connect → lead with agent() so the greeting
