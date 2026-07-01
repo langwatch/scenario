@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/langwatch/scenario/compare/javascript/v0.4.15...javascript/v0.5.0) (2026-07-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **voice:** the EL adapter's SDK migration removes the public `WebSocketLike` test-seam type (superseded by the SDK's own WebSocketFactory). Niche, but note it for the version bump.
+
+### Bug Fixes
+
+* **security:** raise vite 8.x floor to &gt;=8.0.16 across scenario workspaces ([#709](https://github.com/langwatch/scenario/issues/709)) ([42d877e](https://github.com/langwatch/scenario/commit/42d877ed4b187b3a7478f38f6efdce932cb696d9))
+* **voice:** real voice-in by default for hosted ElevenLabs ConvAI ([#707](https://github.com/langwatch/scenario/issues/707)) ([267426b](https://github.com/langwatch/scenario/commit/267426b06d95b3242a56fc6f4383df01bf457bd6))
+
 ## [0.4.15](https://github.com/langwatch/scenario/compare/javascript/v0.4.14...javascript/v0.4.15) (2026-06-25)
 
 
