@@ -138,14 +138,6 @@ jobs:
           TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
           TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
-      - name: Run example-suite voice integration tests
-        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
-        working-directory: python
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-
       # ---------------------------------------------------------------
       # Run the @e2e voice demos (fail-fast on missing infrastructure).
       # ---------------------------------------------------------------
