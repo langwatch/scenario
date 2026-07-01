@@ -5,9 +5,9 @@
  *
  * ONE SCENARIO: a single `scenario.run()` whose one script chains the
  * capabilities into a coherent customer call — verbatim user turn, time-based
- * barge-in (`interrupt({ after })`), silence handling, then an autonomous
- * `voiceProceed()` stretch carrying random interruptions — closed by the
- * coherence judge. (The weaker `interrupt({ afterWords })` path is left OUT of
+ * barge-in (`interrupt({ after })`), silence handling, then a `proceed()`
+ * stretch that SHOULD drive autonomous realtime-user turns (currently a no-op —
+ * see rough edge [2]) — closed by the coherence judge. (The weaker `interrupt({ afterWords })` path is left OUT of
  * this single flow on purpose: it can throw `UnsupportedCapabilityError` and
  * would fail the whole scenario; probe it in isolation instead.)
  *
@@ -28,9 +28,11 @@
  *   [1] `interrupt()` must follow a USER turn or its forced agent turn hangs to
  *       a `receiveAudio` timeout; and every realtime user turn carries ~15s of
  *       drain latency (the model's turn is only detected via an idle timeout).
- *   [2] `voiceProceed({ turns })` advances the conversation UNTIL turn N — placed
- *       after several scripted turns it can drive ZERO autonomous turns, so the
- *       random interruptions below may not actually be exercised.
+ *   [2] The autonomous `proceed(N)` stretch drives ZERO turns here: on the wire
+ *       `proceed(7)` at turn 3 scheduled no realtime-USER turn and went straight
+ *       to the judge. NOT an N-sizing issue (7 > the elapsed 3) — the realtime
+ *       user simply is not driven by `proceed()` yet (a #705 gap, tracked). The
+ *       scripted turns carry the demo.
  *   [3] A very short user turn immediately before `silence()` may not be captured
  *       as its own recording segment (user message count can exceed user segment
  *       count).
@@ -50,9 +52,9 @@ import { describe, it, expect } from "vitest";
 import { AGENTS_HEARD_EACH_OTHER } from "./helpers/judge-criteria";
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
-// `InterruptionConfig` is exported on the `voice` namespace only (not the
-// top-level `scenario` barrel). `OPENAI_REALTIME_MODEL` is the default model id.
-const { OPENAI_REALTIME_MODEL, InterruptionConfig } = voice;
+// `OPENAI_REALTIME_MODEL` is the default realtime model id, exported on the
+// `voice` namespace.
+const { OPENAI_REALTIME_MODEL } = voice;
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
@@ -82,7 +84,7 @@ function realtimeUser() {
   });
 }
 
-/** Per-turn logger for `voiceProceed({ onTurn })` — exercises the callback and
+/** Per-turn logger for `proceed(turns, onTurn)` — exercises the callback and
  *  makes the autonomous stretch legible turn-by-turn in the run log. */
 const logTurn = (state: ScenarioExecutionStateLike): void => {
   console.log(
@@ -146,20 +148,15 @@ describe("voice kitchen-sink — one scenario, full surface + artifact proof", (
             scenario.silence(2.0), // SILENCE: silent PCM over the wire (dead air)
             scenario.user("Okay, I'm back — what's my current balance?"), // resume with a real question
             scenario.agent(), // agent answers the resumed question
-            // ⚠️ ROUGH EDGE [2] — voiceProceed advances UNTIL turn N (not "N
-            // more"). Placed here, after the scripted turns already elapsed, it
-            // drove ZERO autonomous turns in practice (no `onTurn` fires), so the
-            // random interruptions configured below were NOT exercised this run.
-            // Raise `turns` above the elapsed turn count (or move this earlier) to
-            // actually drive autonomous turns + interruptions.
-            scenario.voiceProceed({
-              turns: 3,
-              interruptions: new InterruptionConfig({
-                probability: 0.5,
-                strategy: "random_phrase",
-              }),
-              onTurn: logTurn,
-            }),
+            // Autonomous stretch: `proceed()` SHOULD let the realtime USER drive
+            // the conversation on its own — the core #705 capability.
+            // ⚠️ ROUGH EDGE [2] — but on the wire it drives ZERO turns: `proceed(7)`
+            // at turn 3 scheduled no USER turn and went straight to the judge
+            // (`onTurn` never fired). This is NOT the N-sizing footgun (7 > the
+            // elapsed 3) — the realtime user simply is not driven by `proceed()`
+            // yet (#705 gap). Kept to show the intended surface; the scripted
+            // turns above carry the actual demo.
+            scenario.proceed(7, logTurn),
             scenario.judge(), // COHERENCE GATE
           ],
           maxTurns: 18,
