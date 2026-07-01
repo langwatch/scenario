@@ -1,7 +1,7 @@
 /**
  * Proceed-loop voice barge-in (issue #372 pre-step path).
  *
- * Verifies that `voiceProceed({ interruptions })` with a non-zero probability
+ * Verifies that a user-sim interruption config with a non-zero probability
  * fires a REAL mid-stream barge-in via the pre-step
  * `maybeScheduleInterruptedAgentTurn` path, NOT just a post-hoc label on a
  * fully-completed agent turn.
@@ -42,7 +42,7 @@
  * NOTE: The "meaningfully shorter duration" assertion (ratio < 0.8) is only
  * verifiable with a live voice bot (E2E). In unit tests with fake adapters,
  * JS promises are not cancelable — the full chunk is always drained. That
- * assertion lives in random-interruptions.test.ts (E2E).
+ * assertion lives in the E2E demos (e.g. gemini-live-interruption.test.ts).
  */
 
 import { describe, it, expect } from "vitest";
@@ -258,17 +258,12 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
           agents: [voiceAgent, userSim, judge],
         },
         [
-          // Step 1: arm the InterruptionConfig on the executor.
-          // delayRange:[0,0] keeps the unit test fast and deterministic —
-          // the sampleDelay sleep is now honoured in the voice barge-in path
-          // (maybeScheduleInterruptedAgentTurn). Production configs use the
-          // default [0.5, 3.0]; unit tests must opt out explicitly.
-          (_state, executor) => {
-            (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-              new InterruptionConfig({ probability: 1.0, strategy: "random_phrase", delayRange: [0, 0] });
-          },
-          // Step 2: proceed for 2 turns (enough for the barge-in path to fire
-          // across a turn boundary).
+          // Proceed for 2 turns (enough for the barge-in path to fire across a
+          // turn boundary). The InterruptionConfig is supplied via the
+          // interruptOverrides.config test seam below; delayRange:[0,0] keeps
+          // the unit test fast and deterministic (the sampleDelay sleep is
+          // honoured in the voice barge-in path). Production configs use the
+          // default [0.5, 3.0].
           async (_state, executor) => {
             await executor.proceed(2);
           },
@@ -276,7 +271,10 @@ describe("proceed-loop voice barge-in (maybeScheduleInterruptedAgentTurn)", () =
         "test-batch-id",
       );
       // RNG = 0 → always fires (0 < 1.0) and picks phrase[0].
-      exec.interruptOverrides = { rng: () => 0 };
+      exec.interruptOverrides = {
+        rng: () => 0,
+        config: new InterruptionConfig({ probability: 1.0, strategy: "random_phrase", delayRange: [0, 0] }),
+      };
 
       const result = await exec.execute();
 
@@ -405,14 +403,6 @@ describe("fireUserInterrupt — bargeInDelayMs delay branch", () => {
           agents: [voiceAgent, userSim, judge],
         },
         [
-          (_state, executor) => {
-            (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-              new InterruptionConfig({
-                probability: 1.0,
-                strategy: "random_phrase",
-                delayRange: [0, 0],
-              });
-          },
           async (_state, executor) => {
             await executor.proceed(2);
           },
@@ -421,7 +411,11 @@ describe("fireUserInterrupt — bargeInDelayMs delay branch", () => {
       );
       // RNG 0 → always fires. bargeInDelayMs = 1 exercises the > 0 branch
       // without meaningfully slowing the test (1 ms real-clock sleep).
-      exec.interruptOverrides = { rng: () => 0, bargeInDelayMs: 1 };
+      exec.interruptOverrides = {
+        rng: () => 0,
+        bargeInDelayMs: 1,
+        config: new InterruptionConfig({ probability: 1.0, strategy: "random_phrase", delayRange: [0, 0] }),
+      };
 
       const result = await exec.execute();
 
@@ -451,14 +445,6 @@ describe("fireUserInterrupt — bargeInDelayMs delay branch", () => {
           agents: [voiceAgent, userSim, judge],
         },
         [
-          (_state, executor) => {
-            (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-              new InterruptionConfig({
-                probability: 1.0,
-                strategy: "random_phrase",
-                delayRange: [0, 0],
-              });
-          },
           async (_state, executor) => {
             await executor.proceed(2);
           },
@@ -466,7 +452,10 @@ describe("fireUserInterrupt — bargeInDelayMs delay branch", () => {
         "test-batch-id",
       );
       // RNG 0 → always fires. No bargeInDelayMs override → undefined path.
-      exec.interruptOverrides = { rng: () => 0 };
+      exec.interruptOverrides = {
+        rng: () => 0,
+        config: new InterruptionConfig({ probability: 1.0, strategy: "random_phrase", delayRange: [0, 0] }),
+      };
 
       const result = await exec.execute();
 

@@ -864,3 +864,23 @@ A `@ts-e2e`-tagged scenario bound at the top of the stack, exercising user-sim T
 transport → agent → judge STT → verdict, is the gate.
 
 **The `@ts-e2e` gate must include a round-trip audio assertion.** Drive a known utterance through user-sim TTS → message bus → adapter → judge STT and assert the transcript on the far side matches the input text (within a tolerance). This is the regression guard for the Gap #3 **LIVE BUG**: because the two producers tag audio differently (`format:"wav"` vs. `format:"pcm16"`) and their extractors decode by tag, a format mismatch surfaces as a garbled transcript — which this assertion catches, where per-PR unit tests (each exercising only its own producer/extractor pair) do not.
+
+---
+
+## Addendum (2026-07-01): `voiceProceed` removed in #714
+
+**Date:** 2026-07-01 · **Change:** #714 (removed in the next release)
+
+The TypeScript-only `voiceProceed({ interruptions })` verb and its
+`VoiceProceedOptions` type (referenced throughout this ADR as the verb that
+would consult the `InterruptionConfig` shape) have been removed to restore
+Python↔TS parity; Python never had a `proceed(interruptions=...)` parameter.
+Probabilistic barge-ins across a `proceed()` loop are now driven solely by
+`interruptProbability` on the user simulator (the parity-clean knob both SDKs
+share), which the executor resolves into a default `InterruptionConfig`
+(probability only; default delay/strategy/phrases). `InterruptionConfig` stays
+exported under the `voice` namespace but is constructed internally. The
+now-dead `voiceInterruptions` executor-state field and its
+`resolveInterruptionConfig` per-call branch were removed with it. This is a
+pre-1.0 breaking change; the mentions of `voiceProceed` above are retained as
+historical record, not scrubbed.

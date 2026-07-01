@@ -210,11 +210,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    */
   voiceConfig: ResolvedVoiceConfig | null = null;
   /**
-   * Interruption config recorded by `voiceProceed({ interruptions })`. Read
-   * at the top of each `proceed()` iteration to decide barge-ins (Gap #8).
-   */
-  voiceInterruptions?: InterruptionConfig;
-  /**
    * Background ambience recorded by `backgroundNoise(source, volume)` — read
    * by the user-simulator audio path when mixing turns (Gap #8).
    */
@@ -1562,6 +1557,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     rng?: () => number;
     waitForSpeechMs?: number;
     bargeInDelayMs?: number;
+    /** Test seam: force a specific InterruptionConfig (replaces the removed per-call interruption-injection path). */
+    config?: InterruptionConfig;
   };
 
   /**
@@ -1809,19 +1806,14 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   /**
    * Resolve the active {@link InterruptionConfig} for the run:
-   * - `voiceProceed({ interruptions })` config (on the executor state) wins.
+   * - a test-seam override config (`interruptOverrides.config`) wins;
    * - else, when a user simulator declares `interruptProbability > 0`, build
-   *   a default config from it.
+   *   a default config from it;
    * - else `null` (no interruptions).
    */
   private resolveInterruptionConfig(): InterruptionConfig | null {
-    if (this.voiceInterruptions instanceof InterruptionConfig) {
-      return this.voiceInterruptions;
-    }
-    if (this.voiceInterruptions) {
-      // A plain InterruptionConfigInit-shaped object was recorded — wrap it.
-      return new InterruptionConfig(this.voiceInterruptions);
-    }
+    const override = this.interruptOverrides?.config;
+    if (override) return override;
     const prob = this.userSimulatorInterruptProbability();
     if (prob > 0) {
       return new InterruptionConfig({ probability: prob });
