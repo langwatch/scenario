@@ -72,6 +72,14 @@ export function setupMockRealtimeServer(
       activeSocket.send(JSON.stringify(payload));
     },
     arm: () => {
+      // Close the previous client connection before re-arming. Without this the
+      // prior socket keeps the "message" listener registered above and can feed
+      // onMessage into the next test, leaking events across tests now that this
+      // server is shared across suites.
+      if (activeSocket) {
+        activeSocket.removeAllListeners("message");
+        activeSocket.terminate();
+      }
       activeSocket = null;
       ready = new Promise<void>((r) => {
         readyResolve = r;

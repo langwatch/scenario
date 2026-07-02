@@ -13,6 +13,7 @@ import type { ElevenLabsAgentAdapterOptions } from "../../index";
 export type WsFactory = NonNullable<ElevenLabsAgentAdapterOptions["webSocketFactory"]>;
 export type ConvClient = NonNullable<ElevenLabsAgentAdapterOptions["conversationClient"]>;
 
+export const WS_CONNECTING = 0;
 export const WS_OPEN = 1;
 export const WS_CLOSED = 3;
 
@@ -25,7 +26,17 @@ export const WS_CLOSED = 3;
  */
 export class FakeWebSocket extends EventEmitter {
   readonly sent: Record<string, unknown>[] = [];
-  readyState = WS_OPEN;
+  readyState = WS_CONNECTING;
+  constructor() {
+    super();
+    // Model the real connecting -> open transition: the socket is CONNECTING
+    // until the transport reports it up (makeFakeConv emits "open" on the next
+    // microtask). Starting OPEN would let a "send while still connecting" bug
+    // slip past the fake.
+    this.on("open", () => {
+      this.readyState = WS_OPEN;
+    });
+  }
   send(data: string): void {
     this.sent.push(JSON.parse(data) as Record<string, unknown>);
   }
