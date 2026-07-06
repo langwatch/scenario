@@ -129,6 +129,11 @@ describeFeature(
           // Audio-DERIVED transcript proof: Pipecat (Twilio Media Streams)
           // carries audio only, so STT over the recorded user bytes is the only
           // source of a transcript — force it and require non-empty per turn.
+          // Clear any transcript carried over from the live run: a forced
+          // re-run leaves a stale transcript in place if STT throws (a
+          // transient outage), so without this the check below could green
+          // on old text instead of the freshly audio-derived transcript.
+          for (const s of userSegs) s.transcript = undefined;
           await voice.transcribeSegments(
             { segments: userSegs, timeline: [] },
             { onlyMissing: false },

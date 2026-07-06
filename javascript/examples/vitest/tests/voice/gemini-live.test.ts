@@ -138,6 +138,11 @@ describeFeature(
           }
           // Audio-DERIVED transcript proof: force STT over the recorded user
           // bytes (onlyMissing:false) and require non-empty speech per user turn.
+          // Clear any transcript carried over from the live run: a forced
+          // re-run leaves a stale transcript in place if STT throws (a
+          // transient outage), so without this the check below could green
+          // on old text instead of the freshly audio-derived transcript.
+          for (const s of userSegList) s.transcript = undefined;
           await voice.transcribeSegments(
             { segments: userSegList, timeline: [] },
             { onlyMissing: false },
