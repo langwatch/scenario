@@ -5,6 +5,7 @@
 
 ### ⚠ BREAKING CHANGES
 
+* **voice:** `scenario.voiceProceed()` and `VoiceProceedOptions` are removed ([#714](https://github.com/langwatch/scenario/issues/714)). Migrate: set `interruptProbability` on `userSimulatorAgent` to drive probabilistic barge-ins during `proceed()` — the parity-clean path both SDKs share.
 * **voice:** the EL adapter's SDK migration removes the public `WebSocketLike` test-seam type (superseded by the SDK's own WebSocketFactory). Niche, but note it for the version bump.
 
 ### Bug Fixes
