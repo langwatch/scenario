@@ -24,6 +24,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect } from "vitest";
 
 import { AudioChunk } from "../../voice/audio-chunk";
+import { makeChunk } from "./fixtures/make-chunk";
 import { createAudioMessage, extractAudio, messageHasAudio } from "../../voice/messages";
 import { JudgeAgent } from "../judge/judge-agent";
 
@@ -38,10 +39,6 @@ const FEATURE_PATH = resolve(
   "voice-agents.feature"
 );
 
-/** 4-byte (2-sample) AudioChunk — minimal valid PCM16. */
-function makeChunk(transcript?: string): AudioChunk {
-  return new AudioChunk({ data: new Uint8Array(4), transcript });
-}
 
 const feature = await loadFeature(FEATURE_PATH);
 
