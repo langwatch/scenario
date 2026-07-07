@@ -119,6 +119,37 @@ class RaceAdapter extends VoiceAgentAdapter {
   }
 }
 
+/**
+ * An adapter that returns raw audio and does NOT expose the `lastAgentTranscript`
+ * convention at all — models Twilio/Pipecat (raw-audio) and Composable (text on a
+ * different field). The grace-wait must skip these entirely: waiting could never
+ * succeed, so it would burn the full ceiling per turn for nothing (the P1).
+ */
+class TranscriptlessAdapter extends VoiceAgentAdapter {
+  override role = AgentRole.AGENT;
+  readonly capabilities = new AdapterCapabilities({
+    streamingTranscripts: false,
+    nativeVad: true,
+    dtmf: false,
+    interruption: false,
+    inputFormats: ["pcm16/24000"],
+    outputFormats: ["pcm16/24000"],
+  });
+  // NOTE: deliberately NO `lastAgentTranscript` field declared.
+
+  private index = 0;
+  private readonly responses: AudioChunk[] = [rawTone(0.5)];
+
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {}
+  async sendAudio(): Promise<void> {}
+
+  async receiveAudio(_timeout: number): Promise<AudioChunk> {
+    if (this.index < this.responses.length) return this.responses[this.index++]!;
+    return silentChunk(0);
+  }
+}
+
 /** Minimal AgentInput: one user turn, no executor state (recorder no-ops). */
 function inputWithUserTurn(): AgentInput {
   return {
@@ -200,5 +231,22 @@ describe("#734 transcript grace-wait (defaultVoiceCall)", () => {
     expect(transcriptOf(message)).toBeNull(); // audio-only turn, no fabricated text
     expect(elapsedMs).toBeGreaterThanOrEqual(90); // waited ~the ceiling
     expect(elapsedMs).toBeLessThan(2000); // but bounded, did not hang
+  });
+
+  it("adds ZERO latency for an adapter that does not expose lastAgentTranscript (P1 — Twilio/Pipecat/Composable)", async () => {
+    // The adapter never declares `lastAgentTranscript`, so the grace-wait could
+    // never succeed. It MUST short-circuit on the absent property rather than burn
+    // the ceiling: pre-fix this turn cost the full 2s; post-fix it costs ~0.
+    const adapter = new TranscriptlessAdapter();
+    adapter.responseTailSilence = 0.02;
+    adapter.transcriptGraceWait = 2.0; // the real default — would dominate if we waited
+
+    const start = Date.now();
+    const message = await defaultVoiceCall(adapter, inputWithUserTurn());
+    const elapsedMs = Date.now() - start;
+
+    // Audio-only turn (no transcript convention), and critically NO ceiling spent.
+    expect(transcriptOf(message)).toBeNull();
+    expect(elapsedMs).toBeLessThan(500); // well under the 2s ceiling → wait was skipped
   });
 });

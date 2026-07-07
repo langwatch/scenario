@@ -293,7 +293,10 @@ export async function defaultVoiceCall(
   // fabricates. Wait (bounded) for the transcript event instead of racing it.
   // Gated on `merged` having audio: a no-audio turn is never labeled anyway
   // (attachAgentTurnTranscript short-circuits on empty data), so there is
-  // nothing to wait for. Short-circuits the instant the transcript is present.
+  // nothing to wait for. awaitAgentTranscript itself short-circuits both when the
+  // transcript is already present AND when the adapter does not expose the
+  // `lastAgentTranscript` convention at all (Twilio/Pipecat/Composable) — so a
+  // transcript-less adapter pays ZERO added latency here.
   if (merged.data.length > 0 && !merged.transcript) {
     await awaitAgentTranscript(adapter);
   }
@@ -360,10 +363,24 @@ function attachAgentTurnTranscript(
  *
  * Duck-typed on `lastAgentTranscript` (symmetric with the read/reset) so it
  * composes with every adapter following the harness convention without widening
- * the base contract; an adapter that never exposes the field simply falls
- * through to the ceiling once (its transcript is genuinely never coming).
+ * the base contract.
+ *
+ * CRITICAL — only adapters that actually EXPOSE the `lastAgentTranscript`
+ * convention are waited on. An adapter that does NOT declare the field
+ * (Twilio/Pipecat return raw audio; Composable carries its text on a different
+ * field) can never populate it, so waiting on it would burn the full
+ * `transcriptGraceWait` ceiling EVERY turn for nothing — seconds of artificial
+ * latency across a long `proceed()` run. For those, the property is absent and
+ * we skip the wait entirely (property present-but-null → wait; property absent
+ * → no wait). This is why the base-class default (2.0s) is safe to ship on the
+ * shared `VoiceAgentAdapter`: it only ever costs a transcript-capable adapter.
  */
 async function awaitAgentTranscript(adapter: VoiceAgentAdapter): Promise<void> {
+  // Absent property → this adapter does not use the native-transcript convention;
+  // waiting could never succeed, so skip (zero added latency). Present-but-null →
+  // the transcript event is pending; fall through and wait for it.
+  if (!("lastAgentTranscript" in (adapter as object))) return;
+
   const hasTranscript = (): boolean => {
     const native = (adapter as { lastAgentTranscript?: string | null })
       .lastAgentTranscript;
