@@ -95,7 +95,7 @@ interface OpenCodeAgentAdapterConfig {
 selection in evaluations. The `@opencode-ai/sdk` `model` field is itself optional
 (the server has a default), but scenario evaluations must be deterministic and
 auditable — an implicit default breaks that guarantee. Recommended starting value:
-`{ providerID: "openai", modelID: "gpt-4.1-mini" }`.
+`{ providerID: "openai", modelID: "gpt-5.4-mini" }`.
 
 ### 3. Session-per-threadId: create once, reuse after
 
