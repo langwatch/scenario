@@ -33,7 +33,12 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
-import { scenarioSdkAttributes } from "../tracing/sdk-metadata";
+import {
+  ATTR_SCENARIO_SDK_NAME,
+  ATTR_SCENARIO_SDK_VERSION,
+  SCENARIO_SDK_NAME,
+  SCENARIO_SDK_VERSION,
+} from "../tracing/sdk-metadata";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -2402,7 +2407,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         "langwatch.origin": "simulation",
         // Identify which @langwatch/scenario build produced this run so a
         // trace can be triaged without asking the user to re-derive it (#733).
-        ...scenarioSdkAttributes(),
+        [ATTR_SCENARIO_SDK_NAME]: SCENARIO_SDK_NAME,
+        [ATTR_SCENARIO_SDK_VERSION]: SCENARIO_SDK_VERSION,
         "scenario.run_id": this.scenarioRunId ?? "",
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,

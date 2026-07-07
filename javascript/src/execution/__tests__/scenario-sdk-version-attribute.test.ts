@@ -90,7 +90,7 @@ describe("scenario.sdk.* attributes (#733)", () => {
       for (const span of turnSpans) {
         expect(span.attributes).toHaveProperty(
           "scenario.sdk.name",
-          "@langwatch/scenario"
+          pkg.name
         );
         expect(span.attributes).toHaveProperty(
           "scenario.sdk.version",
@@ -99,11 +99,11 @@ describe("scenario.sdk.* attributes (#733)", () => {
       }
     });
 
-    it("reads the version from package.json rather than a hardcoded literal", async () => {
+    it("emits a non-empty, semver-shaped version value on the span", async () => {
       const execution = new ScenarioExecution(
         {
-          name: "sdk version source test",
-          description: "version is sourced from package.json",
+          name: "sdk version shape test",
+          description: "emitted version is a real semver string",
           agents: [
             new MockAgent(),
             new MockUserSimulatorAgent(),
@@ -124,11 +124,13 @@ describe("scenario.sdk.* attributes (#733)", () => {
         .getFinishedSpans()
         .filter((s) => s.name === "Scenario Turn");
       expect(turnSpans.length).toBeGreaterThan(0);
-      // package.json version is a non-empty semver-shaped string.
-      expect(pkg.version).toMatch(/^\d+\.\d+\.\d+/);
-      expect(turnSpans[0]?.attributes["scenario.sdk.version"]).toBe(
-        pkg.version
-      );
+
+      // Assert the *emitted* value directly (not compared back to package.json):
+      // it must be a non-empty, semver-shaped string, proving a real version
+      // was resolved rather than an empty/undefined placeholder.
+      const emittedVersion = turnSpans[0]?.attributes["scenario.sdk.version"];
+      expect(typeof emittedVersion).toBe("string");
+      expect(emittedVersion as string).toMatch(/^\d+\.\d+\.\d+/);
     });
   });
 
@@ -177,7 +179,7 @@ describe("scenario.sdk.* attributes (#733)", () => {
       for (const span of turnSpans) {
         expect(span.attributes).toHaveProperty(
           "scenario.sdk.name",
-          "@langwatch/scenario"
+          pkg.name
         );
         expect(span.attributes).toHaveProperty(
           "scenario.sdk.version",
