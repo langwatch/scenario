@@ -123,7 +123,7 @@ function makeConfig(
   overrides: Partial<Omit<OpenCodeAgentAdapterConfig, "client" | "model">> = {},
 ): OpenCodeAgentAdapterConfig {
   return {
-    model: { providerID: "openai", modelID: "gpt-4o-mini" },
+    model: { providerID: "openai", modelID: "gpt-4.1-mini" },
     client,
     ...overrides,
   };
@@ -547,14 +547,14 @@ describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
         const scenario = (await import("../../index.js")).default;
         const { openai } = await import("@ai-sdk/openai");
 
-        const judgeModelId = process.env.SCENARIO_JUDGE_MODEL ?? "gpt-4o-mini";
+        const judgeModelId = process.env.SCENARIO_JUDGE_MODEL ?? "gpt-4.1-mini";
 
         // Use the real openCodeAgent — NO injected client, lets the adapter
         // spawn the opencode binary (requires opencode on PATH + provider keys).
         const agent = openCodeAgent({
           model: {
             providerID: process.env.OPENCODE_PROVIDER_ID ?? "openai",
-            modelID: process.env.OPENCODE_MODEL_ID ?? "gpt-4o-mini",
+            modelID: process.env.OPENCODE_MODEL_ID ?? "gpt-4.1-mini",
           },
           workingDirectory: process.cwd(),
         });
