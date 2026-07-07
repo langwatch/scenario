@@ -27,7 +27,7 @@
  *   ceiling with no text part (so a genuine EL drop still ends the turn — the
  *   STT fallback, AC2, then covers it downstream).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 
 import { AgentRole, type AgentInput } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
@@ -39,6 +39,9 @@ import {
   PCM16_SAMPLE_WIDTH_BYTES,
 } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+
+/** Every RaceAdapter built this test — disposed in afterEach so no timer leaks. */
+const liveAdapters: RaceAdapter[] = [];
 
 /** A non-silent PCM16 chunk (mono, 24kHz) carrying NO transcript — raw EL audio. */
 function rawTone(durationSeconds: number): AudioChunk {
@@ -71,6 +74,16 @@ class RaceAdapter extends VoiceAgentAdapter {
 
   private index = 0;
   private readonly responses: AudioChunk[];
+  /** Handle for the delayed-transcript timer so teardown can clear it. */
+  private transcriptTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Clear any pending delayed-transcript timer (called on test teardown). */
+  dispose(): void {
+    if (this.transcriptTimer !== null) {
+      clearTimeout(this.transcriptTimer);
+      this.transcriptTimer = null;
+    }
+  }
 
   constructor(
     private readonly transcript: string,
@@ -80,6 +93,7 @@ class RaceAdapter extends VoiceAgentAdapter {
     super();
     // One real audio frame, then end-of-stream so the drain loop exits fast.
     this.responses = [rawTone(0.5)];
+    liveAdapters.push(this);
   }
 
   async connect(): Promise<void> {}
@@ -90,11 +104,14 @@ class RaceAdapter extends VoiceAgentAdapter {
     if (this.index < this.responses.length) {
       const chunk = this.responses[this.index++]!;
       // On the LAST real chunk, schedule the transcript to land after drain —
-      // i.e. AFTER the audio-silence boundary, modeling the lost race.
+      // i.e. AFTER the audio-silence boundary, modeling the lost race. Unref the
+      // timer so a leaked scheduling never keeps the process (or a later test)
+      // alive; `dispose()` clears it explicitly on teardown.
       if (this.index === this.responses.length && this.transcriptDelayMs !== null) {
-        setTimeout(() => {
+        this.transcriptTimer = setTimeout(() => {
           this.lastAgentTranscript = this.transcript;
         }, this.transcriptDelayMs);
+        this.transcriptTimer.unref?.();
       }
       return chunk;
     }
@@ -129,6 +146,11 @@ function transcriptOf(message: unknown): string | null {
 }
 
 describe("#734 transcript grace-wait (defaultVoiceCall)", () => {
+  afterEach(() => {
+    // Clear any pending delayed-transcript timers so nothing fires into a later test.
+    while (liveAdapters.length > 0) liveAdapters.pop()!.dispose();
+  });
+
   it("AC5: attaches a transcript that lands AFTER audio drain but within the grace window (FAILS on main)", async () => {
     // Transcript lands 100ms after drain-close — past audio silence, well within
     // a 2s grace ceiling. On main (no wait) the snapshot reads null → no text

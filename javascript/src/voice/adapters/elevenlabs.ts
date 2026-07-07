@@ -740,6 +740,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // A real user turn is starting → lift the post-response pause so the closing
     // silence streams again once this speech drains (see pumpTick).
     this.awaitingUserTurn = false;
+    // #734 — a new user turn opens a new agent turn; clear the last-audio stamp so
+    // callbackAgentResponse measures transcript lag against THIS turn's audio only.
+    // Without this, a turn whose transcript arrives with no fresh audio frame would
+    // report lag against a PRIOR turn's audio, making transcriptLagMs/lostRacePreFix
+    // (AC4 telemetry) misleading.
+    this.lastAgentAudioAtMs = null;
     // Count the turn ONCE per non-empty sendAudio (not once per 20 ms frame) so the
     // STT assertion still counts turns, not frames.
     this.audioCommitCount += 1;

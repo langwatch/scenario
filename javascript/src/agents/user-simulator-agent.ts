@@ -409,14 +409,29 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     // …]`, which keys on a turn having BOTH audio and text) still fires. Gated on
     // an audio-without-transcript turn actually existing, so the common path
     // (transcript already present) constructs no provider and pays no STT cost.
-    const preparedMessages = hasAudioWithoutTranscript(input.messages)
-      ? await transcribeAudioMessages({
+    // The STT fallback is a safety net — it must never make things WORSE than no
+    // fix. `resolveVoiceConfig` falls back to a default OpenAI provider when
+    // `voice.stt` is unset, but a bad `voice.stt` descriptor (or a provider
+    // constructor) can still throw here. Catch it and continue with the original
+    // messages so `call()` still reaches the existing `[audio message]` path
+    // rather than aborting the whole turn on a config error.
+    let preparedMessages = input.messages;
+    if (hasAudioWithoutTranscript(input.messages)) {
+      try {
+        preparedMessages = await transcribeAudioMessages({
           messages: input.messages,
           stt: resolveVoiceConfig(undefined, input.scenarioConfig.voice).stt,
           includeAudio: true,
           logWarn: (m) => this.logger.warn(m),
-        })
-      : input.messages;
+        });
+      } catch (e) {
+        this.logger.warn(
+          `#734 STT fallback pre-pass failed; continuing with original messages: ${
+            (e as Error)?.message ?? e
+          }`,
+        );
+      }
+    }
 
     // Strip audio content from messages before sending to text LLM (§4.2 — the
     // LLM that generates text is always text-only; audio is synthesized separately).
