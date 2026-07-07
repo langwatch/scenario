@@ -106,7 +106,7 @@ export interface OpenCodeAgentAdapterConfig {
    * Provider/model the OpenCode agent runs. REQUIRED — this is a product choice
    * for reproducible evals (the SDK itself treats `model` as optional, but a
    * scenario should pin a deterministic model), e.g.
-   * `{ providerID: "openai", modelID: "gpt-4o-mini" }`.
+   * `{ providerID: "openai", modelID: "gpt-4.1-mini" }`.
    */
   model: { providerID: string; modelID: string };
 
@@ -146,7 +146,7 @@ export interface OpenCodeAgentAdapterConfig {
  * @example
  * ```typescript
  * const adapter = new OpenCodeAgentAdapter({
- *   model: { providerID: "openai", modelID: "gpt-4o-mini" },
+ *   model: { providerID: "openai", modelID: "gpt-4.1-mini" },
  *   workingDirectory: "/tmp/project",
  * });
  * await scenario.run({
