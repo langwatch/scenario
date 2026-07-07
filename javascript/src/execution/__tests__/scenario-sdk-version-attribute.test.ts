@@ -89,11 +89,11 @@ describe("scenario.sdk.* attributes (#733)", () => {
 
       for (const span of turnSpans) {
         expect(span.attributes).toHaveProperty(
-          "scenario.sdk.name",
+          ["scenario.sdk.name"],
           pkg.name
         );
         expect(span.attributes).toHaveProperty(
-          "scenario.sdk.version",
+          ["scenario.sdk.version"],
           pkg.version
         );
       }
@@ -178,11 +178,11 @@ describe("scenario.sdk.* attributes (#733)", () => {
 
       for (const span of turnSpans) {
         expect(span.attributes).toHaveProperty(
-          "scenario.sdk.name",
+          ["scenario.sdk.name"],
           pkg.name
         );
         expect(span.attributes).toHaveProperty(
-          "scenario.sdk.version",
+          ["scenario.sdk.version"],
           pkg.version
         );
       }
