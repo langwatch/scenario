@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-07-07T15:20:50.066Z",
+  "duration": 39.84633333333333,
+  "segment_count": 7,
+  "segments": [
+    {
+      "idx": 0,
+      "file": "segments/00-user-0000ms.wav",
+      "role": "user",
+      "start_time": 0,
+      "end_time": 2.9,
+      "duration": 2.9,
+      "transcript": "Hello, I'd like to know about your products."
+    },
+    {
+      "idx": 1,
+      "file": "segments/01-agent-2900ms.wav",
+      "role": "agent",
+      "start_time": 2.9,
+      "end_time": 4.364833333333333,
+      "duration": 1.4648333333333334,
+      "transcript": "Hello, how can I help you today?"
+    },
+    {
+      "idx": 2,
+      "file": "segments/02-user-4364ms.wav",
+      "role": "user",
+      "start_time": 4.364833333333333,
+      "end_time": 8.464833333333333,
+      "duration": 4.1,
+      "transcript": "Tell me about every product feature you offer in detail."
+    },
+    {
+      "idx": 3,
+      "file": "segments/03-agent-8464ms.wav",
+      "role": "agent",
+      "start_time": 8.464833333333333,
+      "end_time": 30.749000000000002,
+      "duration": 22.28416666666667,
+      "transcript": "Certainly, I'd be delighted to tell you all about the features our product offers. We've designed it with a comprehensive suite of functionalities to ensure a seamless and powerful experience for our users. First, let's talk about our core data management system. This feature provides robust tools for organizing, storing, and retrieving all your essential information, allowing you to categorize data with custom tags,",
+      "transcript_truncated": true
+    },
+    {
+      "idx": 4,
+      "file": "segments/04-user-30749ms.wav",
+      "role": "user",
+      "start_time": 30.749000000000002,
+      "end_time": 34.799,
+      "duration": 4.049999999999997,
+      "transcript": "Sorry, one more thing — what are your business hours?"
+    },
+    {
+      "idx": 5,
+      "file": "segments/05-user-34799ms.wav",
+      "role": "user",
+      "start_time": 34.799,
+      "end_time": 38.849,
+      "duration": 4.049999999999997,
+      "transcript": "Sorry, one more thing — what are your business hours?"
+    },
+    {
+      "idx": 6,
+      "file": "segments/06-agent-38849ms.wav",
+      "role": "agent",
+      "start_time": 38.849,
+      "end_time": 39.84633333333333,
+      "duration": 0.9973333333333301,
+      "transcript": "No problem at all."
+    }
+  ],
+  "events": [
+    {
+      "time": 0,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 2.9,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 2.9,
+      "type": "agent_start_speaking",
+      "latency": 0.0002673219999991261
+    },
+    {
+      "time": 4.364833333333333,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 4.364833333333333,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 8.464833333333333,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 8.464833333333333,
+      "type": "agent_start_speaking",
+      "latency": 9.110600439999999
+    },
+    {
+      "time": 8.464833333333333,
+      "type": "user_interrupt",
+      "metadata": {
+        "source": "barge-in",
+        "outcome": "fired_after_speech",
+        "native": false
+      }
+    },
+    {
+      "time": 30.749000000000002,
+      "type": "agent_stop_speaking"
+    },
+    {
+      "time": 30.749000000000002,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 34.799,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 34.799,
+      "type": "user_start_speaking"
+    },
+    {
+      "time": 38.849,
+      "type": "user_stop_speaking"
+    },
+    {
+      "time": 38.849,
+      "type": "agent_start_speaking",
+      "latency": 9.026144265
+    },
+    {
+      "time": 39.84633333333333,
+      "type": "agent_stop_speaking"
+    }
+  ]
+}
