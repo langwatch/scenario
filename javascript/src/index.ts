@@ -33,6 +33,13 @@ export type { ScenarioConfigureOptions } from "./config/configure";
 // Tracing public API
 export { setupScenarioTracing } from "./tracing/setup";
 export { scenarioOnly, withCustomScopes } from "./tracing/filters";
+export {
+  ATTR_SCENARIO_SDK_NAME,
+  ATTR_SCENARIO_SDK_VERSION,
+  SCENARIO_SDK_NAME,
+  SCENARIO_SDK_VERSION,
+  scenarioSdkAttributes,
+} from "./tracing/sdk-metadata";
 
 // Red-team report public API (auto-save happens inside runner/run.ts;
 // this export exists so users can manually invoke it if they're running
