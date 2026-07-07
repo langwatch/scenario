@@ -452,8 +452,11 @@ Feature: Voice agent testing in Scenario SDK
 
   @integration @ts-bound @ts-interruption-cfg
   Scenario: InterruptionConfig strategy="random_phrase" picks from a canned phrase list
-    # Source §4.4, L491
-    Given proceed(interruptions=InterruptionConfig(strategy="random_phrase"))
+    # Source §4.4, L491. InterruptionConfig is the internal interruption-policy
+    # object: probabilistic barge-ins are driven by the user simulator's
+    # interruptProbability during a plain proceed(), with the policy injected via
+    # the interruptOverrides.config test seam. There is no proceed(interruptions=...) API.
+    Given an InterruptionConfig(strategy="random_phrase") interruption policy
     When proceed runs and interrupts
     Then the interruption content is drawn from the canned phrase list
 

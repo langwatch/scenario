@@ -35,7 +35,7 @@ describeFeature(
         let picks: string[];
 
         Given(
-          'proceed(interruptions=InterruptionConfig(strategy="random_phrase"))',
+          'an InterruptionConfig(strategy="random_phrase") interruption policy',
           () => {
             cfg = new InterruptionConfig({ strategy: "random_phrase" });
             expect(cfg.strategy).toBe("random_phrase");
