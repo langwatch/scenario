@@ -23,8 +23,8 @@
  * (judge LLM + user-sim TTS), `ELEVENLABS_API_KEY`, and `ELEVENLABS_AGENT_ID`.
  *
  * STATUS — Un-gated after 3/3 consecutive clean live runs (#731). A successful
- * run produces TWO truncated agent segments (the greeting + the verbose products
- * reply) and the agent PIVOTS to business hours — verified live. The barge-in
+ * run produces at least one truncated agent segment (barge-in cuts the agent
+ * mid-utterance) and the agent PIVOTS to business hours — verified live. The barge-in
  * MECHANISM is also proven NON-flakily on the other server-VAD transport
  * (`gemini_live_interruption`, no client cancel) and on Pipecat
  * (`interruption_recovery` / `random_interruptions`). NOT faked — when run,
