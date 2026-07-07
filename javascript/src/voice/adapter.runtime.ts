@@ -91,6 +91,9 @@ export class AgentSpeakingEvent {
 const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 30;
 const SAFE_DEFAULT_TAIL_SILENCE_S = 0.6;
 const SAFE_DEFAULT_MAX_DURATION_S = 30;
+const SAFE_DEFAULT_TRANSCRIPT_GRACE_WAIT_S = 2.0;
+/** Poll interval for the transcript grace-wait — fine enough to add no felt latency. */
+const TRANSCRIPT_GRACE_POLL_MS = 10;
 
 /**
  * Per-scenario VAD fallback registry. Keyed by adapter instance so the
@@ -281,6 +284,19 @@ export async function defaultVoiceCall(
   const merged = await drainAgentResponse(adapter, speakingEvent, () => {
     recorder.markAgentStart();
   });
+  // #734 — bounded grace-wait for the pending transcript BEFORE the back-fill
+  // reads it. Audio silence closed the turn above (`responseTailSilence`), but a
+  // live voice agent (hosted ElevenLabs) sends the turn's text on a SEPARATE
+  // socket event that can land AFTER the audio-silence boundary. Snapshotting
+  // `lastAgentTranscript` at drain-close would then read `null` → the turn
+  // reaches the text-only simulator as a bare `[audio message]` and it
+  // fabricates. Wait (bounded) for the transcript event instead of racing it.
+  // Gated on `merged` having audio: a no-audio turn is never labeled anyway
+  // (attachAgentTurnTranscript short-circuits on empty data), so there is
+  // nothing to wait for. Short-circuits the instant the transcript is present.
+  if (merged.data.length > 0 && !merged.transcript) {
+    await awaitAgentTranscript(adapter);
+  }
   // Carry the agent turn's NATIVE transcript onto the chunk when the merged
   // audio has none (#705). A live voice agent (hosted ElevenLabs, Gemini Live,
   // OpenAI Realtime) streams raw PCM frames with NO per-chunk transcript but
@@ -324,6 +340,45 @@ function attachAgentTurnTranscript(
     return new AudioChunk({ data: chunk.data, transcript: native });
   }
   return chunk;
+}
+
+/**
+ * Bounded grace-wait for the agent turn's native transcript (#734).
+ *
+ * Audio silence closes the turn in {@link drainAgentResponse}, but a live voice
+ * agent (hosted ElevenLabs) delivers the turn's text on a SEPARATE socket event
+ * (`agent_response` → `lastAgentTranscript`) that can land AFTER the audio
+ * boundary. This polls `lastAgentTranscript` up to `adapter.transcriptGraceWait`
+ * seconds so a transcript arriving within the window is present when
+ * {@link attachAgentTurnTranscript} reads it.
+ *
+ * Short-circuits (returns immediately, no timer, ZERO added latency) when the
+ * transcript is ALREADY set at entry — the common happy path where the
+ * transcript won the race (AC3, no-regression). Bounded so a genuine
+ * ElevenLabs drop (transcript never sent) still terminates the turn after the
+ * ceiling. A `transcriptGraceWait` of 0 disables the wait entirely.
+ *
+ * Duck-typed on `lastAgentTranscript` (symmetric with the read/reset) so it
+ * composes with every adapter following the harness convention without widening
+ * the base contract; an adapter that never exposes the field simply falls
+ * through to the ceiling once (its transcript is genuinely never coming).
+ */
+async function awaitAgentTranscript(adapter: VoiceAgentAdapter): Promise<void> {
+  const hasTranscript = (): boolean => {
+    const native = (adapter as { lastAgentTranscript?: string | null })
+      .lastAgentTranscript;
+    return typeof native === "string" && native.length > 0;
+  };
+  if (hasTranscript()) return;
+
+  const ceilingS = adapter.transcriptGraceWait ?? SAFE_DEFAULT_TRANSCRIPT_GRACE_WAIT_S;
+  if (ceilingS <= 0) return;
+
+  const deadline = Date.now() + ceilingS * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, TRANSCRIPT_GRACE_POLL_MS));
+    if (hasTranscript()) return;
+  }
 }
 
 /**

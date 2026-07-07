@@ -73,6 +73,7 @@ import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources
 import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
 
 import { AgentRole } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { VoiceAgentAdapter } from "../adapter";
@@ -372,6 +373,20 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   lastAgentTranscript: string | null = null;
 
   /**
+   * Wall-clock (ms) of the most-recent agent AUDIO frame for the current turn
+   * (#734). Set in {@link onAgentAudio}; read in `callbackAgentResponse` to log
+   * how far the `agent_response` TRANSCRIPT event lags the audio it describes.
+   * That per-turn lag is the direct measurement behind the grace-wait: a
+   * POSITIVE lag past `responseTailSilence` is a turn that would have lost the
+   * race (transcript arriving after audio-silence drain-close) — i.e. the
+   * late-vs-never signal the fix (AC4) makes observable in live runs.
+   */
+  private lastAgentAudioAtMs: number | null = null;
+
+  /** Debug logger for the #734 transcript-lag instrumentation (AC4). */
+  private readonly logger = new Logger("ElevenLabsAgentAdapter");
+
+  /**
    * How many user turns this adapter committed by streaming real PCM. The
    * voice-specific assertion keys on this together with {@link
    * lastUserTranscript}: a non-empty `user_transcript` after `audioCommitCount`
@@ -469,6 +484,19 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         this.lastUserTranscript = transcript;
       },
       callbackAgentResponse: (response) => {
+        // #734 (AC4) — measure how far this transcript event lags the audio it
+        // describes. A lag exceeding `responseTailSilence` is a turn whose
+        // transcript would have LOST the drain-close race pre-fix; the grace-wait
+        // now covers it. Emitting the per-turn lag makes late-vs-never (the
+        // issue's open question) observable in a forced-race run. Debug-level:
+        // silent by default, surfaced with LOG_LEVEL=debug.
+        const audioAt = this.lastAgentAudioAtMs;
+        const lagMs = audioAt !== null ? Date.now() - audioAt : null;
+        this.logger.debug("agent_response transcript received", {
+          transcriptLagMs: lagMs,
+          responseTailSilenceMs: this.responseTailSilence * 1000,
+          lostRacePreFix: lagMs !== null && lagMs > this.responseTailSilence * 1000,
+        });
         this.lastAgentTranscript = response;
       },
       callbackAgentResponseCorrection: (_original, corrected) => {
@@ -512,6 +540,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // user turn ({@link enqueueSpeech} clears the flag). Idempotent — the FIRST
     // agent frame of the response is the real transition; later frames re-assert it.
     this.awaitingUserTurn = true;
+    // #734 — stamp the last agent-audio arrival so callbackAgentResponse can log
+    // transcript-lag-vs-audio-drain. Every frame re-stamps; the field therefore
+    // holds the LAST audio frame of the turn, the tightest baseline for the lag.
+    this.lastAgentAudioAtMs = Date.now();
     // EL audio is PCM16 (even byte count); trim a stray odd byte defensively so the
     // AudioChunk invariant never throws.
     let pcm = audio;

@@ -51,6 +51,50 @@ interface PrepareJudgeInputArgs {
   logWarn?: (message: string) => void;
 }
 
+/** Arguments for the shared {@link transcribeAudioMessages} STT pre-pass. */
+export interface TranscribeAudioMessagesArgs {
+  /** Conversation history to transcribe over. */
+  messages: readonly ModelMessage[];
+  /** Per-run STT provider (from the resolved `cfg.voice.stt`). */
+  stt: STTProvider;
+  /**
+   * Keep the raw audio `file` part alongside the transcribed text when true;
+   * drop it (text-only) when false. Judge passes its multimodal knob here; the
+   * user-simulator passes `true` so `stripAudioContent`'s echo-safety reframing
+   * (which keys on a message having BOTH audio and text) still triggers.
+   */
+  includeAudio: boolean;
+  /** Warning sink — defaults to {@link console.warn}. */
+  logWarn?: (message: string) => void;
+}
+
+/**
+ * Shared STT pre-pass (#734): for every message carrying audio, attach the
+ * spoken words as a `{ type: "text" }` part — reusing an existing text sibling
+ * when present, else transcribing the audio chunk via the resolved
+ * {@link STTProvider}. Optionally keeps or drops the raw audio part.
+ *
+ * This is the single implementation behind BOTH the judge's
+ * {@link prepareJudgeInput} pre-pass and the user-simulator's STT fallback: EL
+ * can fail to send `agent_response` for a turn, leaving the simulator with a
+ * bare `[audio message]`; running this before `stripAudioContent` gives the
+ * text-only simulator real words instead. Extracting it here keeps the STT
+ * plumbing in ONE place rather than duplicating it into the simulator.
+ *
+ * The input array is never mutated — a new message list is returned. STT
+ * failures degrade gracefully (audio dropped on the text-only path, a warning
+ * logged) so the caller still processes the rest of the conversation.
+ */
+export async function transcribeAudioMessages(
+  args: TranscribeAudioMessagesArgs,
+): Promise<ModelMessage[]> {
+  const { messages, stt, includeAudio } = args;
+  const warn = args.logWarn ?? ((m: string) => console.warn(m));
+  return Promise.all(
+    messages.map((msg) => transcribeMessage(msg, stt, includeAudio, warn)),
+  );
+}
+
 function isAudioFilePart(part: unknown): boolean {
   if (!part || typeof part !== "object") return false;
   const p = part as Record<string, unknown>;
@@ -93,14 +137,13 @@ function hasTextPart(content: readonly unknown[]): boolean {
 export async function prepareJudgeInput(
   args: PrepareJudgeInputArgs,
 ): Promise<JudgePreparedInput> {
-  const { messages, stt, options } = args;
-  const includeAudio = options?.includeAudio ?? false;
-  const warn = args.logWarn ?? ((m: string) => console.warn(m));
-
-  const out = await Promise.all(
-    messages.map((msg) => transcribeMessage(msg, stt, includeAudio, warn)),
-  );
-  return { messages: out };
+  const messages = await transcribeAudioMessages({
+    messages: args.messages,
+    stt: args.stt,
+    includeAudio: args.options?.includeAudio ?? false,
+    logWarn: args.logWarn,
+  });
+  return { messages };
 }
 
 async function transcribeMessage(

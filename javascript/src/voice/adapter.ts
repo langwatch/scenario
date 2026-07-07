@@ -84,6 +84,24 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
    */
   responseMaxDuration = 30.0;
 
+  /**
+   * Bounded grace-wait (seconds) for the agent turn's transcript AFTER audio
+   * drains (#734). Audio silence closes the turn (`responseTailSilence`), but a
+   * live voice agent (hosted ElevenLabs) delivers the turn's text on a SEPARATE
+   * socket event (`agent_response` → `lastAgentTranscript`). When that event
+   * lands after the audio-silence boundary, snapshotting `lastAgentTranscript`
+   * at drain-close reads `null` and the turn reaches the text-only simulator as
+   * a bare `[audio message]` — the simulator then fabricates.
+   *
+   * The default `call()` flow ({@link defaultVoiceCall}) polls this field up to
+   * this ceiling for a pending transcript before reading it. It short-circuits
+   * the INSTANT `lastAgentTranscript` is already set (zero added latency on the
+   * happy path — the common case where the transcript won the race) and only
+   * elapses when the transcript genuinely never arrives, so a real ElevenLabs
+   * drop still terminates the turn. Set to `0` to disable the wait.
+   */
+  transcriptGraceWait = 2.0;
+
   /** Open the transport and prepare to exchange audio. */
   abstract connect(): Promise<void>;
 
