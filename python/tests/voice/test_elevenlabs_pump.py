@@ -224,6 +224,45 @@ async def test_pump_tick_three_way_gate_and_flag_transitions() -> None:
     await adapter.disconnect()
 
 
+@pytest.mark.asyncio
+async def test_fallback_send_audio_routes_through_pump_no_direct_write() -> None:
+    """P2 review fix: the pure-audio fallback path (silence mode / no-transcript)
+    must NOT write audio directly to the WS while the background pump also runs
+    — that would be two concurrent writers producing interleaved/oversized
+    frames. Instead it ENQUEUES speech + closing-silence tail as fixed 960-byte
+    pump frames, and the pump is the SINGLE writer emitting them at 20ms cadence.
+    """
+    adapter, socket = await _connected_adapter(turn_commit_mode="silence")
+    # Manual pump control for a deterministic assertion.
+    await adapter.stop_pump()
+    socket.sent.clear()
+
+    # Fallback path: raw speech, no transcript commit.
+    await adapter.send_audio(AudioChunk(data=b"\x33" * 100))
+
+    # send_audio itself wrote NOTHING to the socket — it only enqueued. The
+    # pump is the single writer; nothing raced onto the wire during the call.
+    assert socket.sent == [], "fallback must not write audio directly to the WS"
+    # Speech (1 padded 960B frame) + closing-silence tail frames are queued.
+    tail_frames = -(-adapter._silence_tail_bytes // PUMP_FRAME_BYTES)
+    assert len(adapter._outbound_frames) == 1 + tail_frames
+
+    # Drain via the pump: every emitted frame is exactly 960 bytes (fixed
+    # cadence), never an arbitrary-sized chunk or a 16KB blob.
+    while adapter._outbound_frames:
+        await adapter._pump_tick()
+    emitted = _decoded(socket.sent)
+    assert len(emitted) == 1 + tail_frames
+    assert all(len(f) == 960 for f in emitted), "pump must emit only 960B frames"
+    # First frame is the speech (padded), remainder are the closing silence.
+    assert emitted[0] == (b"\x33" * 100) + b"\x00" * (960 - 100)
+    assert all(f == b"\x00" * 960 for f in emitted[1:])
+    # Total closing silence covers at least the configured tail.
+    assert sum(len(f) for f in emitted[1:]) >= adapter._silence_tail_bytes
+
+    await adapter.disconnect()
+
+
 # --------------------------------------------------------------------------- #
 # A3a — server-VAD transition on the wire (UNGATED)                           #
 # --------------------------------------------------------------------------- #

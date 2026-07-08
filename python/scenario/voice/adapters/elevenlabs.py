@@ -472,30 +472,51 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
 
         if self._turn_commit_mode == "text" and transcript:
             # Deterministic commit: send ONLY the user_message text turn (no
-            # racing user_audio_chunk). See method docstring for the rationale.
+            # racing user_audio_chunk). This is a single control frame, not
+            # audio, so it does not compete with the pump's audio cadence. See
+            # method docstring for the rationale.
             await self._send_user_message(transcript)
             return
 
-        # Legacy / fallback path: stream the speech then a silence tail and let
-        # server VAD try. Used when turn_commit_mode is "silence", or in "text"
-        # mode when the chunk carries no transcript to commit.
-        b64 = base64.b64encode(chunk.data).decode()
-        await self._ws.send(json.dumps({"user_audio_chunk": b64}))
-
-        await self._send_silence_tail()
+        # Legacy / fallback path (turn_commit_mode == "silence", or "text" mode
+        # with no transcript to commit): stream the speech then a closing
+        # silence tail and let server VAD try.
+        #
+        # The pump is the SINGLE owner of WS audio writes: rather than writing
+        # `chunk.data` and the 16KB silence tail DIRECTLY to `self._ws` (which
+        # would race the always-running background pump — two concurrent writers
+        # producing interleaved/oversized non-20ms `user_audio_chunk` frames),
+        # we ENQUEUE the speech and the closing-silence tail as fixed 960-byte
+        # pump frames. The pump drains them at the same 20ms cadence as every
+        # other frame, so there is exactly one writer and a consistent frame
+        # size on the wire. Returns promptly (continuous-mic model) — it does
+        # not block until the queue drains.
+        self.enqueue_speech(chunk.data)
+        self._enqueue_silence_tail()
 
     async def _send_user_message(self, text: str) -> None:
         """Explicit turn-commit: tell EL the user is done and force an agent
         response without relying on mic-style server VAD (issue #567). Wire
         shape matches the official SDK's ``user_message`` event.
+
+        This is a single control frame (`user_message`), not streamed audio,
+        so it does not contend with the pump's `user_audio_chunk` cadence.
         """
         await self._ws.send(json.dumps({"type": "user_message", "text": text}))
 
-    async def _send_silence_tail(self) -> None:
-        """Legacy end-of-turn nudge: a fixed zero-byte tail to coax server VAD."""
-        silence = b"\x00" * self._silence_tail_bytes
-        silence_b64 = base64.b64encode(silence).decode()
-        await self._ws.send(json.dumps({"user_audio_chunk": silence_b64}))
+    def _enqueue_silence_tail(self) -> None:
+        """Queue the legacy closing-silence tail as fixed 960-byte pump frames.
+
+        The legacy path coaxed server VAD with a fixed ``_silence_tail_bytes``
+        zero-byte blob written directly to the socket. To keep the pump the
+        single WS writer, express that same total silence as
+        ``ceil(_silence_tail_bytes / PUMP_FRAME_BYTES)`` all-zero 960-byte pump
+        frames on the outbound queue, drained at the 20ms cadence. Rounds UP so
+        the emitted silence is never less than the legacy tail.
+        """
+        num_frames = -(-self._silence_tail_bytes // PUMP_FRAME_BYTES)  # ceil div
+        for _ in range(num_frames):
+            self._outbound_frames.append(SILENCE_FRAME)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
