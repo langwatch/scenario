@@ -90,7 +90,7 @@ jobs:
 
       # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         run: pnpm -F vitest-examples test
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
