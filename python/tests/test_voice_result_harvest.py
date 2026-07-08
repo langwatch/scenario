@@ -356,19 +356,19 @@ async def test_interrupt_overlap_flags_agent_segment():
 def test_scenarioresult_rejects_wrong_audio_type():
     # A plain dict is not a VoiceRecording -> ValidationError.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], audio={"not": "a recording"})
+        ScenarioResult(success=True, messages=[], audio={"not": "a recording"})  # type: ignore[arg-type]
 
     # A str is not a VoiceRecording either.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], audio="nope")
+        ScenarioResult(success=True, messages=[], audio="nope")  # type: ignore[arg-type]
 
     # timeline must be a list of VoiceEvent.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], timeline=[{"time": 1.0}])
+        ScenarioResult(success=True, messages=[], timeline=[{"time": 1.0}])  # type: ignore[arg-type]
 
     # latency must be a LatencyMetrics.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], latency={"measurements": []})
+        ScenarioResult(success=True, messages=[], latency={"measurements": []})  # type: ignore[arg-type]
 
     # Correctly-typed values are accepted.
     ok = ScenarioResult(
@@ -442,3 +442,52 @@ async def test_text_only_runs_keep_voice_fields_none_all_paths():
             agents=[_TextAgent()],
             script=[_assert_fail],
         )
+
+
+# --------------------------------------------------------------------------- #
+# harvest-failure regression — original error must not be masked              #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_harvest_failure_on_error_path_preserves_original_error(monkeypatch):
+    """If _attach_voice_output raises on an error path, the ORIGINAL scenario
+    error must propagate — NOT the harvest exception.  Covers both the
+    _check_failure (AssertionError) path and the generic except-Exception path.
+    """
+    from scenario.scenario_executor import ScenarioExecutor
+
+    # --- _check_failure path (AssertionError) ------------------------------ #
+    # Monkeypatch _attach_voice_output to raise after the AssertionError is
+    # captured so we know harvest is the only thing that can go wrong.
+    original_attach = ScenarioExecutor._attach_voice_output
+
+    def _broken_attach(self, result):
+        raise RuntimeError("harvest exploded")
+
+    monkeypatch.setattr(ScenarioExecutor, "_attach_voice_output", _broken_attach)
+
+    def _assert_fail(state):
+        raise AssertionError("the real scenario error")
+
+    with pytest.raises(AssertionError, match="the real scenario error"):
+        await scenario.run(
+            name="harvest-fail-assert",
+            description="original AssertionError must survive a broken harvest",
+            agents=[_StubVoiceAdapter()],
+            script=[_assert_fail],
+        )
+
+    # --- generic except-Exception path ------------------------------------ #
+    def _runtime_fail(state):
+        raise ValueError("the real runtime error")
+
+    with pytest.raises(ValueError, match="the real runtime error"):
+        await scenario.run(
+            name="harvest-fail-except",
+            description="original ValueError must survive a broken harvest",
+            agents=[_StubVoiceAdapter()],
+            script=[_runtime_fail],
+        )
+
+    monkeypatch.setattr(ScenarioExecutor, "_attach_voice_output", original_attach)

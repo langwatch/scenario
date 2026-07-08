@@ -651,7 +651,15 @@ class ScenarioExecutor:
                 # Harvest voice output before emitting/raising so the
                 # check-failure (AssertionError in a script step) exit carries
                 # result.audio/timeline/latency for voice runs (AC E2b).
-                error_result = self._attach_voice_output(error_result)
+                # Guard: if harvest itself raises, log and continue so the
+                # original AssertionError is not masked.
+                try:
+                    error_result = self._attach_voice_output(error_result)
+                except Exception:
+                    logger.warning(
+                        "voice harvest failed on check-failure path; preserving original error",
+                        exc_info=True,
+                    )
                 self._emit_run_finished_event(
                     scenario_run_id,
                     error_result,
@@ -725,7 +733,15 @@ class ScenarioExecutor:
             # Harvest voice output before emitting/raising so the generic
             # exception exit carries result.audio/timeline/latency for voice
             # runs (AC E2).
-            error_result = self._attach_voice_output(error_result)
+            # Guard: if harvest itself raises, log and continue so the
+            # original exception is not masked.
+            try:
+                error_result = self._attach_voice_output(error_result)
+            except Exception:
+                logger.warning(
+                    "voice harvest failed on except-Exception path; preserving original error",
+                    exc_info=True,
+                )
             self._emit_run_finished_event(
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
