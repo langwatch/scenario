@@ -72,10 +72,6 @@ class SSEAgentAdapter(scenario.AgentAdapter):
                 return full_response
 
 
-# OpenAI client for LLM
-client = AsyncOpenAI()
-
-
 async def sse_handler(request: web.Request) -> web.StreamResponse:
     """
     HTTP endpoint that forwards OpenAI streaming chunks in SSE format.
@@ -95,6 +91,9 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
     response.headers["Cache-Control"] = "no-cache"
     response.headers["Connection"] = "keep-alive"
     await response.prepare(request)
+
+    # Instantiate client lazily so import-time collection doesn't require credentials
+    client = AsyncOpenAI()
 
     # Stream response using real LLM
     stream = await client.chat.completions.create(

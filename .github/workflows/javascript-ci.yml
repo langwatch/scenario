@@ -88,9 +88,9 @@ jobs:
         run: pnpm run test:ci
         working-directory: javascript
 
-      # Examples — skipped for Dependabot PRs since they don't have access to repo secrets
+      # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]'
+        if: github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
         run: pnpm -F vitest-examples test
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
