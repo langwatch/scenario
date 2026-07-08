@@ -131,6 +131,18 @@ class VoiceAgentAdapter(AgentAdapter):
             self._agent_speaking = ev
         return ev
 
+    def is_connected(self) -> bool:
+        """Whether the transport is open and ready to exchange audio.
+
+        Base default is ``True``: adapters without a persistent socket (or
+        that manage liveness elsewhere) are always considered ready, so the
+        pre-turn guard in :meth:`call` never blocks them. Transports with a
+        real socket override this — e.g. :class:`ElevenLabsAgentAdapter`
+        returns ``self._ws is not None and not self._ws.closed`` (parity with
+        the TS ``isConnected()`` override, ``adapters/elevenlabs.ts:531-534``).
+        """
+        return True
+
     @abstractmethod
     async def connect(self) -> None:
         """Open the transport and prepare to exchange audio."""
@@ -203,6 +215,18 @@ class VoiceAgentAdapter(AgentAdapter):
         Subclasses may override this for specialised flows but will usually
         inherit it.
         """
+        # Uniform pre-turn connected-state gate (mirror TS
+        # ``adapter.runtime.ts:249-254``): a call() issued before the
+        # executor's connect() — or after a dropped transport — fails once
+        # with a clear ``PendingTransportError`` naming the adapter, rather
+        # than a transport-specific null-deref or a silent hang. Checked ONCE,
+        # BEFORE send_audio/recv_audio. It does NOT suppress
+        # ``FirstChunkTimeoutError``: a connected adapter whose first chunk
+        # never arrives still surfaces that timeout from the drain below.
+        if not self.is_connected():
+            from .adapters._stub import PendingTransportError
+
+            raise PendingTransportError(type(self).__name__)
         # Clear the speaking-event for this turn — set in _drain on first chunk.
         self._agent_speaking_event.clear()
         recorder = _AdapterRecorder(input)
