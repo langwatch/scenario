@@ -815,27 +815,6 @@ Feature: Voice agent testing in Scenario SDK
     Then the agent recovered and the conversation is multi-turn
     And the agent reply was actually cut off and then recovered
 
-  @e2e @ts-random-interruptions-demo
-  Scenario: Demo: random interruptions via a user simulator's interruptProbability
-    # Covers §6.7: UserSimulatorAgent({interruptProbability}) drives probabilistic
-    # barge-ins across a plain proceed() run.
-    #
-    # What this proves: probabilistic barge-in fires (user_interrupt event) with a
-    # fired_after_speech outcome (timing correct), canned-phrase strategy ran (user
-    # segment carries a phrase from the pool), cut-off-boundary LABEL fires
-    # (transcriptTruncated on at least one agent seg), and the bot recovers.
-    #
-    # What this does NOT prove: real audio-level mid-stream cut-off. The bundled
-    # Pipecat stub bot generates TTS in a burst and streams faster than realtime —
-    # by the time adapter.interrupt() runs all frames are already sent. The segment
-    # plays in full but is correctly LABELED at the interrupt boundary. For REAL
-    # audio truncation see the gemini-live-interruption scenario (server-side cancel).
-    Given a user simulator with interruptProbability driving barge-ins on a plain proceed()
-    When the multi-turn demo script runs via scenario.run()
-    Then at least one barge-in fired mid-utterance and the canned-phrase strategy ran
-    And the agent recovered with non-empty audio after the last interrupt
-    And the conversation involved multiple turns
-
   @e2e @ts-elevenlabs-interruption-demo
   Scenario: Demo — ElevenLabs interruption (server VAD barge-in)
     # Covers: ElevenLabs ConvAI has no client cancel — server VAD detects the

@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+
+### ⚠ BREAKING CHANGES
+
+* **voice:** `silenceTailBytes` removed from `ElevenLabsAgentAdapterOptions` — no longer needed after the ElevenLabs SDK migration; remove from any adapter config.
+* **voice:** `ELEVENLABS_CONVAI_URL_TEMPLATE` constant removed from public exports — construct the URL directly or read it from the SDK.
+* **voice:** `.url` getter removed from public exports.
+
 ## [0.5.0](https://github.com/langwatch/scenario/compare/javascript/v0.4.15...javascript/v0.5.0) (2026-07-01)
 
 
