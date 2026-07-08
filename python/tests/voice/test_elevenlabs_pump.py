@@ -26,7 +26,7 @@ import asyncio
 import base64
 import json
 import os
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
