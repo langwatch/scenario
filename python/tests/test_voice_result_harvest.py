@@ -31,8 +31,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-import scenario
-from scenario import AgentAdapter, JudgeAgent, UserSimulatorAgent
+from scenario import AgentAdapter, JudgeAgent, UserSimulatorAgent, proceed, run
 from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
 from scenario.voice.recording import (
@@ -181,7 +180,7 @@ async def test_max_turns_path_carries_voice_fields():
     # max_turns=1 + a noop judge means proceed() runs turn 0 then trips the
     # `current_turn >= max_turns` return inside _step (L519 -> _reached_max_turns).
     adapter_a = _StubVoiceAdapter()
-    result_l519 = await scenario.run(
+    result_l519 = await run(
         name="max-turns-l519",
         description="voice run tripping mid-script max-turns",
         agents=[
@@ -194,7 +193,7 @@ async def test_max_turns_path_carries_voice_fields():
             _populate_step(
                 _one_segment_recording(), _default_timeline(), _default_latency()
             ),
-            scenario.proceed(),
+            proceed(),
         ],
     )
     assert result_l519.success is False
@@ -204,7 +203,7 @@ async def test_max_turns_path_carries_voice_fields():
     # A script with no succeed/fail/judge/proceed and no checkpoints falls
     # through to the `else` branch -> _reached_max_turns (L687).
     adapter_b = _StubVoiceAdapter()
-    result_l687 = await scenario.run(
+    result_l687 = await run(
         name="max-turns-l687",
         description="voice run ending without conclusion",
         agents=[adapter_b],
@@ -238,7 +237,7 @@ async def test_except_path_carries_voice_fields():
         raise RuntimeError("boom mid-run")
 
     with pytest.raises(RuntimeError):
-        await scenario.run(
+        await run(
             name="except-path",
             description="voice run raising mid-run",
             agents=[adapter],
@@ -278,7 +277,7 @@ async def test_check_failure_path_carries_voice_fields():
         raise AssertionError("script assertion failed")
 
     with pytest.raises(AssertionError):
-        await scenario.run(
+        await run(
             name="check-failure-path",
             description="voice run with a failing assertion step",
             agents=[adapter],
@@ -334,7 +333,7 @@ async def test_interrupt_overlap_flags_agent_segment():
     timeline = [VoiceEvent(time=4.0, type="user_interrupt")]
 
     adapter = _StubVoiceAdapter()
-    result = await scenario.run(
+    result = await run(
         name="interrupt-overlap",
         description="voice run harvesting a truncated agent segment",
         agents=[adapter],
@@ -400,7 +399,7 @@ async def test_text_only_runs_keep_voice_fields_none_all_paths():
         assert result.latency is None
 
     # --- max-turns L519 (mid-script proceed) ------------------------------- #
-    r_l519 = await scenario.run(
+    r_l519 = await run(
         name="text-max-turns-l519",
         description="text-only run tripping mid-script max-turns",
         agents=[
@@ -409,13 +408,13 @@ async def test_text_only_runs_keep_voice_fields_none_all_paths():
             _NoopJudge(model="none", criteria=["c"]),
         ],
         max_turns=1,
-        script=[scenario.proceed()],
+        script=[proceed()],
     )
     assert r_l519.success is False
     _assert_none(r_l519)
 
     # --- max-turns L687 (end-of-script without conclusion) ----------------- #
-    r_l687 = await scenario.run(
+    r_l687 = await run(
         name="text-max-turns-l687",
         description="text-only run ending without conclusion",
         agents=[_TextAgent()],
@@ -429,7 +428,7 @@ async def test_text_only_runs_keep_voice_fields_none_all_paths():
         raise RuntimeError("boom")
 
     with pytest.raises(RuntimeError):
-        await scenario.run(
+        await run(
             name="text-except",
             description="text-only run raising mid-run",
             agents=[_TextAgent()],
@@ -441,7 +440,7 @@ async def test_text_only_runs_keep_voice_fields_none_all_paths():
         raise AssertionError("nope")
 
     with pytest.raises(AssertionError):
-        await scenario.run(
+        await run(
             name="text-check-failure",
             description="text-only run with a failing assertion step",
             agents=[_TextAgent()],
@@ -477,7 +476,7 @@ async def test_harvest_failure_on_error_path_preserves_original_error(monkeypatc
         raise AssertionError("the real scenario error")
 
     with pytest.raises(AssertionError, match="the real scenario error"):
-        await scenario.run(
+        await run(
             name="harvest-fail-assert",
             description="original AssertionError must survive a broken harvest",
             agents=[_StubVoiceAdapter()],
@@ -489,7 +488,7 @@ async def test_harvest_failure_on_error_path_preserves_original_error(monkeypatc
         raise ValueError("the real runtime error")
 
     with pytest.raises(ValueError, match="the real runtime error"):
-        await scenario.run(
+        await run(
             name="harvest-fail-except",
             description="original ValueError must survive a broken harvest",
             agents=[_StubVoiceAdapter()],
