@@ -15,12 +15,18 @@
  * enqueue an empty `AudioChunk` so the base `drainAgentResponse` (which breaks
  * on an empty chunk) exits cleanly.
  *
- * These tests drive the loop via the `_driveMediaStream` seam with a scripted
- * mock socket — the adapter binds an OS-assigned port via `connect()` (stubbed
- * REST, no real Twilio account) but no real WS upgrade happens. `receiveAudio`
- * is handed a short budget so an un-fixed adapter (empty queue) rejects fast
- * instead of stalling the suite; the fix resolves immediately from the
- * already-enqueued sentinel, so that budget never actually elapses on green.
+ * **Why these tests drive the production wrapper.** In production the loop is
+ * reached via `_handleStreamSocket`, whose `finally` nulls `_streamWs` /
+ * `_streamSid` synchronously right after the loop returns or throws. A test that
+ * drives `mediaStreamLoop` (or the `_driveMediaStream` seam) alone leaves those
+ * set, so `receiveAudio`'s `_assertStreamLive` gate never fires — which is why
+ * an earlier version of this suite went green on a fix that still threw in
+ * production (reviewer P2 blocker on PR #697). These tests use the
+ * `_driveStreamSession` seam, which runs the SAME `runStreamSession` wrapper
+ * production uses — loop plus the transport-nulling `finally`. The regression
+ * the fix targets is the drain's *second* `receiveAudio` call (the tail-silence
+ * probe) landing after that reset: pre-fix it throws "no live media stream";
+ * post-fix it returns another empty chunk. Each test asserts BOTH calls behave.
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -102,33 +108,51 @@ afterEach(async () => {
 });
 
 describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
-  it("stop frame with no trailing audio returns an empty chunk, not a hang", async () => {
+  it("stop frame with no trailing audio: both drain calls return empty after production teardown", async () => {
     const adapter = await connectedAdapter();
-    // start → stop, no media: the "stop" branch flushes nothing.
-    await adapter._driveMediaStream(scriptedSocket([startFrame(), stopFrame()]));
+    // start → stop, no media: the "stop" branch flushes nothing. Driven through
+    // the REAL production wrapper, which nulls _streamWs/_streamSid on return.
+    await adapter._driveStreamSession(scriptedSocket([startFrame(), stopFrame()]));
 
-    const chunk = await adapter.receiveAudio(RECV_TIMEOUT_S);
-    expect(chunk).toBeInstanceOf(AudioChunk);
-    expect(chunk.data.length).toBe(0); // empty terminal, not a hang
+    // Production nulled the transport — the condition that threw pre-fix.
+    expect(adapter._streamWsForTest).toBeNull();
+    expect(adapter._streamSidForTest).toBeUndefined();
+
+    const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(first).toBeInstanceOf(AudioChunk);
+    expect(first.data.length).toBe(0); // empty terminal, not a hang
+
+    // The drain's tail-silence probe — a SECOND receiveAudio after teardown.
+    // This is the call that throws "no live media stream" pre-fix.
+    const second = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(second.data.length).toBe(0);
   });
 
-  it("socket close mid-stream returns an empty chunk, not a hang", async () => {
+  it("socket close mid-stream: both drain calls return empty after production teardown", async () => {
     const adapter = await connectedAdapter();
     // Only a start frame, then the socket closes (receiveText → null).
-    await adapter._driveMediaStream(scriptedSocket([startFrame()]));
+    await adapter._driveStreamSession(scriptedSocket([startFrame()]));
 
-    const chunk = await adapter.receiveAudio(RECV_TIMEOUT_S);
-    expect(chunk.data.length).toBe(0);
+    expect(adapter._streamWsForTest).toBeNull();
+    expect(adapter._streamSidForTest).toBeUndefined();
+
+    const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(first.data.length).toBe(0);
+
+    const second = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(second.data.length).toBe(0);
   });
 
-  it("normal audio turn still drains its trailing PCM (no regression)", async () => {
+  it("normal audio turn still drains its trailing PCM after production teardown (no regression)", async () => {
     const adapter = await connectedAdapter();
     // 160 bytes of µ-law (~20ms) — under the 100ms batch threshold, so the
     // "stop" flush is what enqueues it: exactly the trailing-audio path.
     const mulaw = new Uint8Array(160).fill(0x7f);
-    await adapter._driveMediaStream(
+    await adapter._driveStreamSession(
       scriptedSocket([startFrame(), buildMediaFrame(STREAM_SID, mulaw), stopFrame()]),
     );
+
+    expect(adapter._streamWsForTest).toBeNull(); // production teardown ran
 
     const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
     // Real audio survived as the first chunk; the sentinel lands after it.
@@ -136,7 +160,8 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
 
     // And the terminal sentinel lands AFTER the real audio (FIFO), not instead
     // of it: the next chunk is the empty sentinel. Pins the ordering invariant —
-    // a fix that enqueued the sentinel before the flush would fail here.
+    // a fix that enqueued the sentinel before the flush would fail here. This
+    // second call is also the post-teardown drain probe that threw pre-fix.
     const second = await adapter.receiveAudio(RECV_TIMEOUT_S);
     expect(second.data.length).toBe(0);
   });

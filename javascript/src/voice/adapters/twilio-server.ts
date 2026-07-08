@@ -235,9 +235,24 @@ export class TwilioWebhookServer {
   }
 
   private async _handleStreamSocket(ws: WsWebSocket): Promise<void> {
-    const adapted = adaptWsSocket(ws);
+    await this.runStreamSession(adaptWsSocket(ws));
+  }
+
+  /**
+   * Production per-connection wrapper around {@link mediaStreamLoop}: runs the
+   * loop, then — in a `finally` that fires on stop, socket close, OR a throw —
+   * nulls the adapter's `_streamWs`/`_streamSid` transport state, exactly as the
+   * real `/twilio/stream` handler does after a call ends.
+   *
+   * This is the seam tests must drive to reproduce the #695 teardown race: the
+   * terminal sentinel is enqueued inside the loop's own `finally`, then THIS
+   * `finally` nulls the transport — so a `receiveAudio` following the reset must
+   * still drain cleanly. Driving `mediaStreamLoop` alone skips this reset and
+   * hides the bug (that was the shipped tests' flaw, PR #697 P2 blocker).
+   */
+  async runStreamSession(ws: MediaStreamWebSocket): Promise<void> {
     try {
-      await this.mediaStreamLoop(adapted);
+      await this.mediaStreamLoop(ws);
     } finally {
       this._adapter._setStreamWs(null);
       this._adapter._setStreamSid(undefined);
@@ -300,10 +315,20 @@ export class TwilioWebhookServer {
     } finally {
       // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop
       // exits on a "stop" frame, a socket close (`receiveText` resolves null),
-      // or a throw, enqueue an empty AudioChunk so a `receiveAudio` blocked on
-      // the inbound queue returns cleanly instead of timing out on a silent /
-      // tool-only turn. Unlike the Python twin, no null-guard is needed here:
-      // the inbound queue object is never nulled — `disconnect()` only `reset()`s it.
+      // or a throw, mark the call ended and enqueue an empty AudioChunk so a
+      // `receiveAudio` blocked on the inbound queue returns cleanly instead of
+      // timing out on a silent / tool-only turn. All three termination paths
+      // (stop / close / throw) funnel through this `finally`, so the sentinel is
+      // genuinely reachable on each.
+      //
+      // `_markStreamEnded()` is called FIRST and unconditionally:
+      // `_handleStreamSocket` nulls `_streamWs`/`_streamSid` synchronously right
+      // after this loop returns, so `receiveAudio`'s follow-up call would
+      // otherwise trip `_assertStreamLive`. The flag tells `receiveAudio` to
+      // keep draining post-teardown rather than assert liveness. Unlike the
+      // Python twin, no null-guard is needed on the queue: it's never nulled —
+      // `disconnect()` only `reset()`s it.
+      adapter._markStreamEnded();
       adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
     }
   }

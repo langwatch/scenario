@@ -270,10 +270,20 @@ class TwilioWebhookServer:
         finally:
             # Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the
             # loop exits on a "stop" frame, a socket close (``receive_text``
-            # raises ``WebSocketDisconnect``), or any error, enqueue an empty
-            # ``AudioChunk`` so a ``recv_audio`` blocked on the inbound queue
-            # returns cleanly instead of hanging to ``response_timeout`` on a
-            # silent / tool-only turn. Guard the disconnect race where
+            # raises ``WebSocketDisconnect``), or any error, mark the call ended
+            # and enqueue an empty ``AudioChunk`` so a ``recv_audio`` blocked on
+            # the inbound queue returns cleanly instead of hanging to
+            # ``response_timeout`` on a silent / tool-only turn. All three
+            # termination paths (stop / close / throw) funnel through this
+            # ``finally``, so the sentinel is genuinely reachable on each.
+            #
+            # ``_stream_ended`` is set FIRST and unconditionally: the production
+            # ``_stream()`` wrapper nulls ``_stream_ws``/``_stream_sid``
+            # synchronously right after this loop returns, so ``recv_audio``'s
+            # follow-up call would otherwise trip ``_assert_stream_live``. The
+            # flag tells ``recv_audio`` to keep draining post-teardown rather
+            # than assert liveness. Guard the disconnect race where
             # ``disconnect()`` already nulled the queue.
+            adapter._stream_ended = True
             if adapter._inbound_queue is not None:
                 await adapter._inbound_queue.put(AudioChunk(data=b""))
