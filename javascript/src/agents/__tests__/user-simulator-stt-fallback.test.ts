@@ -104,6 +104,30 @@ describe("#734 AC2 — user-simulator STT fallback for a suppressed agent transc
     expect(allContent).not.toContain("[audio message]");
   });
 
+  it("caches the fallback transcript: two calls over the SAME audio-only turn run STT exactly once (#735 P2)", async () => {
+    // #735 P2: `call()` re-runs the STT pre-pass over the WHOLE history on every
+    // proceed() turn. A dropped agent_response leaves an audio-only turn sitting
+    // in history; without a per-instance cache it would be re-transcribed on
+    // every subsequent turn (O(turns^2) STT calls). One simulator instance must
+    // transcribe a given audio chunk at most once.
+    const stt: STTProvider = {
+      transcribe: vi.fn(async () => "we have the blue and the red option"),
+    };
+    const sim = userSimulatorAgent({ model: "openai/gpt-4.1-mini" } as UserSimulatorAgentConfig);
+    captureLlm(sim);
+
+    // The SAME suppressed audio-only agent turn, still in history across turns.
+    const agentTurn = createAudioMessage(audioNoTranscript(), "assistant");
+
+    // Two simulator calls over that same audio-only turn (models proceed() turns
+    // N and N+1 where the dropped-transcript audio remains in the history).
+    await sim.call(makeInput([agentTurn], stt));
+    await sim.call(makeInput([agentTurn], stt));
+
+    // STT ran ONCE, not once per call — the second call reused the cached transcript.
+    expect((stt.transcribe as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+  });
+
   it("does NOT run STT when the agent turn already carries its transcript (no added cost)", async () => {
     const stt: STTProvider = { transcribe: vi.fn(async () => "should not be called") };
     const sim = userSimulatorAgent({ model: "openai/gpt-4.1-mini" } as UserSimulatorAgentConfig);

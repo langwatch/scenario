@@ -177,6 +177,18 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   private logger = new Logger(this.constructor.name);
 
   /**
+   * Per-instance STT fallback transcript cache (#735 P2), keyed by a STABLE
+   * audio payload key. `call()` re-runs the STT pre-pass over the WHOLE history
+   * on every `proceed()` turn; without this cache an audio-only agent turn whose
+   * `agent_response` was dropped would be re-transcribed on turn N, N+1, N+2, …
+   * — O(turns^2) STT calls from a single transport hiccup, risking provider
+   * throttling later in the run. Scoped to the simulator instance so a chunk is
+   * transcribed at most once for the life of one simulator (survives across
+   * `proceed()` turns); a fresh simulator starts with an empty cache.
+   */
+  private readonly sttTranscriptCache = new Map<string, string>();
+
+  /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
    */
   invokeLLM: (params: InvokeLLMParams) => Promise<InvokeLLMResult> =
@@ -422,6 +434,10 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
           messages: input.messages,
           stt: resolveVoiceConfig(undefined, input.scenarioConfig.voice).stt,
           includeAudio: true,
+          // Reuse a transcript for the same audio across proceed() turns so a
+          // dropped agent_response costs at most ONE STT call, not one per turn
+          // (#735 P2 — avoids O(turns^2) re-transcription).
+          transcriptCache: this.sttTranscriptCache,
           logWarn: (m) => this.logger.warn(m),
         });
       } catch (e) {
