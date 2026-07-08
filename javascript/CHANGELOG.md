@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/langwatch/scenario/compare/javascript/v0.5.0...javascript/v0.5.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **security:** raise protobufjs override floors (CRITICAL) ([#683](https://github.com/langwatch/scenario/issues/683)) ([7841995](https://github.com/langwatch/scenario/commit/784199537ba2422be64229b43aec61f069fe7a22))
+* **voice:** grace-wait + STT fallback so user-simulator reacts to real transcript ([#734](https://github.com/langwatch/scenario/issues/734)) ([#735](https://github.com/langwatch/scenario/issues/735)) ([5f4cbe9](https://github.com/langwatch/scenario/commit/5f4cbe96add2e0e9d67fe8cb5ba07886d200a897))
+
 ## [0.5.0](https://github.com/langwatch/scenario/compare/javascript/v0.4.15...javascript/v0.5.0) (2026-07-01)
 
 
