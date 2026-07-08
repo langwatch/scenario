@@ -76,7 +76,7 @@ def in_memory_exporter():
     processor = SimpleSpanProcessor(exporter)
     if not hasattr(provider, "add_span_processor"):
         pytest.skip(f"Active tracer provider {type(provider)} is not mutable")
-    provider.add_span_processor(processor)  # type: ignore[attr-defined]
+    provider.add_span_processor(processor)  # type: ignore[attr-defined]  # hasattr guard above confirms TracerProvider is a concrete SDK provider with add_span_processor; the abstract base omits it
     try:
         yield exporter
     finally:
