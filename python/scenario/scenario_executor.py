@@ -553,7 +553,7 @@ class ScenarioExecutor:
         ]
         agent_time = sum(agent_times)
 
-        return ScenarioResult(
+        result = ScenarioResult(
             success=False,
             messages=self._state.messages,
             reasoning=error_message
@@ -561,6 +561,10 @@ class ScenarioExecutor:
             total_time=time.time() - self._total_start_time,
             agent_time=agent_time,
         )
+        # Harvest voice output so max-turns exits (both the mid-script L519
+        # route and the end-of-script-without-conclusion L687 route) carry
+        # result.audio/timeline/latency for voice runs (AC E1).
+        return self._attach_voice_output(result)
 
     async def run(self) -> ScenarioResult:
         """
@@ -644,6 +648,10 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=0,
                 )
+                # Harvest voice output before emitting/raising so the
+                # check-failure (AssertionError in a script step) exit carries
+                # result.audio/timeline/latency for voice runs (AC E2b).
+                error_result = self._attach_voice_output(error_result)
                 self._emit_run_finished_event(
                     scenario_run_id,
                     error_result,
@@ -714,6 +722,10 @@ class ScenarioExecutor:
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
+            # Harvest voice output before emitting/raising so the generic
+            # exception exit carries result.audio/timeline/latency for voice
+            # runs (AC E2).
+            error_result = self._attach_voice_output(error_result)
             self._emit_run_finished_event(
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )

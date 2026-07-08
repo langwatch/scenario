@@ -163,6 +163,21 @@ from .voice.script_steps import audio, dtmf, interrupt, silence, sleep
 from .voice.interruption import InterruptionConfig
 from .voice import effects  # scenario.effects.background_noise(...) etc.
 
+# ``ScenarioResult.audio/timeline/latency`` are annotated with the voice
+# recording dataclasses (VoiceRecording/VoiceEvent/LatencyMetrics), which
+# cannot be imported at ``scenario.types`` load time without a circular
+# import (types -> voice.recording -> voice.__init__ -> voice.adapter ->
+# types). They are declared as forward references there and resolved here,
+# once the voice package is fully loaded, so pydantic can finish building
+# the model with concrete isinstance-validation on those fields.
+ScenarioResult.model_rebuild(
+    _types_namespace={
+        "VoiceRecording": VoiceRecording,
+        "VoiceEvent": VoiceEvent,
+        "LatencyMetrics": LatencyMetrics,
+    }
+)
+
 configure = ScenarioConfig.configure
 
 default_config = ScenarioConfig.default_config
