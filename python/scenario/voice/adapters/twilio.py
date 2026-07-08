@@ -161,7 +161,10 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # sentinel) WITHOUT re-asserting transport liveness — the real
         # production wrapper nulls _stream_ws/_stream_sid synchronously right
         # after the loop returns, so the drain's second recv_audio would
-        # otherwise hit _assert_stream_live and crash (#695). Reset on connect().
+        # otherwise hit _assert_stream_live and crash (#695). Reset on
+        # connect(), disconnect(), and at media-stream-loop entry (per-call
+        # scope — a second session on the same connected adapter must not
+        # inherit the previous session's flag).
         self._stream_ended: bool = False
 
 
@@ -466,33 +469,41 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             await asyncio.sleep(frame_secs)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
-        # Once the media-stream loop has ended (stop / socket close / throw), the
-        # real production wrapper (_stream() in _twilio_server.build_app) nulls
+        # Once the media-stream loop has ended (stop / socket close / throw),
+        # the production wrapper (run_stream_session in _twilio_server) nulls
         # _stream_ws/_stream_sid synchronously right after the loop returns. The
         # drain loop (_drain_agent_response) always makes a *second* recv_audio
-        # call after the first chunk — by then liveness has flipped. So we must
-        # NOT gate on transport liveness once the call has ended or there is
-        # already buffered audio to hand back; the terminal sentinel and any
-        # trailing audio still need to drain cleanly (#695). _assert_stream_live
-        # is only for genuine pre-connection misuse: never-started stream, empty
-        # queue, no end-of-call.
+        # call after the first chunk — by then liveness has flipped. So the
+        # liveness assert only guards the genuinely-live-and-idle case; buffered
+        # audio and the end-of-call drain bypass it (#695).
+        #
+        # Two sentinel sources cooperate here, and BOTH are load-bearing: the
+        # loop's ``finally`` ENQUEUES one empty chunk — that is what wakes a
+        # consumer already blocked in ``queue.get()`` at the moment the call
+        # ends (flipping ``_stream_ended`` alone wakes nobody) — and this method
+        # SYNTHESIZES further empty chunks for every call after the queue has
+        # drained (the tail-silence probe, or any caller that keeps polling).
+        # Delete either and a hang comes back.
         if self._inbound_queue is None:
             # disconnect() tore the adapter down mid-drain — nothing left to
-            # read. Surface the connection error rather than an AttributeError.
+            # read. In the current teardown order _assert_connected() raises
+            # first (_rest is nulled before _inbound_queue, synchronously), so
+            # the explicit raise below is a reordering guard, not a live path —
+            # it keeps this method's error honest if disconnect() is ever
+            # resequenced.
             self._assert_connected()
             raise RuntimeError(
                 "TwilioAgentAdapter: inbound queue is gone; adapter disconnected."
             )
 
-        if self._stream_ended or not self._inbound_queue.empty():
-            # End-of-call drain path: read whatever is queued. When the call has
-            # ended and the queue empties out, hand back another empty sentinel
-            # so a caller that keeps polling (or the drain's tail-silence probe)
-            # terminates cleanly instead of blocking to timeout or raising.
-            if self._stream_ended and self._inbound_queue.empty():
-                return AudioChunk(data=b"")
+        if not self._inbound_queue.empty():
+            # Buffered audio or the loop-enqueued terminal sentinel — drain it,
+            # live or not.
             return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
-
+        if self._stream_ended:
+            # Call ended and fully drained: synthesize another empty sentinel.
+            return AudioChunk(data=b"")
+        # Live call, nothing buffered yet: assert liveness, then wait.
         self._assert_stream_live()
         return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
 

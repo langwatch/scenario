@@ -249,6 +249,9 @@ export class TwilioWebhookServer {
    * `finally` nulls the transport — so a `receiveAudio` following the reset must
    * still drain cleanly. Driving `mediaStreamLoop` alone skips this reset and
    * hides the bug (that was the shipped tests' flaw, PR #697 P2 blocker).
+   *
+   * @internal Production entry is `_handleStreamSocket`; tests reach this via
+   * `TwilioAgentAdapter._driveStreamSession`. Not public API.
    */
   async runStreamSession(ws: MediaStreamWebSocket): Promise<void> {
     try {
@@ -268,6 +271,13 @@ export class TwilioWebhookServer {
   async mediaStreamLoop(ws: MediaStreamWebSocket): Promise<void> {
     const adapter = this._adapter;
     adapter._setStreamWs(ws);
+    // `_streamEnded` is per-CALL state: re-arm it alongside `_streamWs` so a
+    // second media-stream session on the same connected adapter (Twilio
+    // reconnect, back-to-back call) does not start with the previous session's
+    // terminal flag stuck true — which would make `receiveAudio` synthesize an
+    // empty "end of call" sentinel on any transient empty queue mid-turn and
+    // truncate the new call's first agent turn.
+    adapter._resetStreamEnded();
 
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law

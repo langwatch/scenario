@@ -192,20 +192,43 @@ class TwilioWebhookServer:
         app.post("/twilio/voice")(_voice)
 
         async def _stream(ws):
-            await ws.accept()
-            logger.debug("TwilioAgentAdapter: WS connection accepted")
-            try:
-                await self.media_stream_loop(ws)
-            except WebSocketDisconnect:
-                logger.debug("TwilioAgentAdapter: WS disconnected")
-            finally:
-                adapter._stream_ws = None
-                adapter._stream_sid = None
+            await self.run_stream_session(ws)
 
         _stream.__annotations__ = {"ws": WebSocket, "return": None}
         app.websocket("/twilio/stream")(_stream)
 
         return app
+
+    async def run_stream_session(self, ws: Any) -> None:
+        """Production per-connection wrapper around :meth:`media_stream_loop`
+        (twin of the JS ``TwilioWebhookServer.runStreamSession``): accept the
+        socket, run the loop, swallow the disconnect, then — in a ``finally``
+        that fires on stop, socket close, OR a raise — null the adapter's
+        ``_stream_ws``/``_stream_sid`` transport state, exactly as the real
+        ``/twilio/stream`` route does after a call ends.
+
+        This is the seam tests must drive to reproduce the #695 teardown race:
+        the terminal sentinel is enqueued inside the loop's own ``finally``,
+        then THIS ``finally`` nulls the transport — so a ``recv_audio``
+        following the reset must still drain cleanly. Driving
+        ``media_stream_loop`` alone skips this reset and hides the bug (that
+        was the shipped tests' flaw, PR #697 P2 blocker). Internal: production
+        enters via the ``/twilio/stream`` route; not public API.
+        """
+        # Deferred import, matching this module's pattern of keeping fastapi
+        # out of import-time dependencies (see build_app).
+        from fastapi import WebSocketDisconnect
+
+        adapter = self._adapter
+        await ws.accept()
+        logger.debug("TwilioAgentAdapter: WS connection accepted")
+        try:
+            await self.media_stream_loop(ws)
+        except WebSocketDisconnect:
+            logger.debug("TwilioAgentAdapter: WS disconnected")
+        finally:
+            adapter._stream_ws = None
+            adapter._stream_sid = None
 
     async def media_stream_loop(self, ws: Any) -> None:
         """Per-call Media Streams loop: parse frames, enqueue audio, fire DTMF."""
@@ -214,6 +237,14 @@ class TwilioWebhookServer:
         assert adapter._stream_connected is not None
 
         adapter._stream_ws = ws
+        # ``_stream_ended`` is per-CALL state: re-arm it alongside
+        # ``_stream_ws`` so a second media-stream session on the same connected
+        # adapter (Twilio reconnect, back-to-back call) does not start with the
+        # previous session's terminal flag stuck True — which would make
+        # ``recv_audio`` synthesize an empty "end of call" sentinel on any
+        # transient empty queue mid-turn and truncate the new call's first
+        # agent turn.
+        adapter._stream_ended = False
         # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
         # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
         # chunk to avoid thousands of tiny AudioChunk objects.

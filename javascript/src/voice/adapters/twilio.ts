@@ -18,7 +18,6 @@
  * codec live in `./twilio-shared.ts`.
  */
 
-
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
@@ -118,7 +117,9 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // sentinel) WITHOUT re-asserting transport liveness — `_handleStreamSocket`
   // nulls `_streamWs`/`_streamSid` synchronously right after the loop returns,
   // so the drain's second receiveAudio would otherwise hit `_assertStreamLive`
-  // and throw "no live media stream" (#695). Reset on connect().
+  // and throw "no live media stream" (#695). Reset on connect(), disconnect(),
+  // and at media-stream-loop entry (per-call scope — a second session on the
+  // same connected adapter must not inherit the previous session's flag).
   private _streamEnded = false;
 
   constructor(options: TwilioAgentAdapterOptions) {
@@ -311,22 +312,26 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     // `_handleStreamSocket` nulls `_streamWs`/`_streamSid` synchronously right
     // after the loop returns. The drain loop (`drainAgentResponse`) always makes
     // a *second* receiveAudio call after the first chunk — by then liveness has
-    // flipped. So we must NOT gate on transport liveness once the call has ended
-    // or there is already buffered audio to hand back; the terminal sentinel and
-    // any trailing audio still need to drain cleanly (#695). `_assertStreamLive`
-    // is only for genuine pre-connection misuse: never-started stream, empty
-    // queue, no end-of-call.
-    if (this._streamEnded || !this._inboundQueue.isEmpty()) {
-      // End-of-call drain path. When the call has ended and the queue empties
-      // out, hand back another empty sentinel so a caller that keeps polling
-      // (or the drain's tail-silence probe) terminates cleanly instead of
-      // rejecting on timeout.
-      if (this._streamEnded && this._inboundQueue.isEmpty()) {
-        return new AudioChunk({ data: new Uint8Array(0) });
-      }
+    // flipped. So the liveness assert only guards the genuinely-live-and-idle
+    // case; buffered audio and the end-of-call drain bypass it (#695).
+    //
+    // Two sentinel sources cooperate here, and BOTH are load-bearing: the
+    // loop's `finally` ENQUEUES one empty chunk — that is what wakes a consumer
+    // already blocked in `take()` at the moment the call ends (flipping
+    // `_streamEnded` alone wakes nobody) — and this method SYNTHESIZES further
+    // empty chunks for every call after the queue has drained (the tail-silence
+    // probe, or any caller that keeps polling). Delete either and a hang comes
+    // back.
+    if (!this._inboundQueue.isEmpty()) {
+      // Buffered audio or the loop-enqueued terminal sentinel — drain it,
+      // live or not.
       return this._inboundQueue.take(timeout * 1000);
     }
-
+    if (this._streamEnded) {
+      // Call ended and fully drained: synthesize another empty sentinel.
+      return new AudioChunk({ data: new Uint8Array(0) });
+    }
+    // Live call, nothing buffered yet: assert liveness, then wait.
     this._assertStreamLive();
     return this._inboundQueue.take(timeout * 1000);
   }
@@ -416,6 +421,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   }
   /** @internal */ _markStreamEnded(): void {
     this._streamEnded = true;
+  }
+  /** @internal Re-armed at media-stream-loop entry: the flag is per-call, not
+   * per-connection, so a second session on the same connected adapter must not
+   * inherit the previous session's terminal state. */
+  _resetStreamEnded(): void {
+    this._streamEnded = false;
   }
   /** @internal Test-only view of the transport state the server nulls on teardown. */
   get _streamWsForTest(): MediaStreamWebSocket | null {

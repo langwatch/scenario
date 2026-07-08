@@ -29,7 +29,7 @@
  * post-fix it returns another empty chunk. Each test asserts BOTH calls behave.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AudioChunk } from "../../audio-chunk";
 import { TwilioAgentAdapter } from "../twilio";
@@ -68,6 +68,50 @@ function scriptedSocket(frames: string[]): MediaStreamWebSocket {
     },
     close() {
       // No-op for the double.
+    },
+  };
+}
+
+/**
+ * A `MediaStreamWebSocket` double the test can feed mid-flight: `receiveText()`
+ * blocks until `push()` supplies a frame — a string frame, `null` (socket
+ * close), or an `Error` (transport failure, rejecting the pending read). Used
+ * for scenarios that need the loop *live and idle* at the moment the test
+ * calls `receiveAudio` (the scripted double above always terminates first).
+ */
+function controllableSocket(): MediaStreamWebSocket & {
+  push(item: string | null | Error): void;
+} {
+  const queued: Array<string | null | Error> = [];
+  const waiters: Array<{
+    resolve: (v: string | null) => void;
+    reject: (e: Error) => void;
+  }> = [];
+  return {
+    send() {
+      // Outbound is irrelevant to these inbound-drain tests.
+    },
+    close() {
+      // No-op for the double.
+    },
+    push(item: string | null | Error): void {
+      const waiter = waiters.shift();
+      if (waiter) {
+        if (item instanceof Error) waiter.reject(item);
+        else waiter.resolve(item);
+        return;
+      }
+      queued.push(item);
+    },
+    receiveText(): Promise<string | null> {
+      if (queued.length > 0) {
+        const item = queued.shift()!;
+        if (item instanceof Error) return Promise.reject(item);
+        return Promise.resolve(item);
+      }
+      return new Promise((resolve, reject) => {
+        waiters.push({ resolve, reject });
+      });
     },
   };
 }
@@ -164,5 +208,62 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     // second call is also the post-teardown drain probe that threw pre-fix.
     const second = await adapter.receiveAudio(RECV_TIMEOUT_S);
     expect(second.data.length).toBe(0);
+  });
+
+  it("transport error mid-stream: session rejects but both drain calls return empty (throw path)", async () => {
+    const adapter = await connectedAdapter();
+    // The production `finally` claims all THREE termination paths — stop,
+    // close, throw — enqueue the sentinel. This pins the throw path: the
+    // socket's pending read rejects, the session surfaces the error, and the
+    // drain still terminates cleanly instead of hanging or asserting liveness.
+    const sock = controllableSocket();
+    const session = adapter._driveStreamSession(sock);
+    sock.push(startFrame());
+    sock.push(new Error("boom: transport failure"));
+    await expect(session).rejects.toThrow("boom: transport failure");
+
+    // The loop's finally ran on the throw path and production teardown nulled
+    // the transport.
+    expect(adapter._streamWsForTest).toBeNull();
+
+    const first = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(first.data.length).toBe(0);
+    const second = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(second.data.length).toBe(0);
+  });
+
+  it("second session on the same adapter: stale terminal flag must not truncate the new call's first turn", async () => {
+    const adapter = await connectedAdapter();
+    // Session 1 completes silently: its finally marks the call ended and
+    // enqueues the terminal sentinel. Drain it fully.
+    await adapter._driveStreamSession(scriptedSocket([startFrame(), stopFrame()]));
+    const s1 = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(s1.data.length).toBe(0);
+
+    // Session 2 begins on the SAME connected adapter (a Twilio Media Streams
+    // reconnect / back-to-back call) and is mid-call: started, nothing
+    // buffered yet.
+    const sock = controllableSocket();
+    const session2 = adapter._driveStreamSession(sock);
+    sock.push(startFrame("MZ695b", "CA695b"));
+    await vi.waitFor(() => expect(adapter._streamWsForTest).not.toBeNull());
+
+    // The regression this pins: if session 1's `_streamEnded` were still set
+    // (flag scoped to the connection instead of the call), this receiveAudio
+    // would synthesize an empty "end of call" sentinel INSTANTLY and the new
+    // call's first agent turn would read as silent. With the per-call reset it
+    // waits for the real audio that arrives next.
+    const audioP = adapter.receiveAudio(RECV_TIMEOUT_S);
+    // 800 bytes µ-law == the 100ms flush threshold, so the media branch
+    // flushes immediately — no stop frame needed for the audio to land.
+    sock.push(buildMediaFrame("MZ695b", new Uint8Array(800).fill(0x7f)));
+    const audio = await audioP;
+    expect(audio.data.length).toBeGreaterThan(0);
+
+    // Session 2 then terminates normally and drains clean.
+    sock.push(stopFrame());
+    await session2;
+    const tail = await adapter.receiveAudio(RECV_TIMEOUT_S);
+    expect(tail.data.length).toBe(0);
   });
 });
