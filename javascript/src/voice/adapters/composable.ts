@@ -199,7 +199,17 @@ export class ComposableVoiceAgent extends VoiceAgentAdapter {
       this.lastLlmResponse = responseText;
       this.history.push({ role: "assistant", content: responseText });
 
-      return synthesize(responseText, this.tts, this.ttsOptions);
+      const audio = await synthesize(responseText, this.tts, this.ttsOptions);
+      // Carry the LLM response text ON the returned chunk (#734/#735 P1). We
+      // already KNOW this turn's exact words (we generated them), so attaching
+      // them as the chunk transcript means attachAgentTurnTranscript labels the
+      // turn from the chunk directly — no grace-wait (defaultVoiceCall skips the
+      // wait when merged.transcript is set) and no simulator STT pre-pass
+      // re-transcribing our own synthesized reply. Only when there is real text.
+      if (responseText.length > 0 && audio.data.length > 0) {
+        return new AudioChunk({ data: audio.data, transcript: responseText });
+      }
+      return audio;
     })();
 
     const chunk = await withTimeout(
