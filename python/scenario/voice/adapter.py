@@ -217,16 +217,23 @@ class VoiceAgentAdapter(AgentAdapter):
         """
         # Uniform pre-turn connected-state gate (mirror TS
         # ``adapter.runtime.ts:249-254``): a call() issued before the
-        # executor's connect() — or after a dropped transport — fails once
-        # with a clear ``PendingTransportError`` naming the adapter, rather
-        # than a transport-specific null-deref or a silent hang. Checked ONCE,
-        # BEFORE send_audio/recv_audio. It does NOT suppress
-        # ``FirstChunkTimeoutError``: a connected adapter whose first chunk
-        # never arrives still surfaces that timeout from the drain below.
+        # executor's connect() — or after a dropped transport — fails once with
+        # a clear error naming the adapter, rather than a transport-specific
+        # null-deref or a silent hang. Checked ONCE, BEFORE send_audio/
+        # recv_audio. It does NOT suppress ``FirstChunkTimeoutError``: a
+        # connected adapter whose first chunk never arrives still surfaces that
+        # timeout from the drain below.
+        #
+        # We raise ``TransportNotConnectedError`` (a subclass of
+        # ``PendingTransportError``, so the TS-parity ``except
+        # PendingTransportError`` gate still catches it) whose message is
+        # actionable for a real, implemented adapter — "call connect()/reconnect"
+        # — rather than the base "implement your transport" guidance meant for
+        # unshipped stubs.
         if not self.is_connected():
-            from .adapters._stub import PendingTransportError
+            from .adapters._stub import TransportNotConnectedError
 
-            raise PendingTransportError(type(self).__name__)
+            raise TransportNotConnectedError(type(self).__name__)
         # Clear the speaking-event for this turn — set in _drain on first chunk.
         self._agent_speaking_event.clear()
         recorder = _AdapterRecorder(input)

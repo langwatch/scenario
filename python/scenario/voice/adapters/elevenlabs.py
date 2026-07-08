@@ -251,8 +251,34 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         ``conversation?.isSessionActive()`` check
         (``adapters/elevenlabs.ts:531-534``): open iff we hold a socket that
         is not closed.
+
+        Liveness is read from the connection ``state`` on modern
+        ``websockets`` (>=13, the ``websockets.asyncio.client.ClientConnection``
+        that :func:`websockets.connect` returns) — that class exposes a
+        ``state`` enum, NOT a ``closed`` attribute. We fall back to ``closed``
+        for the legacy ``WebSocketClientProtocol`` and for in-memory test
+        doubles that model ``closed``. Note ``is_connected()`` is a
+        best-effort *hint* for the pre-turn guard and the pump active-check;
+        it is never the sole guard on a send — the pump's send is wrapped in a
+        raced-close swallow, and ``recv_audio`` still handles ``ConnectionClosed``
+        directly, because a socket can drop between this check and the I/O.
         """
-        return self._ws is not None and not self._ws.closed
+        ws = self._ws
+        if ws is None:
+            return False
+        state = getattr(ws, "state", None)
+        if state is not None:
+            # Modern websockets: OPEN iff state is OPEN. CONNECTING/CLOSING/
+            # CLOSED all read as not-ready for a turn.
+            try:
+                from websockets.protocol import State
+
+                return state is State.OPEN
+            except Exception:
+                # State enum unavailable — compare by name as a last resort.
+                return getattr(state, "name", "") == "OPEN"
+        # Legacy protocol / test double exposing `closed`.
+        return not getattr(ws, "closed", False)
 
     async def disconnect(self) -> None:
         """Close the WebSocket if open.
@@ -299,6 +325,9 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             try:
                 await task
             except asyncio.CancelledError:
+                # Expected: awaiting a just-cancelled task re-raises the
+                # CancelledError here. Intentionally suppressed — we requested
+                # the cancel as part of an orderly pump shutdown.
                 pass
         self._outbound_frames.clear()
         # Reset the post-response pause so a reconnect starts in the
@@ -333,15 +362,33 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         else:
             frame = SILENCE_FRAME
 
+        import websockets  # for the ConnectionClosed close-race classes
+
         try:
             b64 = base64.b64encode(frame).decode()
             await self._ws.send(json.dumps({"user_audio_chunk": b64}))
-        except Exception:
-            # Raced a close between the active-check and the feed — drop the
-            # frame; the disconnect/close path tears the pump down. Swallowed
-            # so the background task never raises out (mirror the raced-close
+        except (
+            websockets.exceptions.ConnectionClosed,
+            ConnectionError,
+            OSError,
+            RuntimeError,
+        ):
+            # The EXPECTED close race: the socket closed between the
+            # active-check above and this feed. Drop the frame; the
+            # disconnect/close path tears the pump down (mirror the raced-close
             # swallow, ``adapters/elevenlabs.ts:661-663``).
             logger.debug("ElevenLabsAgentAdapter: pump tick raced a close; frame dropped")
+        except Exception:  # noqa: BLE001 — background task must never propagate
+            # An UNEXPECTED failure (serialization/protocol bug, not a close
+            # race). Do NOT silently swallow it as a close: surface it at
+            # WARNING so the bug is visible, but still don't propagate out of
+            # the background task (that would kill the pump loop and leave an
+            # unhandled-task exception). The next tick retries.
+            logger.warning(
+                "ElevenLabsAgentAdapter: unexpected error feeding pump frame; "
+                "dropping frame and continuing",
+                exc_info=True,
+            )
 
     def enqueue_speech(self, data: bytes) -> None:
         """Slice a user turn's PCM into fixed 20 ms frames and enqueue them for

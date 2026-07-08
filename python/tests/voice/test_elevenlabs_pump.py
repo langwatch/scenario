@@ -26,7 +26,6 @@ import asyncio
 import base64
 import json
 import os
-import warnings
 from typing import Any, Optional
 from unittest.mock import AsyncMock, patch
 
@@ -46,16 +45,34 @@ from scenario.voice.adapters.elevenlabs import (
 
 
 class FakePumpSocket:
-    """In-memory EL WS that records every ``send`` and models ``closed``.
+    """In-memory EL WS that records every ``send`` and models liveness the way
+    modern ``websockets`` does — via a ``state`` enum
+    (``websockets.protocol.State``), NOT a ``closed`` attribute.
 
-    Mirrors ``FakeElevenLabsSocket`` in ``test_elevenlabs_turn_commit.py`` but
-    exposes ``closed`` toggling so ``is_connected()`` (``_ws is not None and
-    not _ws.closed``) can be exercised across both transitions.
+    Modern ``websockets`` (>=13, the ``ClientConnection`` that
+    :func:`websockets.connect` returns on the version this repo pins) exposes
+    ``state`` and has NO ``closed`` attribute — so a fake that only modelled
+    ``closed`` would let a broken ``is_connected()`` (reading a nonexistent
+    ``.closed``) pass in tests while raising ``AttributeError`` against a live
+    socket. This fake exposes ``state`` (primary) and keeps a ``closed``
+    convenience setter/getter that drives it, so the test exercises the real
+    ``state`` code path. ``closed=True`` maps to ``State.CLOSED``.
     """
 
     def __init__(self) -> None:
         self.sent: list[str] = []
-        self.closed = False
+        from websockets.protocol import State
+
+        self._State = State
+        self.state = State.OPEN
+
+    @property
+    def closed(self) -> bool:
+        return self.state is self._State.CLOSED
+
+    @closed.setter
+    def closed(self, value: bool) -> None:
+        self.state = self._State.CLOSED if value else self._State.OPEN
 
     async def send(self, data: str) -> None:
         self.sent.append(data)
@@ -65,7 +82,7 @@ class FakePumpSocket:
         return ""
 
     async def close(self) -> None:
-        self.closed = True
+        self.state = self._State.CLOSED
 
     # ----- parsed views -----
 
@@ -272,15 +289,21 @@ async def test_is_connected_predicate_both_transitions() -> None:
     from scenario.voice.adapter import VoiceAgentAdapter
 
     class _Base(VoiceAgentAdapter):
-        async def connect(self) -> None: ...
-        async def disconnect(self) -> None: ...
-        async def send_audio(self, chunk: AudioChunk) -> None: ...
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def send_audio(self, chunk: AudioChunk) -> None:
+            pass
+
         async def recv_audio(self, timeout: float) -> AudioChunk:
             return AudioChunk(data=b"")
 
     assert _Base().is_connected() is True
 
-    adapter, socket = await _connected_adapter()
+    adapter, _socket = await _connected_adapter()
     assert adapter.is_connected() is True  # ws open
 
     await adapter.disconnect()
@@ -308,9 +331,15 @@ async def test_call_raises_pending_transport_when_disconnected() -> None:
     from scenario.voice.adapters._stub import PendingTransportError
 
     class _Disconnected(VoiceAgentAdapter):
-        async def connect(self) -> None: ...
-        async def disconnect(self) -> None: ...
-        async def send_audio(self, chunk: AudioChunk) -> None: ...
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def send_audio(self, chunk: AudioChunk) -> None:
+            pass
+
         async def recv_audio(self, timeout: float) -> AudioChunk:
             return AudioChunk(data=b"")
 
@@ -318,15 +347,21 @@ async def test_call_raises_pending_transport_when_disconnected() -> None:
             return False
 
     adapter = _Disconnected()
+    # Replace the real coroutines with spies to assert the guard short-circuits
+    # BEFORE either is awaited; method-assign is the intended test seam.
     adapter.send_audio = AsyncMock()  # type: ignore[method-assign]
     adapter.recv_audio = AsyncMock(return_value=AudioChunk(data=b""))  # type: ignore[method-assign]
 
     class _Input:
-        new_messages: list[Any] = []
+        def __init__(self) -> None:
+            self.new_messages: list[Any] = []
 
     with pytest.raises(PendingTransportError) as excinfo:
+        # _Input is a minimal AgentInput stub supplying only new_messages.
         await adapter.call(_Input())  # type: ignore[arg-type]
 
+    # Parity subclass: TransportNotConnectedError is-a PendingTransportError
+    # and names the adapter class.
     assert "_Disconnected" in str(excinfo.value)
     adapter.send_audio.assert_not_awaited()
     adapter.recv_audio.assert_not_awaited()
@@ -341,9 +376,14 @@ async def test_call_guard_does_not_suppress_first_chunk_timeout() -> None:
     class _Connected(VoiceAgentAdapter):
         response_timeout = 0.01
 
-        async def connect(self) -> None: ...
-        async def disconnect(self) -> None: ...
-        async def send_audio(self, chunk: AudioChunk) -> None: ...
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def send_audio(self, chunk: AudioChunk) -> None:
+            pass
 
         async def recv_audio(self, timeout: float) -> AudioChunk:
             raise asyncio.TimeoutError
@@ -352,9 +392,11 @@ async def test_call_guard_does_not_suppress_first_chunk_timeout() -> None:
             return True
 
     class _Input:
-        new_messages: list[Any] = []
+        def __init__(self) -> None:
+            self.new_messages: list[Any] = []
 
     with pytest.raises(FirstChunkTimeoutError):
+        # _Input is a minimal AgentInput stub supplying only new_messages.
         await _Connected().call(_Input())  # type: ignore[arg-type]
 
 
@@ -419,6 +461,9 @@ async def test_tick_racing_disconnect_no_send_no_raise() -> None:
     # And a tick with a nulled ws also swallows.
     adapter._ws = None
     await adapter._pump_tick()
+    # Tear down the first adapter's pump before reassigning so its task is
+    # cancelled+awaited (no orphan, no test-isolation bleed).
+    await adapter.stop_pump()
 
     # Full disconnect: no send after it returns.
     adapter, socket = await _connected_adapter()
@@ -441,9 +486,11 @@ async def test_tick_send_raising_mid_tick_is_swallowed_and_loop_survives() -> No
     tick reaches the send, which raises.
     """
 
-    class RaceClosedError(Exception):
-        """Stand-in for websockets.exceptions.ConnectionClosed on the send path."""
-
+    # A genuine close-race signal: the modern websockets client raises
+    # ConnectionClosed (an OSError subtype via ConnectionError) when a send
+    # lands on a socket that closed after the liveness check. Use ConnectionError
+    # so we exercise the adapter's EXPECTED-close-race branch, not the
+    # unexpected-error branch.
     class RaceThenRecoverSocket(FakePumpSocket):
         """Raises on the first N sends (the race), then succeeds — so we can
         prove the loop survived the raise and keeps ticking afterwards."""
@@ -460,12 +507,12 @@ async def test_tick_send_raising_mid_tick_is_swallowed_and_loop_survives() -> No
             self._raise_left = self._arm_raises
 
         async def send(self, data: str) -> None:
-            # closed stays False → is_connected() is True → the tick reaches
+            # state stays OPEN → is_connected() is True → the tick reaches
             # here and this raise IS the race window.
             if self._raise_left > 0:
                 self._raise_left -= 1
                 self.raise_attempts += 1
-                raise RaceClosedError("socket closed mid-send")
+                raise ConnectionError("socket closed mid-send")
             await super().send(data)
 
     socket = RaceThenRecoverSocket(raise_first=2)
@@ -483,7 +530,7 @@ async def test_tick_send_raising_mid_tick_is_swallowed_and_loop_survives() -> No
         assert adapter.is_connected() is True
 
         # Direct-drive a tick whose send raises: must NOT propagate.
-        await adapter._pump_tick()  # would raise RaceClosedError if unswallowed
+        await adapter._pump_tick()  # would raise ConnectionError if unswallowed
         assert socket.raise_attempts >= 1
 
         # The background loop must survive the raise and keep ticking: wait for
@@ -511,26 +558,31 @@ async def test_tick_send_raising_mid_tick_is_swallowed_and_loop_survives() -> No
 @pytest.mark.asyncio
 async def test_pump_task_cancelled_and_awaited_on_disconnect() -> None:
     """A8: after disconnect the pump task is cancelled AND awaited (done), and
-    no pending-task warning is emitted."""
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        adapter, socket = await _connected_adapter()
+    NO orphaned-task error surfaces via the loop exception handler.
+
+    asyncio reports "Task was destroyed but it is pending" and other
+    background-task failures through ``loop.set_exception_handler`` — NOT the
+    ``warnings`` module — so we install a temporary handler and assert it saw
+    nothing (rather than relying on ``warnings.catch_warnings``, which would
+    miss those messages).
+    """
+    loop = asyncio.get_running_loop()
+    captured: list[dict[str, Any]] = []
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: captured.append(context))
+    try:
+        adapter, _socket = await _connected_adapter()
         task = adapter._pump_task
         assert task is not None
         await adapter.disconnect()
         assert task.cancelled() or task.done()
         assert adapter._pump_task is None
-        # Give the loop a beat to surface any destroy-pending warning.
+        # Give the loop a beat to surface any orphaned-task/destroy-pending error.
         await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous)
 
-    pending = [
-        w
-        for w in caught
-        if "was destroyed but it is pending" in str(w.message)
-        or "pending" in str(w.message).lower()
-        and "task" in str(w.message).lower()
-    ]
-    assert not pending, f"unexpected pending-task warning: {[str(w.message) for w in pending]}"
+    assert not captured, f"unexpected loop exceptions after disconnect: {captured}"
 
 
 # --------------------------------------------------------------------------- #
@@ -545,9 +597,15 @@ async def test_non_el_adapter_creates_no_pump_task() -> None:
     from scenario.voice.adapter import VoiceAgentAdapter
 
     class _NonEL(VoiceAgentAdapter):
-        async def connect(self) -> None: ...
-        async def disconnect(self) -> None: ...
-        async def send_audio(self, chunk: AudioChunk) -> None: ...
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def send_audio(self, chunk: AudioChunk) -> None:
+            pass
+
         async def recv_audio(self, timeout: float) -> AudioChunk:
             return AudioChunk(data=b"")
 
