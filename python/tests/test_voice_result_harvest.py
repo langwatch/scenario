@@ -32,8 +32,8 @@ import pytest
 from pydantic import ValidationError
 
 import scenario
-from scenario import JudgeAgent, UserSimulatorAgent
-from scenario.types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
+from scenario import AgentAdapter, JudgeAgent, UserSimulatorAgent
+from scenario.types import AgentInput, AgentReturnTypes, ScenarioResult
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
 from scenario.voice.recording import (
     AudioSegment,
@@ -43,7 +43,9 @@ from scenario.voice.recording import (
 )
 
 
-pytestmark = pytest.mark.skipif(
+# Applied per-test on scenario.run-driven tests only (not on pure-construction
+# tests like test_scenarioresult_rejects_wrong_audio_type so E4 stays in CI).
+_skip_in_ci = pytest.mark.skipif(
     os.environ.get("CI") == "true",
     reason="scenario.run hangs in GitHub-Actions python-ci; runs fine locally",
 )
@@ -84,10 +86,8 @@ class _StubVoiceAdapter(VoiceAgentAdapter):
         return "voice response"
 
 
-class _TextAgent(scenario.AgentAdapter):
+class _TextAgent(AgentAdapter):
     """Text-only agent under test (no voice adapter -> voice fields stay None)."""
-
-    role = scenario.AgentRole.AGENT
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         return "text response"
@@ -174,6 +174,7 @@ def _default_latency():
 # --------------------------------------------------------------------------- #
 
 
+@_skip_in_ci
 @pytest.mark.asyncio
 async def test_max_turns_path_carries_voice_fields():
     # --- L519: mid-script max-turns via proceed() -------------------------- #
@@ -222,6 +223,7 @@ async def test_max_turns_path_carries_voice_fields():
 # --------------------------------------------------------------------------- #
 
 
+@_skip_in_ci
 @pytest.mark.asyncio
 async def test_except_path_carries_voice_fields():
     adapter = _StubVoiceAdapter()
@@ -265,6 +267,7 @@ async def test_except_path_carries_voice_fields():
 # --------------------------------------------------------------------------- #
 
 
+@_skip_in_ci
 @pytest.mark.asyncio
 async def test_check_failure_path_carries_voice_fields():
     adapter = _StubVoiceAdapter()
@@ -300,6 +303,7 @@ async def test_check_failure_path_carries_voice_fields():
 # --------------------------------------------------------------------------- #
 
 
+@_skip_in_ci
 @pytest.mark.asyncio
 async def test_interrupt_overlap_flags_agent_segment():
     # agent seg [3.0, 5.0] overlaps a user_interrupt at t=4.0 -> truncated.
@@ -387,6 +391,7 @@ def test_scenarioresult_rejects_wrong_audio_type():
 # --------------------------------------------------------------------------- #
 
 
+@_skip_in_ci
 @pytest.mark.asyncio
 async def test_text_only_runs_keep_voice_fields_none_all_paths():
     def _assert_none(result: ScenarioResult) -> None:
@@ -449,6 +454,7 @@ async def test_text_only_runs_keep_voice_fields_none_all_paths():
 # --------------------------------------------------------------------------- #
 
 
+@_skip_in_ci
 @pytest.mark.asyncio
 async def test_harvest_failure_on_error_path_preserves_original_error(monkeypatch):
     """If _attach_voice_output raises on an error path, the ORIGINAL scenario
