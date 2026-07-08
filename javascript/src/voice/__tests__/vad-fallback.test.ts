@@ -19,17 +19,12 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { beforeEach, expect, vi, type MockInstance } from "vitest";
 
-import {
-  AgentRole,
-  type AgentInput,
-  type AgentReturnTypes,
-  UserSimulatorAgentAdapter,
-} from "../../domain";
 import { agent, succeed, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
 import { AudioChunk } from "../audio-chunk";
 import type { VoiceEvent } from "../recording.types";
 import { WebRTCVadFallback } from "../vad";
+import { AudioUserSimulator } from "./fixtures/audio-user-simulator";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -56,29 +51,6 @@ function speechChunk(durationSeconds: number): AudioChunk {
     data[2 * i + 1] = (u >> 8) & 0xff;
   }
   return new AudioChunk({ data });
-}
-
-function audioMessageContent(chunk: AudioChunk): AgentReturnTypes {
-  const base64 = Buffer.from(chunk.data).toString("base64");
-  return {
-    role: "user",
-    content: [
-      {
-        type: "input_audio",
-        input_audio: { data: base64, format: "pcm16" },
-      },
-    ],
-  } as unknown as AgentReturnTypes;
-}
-
-class AudioUserSimulator extends UserSimulatorAgentAdapter {
-  role = AgentRole.USER;
-  constructor(private readonly chunk: AudioChunk) {
-    super();
-  }
-  async call(_input: AgentInput): Promise<AgentReturnTypes> {
-    return audioMessageContent(this.chunk);
-  }
 }
 
 // Reset VAD warning state before every step so the one-shot-warning
