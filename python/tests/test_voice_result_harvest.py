@@ -359,19 +359,19 @@ async def test_interrupt_overlap_flags_agent_segment():
 def test_scenarioresult_rejects_wrong_audio_type():
     # A plain dict is not a VoiceRecording -> ValidationError.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], audio={"not": "a recording"})  # type: ignore[arg-type]
+        ScenarioResult(success=True, messages=[], audio={"not": "a recording"})  # type: ignore[arg-type]  # intentional wrong type to assert runtime ValidationError
 
     # A str is not a VoiceRecording either.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], audio="nope")  # type: ignore[arg-type]
+        ScenarioResult(success=True, messages=[], audio="nope")  # type: ignore[arg-type]  # intentional wrong type to assert runtime ValidationError
 
     # timeline must be a list of VoiceEvent.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], timeline=[{"time": 1.0}])  # type: ignore[arg-type]
+        ScenarioResult(success=True, messages=[], timeline=[{"time": 1.0}])  # type: ignore[arg-type]  # intentional wrong type to assert runtime ValidationError
 
     # latency must be a LatencyMetrics.
     with pytest.raises(ValidationError):
-        ScenarioResult(success=True, messages=[], latency={"measurements": []})  # type: ignore[arg-type]
+        ScenarioResult(success=True, messages=[], latency={"measurements": []})  # type: ignore[arg-type]  # intentional wrong type to assert runtime ValidationError
 
     # Correctly-typed values are accepted.
     ok = ScenarioResult(
