@@ -496,3 +496,37 @@ async def test_harvest_failure_on_error_path_preserves_original_error(monkeypatc
         )
 
     monkeypatch.setattr(ScenarioExecutor, "_attach_voice_output", original_attach)
+
+
+@_skip_in_ci
+@pytest.mark.asyncio
+async def test_harvest_failure_on_max_turns_path_returns_max_turns_result(monkeypatch):
+    """If _attach_voice_output raises on the max-turns path, the max-turns
+    ScenarioResult (success=False, 'Reached maximum turns') must be RETURNED
+    unmasked — not replaced by the harvest exception.
+    """
+    from scenario.scenario_executor import ScenarioExecutor
+
+    def _broken_attach(self, result):
+        raise RuntimeError("harvest exploded on max-turns")
+
+    monkeypatch.setattr(ScenarioExecutor, "_attach_voice_output", _broken_attach)
+
+    # Drive the mid-script L519 max-turns route (max_turns=1 + proceed() trips
+    # the current_turn >= max_turns check before conclusion).
+    result = await run(
+        name="harvest-fail-max-turns",
+        description="max-turns result must survive a broken harvest",
+        agents=[
+            _StubVoiceAdapter(),
+            _StubUserSim(model="none"),
+            _NoopJudge(model="none", criteria=["c"]),
+        ],
+        max_turns=1,
+        script=[proceed()],
+    )
+
+    # The max-turns ScenarioResult must come back — not an exception.
+    assert result.success is False
+    assert result.reasoning is not None
+    assert "maximum turns" in result.reasoning.lower() or "without conclusion" in result.reasoning.lower()

@@ -564,7 +564,16 @@ class ScenarioExecutor:
         # Harvest voice output so max-turns exits (both the mid-script L519
         # route and the end-of-script-without-conclusion L687 route) carry
         # result.audio/timeline/latency for voice runs (AC E1).
-        return self._attach_voice_output(result)
+        # Guard: if harvest itself raises, log and return the max-turns result
+        # unmodified so the caller always gets a valid ScenarioResult.
+        try:
+            result = self._attach_voice_output(result)
+        except Exception:
+            logger.warning(
+                "voice harvest failed on max-turns path; returning result without voice fields",
+                exc_info=True,
+            )
+        return result
 
     async def run(self) -> ScenarioResult:
         """
@@ -633,7 +642,13 @@ class ScenarioExecutor:
                         if result.success
                         else ScenarioRunFinishedEventStatus.FAILED
                     )
-                    result = self._attach_voice_output(result)
+                    try:
+                        result = self._attach_voice_output(result)
+                    except Exception:
+                        logger.warning(
+                            "voice harvest failed on script-result path; returning result without voice fields",
+                            exc_info=True,
+                        )
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -690,7 +705,13 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
-                result = self._attach_voice_output(result)
+                try:
+                    result = self._attach_voice_output(result)
+                except Exception:
+                    logger.warning(
+                        "voice harvest failed on checkpoint-results path; returning result without voice fields",
+                        exc_info=True,
+                    )
 
                 status = (
                     ScenarioRunFinishedEventStatus.SUCCESS
