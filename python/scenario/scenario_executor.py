@@ -85,6 +85,12 @@ import litellm
 import langwatch
 import langwatch.telemetry.context
 from langwatch.telemetry.tracing import LangWatchTrace
+from scenario._tracing.sdk_metadata import (
+    ATTR_SCENARIO_SDK_NAME,
+    ATTR_SCENARIO_SDK_VERSION,
+    SCENARIO_SDK_NAME,
+    SCENARIO_SDK_VERSION,
+)
 
 
 def _extract_text_content(content: object) -> str:
@@ -457,6 +463,8 @@ class ScenarioExecutor:
         if self._trace.root_span is not None:
             attrs = {
                 "langwatch.origin": "simulation",
+                ATTR_SCENARIO_SDK_NAME: SCENARIO_SDK_NAME,
+                ATTR_SCENARIO_SDK_VERSION: SCENARIO_SDK_VERSION,
                 "scenario.run_id": self._scenario_run_id,
             }
             for role, tier_value in getattr(self, '_modality_resolutions', {}).items():
