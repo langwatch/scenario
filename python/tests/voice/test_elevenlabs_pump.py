@@ -225,7 +225,7 @@ async def test_pump_tick_three_way_gate_and_flag_transitions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fallback_send_audio_routes_through_pump_no_direct_write() -> None:
+async def test_fallback_send_audio_routes_through_pump_no_direct_write():
     """P2 review fix: the pure-audio fallback path (silence mode / no-transcript)
     must NOT write audio directly to the WS while the background pump also runs
     — that would be two concurrent writers producing interleaved/oversized

@@ -295,7 +295,7 @@ async def test_text_mode_without_transcript_falls_back_to_silence_tail():
 async def test_silence_tail_bytes_resizes_the_fallback_tail():
     """``silence_tail_bytes`` resizes the fallback tail — the number of queued
     960-byte silence frames scales with it."""
-    adapter, socket = await _connected_adapter(
+    adapter, _socket = await _connected_adapter(
         turn_commit_mode="silence", silence_tail_bytes=2400
     )
     # Take manual pump control (stop the background task, clear its queue) so
