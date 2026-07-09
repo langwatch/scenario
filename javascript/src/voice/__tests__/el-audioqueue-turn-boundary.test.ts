@@ -37,6 +37,7 @@ import {
 import { AdapterCapabilities } from "../capabilities";
 import { extractAudio, createAudioMessage } from "../messages";
 import { VoiceRecordingRuntime } from "../recording.runtime";
+import type { AudioSegment, VoiceRecording } from "../recording.types";
 import type { VoiceExecutorState } from "../voice-executor-state";
 
 /** A non-silent PCM16 (mono, 24kHz) chunk of the given duration, carrying no transcript. */
@@ -195,9 +196,43 @@ function inputWithState(
   };
 }
 
+/** The recording a voice state carries — fails loudly if it was never wired. */
+function recordingOf(state: VoiceExecutorState): VoiceRecording {
+  const recording = state.voiceRecording;
+  if (!recording) {
+    throw new Error("voice executor state carries no recording");
+  }
+  return recording;
+}
+
 /** Agent segments of a recording, in order. */
-function agentSegments(state: VoiceExecutorState) {
-  return state.voiceRecording!.segments.filter((s) => s.speaker === "agent");
+function agentSegments(state: VoiceExecutorState): AudioSegment[] {
+  return recordingOf(state).segments.filter((s) => s.speaker === "agent");
+}
+
+/** The first agent segment — fails loudly if the run recorded none. */
+function firstAgentSegment(state: VoiceExecutorState): AudioSegment {
+  const segment = agentSegments(state)[0];
+  if (!segment) {
+    throw new Error("expected at least one agent segment in the recording");
+  }
+  return segment;
+}
+
+/**
+ * Every segment starts at or after the previous one ends — the append-only
+ * audio-cursor invariant the reconcile must never break.
+ */
+function expectMonotonicSegments(state: VoiceExecutorState): void {
+  const segs = recordingOf(state).segments;
+  for (let i = 1; i < segs.length; i++) {
+    const previous = segs[i - 1];
+    const current = segs[i];
+    if (!previous || !current) {
+      throw new Error(`segments array has a hole at index ${i}`);
+    }
+    expect(current.startTime).toBeGreaterThanOrEqual(previous.endTime - 1e-6);
+  }
 }
 
 /** Byte-duration (s) of a PCM16/24k/mono segment. */
@@ -307,13 +342,17 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       await defaultVoiceCall(adapter, inputWithState(state));
       expect(adapter.queuedFrames).toBe(1); // 0.5s stranded
       expect(agentSegments(state)).toHaveLength(1);
-      expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(2.0, 1);
+      expect(segSeconds(firstAgentSegment(state).audio)).toBeCloseTo(2.0, 1);
 
       // Capture the greeting's agent_stop_speaking event (emitted at endTime 2.0)
       // and wire an onAudioChunk hook so we can assert the reconciled bytes are
       // delivered to hook/playback consumers, not silently spliced.
-      const stopEvent = state
-        .voiceRecording!.timeline.find((e) => e.type === "agent_stop_speaking")!;
+      const stopEvent = recordingOf(state).timeline.find(
+        (e) => e.type === "agent_stop_speaking",
+      );
+      if (!stopEvent) {
+        throw new Error("greeting turn emitted no agent_stop_speaking event");
+      }
       expect(stopEvent.time).toBeCloseTo(2.0, 1);
       const hookChunks: AudioChunk[] = [];
       (state as unknown as { onAudioChunk?: (c: AudioChunk) => void }).onAudioChunk =
@@ -330,7 +369,7 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       // (a) no bleed: turn 2's agent audio does not contain the stale remainder.
       expect(audioSecondsOf(turn2)).toBeCloseTo(0, 1);
       // (b) attributed: the greeting segment grew by exactly the stranded 0.5s.
-      expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(GREETING_S, 1);
+      expect(segSeconds(firstAgentSegment(state).audio)).toBeCloseTo(GREETING_S, 1);
       expect(adapter.queuedFrames).toBe(0);
       // (c) a warning named the reconciliation.
       const warnedReconcile = warnSpy.mock.calls.some((c) =>
@@ -346,12 +385,9 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       expect(stopEvent.time).toBeCloseTo(GREETING_S, 1);
       // (f) the grown segment is flagged for the finalize STT back-fill so its
       // transcript can be re-derived to cover the reconciled continuation.
-      expect(agentSegments(state)[0]!.transcriptTruncated).toBe(true);
+      expect(firstAgentSegment(state).transcriptTruncated).toBe(true);
       // Cursor stays monotonic: user segment starts at/after the grown agent end.
-      const segs = state.voiceRecording!.segments;
-      for (let i = 1; i < segs.length; i++) {
-        expect(segs[i]!.startTime).toBeGreaterThanOrEqual(segs[i - 1]!.endTime - 1e-6);
-      }
+      expectMonotonicSegments(state);
     } finally {
       warnSpy.mockRestore();
       vi.unstubAllEnvs();
@@ -394,14 +430,14 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       // Simulate a barge-in recording shape: a USER segment is now the LAST on
       // the cursor (as fireUserInterrupt lays it after the interrupted agent
       // segment). The reconcile must NOT grow the earlier agent segment here…
-      state.voiceRecording!.segments.push({
+      recordingOf(state).segments.push({
         speaker: "user",
         startTime: 2.0,
         endTime: 2.5,
         audio: tone(FRAME_S).data,
       });
       state.voiceAudioCursor = 2.5; // advance the cursor as the real recorder does
-      const agentAudioBefore = segSeconds(agentSegments(state)[0]!.audio);
+      const agentAudioBefore = segSeconds(firstAgentSegment(state).audio);
 
       const turn2 = await defaultVoiceCall(
         adapter,
@@ -415,7 +451,7 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       expect(audioSecondsOf(turn2)).toBeCloseTo(0, 1);
       // The agent segment was NOT grown (cursor-unsafe shape) — the drained audio
       // is dropped with a warning, not attributed.
-      expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(
+      expect(segSeconds(firstAgentSegment(state).audio)).toBeCloseTo(
         agentAudioBefore,
         3,
       );
@@ -428,10 +464,7 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       );
       expect(grownWarn).toBe(false);
       // …and every segment boundary stays monotonic (no overlap).
-      const segs = state.voiceRecording!.segments;
-      for (let i = 1; i < segs.length; i++) {
-        expect(segs[i]!.startTime).toBeGreaterThanOrEqual(segs[i - 1]!.endTime - 1e-6);
-      }
+      expectMonotonicSegments(state);
     } finally {
       warnSpy.mockRestore();
       vi.unstubAllEnvs();

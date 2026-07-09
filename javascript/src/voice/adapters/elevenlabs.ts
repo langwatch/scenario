@@ -980,7 +980,9 @@ export interface ElevenLabsVoiceAgentOptions {
  * @example
  * ```ts
  * // Defaults — all ElevenLabs STT, gpt-5.4-mini, EL TTS
- * const agent = new ElevenLabsVoiceAgent({ apiKey: process.env.ELEVENLABS_API_KEY! });
+ * const apiKey = process.env.ELEVENLABS_API_KEY;
+ * if (!apiKey) throw new Error("ELEVENLABS_API_KEY is not set");
+ * const agent = new ElevenLabsVoiceAgent({ apiKey });
  *
  * // Override just the LLM
  * import { anthropic } from "@ai-sdk/anthropic";

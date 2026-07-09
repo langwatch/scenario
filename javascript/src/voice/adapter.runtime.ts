@@ -42,6 +42,22 @@ import { Logger } from "../utils/logger";
 const logger = new Logger("voice.adapter.runtime");
 
 /**
+ * A `Promise<void>` paired with its external `resolve` handle. The Promise
+ * executor runs synchronously, so `resolve` is always captured before this
+ * returns; the guard states that contract rather than asserting it away.
+ */
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: (() => void) | undefined;
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+  if (!resolve) {
+    throw new Error("createDeferred: Promise executor did not run synchronously");
+  }
+  return { promise, resolve };
+}
+
+/**
  * `asyncio.Event` analogue: a `Promise<void>` + external resolve handle.
  *
  * Awaiters call {@link wait}; producers call {@link set} the moment the
@@ -51,13 +67,13 @@ const logger = new Logger("voice.adapter.runtime");
  */
 export class AgentSpeakingEvent {
   private resolved = false;
-  private resolveFn!: () => void;
+  private resolveFn: () => void;
   private promise: Promise<void>;
 
   constructor() {
-    this.promise = new Promise<void>((resolve) => {
-      this.resolveFn = resolve;
-    });
+    const deferred = createDeferred();
+    this.promise = deferred.promise;
+    this.resolveFn = deferred.resolve;
   }
 
   /** Resolve any pending {@link wait} callers and stay resolved. */
@@ -86,9 +102,9 @@ export class AgentSpeakingEvent {
   /** Rebuild the underlying promise so the next turn can wait again. */
   clear(): void {
     this.resolved = false;
-    this.promise = new Promise<void>((resolve) => {
-      this.resolveFn = resolve;
-    });
+    const deferred = createDeferred();
+    this.promise = deferred.promise;
+    this.resolveFn = deferred.resolve;
   }
 }
 
@@ -498,10 +514,10 @@ function reconcilePriorAgentAudio(
   const leftover = reconcile.call(adapter);
   if (!leftover || leftover.data.length === 0) return;
 
-  const recording = state.voiceRecording;
+  const segments = state.voiceRecording?.segments;
   const last =
-    recording && recording.segments.length > 0
-      ? recording.segments[recording.segments.length - 1]!
+    segments && segments.length > 0
+      ? segments[segments.length - 1]
       : undefined;
   // Attribute only when the prior AGENT segment is still last on the cursor.
   if (!last || last.speaker !== "agent") {
@@ -553,7 +569,8 @@ function moveAgentStopSpeaking(
   const timeline = state.voiceRecording?.timeline;
   if (!timeline) return;
   for (let i = timeline.length - 1; i >= 0; i--) {
-    const event = timeline[i]!;
+    const event = timeline[i];
+    if (!event) continue;
     if (
       event.type === "agent_stop_speaking" &&
       Math.abs(event.time - oldTime) < 1e-6
@@ -657,7 +674,9 @@ async function drainAgentResponse(
 }
 
 function mergeChunks(chunks: AudioChunk[]): AudioChunk {
-  if (chunks.length === 1) return chunks[0]!;
+  const first = chunks[0];
+  // Single-chunk fast path — hand it back as-is instead of copying its bytes.
+  if (chunks.length === 1 && first) return first;
   const total = chunks.reduce((acc, c) => acc + c.data.length, 0);
   const data = new Uint8Array(total);
   let offset = 0;
