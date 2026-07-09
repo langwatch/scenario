@@ -645,11 +645,18 @@ describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
 
         // Use the real openCodeAgent — NO injected client, lets the adapter
         // spawn the opencode binary (requires opencode on PATH + provider keys).
+        //
+        // `timeout` must stay BELOW this test's 180s vitest timeout. A live
+        // prompt can stall (observed ~1 run in 6); without a bound, vitest kills
+        // the test body and the `finally` below never runs, leaking the temp dir
+        // and the spawned server. Bounded, the stall rejects inside the test, so
+        // teardown still happens and the failure names its own cause.
         const agent = openCodeAgent({
           model: {
             providerID: process.env.OPENCODE_PROVIDER_ID ?? "openai",
             modelID: process.env.OPENCODE_MODEL_ID ?? "gpt-5.4-mini",
           },
+          timeout: 120_000,
           workingDirectory: tmpDir,
         });
 
