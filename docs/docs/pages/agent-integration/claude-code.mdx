@@ -108,14 +108,17 @@ the executor wraps every adapter error in a plain `Error`, so catch that and
 read the original off `.cause`:
 
 ```typescript
-import { ClaudeCodeCliError } from "@langwatch/scenario";
+import { ClaudeCodeCliError, LostSessionError } from "@langwatch/scenario";
 
 try {
   await scenario.run({ /* ... */ });
 } catch (err) {
   // scenario.run wraps adapter errors — the original is on `.cause`
   const cause = err instanceof Error ? err.cause : undefined;
-  if (cause instanceof ClaudeCodeCliError) {
+  if (cause instanceof LostSessionError) {
+    // the --resume session vanished; sessionId / threadId name the dead session
+    console.error("lost session", cause.sessionId, cause.threadId);
+  } else if (cause instanceof ClaudeCodeCliError) {
     console.error(cause.exitCode, cause.signal, cause.stderr);
   }
 }
@@ -123,15 +126,42 @@ try {
 
 `exitCode` (`number | null`) and `signal` (`NodeJS.Signals | null`) mirror
 Node's `child_process` exit info; `stderr` (`string`) is the CLI's captured
-output.
+output. `subtype` (`string | undefined`) is the CLI's machine-readable failure
+class off its terminal `result` envelope (e.g. `"error_during_execution"`), and
+`errors` (`string[] | undefined`) is the structured `errors[]` array the CLI
+fielded on that envelope.
 
-:::warning `stderr` is unredacted CLI output
+A vanished `--resume` session rejects with **`LostSessionError`**, a
+`ClaudeCodeCliError` subclass that additionally exposes the dead `sessionId` and
+its `threadId` and sets the originating `ClaudeCodeCliError` as `.cause`. Because
+it is a subclass, `instanceof ClaudeCodeCliError` still matches it while
+`instanceof LostSessionError` singles it out — see [Lost
+session](#caveats). (It is thrown only under the default
+`replayOnLostSession: false`; with replay on, the turn rebuilds instead of
+throwing.)
 
-`stderr` carries whatever the CLI wrote to its error stream verbatim — it may
-include sensitive detail (environment values, a rejected API key echoed in an
-error). It is also an enumerable field, so it appears in
-`JSON.stringify(error)` too. Do not log it verbatim to shared or public sinks;
-redact or drop it before it leaves a trusted boundary.
+:::warning `stderr` and `errors` are unredacted CLI output
+
+`stderr` and every entry of `errors[]` carry whatever the CLI wrote verbatim —
+they may include sensitive detail (environment values, a rejected API key echoed
+in an error). Both are enumerable (as is `subtype`), so they appear in
+`JSON.stringify(error)` too, and `errors[]` is additionally embedded into the
+error's `message` (falling back to `stderr` when the envelope carried no
+`errors[]`). Do not log them verbatim to shared or public sinks; redact or drop
+them before they leave a trusted boundary.
+
+:::
+
+:::warning Error messages are exported to tracing by default
+
+When an `agent.call()` fails inside `scenario.run(...)`, the error `message` —
+which embeds the CLI's `errors[]` (or `stderr`) verbatim — is exported to
+whatever tracing backend LangWatch is configured with: the span handling calls
+`recordException(err)` and `setStatus({ message: err.message })` with **no
+redaction and no opt-out**. Any sensitive detail in the CLI's error output
+therefore reaches your tracing sink on every failed turn. A scrubbing hook is
+tracked in
+[#754](https://github.com/langwatch/scenario/issues/754).
 
 :::
 

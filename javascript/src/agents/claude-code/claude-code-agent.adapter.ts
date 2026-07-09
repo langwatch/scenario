@@ -84,14 +84,28 @@ const STALE_SESSION_ERROR = /no conversation found/i;
 /**
  * A Claude Code CLI invocation that failed: it exited non-zero, died on a
  * signal, or fielded `is_error: true` on its terminal `result` envelope. Carries
- * the raw exit status and stderr AND the envelope's `subtype`/`errors` so a
- * caller can tell a vanished session apart from a genuine failure (bad auth,
- * rate limit, unknown model).
+ * the raw exit status and stderr AND the CLI's own structured failure fields off
+ * the terminal `result` envelope:
+ *  - `subtype` — the envelope's failure class, the CLI's machine-readable label
+ *    for what went wrong (e.g. `"error_during_execution"`).
+ *  - `errors` — the `errors[]` the CLI fielded on that envelope: its structured
+ *    error strings (e.g. `"No conversation found with session ID: <id>"` for a
+ *    stale `--resume`).
+ * A genuine failure (bad auth, rate limit, unknown model) surfaces as this
+ * class; a vanished `--resume` session surfaces as the {@link LostSessionError}
+ * subclass, so a caller can branch on `instanceof LostSessionError` rather than
+ * string-matching the message.
  *
- * Note `stderr` is unredacted CLI output and may echo sensitive detail (env, a
- * rejected key); callers should not log it verbatim to shared/public sinks. It
- * is enumerable (a `readonly` ctor param), so it also appears in
- * `JSON.stringify(error)` — the same caveat applies there.
+ * SECURITY — `stderr` and every entry of `errors[]` are UNREDACTED CLI output
+ * and may echo sensitive detail (env values, a rejected key); `message` embeds
+ * `errors[]` (or, when the envelope carried none, `stderr`). `stderr`, `errors`,
+ * and `subtype` are all enumerable (`readonly` ctor params), so they also appear
+ * in `JSON.stringify(error)`. Do not log them verbatim to shared/public sinks;
+ * redact or drop before a trusted boundary. Note too that `message` is exported
+ * to tracing automatically: on a failed `call()` under `scenario.run(...)`,
+ * LangWatch records it via `recordException`/`setStatus` with no redaction and
+ * no opt-out (systemic fix tracked in #754), so any sensitive CLI output carried
+ * in it reaches your configured tracing sink on every failed turn.
  */
 export class ClaudeCodeCliError extends Error {
   constructor(
@@ -104,6 +118,42 @@ export class ClaudeCodeCliError extends Error {
   ) {
     super(message);
     this.name = "ClaudeCodeCliError";
+  }
+}
+
+/**
+ * The specific {@link ClaudeCodeCliError} raised when a `--resume`d session has
+ * vanished server-side and `replayOnLostSession` is off (the default): the turn
+ * rejects rather than silently rebuilding into a fresh session. Because it is a
+ * `ClaudeCodeCliError` subclass, `instanceof ClaudeCodeCliError` stays true
+ * while `instanceof LostSessionError` distinguishes THIS failure — the one a
+ * caller most often needs to branch on — from a genuine CLI failure (bad auth,
+ * rate limit, unknown model).
+ *
+ * It carries the originating error's `exitCode`/`signal`/`stderr`/`subtype`/
+ * `errors` (copied from `cause`) plus the dead `sessionId` and its `threadId` as
+ * typed fields, and sets that originating {@link ClaudeCodeCliError} as `cause`.
+ */
+export class LostSessionError extends ClaudeCodeCliError {
+  constructor(
+    message: string,
+    /** The evicted session id that `--resume` could no longer find. */
+    readonly sessionId: string,
+    /** The thread whose cached session vanished. */
+    readonly threadId: string,
+    /** The originating CLI failure; also set as this error's `cause`. */
+    cause: ClaudeCodeCliError,
+  ) {
+    super(
+      message,
+      cause.exitCode,
+      cause.signal,
+      cause.stderr,
+      cause.subtype,
+      cause.errors,
+    );
+    this.name = "LostSessionError";
+    this.cause = cause;
   }
 }
 
@@ -333,6 +383,10 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
           timeoutMs,
         );
         if (sessionId) this.sessions.set(threadId, sessionId);
+        // LOAD-BEARING return: without it a successful resume would fall through
+        // to the shared full-history rebuild below (a second spawn). See the
+        // fall-through INVARIANT note and its "successful resume spawns exactly
+        // once" regression test.
         return text;
       } catch (error) {
         // A non-stale failure surfaces AS-IS and leaves the session cached: it
@@ -345,14 +399,19 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
         if (!this.config.replayOnLostSession) {
           // Default: fail loudly. A replay is a real modality change (it loses
           // server-side session state), so under an eval harness we do not do it
-          // silently; the caller opts in via `replayOnLostSession`.
-          throw new Error(
+          // silently; the caller opts in via `replayOnLostSession`. Throw the
+          // typed LostSessionError (a ClaudeCodeCliError subclass) so a caller
+          // can branch on `instanceof LostSessionError`, carrying the dead id,
+          // its thread, and the originating failure as `cause`.
+          throw new LostSessionError(
             `Claude Code session ${resumeSessionId} for thread ${threadId} no longer exists ` +
               `(--resume reported: No conversation found). Set replayOnLostSession: true to rebuild ` +
               `this turn from the full transcript instead — note that replays the conversation as a ` +
               `flat prompt into a NEW session and loses server-side session state (context cache, ` +
               `tool state), so the turn is no longer a true session continuation.`,
-            { cause: error },
+            resumeSessionId,
+            threadId,
+            error,
           );
         }
         this.logger.warn(
@@ -360,7 +419,12 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
             `replayOnLostSession is set, so rebuilding this turn from full history ` +
             `into a fresh session (server-side session state is lost).`,
         );
-        // fall through to the full-history rebuild below
+        // INVARIANT (regression-guarded): only a stale-session catch that opted
+        // into replay may fall through to the shared full-history rebuild below.
+        // The SUCCESS path above returns `text` before it can reach here, so a
+        // successful resume must NOT run the rebuild. The "successful resume
+        // spawns exactly once" test pins this, failing the moment that
+        // load-bearing `return` is dropped.
       }
     }
 

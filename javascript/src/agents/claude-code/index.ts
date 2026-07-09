@@ -5,6 +5,7 @@ import { injectSkill } from "./skill-injection.js";
 export {
   ClaudeCodeAgentAdapter,
   ClaudeCodeCliError,
+  LostSessionError,
 } from "./claude-code-agent.adapter.js";
 export type {
   ClaudeCodeAgentAdapterConfig,

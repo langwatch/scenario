@@ -16,12 +16,19 @@
  *      delta, fall back to full history when no id was captured, and — the new
  *      lifecycle rules — DON'T evict the session on a non-stale failure (signal,
  *      nonzero exit) or a timeout, so the next turn still resumes the same id.
+ *      Also pins the PRIN-A invariant: a SUCCESSFUL resume spawns exactly once
+ *      (the load-bearing `return` guard), never falling through to the rebuild.
  *  1c. stale-session recovery: a vanished `--resume` session rejects by default
  *      (error naming `replayOnLostSession`), and — only with
  *      `replayOnLostSession: true` — rebuilds in-turn from full history and
  *      resolves. Detection works structurally (the CLI's `result` envelope with
  *      empty stderr) AND via the stderr fallback. Includes a mocked
  *      `ScenarioExecution` regression (see note below) and turn-1 guard.
+ *  1d. LostSessionError type contract: the default lost-session reject throws a
+ *      `LostSessionError` (a `ClaudeCodeCliError` subclass) carrying the dead
+ *      `sessionId`/`threadId` and the originating error as `cause`; replay-on
+ *      never throws it (it recovers); a non-stale failure stays a bare
+ *      `ClaudeCodeCliError`.
  *  2.  stream-json parsing preserves array-shaped `tool_result` content (never
  *      `[object Object]`); `session_id` capture; `is_error`/`result` envelope.
  *  3.  unknown event → `logger.warn` (deduped once per type), no throw, known
@@ -98,6 +105,8 @@ import {
 } from "../../script/index.js";
 import {
   ClaudeCodeAgentAdapter,
+  ClaudeCodeCliError,
+  LostSessionError,
   claudeCodeAgent,
   parseStreamJson,
   assertSkillWasRead,
@@ -729,6 +738,60 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
     expect(prompt3).toContain("THIRD_TURN_DELTA");
     expect(prompt3).not.toContain("FIRST_TURN_TEXT");
   });
+
+  // PRIN-A fall-through guard. `call()`'s catch falls through onto the shared
+  // full-history rebuild only for an opted-in stale session; the SUCCESS path's
+  // load-bearing `return text` is the ONLY thing stopping a successful resume
+  // from ALSO running that rebuild. This pins the invariant: a successful resume
+  // spawns exactly ONCE and returns the resumed text from the delta alone. It
+  // goes red the moment a future editor drops that `return`. scriptedSpawn
+  // self-drives every spawn (incl. a would-be third one), so a regression fails
+  // on the assertions below rather than hanging on an undriven rebuild child.
+  it("a successful resume turn spawns exactly once (no fall-through to the rebuild) and returns the resumed text from the delta only", async () => {
+    scriptedSpawn([
+      // Turn 1: mints session "sess-once".
+      { stdout: systemInitLine("sess-once") + "\n" + assistantLine("ok") + "\n" },
+      // Turn 2: --resume sess-once SUCCEEDS with the resumed answer.
+      { stdout: assistantLine("RESUMED_ANSWER") + "\n" },
+      // A third spawn must never happen on a successful resume; if the
+      // load-bearing `return` is dropped this self-closes and the count/text
+      // assertions below go red (instead of the test hanging).
+      { stdout: assistantLine("REBUILD_SHOULD_NOT_RUN") + "\n" },
+    ]);
+
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes the session.
+    await adapter.call(makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]));
+
+    // Turn 2 resumes and succeeds.
+    const turn2Text = await adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+
+    // Resolves with the resumed text — NOT the rebuild's text.
+    expect(turn2Text).toContain("RESUMED_ANSWER");
+    expect(turn2Text).not.toContain("REBUILD_SHOULD_NOT_RUN");
+
+    // Exactly one spawn for turn 2 (two total): a successful resume must not fall
+    // through to the rebuild.
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+
+    // Turn 2 resumed the session and sent ONLY the delta, never the full history.
+    const argv2 = argvAt(1);
+    expect(argv2).toContain("--resume");
+    expect(argv2[argv2.indexOf("--resume") + 1]).toBe("sess-once");
+    const turn2Prompt = argv2.at(-1) ?? "";
+    expect(turn2Prompt).toContain("SECOND_TURN_DELTA");
+    expect(turn2Prompt).not.toContain("FIRST_TURN_TEXT");
+  });
 });
 
 // --- 1c. stale-session recovery ---------------------------------------------
@@ -1049,6 +1112,167 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
       )
       .join("\n");
     expect(assistantText).toContain("recovered answer");
+  });
+});
+
+// --- 1d. LostSessionError type contract -------------------------------------
+//
+// The default lost-session path must surface a TYPED error, not a plain one:
+// `LostSessionError extends ClaudeCodeCliError`, so a caller doing
+// `catch (e) { if (e instanceof ClaudeCodeCliError) … }` still catches it, while
+// `instanceof LostSessionError` distinguishes the vanished session — the failure
+// a caller most needs to branch on — from a genuine CLI failure.
+
+describe("ClaudeCodeAgentAdapter LostSessionError", () => {
+  it("throws a LostSessionError (also a ClaudeCodeCliError) carrying the dead session id, thread, and cause when replay is off", async () => {
+    // Default policy (replayOnLostSession unset): a lost session is THROWN, not
+    // rebuilt — and the thrown error must be the typed LostSessionError.
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes session "sess-vanished" on thread "thread-lost".
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }], {
+        threadId: "thread-lost",
+      }),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-vanished") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2 resumes the now-vanished session.
+    const staleChild = new FakeChild();
+    withChild(staleChild);
+    let caught: unknown;
+    try {
+      const turn2 = adapter.call(
+        makeInput(
+          [
+            { role: "user", content: "FIRST_TURN_TEXT" },
+            { role: "assistant", content: "ok" },
+            { role: "user", content: "SECOND_TURN_DELTA" },
+          ],
+          {
+            threadId: "thread-lost",
+            newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }],
+          },
+        ),
+      );
+      staleChild.pushStderr(
+        "No conversation found with session ID: sess-vanished",
+      );
+      staleChild.close(1);
+      await turn2;
+    } catch (err) {
+      caught = err;
+    }
+
+    // Subclass identity: BOTH instanceofs hold; only LostSessionError singles it out.
+    expect(caught).toBeInstanceOf(LostSessionError);
+    expect(caught).toBeInstanceOf(ClaudeCodeCliError);
+    const lost = caught as LostSessionError;
+    expect(lost.name).toBe("LostSessionError");
+    // Typed fields naming the dead session.
+    expect(lost.sessionId).toBe("sess-vanished");
+    expect(lost.threadId).toBe("thread-lost");
+    // The originating CLI failure is preserved as `cause` — itself a plain
+    // ClaudeCodeCliError, NOT a LostSessionError.
+    expect(lost.cause).toBeInstanceOf(ClaudeCodeCliError);
+    expect(lost.cause).not.toBeInstanceOf(LostSessionError);
+    // The actionable message is retained verbatim.
+    expect(lost.message).toMatch(/replayOnLostSession: true/);
+    expect(lost.message).toMatch(/no longer exists/);
+  });
+
+  it("with replayOnLostSession: true, never throws a LostSessionError — it recovers in place and resolves", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      replayOnLostSession: true,
+    });
+
+    // Turn 1 establishes session "sess-vanished".
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-vanished") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2 resumes the vanished session; replay is opted in, so it recovers.
+    const staleChild = new FakeChild();
+    const rebuildChild = new FakeChild();
+    withChildren([staleChild, rebuildChild]);
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    staleChild.pushStderr(
+      "No conversation found with session ID: sess-vanished",
+    );
+    staleChild.close(1);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(3));
+    rebuildChild.pushStdout(
+      systemInitLine("sess-fresh") + "\n" + assistantLine("recovered") + "\n",
+    );
+    rebuildChild.close(0);
+
+    // No LostSessionError thrown: the turn recovers and resolves with the
+    // rebuilt answer.
+    await expect(turn2).resolves.toContain("recovered");
+  });
+
+  it("a non-stale resume failure rejects with a bare ClaudeCodeCliError, never a LostSessionError", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes a live session.
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(makeInput([{ role: "user", content: "one" }]));
+    child1.pushStdout(
+      systemInitLine("sess-live") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2 resumes but fails for a NON-stale reason (rate limit). The original
+    // CLI failure must surface AS-IS, never reclassified as a lost session.
+    const child2 = new FakeChild();
+    withChild(child2);
+    let caught: unknown;
+    try {
+      const turn2 = adapter.call(
+        makeInput(
+          [
+            { role: "user", content: "one" },
+            { role: "assistant", content: "ok" },
+            { role: "user", content: "two" },
+          ],
+          { newMessages: [{ role: "user", content: "two" }] },
+        ),
+      );
+      child2.pushStderr("Rate limit exceeded");
+      child2.close(1);
+      await turn2;
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ClaudeCodeCliError);
+    expect(caught).not.toBeInstanceOf(LostSessionError);
   });
 });
 
