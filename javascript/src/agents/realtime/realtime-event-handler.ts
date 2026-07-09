@@ -1,5 +1,7 @@
 import type { RealtimeSession } from "@openai/agents/realtime";
 
+import { Logger } from "../../utils/logger";
+
 /**
  * Event emitted when an audio response is completed
  */
@@ -43,6 +45,7 @@ export class RealtimeEventHandler {
   private responseResolver: ((value: AudioResponseEvent) => void) | null = null;
   private errorRejecter: ((error: Error) => void) | null = null;
   private listenersSetup = false;
+  private readonly logger = new Logger("RealtimeEventHandler");
 
   /**
    * Creates a new RealtimeEventHandler instance
@@ -87,7 +90,7 @@ export class RealtimeEventHandler {
     const transport = this.getTransport();
 
     if (!transport) {
-      console.error("❌ Transport not available on session");
+      this.logger.error("Transport not available on session");
       return;
     }
 
@@ -123,7 +126,7 @@ export class RealtimeEventHandler {
 
     // Handle transport errors
     transport.on("error", (error: unknown) => {
-      console.error(`❌ Transport error:`, error);
+      this.logger.error("Transport error", error);
       if (this.errorRejecter) {
         const errorObj =
           error instanceof Error ? error : new Error(String(error));

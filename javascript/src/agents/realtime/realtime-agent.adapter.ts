@@ -19,6 +19,7 @@ import {
 import { ResponseFormatter } from "./response-formatter";
 import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
 import { AgentAdapter } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -96,6 +97,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private messageProcessor = new MessageProcessor();
   private responseFormatter = new ResponseFormatter();
   private audioEvents = new EventEmitter();
+  private readonly logger = new Logger("RealtimeAgentAdapter");
 
   /**
    * Creates a new RealtimeAgentAdapter instance
@@ -143,7 +145,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * @returns Agent response as audio message or text
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
-    console.log(`🔊 [${this.name}] being called with role: ${this.role}`);
+    this.logger.debug(`[${this.name}] being called with role: ${this.role}`);
 
     const latestMessage = input.newMessages[input.newMessages.length - 1];
 
@@ -172,7 +174,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Handles the initial response when no user message exists
    */
   private async handleInitialResponse(): Promise<AssistantModelMessage> {
-    console.log(`[${this.name}] First message, creating response`);
+    this.logger.debug(`[${this.name}] First message, creating response`);
 
     const sessionWithTransport = this.session as RealtimeSession & {
       transport?: {
