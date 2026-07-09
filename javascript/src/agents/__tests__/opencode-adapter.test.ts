@@ -580,6 +580,24 @@ describe("OpenCodeAgentAdapter concurrency + config validation", () => {
     await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/timeout/i);
   });
 
+  // validateTimeout() is the SOLE guard in front of AbortSignal.timeout(), which
+  // throws a raw TypeError on a non-finite input. Pin both non-finite values, or
+  // dropping the Number.isFinite check would surface that TypeError to callers
+  // instead of the friendly validation message.
+  it.each([
+    ["NaN", NaN],
+    ["Infinity", Infinity],
+  ])("throws on a non-finite timeout (%s) before any RPC", async (_label, timeout) => {
+    const { client, createSpy, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client, { timeout }));
+
+    await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(
+      /timeout must be a positive, finite number/i,
+    );
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(promptSpy).not.toHaveBeenCalled();
+  });
+
   it("forwards an AbortSignal to session.prompt when a positive timeout is set", async () => {
     const { client, promptSpy } = makeFakeClient();
     const adapter = new OpenCodeAgentAdapter(makeConfig(client, { timeout: 5000 }));
