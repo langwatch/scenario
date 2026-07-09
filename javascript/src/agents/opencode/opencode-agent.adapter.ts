@@ -120,10 +120,14 @@ export interface OpenCodeAgentAdapterConfig {
   workingDirectory?: string;
 
   /**
-   * Per-call timeout in milliseconds. When set, the in-flight `session.prompt`
-   * is cancelled via `AbortSignal.timeout(timeout)` and the call rejects.
-   * Best-effort: if the underlying server ignores the abort, the call still
-   * settles when the prompt resolves. Default: none (unbounded).
+   * Timeout in milliseconds for the `session.prompt` call. When set, the
+   * in-flight prompt is cancelled via `AbortSignal.timeout(timeout)` and the
+   * call rejects. Best-effort: if the underlying server ignores the abort, the
+   * call still settles when the prompt resolves. Default: none (unbounded).
+   *
+   * Bounds the **prompt only** — not the one-time server spawn or
+   * `session.create` that may precede it. Total `call()` wall-clock is
+   * therefore `spawn + create + timeout`, not `timeout`.
    */
   timeout?: number;
 
@@ -214,22 +218,26 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Validate `config.timeout` eagerly, BEFORE any RPC. A null timeout is
-   * unbounded (no-op); a non-positive or non-finite value (e.g. an
-   * explicitly-set `0`) throws so a bad timeout fails loudly rather than being
-   * silently ignored by a truthiness check — the same timeout validation the
-   * in-flight Claude Code adapter (PR #687) performs. The abort signal itself is
-   * created separately, immediately before the prompt, so the spawn and
-   * `session.create` do not consume the timeout budget.
+   * Validate `config.timeout` eagerly, BEFORE any RPC, and return the validated
+   * value. A null timeout is unbounded (returns undefined); a non-positive or
+   * non-finite value (e.g. an explicitly-set `0`) throws so a bad timeout fails
+   * loudly rather than being silently ignored by a truthiness check — the same
+   * timeout validation the in-flight Claude Code adapter (PR #687) performs.
+   *
+   * Returning the value (rather than re-reading `config.timeout` at the signal
+   * site) keeps "the value validated" and "the value used" the same number:
+   * `config` is a caller-held mutable reference, and the two are now separated
+   * by the `ensureClient` / `resolveSessionId` awaits.
    */
-  private validateTimeout(): void {
+  private validateTimeout(): number | undefined {
     const timeout = this.config.timeout;
-    if (timeout == null) return;
+    if (timeout == null) return undefined;
     if (!Number.isFinite(timeout) || timeout <= 0) {
       throw new Error(
         `OpenCodeAgentAdapter timeout must be a positive, finite number of milliseconds; received ${timeout}`,
       );
     }
+    return timeout;
   }
 
   /**
@@ -323,7 +331,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     // fails fast instead of after a session.create. The abort budget itself is
     // started later (just before the prompt) so it covers ONLY the prompt — the
     // spawn and session.create must not consume it.
-    this.validateTimeout();
+    const timeoutMs = this.validateTimeout();
 
     const client = await this.ensureClient();
     const { sessionId, isContinuation } = await this.resolveSessionId(
@@ -337,12 +345,11 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
 
     const query = this.directoryQuery();
     // Start the timeout budget HERE, immediately before the prompt, so the
-    // preceding spawn + session.create do not eat into it. Undefined when no
-    // timeout is configured (validateTimeout already rejected bad values).
+    // preceding spawn + session.create do not eat into it. Built from the value
+    // `validateTimeout()` already checked, not a fresh read of the mutable
+    // `config`, so validated-value == used-value across the awaits above.
     const signal =
-      this.config.timeout != null
-        ? AbortSignal.timeout(this.config.timeout)
-        : undefined;
+      timeoutMs != null ? AbortSignal.timeout(timeoutMs) : undefined;
     const result = await client.session.prompt({
       path: { id: sessionId },
       body: {

@@ -130,7 +130,7 @@ own user-simulator and judge agents also need an LLM key — typically
 |---|---|---|---|
 | `model` | `{ providerID: string; modelID: string }` | **required** | Provider and model the OpenCode agent runs. Required as a product decision for reproducible, auditable evaluations — pin a deterministic model. Example: `{ providerID: "openai", modelID: "gpt-5.4-mini" }`. |
 | `workingDirectory` | `string` | — | Directory the OpenCode agent operates on. Forwarded as `query.directory` on each SDK call. File reads and writes inside the agent resolve relative to this path. |
-| `timeout` | `number` | none (unbounded) | Per-call timeout in ms. Cancels the in-flight prompt via `AbortSignal` and rejects the call. Best-effort: depends on whether the underlying server honours the abort. |
+| `timeout` | `number` | none (unbounded) | Timeout in ms for the `session.prompt` call. Cancels the in-flight prompt via `AbortSignal` and rejects the call. Bounds the **prompt only** — not the one-time server spawn or `session.create` — so total `call()` time is `spawn + create + timeout`. Best-effort: depends on whether the underlying server honours the abort. |
 | `logger` | `OpenCodeLogger` | no-op | Receives all adapter diagnostics (`log`). Omit for silent operation. |
 | `client` | `OpencodeClient` | — | Advanced injection seam. Provide a pre-built `OpencodeClient` to drive a custom or pre-started server, or to inject a fake for unit tests. When provided, `close()` is a no-op. |
 
