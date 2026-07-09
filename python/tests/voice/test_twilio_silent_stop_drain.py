@@ -134,7 +134,9 @@ def _make_connected_adapter(http_port: int = 0) -> TwilioAgentAdapter:
         public_base_url="https://example695.trycloudflare.com",
         http_port=http_port,
     )
-    adapter._rest = object()  # type: ignore[assignment]
+    # Stand-in for the REST client: only _assert_connected's `is not None`
+    # check reads it, and constructing a real one needs live Twilio credentials.
+    adapter._rest = object()  # type: ignore[assignment]  # sentinel; never called
     adapter._inbound_queue = asyncio.Queue()
     adapter._stream_connected = asyncio.Event()
     adapter._server_shutdown = asyncio.Event()
