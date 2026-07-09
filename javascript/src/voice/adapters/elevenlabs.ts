@@ -837,6 +837,36 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     });
   }
 
+  /**
+   * Synchronously drain every chunk currently buffered on {@link audioQueue} and
+   * return them merged (null when the queue is empty). The turn-boundary
+   * reconcile (#747) calls this at the moment a NEW user turn commits: at that
+   * instant the queue can hold ONLY leftover from the PRIOR agent turn — the user
+   * just spoke and the hosted agent has not begun its next reply, so any audio
+   * still queued is stale-by-position. Returning it here lets the runtime
+   * attribute it to the utterance that produced it instead of the next
+   * {@link receiveAudio} shifting it out as the fake first audio of the next turn
+   * (the split-utterance bleed). Called ONLY at the cursor-safe pre-user-sendAudio
+   * hook and never while a drain is in flight, so it does not race
+   * {@link receiveAudio} on the shared queue.
+   *
+   * Duck-typed convention (symmetric with {@link lastAgentTranscript}): the shared
+   * runtime feature-detects this method, so adapters without a buffered queue are
+   * untouched.
+   */
+  reconcilePendingAudio(): AudioChunk | null {
+    if (this.audioQueue.length === 0) return null;
+    const chunks = this.audioQueue.splice(0, this.audioQueue.length);
+    const total = chunks.reduce((acc, c) => acc + c.data.length, 0);
+    const data = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      data.set(chunk.data, offset);
+      offset += chunk.data.length;
+    }
+    return new AudioChunk({ data });
+  }
+
   // ---------------------------------------------------------------- internals
   /**
    * Universal inbound-message hook — wired to the SDK's `callbackMessageReceived`,

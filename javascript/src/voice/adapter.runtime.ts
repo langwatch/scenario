@@ -280,6 +280,16 @@ export async function defaultVoiceCall(
 
   const incoming = extractIncomingAudio(input.newMessages);
   if (incoming) {
+    // #747 — BEFORE committing this user turn, reconcile any audio still queued
+    // from the PRIOR agent turn. At this instant (the user is replying; the
+    // hosted agent has not begun its next reply) queued agent audio can only be
+    // prior-turn leftover — the split remainder a >ceiling utterance or a rare
+    // gap-split stranded. Attribute it to the prior agent segment (cursor-safe
+    // here, BEFORE recordUser lays the user segment) so the next drain does not
+    // shift it out as the fake first audio of a new turn. Skipped when there is
+    // no prior agent segment (the opening greeting), so the greeting is never
+    // reconciled away (AC8).
+    reconcilePriorAgentAudio(adapter, state);
     await adapter.sendAudio(incoming);
     feedVad(adapter, incoming);
     recorder.recordUser(incoming);
@@ -426,6 +436,63 @@ function resetAgentTurnTranscript(adapter: VoiceAgentAdapter): void {
     (adapter as { lastAgentTranscript?: string | null }).lastAgentTranscript =
       null;
   }
+}
+
+/**
+ * #747 — reconcile prior-turn leftover audio at a user-turn boundary.
+ *
+ * A split utterance can strand audio in a buffering adapter's queue: a single
+ * utterance longer than the drain's `2× responseMaxDuration` ceiling, or a rare
+ * gap-split whose continuation lands after the turn already closed. Left alone,
+ * the next {@link drainAgentResponse} shifts that leftover out as the fake first
+ * audio of a new agent turn — the bleed #747 fixes.
+ *
+ * This runs at pre-user-`sendAudio`, BEFORE {@link AdapterRecorder.recordUser}.
+ * At that instant the adapter's queue can hold ONLY prior-turn leftover (the user
+ * is replying; the hosted agent has not begun its next reply), so the boundary
+ * POSITION is the staleness proof — no per-chunk epoch needed. The leftover is
+ * attributed to the prior agent turn by GROWING its recording segment.
+ *
+ * Cursor-safety (review M1 invariant): the prior agent segment is still LAST on
+ * the byte cursor here (recordUser has not laid the user segment yet), so
+ * extending its `endTime` and advancing the cursor cannot overlap a later
+ * segment. Guarded on a prior agent segment existing AND being last — which skips
+ * the opening greeting (no prior agent segment → AC8) and refuses any off-nominal
+ * shape where a user segment is last (the cursor-unsafe case, e.g. barge-in
+ * recovery — AC9 keeps the weaker no-fake-turn guarantee there).
+ *
+ * Duck-typed on `reconcilePendingAudio` (symmetric with the `lastAgentTranscript`
+ * convention): adapters without a buffered queue expose no such method and are
+ * untouched (Twilio/Pipecat/composable/OpenAI-Realtime/Gemini).
+ */
+function reconcilePriorAgentAudio(
+  adapter: VoiceAgentAdapter,
+  state: VoiceExecutorState | null,
+): void {
+  const reconcile = (
+    adapter as { reconcilePendingAudio?: () => AudioChunk | null }
+  ).reconcilePendingAudio;
+  if (typeof reconcile !== "function" || !state) return;
+  const recording = state.voiceRecording;
+  if (!recording || recording.segments.length === 0) return;
+  const last = recording.segments[recording.segments.length - 1]!;
+  // Cursor-safe only when the prior agent segment is the last on the cursor.
+  if (last.speaker !== "agent") return;
+  const leftover = reconcile.call(adapter);
+  if (!leftover || leftover.data.length === 0) return;
+  // Grow the prior agent segment: append the bytes, extend endTime, advance the
+  // cursor to the new end so the about-to-be-laid user segment starts after it.
+  const grown = new Uint8Array(last.audio.length + leftover.data.length);
+  grown.set(last.audio, 0);
+  grown.set(leftover.data, last.audio.length);
+  last.audio = grown;
+  last.endTime += leftover.durationSeconds;
+  state.voiceAudioCursor = last.endTime;
+  logger.warn(
+    "reconciled prior-turn leftover audio into the previous agent segment so it " +
+      "is not emitted as a fake next turn (#747)",
+    { reconciledSeconds: leftover.durationSeconds },
+  );
 }
 
 /**

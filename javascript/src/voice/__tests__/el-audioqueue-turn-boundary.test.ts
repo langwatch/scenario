@@ -34,8 +34,10 @@ import {
   PCM16_SAMPLE_RATE,
   PCM16_SAMPLE_WIDTH_BYTES,
 } from "../audio-chunk";
-import { extractAudio } from "../messages";
 import { AdapterCapabilities } from "../capabilities";
+import { extractAudio, createAudioMessage } from "../messages";
+import { VoiceRecordingRuntime } from "../recording.runtime";
+import type { VoiceExecutorState } from "../voice-executor-state";
 
 /** A non-silent PCM16 (mono, 24kHz) chunk of the given duration, carrying no transcript. */
 function tone(durationSeconds: number): AudioChunk {
@@ -91,6 +93,28 @@ class BurstQueueAdapter extends VoiceAgentAdapter {
     // Empty chunk == audio silence: the drain reads it as end-of-turn.
     return next ?? silentChunk(0);
   }
+
+  /** How many frames remain queued (test introspection). */
+  get queuedFrames(): number {
+    return this.queue.length;
+  }
+
+  /**
+   * Models the EL adapter's #747 seam: synchronously drain+merge every queued
+   * chunk, or null when empty. The runtime's turn-boundary reconcile calls this.
+   */
+  reconcilePendingAudio(): AudioChunk | null {
+    if (this.queue.length === 0) return null;
+    const chunks = this.queue.splice(0, this.queue.length);
+    const total = chunks.reduce((acc, c) => acc + c.data.length, 0);
+    const data = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      data.set(c.data, offset);
+      offset += c.data.length;
+    }
+    return new AudioChunk({ data });
+  }
 }
 
 /**
@@ -135,6 +159,50 @@ function inputWithUserTurn(): AgentInput {
     scenarioState: {} as AgentInput["scenarioState"],
     scenarioConfig: {} as AgentInput["scenarioConfig"],
   };
+}
+
+/** A fresh voice executor state the runtime recorder writes segments into. */
+function makeVoiceState(): VoiceExecutorState {
+  return {
+    voiceRecording: new VoiceRecordingRuntime(),
+    voiceTimeline: [],
+    voiceLatency: { measurements: [] },
+    voiceRecordingStartedAt: 0,
+    voiceAudioCursor: 0,
+  } as unknown as VoiceExecutorState;
+}
+
+/**
+ * AgentInput wired to a voice executor state so `defaultVoiceCall` records
+ * segments. `incoming` (a user-audio message) makes this an agent turn REPLYING
+ * to a user turn — the branch that triggers the #747 boundary reconcile; omit it
+ * for the opening greeting turn.
+ */
+function inputWithState(
+  state: VoiceExecutorState,
+  incoming?: AudioChunk,
+): AgentInput {
+  const newMessages = incoming
+    ? [createAudioMessage(incoming, "user") as never]
+    : [];
+  return {
+    threadId: "t-747",
+    messages: [],
+    newMessages,
+    requestedRole: AgentRole.AGENT,
+    scenarioState: { _executor: state } as unknown as AgentInput["scenarioState"],
+    scenarioConfig: {} as AgentInput["scenarioConfig"],
+  };
+}
+
+/** Agent segments of a recording, in order. */
+function agentSegments(state: VoiceExecutorState) {
+  return state.voiceRecording!.segments.filter((s) => s.speaker === "agent");
+}
+
+/** Byte-duration (s) of a PCM16/24k/mono segment. */
+function segSeconds(audio: Uint8Array): number {
+  return audio.length / PCM16_SAMPLE_WIDTH_BYTES / PCM16_SAMPLE_RATE;
 }
 
 describe("#747 EL audioQueue turn-boundary reconciliation (defaultVoiceCall)", () => {
@@ -207,5 +275,148 @@ describe("#747 EL audioQueue turn-boundary reconciliation (defaultVoiceCall)", (
       warnSpy.mockRestore();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () => {
+  // Greeting = 5 frames (2.5s) = 2.5x the 1.0s cap, so the un-chop ceiling (2.0s)
+  // strands the last 0.5s in the queue — the >2x residual the reconcile catches.
+  const FRAME_S = 0.5;
+  const CAP_S = 1.0;
+  const GREETING_FRAMES = 5;
+  const GREETING_S = FRAME_S * GREETING_FRAMES; // 2.5s
+
+  function greetingAdapter(): BurstQueueAdapter {
+    const frames = Array.from({ length: GREETING_FRAMES }, () => tone(FRAME_S));
+    const adapter = new BurstQueueAdapter(frames);
+    adapter.responseMaxDuration = CAP_S; // ceiling 2.0s
+    adapter.responseTailSilence = 0.05;
+    adapter.transcriptGraceWait = 0;
+    return adapter;
+  }
+
+  it("AC3: stale ceiling remainder is attributed to the prior agent segment, not emitted as a new turn", async () => {
+    vi.stubEnv("LOG_LEVEL", "warn");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const state = makeVoiceState();
+      const adapter = greetingAdapter();
+
+      // Turn 1 — the greeting (no incoming). Un-chop drains to the 2.0s ceiling
+      // and strands 0.5s in the queue; the greeting agent segment is 2.0s.
+      await defaultVoiceCall(adapter, inputWithState(state));
+      expect(adapter.queuedFrames).toBe(1); // 0.5s stranded
+      expect(agentSegments(state)).toHaveLength(1);
+      expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(2.0, 1);
+
+      // Turn 2 — a user turn commits. The reconcile fires BEFORE recordUser and
+      // grows the greeting segment by the stranded 0.5s; the queue is emptied so
+      // turn 2's own agent drain carries none of it.
+      const turn2 = await defaultVoiceCall(
+        adapter,
+        inputWithState(state, tone(FRAME_S)),
+      );
+
+      // (a) no bleed: turn 2's agent audio does not contain the stale remainder.
+      expect(audioSecondsOf(turn2)).toBeCloseTo(0, 1);
+      // (b) attributed: the greeting segment grew by exactly the stranded 0.5s.
+      expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(GREETING_S, 1);
+      expect(adapter.queuedFrames).toBe(0);
+      // (c) a warning named the reconciliation.
+      const warnedReconcile = warnSpy.mock.calls.some((c) =>
+        String(c[0]).includes("reconciled prior-turn leftover"),
+      );
+      expect(warnedReconcile).toBe(true);
+      // Cursor stays monotonic: user segment starts at/after the grown agent end.
+      const segs = state.voiceRecording!.segments;
+      for (let i = 1; i < segs.length; i++) {
+        expect(segs[i]!.startTime).toBeGreaterThanOrEqual(segs[i - 1]!.endTime - 1e-6);
+      }
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("AC8: the opening greeting turn (no incoming user audio) is never reconciled away", async () => {
+    vi.stubEnv("LOG_LEVEL", "warn");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const state = makeVoiceState();
+      const adapter = greetingAdapter();
+
+      // First agent() with NO incoming — the reconcile branch (inside
+      // `if (incoming)`) must not run, so the greeting is delivered as turn 1.
+      const greeting = await defaultVoiceCall(adapter, inputWithState(state));
+
+      expect(audioSecondsOf(greeting)).toBeCloseTo(2.0, 1); // greeting delivered
+      expect(agentSegments(state)).toHaveLength(1);
+      const reconciled = warnSpy.mock.calls.some((c) =>
+        String(c[0]).includes("reconciled prior-turn leftover"),
+      );
+      expect(reconciled).toBe(false); // greeting never reconciled
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("AC9: the reconcile refuses the cursor-unsafe shape where a user segment is last (barge-in shape)", async () => {
+    vi.stubEnv("LOG_LEVEL", "warn");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const state = makeVoiceState();
+      const adapter = greetingAdapter();
+
+      // Turn 1 greeting → agent segment, 0.5s stranded.
+      await defaultVoiceCall(adapter, inputWithState(state));
+      // Simulate a barge-in recording shape: a USER segment is now the LAST on
+      // the cursor (as fireUserInterrupt lays it after the interrupted agent
+      // segment). The reconcile must NOT grow an earlier agent segment here.
+      state.voiceRecording!.segments.push({
+        speaker: "user",
+        startTime: 2.0,
+        endTime: 2.5,
+        audio: tone(FRAME_S).data,
+      });
+      state.voiceAudioCursor = 2.5; // advance the cursor as the real recorder does
+      const agentAudioBefore = segSeconds(agentSegments(state)[0]!.audio);
+
+      await defaultVoiceCall(adapter, inputWithState(state, tone(FRAME_S)));
+
+      // The agent segment was NOT grown (cursor-unsafe shape refused)…
+      expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(
+        agentAudioBefore,
+        3,
+      );
+      const reconciled = warnSpy.mock.calls.some((c) =>
+        String(c[0]).includes("reconciled prior-turn leftover"),
+      );
+      expect(reconciled).toBe(false);
+      // …and every segment boundary stays monotonic (no overlap).
+      const segs = state.voiceRecording!.segments;
+      for (let i = 1; i < segs.length; i++) {
+        expect(segs[i]!.startTime).toBeGreaterThanOrEqual(segs[i - 1]!.endTime - 1e-6);
+      }
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("AC10: responseTailSilence = 2.0 (the documented workaround) still drains a turn whole", async () => {
+    const state = makeVoiceState();
+    // A single sub-cap utterance (3 frames = 1.5s) delivered as a burst.
+    const adapter = new BurstQueueAdapter(
+      Array.from({ length: 3 }, () => tone(FRAME_S)),
+    );
+    adapter.responseMaxDuration = 30;
+    adapter.responseTailSilence = 2.0; // the interim workaround
+    adapter.transcriptGraceWait = 0;
+
+    const message = await defaultVoiceCall(adapter, inputWithState(state));
+
+    // Drains the whole utterance and terminates (no double-waiting / wedge).
+    expect(audioSecondsOf(message)).toBeCloseTo(1.5, 1);
   });
 });
