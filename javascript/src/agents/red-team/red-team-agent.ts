@@ -1,14 +1,14 @@
-import { generateText, LanguageModel } from "ai";
+import { generateText, LanguageModel, type ModelMessage } from "ai";
 
-import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { CrescendoStrategy } from "./crescendo-strategy";
 import { GoatStrategy } from "./goat-strategy";
+import type { Technique as GoatTechnique } from "./goat-techniques";
 import {
   DEFAULT_METAPROMPT_TEMPLATE,
   renderMetapromptTemplate,
 } from "./metaprompt-template";
+import { BacktrackEntry, RedTeamStrategy } from "./red-team-strategy";
 import { AttackTechnique, DEFAULT_TECHNIQUES } from "./techniques";
-import type { Technique as GoatTechnique } from "./goat-techniques";
 import { AgentInput, UserSimulatorAgentAdapter } from "../../domain";
 import { AgentReturnTypes } from "../../domain/agents/types/agent-return.types";
 import { ScriptStep } from "../../domain/scenarios";
@@ -179,7 +179,7 @@ class RedTeamAgentImpl extends UserSimulatorAgentAdapter {
       && config.strategy.needsMetapromptPlan === false
     ) {
       const name = config.strategy.constructor?.name ?? "Strategy";
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `[RedTeamAgent] ${name} does not use a metaprompt template `
           + "(needsMetapromptPlan=false); the value passed via "
@@ -430,7 +430,7 @@ Reply with exactly this JSON and nothing else:
     }
     const result = await generateText({
       model: this.model,
-      messages: this.attackerHistory as any,
+      messages: this.attackerHistory as ModelMessage[],
       temperature: this.temperature,
       maxOutputTokens: this.maxTokens,
     });
@@ -599,7 +599,7 @@ Reply with exactly this JSON and nothing else:
     const isMarker = (c: string) => MARKER_PREFIXES.some((p) => c.startsWith(p));
     if (this.attackerHistory.length === 0) {
       this.attackerHistory = [{ role: "system", content: systemPrompt }];
-    } else if (isMarker(this.attackerHistory[0]!.content)) {
+    } else if (isMarker(this.attackerHistory[0].content)) {
       // Slot 0 is a marker (e.g. backtrack added before first
       // prompt was set) — insert system prompt at front
       this.attackerHistory.unshift({ role: "system", content: systemPrompt });
@@ -618,7 +618,7 @@ Reply with exactly this JSON and nothing else:
     const reply = parsed.reply;
     const parseFailed = parsed.parseFailed;
     if (parseFailed) {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `[RedTeamAgent] turn ${currentTurn}: attacker output was not valid JSON; ` +
           `using full response as reply. Raw (first 200 chars): ${rawAttack.slice(0, 200)}`
@@ -643,7 +643,7 @@ Reply with exactly this JSON and nothing else:
       !looksAlreadyEncoded(reply)
     ) {
       const technique =
-        this.techniques[Math.floor(Math.random() * this.techniques.length)]!;
+        this.techniques[Math.floor(Math.random() * this.techniques.length)];
       targetText = technique.transform(reply);
       this.attackerHistory.push({
         role: "system",
@@ -757,7 +757,7 @@ export const redTeamGoat = (config: GoatConfig) => {
   }
   let resolvedEncoding = encodingTechniques;
   if (techniques !== undefined) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       "[redTeamGoat] `techniques` is deprecated — this name collides with "
         + "the GOAT semantic catalogue. Rename to `encodingTechniques` for "

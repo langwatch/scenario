@@ -325,7 +325,7 @@ function parseFormUrlEncoded(body: string): Record<string, string> {
   for (const pair of body.split("&")) {
     if (!pair) continue;
     const [rawKey, rawValue = ""] = pair.split("=");
-    const key = decodeURIComponent(rawKey!.replace(/\+/g, " "));
+    const key = decodeURIComponent(rawKey.replace(/\+/g, " "));
     const value = decodeURIComponent(rawValue.replace(/\+/g, " "));
     params[key] = value;
   }
@@ -355,7 +355,10 @@ function adaptWsSocket(ws: WsWebSocket): MediaStreamWebSocket {
   const handleEnd = (): void => {
     if (closed) return;
     closed = true;
-    while (waiters.length > 0) waiters.shift()!.resolve(null);
+    while (waiters.length > 0) {
+      const waiter = waiters.shift();
+      if (waiter) waiter.resolve(null);
+    }
   };
   ws.on("close", handleEnd);
   ws.on("error", handleEnd);

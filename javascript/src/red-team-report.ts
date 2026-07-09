@@ -16,8 +16,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { ScenarioConfig } from "./domain/scenarios";
 import type { ScenarioResult, AgentAdapter } from "./domain";
+import type { ScenarioConfig } from "./domain/scenarios";
 
 let _batchDir: string | null = null;
 
@@ -145,7 +145,7 @@ export function saveRedTeamReport(opts: SaveOptions): string | null {
     fs.writeFileSync(destPath, JSON.stringify(payload, null, 2));
     return destPath;
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.warn(`[scenario] red-team report save failed: ${(e as Error).message}`);
     return null;
   }

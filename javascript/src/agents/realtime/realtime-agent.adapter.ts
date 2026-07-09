@@ -120,8 +120,14 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     params?: Parameters<RealtimeSession["connect"]>[0] | undefined
   ): Promise<void> {
     const { apiKey, ...rest } = params ?? {};
+    const resolvedApiKey = apiKey ?? process.env.OPENAI_API_KEY;
+    if (!resolvedApiKey) {
+      throw new Error(
+        "RealtimeAgentAdapter.connect requires an API key: pass params.apiKey or set OPENAI_API_KEY.",
+      );
+    }
     await this.session.connect({
-      apiKey: apiKey ?? process.env.OPENAI_API_KEY!,
+      apiKey: resolvedApiKey,
       ...rest,
     });
   }

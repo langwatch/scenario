@@ -1,5 +1,6 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 
+import { deepTransform } from "./deep-transform";
 import {
   hrTimeToMs,
   formatDuration,
@@ -11,7 +12,6 @@ import {
 } from "./span-utils";
 import { StringDeduplicator } from "./string-deduplicator";
 import { truncateMediaUrl, truncateMediaPart } from "./truncate-media";
-import { deepTransform } from "./deep-transform";
 import { Logger } from "../../utils/logger";
 
 /**
@@ -147,11 +147,13 @@ export class JudgeSpanDigestFormatter {
     }
 
     for (const span of spans) {
-      const node = spanMap.get(span.spanContext().spanId)!;
+      const node = spanMap.get(span.spanContext().spanId);
+      if (!node) continue; // every span was inserted above; satisfies the type
       const parentId = getParentSpanId(span);
+      const parent = parentId ? spanMap.get(parentId) : undefined;
 
-      if (parentId && spanMap.has(parentId)) {
-        spanMap.get(parentId)!.children.push(node);
+      if (parent) {
+        parent.children.push(node);
       } else {
         roots.push(node);
       }

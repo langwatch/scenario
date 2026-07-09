@@ -204,9 +204,9 @@ async function transcribeMessage(
     transcript = undefined; // sentinel — no new text part needed
   } else {
     const cacheKey = transcriptCache ? audioCacheKey(content) : null;
-    if (cacheKey !== null && transcriptCache!.has(cacheKey)) {
+    if (cacheKey !== null && transcriptCache && transcriptCache.has(cacheKey)) {
       // Same audio already transcribed on an earlier call — reuse, no STT.
-      transcript = transcriptCache!.get(cacheKey) || undefined;
+      transcript = transcriptCache.get(cacheKey) || undefined;
     } else {
       const chunk = extractAudioChunk(msg);
       if (chunk) {
@@ -219,14 +219,14 @@ async function transcribeMessage(
           // re-hitting STT on every later proceed() turn (#735 P2). A different
           // (good) transcript can only come from different bytes → a different
           // key, so the sentinel can never suppress a real transcript.
-          if (cacheKey !== null) {
-            transcriptCache!.set(cacheKey, transcript ?? "");
+          if (cacheKey !== null && transcriptCache) {
+            transcriptCache.set(cacheKey, transcript ?? "");
           }
         } catch (e) {
           // Remember the failure too: without this, a provider outage is
           // re-attempted for the SAME chunk on every subsequent call (#735 P2).
-          if (cacheKey !== null) {
-            transcriptCache!.set(cacheKey, "");
+          if (cacheKey !== null && transcriptCache) {
+            transcriptCache.set(cacheKey, "");
           }
           warn(
             `scenario.voice.judge-stt: STT failed for a ${String(

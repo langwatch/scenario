@@ -22,13 +22,13 @@
  * No STT/TTS, no provider-native shapes, no state.
  */
 
+import type { TextPart } from "ai";
 import { AudioChunk } from "./audio-chunk";
 import type {
   AudioFilePart,
   AudioMessage,
   AudioMessageRole,
 } from "./messages.types";
-import type { ModelMessage, TextPart } from "ai";
 
 /** Media type of the canonical in-message audio part (raw PCM16). */
 export const AUDIO_PCM16_MEDIA_TYPE = "audio/pcm16" as const;
@@ -42,7 +42,7 @@ function toBase64(data: Uint8Array): string {
     return Buffer.from(data).toString("base64");
   }
   let binary = "";
-  for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]!);
+  for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
   return btoa(binary);
 }
 

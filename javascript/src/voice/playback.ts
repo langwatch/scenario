@@ -24,12 +24,12 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcessByStdio } from "node:child_process";
-import type { Writable, Readable } from "node:stream";
 import { platform } from "node:os";
+import type { Writable, Readable } from "node:stream";
 
-import { resolveFfmpegPath } from "./ffmpeg";
 import type { AudioChunk } from "./audio-chunk";
 import { PCM16_SAMPLE_RATE } from "./audio-chunk";
+import { resolveFfmpegPath } from "./ffmpeg";
 
 // -----------------------------------------------------------------------
 // Platform audio driver selection (mirrors Python's _platform_audio_output_args)
@@ -161,12 +161,12 @@ export class AudioPlaybackSink {
    * Safe to call when the sink was never opened or already closed.
    */
   close(): Promise<void> {
-    if (!this._proc) {
+    const proc = this._proc;
+    if (!proc) {
       this._active = false;
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {
-      const proc = this._proc!;
       this._active = false;
       this._proc = null;
       try {

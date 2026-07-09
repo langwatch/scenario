@@ -13,11 +13,11 @@
  * OpenAI Realtime, Gemini Live, ElevenLabs).
  */
 
-import { AgentAdapter, type AgentInput } from "../domain/agents";
-import type { AgentReturnTypes } from "../domain/agents/types/agent-return.types";
+import { defaultVoiceCall } from "./adapter.runtime";
 import { AudioChunk } from "./audio-chunk";
 import { AdapterCapabilities, UnsupportedCapabilityError } from "./capabilities";
-import { defaultVoiceCall } from "./adapter.runtime";
+import { AgentAdapter, type AgentInput } from "../domain/agents";
+import type { AgentReturnTypes } from "../domain/agents/types/agent-return.types";
 
 /**
  * Minimal one-shot event the adapter sets when its first agent audio

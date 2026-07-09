@@ -25,9 +25,9 @@ import {
 } from "ai";
 
 import { AgentRole } from "../../domain/agents";
+import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
-import { VoiceAgentAdapter } from "../adapter";
 import {
   ElevenLabsSTTProvider,
   type STTProvider,

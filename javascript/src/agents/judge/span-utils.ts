@@ -175,8 +175,9 @@ export function buildHierarchy(nodes: SpanNode[]): SpanNode[] {
   const roots: SpanNode[] = [];
   for (const node of nodes) {
     const parentId = getParentSpanId(node.span);
-    if (parentId && bySpanId.has(parentId)) {
-      bySpanId.get(parentId)!.children.push(node);
+    const parent = parentId ? bySpanId.get(parentId) : undefined;
+    if (parent) {
+      parent.children.push(node);
     } else {
       roots.push(node);
     }

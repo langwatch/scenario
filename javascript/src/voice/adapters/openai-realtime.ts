@@ -32,8 +32,8 @@ import { AgentRole } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
-import { createAudioMessage, extractAudio } from "../messages";
 import { AdapterCapabilities } from "../capabilities";
+import { createAudioMessage, extractAudio } from "../messages";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
 // LOG_LEVEL-gated logger so the degraded-path debug line below doesn't bypass

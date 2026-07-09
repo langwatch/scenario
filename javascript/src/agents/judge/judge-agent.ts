@@ -125,16 +125,19 @@ function collapseDiscoveryHistory(
   return out;
 }
 
-import { JudgeUtils } from "./judge-utils";
 import { estimateTokens, DEFAULT_TOKEN_THRESHOLD } from "./estimate-tokens";
+import { JudgeResult } from "./interfaces";
+import { judgeSpanCollector, JudgeSpanCollector } from "./judge-span-collector";
+import { judgeSpanDigestFormatter } from "./judge-span-digest-formatter";
+import { JudgeUtils } from "./judge-utils";
 import { expandTrace, grepTrace } from "./trace-tools";
 import { getProjectConfig } from "../../config";
 import { AgentInput, JudgeAgentAdapter, AgentRole, DEFAULT_MAX_TURNS } from "../../domain";
 import { modelSchema } from "../../domain/core/schemas/model.schema";
 import { Logger } from "../../utils/logger";
-import { createLLMInvoker } from "../llm-invoker.factory";
 import { resolveVoiceConfig } from "../../voice/config";
 import { prepareJudgeInput } from "../../voice/judge-stt";
+import { createLLMInvoker } from "../llm-invoker.factory";
 import {
   TestingAgentConfig,
   FinishTestArgs,
@@ -143,9 +146,6 @@ import {
 } from "../types";
 import { criterionToParamName } from "../utils";
 
-import { JudgeResult } from "./interfaces";
-import { judgeSpanCollector, JudgeSpanCollector } from "./judge-span-collector";
-import { judgeSpanDigestFormatter } from "./judge-span-digest-formatter";
 
 /**
  * Configuration for the judge agent.

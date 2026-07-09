@@ -18,12 +18,12 @@
  * codec live in `./twilio-shared.ts`.
  */
 
-import { sleep } from "../utils";
 
 import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { sleep } from "../utils";
 
 import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
 import {
@@ -211,6 +211,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     attachStreamToSelf?: boolean;
   }): Promise<void> {
     this._assertConnected();
+    const rest = this._rest;
+    const publicBaseUrl = this.publicBaseUrl;
+    if (!rest || publicBaseUrl === undefined) {
+      throw new Error("TwilioAgentAdapter: not connected");
+    }
     this._enterMode("call");
     validateE164(args.to);
 
@@ -218,11 +223,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     const timeoutMs = args.timeoutMs ?? 120_000;
 
     if (attachStreamToSelf) {
-      this._calleePhoneNumberSid = await this._rest!.resolvePhoneNumberSid(args.to);
+      this._calleePhoneNumberSid = await rest.resolvePhoneNumberSid(args.to);
       this._priorCalleeVoiceUrl =
-        (await this._rest!.readVoiceUrl(this._calleePhoneNumberSid)) ?? undefined;
-      const webhookUrl = `${this.publicBaseUrl!.replace(/\/$/, "")}/twilio/voice`;
-      await this._rest!.writeVoiceUrl(this._calleePhoneNumberSid, webhookUrl);
+        (await rest.readVoiceUrl(this._calleePhoneNumberSid)) ?? undefined;
+      const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
+      await rest.writeVoiceUrl(this._calleePhoneNumberSid, webhookUrl);
     }
 
     const inlineALegTwiml =
@@ -231,7 +236,7 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
       `<Pause length="120"/>` +
       `</Response>`;
-    this._callSid = await this._rest!.placeCall({
+    this._callSid = await rest.placeCall({
       to: args.to,
       from: this.phoneNumber,
       twiml: inlineALegTwiml,
@@ -244,12 +249,18 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
 
   async waitForCall(timeoutMs = 120_000): Promise<void> {
     this._assertConnected();
+    const rest = this._rest;
+    const publicBaseUrl = this.publicBaseUrl;
+    const phoneNumberSid = this._phoneNumberSid;
+    if (!rest || publicBaseUrl === undefined || phoneNumberSid === undefined) {
+      throw new Error("TwilioAgentAdapter: not connected for answering");
+    }
     this._enterMode("answer");
 
     this._priorVoiceUrl =
-      (await this._rest!.readVoiceUrl(this._phoneNumberSid!)) ?? undefined;
-    const webhookUrl = `${this.publicBaseUrl!.replace(/\/$/, "")}/twilio/voice`;
-    await this._rest!.writeVoiceUrl(this._phoneNumberSid!, webhookUrl);
+      (await rest.readVoiceUrl(phoneNumberSid)) ?? undefined;
+    const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
+    await rest.writeVoiceUrl(phoneNumberSid, webhookUrl);
     await this._streamConnected.promiseWithTimeout(timeoutMs);
   }
 
@@ -269,11 +280,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
 
   override async sendAudio(chunk: AudioChunk): Promise<void> {
     this._assertStreamLive();
+    const streamWs = this._streamWs;
+    const streamSid = this._streamSid;
+    if (!streamWs || streamSid === undefined) {
+      throw new Error("TwilioAgentAdapter: stream not live");
+    }
     const mulaw = pcm16_24kToMulaw8k(chunk.data);
     const frameSecs = TWILIO_FRAME_MS / 1000;
     for (const frame of iterMulawFrames(mulaw)) {
       if (frame.length === 0) continue;
-      this._streamWs!.send(buildMediaFrame(this._streamSid!, frame));
+      streamWs.send(buildMediaFrame(streamSid, frame));
       // Pace at real-time. Without pacing, the whole utterance arrives in
       // milliseconds, which trips bots' VAD into a clipped-utterance reading.
       await sleep(frameSecs * 1000);
@@ -296,7 +312,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
 
   override async interrupt(): Promise<void> {
     this._assertStreamLive();
-    this._streamWs!.send(buildClearFrame(this._streamSid!));
+    const streamWs = this._streamWs;
+    const streamSid = this._streamSid;
+    if (!streamWs || streamSid === undefined) {
+      throw new Error("TwilioAgentAdapter: stream not live");
+    }
+    streamWs.send(buildClearFrame(streamSid));
   }
 
   // ------------------------------------------------------------------ server callbacks

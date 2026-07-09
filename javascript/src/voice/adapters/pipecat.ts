@@ -332,8 +332,11 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     // always followed by the recovery turn's `sendAudio`, making this the
     // correct reset point for the per-turn signal.
     this.interruptPhase = "idle";
-    const ws = this.ws!;
-    const streamSid = this.streamSid!;
+    const ws = this.ws;
+    const streamSid = this.streamSid;
+    if (!ws || streamSid === undefined) {
+      throw new Error("PipecatAgentAdapter: not connected");
+    }
     const mulaw = pcm16At24kToMulaw8k(chunk.data);
 
     const previous = this.sendLock;
@@ -366,7 +369,10 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
       this.interruptPhase = "idle";
       return new AudioChunk({ data: new Uint8Array(0) });
     }
-    const inbox = this.inbox!;
+    const inbox = this.inbox;
+    if (!inbox) {
+      throw new Error("PipecatAgentAdapter: not connected");
+    }
     const queued = inbox.queue.shift();
     if (queued) return queued;
     if (inbox.closed) {
@@ -407,7 +413,12 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
    */
   override async interrupt(): Promise<void> {
     this.assertConnected();
-    this.ws!.send(buildClearFrame(this.streamSid!));
+    const ws = this.ws;
+    const streamSid = this.streamSid;
+    if (!ws || streamSid === undefined) {
+      throw new Error("PipecatAgentAdapter: not connected");
+    }
+    ws.send(buildClearFrame(streamSid));
     // JS-side truncation: discard buffered audio so drainAgentResponse stops.
     if (this.inbox) {
       this.inbox.queue = [];

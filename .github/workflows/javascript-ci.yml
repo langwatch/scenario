@@ -72,6 +72,14 @@ jobs:
         run: pnpm lint:all
         working-directory: javascript
 
+      # Lints the shipped library source (src/, excluding tests) with the root
+      # package config, which the workspace-recursive lint:all does not cover.
+      # Enforces no-non-null-assertion (#751) and the rest of the config on the
+      # library; extending the gate to tests/examples is tracked in #565.
+      - name: Lint (library)
+        run: pnpm lint:lib
+        working-directory: javascript
+
       - name: Type check
         run: pnpm typecheck:all
         working-directory: javascript

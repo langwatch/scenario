@@ -1,5 +1,5 @@
-import { z } from "zod/v4";
 import type { SetupObservabilityOptions } from "langwatch/observability/node";
+import { z } from "zod/v4";
 import { modelSchema } from "./schemas/model.schema";
 
 const headless =

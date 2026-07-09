@@ -18,6 +18,7 @@
     "watch": "pnpm run build -- --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "lint:lib": "eslint 'src/**/*.ts' --ignore-pattern '**/*.test.ts' --ignore-pattern '**/__tests__/**'",
     "format": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",

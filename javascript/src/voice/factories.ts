@@ -13,27 +13,27 @@
  */
 
 import {
-  PipecatAgentAdapter,
-  type PipecatAgentAdapterInit,
-} from "./adapters/pipecat";
-import {
-  OpenAIRealtimeAgentAdapter,
-  type OpenAIRealtimeAgentAdapterInit,
-} from "./adapters/openai-realtime";
-import {
-  GeminiLiveAgentAdapter,
-  type GeminiLiveAgentAdapterInit,
-} from "./adapters/gemini-live";
-import {
-  TwilioAgentAdapter,
-  type TwilioAgentAdapterOptions,
-} from "./adapters/twilio";
-import {
   ElevenLabsAgentAdapter,
   type ElevenLabsAgentAdapterOptions,
   ComposableVoiceAgent,
   type ComposableVoiceAgentOptions,
 } from "./adapters";
+import {
+  GeminiLiveAgentAdapter,
+  type GeminiLiveAgentAdapterInit,
+} from "./adapters/gemini-live";
+import {
+  OpenAIRealtimeAgentAdapter,
+  type OpenAIRealtimeAgentAdapterInit,
+} from "./adapters/openai-realtime";
+import {
+  PipecatAgentAdapter,
+  type PipecatAgentAdapterInit,
+} from "./adapters/pipecat";
+import {
+  TwilioAgentAdapter,
+  type TwilioAgentAdapterOptions,
+} from "./adapters/twilio";
 
 /**
  * Pipecat agent (WebSocket Twilio-style or WebRTC). PRD §4.1 / §5.1.

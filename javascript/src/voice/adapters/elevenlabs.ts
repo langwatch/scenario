@@ -57,26 +57,26 @@
 import { Buffer } from "node:buffer";
 
 import { openai } from "@ai-sdk/openai";
-import type { LanguageModel } from "ai";
 // The Conversation constructor types its `client` as the *base* Fern client
 // (`@elevenlabs/elevenlabs-js/Client`), NOT the root-export wrapper
 // (`@elevenlabs/elevenlabs-js`). The wrapper extends the base but, under TS
 // private-field nominal typing, is not assignable to it — so the hosted adapter
 // constructs the base client directly. (STT/TTS keep using the root wrapper.)
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
 // EXPLICIT-FILE imports: a directory/package import of `.../conversation` resolves
 // to its `index.js` barrel, which fails under our ESM (`moduleResolution: bundler`)
 // build — import the concrete files instead.
-import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation";
 import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface";
+import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation";
 import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/ConversationClient";
 import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
+import type { LanguageModel } from "ai";
 
 import { AgentRole } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
+import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
-import { VoiceAgentAdapter } from "../adapter";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
   ELEVENLABS_DEFAULT_VOICE_ID,
@@ -565,7 +565,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   /** Called when the SDK re-emits a WS `error` on the Conversation. */
   private onSessionError(err: Error): void {
-    // eslint-disable-next-line no-console
+     
     console.warn(`ElevenLabsAgentAdapter: session error: ${err.message}`);
     // Stop the pump so no frame is fed to a dead session, drain parked receivers so
     // the executor unwinds rather than hanging, and null the session so subsequent
@@ -789,6 +789,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // slow-but-responding agent), but at least 45s even for sub-second tail-probe
       // calls. In the real drain `timeout` is the 30s response budget or the 0.6s
       // tail probe, so the ceiling is 45s.
+      // Must stay `let`: the cleanup() closure below captures hardTimer before
+      // it is assigned, so declaration and assignment cannot be merged (const).
+      // eslint-disable-next-line prefer-const
       let hardTimer: ReturnType<typeof setTimeout>;
       const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
 
@@ -922,14 +925,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     const outFmt = meta.agent_output_audio_format as string | undefined;
     const inFmt = meta.user_input_audio_format as string | undefined;
     if (outFmt && outFmt !== "pcm_24000") {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `ElevenLabsAgentAdapter: agent_output_audio_format=${outFmt} differs ` +
           `from advertised pcm16/24000 capability; audio may pitch-shift or fail to decode.`,
       );
     }
     if (inFmt && inFmt !== "pcm_24000") {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `ElevenLabsAgentAdapter: user_input_audio_format=${inFmt} differs ` +
           `from advertised pcm16/24000 capability; the agent may not understand audio we send.`,

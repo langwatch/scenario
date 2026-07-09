@@ -31,9 +31,9 @@ export {
 } from "./elevenlabs-tts";
 
 // --- Registration (side effects) ------------------------------------------
-import { registerTtsProvider } from "./tts";
-import { openaiTts } from "./openai-tts";
 import { elevenLabsTts } from "./elevenlabs-tts";
+import { openaiTts } from "./openai-tts";
+import { registerTtsProvider } from "./tts";
 
 registerTtsProvider({ prefix: "openai", synth: openaiTts });
 registerTtsProvider({ prefix: "elevenlabs", synth: elevenLabsTts });

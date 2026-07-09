@@ -8,6 +8,7 @@ import {
   ScenarioExecutionState,
   StateChangeEventType,
 } from "./scenario-execution-state";
+import { getGlobalSettings } from "../config/configure";
 import {
   type ScenarioResult,
   type ScenarioConfig,
@@ -24,6 +25,13 @@ import {
   DEFAULT_MAX_TURNS,
   DEFAULT_VERBOSE,
 } from "../domain";
+import {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  USER_TURN_NO_AUDIO_FOR_VOICE_AUT,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+} from "../domain/agents/agent-shapes";
 import {
   ScenarioEvent,
   ScenarioEventType,
@@ -56,7 +64,6 @@ import {
   writeUserSegment,
 } from "../voice/adapter.runtime";
 import { AudioChunk } from "../voice/audio-chunk";
-import { getGlobalSettings } from "../config/configure";
 import {
   resolveVoiceConfig,
   type ResolvedVoiceConfig,
@@ -69,7 +76,6 @@ import {
   messageHasAudio,
 } from "../voice/messages";
 import { AudioPlaybackSink } from "../voice/playback";
-import { sleep } from "../voice/utils";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
   LatencyMetrics,
@@ -80,14 +86,8 @@ import {
   deriveInterruptResponseTime,
   markTruncatedAgentSegments,
 } from "../voice/segment-utils";
+import { sleep } from "../voice/utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
-import {
-  isRealtimeUserAgent,
-  isVoiceUserSim,
-  USER_TURN_NO_AUDIO_FOR_VOICE_AUT,
-  type RealtimeUserAgent,
-  type VoiceUserSimulator,
-} from "../domain/agents/agent-shapes";
 
 /**
  * Default bound (ms) on the barge-in wait for the agent to start speaking.
@@ -1060,7 +1060,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           if (role === AgentRole.USER && outgoing.length > 0) {
             const pendingTask = this.pendingAgentTask;
             if (pendingTask && !pendingTask.done) {
-              await this.fireUserInterrupt(outgoing[outgoing.length - 1]!);
+              await this.fireUserInterrupt(outgoing[outgoing.length - 1]);
             }
           }
         }
@@ -2002,8 +2002,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       //       queue before the interrupt fires; placing the sleep before
       //       voiceifyText causes entry.done=true for those adapters.
       // Mirrors maybeInjectInterruption (scenario-execution.ts, text-only path).
-      if ((bargeInDelayMs ?? 0) > 0) {
-        await sleep(bargeInDelayMs!);
+      if (bargeInDelayMs !== undefined && bargeInDelayMs > 0) {
+        await sleep(bargeInDelayMs);
       }
 
       // Capture the cursor at the barge-in instant. If the fast transport
@@ -2608,10 +2608,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     for (let idx = 0; idx < this.agents.length; idx++) {
       if (idx === fromAgentIdx) continue;
 
-      if (!this.pendingMessages.has(idx)) {
-        this.pendingMessages.set(idx, []);
+      let bucket = this.pendingMessages.get(idx);
+      if (!bucket) {
+        bucket = [];
+        this.pendingMessages.set(idx, bucket);
       }
-      this.pendingMessages.get(idx)!.push(message);
+      bucket.push(message);
       recipients.push(idx);
     }
 

@@ -11,16 +11,16 @@
  */
 
 import {
-  AttackerOutput,
-  JSON_OUTPUT_CONTRACT,
-  RedTeamStrategy,
-} from "./red-team-strategy";
-import {
   DEFAULT_GOAT_TECHNIQUES,
   Technique,
   extractChosenIds,
   renderCatalogue,
 } from "./goat-techniques";
+import {
+  AttackerOutput,
+  JSON_OUTPUT_CONTRACT,
+  RedTeamStrategy,
+} from "./red-team-strategy";
 
 export class GoatStrategy implements RedTeamStrategy {
   // Paper fidelity: GOAT does not pre-generate an attack plan.
