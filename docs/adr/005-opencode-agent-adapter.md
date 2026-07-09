@@ -291,3 +291,46 @@ shut down the server. The caller is responsible for calling `server.close()` in 
 own `afterAll`. This mirrors the realtime adapter's ownership model for injected
 sessions, but it is easy to miss. Examples in the docs (AC-5) must show the correct
 `afterAll` teardown for both cases.
+
+### The owned server is unauthenticated, on a fixed loopback port
+
+`createOpencode()` with no options binds `127.0.0.1:4096`. Loopback-only, so it is not
+network-exposed — but `ServerOptions` offers no auth token, and this adapter exposes no
+`port`/`hostname` override. While the server is alive, any other local process or user
+on the same host can reach it and drive the same coding-agent session against
+`workingDirectory`. On a shared CI runner or devbox, treat `workingDirectory` as
+readable and writable by any co-tenant process. This is inherent to `opencode serve`,
+not a defect of this adapter, but callers must know it.
+
+Corollary for tests: opencode is **tool-bearing** (shell + file read/write) and is not
+constrained to the prompts it is given. The live e2e therefore runs in an `fs.mkdtemp`
+directory, never `process.cwd()` — the repo working tree holds a gitignored `.env` with
+real provider keys, and a self-directed read of that file would flow back as assistant
+text into the judge prompt and CI logs.
+
+### Spawn failure is terminal, and forwards the child's raw output
+
+`ensureClient()` memoizes with `serverPromise ??= createOpencode()`, so a **rejected**
+spawn is never evicted — unlike `resolveSessionId`, which evicts a failed `create` so
+the next turn retries. A transient spawn failure (port contention, slow binary startup)
+therefore poisons the adapter for its lifetime. This asymmetry is deliberate — a missing
+binary will not fix itself, and retry-spam is worse — but it means a caller who shares
+one adapter across a whole test file loses every subsequent scenario.
+
+Relatedly, when the child exits non-zero the SDK rejects with `Server exited with code
+N\nServer output: <raw stdout+stderr>`, which `ensureClient()` propagates verbatim. The
+adapter's own `describeError()` never touches this path, so its careful field-scoping
+(`.name`, `.data.message` only) does not apply. Whether `opencode serve`'s crash output
+can contain secrets is a property of that binary, not of this repo — an open gap, not a
+confirmed leak.
+
+### A server restart mid-run silently invalidates every session id
+
+Session ids live server-side. If the owned server dies between turns and a later call
+reconnects to a fresh one, every id in the `sessions` map is stale. The adapter cannot
+today distinguish "this session is gone because the server restarted" from "this session
+id was bad": the prompt-error path evicts the one session and recreates it, without
+flushing the map or resetting `serverPromise`. Classifying connection-level failures
+(`ECONNREFUSED`, connection reset) separately would let the adapter flush both. Not
+reachable in current usage — the server is spawned once per adapter and torn down in
+`close()` — so it is recorded here rather than solved speculatively.
