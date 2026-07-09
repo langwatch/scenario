@@ -23,7 +23,7 @@
  * - AC2 (no bleed): the remainder never surfaces as the next turn's audio.
  *   FAILS on main (turn 2 = the stale remainder, arriving instantly).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { AgentRole, type AgentInput } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
@@ -93,6 +93,38 @@ class BurstQueueAdapter extends VoiceAgentAdapter {
   }
 }
 
+/**
+ * Models a transport that NEVER signals end-of-stream: every `receiveAudio`
+ * returns a non-empty frame, forever. The drain must terminate this at the
+ * absolute ceiling (2x responseMaxDuration), not run to the 30s default and not
+ * wedge (AC4b).
+ */
+class NeverSilentAdapter extends VoiceAgentAdapter {
+  override role = AgentRole.AGENT;
+  readonly capabilities = new AdapterCapabilities({
+    streamingTranscripts: false,
+    nativeVad: true,
+    dtmf: false,
+    interruption: false,
+    inputFormats: ["pcm16/24000"],
+    outputFormats: ["pcm16/24000"],
+  });
+
+  lastAgentTranscript: string | null = null;
+
+  constructor(private readonly frameSeconds: number) {
+    super();
+  }
+
+  async connect(): Promise<void> {}
+  async disconnect(): Promise<void> {}
+  async sendAudio(): Promise<void> {}
+
+  async receiveAudio(_timeout: number): Promise<AudioChunk> {
+    return tone(this.frameSeconds); // never empty — models an un-terminating stream
+  }
+}
+
 /** Minimal AgentInput: one user turn, no executor state (recorder no-ops). */
 function inputWithUserTurn(): AgentInput {
   return {
@@ -147,5 +179,33 @@ describe("#747 EL audioQueue turn-boundary reconciliation (defaultVoiceCall)", (
     const turn2 = await defaultVoiceCall(adapter, inputWithUserTurn());
 
     expect(audioSecondsOf(turn2)).toBeCloseTo(0, 1);
+  });
+
+  it("AC4b: a never-silent stream terminates at the 2x ceiling with a warning (no wedge)", async () => {
+    vi.stubEnv("LOG_LEVEL", "warn");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const adapter = new NeverSilentAdapter(FRAME_S);
+      adapter.responseMaxDuration = CAP_S; // ceiling = 2 * 1.0 = 2.0s
+      adapter.responseTailSilence = 0.05;
+      adapter.transcriptGraceWait = 0;
+
+      // If the drain did not bound a never-silent stream this call would never
+      // resolve — the test completing at all is the no-wedge proof.
+      const message = await defaultVoiceCall(adapter, inputWithUserTurn());
+
+      const secs = audioSecondsOf(message);
+      // Bounded at ~2x the cap — not the 30s default, not unbounded.
+      expect(secs).toBeGreaterThanOrEqual(CAP_S * 2 - FRAME_S);
+      expect(secs).toBeLessThanOrEqual(CAP_S * 2 + FRAME_S);
+      // And it warned about hitting the ceiling (never a silent cap).
+      const warnedCeiling = warnSpy.mock.calls.some((c) =>
+        String(c[0]).includes("ceiling"),
+      );
+      expect(warnedCeiling).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });

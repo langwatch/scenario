@@ -36,6 +36,10 @@ import { VoiceRecordingRuntime } from "./recording.runtime";
 import type { VoiceExecutorState } from "./voice-executor-state";
 import { WebRTCVadFallback } from "./vad";
 import { PendingTransportError } from "./adapters/pending-transport-error";
+import { Logger } from "../utils/logger";
+
+/** Shared drain logger — surfaces the #747 max-duration / ceiling warnings. */
+const logger = new Logger("voice.adapter.runtime");
 
 /**
  * `asyncio.Event` analogue: a `Promise<void>` + external resolve handle.
@@ -91,6 +95,19 @@ export class AgentSpeakingEvent {
 const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 30;
 const SAFE_DEFAULT_TAIL_SILENCE_S = 0.6;
 const SAFE_DEFAULT_MAX_DURATION_S = 30;
+/**
+ * Absolute ceiling on ONE agent turn's audio, as a multiple of
+ * `responseMaxDuration` (#747). The old drain STOPPED at `responseMaxDuration`
+ * and abandoned any audio still queued — a mid-utterance CHOP whose remainder
+ * bled into the next turn. Now `responseMaxDuration` is a soft cap that only
+ * WARNS: the drain keeps consuming audio that is genuinely still arriving so a
+ * long-but-single utterance lands whole. This ceiling is the runaway backstop
+ * that replaces the chop — a real utterance always ends earlier via tail-silence,
+ * so it fires only for a transport that never signals end-of-stream (AC4b). 2x
+ * leaves generous headroom for a legitimately long utterance (the real repro is
+ * a ~50s greeting vs the 30s cap = 1.67x) while still bounding an infinite stream.
+ */
+const MAX_DURATION_CEILING_FACTOR = 2;
 const SAFE_DEFAULT_TRANSCRIPT_GRACE_WAIT_S = 2.0;
 /** Poll interval for the transcript grace-wait — fine enough to add no felt latency. */
 const TRANSCRIPT_GRACE_POLL_MS = 10;
@@ -446,6 +463,8 @@ async function drainAgentResponse(
     adapter.responseTimeout ?? SAFE_DEFAULT_RESPONSE_TIMEOUT_S;
   const maxDuration =
     adapter.responseMaxDuration ?? SAFE_DEFAULT_MAX_DURATION_S;
+  // The runaway backstop that replaces the old mid-utterance chop (#747).
+  const hardCeiling = maxDuration * MAX_DURATION_CEILING_FACTOR;
 
   const first = await adapter.receiveAudio(responseTimeout);
   if (first.data.length > 0) {
@@ -455,7 +474,13 @@ async function drainAgentResponse(
 
   const chunks: AudioChunk[] = [first];
   let accumulated = first.durationSeconds;
-  while (accumulated < maxDuration) {
+  let softCapWarned = false;
+  // Drain until a REAL turn-end signal: tail-silence (the `catch`, the agent
+  // stopped talking) or a terminal empty chunk. `responseMaxDuration` no longer
+  // ends the loop — it only warns — so already-arriving audio for a single long
+  // utterance is not abandoned in the adapter's queue to bleed into the next turn
+  // (#747). The hard ceiling still bounds a transport that never goes silent.
+  while (accumulated < hardCeiling) {
     let next: AudioChunk;
     try {
       next = await adapter.receiveAudio(tailSilence);
@@ -467,6 +492,24 @@ async function drainAgentResponse(
     }
     chunks.push(next);
     accumulated += next.durationSeconds;
+    if (accumulated >= maxDuration && !softCapWarned) {
+      softCapWarned = true;
+      logger.warn(
+        "agent turn exceeded responseMaxDuration; continuing to drain in-flight " +
+          "audio so the utterance is not split across turns (#747)",
+        { responseMaxDurationS: maxDuration, accumulatedS: accumulated },
+      );
+    }
+  }
+  if (accumulated >= hardCeiling) {
+    // Reached the absolute ceiling without a tail-silence / terminal signal — a
+    // transport that never signalled end-of-stream. Bounded + warned, never a
+    // silent cap and never an infinite wedge (AC4b).
+    logger.warn(
+      "agent turn hit the absolute audio ceiling; terminating the drain (the " +
+        "transport never signalled end-of-stream)",
+      { ceilingS: hardCeiling, responseMaxDurationS: maxDuration },
+    );
   }
   return mergeChunks(chunks);
 }
