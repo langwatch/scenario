@@ -59,6 +59,7 @@ import type { ModelMessage } from "ai";
 
 import { AgentAdapter, AgentRole } from "../../domain/agents";
 import type { AgentInput, AgentReturnTypes } from "../../domain/agents";
+import { stringifyValue } from "../utils";
 
 /**
  * Minimal structural logger the adapter routes ALL diagnostics through. Provide
@@ -213,21 +214,22 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Resolve the per-call abort signal from `config.timeout`. Returns undefined
-   * when no timeout is configured. Throws on a non-positive or non-finite value
-   * (e.g. an explicitly-set `0`) so a bad timeout fails loudly rather than being
+   * Validate `config.timeout` eagerly, BEFORE any RPC. A null timeout is
+   * unbounded (no-op); a non-positive or non-finite value (e.g. an
+   * explicitly-set `0`) throws so a bad timeout fails loudly rather than being
    * silently ignored by a truthiness check — the same timeout validation the
-   * in-flight Claude Code adapter (PR #687) performs.
+   * in-flight Claude Code adapter (PR #687) performs. The abort signal itself is
+   * created separately, immediately before the prompt, so the spawn and
+   * `session.create` do not consume the timeout budget.
    */
-  private timeoutSignal(): AbortSignal | undefined {
+  private validateTimeout(): void {
     const timeout = this.config.timeout;
-    if (timeout == null) return undefined;
+    if (timeout == null) return;
     if (!Number.isFinite(timeout) || timeout <= 0) {
       throw new Error(
         `OpenCodeAgentAdapter timeout must be a positive, finite number of milliseconds; received ${timeout}`,
       );
     }
-    return AbortSignal.timeout(timeout);
   }
 
   /**
@@ -317,9 +319,11 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
       );
     }
 
-    // Resolve (and validate) the timeout signal before any RPC, so a bad
-    // `timeout` (e.g. 0) fails fast instead of after a session.create.
-    const signal = this.timeoutSignal();
+    // Validate the timeout eagerly, before any RPC, so a bad `timeout` (e.g. 0)
+    // fails fast instead of after a session.create. The abort budget itself is
+    // started later (just before the prompt) so it covers ONLY the prompt — the
+    // spawn and session.create must not consume it.
+    this.validateTimeout();
 
     const client = await this.ensureClient();
     const { sessionId, isContinuation } = await this.resolveSessionId(
@@ -332,6 +336,13 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     );
 
     const query = this.directoryQuery();
+    // Start the timeout budget HERE, immediately before the prompt, so the
+    // preceding spawn + session.create do not eat into it. Undefined when no
+    // timeout is configured (validateTimeout already rejected bad values).
+    const signal =
+      this.config.timeout != null
+        ? AbortSignal.timeout(this.config.timeout)
+        : undefined;
     const result = await client.session.prompt({
       path: { id: sessionId },
       body: {
@@ -491,7 +502,7 @@ export function partsToText(parts: Part[] | undefined): string {
  * and, when present, a name/tool/path hint — never returns "" for a real part.
  */
 export function renderNonTextPart(part: unknown): string {
-  if (!part || typeof part !== "object") return safeStringify(part);
+  if (!part || typeof part !== "object") return stringifyValue(part);
   const p = part as Record<string, unknown>;
   const type = typeof p["type"] === "string" ? (p["type"] as string) : "part";
   const hint = p["tool"] ?? p["name"] ?? p["path"] ?? p["filename"];
@@ -508,7 +519,7 @@ export function renderNonTextPart(part: unknown): string {
  * AND semantic `info.error` variants (`ProviderAuthError | UnknownError |
  * MessageOutputLengthError | MessageAbortedError | APIError`, each `{ name, data }`).
  * Reads `.name`, `.message`, `.data.message`, and a status/code defensively since
- * shapes vary across endpoints; falls back to `safeStringify`. The `error == null`
+ * shapes vary across endpoints; falls back to `stringifyValue`. The `error == null`
  * guard is reachable via the `session.create` call site (see {@link OpenCodeAgentAdapter}).
  */
 function describeError(error: unknown): string {
@@ -528,23 +539,5 @@ function describeError(error: unknown): string {
     if (base && status !== undefined) return `${base} (status ${String(status)})`;
     if (base) return base;
   }
-  return safeStringify(error);
-}
-
-/**
- * Best-effort `JSON.stringify` for an unknown value. Mirrors the repo's
- * `stringifyValue` helper in `agents/utils.ts`: strings pass through; a true
- * circular reference makes `JSON.stringify` throw and we fall back to
- * `String(value)`; an `undefined` result (e.g. a bare function/symbol) also
- * falls back. No path-tracking — sibling references to the same object are
- * serialized independently, not mislabelled `"[Circular]"`.
- */
-export function safeStringify(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    const serialized = JSON.stringify(value);
-    return serialized === undefined ? String(value) : serialized;
-  } catch {
-    return String(value);
-  }
+  return stringifyValue(error);
 }
