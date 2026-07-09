@@ -30,7 +30,10 @@
  *      never throws it (it recovers); a non-stale failure stays a bare
  *      `ClaudeCodeCliError`.
  *  2.  stream-json parsing preserves array-shaped `tool_result` content (never
- *      `[object Object]`); `session_id` capture; `is_error`/`result` envelope.
+ *      `[object Object]`); `session_id` capture from `system`/init and `result`
+ *      lines (last one wins, absent when neither carries it). Pure
+ *      `parseStreamJson`/one-clean-run unit tests — no rejection behavior is
+ *      asserted here (see 5e for the `is_error:true` rejection coverage).
  *  3.  unknown event → `logger.warn` (deduped once per type), no throw, known
  *      content still returned; `stream_event` is known and never warns.
  *  4.  CLI-absent (spawn ENOENT) → reject with "Claude Code CLI not found".
@@ -38,6 +41,10 @@
  *  5.  timeout → reject with a timeout error AND `child.kill()` called; a resume
  *      turn's timeout does NOT evict the session. Plus timeout validation.
  *  5b. nonzero exit → reject with the exit code and captured stderr.
+ *  5e. result-envelope failure: `is_error:true` on the terminal `result`
+ *      envelope rejects even when the process exits 0 (never a silent
+ *      empty-text success) and stores no session id, so the next turn on that
+ *      thread spawns fresh (no `--resume`).
  *  5d. signal termination → reject with a signal error.
  *  6.  injected logger receives diagnostics; `console.*` is never used.
  *  7.  `assertSkillWasRead` passes on evidence, throws (naming the skill)
@@ -843,7 +850,10 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
     );
 
     // The stale resume fails via stderr only (no stdout envelope)…
-    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    // `runTurn()` spawns synchronously inside its `new Promise` executor
+    // (before `call()`'s first `await` suspends), so this is already true the
+    // instant `adapter.call()` above returns — no need to poll for it.
+    expect(spawnMock).toHaveBeenCalledTimes(2);
     staleChild.pushStderr(
       "No conversation found with session ID: sess-gone\n",
     );
@@ -890,8 +900,14 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
     // Turn 2 resumes a vanished session. With replay OFF the turn must reject —
     // and the error must name the flag AND state what replay would cost, so an
     // operator can make an informed choice rather than get a silent downgrade.
+    // A queued (not persistent) mock: if the default ever silently flipped to
+    // `true`, the code would attempt a rebuild spawn, and this ensures that
+    // spawn gets `undefined` rather than the SAME already-closed `staleChild`
+    // (whose `close` listener would never re-fire) — a fast assertion failure
+    // instead of a ~20s suite-timeout hang. See sibling tests in this describe
+    // block, which use `withChildren` for the same reason.
     const staleChild = new FakeChild();
-    withChild(staleChild);
+    withChildren([staleChild]);
     const turn2 = adapter.call(
       makeInput(
         [
@@ -905,9 +921,12 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
     staleChild.pushStderr("No conversation found with session ID: sess-gone");
     staleChild.close(1);
 
+    // Flag-name assertion plus one substantive assertion. Deliberately not
+    // pinning the exact fidelity-tradeoff wording (e.g. "loses server-side
+    // session state") — a harmless reword of that sentence shouldn't break
+    // this test when the contract itself is unchanged.
     await expect(turn2).rejects.toThrow(/replayOnLostSession: true/);
     await expect(turn2).rejects.toThrow(/no longer exists/);
-    await expect(turn2).rejects.toThrow(/loses server-side session state/);
 
     // Exactly ONE spawn for the lost-session turn — the default path never
     // rebuilds.
@@ -951,7 +970,10 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
       ),
     );
 
-    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    // `runTurn()` spawns synchronously inside its `new Promise` executor
+    // (before `call()`'s first `await` suspends), so this is already true the
+    // instant `adapter.call()` above returns — no need to poll for it.
+    expect(spawnMock).toHaveBeenCalledTimes(2);
     // Structural signal on STDOUT, empty stderr, exit 1.
     staleChild.pushStdout(
       resultLine({
@@ -1000,7 +1022,10 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
         { newMessages: [{ role: "user", content: "two" }] },
       ),
     );
-    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    // `runTurn()` spawns synchronously inside its `new Promise` executor
+    // (before `call()`'s first `await` suspends), so this is already true the
+    // instant `adapter.call()` above returns — no need to poll for it.
+    expect(spawnMock).toHaveBeenCalledTimes(2);
     staleChild.pushStderr("No conversation found with session ID: sess-gone");
     staleChild.close(1);
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(3));
@@ -1031,6 +1056,101 @@ describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
 
     const argv3 = argvAt(3);
     expect(argv3[argv3.indexOf("--resume") + 1]).toBe("sess-fresh");
+  });
+
+  // The rebuild itself can also fail. `call()`'s rebuild spawn (the
+  // full-history retry after evicting a dead session) sits OUTSIDE any
+  // try/catch — see the "First turn for this thread, or the opt-in rebuild…"
+  // comment in adapter.ts — so if IT throws too, that failure must propagate
+  // raw, and the (already-deleted) session entry must stay gone.
+  it("with replayOnLostSession, when the REBUILD ITSELF fails, rejects with the rebuild's own error — a bare ClaudeCodeCliError, not a LostSessionError — and turn 3 starts fresh", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({
+      workingDirectory: "/tmp/x",
+      replayOnLostSession: true,
+    });
+
+    // Turn 1 establishes session "sess-gone".
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-gone") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2 resumes; the session is gone (stderr fallback), so replay kicks
+    // in and the adapter respawns WITHOUT --resume — but the rebuild child
+    // ITSELF fails, for an unrelated, distinct reason (a rate limit). This
+    // failure must surface AS-IS, never reinterpreted as another lost session.
+    const staleChild = new FakeChild();
+    const rebuildChild = new FakeChild();
+    withChildren([staleChild, rebuildChild]);
+
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+    // Already true the instant `adapter.call()` above returns — see the
+    // sibling tests' note on `runTurn()`'s synchronous spawn.
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    staleChild.pushStderr("No conversation found with session ID: sess-gone");
+    staleChild.close(1);
+
+    // …the adapter respawns for the rebuild — and THIS spawn also fails.
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(3));
+    rebuildChild.pushStderr("Rate limit exceeded");
+    rebuildChild.close(1);
+
+    let caught: unknown;
+    try {
+      await turn2;
+    } catch (err) {
+      caught = err;
+    }
+
+    // The rebuild's OWN error surfaces — not the stale-session error — and it
+    // is a bare ClaudeCodeCliError, never a LostSessionError (the rebuild
+    // failure is not itself a lost session).
+    expect(caught).toBeInstanceOf(ClaudeCodeCliError);
+    expect(caught).not.toBeInstanceOf(LostSessionError);
+    const err = caught as ClaudeCodeCliError;
+    expect(err.message).toMatch(/Rate limit exceeded/);
+    expect(err.message).not.toMatch(/No conversation found/);
+
+    // The thread's session entry stayed deleted (the failed rebuild never
+    // reached the success path that stores a fresh id): turn 3 must spawn
+    // fresh — no phantom --resume — and carry the FULL history again, not a
+    // bare delta.
+    const child3 = new FakeChild();
+    withChild(child3);
+    const turn3 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+    child3.pushStdout(assistantLine("third try ok") + "\n");
+    child3.close(0);
+    await turn3;
+
+    const argv3 = argvAt(3);
+    expect(argv3).not.toContain("--resume");
+    const turn3Prompt = argv3.at(-1) ?? "";
+    expect(turn3Prompt).toContain("FIRST_TURN_TEXT");
+    expect(turn3Prompt).toContain("SECOND_TURN_DELTA");
   });
 
   // Turn-1 guard: recovery is keyed off a STORED session id, never off stderr
@@ -1219,7 +1339,10 @@ describe("ClaudeCodeAgentAdapter LostSessionError", () => {
         { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
       ),
     );
-    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    // `runTurn()` spawns synchronously inside its `new Promise` executor
+    // (before `call()`'s first `await` suspends), so this is already true the
+    // instant `adapter.call()` above returns — no need to poll for it.
+    expect(spawnMock).toHaveBeenCalledTimes(2);
     staleChild.pushStderr(
       "No conversation found with session ID: sess-vanished",
     );
