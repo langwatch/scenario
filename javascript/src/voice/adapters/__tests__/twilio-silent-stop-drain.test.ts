@@ -341,7 +341,11 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     const client = await startCall(adapter);
 
     const call = defaultVoiceCall(adapter, agentTurnInput());
-    await sleep(50); // let the drain block in its first receiveAudio
+    // `defaultVoiceCall` reaches its first `receiveAudio` synchronously, so the
+    // drain's queue waiter is already parked by the time the call above returns
+    // its promise. This sleep is belt-and-braces: it keeps the test honest if a
+    // future `await` is ever introduced ahead of the first receive.
+    await sleep(50);
     client.send(stopFrame());
 
     const message = await call;
