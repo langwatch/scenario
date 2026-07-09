@@ -568,17 +568,15 @@ function moveAgentStopSpeaking(
 ): void {
   const timeline = state.voiceRecording?.timeline;
   if (!timeline) return;
-  for (let i = timeline.length - 1; i >= 0; i--) {
-    const event = timeline[i];
-    if (!event) continue;
-    if (
-      event.type === "agent_stop_speaking" &&
-      Math.abs(event.time - oldTime) < 1e-6
-    ) {
-      event.time = newTime;
-      return;
-    }
-  }
+  // `findLast` walks from the end, so this is the most-recent match — the same
+  // event the old reverse scan settled on. It returns `VoiceEvent | undefined`,
+  // which makes the check below a real guard rather than an assertion.
+  const event = timeline.findLast(
+    (candidate) =>
+      candidate.type === "agent_stop_speaking" &&
+      Math.abs(candidate.time - oldTime) < 1e-6,
+  );
+  if (event) event.time = newTime;
 }
 
 /**
@@ -674,9 +672,7 @@ async function drainAgentResponse(
 }
 
 function mergeChunks(chunks: AudioChunk[]): AudioChunk {
-  const first = chunks[0];
-  // Single-chunk fast path — hand it back as-is instead of copying its bytes.
-  if (chunks.length === 1 && first) return first;
+  if (chunks.length === 1) return chunks[0];
   const total = chunks.reduce((acc, c) => acc + c.data.length, 0);
   const data = new Uint8Array(total);
   let offset = 0;

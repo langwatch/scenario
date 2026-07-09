@@ -226,12 +226,7 @@ function firstAgentSegment(state: VoiceExecutorState): AudioSegment {
 function expectMonotonicSegments(state: VoiceExecutorState): void {
   const segs = recordingOf(state).segments;
   for (let i = 1; i < segs.length; i++) {
-    const previous = segs[i - 1];
-    const current = segs[i];
-    if (!previous || !current) {
-      throw new Error(`segments array has a hole at index ${i}`);
-    }
-    expect(current.startTime).toBeGreaterThanOrEqual(previous.endTime - 1e-6);
+    expect(segs[i].startTime).toBeGreaterThanOrEqual(segs[i - 1].endTime - 1e-6);
   }
 }
 

@@ -981,7 +981,7 @@ export interface ElevenLabsVoiceAgentOptions {
  * ```ts
  * // Defaults — all ElevenLabs STT, gpt-5.4-mini, EL TTS
  * const apiKey = process.env.ELEVENLABS_API_KEY;
- * if (!apiKey) throw new Error("ELEVENLABS_API_KEY is not set");
+ * if (!apiKey) throw new Error("ELEVENLABS_API_KEY is required");
  * const agent = new ElevenLabsVoiceAgent({ apiKey });
  *
  * // Override just the LLM
