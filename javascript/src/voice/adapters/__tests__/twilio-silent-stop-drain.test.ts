@@ -30,11 +30,16 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import WebSocket from "ws";
 
+import { defaultVoiceCall } from "../../adapter.runtime";
 import { AudioChunk } from "../../audio-chunk";
+import { extractAudio } from "../../messages";
 import { TwilioAgentAdapter } from "../twilio";
 import type { MediaStreamWebSocket } from "../twilio-server";
 import { buildMediaFrame, TwilioRESTHelper } from "../twilio-shared";
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const STREAM_SID = "MZ695";
 // receiveAudio budget: an un-fixed adapter leaves the queue empty and `take`
@@ -266,4 +271,144 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     const tail = await adapter.receiveAudio(RECV_TIMEOUT_S);
     expect(tail.data.length).toBe(0);
   });
+});
+
+/**
+ * The anti-drift gate (PR #697 P2 blocker). Everything above drives
+ * `runStreamSession` by name; these tests drive nothing by name. They start the
+ * adapter's REAL http+ws server, connect a REAL `ws` client to the REAL
+ * `/twilio/stream` upgrade path — so `_handleStreamSocket` and `adaptWsSocket`
+ * run — and let the REAL production consumer (`defaultVoiceCall` →
+ * `drainAgentResponse`, what every agent turn runs) read the result.
+ *
+ * A fix that only works when a test calls the wrapper by name cannot pass here,
+ * and these fail if `_handleStreamSocket` ever stops delegating to
+ * `runStreamSession`.
+ *
+ * Where the JS pre-fix behaviour differs from the Python twin: `drainAgentResponse`
+ * wraps its tail-silence `receiveAudio` in `try { … } catch { break }` (added by
+ * #734), so a throw on the drain's *second* call is swallowed and silently
+ * truncates the turn rather than crashing. The uncaught crash lands on the
+ * drain's *first* `receiveAudio`, which has no such guard — i.e. whenever the
+ * agent turn begins after the transport was already nulled. The last two tests
+ * below pin exactly that, and are the ones that throw
+ * `Error: no live media stream` against the pre-fix adapter.
+ */
+describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
+  /** Poll until the route handler's `finally` has nulled the transport. */
+  async function awaitTeardown(adapter: TwilioAgentAdapter): Promise<void> {
+    await vi.waitFor(() => expect(adapter._streamWsForTest).toBeNull(), {
+      timeout: 5_000,
+    });
+  }
+
+  function openClient(adapter: TwilioAgentAdapter): Promise<WebSocket> {
+    const url = `${adapter.localBaseUrl.replace(/^http:/, "ws:")}/twilio/stream`;
+    return new Promise((resolve, reject) => {
+      const client = new WebSocket(url);
+      client.once("open", () => resolve(client));
+      client.once("error", reject);
+    });
+  }
+
+  /** No incoming audio → `defaultVoiceCall` goes straight to the drain. */
+  function agentTurnInput(): Parameters<typeof defaultVoiceCall>[1] {
+    return { newMessages: [] } as unknown as Parameters<typeof defaultVoiceCall>[1];
+  }
+
+  async function routeAdapter(): Promise<TwilioAgentAdapter> {
+    const adapter = await connectedAdapter(); // starts the REAL http+ws server
+    // Small drain budgets so a hang (the original #695 symptom) fails inside the
+    // per-test timeout rather than stalling the suite.
+    adapter.responseTimeout = 5;
+    adapter.responseTailSilence = 0.5;
+    return adapter;
+  }
+
+  async function startCall(adapter: TwilioAgentAdapter): Promise<WebSocket> {
+    const client = await openClient(adapter);
+    client.send(startFrame());
+    await vi.waitFor(() => expect(adapter._streamSidForTest).toBe(STREAM_SID), {
+      timeout: 5_000,
+    });
+    return client;
+  }
+
+  const audioBytes = (message: unknown): number => extractAudio(message)?.data.length ?? 0;
+
+  it("silent stop mid-drain: the real route drains cleanly", async () => {
+    const adapter = await routeAdapter();
+    const client = await startCall(adapter);
+
+    const call = defaultVoiceCall(adapter, agentTurnInput());
+    await sleep(50); // let the drain block in its first receiveAudio
+    client.send(stopFrame());
+
+    const message = await call;
+    expect(audioBytes(message)).toBe(0); // clean terminal — not a hang, not a crash
+    await awaitTeardown(adapter);
+    client.close();
+  }, 15_000);
+
+  it("socket close with no stop frame mid-drain: the real route drains cleanly", async () => {
+    const adapter = await routeAdapter();
+    const client = await startCall(adapter);
+
+    const call = defaultVoiceCall(adapter, agentTurnInput());
+    await sleep(50);
+    client.close(); // Twilio drops the media socket, no stop frame
+
+    const message = await call;
+    expect(audioBytes(message)).toBe(0);
+    await awaitTeardown(adapter);
+  }, 15_000);
+
+  it("normal audio turn: trailing PCM survives the real route's teardown", async () => {
+    const adapter = await routeAdapter();
+    const client = await startCall(adapter);
+
+    const call = defaultVoiceCall(adapter, agentTurnInput());
+    await sleep(50);
+    // 160 bytes µ-law (~20ms) is under the 100ms batch threshold, so the "stop"
+    // flush is what enqueues it: exactly the trailing-audio path.
+    client.send(buildMediaFrame(STREAM_SID, new Uint8Array(160).fill(0x7f)));
+    client.send(stopFrame());
+
+    const message = await call;
+    expect(audioBytes(message)).toBeGreaterThan(0); // audio reached the drain
+    await awaitTeardown(adapter);
+    client.close();
+  }, 15_000);
+
+  it("agent turn starting after hangup: drains cleanly instead of throwing", async () => {
+    // The tightest form of the P0: the route already nulled the transport when
+    // the drain makes its FIRST receiveAudio call — the next agent turn after
+    // the caller hung up. Pre-fix this throws "no live media stream" out of
+    // defaultVoiceCall, with the terminal sentinel unread in the queue.
+    const adapter = await routeAdapter();
+    const client = await startCall(adapter);
+
+    client.send(stopFrame());
+    await awaitTeardown(adapter);
+    expect(adapter._streamSidForTest).toBeUndefined();
+
+    const message = await defaultVoiceCall(adapter, agentTurnInput());
+    expect(audioBytes(message)).toBe(0);
+    client.close();
+  }, 15_000);
+
+  it("audio buffered before hangup is not lost when the turn starts after teardown", async () => {
+    // Pre-fix the liveness assert fired before the queue was read, so this
+    // audio was dropped on the floor along with the crash.
+    const adapter = await routeAdapter();
+    const client = await startCall(adapter);
+
+    client.send(buildMediaFrame(STREAM_SID, new Uint8Array(160).fill(0x7f)));
+    client.send(stopFrame());
+    await awaitTeardown(adapter);
+
+    const message = await defaultVoiceCall(adapter, agentTurnInput());
+    expect(audioBytes(message)).toBeGreaterThan(0); // recovered, not lost
+    client.close();
+  }, 15_000);
 });
