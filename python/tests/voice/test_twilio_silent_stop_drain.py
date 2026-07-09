@@ -379,7 +379,9 @@ class TestRealRoute:
 
                 speaker = asyncio.create_task(_slow_agent())
                 merged = await asyncio.wait_for(drain, timeout=ROUTE_CEILING)
-                await speaker
+                # Join the speaker so a failure inside it surfaces here rather
+                # than as a stray "task exception never retrieved" warning.
+                await asyncio.wait_for(speaker, timeout=ROUTE_CEILING)
 
         assert len(merged.data) > 0  # the new call's real audio, not a stale sentinel
 
