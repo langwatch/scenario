@@ -309,6 +309,16 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       expect(agentSegments(state)).toHaveLength(1);
       expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(2.0, 1);
 
+      // Capture the greeting's agent_stop_speaking event (emitted at endTime 2.0)
+      // and wire an onAudioChunk hook so we can assert the reconciled bytes are
+      // delivered to hook/playback consumers, not silently spliced.
+      const stopEvent = state
+        .voiceRecording!.timeline.find((e) => e.type === "agent_stop_speaking")!;
+      expect(stopEvent.time).toBeCloseTo(2.0, 1);
+      const hookChunks: AudioChunk[] = [];
+      (state as unknown as { onAudioChunk?: (c: AudioChunk) => void }).onAudioChunk =
+        (c) => hookChunks.push(c);
+
       // Turn 2 — a user turn commits. The reconcile fires BEFORE recordUser and
       // grows the greeting segment by the stranded 0.5s; the queue is emptied so
       // turn 2's own agent drain carries none of it.
@@ -327,6 +337,16 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
         String(c[0]).includes("reconciled prior-turn leftover"),
       );
       expect(warnedReconcile).toBe(true);
+      // (d) the reconciled bytes reached the onAudioChunk hook (parity with
+      // recordAgent → fireAudioChunk), not just the saved segment.
+      const hookSeconds = hookChunks.reduce((a, c) => a + c.durationSeconds, 0);
+      expect(hookSeconds).toBeGreaterThanOrEqual(FRAME_S - 1e-6);
+      // (e) the agent_stop_speaking event moved to the grown endTime (timeline
+      // stays consistent with the segment it describes).
+      expect(stopEvent.time).toBeCloseTo(GREETING_S, 1);
+      // (f) the grown segment is flagged for the finalize STT back-fill so its
+      // transcript can be re-derived to cover the reconciled continuation.
+      expect(agentSegments(state)[0]!.transcriptTruncated).toBe(true);
       // Cursor stays monotonic: user segment starts at/after the grown agent end.
       const segs = state.voiceRecording!.segments;
       for (let i = 1; i < segs.length; i++) {
@@ -361,18 +381,19 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
     }
   });
 
-  it("AC9: the reconcile refuses the cursor-unsafe shape where a user segment is last (barge-in shape)", async () => {
+  it("AC9: on the barge-in (user-last) shape the reconcile DRAINS the queue (no bleed) but does not grow the segment", async () => {
     vi.stubEnv("LOG_LEVEL", "warn");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const state = makeVoiceState();
       const adapter = greetingAdapter();
 
-      // Turn 1 greeting → agent segment, 0.5s stranded.
+      // Turn 1 greeting → agent segment, 0.5s stranded in the queue.
       await defaultVoiceCall(adapter, inputWithState(state));
+      expect(adapter.queuedFrames).toBe(1);
       // Simulate a barge-in recording shape: a USER segment is now the LAST on
       // the cursor (as fireUserInterrupt lays it after the interrupted agent
-      // segment). The reconcile must NOT grow an earlier agent segment here.
+      // segment). The reconcile must NOT grow the earlier agent segment here…
       state.voiceRecording!.segments.push({
         speaker: "user",
         startTime: 2.0,
@@ -382,17 +403,30 @@ describe("#747 turn-boundary reconcile (defaultVoiceCall + executor state)", () 
       state.voiceAudioCursor = 2.5; // advance the cursor as the real recorder does
       const agentAudioBefore = segSeconds(agentSegments(state)[0]!.audio);
 
-      await defaultVoiceCall(adapter, inputWithState(state, tone(FRAME_S)));
+      const turn2 = await defaultVoiceCall(
+        adapter,
+        inputWithState(state, tone(FRAME_S)),
+      );
 
-      // The agent segment was NOT grown (cursor-unsafe shape refused)…
+      // …but it MUST still drain the queue, so the stranded audio can never bleed
+      // into this drain (the #747 core fix on the barge-in path — pre-fix this
+      // returned WITHOUT draining and the 0.5s surfaced as turn 2's first audio).
+      expect(adapter.queuedFrames).toBe(0);
+      expect(audioSecondsOf(turn2)).toBeCloseTo(0, 1);
+      // The agent segment was NOT grown (cursor-unsafe shape) — the drained audio
+      // is dropped with a warning, not attributed.
       expect(segSeconds(agentSegments(state)[0]!.audio)).toBeCloseTo(
         agentAudioBefore,
         3,
       );
-      const reconciled = warnSpy.mock.calls.some((c) =>
+      const droppedWarn = warnSpy.mock.calls.some((c) =>
+        String(c[0]).includes("dropped"),
+      );
+      expect(droppedWarn).toBe(true);
+      const grownWarn = warnSpy.mock.calls.some((c) =>
         String(c[0]).includes("reconciled prior-turn leftover"),
       );
-      expect(reconciled).toBe(false);
+      expect(grownWarn).toBe(false);
       // …and every segment boundary stays monotonic (no overlap).
       const segs = state.voiceRecording!.segments;
       for (let i = 1; i < segs.length; i++) {

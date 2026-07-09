@@ -21,10 +21,11 @@
  *   exception.
  */
 
-import type { AgentInput, AgentReturnTypes } from "../domain/agents";
-import { AudioChunk, silentChunk } from "./audio-chunk";
 import type { VoiceAgentAdapter } from "./adapter";
+import { PendingTransportError } from "./adapters/pending-transport-error";
+import { AudioChunk, silentChunk } from "./audio-chunk";
 import { createAudioMessage, extractAudio } from "./messages";
+import { VoiceRecordingRuntime } from "./recording.runtime";
 import type {
   AudioSegment,
   LatencyMetrics,
@@ -32,10 +33,9 @@ import type {
   VoiceEvent,
   VoiceRecording,
 } from "./recording.types";
-import { VoiceRecordingRuntime } from "./recording.runtime";
-import type { VoiceExecutorState } from "./voice-executor-state";
 import { WebRTCVadFallback } from "./vad";
-import { PendingTransportError } from "./adapters/pending-transport-error";
+import type { VoiceExecutorState } from "./voice-executor-state";
+import type { AgentInput, AgentReturnTypes } from "../domain/agents";
 import { Logger } from "../utils/logger";
 
 /** Shared drain logger — surfaces the #747 max-duration / ceiling warnings. */
@@ -106,6 +106,15 @@ const SAFE_DEFAULT_MAX_DURATION_S = 30;
  * so it fires only for a transport that never signals end-of-stream (AC4b). 2x
  * leaves generous headroom for a legitimately long utterance (the real repro is
  * a ~50s greeting vs the 30s cap = 1.67x) while still bounding an infinite stream.
+ *
+ * SEMANTIC CHANGE (intended): `responseMaxDuration` is no longer a HARD per-turn
+ * cap — it is a soft target that warns; the hard bound is now `2×` it. A
+ * *never-silent* transport (a runaway/looping agent) therefore blocks the drain up
+ * to ~2× longer worst-case than before (~60s at the 30s default). This is the cost
+ * of not splitting a legitimately long utterance and affects only the pathological
+ * never-goes-silent case — a real agent falls silent between utterances and drains
+ * via tail-silence well before the ceiling. Callers needing a tighter per-turn
+ * wall-clock bound should lower `responseMaxDuration`.
  */
 const MAX_DURATION_CEILING_FACTOR = 2;
 const SAFE_DEFAULT_TRANSCRIPT_GRACE_WAIT_S = 2.0;
@@ -448,22 +457,33 @@ function resetAgentTurnTranscript(adapter: VoiceAgentAdapter): void {
  * audio of a new agent turn — the bleed #747 fixes.
  *
  * This runs at pre-user-`sendAudio`, BEFORE {@link AdapterRecorder.recordUser}.
- * At that instant the adapter's queue can hold ONLY prior-turn leftover (the user
- * is replying; the hosted agent has not begun its next reply), so the boundary
- * POSITION is the staleness proof — no per-chunk epoch needed. The leftover is
- * attributed to the prior agent turn by GROWING its recording segment.
+ * The queue is drained UNCONDITIONALLY first — so stranded prior-turn audio can
+ * never bleed out as the next drain's fake first audio, even on the cursor-unsafe
+ * barge-in path (where a user segment is already last on the cursor). Only the
+ * ATTRIBUTION of the drained audio is position-gated:
  *
- * Cursor-safety (review M1 invariant): the prior agent segment is still LAST on
- * the byte cursor here (recordUser has not laid the user segment yet), so
- * extending its `endTime` and advancing the cursor cannot overlap a later
- * segment. Guarded on a prior agent segment existing AND being last — which skips
- * the opening greeting (no prior agent segment → AC8) and refuses any off-nominal
- * shape where a user segment is last (the cursor-unsafe case, e.g. barge-in
- * recovery — AC9 keeps the weaker no-fake-turn guarantee there).
+ *  - Cursor-safe (a prior AGENT segment is still last on the byte cursor —
+ *    recordUser has not laid the user segment yet, review M1 invariant): grow that
+ *    segment. Extending its `endTime` + advancing the cursor cannot overlap a later
+ *    segment. The grown bytes are ALSO routed through {@link fireAudioChunk} (so
+ *    the `onAudioChunk` hook + live playback sink receive them, like every other
+ *    recorded agent chunk) and the segment is flagged for the finalize STT
+ *    back-fill (its existing transcript may not cover a gap-split continuation).
+ *  - Cursor-unsafe (no recording, the opening greeting with no prior agent segment
+ *    → AC8, or a barge-in where a user segment is last → AC9): the audio is already
+ *    out of the queue (no bleed), so it is DROPPED with a warning rather than
+ *    corrupting the append-only cursor by growing an out-of-order segment. The
+ *    dropped tail is the post-interrupt remainder the barge-in cut off.
  *
  * Duck-typed on `reconcilePendingAudio` (symmetric with the `lastAgentTranscript`
  * convention): adapters without a buffered queue expose no such method and are
  * untouched (Twilio/Pipecat/composable/OpenAI-Realtime/Gemini).
+ *
+ * Known limitation: for a SINGLE continuous utterance exceeding the drain's `2×
+ * responseMaxDuration` ceiling, frames the transport delivers AFTER this snapshot
+ * (during the subsequent `sendAudio`) can still bleed — this reconcile is a
+ * point-in-time drain, not a subscription. The realistic case (EL bursts a >30s
+ * greeting; the un-chop consumes it whole via tail-silence) is fully covered.
  */
 function reconcilePriorAgentAudio(
   adapter: VoiceAgentAdapter,
@@ -473,26 +493,75 @@ function reconcilePriorAgentAudio(
     adapter as { reconcilePendingAudio?: () => AudioChunk | null }
   ).reconcilePendingAudio;
   if (typeof reconcile !== "function" || !state) return;
-  const recording = state.voiceRecording;
-  if (!recording || recording.segments.length === 0) return;
-  const last = recording.segments[recording.segments.length - 1]!;
-  // Cursor-safe only when the prior agent segment is the last on the cursor.
-  if (last.speaker !== "agent") return;
+  // Drain the queue FIRST, unconditionally — this is what prevents the bleed. The
+  // attribution below is best-effort and never gates the drain.
   const leftover = reconcile.call(adapter);
   if (!leftover || leftover.data.length === 0) return;
-  // Grow the prior agent segment: append the bytes, extend endTime, advance the
-  // cursor to the new end so the about-to-be-laid user segment starts after it.
+
+  const recording = state.voiceRecording;
+  const last =
+    recording && recording.segments.length > 0
+      ? recording.segments[recording.segments.length - 1]!
+      : undefined;
+  // Attribute only when the prior AGENT segment is still last on the cursor.
+  if (!last || last.speaker !== "agent") {
+    logger.warn(
+      "drained prior-turn leftover audio at a boundary where it cannot be " +
+        "attributed cursor-safely (no prior agent segment, or a user segment is " +
+        "last, e.g. barge-in) — dropped so it is not emitted as a fake next turn " +
+        "(#747)",
+      { droppedSeconds: leftover.durationSeconds },
+    );
+    return;
+  }
+  // Cursor-safe: deliver the reconciled bytes to the hooks/playback sink (parity
+  // with recordAgent → fireAudioChunk), then grow the segment.
+  fireAudioChunk(state, leftover);
+  const oldEnd = last.endTime;
   const grown = new Uint8Array(last.audio.length + leftover.data.length);
   grown.set(last.audio, 0);
   grown.set(leftover.data, last.audio.length);
   last.audio = grown;
-  last.endTime += leftover.durationSeconds;
+  last.endTime = oldEnd + leftover.durationSeconds;
   state.voiceAudioCursor = last.endTime;
+  // The grown audio may carry speech the segment's transcript does not cover (a
+  // gap-split continuation) — flag it so the finalize STT back-fill re-transcribes
+  // it (the back-fill otherwise skips segments that already have a transcript).
+  last.transcriptTruncated = true;
+  // Keep the timeline consistent with the grown segment: recordAgent emitted
+  // agent_stop_speaking at oldEnd, so move it to the new end (this reconcile grows
+  // the segment out-of-band; re-establish the recordAgent endTime↔stop invariant).
+  moveAgentStopSpeaking(state, oldEnd, last.endTime);
   logger.warn(
     "reconciled prior-turn leftover audio into the previous agent segment so it " +
       "is not emitted as a fake next turn (#747)",
     { reconciledSeconds: leftover.durationSeconds },
   );
+}
+
+/**
+ * Move the most-recent `agent_stop_speaking` event from `oldTime` to `newTime`
+ * (#747). {@link appendEvent} pushes the SAME event object to both
+ * `voiceTimeline` and `voiceRecording.timeline`, so mutating it once via the
+ * recording timeline updates both sinks. No-op if no matching event is found.
+ */
+function moveAgentStopSpeaking(
+  state: VoiceExecutorState,
+  oldTime: number,
+  newTime: number,
+): void {
+  const timeline = state.voiceRecording?.timeline;
+  if (!timeline) return;
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const event = timeline[i]!;
+    if (
+      event.type === "agent_stop_speaking" &&
+      Math.abs(event.time - oldTime) < 1e-6
+    ) {
+      event.time = newTime;
+      return;
+    }
+  }
 }
 
 /**
@@ -542,6 +611,19 @@ async function drainAgentResponse(
   const chunks: AudioChunk[] = [first];
   let accumulated = first.durationSeconds;
   let softCapWarned = false;
+  // Warn ONCE the first time accumulated audio crosses the soft cap — covering a
+  // first chunk that already exceeds it, not only later chunks.
+  const maybeWarnSoftCap = (): void => {
+    if (accumulated >= maxDuration && !softCapWarned) {
+      softCapWarned = true;
+      logger.warn(
+        "agent turn exceeded responseMaxDuration; continuing to drain in-flight " +
+          "audio so the utterance is not split across turns (#747)",
+        { responseMaxDurationS: maxDuration, accumulatedS: accumulated },
+      );
+    }
+  };
+  maybeWarnSoftCap();
   // Drain until a REAL turn-end signal: tail-silence (the `catch`, the agent
   // stopped talking) or a terminal empty chunk. `responseMaxDuration` no longer
   // ends the loop — it only warns — so already-arriving audio for a single long
@@ -559,14 +641,7 @@ async function drainAgentResponse(
     }
     chunks.push(next);
     accumulated += next.durationSeconds;
-    if (accumulated >= maxDuration && !softCapWarned) {
-      softCapWarned = true;
-      logger.warn(
-        "agent turn exceeded responseMaxDuration; continuing to drain in-flight " +
-          "audio so the utterance is not split across turns (#747)",
-        { responseMaxDurationS: maxDuration, accumulatedS: accumulated },
-      );
-    }
+    maybeWarnSoftCap();
   }
   if (accumulated >= hardCeiling) {
     // Reached the absolute ceiling without a tail-silence / terminal signal — a
