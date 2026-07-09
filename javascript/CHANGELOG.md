@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.2](https://github.com/langwatch/scenario/compare/javascript/v0.5.1...javascript/v0.5.2) (2026-07-09)
+
+
+### Features
+
+* stamp scenario SDK version as trace attributes ([#733](https://github.com/langwatch/scenario/issues/733)) ([#736](https://github.com/langwatch/scenario/issues/736)) ([6612c50](https://github.com/langwatch/scenario/commit/6612c5086a462bf48a6b6a9b7e4809f09283ac6e))
+
+
+### Bug Fixes
+
+* **voice:** reconcile EL audioQueue at turn boundaries ([#747](https://github.com/langwatch/scenario/issues/747)) ([#748](https://github.com/langwatch/scenario/issues/748)) ([1b135f7](https://github.com/langwatch/scenario/commit/1b135f792b5f126a05793c0141bd5f5726412cd5))
+
+
+### Code Refactoring
+
+* **realtime:** use the injectable Logger instead of console.* ([#724](https://github.com/langwatch/scenario/issues/724)) ([#750](https://github.com/langwatch/scenario/issues/750)) ([54a89c5](https://github.com/langwatch/scenario/commit/54a89c53f8bea2c581e6d8cef361b4677811792d))
+* **voice/tests:** hoist AudioUserSimulator fixture to fixtures/ ([#524](https://github.com/langwatch/scenario/issues/524)) ([#738](https://github.com/langwatch/scenario/issues/738)) ([e1dda4b](https://github.com/langwatch/scenario/commit/e1dda4bc64549511e97c9288b5f6c8d5a44023b2))
+
 ## [0.5.1](https://github.com/langwatch/scenario/compare/javascript/v0.5.0...javascript/v0.5.1) (2026-07-08)
 
 
