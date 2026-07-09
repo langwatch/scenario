@@ -61,12 +61,19 @@ export interface ClaudeStreamMessage {
   [key: string]: unknown;
 }
 
-/** Top-level event `type`s we knowingly render or skip without warning. */
+/**
+ * Top-level event `type`s we knowingly render or skip without warning. The
+ * "unknown event" warning exists to flag wire-format drift, so every type the
+ * CLI routinely emits must be listed — otherwise the warning fires on a healthy
+ * run and stops meaning anything. `rate_limit_event` is emitted by Claude Code
+ * 2.1.205 on ordinary runs (observed alongside `system`/`assistant`/`result`).
+ */
 const KNOWN_EVENT_TYPES = new Set([
   "assistant",
   "user",
   "system",
   "result",
+  "rate_limit_event",
 ]);
 
 /**

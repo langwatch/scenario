@@ -2,7 +2,10 @@ import { ClaudeCodeAgentAdapter } from "./claude-code-agent.adapter.js";
 import type { ClaudeCodeAgentAdapterConfig } from "./claude-code-agent.adapter.js";
 import { injectSkill } from "./skill-injection.js";
 
-export { ClaudeCodeAgentAdapter } from "./claude-code-agent.adapter.js";
+export {
+  ClaudeCodeAgentAdapter,
+  ClaudeCodeCliError,
+} from "./claude-code-agent.adapter.js";
 export type {
   ClaudeCodeAgentAdapterConfig,
   Logger,

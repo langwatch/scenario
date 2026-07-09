@@ -61,10 +61,18 @@ vi.mock("node:child_process", () => ({
 }));
 
 import {
+  AgentAdapter,
   AgentRole,
   type AgentInput,
+  type AgentReturnTypes,
   type ScenarioExecutionStateLike,
 } from "../../domain/index.js";
+import { ScenarioExecution } from "../../execution/scenario-execution.js";
+import {
+  agent as scriptAgent,
+  succeed as scriptSucceed,
+  user as scriptUser,
+} from "../../script/index.js";
 import {
   ClaudeCodeAgentAdapter,
   claudeCodeAgent,
@@ -73,6 +81,17 @@ import {
   type Logger,
 } from "../claude-code/index.js";
 import { safeStringify } from "../claude-code/stream-json.js";
+
+/**
+ * A USER-role agent so scripted `user("…")` steps resolve. Scripted steps carry
+ * their own content, so `call` is never reached.
+ */
+class StubUserSim extends AgentAdapter {
+  role = AgentRole.USER;
+  async call(_input: AgentInput): Promise<AgentReturnTypes> {
+    throw new Error("StubUserSim.call should never run — steps carry content");
+  }
+}
 
 /**
  * A fake spawned child: an EventEmitter exposing `.stdout`/`.stderr` (each an
@@ -94,9 +113,13 @@ class FakeChild extends EventEmitter {
     this.stderr.emit("data", Buffer.from(chunk));
   }
 
-  /** Emit close with an exit code (default 0). */
+  /**
+   * Emit close with an exit code (default 0). Node passes `(code, signal)` with
+   * a null signal on a normal exit — mirror that, or a `signal`-sensitive branch
+   * in the adapter reads `undefined` here and `null` in production.
+   */
   close(code = 0): void {
-    this.emit("close", code);
+    this.emit("close", code, null);
   }
 
   /** Emit an error (e.g. spawn ENOENT). */
@@ -110,6 +133,36 @@ class FakeChild extends EventEmitter {
 /** Install the spawn mock to return `child` and record the call. */
 function withChild(child: FakeChild): void {
   spawnMock.mockReturnValue(child as unknown as ReturnType<typeof spawn>);
+}
+
+/** One scripted CLI invocation for {@link scriptedSpawn}. */
+interface ChildSpec {
+  stdout?: string;
+  stderr?: string;
+  code?: number | null;
+  signal?: NodeJS.Signals | null;
+}
+
+/**
+ * Install a spawn mock that self-drives: the Nth spawn yields a child which
+ * emits the Nth spec's output and closes on the next tick. Needed wherever the
+ * adapter is driven by code we don't control (e.g. a real `ScenarioExecution`),
+ * so there is no point at which the test can hand-feed each child.
+ */
+function scriptedSpawn(specs: ChildSpec[]): void {
+  let index = 0;
+  spawnMock.mockImplementation(() => {
+    const spec = specs[index++] ?? {};
+    const child = new FakeChild();
+    // The adapter attaches its listeners synchronously in the promise executor
+    // right after `spawn` returns, so deferring by one tick is enough.
+    setImmediate(() => {
+      if (spec.stdout) child.pushStdout(spec.stdout);
+      if (spec.stderr) child.pushStderr(spec.stderr);
+      child.emit("close", spec.code ?? 0, spec.signal ?? null);
+    });
+    return child as unknown as ReturnType<typeof spawn>;
+  });
 }
 
 /** The argv (3rd positional) the adapter passed to spawn on the last call. */
@@ -459,7 +512,7 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
     expect(prompt).toContain("SECOND_TURN_DELTA");
   });
 
-  it("drops a stale session id when a resume turn fails, so the next turn rebuilds from full history", async () => {
+  it("drops a stale session id when a resume turn fails for a non-recoverable reason", async () => {
     const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
 
     // Turn 1 establishes session "sess-heal".
@@ -474,8 +527,9 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
     child1.close(0);
     await turn1;
 
-    // Turn 2: a resume turn (delta only) whose CLI exits NON-ZERO because the
-    // server-side session is gone ("No conversation found"). It must reject.
+    // Turn 2: a resume turn (delta only) whose CLI exits NON-ZERO for a reason
+    // the adapter cannot recover from (auth/rate-limit). It must surface the
+    // real stderr and must NOT silently retry.
     const child2 = new FakeChild();
     withChild(child2);
     const turn2 = adapter.call(
@@ -488,18 +542,20 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
         { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
       ),
     );
-    child2.pushStderr("No conversation found with session ID");
+    child2.pushStderr("Rate limit exceeded");
     child2.close(1);
-    await expect(turn2).rejects.toThrow(/exit code 1/);
+    await expect(turn2).rejects.toThrow(/exit code 1: Rate limit exceeded/);
 
-    // The failed resume DID pass --resume sess-heal (it was a continuation turn).
+    // The failed resume DID pass --resume sess-heal (it was a continuation turn),
+    // and it spawned exactly once — no hidden retry on an unrecoverable failure.
     const argv2 = argvAt(1);
     expect(argv2).toContain("--resume");
     expect(argv2[argv2.indexOf("--resume") + 1]).toBe("sess-heal");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
 
     // Turn 3: same threadId. The stale id was evicted, so the adapter is no
     // longer in continuation mode — it must spawn WITHOUT --resume and send the
-    // FULL history (self-healed).
+    // FULL history.
     const child3 = new FakeChild();
     withChild(child3);
     const turn3 = adapter.call(
@@ -587,6 +643,204 @@ describe("ClaudeCodeAgentAdapter session continuation", () => {
     const prompt3 = lastPrompt();
     expect(prompt3).toContain("FIRST_TURN_TEXT");
     expect(prompt3).toContain("THIRD_TURN_DELTA");
+  });
+});
+
+// --- 1c. stale-session recovery ---------------------------------------------
+//
+// A vanished server-side session must be recovered from WITHIN the same turn.
+// Rejecting and deferring the rebuild to "the next turn" is not a recovery:
+// `ScenarioExecution.callAgent` rethrows anything an adapter's `call()` throws
+// (`scenario-execution.ts`, `catch (error) { throw new Error(...) }`), which
+// aborts the whole run — so there is no next turn to rebuild on.
+
+describe("ClaudeCodeAgentAdapter stale-session recovery", () => {
+  it("recovers in-turn when the resumed session is gone: replays full history and resolves", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    // Turn 1 establishes session "sess-gone".
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(
+      makeInput([{ role: "user", content: "FIRST_TURN_TEXT" }]),
+    );
+    child1.pushStdout(
+      systemInitLine("sess-gone") + "\n" + assistantLine("ok") + "\n",
+    );
+    child1.close(0);
+    await turn1;
+
+    // Turn 2 resumes, but the CLI reports the session no longer exists. This is
+    // the exact stderr Claude Code 2.1.205 writes for an unknown --resume id.
+    // The turn must NOT reject — it must transparently rebuild and resolve.
+    const staleChild = new FakeChild();
+    const rebuildChild = new FakeChild();
+    spawnMock
+      .mockReturnValueOnce(staleChild as unknown as ReturnType<typeof spawn>)
+      .mockReturnValueOnce(rebuildChild as unknown as ReturnType<typeof spawn>);
+
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "FIRST_TURN_TEXT" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "SECOND_TURN_DELTA" },
+        ],
+        { newMessages: [{ role: "user", content: "SECOND_TURN_DELTA" }] },
+      ),
+    );
+
+    // The stale resume fails…
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    staleChild.pushStderr(
+      "No conversation found with session ID: sess-gone\n",
+    );
+    staleChild.close(1);
+
+    // …and the adapter immediately respawns without --resume, replaying history.
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(3));
+    rebuildChild.pushStdout(
+      systemInitLine("sess-fresh") + "\n" + assistantLine("recovered") + "\n",
+    );
+    rebuildChild.close(0);
+
+    await expect(turn2).resolves.toContain("recovered");
+
+    // The failed attempt did resume; the rebuild did not.
+    expect(argvAt(1)).toContain("--resume");
+    expect(argvAt(2)).not.toContain("--resume");
+
+    // The rebuild replayed the FULL history, not just the delta — otherwise the
+    // fresh session would have lost every prior turn.
+    const rebuildPrompt = argvAt(2).at(-1) ?? "";
+    expect(rebuildPrompt).toContain("FIRST_TURN_TEXT");
+    expect(rebuildPrompt).toContain("SECOND_TURN_DELTA");
+  });
+
+  it("resumes the freshly-minted session on the turn after a recovery", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+
+    const child1 = new FakeChild();
+    withChild(child1);
+    const turn1 = adapter.call(makeInput([{ role: "user", content: "one" }]));
+    child1.pushStdout(systemInitLine("sess-gone") + "\n" + assistantLine("ok") + "\n");
+    child1.close(0);
+    await turn1;
+
+    const staleChild = new FakeChild();
+    const rebuildChild = new FakeChild();
+    spawnMock
+      .mockReturnValueOnce(staleChild as unknown as ReturnType<typeof spawn>)
+      .mockReturnValueOnce(rebuildChild as unknown as ReturnType<typeof spawn>);
+
+    const turn2 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "one" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "two" },
+        ],
+        { newMessages: [{ role: "user", content: "two" }] },
+      ),
+    );
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    staleChild.pushStderr("No conversation found with session ID: sess-gone");
+    staleChild.close(1);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(3));
+    rebuildChild.pushStdout(
+      systemInitLine("sess-fresh") + "\n" + assistantLine("recovered") + "\n",
+    );
+    rebuildChild.close(0);
+    await turn2;
+
+    // Turn 3 must resume the id minted by the REBUILD, not the dead one.
+    const child3 = new FakeChild();
+    withChild(child3);
+    const turn3 = adapter.call(
+      makeInput(
+        [
+          { role: "user", content: "one" },
+          { role: "assistant", content: "ok" },
+          { role: "user", content: "two" },
+          { role: "assistant", content: "recovered" },
+          { role: "user", content: "three" },
+        ],
+        { newMessages: [{ role: "user", content: "three" }] },
+      ),
+    );
+    child3.pushStdout(assistantLine("ok3") + "\n");
+    child3.close(0);
+    await turn3;
+
+    const argv3 = argvAt(3);
+    expect(argv3[argv3.indexOf("--resume") + 1]).toBe("sess-fresh");
+  });
+
+  it("does not recover a first turn (no session to be stale) — the error surfaces", async () => {
+    const adapter = new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" });
+    const child = new FakeChild();
+    withChild(child);
+
+    const turn1 = adapter.call(SIMPLE_INPUT);
+    child.pushStderr("No conversation found with session ID: whatever");
+    child.close(1);
+
+    await expect(turn1).rejects.toThrow(/exit code 1/);
+    // Exactly one spawn: a first turn has nothing to rebuild from.
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  // The regression that matters: drive a REAL ScenarioExecution (no CLI, no
+  // network) whose second turn hits a vanished session. Before in-turn
+  // recovery, `call()` rejected here and the executor's `catch { throw }`
+  // aborted the run — the "rebuild on the next turn" could never happen.
+  it("a mid-run stale session does not abort the scenario", async () => {
+    scriptedSpawn([
+      // Turn 1: mints session s1.
+      { stdout: systemInitLine("s1") + "\n" + assistantLine("ack") + "\n" },
+      // Turn 2: --resume s1 → the session is gone.
+      { stderr: "No conversation found with session ID: s1", code: 1 },
+      // Turn 2, rebuilt: fresh session, full history replayed.
+      {
+        stdout:
+          systemInitLine("s2") + "\n" + assistantLine("recovered answer") + "\n",
+      },
+    ]);
+
+    const exec = new ScenarioExecution(
+      {
+        name: "claude-code stale session",
+        description: "turn 2 resumes a session the CLI no longer has",
+        agents: [
+          new ClaudeCodeAgentAdapter({ workingDirectory: "/tmp/x" }),
+          new StubUserSim(),
+        ],
+      },
+      [
+        scriptUser("first user turn"),
+        scriptAgent(),
+        scriptUser("second user turn"),
+        scriptAgent(),
+        scriptSucceed("reached the end"),
+      ],
+      "test-batch-id",
+    );
+
+    const result = await exec.execute();
+
+    expect(result.success).toBe(true);
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+    expect(argvAt(1)).toContain("--resume");
+    expect(argvAt(2)).not.toContain("--resume");
+
+    // The scenario got a real turn-2 answer, not a dead run.
+    const assistantText = result.messages
+      .filter((m) => m.role === "assistant")
+      .map((m) =>
+        typeof m.content === "string" ? m.content : safeStringify(m.content),
+      )
+      .join("\n");
+    expect(assistantText).toContain("recovered answer");
   });
 });
 
@@ -1170,6 +1424,116 @@ describe.skipIf(!process.env.RUN_CLAUDE_CODE_E2E)(
         expect(lastAssistantText).toContain("KUMQUAT77");
       },
       180000,
+    );
+
+    it(
+      "recovers a real vanished session mid-run and still recalls turn 1",
+      async () => {
+        // The highest-fidelity trigger for a stale session: run the real CLI,
+        // then DELETE the on-disk transcript it just wrote. A subsequent
+        // `--resume <id>` then exits 1 with "No conversation found with session
+        // ID" — the exact failure the in-turn rebuild exists for. No judge and
+        // no user simulator, so this needs a `claude` binary but no LLM keys.
+        vi.doUnmock("node:child_process");
+        vi.resetModules();
+        const { ClaudeCodeAgentAdapter: RealAdapter } = await import(
+          "../claude-code/index.js"
+        );
+        const { ScenarioExecution: RealExecution } = await import(
+          "../../execution/scenario-execution.js"
+        );
+        const {
+          agent: realAgent,
+          succeed: realSucceed,
+          user: realUser,
+        } = await import("../../script/index.js");
+
+        const workingDirectory = fs.mkdtempSync(
+          path.join(os.tmpdir(), "cc-stale-"),
+        );
+        const spawnLogs: string[] = [];
+        const warnLogs: string[] = [];
+
+        const adapter = new RealAdapter({
+          workingDirectory,
+          timeout: 180000,
+          ...(process.env.CLAUDE_CODE_MODEL
+            ? { model: process.env.CLAUDE_CODE_MODEL }
+            : {}),
+          logger: {
+            log: (...a: unknown[]) => {
+              const line = a.join(" ");
+              if (line.startsWith("Starting claude in:")) spawnLogs.push(line);
+            },
+            warn: (...a: unknown[]) => warnLogs.push(a.join(" ")),
+          },
+        });
+
+        /** Remove the on-disk transcript of the session turn 1 established. */
+        const deleteLiveSession = (threadId: string): string => {
+          const { sessions } = adapter as unknown as {
+            sessions: Map<string, string>;
+          };
+          const sessionId = sessions.get(threadId);
+          if (!sessionId) throw new Error("turn 1 captured no session_id");
+          const projects = path.join(os.homedir(), ".claude", "projects");
+          const transcript = fs
+            .readdirSync(projects)
+            .map((dir) => path.join(projects, dir, `${sessionId}.jsonl`))
+            .find((candidate) => fs.existsSync(candidate));
+          if (!transcript) {
+            throw new Error(`no on-disk transcript for session ${sessionId}`);
+          }
+          fs.rmSync(transcript);
+          return sessionId;
+        };
+
+        const exec = new RealExecution(
+          {
+            name: "claude-code-e2e-stale-session",
+            description: "turn 2 resumes a session whose transcript is gone",
+            agents: [adapter, new StubUserSim()],
+          },
+          [
+            realUser(
+              "Remember this exact token for later: ZEBRA42. Just acknowledge it.",
+            ),
+            realAgent(),
+            async (state) => {
+              deleteLiveSession(state.threadId);
+            },
+            realUser(
+              "What exact token did I ask you to remember? Reply with just the token.",
+            ),
+            realAgent(),
+            realSucceed("reached the end"),
+          ],
+          "claude-code-stale-batch",
+        );
+
+        const result = await exec.execute();
+        fs.rmSync(workingDirectory, { recursive: true, force: true });
+
+        // The run survived the vanished session…
+        expect(result.success).toBe(true);
+        // …because turn 2 spawned twice: the doomed resume, then the rebuild.
+        expect(spawnLogs).toHaveLength(3);
+        expect(
+          warnLogs.some((w) => w.includes("no longer exists")),
+        ).toBe(true);
+
+        // …and the rebuilt turn still carried turn 1's context forward.
+        const assistantMessages = result.messages.filter(
+          (m) => m.role === "assistant",
+        );
+        const lastAssistant = assistantMessages.at(-1);
+        const lastAssistantText =
+          typeof lastAssistant?.content === "string"
+            ? lastAssistant.content
+            : JSON.stringify(lastAssistant?.content ?? "");
+        expect(lastAssistantText).toContain("ZEBRA42");
+      },
+      300000,
     );
   },
 );
