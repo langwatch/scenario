@@ -53,15 +53,18 @@ Feature: ElevenLabs voice adapter reconciles its audioQueue at turn boundaries
     And the stale audio is preserved in the recording, growing the prior agent segment by exactly the stale bytes
     And a warning naming the reconciliation and its reconciled duration is logged
 
-  # AC3(d) — gap-split with no intervening user turn merges into ONE message.
+  # AC3(d) — gap-split never becomes a fake turn (re-scoped: an already-broadcast
+  # message is immutable, so a LATE burst cannot be merged into it — but it is
+  # never emitted as a new turn and is preserved in the recording).
   @integration @el-audioqueue
-  Scenario: A gap-split utterance with no user turn between the bursts is one coherent message
-    Given a fake adapter delivers ONE utterance as two bursts separated by a gap of at least 3x responseTailSilence
-    And a single agent_response transcript spanning both bursts is delivered with the first burst
+  Scenario: A gap-split utterance's continuation is merged when available and never a fake turn when late
+    Given a fake adapter delivers ONE utterance as two bursts with a single agent_response spanning both
     And no user turn occurs between the two bursts
-    When the runtime drains and reconciles the turn
-    Then the resulting history has exactly one assistant message containing both bursts' audio
-    And that message's audio matches its transcript field with no text whose audio is absent
+    When both bursts are immediately available at drain time
+    Then the un-chopped drain consumes both into one assistant message
+    When instead the second burst arrives after the turn already closed
+    Then the second burst is never emitted as a new agent turn
+    And it is preserved in the recording attributed to the utterance that produced it
 
   # AC4 — responseMaxDuration no longer silently truncates.
   @unit @el-audioqueue
@@ -116,13 +119,16 @@ Feature: ElevenLabs voice adapter reconciles its audioQueue at turn boundaries
     Then it returns the buffered greeting as turn one
     And the boundary reconciliation does not swallow or reattribute the greeting
 
-  # AC9 — barge-in safety (failure mode).
+  # AC9 — barge-in safety (failure mode, re-scoped): no fake turn + cursor stays
+  # monotonic. Backward-attribution is NOT done on the barge-in path (the user
+  # segment is already laid after the interrupted agent segment on the cursor).
   @integration @el-audioqueue
-  Scenario: A mid-drain barge-in does not reconcile the interrupted turn's audio away
+  Scenario: A mid-drain barge-in leaves no fake turn and a monotonic recording cursor
     Given a non-blocking agent turn is in flight and the user barges in with audio mid-drain
     When the interrupt fires and delivers the user audio
-    Then the in-flight utterance's queued audio stays attributed to the interrupted turn
-    And leftover post-interrupt audio is never emitted as the next agent turn
+    Then leftover post-interrupt agent audio is never emitted as the next agent turn
+    And the recording cursor stays monotonic with no overlapping segments
+    And the boundary reconcile does not run on the barge-in path
 
   # AC10 — documented workaround stays valid (compat).
   @unit @el-audioqueue
@@ -136,12 +142,12 @@ Feature: ElevenLabs voice adapter reconciles its audioQueue at turn boundaries
   # AC1  "split greeting lands as one message"                 -> Scenario: A greeting whose TTS exceeds responseMaxDuration is one assistant message
   # AC2  "no fake instant turn / no stale bleed"               -> Scenario: Every assistant message's audio matches its own transcript with no cross-turn bleed
   # AC3  "reconciliation attributed, not silent"               -> Scenario: Stale queued audio at a turn boundary is attributed to the prior utterance, not emitted as a new turn
-  # AC3d "gap-split, no user turn, one message"                -> Scenario: A gap-split utterance with no user turn between the bursts is one coherent message
+  # AC3d "gap-split: merged when available, no fake turn when late" -> Scenario: A gap-split utterance's continuation is merged when available and never a fake turn when late
   # AC4a "responseMaxDuration no longer truncates"             -> Scenario: A continuous utterance longer than responseMaxDuration lands whole
   # AC4b "non-terminating stream bounded + warned"             -> Scenario: A never-silent audio stream terminates the drain at a bounded ceiling with a warning
   # AC5  "transcript<->audio pairing"                          -> Scenario: No two assistant messages share one utterance's transcript and every transcript pairs with its own audio
   # AC6  "clean runs unchanged (regression)"                   -> Scenario: A standard multi-turn run with sub-cap utterances is unchanged and adds no latency
   # AC7  "shared-runtime consumers unaffected (regression)"    -> Scenario: The shared drain change leaves every other voice adapter untouched
   # AC8  "greeting flow preserved (regression)"                -> Scenario: The agent-first greeting is still delivered as turn one and never reconciled away
-  # AC9  "barge-in safety (failure mode)"                      -> Scenario: A mid-drain barge-in does not reconcile the interrupted turn's audio away
+  # AC9  "barge-in safety (failure mode)"                      -> Scenario: A mid-drain barge-in leaves no fake turn and a monotonic recording cursor
   # AC10 "workaround stays valid (compat)"                     -> Scenario: A responseTailSilence of 2.0 composes with the fix
