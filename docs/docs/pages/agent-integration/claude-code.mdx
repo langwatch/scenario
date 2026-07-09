@@ -97,6 +97,33 @@ assertSkillWasRead(result, "my-skill");
 `skillName` is the parent directory name of the `SKILL.md` — i.e. the segment
 in `.skills/<skillName>/SKILL.md`.
 
+## Error handling
+
+`call()` rejects with `ClaudeCodeCliError` when the CLI exits non-zero or is
+killed by a signal — auth failures, rate limits, an unknown `model`, and
+similar unrecoverable errors all surface this way. That's what you get
+calling `call()` directly; through `scenario.run(...)` — the common path —
+the executor wraps every adapter error in a plain `Error`, so catch that and
+read the original off `.cause`:
+
+```typescript
+import { ClaudeCodeCliError } from "@langwatch/scenario";
+
+try {
+  await scenario.run({ /* ... */ });
+} catch (err) {
+  // scenario.run wraps adapter errors — the original is on `.cause`
+  const cause = err instanceof Error ? err.cause : undefined;
+  if (cause instanceof ClaudeCodeCliError) {
+    console.error(cause.exitCode, cause.signal, cause.stderr);
+  }
+}
+```
+
+`exitCode` (`number | null`) and `signal` (`NodeJS.Signals | null`) mirror
+Node's `child_process` exit info; `stderr` (`string`) is the CLI's captured
+output.
+
 ## Caveats
 
 - **`claude` must be on `PATH`** (or pointed to via `claudeBin` / `CLAUDE_BIN`).
@@ -109,3 +136,11 @@ in `.skills/<skillName>/SKILL.md`.
 - **`--dangerously-skip-permissions`** — `skipPermissions: true` runs the
   agent without any permission prompts. Only enable this in sandboxed or CI
   environments where you control the working directory.
+- **Session continuation** — per `threadId`, the first turn sends the full
+  history with no `--resume`; later turns pass `--resume <session_id>` and
+  send only the new messages. If the CLI reports that a resumed session no
+  longer exists, the adapter evicts it, warns via the injected `logger`, and
+  re-runs the same turn from full history against a fresh session — so a
+  single `call()` can spawn the CLI twice. Any other CLI failure — auth, rate
+  limit, unknown model, a signal — rejects with `ClaudeCodeCliError` (see
+  [Error handling](#error-handling)) and is not retried.
