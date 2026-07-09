@@ -153,8 +153,21 @@ def _free_port() -> int:
     return port
 
 
-async def _wait_for_bind(port: int) -> None:
+async def _wait_for_bind(port: int, server_task: "asyncio.Task[None]") -> None:
+    """Wait until the port accepts, failing loudly if uvicorn died instead.
+
+    ``_free_port`` reserves then releases a port, so another listener can win the
+    race. uvicorn reacts to a failed bind with ``sys.exit(1)`` — a ``SystemExit``,
+    which is a ``BaseException`` and therefore slips past the ``suppress(Exception)``
+    in ``TwilioWebhookServer.run()``. Without this check the connect below would
+    succeed against the *other* listener and the test would fail much later with a
+    bare ``SystemExit`` instead of "address already in use".
+    """
     for _ in range(200):
+        if server_task.done():
+            # Re-raise whatever killed the server (SystemExit, OSError, …).
+            server_task.result()
+            raise AssertionError("uvicorn exited before binding")
         try:
             _reader, writer = await asyncio.open_connection("127.0.0.1", port)
             writer.close()
@@ -179,7 +192,7 @@ async def _serve_real_route(
     assert adapter._webhook_server is not None
     server_task = asyncio.create_task(adapter._webhook_server.run())
     try:
-        await _wait_for_bind(adapter.http_port)
+        await _wait_for_bind(adapter.http_port, server_task)
         yield f"ws://127.0.0.1:{adapter.http_port}/twilio/stream"
     finally:
         assert adapter._server_shutdown is not None
@@ -246,15 +259,15 @@ class TestRealRoute:
     ) -> None:
         """Twilio drops the media socket with no ``stop`` frame and no audio."""
         async with _serve_real_route(route_adapter) as url:
-            client = await websockets.connect(url)
-            await client.send(_start_frame())
-            assert route_adapter._stream_connected is not None
-            await asyncio.wait_for(
-                route_adapter._stream_connected.wait(), timeout=ROUTE_CEILING
-            )
-            drain = asyncio.create_task(route_adapter._drain_agent_response())
-            await asyncio.sleep(0.05)
-            await client.close()
+            async with websockets.connect(url) as client:
+                await client.send(_start_frame())
+                assert route_adapter._stream_connected is not None
+                await asyncio.wait_for(
+                    route_adapter._stream_connected.wait(), timeout=ROUTE_CEILING
+                )
+                drain = asyncio.create_task(route_adapter._drain_agent_response())
+                await asyncio.sleep(0.05)  # let the drain block in recv_audio
+            # Leaving the ``async with`` closes the socket — the termination path.
             merged = await asyncio.wait_for(drain, timeout=ROUTE_CEILING)
 
         assert merged.data == b""
@@ -315,6 +328,60 @@ class TestRealRoute:
             )
 
         assert merged.data == b""
+
+    @pytest.mark.asyncio
+    async def test_undrained_sentinel_does_not_truncate_the_next_call(
+        self, route_adapter: TwilioAgentAdapter
+    ) -> None:
+        """A call that ends while NO drain is running leaves its terminal
+        sentinel buffered. The next media-stream session on the same connected
+        adapter must not serve that stale empty chunk as its first turn's audio.
+
+        Without the queue purge at loop entry, session 2's drain reads the stale
+        sentinel as its first chunk, breaks on it once tail-silence elapses, and
+        the new call's first agent turn is truncated to silence — with its real
+        audio stranded for the turn after.
+        """
+        # Agent 2 "thinks" for longer than tail silence before it speaks, so a
+        # stale first chunk closes the turn before the real audio can land.
+        route_adapter.response_tail_silence = 0.2
+        speak_after = 0.6
+
+        async with _serve_real_route(route_adapter) as url:
+            # Session 1: caller hangs up between turns; nothing consumes it.
+            async with websockets.connect(url) as first:
+                await first.send(_start_frame())
+                assert route_adapter._stream_connected is not None
+                await asyncio.wait_for(
+                    route_adapter._stream_connected.wait(), timeout=ROUTE_CEILING
+                )
+                await first.send(_stop_frame())
+            await _await_teardown(route_adapter)
+            assert route_adapter._inbound_queue is not None
+            assert route_adapter._inbound_queue.qsize() == 1  # sentinel, unread
+
+            # Session 2: a Twilio reconnect / back-to-back call.
+            async with websockets.connect(url) as second:
+                await second.send(_start_frame("MZ695b", "CA695b"))
+                for _ in range(int(ROUTE_CEILING / 0.01)):
+                    if route_adapter._stream_sid == "MZ695b":
+                        break
+                    await asyncio.sleep(0.01)
+                assert route_adapter._stream_sid == "MZ695b"
+
+                drain = asyncio.create_task(route_adapter._drain_agent_response())
+
+                async def _slow_agent() -> None:
+                    await asyncio.sleep(speak_after)
+                    # 800 bytes µ-law == the 100ms flush threshold, so the media
+                    # branch flushes immediately — no stop frame needed.
+                    await second.send(build_media_frame("MZ695b", bytes([0x7F]) * 800))
+
+                speaker = asyncio.create_task(_slow_agent())
+                merged = await asyncio.wait_for(drain, timeout=ROUTE_CEILING)
+                await speaker
+
+        assert len(merged.data) > 0  # the new call's real audio, not a stale sentinel
 
     @pytest.mark.asyncio
     async def test_audio_buffered_before_hangup_is_not_lost(

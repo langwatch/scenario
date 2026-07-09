@@ -237,14 +237,26 @@ class TwilioWebhookServer:
         assert adapter._stream_connected is not None
 
         adapter._stream_ws = ws
-        # ``_stream_ended`` is per-CALL state: re-arm it alongside
-        # ``_stream_ws`` so a second media-stream session on the same connected
-        # adapter (Twilio reconnect, back-to-back call) does not start with the
-        # previous session's terminal flag stuck True — which would make
-        # ``recv_audio`` synthesize an empty "end of call" sentinel on any
-        # transient empty queue mid-turn and truncate the new call's first
-        # agent turn.
+        # ``_stream_ended`` AND the inbound queue are per-CALL state: re-arm and
+        # purge both alongside ``_stream_ws`` so a second media-stream session on
+        # the same connected adapter (Twilio reconnect, back-to-back call) starts
+        # clean.
+        #
+        # The flag alone is not enough. The previous call's ``finally`` ENQUEUED a
+        # terminal sentinel; if that call ended while no drain was running (the
+        # caller hung up between turns), the sentinel is still sitting in the
+        # queue. ``recv_audio`` drains a non-empty queue without checking
+        # liveness, so the new call's first ``recv_audio`` would hand that stale
+        # empty chunk to ``_drain_agent_response`` as its first chunk — and the
+        # drain breaks on an empty chunk, truncating the new call's first agent
+        # turn to silence and stranding its real audio for the turn after.
+        #
+        # No frame of THIS call has been enqueued yet, so anything present is the
+        # previous session's residue and is safe to drop. Waiters are untouched:
+        # a consumer already parked in ``get()`` stays parked for real audio.
         adapter._stream_ended = False
+        while not adapter._inbound_queue.empty():
+            adapter._inbound_queue.get_nowait()
         # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
         # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
         # chunk to avoid thousands of tiny AudioChunk objects.

@@ -397,6 +397,37 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     client.close();
   }, 15_000);
 
+  it("an undrained terminal sentinel does not truncate the next call's first turn", async () => {
+    // A call that ends while NO drain is running leaves its terminal sentinel
+    // buffered. The next media-stream session on the same connected adapter must
+    // not serve that stale empty chunk as its first turn's audio: `receiveAudio`
+    // drains a non-empty queue without checking liveness, and `drainAgentResponse`
+    // breaks on an empty chunk — so the new call's first agent turn would be
+    // truncated to silence, its real audio stranded for the turn after.
+    const adapter = await routeAdapter();
+    // Agent 2 "thinks" for longer than tail silence before speaking, so a stale
+    // first chunk closes the turn before the real audio can land.
+    adapter.responseTailSilence = 0.2;
+
+    // Session 1: caller hangs up between turns; nothing consumes the sentinel.
+    const first = await startCall(adapter);
+    first.send(stopFrame());
+    await awaitTeardown(adapter);
+    first.close();
+
+    // Session 2: a Twilio reconnect / back-to-back call.
+    const second = await startCall(adapter);
+    const call = defaultVoiceCall(adapter, agentTurnInput());
+    setTimeout(() => {
+      // 800 bytes µ-law == the 100ms flush threshold: flushes immediately.
+      second.send(buildMediaFrame(STREAM_SID, new Uint8Array(800).fill(0x7f)));
+    }, 600);
+
+    const message = await call;
+    expect(audioBytes(message)).toBeGreaterThan(0); // real audio, not a stale sentinel
+    second.close();
+  }, 15_000);
+
   it("audio buffered before hangup is not lost when the turn starts after teardown", async () => {
     // Pre-fix the liveness assert fired before the queue was read, so this
     // audio was dropped on the floor along with the crash.

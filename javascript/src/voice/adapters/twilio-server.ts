@@ -271,13 +271,13 @@ export class TwilioWebhookServer {
   async mediaStreamLoop(ws: MediaStreamWebSocket): Promise<void> {
     const adapter = this._adapter;
     adapter._setStreamWs(ws);
-    // `_streamEnded` is per-CALL state: re-arm it alongside `_streamWs` so a
-    // second media-stream session on the same connected adapter (Twilio
-    // reconnect, back-to-back call) does not start with the previous session's
-    // terminal flag stuck true — which would make `receiveAudio` synthesize an
-    // empty "end of call" sentinel on any transient empty queue mid-turn and
-    // truncate the new call's first agent turn.
-    adapter._resetStreamEnded();
+    // The terminal flag AND the inbound queue are per-CALL state: re-arm both
+    // alongside `_streamWs` so a second media-stream session on the same
+    // connected adapter (Twilio reconnect, back-to-back call) starts clean —
+    // neither inheriting the previous call's terminal flag nor draining its
+    // leftover terminal sentinel as this call's first chunk. See
+    // `_resetCallState`.
+    adapter._resetCallState();
 
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law

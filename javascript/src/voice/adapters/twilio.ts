@@ -422,11 +422,26 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   /** @internal */ _markStreamEnded(): void {
     this._streamEnded = true;
   }
-  /** @internal Re-armed at media-stream-loop entry: the flag is per-call, not
-   * per-connection, so a second session on the same connected adapter must not
-   * inherit the previous session's terminal state. */
-  _resetStreamEnded(): void {
+  /**
+   * @internal Re-arm per-CALL state at media-stream-loop entry. Both halves are
+   * per-call, not per-connection, so a second session on the same connected
+   * adapter must not inherit either of them.
+   *
+   * The flag alone is not enough: the previous call's `finally` ENQUEUED a
+   * terminal sentinel, and if that call ended while no drain was running (the
+   * caller hung up between turns) the sentinel is still buffered. `receiveAudio`
+   * drains a non-empty queue without checking liveness, so the new call's first
+   * `receiveAudio` would hand that stale empty chunk to `drainAgentResponse` as
+   * its first chunk — and the drain breaks on an empty chunk, truncating the new
+   * call's first agent turn to silence.
+   *
+   * No frame of this call has been enqueued yet, so buffered chunks are the
+   * previous session's residue. `clearBuffered` (not `reset`) so a consumer
+   * already parked in `take()` stays parked for the new call's real audio.
+   */
+  _resetCallState(): void {
     this._streamEnded = false;
+    this._inboundQueue.clearBuffered();
   }
   /** @internal Test-only view of the transport state the server nulls on teardown. */
   get _streamWsForTest(): MediaStreamWebSocket | null {
@@ -517,6 +532,16 @@ class InboundQueue {
   /** True when no buffered chunk is immediately available to `take()`. */
   isEmpty(): boolean {
     return this._items.length === 0;
+  }
+
+  /**
+   * Drop buffered chunks but leave parked waiters alone — unlike {@link reset},
+   * which also rejects them. Used at media-stream-loop entry to clear the
+   * previous call's residue without failing a consumer already waiting on the
+   * new call's audio.
+   */
+  clearBuffered(): void {
+    this._items = [];
   }
 
   reset(): void {
