@@ -66,6 +66,7 @@ const result = await scenario.run({
 | `model` | `string` | CLI default | Passed as `--model <model>`. Omit to let the CLI use its own default. |
 | `timeout` | `number` | `120000` | Per-call timeout in ms. The child is killed and the call rejects on exceed. |
 | `skipPermissions` | `boolean` | `false` | When `true`, passes `--dangerously-skip-permissions`. Off by default — opt in only in sandboxed or CI contexts. |
+| `replayOnLostSession` | `boolean` | `false` | What to do when a `--resume`d session has vanished server-side. `false` (default) rejects the turn with an actionable error; `true` rebuilds it in place from the full transcript against a fresh session. Off by default because the rebuild loses server-side session state — see [Session continuation](#caveats). |
 | `skillPath` | `string` | — | Absolute path to a `SKILL.md` to inject into the working directory before the CLI runs (see [Skill testing](#skill-testing)). |
 | `logger` | `Logger` | no-op | Receives all diagnostic output (`log` and `warn`). Omit for silent operation. |
 | `extraArgs` | `string[]` | `[]` | Extra CLI arguments inserted before the prompt. Use for flags not modelled by config fields. |
@@ -124,6 +125,16 @@ try {
 Node's `child_process` exit info; `stderr` (`string`) is the CLI's captured
 output.
 
+:::warning `stderr` is unredacted CLI output
+
+`stderr` carries whatever the CLI wrote to its error stream verbatim — it may
+include sensitive detail (environment values, a rejected API key echoed in an
+error). It is also an enumerable field, so it appears in
+`JSON.stringify(error)` too. Do not log it verbatim to shared or public sinks;
+redact or drop it before it leaves a trusted boundary.
+
+:::
+
 ## Caveats
 
 - **`claude` must be on `PATH`** (or pointed to via `claudeBin` / `CLAUDE_BIN`).
@@ -138,9 +149,17 @@ output.
   environments where you control the working directory.
 - **Session continuation** — per `threadId`, the first turn sends the full
   history with no `--resume`; later turns pass `--resume <session_id>` and
-  send only the new messages. If the CLI reports that a resumed session no
-  longer exists, the adapter evicts it, warns via the injected `logger`, and
-  re-runs the same turn from full history against a fresh session — so a
-  single `call()` can spawn the CLI twice. Any other CLI failure — auth, rate
-  limit, unknown model, a signal — rejects with `ClaudeCodeCliError` (see
-  [Error handling](#error-handling)) and is not retried.
+  send only the new messages.
+- **Lost session (default: fail loudly)** — if the CLI reports that a resumed
+  session no longer exists, the adapter evicts the dead id and, **by default,
+  rejects the turn** with an actionable error naming `replayOnLostSession`.
+  Rejecting is the default on purpose: the only alternative is to rebuild the
+  turn by re-flattening the whole transcript into a fresh session, which loses
+  server-side session state (context cache, tool state) — a real modality
+  change that would silently alter what a run measures. Set
+  `replayOnLostSession: true` to opt into that rebuild; then a single `call()`
+  can spawn the CLI twice (the doomed resume, then the replay) and warns via
+  the injected `logger`. Any other CLI failure — auth, rate limit, unknown
+  model, a signal, a timeout — rejects with `ClaudeCodeCliError` (see
+  [Error handling](#error-handling)), never evicts the session, and is not
+  retried.

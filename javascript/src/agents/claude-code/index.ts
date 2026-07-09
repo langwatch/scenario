@@ -10,7 +10,10 @@ export type {
   ClaudeCodeAgentAdapterConfig,
   Logger,
 } from "./claude-code-agent.adapter.js";
-export type { ClaudeStreamMessage } from "./stream-json.js";
+export type {
+  ClaudeStreamMessage,
+  ClaudeResultEnvelope,
+} from "./stream-json.js";
 export { parseStreamJson } from "./stream-json.js";
 export { assertSkillWasRead, injectSkill } from "./skill-injection.js";
 

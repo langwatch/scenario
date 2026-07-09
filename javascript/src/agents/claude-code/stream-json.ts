@@ -13,7 +13,13 @@
  *    `[object Object]` string-coercion of the original.
  *  - Lines that parse to an object with an unrecognized top-level `type` are
  *    surfaced via `logger?.warn(...)` ("unknown event") rather than silently
- *    dropped or thrown.
+ *    dropped or thrown — but at most ONCE per distinct type per call, so a
+ *    token-level event stream (`stream_event` under `--include-partial-messages`)
+ *    or any repeated novel type cannot flood the log.
+ *  - The terminal `type: "result"` envelope is surfaced structurally
+ *    ({@link ClaudeResultEnvelope}: `isError`/`subtype`/`errors`) so a caller can
+ *    trust the CLI's own fielded status instead of inferring success from the
+ *    exit code alone.
  */
 
 /**
@@ -62,11 +68,32 @@ export interface ClaudeStreamMessage {
 }
 
 /**
+ * The structured status the CLI fields on its terminal `type: "result"` line
+ * (verified against Claude Code 2.1.205). `isError` is the CLI's own success
+ * verdict — trust it over the process exit code (a stale `--resume`, for one,
+ * can report `is_error: true`). `subtype` categorises the outcome
+ * (`error_during_execution`, `success`, …) and `errors` carries the fielded
+ * failure sentences (e.g. `"No conversation found with session ID: <id>"`).
+ * Every field is optional: absent when no `result` line was emitted (older CLIs,
+ * a crash before the envelope) or when that field was not present.
+ */
+export interface ClaudeResultEnvelope {
+  isError?: boolean;
+  subtype?: string;
+  errors?: string[];
+}
+
+/**
  * Top-level event `type`s we knowingly render or skip without warning. The
  * "unknown event" warning exists to flag wire-format drift, so every type the
  * CLI routinely emits must be listed — otherwise the warning fires on a healthy
  * run and stops meaning anything. `rate_limit_event` is emitted by Claude Code
  * 2.1.205 on ordinary runs (observed alongside `system`/`assistant`/`result`).
+ * `stream_event` is the token-level delta the CLI emits under
+ * `--include-partial-messages` (reachable via the adapter's `extraArgs`); a
+ * single one-word reply produced 26 of them, so it must be known — the per-call
+ * dedupe below is the durable guard, this allowlist entry avoids the noise
+ * entirely for a type we understand.
  */
 const KNOWN_EVENT_TYPES = new Set([
   "assistant",
@@ -74,6 +101,7 @@ const KNOWN_EVENT_TYPES = new Set([
   "system",
   "result",
   "rate_limit_event",
+  "stream_event",
 ]);
 
 /**
@@ -156,22 +184,35 @@ function renderMessage(message: ClaudeStreamInnerMessage): string {
  *
  * @param stdout - Raw stdout (possibly many newline-delimited JSON objects).
  * @param logger - Optional structural logger; receives an "unknown event"
- *   `warn` for any line whose parsed `type` is unrecognized. Never throws on a
- *   malformed line — non-JSON lines are skipped.
- * @returns `{ text, messages, sessionId }` — `text` is the joined
- *   assistant-visible text, `messages` is every successfully-parsed line, and
+ *   `warn` for any line whose parsed `type` is unrecognized — at most ONCE per
+ *   distinct type per call, so a repeated novel type cannot flood the log.
+ *   Never throws on a malformed line — non-JSON lines are skipped.
+ * @returns `{ text, messages, sessionId, result }` — `text` is the joined
+ *   assistant-visible text, `messages` is every successfully-parsed line,
  *   `sessionId` is the top-level `session_id` Claude Code stamps on its
- *   `system`/init line (and may restamp on later events). Last-wins across
- *   lines so a refreshed id on a `--resume` turn is the one returned; left
- *   `undefined` when no line carries a `session_id`. The adapter threads this
- *   to continue a session across turns (see the adapter's `call`).
+ *   `system`/init line (and may restamp on later events; last-wins, left
+ *   `undefined` when no line carries one), and `result` is the terminal
+ *   {@link ClaudeResultEnvelope} read off the `type: "result"` line (an empty
+ *   object when none was emitted). The adapter threads `sessionId` to continue a
+ *   session across turns and inspects `result` to tell a real failure — including
+ *   a stale `--resume` — from a healthy run (see the adapter's `call`).
  */
 export function parseStreamJson(
   stdout: string,
   logger?: StreamLogger,
-): { text: string; messages: ClaudeStreamMessage[]; sessionId?: string } {
+): {
+  text: string;
+  messages: ClaudeStreamMessage[];
+  sessionId?: string;
+  result: ClaudeResultEnvelope;
+} {
   const messages: ClaudeStreamMessage[] = [];
   let sessionId: string | undefined;
+  let result: ClaudeResultEnvelope = {};
+  // Warn at most once per distinct unrecognized type in this call. Reactive
+  // allowlisting is whack-a-mole; deduping is the durable fix against a
+  // per-token event stream turning one novelty into hundreds of warnings.
+  const warnedUnknownTypes = new Set<string>();
 
   for (const rawLine of stdout.split("\n")) {
     const line = rawLine.trim();
@@ -198,10 +239,28 @@ export function parseStreamJson(
       sessionId = message.session_id;
     }
 
+    // The terminal `result` line fields the run's status structurally. Read it
+    // off untyped wire keys (guarded), last-wins. The adapter trusts `isError`
+    // over the exit code and keys stale-session detection off `subtype`/`errors`.
+    if (message.type === "result") {
+      const rawIsError = message["is_error"];
+      const rawSubtype = message["subtype"];
+      const rawErrors = message["errors"];
+      result = {
+        isError: typeof rawIsError === "boolean" ? rawIsError : undefined,
+        subtype: typeof rawSubtype === "string" ? rawSubtype : undefined,
+        errors: Array.isArray(rawErrors)
+          ? rawErrors.filter((e): e is string => typeof e === "string")
+          : undefined,
+      };
+    }
+
     if (
       typeof message.type === "string" &&
-      !KNOWN_EVENT_TYPES.has(message.type)
+      !KNOWN_EVENT_TYPES.has(message.type) &&
+      !warnedUnknownTypes.has(message.type)
     ) {
+      warnedUnknownTypes.add(message.type);
       logger?.warn(`Claude Code stream-json: unknown event type "${message.type}"`);
     }
   }
@@ -214,5 +273,5 @@ export function parseStreamJson(
     .filter(Boolean)
     .join("\n\n");
 
-  return { text, messages, sessionId };
+  return { text, messages, sessionId, result };
 }

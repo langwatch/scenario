@@ -20,12 +20,19 @@
  *    session already holds the prior transcript, so re-sending it would
  *    duplicate context. The stored id is refreshed from the response if the CLI
  *    reports one. Distinct `threadId`s keep distinct sessions.
- *  - If a resumed session has vanished server-side (the CLI exits non-zero with
- *    `No conversation found with session ID`), the turn recovers IN PLACE: the
- *    dead id is evicted and the same turn is re-run from the full history
- *    against a fresh session. This must happen inside the turn — `ScenarioExecution`
- *    rethrows anything `call()` throws, aborting the run, so a rejected turn has
- *    no successor to rebuild on.
+ *  - If a resumed session has vanished server-side (structurally: the terminal
+ *    `result` envelope reports `subtype: "error_during_execution"` with a
+ *    `No conversation found` error; or, on older CLIs, the same sentence on
+ *    stderr), the dead id is evicted. What happens next is the caller's choice
+ *    (`replayOnLostSession`, default `false`):
+ *      · default — the turn REJECTS with an actionable error. A replay is a real
+ *        modality change (see item (g)); under an eval harness we do not perform
+ *        it silently.
+ *      · opt-in (`replayOnLostSession: true`) — the turn recovers IN PLACE: the
+ *        same turn is re-run from the full history against a fresh session. This
+ *        must happen inside the turn — `ScenarioExecution` rethrows anything
+ *        `call()` throws, aborting the run, so a rejected turn has no successor
+ *        to rebuild on.
  *
  * Hardening over the install-orchard reference helper this is ported from:
  *  a. Structured `tool_result` content is rendered readably, never
@@ -41,8 +48,14 @@
  *  f. The parsed stream-json message shape is exported
  *     ({@link ClaudeStreamMessage}, re-exported from `stream-json`).
  *  g. Real multiturn session continuation via `--resume` (see above), instead
- *     of replaying the whole transcript as a fresh prompt every turn, with
- *     in-turn recovery when a resumed session has vanished.
+ *     of replaying the whole transcript as a fresh prompt every turn. When a
+ *     resumed session has vanished, in-turn recovery is available but OPT-IN
+ *     (`replayOnLostSession`). Note the fidelity tradeoff: the recovery path
+ *     RE-FLATTENS the whole transcript into a `role: content` prompt for a fresh
+ *     session, which loses server-side session state (context cache, tool
+ *     state) — so a replayed turn is no longer a true `--resume` continuation.
+ *     It defaults off precisely because that silent downgrade would corrupt what
+ *     an eval harness is measuring.
  */
 
 import { spawn } from "node:child_process";
@@ -59,16 +72,26 @@ export type { ClaudeStreamMessage } from "./stream-json.js";
 const DEFAULT_TIMEOUT_MS = 120000;
 
 /**
- * What the CLI writes to stderr when `--resume <id>` names a session it cannot
- * find (verified against Claude Code 2.1.205, which also exits 1):
- * `No conversation found with session ID: <id>`.
+ * The sentence naming a vanished session, matched in TWO places: the CLI's
+ * `errors[]` on the terminal `result` envelope (the structural, preferred
+ * signal) and — as a fallback for older CLIs or a missing envelope — its stderr.
+ * Verified against Claude Code 2.1.205: `--resume <id>` for an unknown id both
+ * fields `No conversation found with session ID: <id>` in `errors[]` (with
+ * `subtype: "error_during_execution"`) and writes it to stderr, exiting 1.
  */
-const STALE_SESSION_STDERR = /no conversation found/i;
+const STALE_SESSION_ERROR = /no conversation found/i;
 
 /**
- * A Claude Code CLI invocation that exited non-zero or died on a signal. Carries
- * the raw exit status and stderr so a caller can tell a vanished session apart
- * from a genuine failure (bad auth, rate limit, unknown model).
+ * A Claude Code CLI invocation that failed: it exited non-zero, died on a
+ * signal, or fielded `is_error: true` on its terminal `result` envelope. Carries
+ * the raw exit status and stderr AND the envelope's `subtype`/`errors` so a
+ * caller can tell a vanished session apart from a genuine failure (bad auth,
+ * rate limit, unknown model).
+ *
+ * Note `stderr` is unredacted CLI output and may echo sensitive detail (env, a
+ * rejected key); callers should not log it verbatim to shared/public sinks. It
+ * is enumerable (a `readonly` ctor param), so it also appears in
+ * `JSON.stringify(error)` — the same caveat applies there.
  */
 export class ClaudeCodeCliError extends Error {
   constructor(
@@ -76,6 +99,8 @@ export class ClaudeCodeCliError extends Error {
     readonly exitCode: number | null,
     readonly signal: NodeJS.Signals | null,
     readonly stderr: string,
+    readonly subtype?: string,
+    readonly errors?: string[],
   ) {
     super(message);
     this.name = "ClaudeCodeCliError";
@@ -84,17 +109,31 @@ export class ClaudeCodeCliError extends Error {
 
 /**
  * Whether `error` means the resumed session no longer exists server-side — the
- * one CLI failure a turn can transparently recover from, by replaying the full
- * history into a fresh session. A signal death or any other non-zero exit is a
- * genuine failure and must surface.
+ * one CLI failure a turn can transparently recover from (when
+ * `replayOnLostSession` is set), by replaying the full history into a fresh
+ * session. A signal death or any other failure is genuine and must surface.
+ *
+ * Detection order is STRUCTURAL FIRST, stderr fallback second:
+ *  1. The terminal `result` envelope reports `subtype: "error_during_execution"`
+ *     AND an `errors[]` entry naming a missing conversation. This is the fielded
+ *     signal (Claude Code 2.1.205+) and catches the case where the CLI reports
+ *     `is_error: true` even on a 0 exit.
+ *  2. Fallback (older CLIs / no envelope): a non-zero exit whose stderr carries
+ *     the same sentence.
+ * A signal death is never a stale session, so it short-circuits to `false`.
  */
 function isStaleSessionError(error: unknown): error is ClaudeCodeCliError {
-  return (
-    error instanceof ClaudeCodeCliError &&
-    !error.signal &&
-    error.exitCode !== 0 &&
-    STALE_SESSION_STDERR.test(error.stderr)
-  );
+  if (!(error instanceof ClaudeCodeCliError)) return false;
+  if (error.signal !== null) return false;
+  // 1. Structural: the CLI fielded a missing-conversation error on its envelope.
+  if (
+    error.subtype === "error_during_execution" &&
+    (error.errors ?? []).some((e) => STALE_SESSION_ERROR.test(e))
+  ) {
+    return true;
+  }
+  // 2. Fallback: the stderr sentence on a non-zero exit.
+  return error.exitCode !== 0 && STALE_SESSION_ERROR.test(error.stderr);
 }
 
 /**
@@ -139,6 +178,24 @@ export interface ClaudeCodeAgentAdapterConfig {
    * otherwise. Off by default.
    */
   skipPermissions?: boolean;
+
+  /**
+   * What to do when a `--resume`d session has vanished server-side.
+   *
+   * - `false` (default): reject the turn with an actionable error naming this
+   *   flag. Fail-loudly is the default because the alternative is a silent
+   *   modality change (see below) under an eval harness.
+   * - `true`: recover in place — evict the dead id and re-run the SAME turn from
+   *   the full transcript against a fresh session.
+   *
+   * The recovery re-flattens the whole conversation into a `role: content`
+   * prompt for a NEW session, so it loses server-side session state (context
+   * cache, tool state): the turn is no longer a true `--resume` continuation.
+   * Enable it only when surviving a lost session matters more than that
+   * fidelity.
+   * @default false
+   */
+  replayOnLostSession?: boolean;
 
   /**
    * Optional absolute path to a `SKILL.md` to inject into the working
@@ -236,10 +293,19 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
    * A thread's first turn sends the FULL history and lets the CLI mint a
    * session; later turns `--resume` it and send only the delta.
    *
-   * If a resumed session has vanished server-side, the rebuild happens INSIDE
-   * this same turn. It cannot be deferred to "the next turn": `ScenarioExecution`
-   * rethrows whatever an adapter's `call()` throws, which aborts the run — so a
-   * rejected turn has no successor to rebuild on.
+   * This method owns ALL session-map policy — every read, write, and eviction of
+   * `this.sessions` happens here; {@link runTurn} is a pure one-spawn helper that
+   * mutates no instance state. A resume turn evicts its id ONLY when the failure
+   * is a genuinely stale session ({@link isStaleSessionError}); every other
+   * failure (auth, rate limit, unknown model, signal, timeout, or the
+   * client-side empty-delta guard that never even spawned) leaves the cached
+   * session untouched — the server session may well still be valid.
+   *
+   * On a stale session the behaviour is `replayOnLostSession`'s to decide: by
+   * default the turn rejects; when opted in, the rebuild happens INSIDE this same
+   * turn. It cannot be deferred to "the next turn": `ScenarioExecution` rethrows
+   * whatever an adapter's `call()` throws, which aborts the run — so a rejected
+   * turn has no successor to rebuild on.
    *
    * @param input - Scenario agent input (conversation history etc.).
    * @returns The concatenated assistant-visible text as a string.
@@ -254,52 +320,82 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       );
     }
 
-    const resumeSessionId = this.sessions.get(input.threadId);
+    const { threadId } = input;
+    const resumeSessionId = this.sessions.get(threadId);
 
     if (resumeSessionId !== undefined) {
       try {
         // Continuation turn: the resumed session already holds the prior
         // transcript, so send ONLY the delta (`newMessages`).
-        return await this.runTurn(
-          input,
+        const { text, sessionId } = await this.runTurn(
           input.newMessages,
           resumeSessionId,
           timeoutMs,
         );
+        if (sessionId) this.sessions.set(threadId, sessionId);
+        return text;
       } catch (error) {
-        // Never re-resume an id whose turn just failed.
-        this.sessions.delete(input.threadId);
-        // A genuine failure (auth, rate limit, unknown model, signal) is the
-        // caller's to see — surfacing it beats masking it behind a silent retry.
+        // A non-stale failure surfaces AS-IS and leaves the session cached: it
+        // may still be valid (a rate limit, a signal, a timeout, or the
+        // empty-delta guard that never contacted the CLI). Evicting here would
+        // silently downgrade the next turn to a from-scratch prompt.
         if (!isStaleSessionError(error)) throw error;
+        // The session is genuinely gone server-side — evict the dead id.
+        this.sessions.delete(threadId);
+        if (!this.config.replayOnLostSession) {
+          // Default: fail loudly. A replay is a real modality change (it loses
+          // server-side session state), so under an eval harness we do not do it
+          // silently; the caller opts in via `replayOnLostSession`.
+          throw new Error(
+            `Claude Code session ${resumeSessionId} for thread ${threadId} no longer exists ` +
+              `(--resume reported: No conversation found). Set replayOnLostSession: true to rebuild ` +
+              `this turn from the full transcript instead — note that replays the conversation as a ` +
+              `flat prompt into a NEW session and loses server-side session state (context cache, ` +
+              `tool state), so the turn is no longer a true session continuation.`,
+            { cause: error },
+          );
+        }
         this.logger.warn(
           `Claude Code session ${resumeSessionId} no longer exists; ` +
-            `rebuilding it from full history for this turn.`,
+            `replayOnLostSession is set, so rebuilding this turn from full history ` +
+            `into a fresh session (server-side session state is lost).`,
         );
         // fall through to the full-history rebuild below
       }
     }
 
-    // First turn for this thread, or the rebuild after a vanished session: send
-    // the full history and let the CLI mint a fresh session id to resume next.
-    return await this.runTurn(input, input.messages, undefined, timeoutMs);
+    // First turn for this thread, or the opt-in rebuild after a vanished
+    // session: send the full history and let the CLI mint a fresh session id to
+    // resume next.
+    const { text, sessionId } = await this.runTurn(
+      input.messages,
+      undefined,
+      timeoutMs,
+    );
+    if (sessionId) this.sessions.set(threadId, sessionId);
+    return text;
   }
 
   /**
-   * Run exactly ONE `claude -p` invocation and resolve its assistant text,
-   * capturing the session id it reports.
+   * Run exactly ONE `claude -p` invocation and resolve its assistant text plus
+   * the session id it reported. PURE w.r.t. instance state: it reads config but
+   * mutates nothing on `this` — the caller ({@link call}) owns all session-map
+   * policy. It therefore neither reads nor evicts `this.sessions`.
    *
    * @param promptMessages - The messages to serialize into the prompt. The
    *   empty-prompt guard is computed against this SAME set, so an empty resume
    *   delta fails loudly rather than degenerating to `claude -p --resume <id> ""`.
-   * @throws {ClaudeCodeCliError} when the child exits non-zero or dies on a signal.
+   * @returns `{ text, sessionId }` on success. `sessionId` is only ever set from
+   *   a SUCCESSFUL run (the failure paths reject first), so the caller never
+   *   persists an id minted by a failed turn.
+   * @throws {ClaudeCodeCliError} when the child dies on a signal, exits non-zero,
+   *   or fields `is_error: true` on its terminal `result` envelope.
    */
   private runTurn(
-    input: AgentInput,
     promptMessages: ModelMessage[],
     resumeSessionId: string | undefined,
     timeoutMs: number,
-  ): Promise<string> {
+  ): Promise<{ text: string; sessionId?: string }> {
     const prompt = formatMessagesAsPrompt(promptMessages);
 
     // Agent-first / empty-input guard. The realtime sibling handles a missing
@@ -325,7 +421,7 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
 
     logger.log(`Starting claude in: ${cwd}`);
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<{ text: string; sessionId?: string }>((resolve, reject) => {
       const child = spawn(bin, args, {
         cwd,
         env: { ...process.env, FORCE_COLOR: "0" },
@@ -390,45 +486,58 @@ export class ClaudeCodeAgentAdapter extends AgentAdapter {
       child.on("close", (exitCode, signal) => {
         finish(() => {
           const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-          const detail = stderr ? `: ${stderr}` : "";
-          // Failures reject with the structured error so `call` can tell a
-          // vanished session (recoverable, in-turn) apart from a real failure
-          // (surface it). Evicting the stale id is `call`'s job — it is the
-          // only frame that knows whether this was a resume turn.
-          if (signal) {
-            reject(
-              new ClaudeCodeCliError(
-                `Claude Code CLI was terminated by signal ${signal}${detail}`,
-                exitCode,
-                signal,
-                stderr,
-              ),
-            );
-            return;
-          }
-          if (exitCode !== 0 && exitCode !== null) {
-            reject(
-              new ClaudeCodeCliError(
-                `Claude Code CLI failed with exit code ${exitCode}${detail}`,
-                exitCode,
-                signal,
-                stderr,
-              ),
-            );
-            return;
-          }
+          // Parse stdout FIRST: the CLI's terminal `result` envelope fields the
+          // run's status (`is_error`/`subtype`/`errors`) more reliably than the
+          // exit code — a stale `--resume`, for one, can surface as
+          // `is_error: true`. Trusting the exit code alone would resolve such a
+          // run as a silent empty-text success and even store its session id.
           const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-          const { text, sessionId } = parseStreamJson(stdout, logger);
-          // Capture/refresh the thread's session id from the CLI's own output
-          // and resume it next turn (--resume). We deliberately do NOT pin a
-          // self-generated --session-id: capture-then-resume can only ever
-          // resume an id the CLI just confirmed (0-exit), avoiding a pin/create
-          // split-brain where a turn-1 failure leaves a never-created id that
-          // --resume can't find.
-          if (sessionId) {
-            this.sessions.set(input.threadId, sessionId);
+          const { text, sessionId, result } = parseStreamJson(stdout, logger);
+
+          // A turn FAILS if it died on a signal, exited non-zero, or the CLI's
+          // own envelope says so. Failures reject with the structured error
+          // (carrying `subtype`/`errors`) so `call` can tell a vanished session
+          // (recoverable, in-turn, opt-in) apart from a real failure (surface
+          // it). Evicting the stale id is `call`'s job — the only frame that
+          // knows whether this was a resume turn.
+          const failedBySignal = signal !== null;
+          const failedByExit = exitCode !== 0 && exitCode !== null;
+          const failedByResult = result.isError === true;
+
+          if (failedBySignal || failedByExit || failedByResult) {
+            // Prefer the envelope's fielded `errors[]` for the message; fall
+            // back to captured stderr when the envelope carried none.
+            const detailSource = result.errors?.length
+              ? result.errors.join("; ")
+              : stderr;
+            const detail = detailSource ? `: ${detailSource}` : "";
+            const summary = failedBySignal
+              ? `Claude Code CLI was terminated by signal ${signal}${detail}`
+              : failedByExit
+                ? `Claude Code CLI failed with exit code ${exitCode}${detail}`
+                : `Claude Code CLI reported an error result${
+                    result.subtype ? ` (${result.subtype})` : ""
+                  }${detail}`;
+            reject(
+              new ClaudeCodeCliError(
+                summary,
+                exitCode,
+                signal,
+                stderr,
+                result.subtype,
+                result.errors,
+              ),
+            );
+            return;
           }
-          resolve(text);
+
+          // Success. Return the session id the CLI reported (if any) for `call`
+          // to persist and `--resume` next turn. We deliberately do NOT pin a
+          // self-generated `--session-id`: capture-then-resume only ever returns
+          // an id from a run that SUCCEEDED (the failure paths above rejected
+          // first), so a failed or partially-created session can never be left
+          // behind for a later `--resume` to trip over.
+          resolve({ text, sessionId });
         });
       });
     });
