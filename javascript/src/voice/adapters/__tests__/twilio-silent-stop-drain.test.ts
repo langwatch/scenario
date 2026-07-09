@@ -290,9 +290,23 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
  * #734), so a throw on the drain's *second* call is swallowed and silently
  * truncates the turn rather than crashing. The uncaught crash lands on the
  * drain's *first* `receiveAudio`, which has no such guard — i.e. whenever the
- * agent turn begins after the transport was already nulled. The last two tests
- * below pin exactly that, and are the ones that throw
+ * agent turn begins after the transport was already nulled. The two after-hangup
+ * tests below pin exactly that, and are the ones that throw
  * `Error: no live media stream` against the pre-fix adapter.
+ *
+ * **The two layers are complements; neither subsumes the other.** Measured, not
+ * assumed:
+ * - Delete the drain-side guard in `receiveAudio` → only 2 of these 6 route tests
+ *   go red (the after-hangup pair). The other 3 stay green because their *first*
+ *   `receiveAudio` succeeds and `catch { break }` swallows the second-call throw.
+ *   For those scenarios the wrapper-level suite above is the ONLY net.
+ * - Delete the loop's sentinel `_enqueueInbound(...)` but keep `_markStreamEnded()`
+ *   → all 5 wrapper-level tests still pass, while the two mid-drain route tests
+ *   block to `responseTimeout` (~5.07s) — the original #695 hang, resurfaced. The
+ *   wrapper layer cannot see the sentinel: a consumer that is not *already blocked*
+ *   is served a synthesized empty chunk by the flag alone.
+ *
+ * So do not delete either suite believing the other covers it.
  */
 describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
   /** Poll until the route handler's `finally` has nulled the transport. */

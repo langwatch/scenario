@@ -35,6 +35,17 @@ This suite therefore has two layers, and both are load-bearing:
    error; a second session on the same connected adapter). They drive
    ``run_stream_session`` directly, which layer 1 proves is what the route runs.
 
+The layers are complements, and **neither subsumes the other**. Measured, not
+assumed — delete the loop's sentinel ``put(...)`` but keep ``_stream_ended``:
+every wrapper-level test in this file still PASSES, while three ``TestRealRoute``
+tests go red (the JS twin blocks to ``responseTimeout`` — the original #695
+hang). The wrapper layer cannot see the sentinel, because a consumer that is not
+*already blocked* is served a synthesized empty chunk by the flag alone; only a
+test with a live drain waiting at the instant the call ends catches it. Delete
+the drain-side guard in ``recv_audio`` instead, and ``TestRealRoute`` goes red
+with ``RuntimeError: no live media stream`` while three of the JS route tests
+still pass. So do not trim either layer believing the other covers it.
+
 The regression the fix targets is the drain calling ``recv_audio`` *after* the
 transport reset. ``_drain_agent_response`` always probes for tail silence after
 its first chunk, so it lands there on every call termination. Pre-fix that call
