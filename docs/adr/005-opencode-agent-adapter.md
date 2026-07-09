@@ -260,6 +260,31 @@ attached to the PR — the same shape as #687's `e2e-proof.png`. This is a struc
 limitation of adapters that wrap external binaries, not a deficiency of the adapter
 design.
 
+### The live e2e is flaky: `session.prompt` intermittently stalls
+
+Measured over 17 consecutive live runs on one machine: **13 passed, 4 stalled.** A
+passing run completes the whole two-turn scenario in 11–33s; a stalled run makes no
+progress and is only ended by a timeout. The stall is inside `session.prompt` — the
+adapter has issued the request and the opencode server never answers.
+
+Ruled out, each checked directly at the time of a stall cluster: provider rate
+limiting (`GET /v1/models` and a `gpt-5.4-mini` completion both returned 200 in
+under 1.5s, with a full quota), a slow provider (a bare `opencode run -m
+openai/gpt-5.4-mini` answered in 4–6s, three times), a zombie server holding port
+4096 (no matching process, port free), and accumulated local session state. It also
+predates the adapter's `timeout`: the first observed stall ran with no timeout
+configured. It did not reproduce while instrumented, so the stalling turn is not
+identified — both turns are equally suspect.
+
+Two consequences. First, `timeout` is not optional for the e2e: without it, vitest's
+own test timeout kills the test body, the `finally` never runs, and the temp working
+dir and the spawned server both leak — the leaked server then holds port 4096 and
+fails the *next* run fast. With `timeout` set below the vitest timeout, the stall
+surfaces as `[OpenCodeAgent] TimeoutError` and teardown still runs. Second, AC-4's
+proof is a **majority of live runs**, not a clean sweep; anyone re-running it should
+expect roughly one stall in four and should not read a single red run as a
+regression in this adapter.
+
 ### Unit tests prove parsing/branching, not lifecycle
 
 The injected-fake unit tests (AC-1, AC-2, AC-3, AC-6) verify session mapping,
