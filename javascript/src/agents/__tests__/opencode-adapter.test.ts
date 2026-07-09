@@ -23,6 +23,10 @@
  * that runs a real `scenario.run(...)` with `openCodeAgent` and a real judge.
  */
 
+import fs from "fs";
+import os from "os";
+import path from "path";
+
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { ModelMessage } from "ai";
 import { describe, it, expect, vi, type Mock } from "vitest";
@@ -31,8 +35,6 @@ import { describe, it, expect, vi, type Mock } from "vitest";
 // runtime. We import the type purely so we can cast our fake to it.
 
 import { AgentRole, type AgentInput } from "../../domain";
-// The source under test does NOT exist yet; these imports will fail at
-// collection time (expected RED) until the implementer ships the adapter.
 import { AgentAdapter } from "../../domain";
 import {
   OpenCodeAgentAdapter,
@@ -286,6 +288,60 @@ describe("OpenCodeAgentAdapter AC-3 — sends latest user message, returns reply
     const result = await adapter.call(SIMPLE_INPUT);
     expect((result as string).trim().length).toBeGreaterThan(0);
   });
+
+  it("excludes assistant-role messages from the prompt (only user turns are sent)", async () => {
+    const { client, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    // Delta carrying BOTH an assistant echo and a user turn: only the user text
+    // is forwarded — OpenCode already holds the assistant turn server-side.
+    await adapter.call(
+      makeInput([SIMPLE_USER_MSG], {
+        newMessages: [
+          { role: "assistant", content: "ASSISTANT_ECHO" },
+          { role: "user", content: "USER_TEXT" },
+        ],
+      }),
+    );
+
+    const opts = promptSpy.mock.calls[0]?.[0] as {
+      body?: { parts?: Array<{ type: string; text?: string }> };
+    };
+    const textPart = opts?.body?.parts?.find((p) => p.type === "text");
+    expect(textPart?.text).toContain("USER_TEXT");
+    expect(textPart?.text).not.toContain("ASSISTANT_ECHO");
+  });
+
+  it("forwards the configured model to the session.prompt body", async () => {
+    const { client, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    await adapter.call(SIMPLE_INPUT);
+
+    const opts = promptSpy.mock.calls[0]?.[0] as { body?: { model?: unknown } };
+    expect(opts?.body?.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4-mini",
+    });
+  });
+
+  it("forwards workingDirectory as query.directory on session.create AND session.prompt", async () => {
+    const { client, createSpy, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(
+      makeConfig(client, { workingDirectory: "/tmp/wd-x" }),
+    );
+
+    await adapter.call(SIMPLE_INPUT);
+
+    const createOpts = createSpy.mock.calls[0]?.[0] as {
+      query?: { directory?: string };
+    };
+    const promptOpts = promptSpy.mock.calls[0]?.[0] as {
+      query?: { directory?: string };
+    };
+    expect(createOpts?.query?.directory).toBe("/tmp/wd-x");
+    expect(promptOpts?.query?.directory).toBe("/tmp/wd-x");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -314,6 +370,8 @@ describe("OpenCodeAgentAdapter AC-6/R2/R3 — parts filtering and error handling
       // Non-text type discriminators must NOT appear verbatim in the final text.
       expect(result).not.toContain("step-start");
       expect(result).not.toContain("reasoning");
+      // A reasoning part's own TEXT must not leak — only visible text parts pass.
+      expect(result).not.toContain("think");
     });
   });
 
@@ -395,6 +453,8 @@ describe("OpenCodeAgentAdapter AC-6/R2/R3 — parts filtering and error handling
       // Must resolve (not reject) and the result must be a non-empty string.
       expect(typeof result).toBe("string");
       expect((result as string).trim().length).toBeGreaterThan(0);
+      // ...and READ readably — naming the tool, not "[object Object]" (renderNonTextPart → `[tool: bash]`).
+      expect(result).toContain("bash");
     });
   });
 });
@@ -519,6 +579,16 @@ describe("OpenCodeAgentAdapter concurrency + config validation", () => {
 
     await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/timeout/i);
   });
+
+  it("forwards an AbortSignal to session.prompt when a positive timeout is set", async () => {
+    const { client, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client, { timeout: 5000 }));
+
+    await adapter.call(SIMPLE_INPUT);
+
+    const opts = promptSpy.mock.calls[0]?.[0] as { signal?: unknown };
+    expect(opts?.signal).toBeInstanceOf(AbortSignal);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -549,6 +619,12 @@ describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
 
         const judgeModelId = process.env.SCENARIO_JUDGE_MODEL ?? "gpt-5.4-mini";
 
+        // Isolate this tool-bearing agent (shell + file read/write) from the
+        // repo: process.cwd() is javascript/, which holds a gitignored .env with
+        // a real OPENAI_API_KEY. Run it in an empty temp dir instead — the two
+        // scripted prompts reference no pre-existing files.
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-e2e-"));
+
         // Use the real openCodeAgent — NO injected client, lets the adapter
         // spawn the opencode binary (requires opencode on PATH + provider keys).
         const agent = openCodeAgent({
@@ -556,7 +632,7 @@ describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
             providerID: process.env.OPENCODE_PROVIDER_ID ?? "openai",
             modelID: process.env.OPENCODE_MODEL_ID ?? "gpt-5.4-mini",
           },
-          workingDirectory: process.cwd(),
+          workingDirectory: tmpDir,
         });
 
         try {
@@ -608,8 +684,13 @@ describe.skipIf(!process.env.RUN_OPENCODE_E2E)(
           expect(lastText.trim().length).toBeGreaterThan(0);
         } finally {
           // Tear down the auto-spawned opencode server so it does not leak its
-          // port bind to the next run (serial e2e runs would otherwise collide).
-          await agent.close();
+          // port bind to the next run (serial e2e runs would otherwise collide),
+          // then remove the temp working dir — even if close() throws.
+          try {
+            await agent.close();
+          } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+          }
         }
       },
       180000,
