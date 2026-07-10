@@ -34,7 +34,7 @@ import type {
   VoiceRecording,
 } from "./recording.types";
 import { WebRTCVadFallback } from "./vad";
-import { voiceSpan, currentSpan, setSpanAttributes } from "./telemetry";
+import { voiceSpan, setSpanAttributes } from "./telemetry";
 import type { Span } from "@opentelemetry/api";
 import type { VoiceExecutorState } from "./voice-executor-state";
 import type { AgentInput, AgentReturnTypes } from "../domain/agents";
@@ -334,13 +334,14 @@ export async function defaultVoiceCall(
       "voice.adapter.class": adapter.constructor.name,
       "voice.turn.index": turnIndex,
     },
-    () => runVoiceTurn(adapter, input),
+    (span) => runVoiceTurn(adapter, input, span),
   );
 }
 
 async function runVoiceTurn(
   adapter: VoiceAgentAdapter,
   input: AgentInput,
+  turnSpan: Span,
 ): Promise<AgentReturnTypes> {
   const turnStart = Date.now();
   const speakingEvent = getAgentSpeakingEvent(adapter);
@@ -412,9 +413,12 @@ async function runVoiceTurn(
   // the recording segment reach LangWatch as audio-only — the "missing AUT
   // transcript" defect — and only the on-disk manifest got a (slower, lossy) STT
   // back-fill. Done BEFORE recordAgent so the recording segment carries it too.
-  setSpanAttributes(currentSpan(), {
+  setSpanAttributes(turnSpan, {
     "voice.turn.latency_ms": Date.now() - turnStart,
-    "voice.turn.user_audio_bytes": incoming ? incoming.data.length : undefined,
+    // Omit (not 0) when there's no incoming audio, matching Python
+    // (adapter.py: `if incoming is not None and incoming.data`).
+    "voice.turn.user_audio_bytes":
+      incoming && incoming.data.length > 0 ? incoming.data.length : undefined,
     "voice.turn.agent_audio_bytes":
       merged.data.length > 0 ? merged.data.length : undefined,
   });

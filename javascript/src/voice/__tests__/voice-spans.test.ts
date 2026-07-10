@@ -146,6 +146,17 @@ describe("voice.* span instrumentation (base runtime)", () => {
     expect(recv.attributes["voice.audio.terminated_reason"]).toBe("first_chunk_timeout");
   });
 
+  // A5 — turn index from scenario state (guards a field rename)
+  it("reads voice.turn.index from scenarioState.currentTurn", async () => {
+    const input = {
+      newMessages: [createAudioMessage(tone(0.05), "user")],
+      scenarioState: { currentTurn: 3 },
+    } as unknown as AgentInput;
+    await new ScriptedAdapter([tone(0.1), "throw"]).call(input);
+    const turn = byName(exporter.getFinishedSpans())["voice.turn"];
+    expect(turn.attributes["voice.turn.index"]).toBe(3);
+  });
+
   // A5
   it("nests send/receive under voice.turn and carries turn attrs", async () => {
     await new ScriptedAdapter([tone(0.1), "throw"]).call(audioInput(tone(0.05)));

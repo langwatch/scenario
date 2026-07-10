@@ -195,6 +195,25 @@ async def test_a4_non_timeout_first_chunk_error_has_no_timeout_label():
 
 
 @pytest.mark.asyncio
+async def test_a5_turn_index_from_scenario_state():
+    """A5: voice.turn.index reads input.scenario_state.current_turn (guards a rename)."""
+    exporter = _install_in_memory_provider()
+
+    class _State:
+        current_turn = 3
+
+    class _InputWithState:
+        new_messages = [
+            create_audio_message(AudioChunk(data=b"\x00\x00" * 1200), role="user")
+        ]
+        scenario_state = _State()
+
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_InputWithState())  # type: ignore[arg-type]
+    turn = _by_name(exporter.get_finished_spans())["voice.turn"]
+    assert attrs(turn)["voice.turn.index"] == 3
+
+
+@pytest.mark.asyncio
 async def test_a5_turn_span_attrs_and_child_nesting():
     """A5: voice.turn carries attrs; send/receive nest under it (intra-turn tree)."""
     exporter = _install_in_memory_provider()
