@@ -215,12 +215,16 @@ was injected, `close()` shuts nothing down — the injector owns its server. Doc
 calling `adapter.close()` in `afterAll` (mirrors `session.close()` in the realtime
 adapter).
 
-`close()` is **terminal** either way: it marks the adapter closed synchronously on
-entry, and any `call(...)` issued afterwards rejects with a clear closed-adapter
-error instead of racing the torn-down (or relinquished) server into an opaque
-transport failure. Calls already in flight when `close()` runs remain the caller's
-teardown contract to sequence (await the scenario, then close); an overlapping call
-fails loudly at the transport layer rather than corrupting session state.
+`close()` is **terminal** either way, and **idempotent** (repeat calls return
+immediately; the owned server is closed at most once). Any `call(...)` issued after
+`close()` rejects with a clear closed-adapter error. The rationale differs by
+ownership path: with an **owned** server the memoized handle now points at a
+torn-down server, so the guard replaces an opaque transport failure with the real
+cause; with an **injected** client nothing was shut down — the rejection is the
+adapter's end-of-life contract (create a new adapter to keep calling), not a broken
+transport. Calls already in flight when `close()` runs remain the caller's teardown
+contract to sequence (await the scenario, then close); an overlapping call fails
+loudly at the transport layer rather than corrupting session state.
 
 ## Alternatives considered
 
