@@ -211,8 +211,16 @@ async close(): Promise<void>
 
 If the adapter spawned its own server (i.e., `config.client` was absent and
 `serverPromise` was set): awaits the Promise and calls `server.close()`. If a client
-was injected, `close()` is a no-op — the injector owns its server. Document calling
-`adapter.close()` in `afterAll` (mirrors `session.close()` in the realtime adapter).
+was injected, `close()` shuts nothing down — the injector owns its server. Document
+calling `adapter.close()` in `afterAll` (mirrors `session.close()` in the realtime
+adapter).
+
+`close()` is **terminal** either way: it marks the adapter closed synchronously on
+entry, and any `call(...)` issued afterwards rejects with a clear closed-adapter
+error instead of racing the torn-down (or relinquished) server into an opaque
+transport failure. Calls already in flight when `close()` runs remain the caller's
+teardown contract to sequence (await the scenario, then close); an overlapping call
+fails loudly at the transport layer rather than corrupting session state.
 
 ## Alternatives considered
 
@@ -311,11 +319,11 @@ could be relaxed — but that is its own decision.
 
 ### Server ownership responsibility falls to the caller for injected clients
 
-When `client` is injected, `close()` is a no-op and the adapter makes no attempt to
-shut down the server. The caller is responsible for calling `server.close()` in their
-own `afterAll`. This mirrors the realtime adapter's ownership model for injected
-sessions, but it is easy to miss. Examples in the docs (AC-5) must show the correct
-`afterAll` teardown for both cases.
+When `client` is injected, `close()` makes no attempt to shut down the server (it
+still marks the adapter closed — post-close calls reject). The caller is responsible
+for calling `server.close()` in their own `afterAll`. This mirrors the realtime
+adapter's ownership model for injected sessions, but it is easy to miss. Examples in
+the docs (AC-5) must show the correct `afterAll` teardown for both cases.
 
 ### The owned server is unauthenticated, on a fixed loopback port
 
