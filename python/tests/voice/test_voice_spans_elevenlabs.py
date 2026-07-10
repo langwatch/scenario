@@ -23,6 +23,8 @@ from unittest.mock import AsyncMock, patch
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.voice import ElevenLabsAgentAdapter
 
+from ._span_assert import attrs, int_attr
+
 
 @pytest.fixture(autouse=True)
 def reset_otel():
@@ -91,13 +93,13 @@ async def test_el_connect_span_carries_agent_id_and_disconnect_carries_pump_coun
     spans = _by_name(exporter.get_finished_spans())
 
     connect = spans["voice.adapter.connect"]
-    assert connect.attributes["voice.adapter.class"] == "ElevenLabsAgentAdapter"
-    assert connect.attributes["voice.elevenlabs.agent_id"] == "agent-xyz"
+    assert attrs(connect)["voice.adapter.class"] == "ElevenLabsAgentAdapter"
+    assert attrs(connect)["voice.elevenlabs.agent_id"] == "agent-xyz"
 
     disconnect = spans["voice.adapter.disconnect"]
-    assert disconnect.attributes["voice.elevenlabs.pump.ticks_total"] >= 1
-    assert disconnect.attributes["voice.elevenlabs.pump.silence_frames_sent"] >= 1
-    assert disconnect.attributes["voice.elevenlabs.pump.unexpected_errors"] == 0
+    assert int_attr(disconnect, "voice.elevenlabs.pump.ticks_total") >= 1
+    assert int_attr(disconnect, "voice.elevenlabs.pump.silence_frames_sent") >= 1
+    assert attrs(disconnect)["voice.elevenlabs.pump.unexpected_errors"] == 0
 
     # H1: the pump ticked many times but emitted NO per-tick span — only the two
     # lifecycle spans are present (+ nothing named voice.pump.* / voice.audio.*).

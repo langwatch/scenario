@@ -26,6 +26,8 @@ from opentelemetry.util._once import Once
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
 from scenario.voice.messages import create_audio_message
 
+from ._span_assert import attrs, ctx_id, int_attr, parent_id
+
 
 @pytest.fixture(autouse=True)
 def reset_otel():
@@ -144,7 +146,7 @@ async def test_a3_terminated_reason_per_exit_path(actions, expected_reason):
     except Exception:
         pass  # first_chunk_timeout re-raises FirstChunkTimeoutError — expected
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
-    assert recv.attributes["voice.audio.terminated_reason"] == expected_reason
+    assert attrs(recv)["voice.audio.terminated_reason"] == expected_reason
 
 
 @pytest.mark.asyncio
@@ -157,9 +159,9 @@ async def test_a3_max_duration_reason_and_first_chunk_latency():
     big = AudioChunk(data=b"\x00\x00" * 300_000, transcript="agent")  # ~12.5s @ 24kHz
     await _ScriptedAdapter([big, big, big, big]).call(_audio_input())  # type: ignore[arg-type]
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
-    assert recv.attributes["voice.audio.terminated_reason"] == "max_duration"
-    assert "voice.audio.first_chunk_latency_ms" in recv.attributes
-    assert recv.attributes["voice.audio.chunk_count"] >= 1
+    assert attrs(recv)["voice.audio.terminated_reason"] == "max_duration"
+    assert "voice.audio.first_chunk_latency_ms" in attrs(recv)
+    assert int_attr(recv, "voice.audio.chunk_count") >= 1
 
 
 # --- A4 -----------------------------------------------------------------------
@@ -174,7 +176,7 @@ async def test_a4_first_chunk_timeout_marks_error():
         await adapter.call(_audio_input())  # type: ignore[arg-type]
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
     assert recv.status.status_code == StatusCode.ERROR
-    assert recv.attributes["voice.audio.terminated_reason"] == "first_chunk_timeout"
+    assert attrs(recv)["voice.audio.terminated_reason"] == "first_chunk_timeout"
 
 
 @pytest.mark.asyncio
@@ -186,7 +188,7 @@ async def test_a4_non_timeout_first_chunk_error_has_no_timeout_label():
         await adapter.call(_audio_input())  # type: ignore[arg-type]
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
     assert recv.status.status_code == StatusCode.ERROR
-    assert recv.attributes.get("voice.audio.terminated_reason") != "first_chunk_timeout"
+    assert attrs(recv).get("voice.audio.terminated_reason") != "first_chunk_timeout"
 
 
 # --- A5 -----------------------------------------------------------------------
@@ -199,12 +201,12 @@ async def test_a5_turn_span_attrs_and_child_nesting():
     await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]
     spans = _by_name(exporter.get_finished_spans())
     turn = spans["voice.turn"]
-    assert turn.attributes["voice.adapter.class"] == "_ScriptedAdapter"
-    assert "voice.turn.latency_ms" in turn.attributes
-    assert turn.attributes["voice.turn.agent_audio_bytes"] == len(_CHUNK.data)
+    assert attrs(turn)["voice.adapter.class"] == "_ScriptedAdapter"
+    assert "voice.turn.latency_ms" in attrs(turn)
+    assert attrs(turn)["voice.turn.agent_audio_bytes"] == len(_CHUNK.data)
     # send + receive are children of the turn span
-    assert spans["voice.audio.send"].parent.span_id == turn.context.span_id
-    assert spans["voice.audio.receive"].parent.span_id == turn.context.span_id
+    assert parent_id(spans["voice.audio.send"]) == ctx_id(turn)
+    assert parent_id(spans["voice.audio.receive"]) == ctx_id(turn)
 
 
 # --- A6 -----------------------------------------------------------------------
@@ -216,7 +218,7 @@ async def test_a6_audio_send_span_has_bytes():
     exporter = _install_in_memory_provider()
     await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]
     send = _by_name(exporter.get_finished_spans())["voice.audio.send"]
-    assert send.attributes["voice.audio.bytes"] == 2400  # b"\x00\x00" * 1200
+    assert attrs(send)["voice.audio.bytes"] == 2400  # b"\x00\x00" * 1200
 
 
 @pytest.mark.asyncio

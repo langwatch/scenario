@@ -23,6 +23,8 @@ from opentelemetry.util._once import Once
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
 
+from ._span_assert import attrs, ctx_id
+
 
 @pytest.fixture(autouse=True)
 def reset_otel():
@@ -90,7 +92,7 @@ async def test_a2_connect_span_ok():
     exporter = _install_in_memory_provider()
     await _exec(_ConnAdapter())._voice_connect_all()
     span = _by_name(exporter.get_finished_spans())["voice.adapter.connect"]
-    assert span.attributes["voice.adapter.class"] == "_ConnAdapter"
+    assert attrs(span)["voice.adapter.class"] == "_ConnAdapter"
     assert span.status.status_code != StatusCode.ERROR
 
 
@@ -115,7 +117,7 @@ async def test_a8_disconnect_span_ok():
     await executor._voice_connect_all()
     await executor._voice_disconnect_all()
     span = _by_name(exporter.get_finished_spans())["voice.adapter.disconnect"]
-    assert span.attributes["voice.adapter.class"] == "_ConnAdapter"
+    assert attrs(span)["voice.adapter.class"] == "_ConnAdapter"
     assert span.status.status_code != StatusCode.ERROR
 
 
@@ -137,7 +139,7 @@ async def test_a_regression_connect_disconnect_span_names_and_no_stray():
     names = sorted(s.name for s in voice_spans)
     assert names == ["voice.adapter.connect", "voice.adapter.disconnect"]
     # No turn ran → no turn/audio spans, and the lifecycle spans have no voice parent.
+    own_ids = {ctx_id(v) for v in voice_spans}
     for s in voice_spans:
-        assert s.parent is None or s.parent.span_id not in {
-            v.context.span_id for v in voice_spans
-        }
+        parent = s.parent
+        assert parent is None or parent.span_id not in own_ids
