@@ -343,14 +343,51 @@ async def test_776_stt_no_span_when_transcript_already_present(restore_stt):
     assert fake.calls == 0
 
 
+def _exc_events_text(span) -> str:
+    """Concatenated text of every exception event recorded on a span."""
+    parts = []
+    for ev in getattr(span, "events", []) or []:
+        a = ev.attributes or {}
+        for key in ("exception.type", "exception.message", "exception.stacktrace"):
+            value = a.get(key)
+            if value:
+                parts.append(str(value))
+    return " ".join(parts)
+
+
 @pytest.mark.asyncio
 async def test_776_stt_failure_marks_error_but_turn_completes(restore_stt):
-    """#776: an STT provider failure marks the span ERROR yet the turn still completes (best-effort)."""
+    """#776: an STT provider failure marks the span ERROR yet the turn still completes (best-effort),
+    and the raw provider message is NOT leaked into the exported span (sanitized)."""
     exporter = _install_in_memory_provider()
-    set_stt_provider(_FakeSTT(boom=RuntimeError("stt down")))
+    # A provider error whose message embeds a secret-shaped body — the exact
+    # OpenAI/ElevenLabs leak the sanitization guards against.
+    set_stt_provider(
+        _FakeSTT(boom=RuntimeError("401 invalid key sk-abc...wxyz body={...}"))
+    )
     result = await _ScriptedAdapter([_NO_TX_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     assert isinstance(result, dict) and result["role"] == "assistant"  # turn completed
     stt = _by_name(exporter.get_finished_spans())["voice.stt.transcribe"]
     assert stt.status.status_code == StatusCode.ERROR
     # no transcript_chars is recorded on the failure path
     assert "voice.stt.transcript_chars" not in attrs(stt)
+    # SECURITY (#776 review): the raw provider message must NOT reach the exported
+    # span — the recorded exception is sanitized to a provider-agnostic string.
+    recorded = _exc_events_text(stt)
+    assert "sk-abc" not in recorded
+    assert "401" not in recorded
+    assert "STT provider failed" in recorded
+
+
+@pytest.mark.asyncio
+async def test_776_stt_empty_text_span_ok_no_chars(restore_stt):
+    """#776: an empty STT result → span OK (not ERROR), no transcript_chars, transcript unset."""
+    exporter = _install_in_memory_provider()
+    set_stt_provider(_FakeSTT(text=""))
+    result = await _ScriptedAdapter([_NO_TX_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
+    # audio-only message returned unchanged (no transcript part added)
+    assert isinstance(result, dict) and result["role"] == "assistant"
+    stt = _by_name(exporter.get_finished_spans())["voice.stt.transcribe"]
+    assert stt.status.status_code != StatusCode.ERROR
+    assert "voice.stt.transcript_chars" not in attrs(stt)
+    assert attrs(stt)["voice.stt.audio_bytes"] == 2400

@@ -78,6 +78,7 @@ import {
 import { AudioPlaybackSink } from "../voice/playback";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
+  AudioSegment,
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
@@ -781,43 +782,81 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // "per-run, not per-turn" in the trace SHAPE. Python's mirror is per-turn
     // under voice.turn; the shared voice.stt.transcribe span carries the same
     // attributes at each language's position, disambiguated by voice.stt.scope.
+    //
+    // Correlation attrs mirror newTurn()'s "Scenario Turn" root (scenario.run_id
+    // / thread_id / origin) so this per-run batch — its own trace, since it has
+    // no run-root parent — is attributable to the run in the dashboard (grouped
+    // by scenario.run_id), not an anonymous orphan trace.
     await voiceSpan(
       "voice.stt.backfill",
-      { "voice.stt.scope": "run", "voice.stt.segment_count": targets.length },
+      {
+        "voice.stt.scope": "run",
+        "voice.stt.segment_count": targets.length,
+        "langwatch.origin": "simulation",
+        "scenario.run_id": this.scenarioRunId ?? "",
+        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+      },
       async () => {
-        await Promise.all(
-          targets.map(async (seg) => {
-            try {
-              // One span per STT provider call — attribute-parity with Python's
-              // per-turn voice.stt.transcribe. A provider failure marks THIS
-              // span ERROR and re-throws into the catch below, which keeps the
-              // run alive (best-effort STT — behaviour unchanged).
-              await voiceSpan(
-                "voice.stt.transcribe",
-                {
-                  "voice.stt.scope": "run",
-                  "voice.stt.speaker": seg.speaker,
-                  "voice.stt.audio_bytes": seg.audio.length,
-                },
-                async (span) => {
-                  const chunk = new AudioChunk({ data: seg.audio });
-                  const text = (await stt.transcribe(chunk)).trim();
-                  if (text) {
-                    seg.transcript = text;
-                    span.setAttribute("voice.stt.transcript_chars", text.length);
-                  }
-                },
-              );
-            } catch (err) {
-              this.logger.warn(
-                `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
-                  `manifest transcript left unset (${(err as Error).message})`,
-              );
-            }
-          }),
-        );
+        await Promise.all(targets.map((seg) => this.transcribeSegment(seg, stt)));
       },
     );
+  }
+
+  /**
+   * Back-fill ONE segment's transcript under a `voice.stt.transcribe` span
+   * (attribute-parity with Python's per-turn span; #776).
+   *
+   * The per-segment try/catch is LOAD-BEARING for finally-safety, not just
+   * best-effort transcripts: it keeps a provider failure from rejecting the
+   * batch's `Promise.all`, which would re-throw out of
+   * `backfillSegmentTranscripts` in `execute()`'s `finally` and MASK the
+   * scenario result / primary exception. Do not remove it.
+   */
+  private async transcribeSegment(
+    seg: AudioSegment,
+    stt: ResolvedVoiceConfig["stt"],
+  ): Promise<void> {
+    try {
+      await voiceSpan(
+        "voice.stt.transcribe",
+        {
+          "voice.stt.scope": "run",
+          "voice.stt.speaker": seg.speaker,
+          "voice.stt.audio_bytes": seg.audio.length,
+        },
+        async (span) => {
+          const chunk = new AudioChunk({ data: seg.audio });
+          let text: string;
+          try {
+            text = (await stt.transcribe(chunk)).trim();
+          } catch (err) {
+            // Sanitize BEFORE the span records it: provider SDK errors
+            // (OpenAI/ElevenLabs) can embed the raw response body — and a key
+            // fragment on a 401 — in `.message`, which `voiceSpan`'s
+            // `recordException` would EXPORT to telemetry. Log the detail
+            // locally at debug (non-exported); surface a minimal,
+            // provider-agnostic error so the span still marks ERROR without
+            // leaking (mirrors `ElevenLabsSTTProvider` in voice/stt).
+            this.logger.debug(
+              `voice: STT provider error on a ${seg.speaker} segment`,
+              err,
+            );
+            throw new Error(
+              `STT provider failed: ${(err as Error)?.constructor?.name ?? "Error"}`,
+            );
+          }
+          if (text) {
+            seg.transcript = text;
+            span.setAttribute("voice.stt.transcript_chars", text.length);
+          }
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
+          `manifest transcript left unset (${(err as Error).message})`,
+      );
+    }
   }
 
   /**

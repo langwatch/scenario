@@ -8,8 +8,8 @@
  * (`backfillSegmentTranscripts`) in `execute()`'s `finally`, over the recording
  * segments, OUTSIDE any turn span. Per the #776 decision this emits
  * `voice.stt.transcribe` (scope=run) nested under a `voice.stt.backfill` batch
- * span (the batch parent groups the otherwise-orphaned per-run spans and encodes
- * "per-run, not per-turn" in the trace shape).
+ * span (the batch parent groups the otherwise-orphaned per-run spans, carries
+ * the run-correlation attrs, and encodes "per-run, not per-turn" in the shape).
  *
  * Mic-free / offline: drives the REAL `ScenarioExecution.execute()` (the same
  * path `scenario.run()` takes) with a fake voice adapter, a fake STT provider,
@@ -31,18 +31,12 @@ const _ctxManager = new AsyncLocalStorageContextManager();
 _ctxManager.enable();
 context.setGlobalContextManager(_ctxManager);
 
-import {
-  AgentRole,
-  type AgentInput,
-  type AgentReturnTypes,
-  JudgeAgentAdapter,
-  UserSimulatorAgentAdapter,
-} from "../../domain";
+import { type AgentInput, JudgeAgentAdapter } from "../../domain";
 import { ScenarioExecution } from "../../execution/scenario-execution";
 import { agent, judge, user } from "../../script";
 import { AudioChunk } from "../audio-chunk";
-import { createAudioMessage } from "../messages";
 import type { STTProvider } from "../stt";
+import { AudioUserSimulator } from "./fixtures/audio-user-simulator";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
 
 const SR = 24000; // PCM16 mono 24kHz
@@ -57,25 +51,11 @@ function tone(seconds: number, transcript?: string): AudioChunk {
 /** In-process STT stub: returns a fixed text, or throws when `boom` is set. */
 class FakeSTT implements STTProvider {
   calls = 0;
-  constructor(private opts: { text?: string; boom?: boolean } = {}) {}
+  constructor(private opts: { text?: string; boom?: Error } = {}) {}
   async transcribe(_audio: AudioChunk): Promise<string> {
     this.calls++;
-    if (this.opts.boom) throw new Error("stt down");
+    if (this.opts.boom) throw this.opts.boom;
     return this.opts.text ?? "transcribed text";
-  }
-}
-
-/** User simulator that emits an AUDIO message so the agent records a user turn. */
-class AudioUserSimulator extends UserSimulatorAgentAdapter {
-  role = AgentRole.USER;
-  constructor(private userTranscript?: string) {
-    super();
-  }
-  async call(_input: AgentInput): Promise<AgentReturnTypes> {
-    return createAudioMessage(
-      tone(0.12, this.userTranscript),
-      "user",
-    ) as unknown as AgentReturnTypes;
   }
 }
 
@@ -93,23 +73,24 @@ class PassingJudge extends JudgeAgentAdapter {
   }
 }
 
+/**
+ * A voice run needs an AUDIO user turn (the framework fail-closes on a text-only
+ * user against a voice agent). The user chunk controls whether the USER segment
+ * is a back-fill target: a chunk WITH a transcript → the user segment carries it
+ * → NOT a target (default here); a transcript-LESS chunk → a target. The agent
+ * reply's transcript (or absence) controls the agent segment the same way.
+ */
 function buildExecution(
   stt: STTProvider,
   agentReply: AudioChunk,
-  transcriptlessUser = false,
+  userChunk: AudioChunk = tone(0.12, "I need help with my account"),
 ): ScenarioExecution {
-  // Default: the user audio carries a transcript, so ONLY the agent reply is a
-  // back-fill target. `transcriptlessUser` drops it so the user segment is a
-  // target too (used to prove voice.stt.speaker + segment_count scale).
-  const userTranscript = transcriptlessUser
-    ? undefined
-    : "I need help with my account";
   const adapter = new FakeVoiceAdapter({ responses: [agentReply] });
   return new ScenarioExecution(
     {
       name: "voice / stt back-fill spans",
       description: "#776 per-run STT back-fill spans",
-      agents: [adapter, new AudioUserSimulator(userTranscript), new PassingJudge()],
+      agents: [adapter, new AudioUserSimulator(userChunk), new PassingJudge()],
       voice: { stt },
     },
     [user(), agent(), judge()],
@@ -140,8 +121,7 @@ describe("voice.stt.* back-fill spans (#776)", () => {
   it("emits voice.stt.transcribe (scope=run) nested under voice.stt.backfill", async () => {
     const stt = new FakeSTT({ text: "the agent said this" });
     // Agent reply is AUDIO-ONLY (no transcript, no lastAgentTranscript) → its
-    // recording segment is a back-fill target; the user segment already carries
-    // its transcript so it is not.
+    // recording segment is a back-fill target; the text user makes no segment.
     await buildExecution(stt, tone(0.2)).execute();
     const spans = byName(exporter.getFinishedSpans());
 
@@ -160,22 +140,22 @@ describe("voice.stt.* back-fill spans (#776)", () => {
     expect(t.parentSpanId).toBe(
       spans["voice.stt.backfill"].spanContext().spanId,
     );
-    expect(
-      spans["voice.stt.backfill"].attributes["voice.stt.segment_count"],
-    ).toBe(1);
-    expect(spans["voice.stt.backfill"].attributes["voice.stt.scope"]).toBe(
-      "run",
-    );
+
+    // The batch span carries segment_count AND the run-correlation attrs, so the
+    // otherwise-orphan per-run trace is attributable to the run (#776 review).
+    const backfill = spans["voice.stt.backfill"];
+    expect(backfill.attributes["voice.stt.segment_count"]).toBe(1);
+    expect(backfill.attributes["voice.stt.scope"]).toBe("run");
+    expect(backfill.attributes["langwatch.origin"]).toBe("simulation");
+    expect(backfill.attributes["scenario.run_id"]).toBeTruthy();
     expect(stt.calls).toBe(1);
   });
 
   it("labels each segment's speaker and scales segment_count (user + agent targets)", async () => {
     const stt = new FakeSTT({ text: "text" });
-    // BOTH the user audio (no transcript) and the agent reply (no transcript)
-    // are back-fill targets → two voice.stt.transcribe children with distinct
-    // speakers under one batch span. Proves voice.stt.speaker flows from
-    // seg.speaker (not a hardcoded constant) and segment_count reflects N.
-    await buildExecution(stt, tone(0.2), true).execute();
+    // Transcript-LESS user chunk → BOTH the user and the agent segment are
+    // targets → two children with distinct speakers under one batch span.
+    await buildExecution(stt, tone(0.2), tone(0.12)).execute();
     const finished = exporter.getFinishedSpans();
     const transcribes = finished.filter((s) => s.name === "voice.stt.transcribe");
     const backfill = byName(finished)["voice.stt.backfill"];
@@ -193,8 +173,12 @@ describe("voice.stt.* back-fill spans (#776)", () => {
     expect(stt.calls).toBe(2);
   });
 
-  it("marks voice.stt.transcribe ERROR on provider failure but the run still completes", async () => {
-    const stt = new FakeSTT({ boom: true });
+  it("marks voice.stt.transcribe ERROR on provider failure but the run still completes, without leaking the raw provider message", async () => {
+    // A provider error whose message embeds a secret-shaped body (the exact
+    // OpenAI/ElevenLabs leak the sanitization guards against).
+    const stt = new FakeSTT({
+      boom: new Error("401 Unauthorized: invalid key sk-abc...wxyz body={...}"),
+    });
     const result = await buildExecution(stt, tone(0.2)).execute();
     expect(result).toBeTruthy(); // run completed despite the STT failure
 
@@ -207,6 +191,23 @@ describe("voice.stt.* back-fill spans (#776)", () => {
     expect(spans["voice.stt.backfill"].status.code).not.toBe(
       SpanStatusCode.ERROR,
     );
+    // SECURITY (#776 review): the raw provider message must NOT reach the
+    // exported span — the recorded exception is sanitized to a provider-agnostic
+    // string, so no response body / key fragment leaks into telemetry.
+    const recorded = JSON.stringify(t.events);
+    expect(recorded).not.toContain("sk-abc");
+    expect(recorded).not.toContain("401 Unauthorized");
+    expect(recorded).toContain("STT provider failed");
+  });
+
+  it("emits a span with no transcript_chars (OK, not ERROR) when STT returns empty text", async () => {
+    const stt = new FakeSTT({ text: "" }); // no-speech / silence result
+    await buildExecution(stt, tone(0.2)).execute();
+    const t = byName(exporter.getFinishedSpans())["voice.stt.transcribe"];
+    expect(t).toBeDefined();
+    expect(t.status.code).not.toBe(SpanStatusCode.ERROR);
+    expect(t.attributes["voice.stt.transcript_chars"]).toBeUndefined();
+    expect(t.attributes["voice.stt.audio_bytes"]).toBeGreaterThan(0);
   });
 
   it("emits no voice.stt.* spans when every segment already has a transcript", async () => {
