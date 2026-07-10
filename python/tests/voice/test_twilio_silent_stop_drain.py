@@ -52,22 +52,33 @@ its first chunk, so it lands there on every call termination. Pre-fix that call
 raises ``RuntimeError: no live media stream``; post-fix it returns an empty
 chunk. The tests assert BOTH the first ``recv_audio`` (the sentinel) and the
 second (the post-teardown drain probe) behave cleanly.
+
+The reusable Twilio real-route harness (``make_connected_twilio_adapter``,
+``serve_real_twilio_route``, ``drive_twilio_production``,
+``wait_for_twilio_stream_teardown``, ``free_port``) now lives in the shared
+``scenario.voice.testing.wrapper_harness`` module; this suite imports it and
+keeps only the Twilio-specific socket doubles (``_ScriptedWS`` /
+``_ControllableWS``) and frame builders local.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import socket
-from contextlib import asynccontextmanager, suppress
-from typing import Any, AsyncIterator, Optional
+from typing import Any, Optional
 
 import pytest
 import websockets
 
 from scenario.voice import AudioChunk, TwilioAgentAdapter
-from scenario.voice.adapters._twilio_server import TwilioWebhookServer
 from scenario.voice.adapters._twilio_shared import build_media_frame
+from scenario.voice.testing.wrapper_harness import (
+    drive_twilio_production,
+    free_port,
+    make_connected_twilio_adapter,
+    serve_real_twilio_route,
+    wait_for_twilio_stream_teardown,
+)
 
 # recv_audio is handed a long nominal budget (what an un-fixed adapter would
 # hang for); the outer ceiling fails the test fast if the empty-chunk terminal
@@ -128,104 +139,12 @@ class _ScriptedWS:
         self.sent.append(text)
 
 
-def _make_connected_adapter(http_port: int = 0) -> TwilioAgentAdapter:
-    """Construct an adapter with just enough state for the production
-    ``run_stream_session`` wrapper + ``recv_audio`` — without going through
-    ``connect()`` (which would need live Twilio REST credentials to resolve the
-    phone-number SID).
-
-    Everything the media-stream path touches is the real object: the webhook
-    server, its FastAPI app, and its ``/twilio/stream`` route. Only ``_rest`` is
-    a stand-in, and only ``_assert_connected``'s ``is not None`` check reads it.
-    """
-    adapter = TwilioAgentAdapter(
-        account_sid="AC" + "0" * 32,
-        auth_token="secret",
-        phone_number="+14155556959",
-        public_base_url="https://example695.trycloudflare.com",
-        http_port=http_port,
-    )
-    # Stand-in for the REST client: only _assert_connected's `is not None`
-    # check reads it, and constructing a real one needs live Twilio credentials.
-    adapter._rest = object()  # type: ignore[assignment]  # sentinel; never called
-    adapter._inbound_queue = asyncio.Queue()
-    adapter._stream_connected = asyncio.Event()
-    adapter._server_shutdown = asyncio.Event()
-    adapter._webhook_server = TwilioWebhookServer(adapter)
-    return adapter
-
-
 # ---------------------------------------------------------------- real route
-
-
-def _free_port() -> int:
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
-
-
-async def _wait_for_bind(port: int, server_task: "asyncio.Task[None]") -> None:
-    """Wait until the port accepts, failing loudly if uvicorn died instead.
-
-    ``_free_port`` reserves then releases a port, so another listener can win the
-    race. uvicorn reacts to a failed bind with ``sys.exit(1)`` — a ``SystemExit``,
-    which is a ``BaseException`` and therefore slips past the ``suppress(Exception)``
-    in ``TwilioWebhookServer.run()``. Without this check the connect below would
-    succeed against the *other* listener and the test would fail much later with a
-    bare ``SystemExit`` instead of "address already in use".
-    """
-    for _ in range(200):
-        if server_task.done():
-            # Re-raise whatever killed the server (SystemExit, OSError, …).
-            server_task.result()
-            raise AssertionError("uvicorn exited before binding")
-        try:
-            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
-            writer.close()
-            return
-        except OSError:
-            await asyncio.sleep(0.05)
-    raise AssertionError(f"uvicorn never bound 127.0.0.1:{port}")
-
-
-@asynccontextmanager
-async def _serve_real_route(
-    adapter: TwilioAgentAdapter,
-) -> AsyncIterator[str]:
-    """Boot the adapter's REAL uvicorn server and yield the ``ws://`` URL of the
-    REAL ``/twilio/stream`` route.
-
-    This is the production entry point end to end: uvicorn → FastAPI →
-    ``_stream()`` → ``run_stream_session`` → ``media_stream_loop``. No seam, no
-    socket double. A fix that only works when a test calls the wrapper by name
-    cannot pass through here.
-    """
-    assert adapter._webhook_server is not None
-    server_task = asyncio.create_task(adapter._webhook_server.run())
-    try:
-        await _wait_for_bind(adapter.http_port, server_task)
-        yield f"ws://127.0.0.1:{adapter.http_port}/twilio/stream"
-    finally:
-        assert adapter._server_shutdown is not None
-        adapter._server_shutdown.set()
-        with suppress(Exception):
-            await asyncio.wait_for(server_task, timeout=5.0)
-
-
-async def _await_teardown(adapter: TwilioAgentAdapter) -> None:
-    """Wait until the route handler's ``finally`` has nulled the transport."""
-    for _ in range(200):
-        if adapter._stream_ws is None:
-            return
-        await asyncio.sleep(0.01)
-    raise AssertionError("production route never tore the transport down")
 
 
 @pytest.fixture
 def route_adapter() -> TwilioAgentAdapter:
-    adapter = _make_connected_adapter(http_port=_free_port())
+    adapter = make_connected_twilio_adapter(http_port=free_port())
     # Small drain budgets: a hang (the original #695 symptom) then fails inside
     # ROUTE_CEILING rather than stalling the suite.
     adapter.response_timeout = 5.0
@@ -251,7 +170,7 @@ class TestRealRoute:
         self, route_adapter: TwilioAgentAdapter
     ) -> None:
         """A silent / tool-only turn: ``stop`` frame, no audio ever buffered."""
-        async with _serve_real_route(route_adapter) as url:
+        async with serve_real_twilio_route(route_adapter) as url:
             async with websockets.connect(url) as client:
                 await client.send(_start_frame())
                 assert route_adapter._stream_connected is not None
@@ -271,7 +190,7 @@ class TestRealRoute:
         self, route_adapter: TwilioAgentAdapter
     ) -> None:
         """Twilio drops the media socket with no ``stop`` frame and no audio."""
-        async with _serve_real_route(route_adapter) as url:
+        async with serve_real_twilio_route(route_adapter) as url:
             async with websockets.connect(url) as client:
                 await client.send(_start_frame())
                 assert route_adapter._stream_connected is not None
@@ -294,7 +213,7 @@ class TestRealRoute:
         through the real route — the sentinel terminates the drain after it, and
         does not replace it.
         """
-        async with _serve_real_route(route_adapter) as url:
+        async with serve_real_twilio_route(route_adapter) as url:
             async with websockets.connect(url) as client:
                 await client.send(_start_frame())
                 assert route_adapter._stream_connected is not None
@@ -323,7 +242,7 @@ class TestRealRoute:
         Pre-fix this raises ``RuntimeError: no live media stream`` immediately,
         with the terminal sentinel sitting unread in the queue.
         """
-        async with _serve_real_route(route_adapter) as url:
+        async with serve_real_twilio_route(route_adapter) as url:
             async with websockets.connect(url) as client:
                 await client.send(_start_frame())
                 assert route_adapter._stream_connected is not None
@@ -331,7 +250,7 @@ class TestRealRoute:
                     route_adapter._stream_connected.wait(), timeout=ROUTE_CEILING
                 )
                 await client.send(_stop_frame())
-            await _await_teardown(route_adapter)
+            await wait_for_twilio_stream_teardown(route_adapter)
             assert route_adapter._stream_ws is None
             assert route_adapter._stream_sid is None
 
@@ -360,7 +279,7 @@ class TestRealRoute:
         route_adapter.response_tail_silence = 0.2
         speak_after = 0.6
 
-        async with _serve_real_route(route_adapter) as url:
+        async with serve_real_twilio_route(route_adapter) as url:
             # Session 1: caller hangs up between turns; nothing consumes it.
             async with websockets.connect(url) as first:
                 await first.send(_start_frame())
@@ -369,7 +288,7 @@ class TestRealRoute:
                     route_adapter._stream_connected.wait(), timeout=ROUTE_CEILING
                 )
                 await first.send(_stop_frame())
-            await _await_teardown(route_adapter)
+            await wait_for_twilio_stream_teardown(route_adapter)
             assert route_adapter._inbound_queue is not None
             assert route_adapter._inbound_queue.qsize() == 1  # sentinel, unread
 
@@ -407,7 +326,7 @@ class TestRealRoute:
         liveness assert fired first and that audio was dropped on the floor along
         with the crash.
         """
-        async with _serve_real_route(route_adapter) as url:
+        async with serve_real_twilio_route(route_adapter) as url:
             async with websockets.connect(url) as client:
                 await client.send(_start_frame())
                 assert route_adapter._stream_connected is not None
@@ -416,7 +335,7 @@ class TestRealRoute:
                 )
                 await client.send(build_media_frame(STREAM_SID, bytes([0x7F]) * 160))
                 await client.send(_stop_frame())
-            await _await_teardown(route_adapter)
+            await wait_for_twilio_stream_teardown(route_adapter)
 
             merged = await asyncio.wait_for(
                 route_adapter._drain_agent_response(), timeout=ROUTE_CEILING
@@ -454,21 +373,6 @@ class _ControllableWS:
         self.sent.append(text)
 
 
-async def _drive_production(adapter: TwilioAgentAdapter, ws: Any) -> None:
-    """Run the production per-connection wrapper
-    (``TwilioWebhookServer.run_stream_session`` — what the ``/twilio/stream``
-    route delegates to, as ``TestRealRoute`` proves) to its terminal over the
-    given socket double.
-
-    On return, ``adapter._stream_ws`` / ``_stream_sid`` have been nulled by the
-    wrapper's ``finally`` — exactly as in production after a call ends. Used for
-    the terminations a real socket cannot produce (a ``receive_text`` that raises
-    a non-disconnect error; a second session on the same connected adapter).
-    """
-    assert adapter._webhook_server is not None
-    await adapter._webhook_server.run_stream_session(ws)
-
-
 @pytest.mark.asyncio
 async def test_stop_without_trailing_audio_drains_through_production_teardown():
     """A ``"stop"`` frame with no buffered audio (silent / tool-only turn),
@@ -477,10 +381,10 @@ async def test_stop_without_trailing_audio_drains_through_production_teardown():
     return cleanly. Pre-fix the second call raises ``RuntimeError: no live media
     stream`` (the transport was nulled by the wrapper's ``finally``).
     """
-    adapter = _make_connected_adapter()
+    adapter = make_connected_twilio_adapter()
     ws = _ScriptedWS([_start_frame(), _stop_frame()])
 
-    await _drive_production(adapter, ws)
+    await drive_twilio_production(adapter, ws)
 
     # Production nulled the transport in run_stream_session's finally — the
     # very condition that made recv_audio crash pre-fix.
@@ -512,11 +416,11 @@ async def test_socket_close_drains_through_production_teardown():
     """
     from starlette.websockets import WebSocketDisconnect
 
-    adapter = _make_connected_adapter()
+    adapter = make_connected_twilio_adapter()
     ws = _ScriptedWS([_start_frame()], close_with=WebSocketDisconnect(code=1000))
 
     # run_stream_session catches WebSocketDisconnect — it does NOT propagate.
-    await _drive_production(adapter, ws)
+    await drive_twilio_production(adapter, ws)
 
     assert adapter._stream_ws is None
     assert adapter._stream_sid is None
@@ -541,7 +445,7 @@ async def test_normal_audio_turn_still_drains_through_production_teardown():
     of it — even though the real production wrapper has already nulled the
     transport state by the time the drain reads.
     """
-    adapter = _make_connected_adapter()
+    adapter = make_connected_twilio_adapter()
     # 160 bytes of µ-law (~20ms). Under the 100ms batch threshold, so the
     # "stop" flush is what enqueues it — exactly the trailing-audio path.
     mulaw = bytes([0x7F]) * 160
@@ -549,7 +453,7 @@ async def test_normal_audio_turn_still_drains_through_production_teardown():
         [_start_frame(), build_media_frame(STREAM_SID, mulaw), _stop_frame()]
     )
 
-    await _drive_production(adapter, ws)
+    await drive_twilio_production(adapter, ws)
 
     assert adapter._stream_ws is None  # production teardown ran
 
@@ -578,13 +482,13 @@ async def test_transport_error_drains_through_production_teardown():
     ``finally`` nulled the transport first, so both drain ``recv_audio`` calls
     still return cleanly.
     """
-    adapter = _make_connected_adapter()
+    adapter = make_connected_twilio_adapter()
     ws = _ScriptedWS(
         [_start_frame()], close_with=RuntimeError("boom: transport failure")
     )
 
     with pytest.raises(RuntimeError, match="boom: transport failure"):
-        await _drive_production(adapter, ws)
+        await drive_twilio_production(adapter, ws)
 
     assert adapter._stream_ws is None  # teardown ran on the throw path
     assert adapter._stream_sid is None
@@ -610,10 +514,10 @@ async def test_second_session_stale_flag_does_not_truncate_first_turn():
     new call's first agent turn. With the loop-entry reset it waits for the
     real audio.
     """
-    adapter = _make_connected_adapter()
+    adapter = make_connected_twilio_adapter()
 
     # Session 1 completes silently and is fully drained.
-    await _drive_production(adapter, _ScriptedWS([_start_frame(), _stop_frame()]))
+    await drive_twilio_production(adapter, _ScriptedWS([_start_frame(), _stop_frame()]))
     s1 = await asyncio.wait_for(
         adapter.recv_audio(timeout=RECV_TIMEOUT), timeout=OUTER_CEILING
     )
@@ -621,7 +525,7 @@ async def test_second_session_stale_flag_does_not_truncate_first_turn():
 
     # Session 2 begins mid-call: started, nothing buffered yet.
     ws2 = _ControllableWS()
-    session2 = asyncio.create_task(_drive_production(adapter, ws2))
+    session2 = asyncio.create_task(drive_twilio_production(adapter, ws2))
     ws2.push(_start_frame("MZ695b", "CA695b"))
     for _ in range(200):  # wait until the loop re-armed the transport
         if adapter._stream_ws is not None:
@@ -656,7 +560,7 @@ async def test_recv_audio_with_nulled_queue_raises_connection_error():
     ``AttributeError`` — pinning the reordering guard the cascade keeps ahead
     of the queue reads.
     """
-    adapter = _make_connected_adapter()
+    adapter = make_connected_twilio_adapter()
     adapter._inbound_queue = None
 
     with pytest.raises(RuntimeError, match="inbound queue is gone"):
