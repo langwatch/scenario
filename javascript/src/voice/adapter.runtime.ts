@@ -343,7 +343,7 @@ async function runVoiceTurn(
   input: AgentInput,
   turnSpan: Span,
 ): Promise<AgentReturnTypes> {
-  const turnStart = Date.now();
+  const turnStart = performance.now(); // monotonic — NTP jumps can't skew latency
   const speakingEvent = getAgentSpeakingEvent(adapter);
   speakingEvent.clear();
 
@@ -414,7 +414,7 @@ async function runVoiceTurn(
   // transcript" defect — and only the on-disk manifest got a (slower, lossy) STT
   // back-fill. Done BEFORE recordAgent so the recording segment carries it too.
   setSpanAttributes(turnSpan, {
-    "voice.turn.latency_ms": Date.now() - turnStart,
+    "voice.turn.latency_ms": Math.round(performance.now() - turnStart),
     // Omit (not 0) when there's no incoming audio, matching Python
     // (adapter.py: `if incoming is not None and incoming.data`).
     "voice.turn.user_audio_bytes":
@@ -683,7 +683,7 @@ async function drainInner(
   onFirstChunk: () => void,
   span: Span,
 ): Promise<AudioChunk> {
-  const receiveStart = Date.now();
+  const receiveStart = performance.now(); // monotonic
   const tailSilence = adapter.responseTailSilence ?? SAFE_DEFAULT_TAIL_SILENCE_S;
   const responseTimeout =
     adapter.responseTimeout ?? SAFE_DEFAULT_RESPONSE_TIMEOUT_S;
@@ -704,7 +704,7 @@ async function drainInner(
   }
   span.setAttribute(
     "voice.audio.first_chunk_latency_ms",
-    Date.now() - receiveStart,
+    Math.round(performance.now() - receiveStart),
   );
   if (first.data.length > 0) {
     onFirstChunk();

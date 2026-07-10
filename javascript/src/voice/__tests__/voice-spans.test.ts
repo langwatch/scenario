@@ -191,6 +191,7 @@ describe("voice.* span instrumentation (base runtime)", () => {
       shutdown() { return Promise.resolve(); }
     }
     await provider.shutdown();
+    trace.disable(); // clear the set-once guard so the BoomProcessor provider REALLY registers
     provider = new NodeTracerProvider({ spanProcessors: [new BoomProcessor()] });
     trace.setGlobalTracerProvider(provider);
 

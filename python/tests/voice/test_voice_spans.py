@@ -119,7 +119,7 @@ def _by_name(spans):
 async def test_a1_call_emits_voice_named_spans():
     """A1: a turn emits spans whose NAME starts with 'voice.' (name, not scope)."""
     exporter = _install_in_memory_provider()
-    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     names = [s.name for s in exporter.get_finished_spans()]
     assert any(n.startswith("voice.") for n in names), names
     assert {"voice.turn", "voice.audio.send", "voice.audio.receive"} <= set(names)
@@ -142,7 +142,7 @@ async def test_a3_terminated_reason_per_exit_path(actions, expected_reason):
     exporter = _install_in_memory_provider()
     adapter = _ScriptedAdapter(actions)
     try:
-        await adapter.call(_audio_input())  # type: ignore[arg-type]
+        await adapter.call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     except Exception:
         pass  # first_chunk_timeout re-raises FirstChunkTimeoutError — expected
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
@@ -157,7 +157,7 @@ async def test_a3_max_duration_reason_and_first_chunk_latency():
     # loop condition (not a break) ends the drain → 'max_duration'. Transcript set
     # so _ensure_transcript short-circuits (no real STT network call).
     big = AudioChunk(data=b"\x00\x00" * 300_000, transcript="agent")  # ~12.5s @ 24kHz
-    await _ScriptedAdapter([big, big, big, big]).call(_audio_input())  # type: ignore[arg-type]
+    await _ScriptedAdapter([big, big, big, big]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
     assert attrs(recv)["voice.audio.terminated_reason"] == "max_duration"
     assert "voice.audio.first_chunk_latency_ms" in attrs(recv)
@@ -173,7 +173,7 @@ async def test_a4_first_chunk_timeout_marks_error():
     exporter = _install_in_memory_provider()
     adapter = _ScriptedAdapter(["timeout"])
     with pytest.raises(Exception):
-        await adapter.call(_audio_input())  # type: ignore[arg-type]
+        await adapter.call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
     assert recv.status.status_code == StatusCode.ERROR
     assert attrs(recv)["voice.audio.terminated_reason"] == "first_chunk_timeout"
@@ -185,7 +185,7 @@ async def test_a4_non_timeout_first_chunk_error_has_no_timeout_label():
     exporter = _install_in_memory_provider()
     adapter = _ScriptedAdapter([ConnectionResetError("socket died")])
     with pytest.raises(ConnectionResetError):
-        await adapter.call(_audio_input())  # type: ignore[arg-type]
+        await adapter.call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     recv = _by_name(exporter.get_finished_spans())["voice.audio.receive"]
     assert recv.status.status_code == StatusCode.ERROR
     assert attrs(recv).get("voice.audio.terminated_reason") != "first_chunk_timeout"
@@ -208,7 +208,7 @@ async def test_a5_turn_index_from_scenario_state():
         ]
         scenario_state = _State()
 
-    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_InputWithState())  # type: ignore[arg-type]
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_InputWithState())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     turn = _by_name(exporter.get_finished_spans())["voice.turn"]
     assert attrs(turn)["voice.turn.index"] == 3
 
@@ -217,7 +217,7 @@ async def test_a5_turn_index_from_scenario_state():
 async def test_a5_turn_span_attrs_and_child_nesting():
     """A5: voice.turn carries attrs; send/receive nest under it (intra-turn tree)."""
     exporter = _install_in_memory_provider()
-    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     spans = _by_name(exporter.get_finished_spans())
     turn = spans["voice.turn"]
     assert attrs(turn)["voice.adapter.class"] == "_ScriptedAdapter"
@@ -235,7 +235,7 @@ async def test_a5_turn_span_attrs_and_child_nesting():
 async def test_a6_audio_send_span_has_bytes():
     """A6: voice.audio.send carries the sent byte count on a real turn."""
     exporter = _install_in_memory_provider()
-    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     send = _by_name(exporter.get_finished_spans())["voice.audio.send"]
     assert attrs(send)["voice.audio.bytes"] == 2400  # b"\x00\x00" * 1200
 
@@ -244,7 +244,7 @@ async def test_a6_audio_send_span_has_bytes():
 async def test_a6_no_incoming_turn_emits_no_send_span():
     """A6 edge: a greeting (no-incoming) turn emits zero voice.audio.send spans."""
     exporter = _install_in_memory_provider()
-    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_greeting_input())  # type: ignore[arg-type]
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_greeting_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
     names = [s.name for s in exporter.get_finished_spans()]
     assert "voice.audio.send" not in names
     assert "voice.turn" in names  # the turn still runs
@@ -267,7 +267,7 @@ async def test_a7_export_failure_never_breaks_the_turn(caplog):
     trace.set_tracer_provider(provider)
 
     with caplog.at_level(logging.WARNING, logger="scenario.voice"):
-        result = await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]
+        result = await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
 
     assert isinstance(result, dict) and result["role"] == "assistant"  # turn completed
     warnings = [
