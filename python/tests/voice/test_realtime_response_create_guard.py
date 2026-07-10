@@ -39,6 +39,8 @@ from typing import Any, List
 import pytest
 
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
+from scenario.voice.audio_chunk import AudioChunk
+from scenario.voice.testing import drive_call, make_agent_input
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,9 @@ class _MockWS:
         self.sent: List[Any] = []
         # Interleaved chronological log: ("sent"|"recv", type_str)
         self.log: List[tuple[str, str]] = []
+        # Observable disconnect (mirrors the echo-safe suite's _MockWS): set True
+        # by close() so the wrapper-level test can see the real disconnect land.
+        self.closed = False
 
     async def send(self, msg: Any) -> None:
         self.sent.append(msg)
@@ -99,7 +104,7 @@ class _MockWS:
         return evt
 
     async def close(self) -> None:
-        pass
+        self.closed = True
 
     # --- helpers for assertions ---
 
@@ -467,4 +472,80 @@ async def test_deferred_path_clears_agent_turn_pending():
     # Sanity: it really was the deferral branch (flag set), not the else branch.
     assert adapter._deferred_response_create is True, (
         "expected the deferral branch (_deferred_response_create=True) to be taken"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper-level twin of AC5 — commit-then-create ordering on the REAL call path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wrapper_normal_path_full_call_flow(monkeypatch):
+    """Wrapper-level twin of AC5: the commit-then-create ordering proven on the
+    PRODUCTION path — reached through the REAL ``connect()`` + ``call()`` flow
+    rather than a direct ``recv_audio`` with an injected ``_ws``.
+
+    Fakes ONLY the network-client boundary (``websockets.connect``); connect's
+    ``session.update`` handshake, ``send_audio``'s ``input_audio_buffer.append``,
+    and ``recv_audio``'s ``commit`` → ``response.create`` preamble all run for
+    real. The transcript event keeps ``_ensure_transcript`` off the network.
+    """
+    import websockets
+
+    events = [
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": _b64_pcm(480)}),
+        json.dumps(
+            {"type": "response.output_audio_transcript.done", "transcript": "I can help you."}
+        ),
+        json.dumps({"type": "response.done"}),
+    ]
+    mock_ws = _MockWS(events)
+
+    async def _fake_connect(url, additional_headers=None, **kw):
+        return mock_ws
+
+    monkeypatch.setattr(websockets, "connect", _fake_connect)
+
+    adapter = OpenAIRealtimeAgentAdapter(api_key="test-sk-not-real")  # user-first
+
+    await adapter.connect()
+    result = await drive_call(
+        adapter, make_agent_input(user_audio=AudioChunk(data=_make_pcm(480)))
+    )
+    await adapter.disconnect()
+
+    # 1. AC5's invariant on the production path: session.update, then append,
+    #    then commit, then response.create — strictly increasing, one each.
+    sent = mock_ws.sent_types()
+    for t in (
+        "session.update",
+        "input_audio_buffer.append",
+        "input_audio_buffer.commit",
+        "response.create",
+    ):
+        assert t in sent, f"expected {t!r} in sends; got {sent}"
+    i_update = mock_ws.first_index_of("session.update")
+    i_append = mock_ws.first_index_of("input_audio_buffer.append")
+    i_commit = mock_ws.first_index_of("input_audio_buffer.commit")
+    i_create = mock_ws.first_index_of("response.create")
+    assert i_update < i_append < i_commit < i_create, (
+        f"expected session.update < append < commit < create; sent order={sent}"
+    )
+    assert mock_ws.count_of("input_audio_buffer.commit") == 1, (
+        f"expected exactly 1 input_audio_buffer.commit; sent={sent}"
+    )
+    assert mock_ws.count_of("response.create") == 1, (
+        f"expected exactly 1 response.create; sent={sent}"
+    )
+
+    # 2. The full flow resolves to an assistant message with non-empty audio.
+    content = result.get("content") if isinstance(result, dict) else None
+    assert isinstance(content, list), f"result is not an assistant audio message: {result!r}"
+    audio_parts = [
+        p for p in content if isinstance(p, dict) and p.get("type") == "input_audio"
+    ]
+    assert audio_parts and audio_parts[0]["input_audio"].get("data"), (
+        "assistant turn has no non-empty input_audio part"
     )
