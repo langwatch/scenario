@@ -2086,8 +2086,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       if (adapter.capabilities.interruption) {
         try {
           // voice.adapter.interrupt — executor-owned base span (mirrors
-          // startVoiceAdapters / stopVoiceAdapters). The adapter stamps vendor
-          // outcome attrs onto it from inside its own interrupt().
+          // startVoiceAdapters / stopVoiceAdapters). Rule: executor-invoked + no
+          // shared base body to instrument — connect/disconnect are abstract,
+          // interrupt() is concrete but wholesale-overridden with no super(), so
+          // the call-site is the one seam. The adapter stamps vendor outcome
+          // attrs onto it from inside its own interrupt().
           await voiceSpan(
             "voice.adapter.interrupt",
             { "voice.adapter.class": adapter.constructor.name },

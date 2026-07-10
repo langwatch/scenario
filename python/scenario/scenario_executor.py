@@ -1343,9 +1343,13 @@ class ScenarioExecutor:
                 try:
                     # ``voice.adapter.interrupt`` — the executor-owned base span
                     # (mirrors ``_voice_connect_all`` / ``_voice_disconnect_all``).
-                    # Adapters stamp vendor outcome attrs onto it from inside their
-                    # own interrupt(); the span's OK/ERROR status is set BEFORE the
-                    # swallow below discards a transport error.
+                    # Rule for executor-owned spans: executor-invoked + no shared
+                    # base body to instrument. connect/disconnect are abstract;
+                    # interrupt() is concrete (default raises UnsupportedCapability)
+                    # but wholesale-overridden with no super(), so the call-site is
+                    # the one seam. Adapters stamp vendor outcome attrs onto it from
+                    # inside their own interrupt(); the span's OK/ERROR status is set
+                    # BEFORE the swallow below discards a transport error.
                     with voice_span(
                         "voice.adapter.interrupt",
                         {"voice.adapter.class": type(adapter).__name__},

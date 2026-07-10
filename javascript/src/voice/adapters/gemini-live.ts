@@ -310,8 +310,11 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
   async sendAudio(chunk: AudioChunk): Promise<void> {
     this.requireConnected();
     const pcm16k = resamplePcm16(chunk.data, CANONICAL_RATE, GEMINI_INPUT_RATE);
-    // New user turn → reset the per-turn spurious-retry counter so the count
-    // stamped at this turn's turnComplete reflects only THIS turn's drain.
+    // New user turn → reset the per-turn spurious-retry counter here, alongside
+    // iterHadAudio's own reset. receiveAudio() is per-chunk (queue-based, no
+    // per-drain hook like Python's fresh-iterator branch), so sendAudio is the
+    // per-turn seam. (A no-incoming turn skips this — a low-severity stale-count
+    // edge shared with iterHadAudio; tracked as a follow-up.)
     this.spuriousRetryCount = 0;
     if (pcm16k.length === 0) {
       // Sub-sample chunk resampled to empty: nothing to send. Stamp wire_bytes=0

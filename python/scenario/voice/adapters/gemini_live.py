@@ -325,9 +325,6 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         from google.genai import types  # noqa: PLC0415
 
         pcm_16k = _resample_pcm16(chunk.data, CANONICAL_RATE, GEMINI_INPUT_RATE)
-        # New user turn → reset the per-turn spurious-retry counter so the count
-        # stamped at this turn's turn_complete reflects only THIS turn's drain.
-        self._spurious_retry_count = 0
         if not pcm_16k:
             # Sub-sample chunk resampled to empty: nothing to send. Stamp
             # wire_bytes=0 onto the active ``voice.audio.send`` span (base-owned
@@ -391,6 +388,10 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         if self._recv_iter is None:
             self._recv_iter = self._session.receive().__aiter__()  # type: ignore[union-attr]
             self._iter_had_audio = False
+            # Reset the per-turn spurious-retry counter at drain start (alongside
+            # _iter_had_audio) so the count stamped at turn_complete reflects only
+            # THIS turn — correct even for a no-incoming turn that skips send_audio.
+            self._spurious_retry_count = 0
 
         async def _next_chunk() -> AudioChunk:
             pending_delta = ""
