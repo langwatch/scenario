@@ -31,6 +31,7 @@ from .capabilities import AdapterCapabilities
 from .messages import create_audio_message, extract_audio
 from .stt import transcribe
 from .recording import AudioSegment, VoiceEvent
+from ._telemetry import voice_span
 
 
 _FIRST_CHUNK_PHASE = "first-chunk"
@@ -234,26 +235,59 @@ class VoiceAgentAdapter(AgentAdapter):
             from .adapters._stub import TransportNotConnectedError
 
             raise TransportNotConnectedError(type(self).__name__)
-        # Clear the speaking-event for this turn — set in _drain on first chunk.
-        self._agent_speaking_event.clear()
-        recorder = _AdapterRecorder(input)
-        incoming = extract_audio(input.new_messages[-1]) if input.new_messages else None
-        if incoming is not None:
-            # Wrap send_audio so user.start = "we began transmitting" and
-            # user.end = "we finished transmitting" — both real flow points.
-            recorder.mark_user_start()
-            await self.send_audio(incoming)
-            recorder.record_user(incoming)
-        # Drain. Recorder grabs agent.start at first chunk via
-        # mark_agent_start, so agent.start is "first chunk on the wire,"
-        # not "now minus merged.duration."
-        merged = await self._drain_agent_response(on_first_chunk=recorder.mark_agent_start)
-        # Mark agent.end BEFORE the STT round-trip below — the agent stopped
-        # speaking when drain settled, not after transcription returned.
-        recorder.mark_agent_end()
-        merged = await self._ensure_transcript(merged)
-        recorder.record_agent(merged)
-        return create_audio_message(merged, role="assistant")
+        # One ``voice.turn`` span per call(), nesting under the executor's
+        # existing ``{cls}.call`` agent span (ambient OTel context — no parent
+        # passed). The transport spans below (send/receive) nest under it.
+        turn_index = getattr(
+            getattr(input, "scenario_state", None), "current_turn", None
+        )
+        with voice_span(
+            "voice.turn",
+            {
+                "voice.adapter.class": type(self).__name__,
+                "voice.turn.index": turn_index,
+            },
+        ) as _turn_span:
+            _turn_started = time.monotonic()
+            # Clear the speaking-event for this turn — set in _drain on first chunk.
+            self._agent_speaking_event.clear()
+            recorder = _AdapterRecorder(input)
+            incoming = (
+                extract_audio(input.new_messages[-1]) if input.new_messages else None
+            )
+            if incoming is not None:
+                # Wrap send_audio so user.start = "we began transmitting" and
+                # user.end = "we finished transmitting" — both real flow points.
+                recorder.mark_user_start()
+                with voice_span(
+                    "voice.audio.send", {"voice.audio.bytes": len(incoming.data)}
+                ):
+                    await self.send_audio(incoming)
+                recorder.record_user(incoming)
+            # Drain. Recorder grabs agent.start at first chunk via
+            # mark_agent_start, so agent.start is "first chunk on the wire,"
+            # not "now minus merged.duration."
+            merged = await self._drain_agent_response(
+                on_first_chunk=recorder.mark_agent_start
+            )
+            # Mark agent.end BEFORE the STT round-trip below — the agent stopped
+            # speaking when drain settled, not after transcription returned.
+            recorder.mark_agent_end()
+            _turn_span.set_attribute(
+                "voice.turn.latency_ms",
+                round((time.monotonic() - _turn_started) * 1000),
+            )
+            if incoming is not None and incoming.data:
+                _turn_span.set_attribute(
+                    "voice.turn.user_audio_bytes", len(incoming.data)
+                )
+            if merged.data:
+                _turn_span.set_attribute(
+                    "voice.turn.agent_audio_bytes", len(merged.data)
+                )
+            merged = await self._ensure_transcript(merged)
+            recorder.record_agent(merged)
+            return create_audio_message(merged, role="assistant")
 
     async def _ensure_transcript(self, merged: AudioChunk) -> AudioChunk:
         """Best-effort runtime STT for adapters whose transport carries no text.
@@ -298,27 +332,49 @@ class VoiceAgentAdapter(AgentAdapter):
         agent.start at a real flow point rather than back-computing from
         the merged-chunk duration.
         """
-        try:
-            first = await self.recv_audio(timeout=self.response_timeout)
-        except asyncio.TimeoutError as err:
-            raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
-        # First chunk arrived → agent is now speaking. Wakes anyone awaiting
-        # _agent_speaking_event (the interruption path).
-        if first.data and on_first_chunk is not None:
-            on_first_chunk()
-        self._agent_speaking_event.set()
-        chunks: List[AudioChunk] = [first]
-        accumulated = first.duration_seconds
-        while accumulated < self.response_max_duration:
+        # ``voice.audio.receive`` — THE user-story span: a receiveAudio timeout
+        # surfaces as ERROR here, so the trace shows WHY a run failed.
+        with voice_span("voice.audio.receive") as _recv_span:
+            _recv_started = time.monotonic()
             try:
-                nxt = await self.recv_audio(timeout=self.response_tail_silence)
-            except asyncio.TimeoutError:
-                break
-            if not nxt.data:
-                break
-            chunks.append(nxt)
-            accumulated += nxt.duration_seconds
-        return _merge_chunks(chunks)
+                first = await self.recv_audio(timeout=self.response_timeout)
+            except asyncio.TimeoutError as err:
+                _recv_span.set_attribute(
+                    "voice.audio.terminated_reason", "first_chunk_timeout"
+                )
+                raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
+            _recv_span.set_attribute(
+                "voice.audio.first_chunk_latency_ms",
+                round((time.monotonic() - _recv_started) * 1000),
+            )
+            # First chunk arrived → agent is now speaking. Wakes anyone awaiting
+            # _agent_speaking_event (the interruption path).
+            if first.data and on_first_chunk is not None:
+                on_first_chunk()
+            self._agent_speaking_event.set()
+            chunks: List[AudioChunk] = [first]
+            accumulated = first.duration_seconds
+            # Default reason: the loop condition fell through, i.e. the runaway
+            # backstop (Python-only — TS terminates on a hard ceiling instead).
+            terminated_reason = "max_duration"
+            while accumulated < self.response_max_duration:
+                try:
+                    nxt = await self.recv_audio(timeout=self.response_tail_silence)
+                except asyncio.TimeoutError:
+                    terminated_reason = "tail_silence"
+                    break
+                if not nxt.data:
+                    terminated_reason = "terminal_chunk"
+                    break
+                chunks.append(nxt)
+                accumulated += nxt.duration_seconds
+            merged = _merge_chunks(chunks)
+            _recv_span.set_attribute("voice.audio.terminated_reason", terminated_reason)
+            _recv_span.set_attribute("voice.audio.chunk_count", len(chunks))
+            _recv_span.set_attribute(
+                "voice.audio.bytes", len(merged.data) if merged.data else 0
+            )
+            return merged
 
 
 class _AdapterRecorder:

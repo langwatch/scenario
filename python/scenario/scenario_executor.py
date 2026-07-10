@@ -822,10 +822,29 @@ class ScenarioExecutor:
 
         # Phase 2: connect with live-transport failure catching
         from .voice.adapters._stub import PendingTransportError
+        from .voice._telemetry import voice_span
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
+                caps = getattr(agent, "capabilities", None)
+                role = getattr(agent, "role", None)
+                connect_attrs = {
+                    "voice.adapter.class": type(agent).__name__,
+                    "voice.adapter.role": getattr(role, "value", None),
+                    "voice.adapter.capabilities.native_vad": getattr(
+                        caps, "native_vad", None
+                    ),
+                    "voice.adapter.capabilities.streaming_transcripts": getattr(
+                        caps, "streaming_transcripts", None
+                    ),
+                    "voice.adapter.capabilities.dtmf": getattr(caps, "dtmf", None),
+                }
                 try:
-                    await agent.connect()
+                    # Wrap ``connect()`` itself so the span records the ORIGINAL
+                    # transport error before the ModalityNegotiationError re-wrap
+                    # below. Adapters stamp vendor attrs (e.g. EL agent_id) onto
+                    # this span from inside their own connect().
+                    with voice_span("voice.adapter.connect", connect_attrs):
+                        await agent.connect()
                 except PendingTransportError as e:
                     raise ModalityNegotiationError(
                         f"Live transport {type(agent).__name__!r} cannot honor "
@@ -893,12 +912,20 @@ class ScenarioExecutor:
         are logged but do not mask the primary scenario result.
         """
         from .voice.adapter import VoiceAgentAdapter
+        from .voice._telemetry import voice_span
 
         for agent in self.agents:
             if not isinstance(agent, VoiceAgentAdapter):
                 continue
             try:
-                await agent.disconnect()
+                # Wrap the disconnect() call so the span's OK/ERROR status is set
+                # BEFORE the executor's outer swallow below discards the error.
+                # Adapters stamp vendor attrs (e.g. EL pump counters) from inside.
+                with voice_span(
+                    "voice.adapter.disconnect",
+                    {"voice.adapter.class": type(agent).__name__},
+                ):
+                    await agent.disconnect()
             except Exception:
                 logger.warning(
                     "voice adapter %s disconnect failed",
