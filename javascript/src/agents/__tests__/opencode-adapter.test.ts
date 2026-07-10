@@ -564,6 +564,43 @@ describe("OpenCodeAgentAdapter concurrency + config validation", () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("propagates ONE rejecting session.create to ALL concurrent first-calls, then retries cleanly", async () => {
+    // The dedup map stores the create PROMISE un-awaited (that is the dedup
+    // mechanism — awaiting before storing would reopen the check-then-create
+    // race). This test pins the rejection half of that contract: every path
+    // that reads the stored promise awaits it, so a failing create rejects
+    // BOTH concurrent callers (no unhandled rejection, no hang), is evicted,
+    // and the next turn retries with a fresh create.
+    let releaseCreate!: () => void;
+    const gate = new Promise<void>((r) => { releaseCreate = r; });
+    let createCalls = 0;
+    const { client, createSpy } = makeFakeClient({
+      createResult: () => {
+        createCalls++;
+        return createCalls === 1
+          ? gate.then(() => ({ data: undefined, error: { status: 503, message: "unavailable" } }))
+          : sessionOk("sess-retry");
+      },
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    const p1 = adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race-reject" }));
+    const p2 = adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race-reject" }));
+    // Attach both rejection expectations BEFORE releasing the gate so neither
+    // rejection is ever unobserved.
+    const e1 = expect(p1).rejects.toThrow(/session\.create failed/);
+    const e2 = expect(p2).rejects.toThrow(/session\.create failed/);
+    await Promise.resolve(); // let both calls reach resolveSessionId and share the in-flight create
+    releaseCreate();
+    await Promise.all([e1, e2]);
+    // Both concurrent callers shared ONE create attempt.
+    expect(createSpy).toHaveBeenCalledTimes(1);
+
+    // The rejected promise was evicted — the next turn retries and succeeds.
+    await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race-reject" }));
+    expect(createSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("throws on timeout=0 (explicitly set, not silently ignored) before any RPC", async () => {
     const { client, createSpy, promptSpy } = makeFakeClient();
     const adapter = new OpenCodeAgentAdapter(makeConfig(client, { timeout: 0 }));
@@ -618,6 +655,19 @@ describe("OpenCodeAgentAdapter close()", () => {
     const { client } = makeFakeClient();
     const adapter = new OpenCodeAgentAdapter(makeConfig(client));
     await expect(adapter.close()).resolves.toBeUndefined();
+  });
+
+  it("rejects call() after close() with a clear closed-adapter error (no RPC attempted)", async () => {
+    // close() is terminal: a post-close call must fail with the real cause
+    // ("adapter is closed"), not race a torn-down server into an opaque
+    // transport error — the close()/call() sequencing gap from review.
+    const { client, createSpy, promptSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    await adapter.close();
+
+    await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/closed/i);
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(promptSpy).not.toHaveBeenCalled();
   });
 });
 
