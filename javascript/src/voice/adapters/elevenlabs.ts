@@ -71,13 +71,13 @@ import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources
 import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
 import type { LanguageModel } from "ai";
-import { currentSpan, setSpanAttributes } from "../telemetry";
 
 import { AgentRole } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
   ELEVENLABS_DEFAULT_VOICE_ID,

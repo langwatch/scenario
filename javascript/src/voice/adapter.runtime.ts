@@ -21,6 +21,7 @@
  *   exception.
  */
 
+import type { Span } from "@opentelemetry/api";
 import type { VoiceAgentAdapter } from "./adapter";
 import { PendingTransportError } from "./adapters/pending-transport-error";
 import { AudioChunk, silentChunk } from "./audio-chunk";
@@ -33,9 +34,8 @@ import type {
   VoiceEvent,
   VoiceRecording,
 } from "./recording.types";
-import { WebRTCVadFallback } from "./vad";
 import { voiceSpan, setSpanAttributes } from "./telemetry";
-import type { Span } from "@opentelemetry/api";
+import { WebRTCVadFallback } from "./vad";
 import type { VoiceExecutorState } from "./voice-executor-state";
 import type { AgentInput, AgentReturnTypes } from "../domain/agents";
 import { Logger } from "../utils/logger";
