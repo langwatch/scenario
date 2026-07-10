@@ -73,10 +73,15 @@ async def drive_call(adapter: VoiceAgentAdapter, agent_input: Optional[Any] = No
     This is the generic tier-1 entry for wrapper-level adapter tests: nothing
     between the test and the adapter's outermost production entry point is
     stubbed, so a fix (or a regression) that only manifests on the real
-    `call()` flow — send_audio framing, drain loop, transcript attachment,
-    recorder bookkeeping — cannot hide behind a test seam. (The bug class that
-    hid PR #697's P0: tests drove internals by name while production crashed
-    in the wrapper that wires them together.)
+    `call()` flow — send_audio framing, drain loop, transcript attachment —
+    cannot hide behind a test seam. (The bug class that hid PR #697's P0:
+    tests drove internals by name while production crashed in the wrapper
+    that wires them together.)
+
+    NOT covered: segment recording. `make_agent_input` carries no
+    `scenario_state`, so `_AdapterRecorder` degrades to a no-op (see
+    `adapter.py`). Pass an input that carries a real `scenario_state` if the
+    recorder timeline is what you mean to exercise.
 
     Vendor transports should be faked at the NETWORK CLIENT boundary (e.g.
     monkeypatched `websockets.connect` / `genai.Client`), never by assigning

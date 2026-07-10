@@ -51,10 +51,14 @@ export function makeAgentInput(userAudio?: AudioChunk): AgentInput {
  * This is the generic tier-1 entry for wrapper-level adapter tests: nothing
  * between the test and the adapter's outermost production entry point is
  * stubbed, so a fix (or a regression) that only manifests on the real `call()`
- * flow — sendAudio framing, drain loop, transcript attachment, recorder
- * bookkeeping — cannot hide behind a test seam. (The bug class that hid PR
- * #697's P0: tests drove internals by name while production crashed in the
- * wrapper that wires them together.)
+ * flow — sendAudio framing, drain loop, transcript attachment — cannot hide
+ * behind a test seam. (The bug class that hid PR #697's P0: tests drove
+ * internals by name while production crashed in the wrapper that wires them
+ * together.)
+ *
+ * NOT covered: segment recording. {@link makeAgentInput} carries an empty
+ * `scenarioState`, so the recorder degrades to a no-op. Pass an input carrying
+ * a real `scenarioState` if the recorder timeline is what you mean to exercise.
  */
 export async function driveCall(
   adapter: VoiceAgentAdapter,
