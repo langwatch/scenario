@@ -59,6 +59,8 @@ import {
   type OpenAIRealtimeAgentAdapterInit,
   createAudioMessage,
   silentChunk,
+  startVoiceAdapters,
+  type VoiceExecutorState,
 } from "../../index";
 import { voiceSpan } from "../../telemetry";
 
@@ -400,6 +402,12 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
     expect(turn).toBeDefined();
     expect(turn.attributes["voice.adapter.class"]).toBe("OpenAIRealtimeAgentAdapter");
     expect(turn.attributes["voice.turn.index"]).toBe(2);
+    // _autonomousUserTurn's own voiceSpan("voice.audio.send", ...) wrap around
+    // the heard-audio send (new in #773, previously uncovered here): the R4
+    // input's agentAudioMsg carries a real 2400-byte silentChunk(0.05), so
+    // _extractHeardAudio returns truthy and this span actually emits.
+    expect(spans["voice.audio.send"]).toBeDefined();
+    expect(spans["voice.audio.send"].parentSpanId).toBe(turn.spanContext().spanId);
     const recv = spans["voice.audio.receive"];
     expect(recv).toBeDefined();
     expect(recv.parentSpanId).toBe(turn.spanContext().spanId);
@@ -420,18 +428,27 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
       tools: [{ type: "function", name: "noop" }],
     });
 
-    // Exactly what the executor connect loop does: open voice.adapter.connect,
-    // then call connect() inside it so the adapter's own attribute-stamping
-    // (currentSpan()) resolves to this span.
-    await voiceSpan("voice.adapter.connect", {}, async () => {
-      await adapter.connect();
-    });
+    // Drives the REAL executor connect loop (startVoiceAdapters) rather than a
+    // hand-rolled voiceSpan wrap, so this proves the actual connect-loop
+    // wiring — not just this adapter's own attribute-stamping in isolation.
+    // `state` is never dereferenced for this adapter: startVoiceAdapters only
+    // reads it inside attachVadFallback, which never runs here because
+    // capabilities.nativeVad === true — so a minimal stub satisfies the
+    // VoiceExecutorState contract without faking a real executor.
+    const state: VoiceExecutorState = {
+      voiceRecording: null,
+      voiceTimeline: null,
+      voiceLatency: null,
+      voiceRecordingStartedAt: null,
+    };
+    await startVoiceAdapters([adapter], state);
     await handle.socketReady;
     await waitFor(() => handle.events.some((e) => e.type === "session.update"));
 
     const connect = byName(exporter.getFinishedSpans())["voice.adapter.connect"];
     expect(connect).toBeDefined();
     expect(connect.attributes["voice.realtime.model"]).toBe("gpt-realtime-mini");
+    expect(connect.attributes["voice.realtime.voice"]).toBe("alloy");
     expect(connect.attributes["voice.realtime.session_type"]).toBe("realtime");
     expect(connect.attributes["voice.realtime.tool_count"]).toBe(1);
 
@@ -467,6 +484,87 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
     const spans = byName(exporter.getFinishedSpans());
     expect(spans["voice.audio.receive"]).toBeUndefined();
     expect(spans["voice.turn"]).toBeUndefined();
+
+    await adapter.disconnect();
+  });
+
+  // Security (defense-in-depth deny-list, #773) -------------------------------
+  it("does not stamp sensitive data (api key, persona, transcripts, tool arguments) onto any span", async () => {
+    // Telemetry exports to LangWatch and this taxonomy is copied by 4 more
+    // adapter PRs, so a leak in this shared pattern would ship broadly. Drives
+    // a real connect span (key-shaped apiKey + a persona + tools configured)
+    // plus a full AGENT turn (which populates a transcript), then scans every
+    // finished span for the deny-listed key terms and the literal secret
+    // substrings — as an attribute KEY, an attribute VALUE, or an event name.
+    const apiKey = "sk-REALKEYSHAPE1234567890";
+    const persona = "SECRET_PERSONA_DO_NOT_LEAK";
+    const handle = newHandle();
+    const adapter = buildAdapter(handle.port, {
+      apiKey,
+      role: AgentRole.AGENT,
+      instructions: persona,
+      tools: [{ type: "function", name: "noop" }],
+    });
+    adapter.responseTailSilence = 0.05;
+
+    await voiceSpan("voice.adapter.connect", {}, async () => {
+      await adapter.connect();
+    });
+    await handle.socketReady;
+    await waitFor(() => handle.events.some((e) => e.type === "session.update"));
+
+    const input = {
+      newMessages: [createAudioMessage(silentChunk(0.05), "user")],
+    } as unknown as AgentInput;
+    const callPromise = adapter.call(input);
+    handle.push({ type: "response.created" });
+    handle.push({ type: "response.output_audio.delta", delta: pcmDeltaB64() });
+    handle.push({ type: "response.output_audio_transcript.done", transcript: "hi" });
+    handle.push({ type: "response.done" });
+    await callPromise;
+
+    const denyListedKeyTerms = [
+      "api_key",
+      "apikey",
+      "authorization",
+      "instruction",
+      "persona",
+      "transcript",
+      "arguments",
+      "secret",
+      "bearer",
+    ];
+
+    for (const span of exporter.getFinishedSpans()) {
+      for (const [key, value] of Object.entries(span.attributes)) {
+        const loweredKey = key.toLowerCase();
+        const hitTerm = denyListedKeyTerms.find((term) => loweredKey.includes(term));
+        expect(
+          hitTerm,
+          `span '${span.name}' stamped a deny-listed attribute key: '${key}'`,
+        ).toBeUndefined();
+        if (typeof value === "string") {
+          expect(
+            value.includes(apiKey),
+            `span '${span.name}' attribute '${key}' leaked the api key: '${value}'`,
+          ).toBe(false);
+          expect(
+            value.includes(persona),
+            `span '${span.name}' attribute '${key}' leaked the persona: '${value}'`,
+          ).toBe(false);
+        }
+      }
+      for (const name of eventNames(span)) {
+        expect(
+          name.includes(apiKey),
+          `span '${span.name}' event name leaked the api key: '${name}'`,
+        ).toBe(false);
+        expect(
+          name.includes(persona),
+          `span '${span.name}' event name leaked the persona: '${name}'`,
+        ).toBe(false);
+      }
+    }
 
     await adapter.disconnect();
   });

@@ -47,6 +47,7 @@ from opentelemetry.util._once import Once
 
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.voice import AudioChunk
+from scenario.voice._telemetry import voice_span
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
 from scenario.voice.messages import create_audio_message
 
@@ -357,3 +358,71 @@ async def test_rconnect_stamps_realtime_vendor_attrs_on_connect_span():
     assert attrs(connect)["voice.realtime.voice"] == "alloy"
     assert attrs(connect)["voice.realtime.session_type"] == "realtime"
     assert int_attr(connect, "voice.realtime.tool_count") == 1
+
+
+# --- Security (defense-in-depth deny-list) -----------------------------------
+
+
+_SENSITIVE_ATTR_KEY_TERMS = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "instruction",
+    "persona",
+    "transcript",
+    "arguments",
+    "secret",
+    "bearer",
+)
+
+
+@pytest.mark.asyncio
+async def test_no_sensitive_data_stamped_on_realtime_spans():
+    """Security (defense-in-depth, #773): span instrumentation must NEVER
+    stamp the API key, persona/instructions, transcripts, or tool-call
+    arguments onto a span — as an attribute KEY, an attribute VALUE, or an
+    event name. This telemetry exports to LangWatch and the taxonomy here is
+    copied by 4 more adapter PRs, so a leak in this shared pattern would ship
+    broadly. Drives a real connect span (key-shaped api_key + a persona +
+    tools configured) plus a full AGENT turn (which populates a transcript),
+    then scans every finished span for the deny-listed key terms and the
+    literal secret substrings."""
+    exporter = _install_in_memory_provider()
+    api_key = "sk-REALKEYSHAPE1234567890"
+    persona = "SECRET_PERSONA_DO_NOT_LEAK"
+    adapter = OpenAIRealtimeAgentAdapter(
+        instructions=persona,
+        api_key=api_key,
+        tools=[{"type": "function", "name": "noop"}],
+    )
+
+    with patch("websockets.connect", new=AsyncMock(return_value=_MockWS([]))):
+        with voice_span("voice.adapter.connect", {}):
+            await adapter.connect()
+
+    adapter._ws = _MockWS(_audio_delta_events())
+    await adapter.call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
+
+    for span in exporter.get_finished_spans():
+        for key, value in attrs(span).items():
+            lowered_key = key.lower()
+            assert not any(
+                term in lowered_key for term in _SENSITIVE_ATTR_KEY_TERMS
+            ), f"span {span.name!r} stamped a deny-listed attribute key: {key!r}"
+            if isinstance(value, str):
+                assert api_key not in value, (
+                    f"span {span.name!r} attribute {key!r} leaked the api key: "
+                    f"{value!r}"
+                )
+                assert persona not in value, (
+                    f"span {span.name!r} attribute {key!r} leaked the persona: "
+                    f"{value!r}"
+                )
+        event_names = [e.name for e in span.events]
+        for event_name in event_names:
+            assert api_key not in event_name, (
+                f"span {span.name!r} event name leaked the api key: {event_name!r}"
+            )
+            assert persona not in event_name, (
+                f"span {span.name!r} event name leaked the persona: {event_name!r}"
+            )
