@@ -8,7 +8,6 @@ pump emits NO per-tick span.
 """
 
 import asyncio
-import json
 
 import pytest
 from opentelemetry import trace
