@@ -17,9 +17,17 @@ adds the generic ``drive_call`` / ``make_agent_input`` entry points that
 generalise the same tier-1 idea to the non-Twilio adapters.
 
 Vendor transports should be faked at the NETWORK CLIENT boundary (monkeypatched
-``websockets.connect`` / ``genai.Client``), never by assigning adapter privates
-like ``_ws`` or ``_session`` — that private-poke seam is exactly what this
-harness exists to avoid.
+``websockets.connect`` / ``genai.Client``), never by **substituting a stub
+transport** for adapter privates like ``_ws`` or ``_session`` — injecting a
+fake transport under the wrapper is the seam that let #697's P0 hide, and is
+exactly what this harness exists to avoid.
+
+That ban is on transport *substitution*, not on field assignment as such.
+``make_connected_twilio_adapter`` does assign several privates, but it builds
+the **real** collaborators into them (a real ``TwilioWebhookServer``, real
+queues/events) because the real ``connect()`` would need live Twilio REST
+credentials to resolve the phone-number SID. The media-stream path it then
+drives is production code end to end. See that function's docstring.
 
 Not imported by default from ``scenario.voice``. Users opt-in via
 ``from scenario.voice.testing import drive_call, make_agent_input``.
@@ -32,6 +40,7 @@ import socket
 from contextlib import asynccontextmanager, suppress
 from typing import Any, AsyncIterator, List, Optional, cast
 
+from ...types import AgentInput
 from ..adapter import VoiceAgentAdapter
 from ..adapters import TwilioAgentAdapter
 from ..adapters._twilio_server import TwilioWebhookServer
@@ -42,32 +51,43 @@ from ..messages import create_audio_message
 # ------------------------------------------------------- generic wrapper drive
 
 
-class WrapperCallInput:
+class _WrapperCallInput:
     """Minimal duck-typed AgentInput for direct production-wrapper `call()` tests.
 
     Mirrors the established `_FakeInput` seam (tests/voice/test_realtime_tool_calls.py):
     carries no scenario_state, so `_AdapterRecorder` degrades to a no-op; when
     `new_messages` is empty, `call()` sends no user audio and goes straight to
     draining the agent response.
+
+    Private: callers construct it through `make_agent_input`, which hands back an
+    `AgentInput`-typed value so the public surface carries a real contract rather
+    than leaking `Any`.
     """
 
     def __init__(self, new_messages: Optional[List[Any]] = None) -> None:
         self.new_messages: List[Any] = list(new_messages or [])
 
 
-def make_agent_input(user_audio: Optional[AudioChunk] = None) -> WrapperCallInput:
+def make_agent_input(user_audio: Optional[AudioChunk] = None) -> AgentInput:
     """Build the minimal input `drive_call` feeds the real `call()`.
 
     With `user_audio`, the input carries one user audio message so the real
     `send_audio` edge runs; without it, `call()` is an agent-initiated turn
     that goes straight to the drain.
+
+    The returned object is duck-typed, not a real `AgentInput` — `call()` only
+    reads `new_messages` and `getattr(input, "scenario_state", None)`. The cast
+    is the single contained white lie, so callers still get a typed contract.
     """
-    if user_audio is None:
-        return WrapperCallInput()
-    return WrapperCallInput([create_audio_message(user_audio, role="user")])
+    messages: List[Any] = (
+        [create_audio_message(user_audio, role="user")] if user_audio is not None else []
+    )
+    return cast(AgentInput, _WrapperCallInput(messages))
 
 
-async def drive_call(adapter: VoiceAgentAdapter, agent_input: Optional[Any] = None) -> Any:
+async def drive_call(
+    adapter: VoiceAgentAdapter, agent_input: Optional[AgentInput] = None
+) -> Any:
     """Drive one agent turn through the REAL production wrapper — `adapter.call()`.
 
     This is the generic tier-1 entry for wrapper-level adapter tests: nothing
@@ -84,10 +104,15 @@ async def drive_call(adapter: VoiceAgentAdapter, agent_input: Optional[Any] = No
     recorder timeline is what you mean to exercise.
 
     Vendor transports should be faked at the NETWORK CLIENT boundary (e.g.
-    monkeypatched `websockets.connect` / `genai.Client`), never by assigning
-    adapter privates like `_ws` or `_session`.
+    monkeypatched `websockets.connect` / `genai.Client`), never by substituting
+    a stub transport for adapter privates like `_ws` or `_session`.
+
+    Returns `Any`, not `AgentReturnTypes`: the real return is that TypedDict
+    union, but callers here inspect the assistant message directly
+    (`result["content"]`), which the union forbids. The INPUT contract is the
+    one that prevents caller mistakes, and it is typed.
     """
-    return await adapter.call(cast(Any, agent_input if agent_input is not None else make_agent_input()))
+    return await adapter.call(agent_input if agent_input is not None else make_agent_input())
 
 
 # ------------------------------------------------------- Twilio real-route harness
@@ -103,10 +128,15 @@ def make_connected_twilio_adapter(http_port: int = 0) -> TwilioAgentAdapter:
     server, its FastAPI app, and its ``/twilio/stream`` route. Only ``_rest`` is
     a stand-in, and only ``_assert_connected``'s ``is not None`` check reads it.
     """
+    # All credential-shaped values are deliberately non-credentials: this module
+    # ships inside the published package, so a literal like `auth_token="secret"`
+    # would read as a real leak to a downstream secret scanner grepping
+    # site-packages. The phone number is inside NANPA's reserved fiction block
+    # (555-0100..555-0199) so it can never route to a real subscriber.
     adapter = TwilioAgentAdapter(
         account_sid="AC" + "0" * 32,
-        auth_token="secret",
-        phone_number="+14155556959",
+        auth_token="not-a-real-token",
+        phone_number="+14155550195",
         public_base_url="https://example695.trycloudflare.com",
         http_port=http_port,
     )
