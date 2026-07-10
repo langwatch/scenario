@@ -608,15 +608,31 @@ async def test_wrapper_real_connect_call_disconnect_smoke(monkeypatch):
     assert isinstance(config, types.LiveConnectConfig), (
         f"connect() did not build a real LiveConnectConfig; got {type(config)!r}"
     )
-    assert (
-        config.realtime_input_config.automatic_activity_detection.disabled is True
-    ), "automatic activity detection must be disabled (manual turn framing)"
+    # Narrow each optional link explicitly: the SDK types every level of these
+    # chains as Optional, and a bare `a.b.c.d` both trips pyright and reports a
+    # chained AttributeError instead of naming the level connect() failed to set.
+    realtime_input = config.realtime_input_config
+    assert realtime_input is not None, "connect() did not set realtime_input_config"
+    activity_detection = realtime_input.automatic_activity_detection
+    assert activity_detection is not None, (
+        "connect() did not set automatic_activity_detection"
+    )
+    assert activity_detection.disabled is True, (
+        "automatic activity detection must be disabled (manual turn framing)"
+    )
+
     assert config.output_audio_transcription is not None, "output transcription not enabled"
     assert config.input_audio_transcription is not None, "input transcription not enabled"
-    assert (
-        config.speech_config.voice_config.prebuilt_voice_config.voice_name
-        == adapter.voice
-    ), "configured voice != adapter.voice"
+
+    speech_config = config.speech_config
+    assert speech_config is not None, "connect() did not set speech_config"
+    voice_config = speech_config.voice_config
+    assert voice_config is not None, "connect() did not set speech_config.voice_config"
+    prebuilt_voice = voice_config.prebuilt_voice_config
+    assert prebuilt_voice is not None, "connect() did not set prebuilt_voice_config"
+    assert prebuilt_voice.voice_name == adapter.voice, (
+        f"configured voice != adapter.voice; got {prebuilt_voice.voice_name!r}"
+    )
     assert config.system_instruction == "You are an interviewer.", (
         f"system_instruction not carried through; got {config.system_instruction!r}"
     )
