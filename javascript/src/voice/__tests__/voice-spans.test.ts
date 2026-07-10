@@ -11,8 +11,8 @@
  * labels a first-chunk error `first_chunk_timeout` best-effort. The A4-negative
  * (non-timeout first error NOT labelled) is Python-only.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -20,7 +20,7 @@ import {
   type ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Register a context manager ONCE so context.with propagates across awaits — our
 // runtime reads currentSpan() after `await drainAgentResponse`. Without it,
@@ -29,11 +29,11 @@ const _ctxManager = new AsyncLocalStorageContextManager();
 _ctxManager.enable();
 context.setGlobalContextManager(_ctxManager);
 
-import { VoiceAgentAdapter } from "../adapter";
-import { AdapterCapabilities } from "../capabilities";
-import { AudioChunk, silentChunk } from "../audio-chunk";
-import { createAudioMessage } from "../messages";
 import { AgentRole, type AgentInput } from "../../domain/agents";
+import { VoiceAgentAdapter } from "../adapter";
+import { AudioChunk, silentChunk } from "../audio-chunk";
+import { AdapterCapabilities } from "../capabilities";
+import { createAudioMessage } from "../messages";
 
 const SR = 24000; // PCM16 mono 24kHz
 
