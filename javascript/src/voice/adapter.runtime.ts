@@ -21,6 +21,7 @@
  *   exception.
  */
 
+import { context } from "@opentelemetry/api";
 import type { Span } from "@opentelemetry/api";
 import type { VoiceAgentAdapter } from "./adapter";
 import { PendingTransportError } from "./adapters/pending-transport-error";
@@ -334,7 +335,19 @@ export async function defaultVoiceCall(
       "voice.adapter.class": adapter.constructor.name,
       "voice.turn.index": turnIndex,
     },
-    (span) => runVoiceTurn(adapter, input, span),
+    async (span) => {
+      // Publish the live turn context so background-receive-loop adapters
+      // (Pipecat/Twilio) can parent their detached-callback recv spans under
+      // THIS turn (#774). context.active() here is the voice.turn span (voiceSpan
+      // ran us inside its context.with). Cleared in finally so a callback firing
+      // between turns finds `undefined` and skips its span.
+      adapter._voiceTurnContext = context.active();
+      try {
+        return await runVoiceTurn(adapter, input, span);
+      } finally {
+        adapter._voiceTurnContext = undefined;
+      }
+    },
   );
 }
 

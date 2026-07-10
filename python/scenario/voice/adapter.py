@@ -16,11 +16,15 @@ each adapter needing its own bookkeeping.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import time
 from abc import abstractmethod
-from typing import Any, Callable, ClassVar, List, Optional
+from typing import Any, Callable, ClassVar, Iterator, List, Optional
+
+from opentelemetry import context as otel_context
+from opentelemetry.context import Context
 
 logger = logging.getLogger("scenario.voice")
 
@@ -113,6 +117,13 @@ class VoiceAgentAdapter(AgentAdapter):
     # Hard cap on a single agent turn's audio. Prevents runaway loops if a
     # transport never signals end-of-stream. 30s = a long sentence.
     response_max_duration: float = 30.0
+
+    # Live OTel context of the CURRENT ``voice.turn``, published by ``call()``
+    # for background-receive-loop adapters (Pipecat/Twilio) to parent their
+    # detached-task recv spans under the turn (#774). ``None`` between turns.
+    # Class-level default so it exists even for a subclass that skips
+    # ``super().__init__()`` (mirrors the ``_agent_speaking`` safety-net).
+    _voice_turn_context: Optional[Context] = None
 
     def __init__(self) -> None:
         # Per-instance event used by the interruption path to wait until
@@ -215,6 +226,24 @@ class VoiceAgentAdapter(AgentAdapter):
             ),
         )
 
+    @contextlib.contextmanager
+    def _voice_turn_context_scope(self) -> Iterator[None]:
+        """Publish the live ``voice.turn`` OTel context for background-loop adapters.
+
+        Pipecat/Twilio run their real receive in a background task/callback whose
+        OTel context was frozen at ``connect()`` (a now-closed span). They read
+        :attr:`_voice_turn_context` to parent those detached recv spans under the
+        CURRENT ``voice.turn`` (#774 — the reusable pattern Twilio PR5 inherits).
+        Entered INSIDE the ``voice.turn`` span so ``get_current()`` captures it;
+        cleared on exit so a late background frame BETWEEN turns finds ``None`` and
+        skips its span rather than parenting under a closed turn.
+        """
+        self._voice_turn_context = otel_context.get_current()
+        try:
+            yield
+        finally:
+            self._voice_turn_context = None
+
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         """
         Default implementation: extract audio from the latest user message,
@@ -263,7 +292,7 @@ class VoiceAgentAdapter(AgentAdapter):
                 "voice.adapter.class": type(self).__name__,
                 "voice.turn.index": turn_index,
             },
-        ) as _turn_span:
+        ) as _turn_span, self._voice_turn_context_scope():
             _turn_started = time.monotonic()
             # Clear the speaking-event for this turn — set in _drain on first chunk.
             self._agent_speaking_event.clear()
