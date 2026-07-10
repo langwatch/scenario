@@ -43,7 +43,8 @@
  * completion with NO parts at all is treated as a genuine empty response and
  * rejected.
  *
- * Hardening (the same defenses the in-flight Claude Code adapter (PR #687) adopts):
+ * Hardening (a–c mirror the in-flight Claude Code adapter, PR #687; d–e are
+ * specific to this adapter's SDK/server model):
  *  a. Structured non-text parts are rendered readably, never `[object Object]`.
  *  b. An optional `timeout` cancels the in-flight prompt via `AbortSignal`.
  *  c. All diagnostics route through an injectable {@link OpenCodeLogger}; absent
@@ -51,10 +52,9 @@
  *  d. The OpencodeClient is an injection seam (`config.client`): provide your own
  *     for tests (no real server, no spawn), or omit it to let the adapter lazily
  *     spawn and own an OpenCode server (closed by {@link OpenCodeAgentAdapter.close}).
- *  e. `close()` is terminal: a `call(...)` issued after `close()` rejects with a
- *     clear closed-adapter error instead of racing a torn-down server (with an
- *     owned server the memoized handle would otherwise surface as a confusing
- *     transport failure).
+ *  e. `close()` is terminal and idempotent: a `call(...)` issued after `close()`
+ *     rejects with a clear closed-adapter error — full contract on
+ *     {@link OpenCodeAgentAdapter.close}.
  */
 
 import { createOpencode } from "@opencode-ai/sdk";
@@ -190,10 +190,9 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   private serverPromise: Promise<OwnedServer> | null = null;
 
   /**
-   * Set the moment {@link close} is invoked — `close()` is terminal. A closed
-   * adapter must reject further `call`s loudly: with an owned server the
-   * memoized `serverPromise` now points at a torn-down server, so a post-close
-   * call would otherwise fail as a confusing transport error (or hang).
+   * Set once {@link close} runs — the adapter is terminal after close(). The
+   * full close contract (why post-close calls reject on BOTH ownership paths)
+   * lives on {@link close}; other sites point there.
    */
   private closed = false;
 
@@ -326,13 +325,12 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
    * @returns The concatenated assistant-visible text as a string.
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
-    // close() is terminal — reject immediately with the real cause rather than
-    // letting the call race a torn-down (or injector-owned but relinquished)
-    // server and surface as an opaque transport error.
+    // close() is terminal (full contract on close()) — reject post-close calls
+    // immediately with the real cause instead of an opaque downstream failure.
     if (this.closed) {
       throw new Error(
-        "OpenCodeAgentAdapter is closed — close() tears down the adapter (and " +
-          "any owned server). Create a new adapter instance for further calls.",
+        "OpenCodeAgentAdapter is closed — no calls are accepted after close(). " +
+          "Create a new adapter instance for further calls.",
       );
     }
 
@@ -441,19 +439,28 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
   }
 
   /**
-   * Tear down any server this adapter spawned. When a `client` was injected the
-   * adapter owns no server and nothing is shut down (the injector owns its
-   * server). Call this in a scenario's teardown (e.g. `afterAll`) to release
-   * the auto-spawned OpenCode server.
+   * Tear down any server this adapter spawned, and mark the adapter closed.
+   * Call it in a scenario's teardown (e.g. `afterAll`).
    *
-   * Terminal: the adapter is marked closed synchronously on entry, so any
-   * `call(...)` issued after `close()` starts rejects with a clear
-   * closed-adapter error. Calls already in flight when `close()` runs are the
-   * caller's teardown contract to sequence (await the scenario before closing —
-   * the same ownership stance ADR-005 §10 records); if one does overlap, it
-   * fails loudly at the transport layer rather than corrupting state.
+   * The full close contract — stated once, here; other sites point at this:
+   *  - Owned server (no `client` injected): awaits the memoized spawn and
+   *    closes the server. A post-close call would hit the torn-down server and
+   *    surface as an opaque transport error, so it rejects with a clear
+   *    closed-adapter error instead.
+   *  - Injected `client`: nothing is shut down (the injector owns its server),
+   *    but the adapter is still terminal — post-close calls reject by
+   *    contract, not because anything broke. Create a new adapter instance to
+   *    keep calling.
+   *  - Idempotent: repeat `close()` calls return immediately; the owned server
+   *    is closed at most once.
+   *  - In-flight calls are not cancelled: sequencing teardown (await the run,
+   *    then close) is the caller's contract — ADR-005 §10. An overlapping call
+   *    fails loudly at the transport layer rather than corrupting state.
    */
   async close(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
     if (!this.serverPromise) {
       return;

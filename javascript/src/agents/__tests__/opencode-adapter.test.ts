@@ -590,7 +590,12 @@ describe("OpenCodeAgentAdapter concurrency + config validation", () => {
     // rejection is ever unobserved.
     const e1 = expect(p1).rejects.toThrow(/session\.create failed/);
     const e2 = expect(p2).rejects.toThrow(/session\.create failed/);
-    await Promise.resolve(); // let both calls reach resolveSessionId and share the in-flight create
+    // Wait for a macrotask boundary (vi.waitFor polls on timers), which drains
+    // BOTH calls' microtask chains regardless of call()'s internal await depth:
+    // p1 is parked inside the gated create, p2 is attached to the same stored
+    // promise. Decoupled from await topology — inserting an await inside
+    // call()/resolveSessionId cannot break this synchronization.
+    await vi.waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
     releaseCreate();
     await Promise.all([e1, e2]);
     // Both concurrent callers shared ONE create attempt.
@@ -668,6 +673,43 @@ describe("OpenCodeAgentAdapter close()", () => {
     await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/closed/i);
     expect(createSpy).not.toHaveBeenCalled();
     expect(promptSpy).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent — a second close() resolves and the adapter stays closed", async () => {
+    // Double-close is ordinary teardown code (a finally plus an afterAll both
+    // closing). The guard makes repeat close() a no-op instead of re-driving
+    // teardown against an already-closed server.
+    const { client, createSpy } = makeFakeClient();
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    await adapter.close();
+
+    await expect(adapter.close()).resolves.toBeUndefined();
+    await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/closed/i);
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets a call() already past the closed-guard complete normally when close() runs mid-flight", async () => {
+    // The guard is entry-only BY DESIGN (ADR-005 §10): teardown sequencing is
+    // the caller's contract. This pins the injected-client sub-case: an
+    // in-flight call is not corrupted or cancelled by a concurrent close() —
+    // it completes; only the NEXT call is rejected.
+    let releasePrompt!: () => void;
+    const gate = new Promise<void>((r) => { releasePrompt = r; });
+    const { client, promptSpy } = makeFakeClient({
+      promptResult: () =>
+        gate.then(() => promptOk([{ type: "text", text: "mid-flight ok" }])),
+    });
+    const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+
+    const inFlight = adapter.call(SIMPLE_INPUT);
+    // Macrotask-boundary wait: the call is past the guard and parked inside
+    // the gated prompt before close() runs.
+    await vi.waitFor(() => expect(promptSpy).toHaveBeenCalledTimes(1));
+    await adapter.close();
+    releasePrompt();
+
+    await expect(inFlight).resolves.toContain("mid-flight ok");
+    await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/closed/i);
   });
 });
 
