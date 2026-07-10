@@ -310,7 +310,26 @@ class VoiceAgentAdapter(AgentAdapter):
         if not merged.data or merged.transcript:
             return merged
         try:
-            text = await transcribe(merged)
+            # ``voice.stt.transcribe`` — one span per per-turn STT provider call,
+            # nesting under this turn's ``voice.turn`` span (#776). Python runs
+            # STT per-turn (here); the TS mirror is a per-RUN back-fill batch
+            # (``voice.stt.backfill`` → ``voice.stt.transcribe``), so the same
+            # span name carries the same attributes at a language-appropriate
+            # position, disambiguated by ``voice.stt.scope``. A provider failure
+            # marks the span ERROR and propagates to the ``except`` below, which
+            # keeps the run alive (best-effort STT — behaviour unchanged).
+            with voice_span(
+                "voice.stt.transcribe",
+                {
+                    "voice.adapter.class": type(self).__name__,
+                    "voice.stt.scope": "turn",
+                    "voice.stt.speaker": "agent",
+                    "voice.stt.audio_bytes": len(merged.data),
+                },
+            ) as _stt_span:
+                text = await transcribe(merged)
+                if text:
+                    _stt_span.set_attribute("voice.stt.transcript_chars", len(text))
         except Exception:
             logger.warning(
                 "voice: agent-turn STT failed; the user simulator will see "

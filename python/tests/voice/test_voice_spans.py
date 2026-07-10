@@ -25,6 +25,7 @@ from opentelemetry.util._once import Once
 
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
 from scenario.voice.messages import create_audio_message
+from scenario.voice.stt import STTProvider, get_stt_provider, set_stt_provider
 
 from ._span_assert import attrs, ctx_id, int_attr, parent_id
 
@@ -276,3 +277,80 @@ async def test_a7_export_failure_never_breaks_the_turn(caplog):
         and "failed to export" in r.getMessage()
     ]
     assert warnings, "expected a scenario.voice WARNING for the swallowed span-end"
+
+
+# --- STT (#776) ---------------------------------------------------------------
+# Python transcribes per-turn inside call() (_ensure_transcript), so the
+# voice.stt.transcribe span nests under voice.turn. TS is per-run (a separate
+# test file) — see the #776 decision on the position asymmetry.
+
+_NO_TX_CHUNK = AudioChunk(data=b"\x00\x00" * 1200)  # 2400 bytes, NO transcript
+
+
+class _FakeSTT(STTProvider):
+    """In-process STT stub: returns a fixed text, or raises ``boom`` if set."""
+
+    def __init__(self, text: str = "transcribed", boom: BaseException | None = None):
+        self.text = text
+        self.boom = boom
+        self.calls = 0
+
+    async def transcribe(self, audio: AudioChunk) -> str:
+        self.calls += 1
+        if self.boom is not None:
+            raise self.boom
+        return self.text
+
+
+@pytest.fixture
+def restore_stt():
+    """Restore the global STT provider after a test swaps it."""
+    original = get_stt_provider()
+    yield
+    set_stt_provider(original)
+
+
+@pytest.mark.asyncio
+async def test_776_stt_span_nested_under_turn(restore_stt):
+    """#776: a transcript-less agent turn emits voice.stt.transcribe under voice.turn (scope=turn)."""
+    exporter = _install_in_memory_provider()
+    set_stt_provider(_FakeSTT(text="hello there"))
+    await _ScriptedAdapter([_NO_TX_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
+    spans = _by_name(exporter.get_finished_spans())
+    assert "voice.stt.transcribe" in spans, list(spans)
+    stt = spans["voice.stt.transcribe"]
+    a = attrs(stt)
+    assert a["voice.stt.scope"] == "turn"
+    assert a["voice.stt.speaker"] == "agent"
+    assert a["voice.stt.audio_bytes"] == 2400
+    assert a["voice.stt.transcript_chars"] == len("hello there")
+    assert a["voice.adapter.class"] == "_ScriptedAdapter"
+    assert a["langwatch.span.type"] == "span"
+    # nests under the turn span (Python's per-turn position)
+    assert parent_id(stt) == ctx_id(spans["voice.turn"])
+
+
+@pytest.mark.asyncio
+async def test_776_stt_no_span_when_transcript_already_present(restore_stt):
+    """#776: a chunk that already carries a transcript emits NO span + makes NO provider call."""
+    exporter = _install_in_memory_provider()
+    fake = _FakeSTT()
+    set_stt_provider(fake)
+    # _CHUNK carries transcript="hi back" → _ensure_transcript short-circuits.
+    await _ScriptedAdapter([_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
+    names = [s.name for s in exporter.get_finished_spans()]
+    assert "voice.stt.transcribe" not in names
+    assert fake.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_776_stt_failure_marks_error_but_turn_completes(restore_stt):
+    """#776: an STT provider failure marks the span ERROR yet the turn still completes (best-effort)."""
+    exporter = _install_in_memory_provider()
+    set_stt_provider(_FakeSTT(boom=RuntimeError("stt down")))
+    result = await _ScriptedAdapter([_NO_TX_CHUNK, "timeout"]).call(_audio_input())  # type: ignore[arg-type]  # duck-typed input stand-in for AgentInput
+    assert isinstance(result, dict) and result["role"] == "assistant"  # turn completed
+    stt = _by_name(exporter.get_finished_spans())["voice.stt.transcribe"]
+    assert stt.status.status_code == StatusCode.ERROR
+    # no transcript_chars is recorded on the failure path
+    assert "voice.stt.transcript_chars" not in attrs(stt)

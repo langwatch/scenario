@@ -86,6 +86,7 @@ import {
   deriveInterruptResponseTime,
   markTruncatedAgentSegments,
 } from "../voice/segment-utils";
+import { voiceSpan } from "../voice/telemetry";
 import { sleep } from "../voice/utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
 
@@ -772,19 +773,50 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         (s.transcriptTruncated || !s.transcript || s.transcript.trim() === ""),
     );
     if (targets.length === 0) return;
-    await Promise.all(
-      targets.map(async (seg) => {
-        try {
-          const chunk = new AudioChunk({ data: seg.audio });
-          const text = (await stt.transcribe(chunk)).trim();
-          if (text) seg.transcript = text;
-        } catch (err) {
-          this.logger.warn(
-            `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
-              `manifest transcript left unset (${(err as Error).message})`,
-          );
-        }
-      }),
+    // voice.stt.backfill — a per-RUN batch span parenting one
+    // voice.stt.transcribe child per segment (#776). TS transcribes per-run in
+    // this finally (no per-turn STT, unlike Python's _ensure_transcript), and
+    // there is no run-root span here to nest under — so the batch span groups
+    // the otherwise-orphaned per-run spans into one coherent trace and encodes
+    // "per-run, not per-turn" in the trace SHAPE. Python's mirror is per-turn
+    // under voice.turn; the shared voice.stt.transcribe span carries the same
+    // attributes at each language's position, disambiguated by voice.stt.scope.
+    await voiceSpan(
+      "voice.stt.backfill",
+      { "voice.stt.scope": "run", "voice.stt.segment_count": targets.length },
+      async () => {
+        await Promise.all(
+          targets.map(async (seg) => {
+            try {
+              // One span per STT provider call — attribute-parity with Python's
+              // per-turn voice.stt.transcribe. A provider failure marks THIS
+              // span ERROR and re-throws into the catch below, which keeps the
+              // run alive (best-effort STT — behaviour unchanged).
+              await voiceSpan(
+                "voice.stt.transcribe",
+                {
+                  "voice.stt.scope": "run",
+                  "voice.stt.speaker": seg.speaker,
+                  "voice.stt.audio_bytes": seg.audio.length,
+                },
+                async (span) => {
+                  const chunk = new AudioChunk({ data: seg.audio });
+                  const text = (await stt.transcribe(chunk)).trim();
+                  if (text) {
+                    seg.transcript = text;
+                    span.setAttribute("voice.stt.transcript_chars", text.length);
+                  }
+                },
+              );
+            } catch (err) {
+              this.logger.warn(
+                `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
+                  `manifest transcript left unset (${(err as Error).message})`,
+              );
+            }
+          }),
+        );
+      },
     );
   }
 
