@@ -21,8 +21,9 @@
  * drives `mediaStreamLoop` (or the `_driveMediaStream` seam) alone leaves those
  * set, so `receiveAudio`'s `_assertStreamLive` gate never fires — which is why
  * an earlier version of this suite went green on a fix that still threw in
- * production (reviewer P2 blocker on PR #697). These tests use the
- * `_driveStreamSession` seam, which runs the SAME `runStreamSession` wrapper
+ * production (reviewer P2 blocker on PR #697). These tests use the shared
+ * wrapper harness's `driveTwilioProduction` (`__tests__/helpers/drive-production`),
+ * which runs the SAME `runStreamSession` wrapper
  * production uses — loop plus the transport-nulling `finally`. The regression
  * the fix targets is the drain's *second* `receiveAudio` call (the tail-silence
  * probe) landing after that reset: pre-fix it throws "no live media stream";
@@ -32,7 +33,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-import { defaultVoiceCall } from "../../adapter.runtime";
+import { driveCall, driveTwilioProduction } from "../../__tests__/helpers/drive-production";
 import { AudioChunk } from "../../audio-chunk";
 import { extractAudio } from "../../messages";
 import { TwilioAgentAdapter } from "../twilio";
@@ -161,7 +162,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     const adapter = await connectedAdapter();
     // start → stop, no media: the "stop" branch flushes nothing. Driven through
     // the REAL production wrapper, which nulls _streamWs/_streamSid on return.
-    await adapter._driveStreamSession(scriptedSocket([startFrame(), stopFrame()]));
+    await driveTwilioProduction(adapter, scriptedSocket([startFrame(), stopFrame()]));
 
     // Production nulled the transport — the condition that threw pre-fix.
     expect(adapter._streamWsForTest).toBeNull();
@@ -180,7 +181,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
   it("socket close mid-stream: both drain calls return empty after production teardown", async () => {
     const adapter = await connectedAdapter();
     // Only a start frame, then the socket closes (receiveText → null).
-    await adapter._driveStreamSession(scriptedSocket([startFrame()]));
+    await driveTwilioProduction(adapter, scriptedSocket([startFrame()]));
 
     expect(adapter._streamWsForTest).toBeNull();
     expect(adapter._streamSidForTest).toBeUndefined();
@@ -197,7 +198,8 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     // 160 bytes of µ-law (~20ms) — under the 100ms batch threshold, so the
     // "stop" flush is what enqueues it: exactly the trailing-audio path.
     const mulaw = new Uint8Array(160).fill(0x7f);
-    await adapter._driveStreamSession(
+    await driveTwilioProduction(
+      adapter,
       scriptedSocket([startFrame(), buildMediaFrame(STREAM_SID, mulaw), stopFrame()]),
     );
 
@@ -222,7 +224,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     // socket's pending read rejects, the session surfaces the error, and the
     // drain still terminates cleanly instead of hanging or asserting liveness.
     const sock = controllableSocket();
-    const session = adapter._driveStreamSession(sock);
+    const session = driveTwilioProduction(adapter, sock);
     sock.push(startFrame());
     sock.push(new Error("boom: transport failure"));
     await expect(session).rejects.toThrow("boom: transport failure");
@@ -241,7 +243,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     const adapter = await connectedAdapter();
     // Session 1 completes silently: its finally marks the call ended and
     // enqueues the terminal sentinel. Drain it fully.
-    await adapter._driveStreamSession(scriptedSocket([startFrame(), stopFrame()]));
+    await driveTwilioProduction(adapter, scriptedSocket([startFrame(), stopFrame()]));
     const s1 = await adapter.receiveAudio(RECV_TIMEOUT_S);
     expect(s1.data.length).toBe(0);
 
@@ -249,7 +251,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
     // reconnect / back-to-back call) and is mid-call: started, nothing
     // buffered yet.
     const sock = controllableSocket();
-    const session2 = adapter._driveStreamSession(sock);
+    const session2 = driveTwilioProduction(adapter, sock);
     sock.push(startFrame("MZ695b", "CA695b"));
     await vi.waitFor(() => expect(adapter._streamWsForTest).not.toBeNull());
 
@@ -278,7 +280,7 @@ describe("Twilio silent / tool-only stop (#695 dead-recv-loop)", () => {
  * `runStreamSession` by name; these tests drive nothing by name. They start the
  * adapter's REAL http+ws server, connect a REAL `ws` client to the REAL
  * `/twilio/stream` upgrade path — so `_handleStreamSocket` and `adaptWsSocket`
- * run — and let the REAL production consumer (`defaultVoiceCall` →
+ * run — and let the REAL production consumer (`driveCall` → `adapter.call()` →
  * `drainAgentResponse`, what every agent turn runs) read the result.
  *
  * A fix that only works when a test calls the wrapper by name cannot pass here,
@@ -325,11 +327,6 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     });
   }
 
-  /** No incoming audio → `defaultVoiceCall` goes straight to the drain. */
-  function agentTurnInput(): Parameters<typeof defaultVoiceCall>[1] {
-    return { newMessages: [] } as unknown as Parameters<typeof defaultVoiceCall>[1];
-  }
-
   async function routeAdapter(): Promise<TwilioAgentAdapter> {
     const adapter = await connectedAdapter(); // starts the REAL http+ws server
     // Small drain budgets so a hang (the original #695 symptom) fails inside the
@@ -354,8 +351,8 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     const adapter = await routeAdapter();
     const client = await startCall(adapter);
 
-    const call = defaultVoiceCall(adapter, agentTurnInput());
-    // `defaultVoiceCall` reaches its first `receiveAudio` synchronously, so the
+    const call = driveCall(adapter);
+    // The real `call()` reaches its first `receiveAudio` synchronously, so the
     // drain's queue waiter is already parked by the time the call above returns
     // its promise. This sleep is belt-and-braces: it keeps the test honest if a
     // future `await` is ever introduced ahead of the first receive.
@@ -372,7 +369,7 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     const adapter = await routeAdapter();
     const client = await startCall(adapter);
 
-    const call = defaultVoiceCall(adapter, agentTurnInput());
+    const call = driveCall(adapter);
     await sleep(50);
     client.close(); // Twilio drops the media socket, no stop frame
 
@@ -385,7 +382,7 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     const adapter = await routeAdapter();
     const client = await startCall(adapter);
 
-    const call = defaultVoiceCall(adapter, agentTurnInput());
+    const call = driveCall(adapter);
     await sleep(50);
     // 160 bytes µ-law (~20ms) is under the 100ms batch threshold, so the "stop"
     // flush is what enqueues it: exactly the trailing-audio path.
@@ -402,7 +399,7 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     // The tightest form of the P0: the route already nulled the transport when
     // the drain makes its FIRST receiveAudio call — the next agent turn after
     // the caller hung up. Pre-fix this throws "no live media stream" out of
-    // defaultVoiceCall, with the terminal sentinel unread in the queue.
+    // the real call() flow, with the terminal sentinel unread in the queue.
     const adapter = await routeAdapter();
     const client = await startCall(adapter);
 
@@ -410,7 +407,7 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     await awaitTeardown(adapter);
     expect(adapter._streamSidForTest).toBeUndefined();
 
-    const message = await defaultVoiceCall(adapter, agentTurnInput());
+    const message = await driveCall(adapter);
     expect(audioBytes(message)).toBe(0);
     client.close();
   }, 15_000);
@@ -435,7 +432,7 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
 
     // Session 2: a Twilio reconnect / back-to-back call.
     const second = await startCall(adapter);
-    const call = defaultVoiceCall(adapter, agentTurnInput());
+    const call = driveCall(adapter);
     setTimeout(() => {
       // 800 bytes µ-law == the 100ms flush threshold: flushes immediately.
       second.send(buildMediaFrame(STREAM_SID, new Uint8Array(800).fill(0x7f)));
@@ -456,7 +453,7 @@ describe("Twilio real /twilio/stream route (#695 P0, no seam)", () => {
     client.send(stopFrame());
     await awaitTeardown(adapter);
 
-    const message = await defaultVoiceCall(adapter, agentTurnInput());
+    const message = await driveCall(adapter);
     expect(audioBytes(message)).toBeGreaterThan(0); // recovered, not lost
     client.close();
   }, 15_000);
