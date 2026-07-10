@@ -20,9 +20,11 @@ import { Buffer } from "node:buffer";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 
+import type { Context } from "@opentelemetry/api";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
 
 import { AudioChunk } from "../audio-chunk";
+import { voiceReceiveSpanUnder } from "../telemetry";
 
 import type { TwilioAgentAdapter } from "./twilio";
 import { twilioLogger } from "./twilio-logger";
@@ -172,6 +174,13 @@ export class TwilioWebhookServer {
     url: URL,
   ): Promise<void> {
     const adapter = this._adapter;
+    // Webhook visibility counter (#775 disconnect T3): the media-stream WS
+    // loop has no direct span (frozen-ctx + flood hazard), so a
+    // misconfigured/rejected webhook shows up as a `voice.adapter.dial`
+    // stream_connect_timeout with no obvious cause. This counter — stamped
+    // onto `voice.adapter.disconnect` — closes that gap without a
+    // per-request span.
+    adapter._recordWebhookInvocation();
     let body: string;
     try {
       body = await readBody(req, MAX_BODY_BYTES);
@@ -282,18 +291,57 @@ export class TwilioWebhookServer {
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law
 
+    // Tier-3 (#775): the turn-ctx object we last emitted a background-loop
+    // `voice.audio.receive` delivery marker for — so the marker fires ONCE
+    // per live turn (mirrors Pipecat's `bgSpanTurnContext`, the #774/#781
+    // primitive). Fresh per `mediaStreamLoop()` invocation, i.e. per
+    // connected call/session — matches `buffered` above.
+    let lastBgSpanTurnContext: Context | undefined;
+
     const flush = (): void => {
       if (buffered.length === 0) return;
       const mulaw = new Uint8Array(buffered);
       buffered.length = 0;
       const pcm = mulaw8kToPcm16_24k(mulaw);
-      adapter._enqueueInbound(new AudioChunk({ data: pcm }));
+      // At the FIRST wire delivery under a LIVE turn, wrap the enqueue in a
+      // `voice.audio.receive` background-loop delivery marker parented to
+      // that turn (#774/#781 primitive) — mirrors Pipecat's
+      // `flushBufferedMulaw`. Between turns (`_voiceTurnContext` undefined)
+      // or for later deliveries within the SAME turn (identity-check), no
+      // span is emitted: only the first wire delivery per turn is spanned
+      // (flood guard), and a fully pre-buffered turn (audio queued before
+      // any turn went live) is drained by the base `voice.audio.receive`
+      // span with no background marker at all.
+      //
+      // Coverage limit (by design, mirrors Pipecat): `voice.audio.bytes` is
+      // the DELIVERED coalesced-batch size, which may fold in a sub-100ms
+      // µ-law tail carried over from the prior turn.
+      const parent = adapter._voiceTurnContext;
+      if (parent === undefined || parent === lastBgSpanTurnContext) {
+        adapter._enqueueInbound(new AudioChunk({ data: pcm }));
+        return;
+      }
+      lastBgSpanTurnContext = parent;
+      voiceReceiveSpanUnder(
+        parent,
+        {
+          "voice.adapter.class": adapter.constructor.name,
+          "voice.twilio.recv.source": "background_loop",
+          "voice.audio.bytes": pcm.length,
+        },
+        () => {
+          adapter._enqueueInbound(new AudioChunk({ data: pcm }));
+        },
+      );
     };
 
     try {
       while (true) {
         const text = await ws.receiveText();
-        if (text == null) return; // socket closed
+        if (text == null) {
+          adapter._setStreamEndedReason("close");
+          return; // socket closed
+        }
         const frame = parseMediaStreamFrame(text);
         if (!frame) continue;
 
@@ -302,9 +350,11 @@ export class TwilioWebhookServer {
           if (frame.callSid) adapter._setCallSid(frame.callSid);
           adapter._signalStreamConnected();
         } else if (frame.event === "media" && frame.payloadMulaw) {
+          adapter._recordFrameReceived();
           for (const byte of frame.payloadMulaw) buffered.push(byte);
           if (buffered.length >= flushThresholdBytes) flush();
         } else if (frame.event === "dtmf" && frame.dtmfDigit) {
+          adapter._recordDtmfReceived();
           twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
           if (adapter.onDtmf) {
             try {
@@ -319,9 +369,16 @@ export class TwilioWebhookServer {
           }
         } else if (frame.event === "stop") {
           flush();
+          adapter._setStreamEndedReason("stop");
           return;
         }
       }
+    } catch (err) {
+      // Any transport error that is not a clean socket close (`text == null`
+      // above) propagates to `runStreamSession`'s caller unchanged — tag the
+      // outcome before re-throwing.
+      adapter._setStreamEndedReason("error");
+      throw err;
     } finally {
       // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop
       // exits on a "stop" frame, a socket close (`receiveText` resolves null),

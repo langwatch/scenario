@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import suppress
 from typing import Any, Callable, ClassVar, Literal, Optional
 
@@ -28,10 +29,16 @@ from typing import Any, Callable, ClassVar, Literal, Optional
 # first-use keeps the API small.
 TwilioAdapterMode = Literal["idle", "answer", "call"]
 
+#: How the media-stream session most recently ended. "none" until a session has
+#: ever run (the disconnect-counters T3 enum, #775). Set by the media loop
+#: (`_twilio_server.py`) at each of its three termination paths.
+TwilioStreamEndedReason = Literal["stop", "close", "error", "none"]
+
 from ...types import AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from .._telemetry import voice_span
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
     TwilioRESTHelper,
@@ -165,6 +172,17 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # inherit the previous session's flag).
         self._stream_ended: bool = False
 
+        # Call-lifetime counters stamped onto ``voice.adapter.disconnect`` from
+        # inside disconnect() (#775 Tier 2b — mirrors ElevenLabs' pump-counter
+        # seam). Accumulated by the media loop (`_twilio_server.py`) and the
+        # `/twilio/voice` webhook handler; reset on connect()/disconnect() like
+        # `_stream_ended` above.
+        self._frames_received: int = 0
+        self._dtmf_received: int = 0
+        self._stream_ended_reason: TwilioStreamEndedReason = "none"
+        self._webhook_invocations: int = 0
+        self._webhook_rejected: int = 0
+
 
     # ------------------------------------------------------------------ repr
 
@@ -206,10 +224,35 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._rest = TwilioRESTHelper(self.account_sid, self.auth_token)
         self._phone_number_sid = self._rest.resolve_phone_number_sid(self.phone_number)
 
+        # Stamp Twilio-specific attrs onto the active ``voice.adapter.connect``
+        # span (opened by the executor connect loop). Base spans are name-owned;
+        # the adapter contributes attributes, never a parallel span name — mirror
+        # ElevenLabs' ``voice.elevenlabs.agent_id`` seam (``adapters/elevenlabs.py``).
+        # NOTE: no ``voice.twilio.direction`` here — connect() is direction-
+        # agnostic (``_mode`` stays "idle" until place_call()/wait_for_call(),
+        # after this span has already closed); direction is stamped on the NEW
+        # ``voice.adapter.dial`` span instead (see place_call/wait_for_call).
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.twilio.phone_number_sid": self._phone_number_sid,
+                "voice.twilio.validate_signature": self.validate_signature,
+                "voice.twilio.webhook_port": self.http_port,
+            },
+        )
+
         self._stream_connected = asyncio.Event()
         self._inbound_queue = asyncio.Queue()
         self._server_shutdown = asyncio.Event()
         self._stream_ended = False
+        self._frames_received = 0
+        self._dtmf_received = 0
+        self._stream_ended_reason = "none"
+        self._webhook_invocations = 0
+        self._webhook_rejected = 0
         self._mode = "idle"
 
         # Webhook server is its own unit — see _twilio_server.py. The
@@ -231,8 +274,14 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             return
 
         # 1. Restore webhook first so Twilio doesn't keep hitting a dead URL.
+        # ``rest_restore_failed`` tracks whether either restore below raised —
+        # previously fully swallowed via ``suppress(Exception)``; now surfaced
+        # onto the disconnect span (#775 Tier 2b) so a Twilio REST outage during
+        # teardown is no longer invisible. The swallow behavior itself (a failed
+        # restore must never block disconnect()) is unchanged.
+        rest_restore_failed = False
         if self._mode == "answer" and self._phone_number_sid is not None:
-            with suppress(Exception):
+            try:
                 prior = self._prior_voice_url or ""
                 self._rest.write_voice_url(self._phone_number_sid, prior)
                 logger.debug(
@@ -240,10 +289,12 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     prior,
                     self._phone_number_sid,
                 )
+            except Exception:
+                rest_restore_failed = True
         # place_call() rewrites the CALLEE's voice_url to attach Media
         # Streams to B-leg. Restore that too.
         if self._mode == "call" and self._callee_phone_number_sid is not None:
-            with suppress(Exception):
+            try:
                 prior_b = self._prior_callee_voice_url or ""
                 self._rest.write_voice_url(self._callee_phone_number_sid, prior_b)
                 logger.debug(
@@ -251,6 +302,26 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                     prior_b,
                     self._callee_phone_number_sid,
                 )
+            except Exception:
+                rest_restore_failed = True
+
+        # Stamp call-lifetime counters onto the active ``voice.adapter.disconnect``
+        # span (opened by the executor disconnect loop) — mirrors ElevenLabs'
+        # pump-counter stamp (``adapters/elevenlabs.py``).
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.twilio.frames_received": self._frames_received,
+                "voice.twilio.dtmf_received": self._dtmf_received,
+                "voice.twilio.stream_ended_reason": self._stream_ended_reason,
+                "voice.twilio.webhook_invocations": self._webhook_invocations,
+                "voice.twilio.webhook_rejected": self._webhook_rejected,
+                "voice.twilio.rest_restore_failed": rest_restore_failed,
+            },
+        )
 
         # 2. Signal server to shut down, then wait for the task.
         if self._server_shutdown is not None:
@@ -274,6 +345,11 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_ws = None
         self._inbound_queue = None
         self._stream_ended = False
+        self._frames_received = 0
+        self._dtmf_received = 0
+        self._stream_ended_reason = "none"
+        self._webhook_invocations = 0
+        self._webhook_rejected = 0
 
     # ------------------------------------------------------------------ direction
 
@@ -338,55 +414,91 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._rest is not None
         assert self._stream_connected is not None
 
-        if attach_stream_to_self:
-            # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
-            # B's leg attaches its Media Stream to our harness webhook. We own
-            # this number (same Twilio account); disconnect() will restore.
-            self._callee_phone_number_sid = self._rest.resolve_phone_number_sid(to)
-            self._prior_callee_voice_url = self._rest.read_voice_url(
-                self._callee_phone_number_sid
+        # NEW ``voice.adapter.dial`` span (#775 Tier 2a): self-instrumented,
+        # since no executor span is active by the time place_call()/
+        # wait_for_call() run (the ``voice.adapter.connect`` span already
+        # closed). Wraps the REST dial + the ``_stream_connected`` wait — the
+        # "I placed the call but no media ever streamed" failure surface.
+        from .._telemetry import set_span_attributes
+
+        with voice_span(
+            "voice.adapter.dial",
+            {
+                "voice.adapter.class": type(self).__name__,
+                "voice.twilio.direction": "outbound",
+                "voice.twilio.to": _redact_e164(to),
+                "voice.twilio.from": _redact_e164(self.phone_number),
+            },
+        ) as _dial:
+            if attach_stream_to_self:
+                # Resolve B-leg's number SID and snapshot+rewrite its voice_url so
+                # B's leg attaches its Media Stream to our harness webhook. We own
+                # this number (same Twilio account); disconnect() will restore.
+                self._callee_phone_number_sid = self._rest.resolve_phone_number_sid(to)
+                self._prior_callee_voice_url = self._rest.read_voice_url(
+                    self._callee_phone_number_sid
+                )
+                webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+                self._rest.write_voice_url(self._callee_phone_number_sid, webhook_url)
+                logger.info(
+                    "TwilioAgentAdapter: rewrote callee %s voice_url to %s",
+                    _redact_e164(to),
+                    webhook_url,
+                )
+
+            # A-leg TwiML: play a short deterministic <Say> line, then hold
+            # the bridge open. Twilio runs this on the originator side while
+            # B's webhook attaches the Media Stream.
+            #
+            # The <Say> gives the recording a known-good utterance to
+            # transcribe. A bare <Pause> alone produces 120s of line silence
+            # that Whisper has been observed to hallucinate as non-English
+            # text (issue #465 in this PR). The Say is a one-time anchor at
+            # call setup; the Media Stream carries the real bidirectional
+            # conversation that follows.
+            inline_a_leg_twiml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<Response>"
+                f'<Say voice="Polly.Joanna">{PLACE_CALL_A_LEG_SAY_TEXT}</Say>'
+                '<Pause length="120"/>'
+                "</Response>"
             )
-            webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
-            self._rest.write_voice_url(self._callee_phone_number_sid, webhook_url)
+            self._call_sid = self._rest.place_call(
+                to=to, from_=self.phone_number, twiml=inline_a_leg_twiml
+            )
             logger.info(
-                "TwilioAgentAdapter: rewrote callee %s voice_url to %s",
+                "TwilioAgentAdapter: placed call %s from %s to %s",
+                self._call_sid,
+                _redact_e164(self.phone_number),
                 _redact_e164(to),
-                webhook_url,
             )
+            set_span_attributes(_dial, {"voice.twilio.call_sid": self._call_sid})
 
-        # A-leg TwiML: play a short deterministic <Say> line, then hold
-        # the bridge open. Twilio runs this on the originator side while
-        # B's webhook attaches the Media Stream.
-        #
-        # The <Say> gives the recording a known-good utterance to
-        # transcribe. A bare <Pause> alone produces 120s of line silence
-        # that Whisper has been observed to hallucinate as non-English
-        # text (issue #465 in this PR). The Say is a one-time anchor at
-        # call setup; the Media Stream carries the real bidirectional
-        # conversation that follows.
-        inline_a_leg_twiml = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            "<Response>"
-            f'<Say voice="Polly.Joanna">{PLACE_CALL_A_LEG_SAY_TEXT}</Say>'
-            '<Pause length="120"/>'
-            "</Response>"
-        )
-        self._call_sid = self._rest.place_call(
-            to=to, from_=self.phone_number, twiml=inline_a_leg_twiml
-        )
-        logger.info(
-            "TwilioAgentAdapter: placed call %s from %s to %s",
-            self._call_sid,
-            _redact_e164(self.phone_number),
-            _redact_e164(to),
-        )
-
-        if attach_stream_to_self:
-            # Wait for OUR webhook to fire — only meaningful when we rewrote
-            # the callee's voice_url to point at us. In originator-only mode
-            # (attach_stream_to_self=False), there's no stream coming to us;
-            # the callee has its own harness which owns the stream.
-            await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+            if attach_stream_to_self:
+                # Wait for OUR webhook to fire — only meaningful when we rewrote
+                # the callee's voice_url to point at us. In originator-only mode
+                # (attach_stream_to_self=False), there's no stream coming to us;
+                # the callee has its own harness which owns the stream.
+                _dial_wait_started = time.monotonic()
+                try:
+                    await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    # The media stream never connected — the marquee "I placed
+                    # the call but no media ever streamed" failure. Tag the
+                    # outcome BEFORE re-raising; the raised TimeoutError still
+                    # marks the span ERROR (voice_span's own exception handling).
+                    _dial.set_attribute(
+                        "voice.twilio.dial_outcome", "stream_connect_timeout"
+                    )
+                    raise
+                set_span_attributes(
+                    _dial,
+                    {
+                        "voice.twilio.stream_connect_latency_ms": round(
+                            (time.monotonic() - _dial_wait_started) * 1000
+                        ),
+                    },
+                )
 
     async def wait_for_call(self, timeout: float = 120.0) -> None:
         """
@@ -420,14 +532,46 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         assert self._phone_number_sid is not None
         assert self._stream_connected is not None
 
-        # Snapshot the prior webhook so we can restore it on disconnect, then
-        # point the number at our server. Only answer mode does this.
-        self._prior_voice_url = self._rest.read_voice_url(self._phone_number_sid)
-        webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
-        self._rest.write_voice_url(self._phone_number_sid, webhook_url)
-        logger.info("TwilioAgentAdapter: webhook set to %s", webhook_url)
+        # NEW ``voice.adapter.dial`` span (#775 Tier 2a) — see place_call()'s
+        # comment for the rationale (self-instrumented, no executor span active
+        # here).
+        from .._telemetry import set_span_attributes
 
-        await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+        with voice_span(
+            "voice.adapter.dial",
+            {
+                "voice.adapter.class": type(self).__name__,
+                "voice.twilio.direction": "inbound",
+                "voice.twilio.to": _redact_e164(self.phone_number),
+            },
+        ) as _dial:
+            # Snapshot the prior webhook so we can restore it on disconnect, then
+            # point the number at our server. Only answer mode does this.
+            self._prior_voice_url = self._rest.read_voice_url(self._phone_number_sid)
+            webhook_url = self.public_base_url.rstrip("/") + "/twilio/voice"
+            self._rest.write_voice_url(self._phone_number_sid, webhook_url)
+            logger.info("TwilioAgentAdapter: webhook set to %s", webhook_url)
+
+            _dial_wait_started = time.monotonic()
+            try:
+                await asyncio.wait_for(self._stream_connected.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                # Nobody dialed in — tag the outcome BEFORE re-raising; the
+                # raised TimeoutError still marks the span ERROR (voice_span's
+                # own exception handling).
+                _dial.set_attribute(
+                    "voice.twilio.dial_outcome", "stream_connect_timeout"
+                )
+                raise
+            set_span_attributes(
+                _dial,
+                {
+                    "voice.twilio.call_sid": self._call_sid,
+                    "voice.twilio.stream_connect_latency_ms": round(
+                        (time.monotonic() - _dial_wait_started) * 1000
+                    ),
+                },
+            )
 
     def _enter_mode(self, mode: TwilioAdapterMode) -> None:
         """Transition idle → mode, or raise if already in a different mode.
