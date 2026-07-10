@@ -34,6 +34,7 @@ import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage, extractAudio } from "../messages";
+import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
 // LOG_LEVEL-gated logger so the degraded-path debug line below doesn't bypass
@@ -316,6 +317,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (this.tools.length > 0) sessionConfig.tools = this.tools;
 
     ws.send(JSON.stringify({ type: "session.update", session: sessionConfig }));
+
+    // Stamp realtime-specific attrs onto the active voice.adapter.connect span
+    // (opened by the executor connect loop). Base spans are name-owned; the
+    // adapter contributes attributes, never a parallel span name (mirrors
+    // ElevenLabs stamping voice.elevenlabs.agent_id).
+    setSpanAttributes(currentSpan(), {
+      "voice.realtime.model": this.model,
+      "voice.realtime.voice": this.voice,
+      "voice.realtime.session_type": "realtime",
+      "voice.realtime.tool_count": this.tools.length,
+    });
   }
 
   /** Whether the Realtime WebSocket is open (Gap #11). */
@@ -500,6 +512,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
             this._finalizeToolCall(fc.call_id, fc.name, fc.arguments);
           }
         }
+      } else if (etype === "response.created") {
+        // R2 marker: record the response start on the active voice.audio.receive
+        // span. Two of receiveAudio's three callers run inside that span's
+        // ambient context — the AGENT base drain and the autonomous-USER
+        // voice.audio.receive wrapper in _autonomousUserTurn — so the marker
+        // lands there. The third caller, the scripted speakUserTurn/
+        // _drainSpokenTurn path, is deliberately unwrapped (scope guard):
+        // currentSpan() is root/undefined there, so the optional chain no-ops.
+        currentSpan()?.addEvent("voice.realtime.response.created");
+        this._responseActive = true;
       } else if (etype === "response.done" || etype === "response.cancelled") {
         this._responseActive = false;
         if (this._deferredResponseCreate) {
@@ -512,6 +534,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
           // double-fire. Mirrors Python (openai_realtime.py response.done handler).
           this._responseActive = true;
         }
+        // R2 markers: record the response terminal as a span event and stamp the
+        // FINAL tool-call count onto the active voice.audio.receive span. Done
+        // BEFORE the tool-only empty-chunk return below so the count reflects THIS
+        // response — set even when 0, for every response.done/.cancelled actually
+        // observed. A drain that ends on tail-silence before a terminal event is
+        // processed won't stamp it (pre-existing drain timing, not new here).
+        currentSpan()?.addEvent(`voice.realtime.${etype}`);
+        setSpanAttributes(currentSpan(), {
+          "voice.realtime.tool_call_count": this._completedToolCalls.length,
+        });
         // Issue #646: a tool-only turn (function call, NO audio delta) would
         // otherwise loop here forever and hit the receiveAudio timeout — the
         // accumulated tool call is parsed but never returned. When the response
@@ -523,8 +555,6 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         if (this._completedToolCalls.length > 0) {
           return new AudioChunk({ data: new Uint8Array(0) });
         }
-      } else if (etype === "response.created") {
-        this._responseActive = true;
       } else if (etype === "error") {
         const errDetail =
           (event as { error?: { message?: string } }).error ?? {};
@@ -966,18 +996,46 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (!this._ws) {
       throw new Error("OpenAIRealtimeAgentAdapter: not connected");
     }
-    // (1) HEAR the agent: feed the AUT's last-turn audio into the input buffer.
-    // `_speakGeneratedTurn` commits it so the model has it in-context for this
-    // generation. No heard audio (e.g. the very first user turn) still produces
-    // a generated turn from the persona alone.
-    const heard = this._extractHeardAudio(input);
-    if (heard) {
-      await this.sendAudio(heard);
-    }
-    // (2) GENERATE + speak the next customer line, conditioned on what was heard.
-    const chunk = await this.speakGeneratedUserTurn();
-    // (3) Return as the USER's audio turn.
-    return createAudioMessage(chunk, "user");
+    // The USER path bypasses super.call()/defaultVoiceCall (#705), so it opens
+    // NO base span on its own. Emit the base taxonomy here: one voice.turn span
+    // per autonomous user turn, with the send/receive children nesting under it
+    // (the R2 markers land on the receive span). Mirrors defaultVoiceCall's
+    // voice.turn → voice.audio.send/receive shape.
+    const turnIndex = (input as { scenarioState?: { currentTurn?: number } })
+      .scenarioState?.currentTurn;
+    return voiceSpan(
+      "voice.turn",
+      {
+        "voice.adapter.class": this.constructor.name,
+        "voice.turn.index": turnIndex,
+      },
+      async (turnSpan) => {
+        const turnStart = performance.now(); // monotonic — matches #771
+        // (1) HEAR the agent: feed the AUT's last-turn audio into the input buffer.
+        // `_speakGeneratedTurn` commits it so the model has it in-context for this
+        // generation. No heard audio (e.g. the very first user turn) still produces
+        // a generated turn from the persona alone.
+        const heard = this._extractHeardAudio(input);
+        if (heard) {
+          await voiceSpan(
+            "voice.audio.send",
+            { "voice.audio.bytes": heard.data.length },
+            async () => {
+              await this.sendAudio(heard);
+            },
+          );
+        }
+        // (2) GENERATE + speak the next customer line, conditioned on what was heard.
+        const chunk = await voiceSpan("voice.audio.receive", {}, () =>
+          this.speakGeneratedUserTurn(),
+        );
+        setSpanAttributes(turnSpan, {
+          "voice.turn.latency_ms": Math.round(performance.now() - turnStart),
+        });
+        // (3) Return as the USER's audio turn.
+        return createAudioMessage(chunk, "user");
+      },
+    );
   }
 
   /**
