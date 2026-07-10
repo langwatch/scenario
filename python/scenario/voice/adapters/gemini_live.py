@@ -37,10 +37,13 @@ import logging
 import os
 from typing import Any, ClassVar, Optional
 
+from opentelemetry import trace as _otel_trace
+
 from ...config.voice_models import GEMINI_LIVE_MODEL
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from .._telemetry import set_span_attributes
 
 
 logger = logging.getLogger("scenario.voice.gemini_live")
@@ -148,6 +151,11 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         # (no audio at all) from a real mid-reply interrupt (audio
         # arrived before the interrupt landed).
         self._iter_had_audio: bool = False
+        # Count of spurious interrupt→turn_complete re-entries during the CURRENT
+        # turn's drain (reset per turn in ``send_audio``). Stamped onto the
+        # inherited ``voice.audio.receive`` span at turn_complete — recv_audio
+        # never opens a span of its own (exactly one receive span per turn).
+        self._spurious_retry_count: int = 0
 
         # Observability.
         self.last_agent_transcript: Optional[str] = None
@@ -254,6 +262,13 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
 
         self._session = await session_future
         self._recv_iter = None
+        # Stamp Gemini-specific attrs onto the active ``voice.adapter.connect``
+        # span (opened by the executor connect loop). Base spans are name-owned;
+        # the adapter contributes attributes, never a parallel voice.gemini.* span.
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {"voice.gemini.model": self.model, "voice.gemini.voice": self.voice},
+        )
         logger.debug("GeminiLiveAgentAdapter: connected model=%s", self.model)
 
     async def disconnect(self) -> None:
@@ -310,8 +325,24 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         from google.genai import types  # noqa: PLC0415
 
         pcm_16k = _resample_pcm16(chunk.data, CANONICAL_RATE, GEMINI_INPUT_RATE)
+        # New user turn → reset the per-turn spurious-retry counter so the count
+        # stamped at this turn's turn_complete reflects only THIS turn's drain.
+        self._spurious_retry_count = 0
         if not pcm_16k:
+            # Sub-sample chunk resampled to empty: nothing to send. Stamp
+            # wire_bytes=0 onto the active ``voice.audio.send`` span (base-owned
+            # name) and return WITHOUT emitting activity markers.
+            set_span_attributes(
+                _otel_trace.get_current_span(),
+                {"voice.gemini.audio.wire_bytes": 0},
+            )
             return
+        # Stamp the resampled wire size onto the active ``voice.audio.send`` span;
+        # the base owns the span name, the adapter contributes voice.gemini.* attrs.
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {"voice.gemini.audio.wire_bytes": len(pcm_16k)},
+        )
         # New user turn → reset transcript and the per-turn receive
         # iterator so the next ``recv_audio`` enters
         # ``session.receive()`` fresh for this turn.
@@ -441,13 +472,28 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                         and not self._iter_had_audio
                         and not pending_delta
                     ):
+                        # Spurious re-entry — count it so the running total lands
+                        # on the inherited ``voice.audio.receive`` span at the real
+                        # turn_complete below (additive across the N recv_audio
+                        # calls in one drain).
+                        self._spurious_retry_count += 1
                         self._recv_iter = self._session.receive().__aiter__()  # type: ignore[union-attr]
                         self._iter_had_audio = False
                         saw_interrupted = False
                         continue
-                    # Real end-of-turn — yield empty AudioChunk and reset
-                    # the iterator. The next ``recv_audio`` call (for the
-                    # next user turn) will re-enter ``session.receive()``.
+                    # Real end-of-turn — stamp Gemini attrs onto the active
+                    # ``voice.audio.receive`` span (base-owned name; recv_audio
+                    # opens NO span of its own — exactly one receive span per
+                    # turn), then yield the empty AudioChunk and reset the
+                    # iterator. The next ``recv_audio`` call (for the next user
+                    # turn) will re-enter ``session.receive()``.
+                    set_span_attributes(
+                        _otel_trace.get_current_span(),
+                        {
+                            "voice.gemini.turn_complete": True,
+                            "voice.gemini.spurious_retry_count": self._spurious_retry_count,
+                        },
+                    )
                     self._recv_iter = None
                     return AudioChunk(
                         data=b"",
@@ -474,7 +520,19 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
         block the executor's interrupt sequence.
         """
         if self._session is None or self._recv_iter is None:
+            # No active turn to drain. Stamp the no-op outcome onto the active
+            # ``voice.adapter.interrupt`` span (opened by the executor interrupt
+            # site) and return.
+            set_span_attributes(
+                _otel_trace.get_current_span(),
+                {
+                    "voice.gemini.interrupt.outcome": "no_op_not_connected",
+                    "voice.gemini.interrupt.drained_chunks": 0,
+                },
+            )
             return
+        drained_chunks = 0
+        outcome = "drained_to_turn_complete"
         try:
             async with asyncio.timeout(2.0):
                 while True:
@@ -482,6 +540,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                         message = await self._recv_iter.__anext__()  # type: ignore[union-attr]
                     except StopAsyncIteration:
                         break
+                    drained_chunks += 1
                     sc = getattr(message, "server_content", None)
                     if sc is not None and sc.turn_complete:
                         break
@@ -489,7 +548,7 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
             # Bounded drain: if the server doesn't close out the turn within
             # 2s after we sent the activity_end, give up and proceed. The
             # finally block will still close the iterator.
-            pass
+            outcome = "drain_timeout_2s"
         finally:
             try:
                 await self._recv_iter.aclose()  # type: ignore[attr-defined]
@@ -498,6 +557,18 @@ class GeminiLiveAgentAdapter(VoiceAgentAdapter):
                 # or in an error state. Don't mask the original outcome.
                 pass
             self._recv_iter = None
+        # Stamp the interrupt outcome onto the active ``voice.adapter.interrupt``
+        # span (base-owned name; the adapter contributes voice.gemini.* attrs).
+        # py DRAINS the cancelled turn with a 2s bound (pull iterator); the TS
+        # mirror is a passive abort-sentinel (push callback) — see
+        # ``gemini-live.ts`` ``interrupt()`` for the genuine SDK asymmetry.
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.gemini.interrupt.outcome": outcome,
+                "voice.gemini.interrupt.drained_chunks": drained_chunks,
+            },
+        )
 
     def _reset_turn_transcript(self) -> None:
         """Clear the running transcript before each new agent turn.

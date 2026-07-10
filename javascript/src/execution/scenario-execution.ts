@@ -2085,7 +2085,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // 1. Native cancel first (Twilio clear / OpenAI Realtime response.cancel).
       if (adapter.capabilities.interruption) {
         try {
-          await adapter.interrupt();
+          // voice.adapter.interrupt — executor-owned base span (mirrors
+          // startVoiceAdapters / stopVoiceAdapters). The adapter stamps vendor
+          // outcome attrs onto it from inside its own interrupt().
+          await voiceSpan(
+            "voice.adapter.interrupt",
+            { "voice.adapter.class": adapter.constructor.name },
+            async () => {
+              await adapter.interrupt();
+            },
+          );
           nativeFired = true;
         } catch {
           // Best-effort: step 2 (push audio) is the load-bearing barge-in.

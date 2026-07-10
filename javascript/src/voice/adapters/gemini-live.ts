@@ -35,6 +35,7 @@ import { Buffer } from "node:buffer";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { currentSpan, setSpanAttributes } from "../telemetry";
 import { GEMINI_LIVE_MODEL } from "../voice-models";
 
 /** Gemini Live ingests PCM16 at 16kHz. */
@@ -160,6 +161,13 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
   /** Tracks whether the current turn iterator has yielded any audio. */
   private iterHadAudio = false;
   /**
+   * Count of spurious interrupted→turnComplete re-entries during the CURRENT
+   * turn's drain (reset per turn in {@link sendAudio}). Stamped onto the
+   * inherited voice.audio.receive span at turnComplete — receiveAudio never
+   * opens a span of its own (exactly one receive span per turn).
+   */
+  private spuriousRetryCount = 0;
+  /**
    * Abort-sentinel flag. Set by `interrupt()` to signal that any in-flight
    * `receiveAudio()` should return the cut-off sentinel immediately. Cleared
    * by `receiveAudio()` when it observes the flag.
@@ -250,6 +258,13 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       },
     });
     this.connected = true;
+    // Stamp Gemini-specific attrs onto the active voice.adapter.connect span
+    // (opened by the executor connect loop). Base spans are name-owned; the
+    // adapter contributes attributes, never a parallel voice.gemini.* span.
+    setSpanAttributes(currentSpan(), {
+      "voice.gemini.model": this.model,
+      "voice.gemini.voice": this.voice,
+    });
   }
 
   /** Whether the Gemini Live session is open (Gap #11). */
@@ -295,7 +310,21 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
   async sendAudio(chunk: AudioChunk): Promise<void> {
     this.requireConnected();
     const pcm16k = resamplePcm16(chunk.data, CANONICAL_RATE, GEMINI_INPUT_RATE);
-    if (pcm16k.length === 0) return;
+    // New user turn → reset the per-turn spurious-retry counter so the count
+    // stamped at this turn's turnComplete reflects only THIS turn's drain.
+    this.spuriousRetryCount = 0;
+    if (pcm16k.length === 0) {
+      // Sub-sample chunk resampled to empty: nothing to send. Stamp wire_bytes=0
+      // onto the active voice.audio.send span (base-owned name) and return
+      // WITHOUT emitting activity markers.
+      setSpanAttributes(currentSpan(), { "voice.gemini.audio.wire_bytes": 0 });
+      return;
+    }
+    // Stamp the resampled wire size onto the active voice.audio.send span; the
+    // base owns the span name, the adapter contributes voice.gemini.* attrs.
+    setSpanAttributes(currentSpan(), {
+      "voice.gemini.audio.wire_bytes": pcm16k.length,
+    });
 
     // New user turn — reset the per-turn transcript so the agent's first
     // reply text doesn't get permanently prefixed onto every subsequent turn.
@@ -462,6 +491,9 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
         // deliberate async delay between the spurious pair and the real
         // audio.
         if (sawInterrupted && !this.iterHadAudio && !pendingTranscript) {
+          // Spurious re-entry — count it so the running total lands on the
+          // inherited voice.audio.receive span at the real turnComplete below.
+          this.spuriousRetryCount++;
           // Reset iterator-scope state — as if session.receive() was
           // re-created (Python's pattern).
           sawInterrupted = false;
@@ -474,7 +506,14 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
           );
           continue;
         }
-        // Real end-of-turn — yield empty AudioChunk.
+        // Real end-of-turn — stamp Gemini attrs onto the active
+        // voice.audio.receive span (base-owned name; receiveAudio opens NO span
+        // of its own — exactly one receive span per turn), then yield the empty
+        // AudioChunk.
+        setSpanAttributes(currentSpan(), {
+          "voice.gemini.turn_complete": true,
+          "voice.gemini.spurious_retry_count": this.spuriousRetryCount,
+        });
         return new AudioChunk({
           data: new Uint8Array(0),
           transcript: pendingTranscript || undefined,
@@ -509,7 +548,19 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
    * stays set and `receiveAudio()` catches it at the top of its next iteration.
    */
   override async interrupt(): Promise<void> {
-    if (!this.connected) return;
+    if (!this.connected) {
+      // py/ts asymmetry (genuine SDK difference): Python's interrupt() DRAINS
+      // the cancelled turn with a 2s bound (pull iterator) and reports
+      // "drained_to_turn_complete" / "drain_timeout_2s"; the JS SDK delivers
+      // messages via a push callback, so interrupt() here is a passive
+      // abort-sentinel that flags + returns with NO drain (hence no
+      // drained_chunks count). Stamp the no-op outcome onto the active
+      // voice.adapter.interrupt span.
+      setSpanAttributes(currentSpan(), {
+        "voice.gemini.interrupt.outcome": "no_op_not_connected",
+      });
+      return;
+    }
     // Set the abort flag first — receiveAudio() checks this at the top of
     // each iteration, so even if the resolver wake-up races it, the flag
     // will be seen on the next loop pass.
@@ -521,6 +572,12 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     const resolver = this.resolveNext;
     this.resolveNext = null;
     resolver?.({ interrupted: true });
+    // Stamp the sentinel outcome onto the active voice.adapter.interrupt span
+    // (base-owned name). See the py/ts asymmetry note above — no drain here,
+    // so no drained_chunks attribute (that is Python-only).
+    setSpanAttributes(currentSpan(), {
+      "voice.gemini.interrupt.outcome": "sentinel_fired",
+    });
   }
 
   // ------------------------------------------------------------- internal
