@@ -351,6 +351,23 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         )
         logger.debug("OpenAIRealtimeAgentAdapter: session.update sent")
 
+        # Stamp realtime-specific attrs onto the active ``voice.adapter.connect``
+        # span (opened by the executor connect loop). Base spans are name-owned;
+        # the adapter contributes attributes, never a parallel span name (mirrors
+        # ElevenLabs stamping ``voice.elevenlabs.agent_id``).
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.realtime.model": self.model,
+                "voice.realtime.voice": self.voice,
+                "voice.realtime.session_type": "realtime",
+                "voice.realtime.tool_count": len(self.tools),
+            },
+        )
+
     async def disconnect(self) -> None:
         """Close the WebSocket if open."""
         if self._ws is not None:
@@ -426,6 +443,13 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         """
         if self._ws is None:
             raise RuntimeError("OpenAIRealtimeAgentAdapter: not connected")
+
+        # R2 markers/attrs land on the active ``voice.audio.receive`` span (opened
+        # by the base drain that invokes recv_audio) via the ambient OTel context —
+        # this method runs INSIDE that span. ``get_current_span().add_event`` is a
+        # safe no-op on a non-recording span, so no extra guard is needed.
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
 
         # If send_audio was called since last recv, commit and request response.
         if self._pending_audio_bytes > 0:
@@ -506,6 +530,10 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # drain re-entries don't fire a spurious second response.create.
                 self._response_active = True
                 self._response_ever_active = True
+                # R2 marker: record the response start on the active receive span.
+                _otel_trace.get_current_span().add_event(
+                    "voice.realtime.response.created"
+                )
 
             elif etype in (
                 "response.output_audio_transcript.delta",
@@ -532,6 +560,19 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # Response finished or was cancelled — mark it so the next
                 # drain re-entry returns an empty chunk (clean exit).
                 self._response_active = False
+                # R2 markers: record the response terminal as a span event and
+                # stamp the FINAL tool-call count onto the active
+                # ``voice.audio.receive`` span. Done BEFORE the deferred re-fire and
+                # the tool-only empty-chunk return below, so the count reflects THIS
+                # response — set even when 0, for every response.done/.cancelled
+                # actually observed. A drain that ends on tail-silence before a
+                # terminal event is processed won't stamp it (pre-existing drain
+                # timing, not new here).
+                _otel_trace.get_current_span().add_event(f"voice.realtime.{etype}")
+                set_span_attributes(
+                    _otel_trace.get_current_span(),
+                    {"voice.realtime.tool_call_count": len(self._completed_tool_calls)},
+                )
                 # Issue #657: if user audio was committed while a response was
                 # in flight, _deferred_response_create was set as a deferral flag.
                 # Now that _response_active is cleared, fire the deferred create.
