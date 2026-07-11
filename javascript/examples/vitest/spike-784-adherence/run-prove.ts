@@ -43,6 +43,7 @@ import {
   summarizeHooks,
   summarizeH3,
   extractSubjectModel,
+  detectDelegation,
   checkpoint,
   type SessionCheckpoint,
 } from "./instrument.ts";
@@ -235,6 +236,9 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
     const substrate = readSubstrate(sandbox.workDir);
     const actions = extractActionLog(substrate);
     const subjectModel = extractSubjectModel(substrate).join(",") || "unknown";
+    // #784 delegation dimension (logged only): did the subject use the
+    // Task/subagent tool during this run, vs doing the procedure work directly.
+    const delegation = detectDelegation(actions);
     const acct = classifyRun(substrate);
     const hookEvents = readHookLog(sandbox.hookLog);
     const hooks = summarizeHooks(hookEvents);
@@ -272,6 +276,7 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
         `subject model resolved: ${subjectModel}`,
         `judge model actually used: ${actualJudgeModel}`,
         `scenario.run success=${result.success}`,
+        `delegated: ${delegation.delegated} (taskCalls=${delegation.taskCalls})`,
         `ACTION prove-finding followed=${report?.perProcedure.find((p) => p.id === "prove-finding")?.followed}`,
         `RUBRIC artifact=${art.source} score=${rubric ? `${rubric.score}/${rubric.total} passed=${rubric.passed}` : "n/a"} model=${RUBRIC_MODEL}`,
         `RUBRIC perCriterion=${rubric ? rubric.perCriterion.map((c) => `${c.id}=${c.met}`).join(" ") : "n/a"}`,

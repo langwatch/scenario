@@ -48,6 +48,7 @@ import {
   classifyRun,
   readHookLog,
   extractSubjectModel,
+  detectDelegation,
   summarizeHooks,
   checkpoint,
   type SessionCheckpoint,
@@ -216,6 +217,9 @@ async function runFull(sandbox: Sandbox, openaiKey: string | undefined): Promise
   const actions = extractActionLog(substrate);
   // Owner requirement: the resolved subject model is a LOGGED VARIABLE every run.
   const subjectModel = extractSubjectModel(substrate).join(",") || "unknown";
+  // #784 delegation dimension (logged only): did the subject use the
+  // Task/subagent tool during this run, vs doing the procedure work directly.
+  const delegation = detectDelegation(actions);
   const acct = classifyRun(substrate);
   const hooks = summarizeHooks(readHookLog(sandbox.hookLog));
 
@@ -230,7 +234,12 @@ async function runFull(sandbox: Sandbox, openaiKey: string | undefined): Promise
     turnCounts: acct,
     hooks: { ...hooks, events: undefined } as unknown as SessionCheckpoint["hooks"],
     report,
-    notes: [`subject model resolved: ${subjectModel}`, `judge model actually used: ${actualJudgeModel}`, `scenario.run success=${result.success}`],
+    notes: [
+      `subject model resolved: ${subjectModel}`,
+      `judge model actually used: ${actualJudgeModel}`,
+      `scenario.run success=${result.success}`,
+      `delegated: ${delegation.delegated} (taskCalls=${delegation.taskCalls})`,
+    ],
   };
   checkpoint(join(sandbox.root, "checkpoint.json"), cp);
 

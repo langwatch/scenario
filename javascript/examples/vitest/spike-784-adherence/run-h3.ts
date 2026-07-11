@@ -49,6 +49,7 @@ import {
   summarizeHooks,
   summarizeH3,
   extractSubjectModel,
+  detectDelegation,
   checkpoint,
   type SessionCheckpoint,
 } from "./instrument.ts";
@@ -199,6 +200,9 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
     const actions = extractActionLog(substrate);
     // Owner requirement: the resolved subject model is a LOGGED VARIABLE every run.
     const subjectModel = extractSubjectModel(substrate).join(",") || "unknown";
+    // #784 delegation dimension (logged only): did the subject use the
+    // Task/subagent tool during this run, vs doing the procedure work directly.
+    const delegation = detectDelegation(actions);
     const acct = classifyRun(substrate);
     const hookEvents = readHookLog(sandbox.hookLog);
     const hooks = summarizeHooks(hookEvents);
@@ -219,6 +223,7 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
         `subject model resolved: ${subjectModel}`,
         `judge model actually used: ${actualJudgeModel}`,
         `scenario.run success=${result.success}`,
+        `delegated: ${delegation.delegated} (taskCalls=${delegation.taskCalls})`,
         `H3 blocks=${h3.blocks} retryForcedCompletion=${h3.retryForcedCompletion} capHit=${h3.capHit}`,
         `H3 judgeCalls=${h3.judgeCalls} judgeErrors=${h3.judgeErrors} enforcedAtLeastOnce=${h3.enforcedAtLeastOnce}`,
         `H3 decisions=[${h3.decisions.join(", ")}]`,

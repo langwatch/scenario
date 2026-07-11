@@ -18,7 +18,7 @@
 
 import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 
-import type { AdherenceReport, NormalizedTurn } from "./types.ts";
+import type { AdherenceReport, NormalizedTurn, ActionRecord } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Turn exclusion accounting.
@@ -102,6 +102,29 @@ export function extractSubjectModel(turns: NormalizedTurn[]): string[] {
     if (msg && typeof msg["model"] === "string") models.add(msg["model"] as string);
   }
   return [...models];
+}
+
+// ---------------------------------------------------------------------------
+// Delegation detection (LOGGED DIMENSION ONLY — owner-scoped 2026-07-11).
+// ---------------------------------------------------------------------------
+
+/**
+ * Did the SUBJECT delegate during the run — i.e. invoke the Claude Code
+ * subagent-invocation tool (`Task`; also `Agent`, if that name ever appears)
+ * — rather than doing the procedure work directly (Read/Bash/Write/Edit/...)?
+ *
+ * Owner scoping (2026-07-11): this is a LOGGED DIMENSION ONLY. No gate or
+ * judge reads it; it exists so a delegated-vs-non-delegated gate BLOCK-RATE
+ * comparison is possible once a delegation-inducing scenario exists. Counts
+ * `tool_use` records from {@link extractActionLog}'s output — delegation is a
+ * tool-CALL fact (never inferred from prose, same evidentiary bar as the
+ * adherence judge itself).
+ */
+export function detectDelegation(actions: ActionRecord[]): { delegated: boolean; taskCalls: number } {
+  const taskCalls = actions.filter(
+    (a) => a.kind === "tool_use" && (a.name === "Task" || a.name === "Agent"),
+  ).length;
+  return { delegated: taskCalls > 0, taskCalls };
 }
 
 // ---------------------------------------------------------------------------
