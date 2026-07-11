@@ -98,6 +98,15 @@ const LW_OTLP_ENDPOINT = "https://app.langwatch.ai/api/otel";
 function loadIngestionKey(): string | undefined {
   const direct = process.env.LANGWATCH_INGESTION_KEY;
   if (direct && direct.startsWith("ik-lw-")) return direct.trim();
+  // Owner drop path: a raw ik-lw- key file the owner drops when minted off-device
+  // (~/.claude/orchardist/sc784-ik-lw.key). Auto-activates telemetry on the next
+  // run with no code change — experiments never stall waiting for it.
+  try {
+    const dropped = readFileSync(join(homedir(), ".claude/orchardist/sc784-ik-lw.key"), "utf8").trim();
+    if (dropped.startsWith("ik-lw-")) return dropped;
+  } catch {
+    /* not dropped yet — fall through (fail-open) */
+  }
   const envPath =
     process.env.ADHERENCE_OPENAI_ENV ?? "/home/ubuntu/langwatch-workspace/scenario-050-repro/.env";
   try {
