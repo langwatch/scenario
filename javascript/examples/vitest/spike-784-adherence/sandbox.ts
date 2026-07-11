@@ -87,7 +87,7 @@ const HOOKS_LIB_SRC = join(HERE, "strategies", "hooks-lib.mjs");
 // Per-run attribution via resource attributes.
 // ---------------------------------------------------------------------------
 
-const LW_OTLP_ENDPOINT = "https://app.langwatch.ai/api/otel";
+export const LW_OTLP_ENDPOINT = "https://app.langwatch.ai/api/otel";
 
 /**
  * Read the `ik-lw-` OTLP ingestion key from `LANGWATCH_INGESTION_KEY` (env) or the
@@ -95,7 +95,7 @@ const LW_OTLP_ENDPOINT = "https://app.langwatch.ai/api/otel";
  * Fail-open: absent/malformed key ⇒ undefined ⇒ NO telemetry (experiment
  * unchanged). Only an `ik-lw-` key is accepted — never the `sk-lw-` read key.
  */
-function loadIngestionKey(): string | undefined {
+export function loadIngestionKey(): string | undefined {
   const direct = process.env.LANGWATCH_INGESTION_KEY;
   if (direct && direct.startsWith("ik-lw-")) return direct.trim();
   // Owner drop path: a raw ik-lw- key file the owner drops when minted off-device
@@ -121,11 +121,38 @@ function loadIngestionKey(): string | undefined {
 }
 
 /**
+ * The canonical per-run correlation resource-attribute SET that tags a run's
+ * telemetry so LangWatch groups every signal from the SAME run together — the
+ * CC-session OTLP stream (via {@link otelWiring}) AND the harness-side
+ * judge-verdict emit (via `telemetry-judge.ts`). This is the SINGLE source of the
+ * correlation keys (`run.id`, `experiment=sc784`, `strategy`, `scenario`); the map
+ * order matches the `OTEL_RESOURCE_ATTRIBUTES` string {@link otelWiring} builds so
+ * the two encodings never drift. NOT secret — computed for every run regardless of
+ * whether an ingestion key is present (only the EMIT itself is key-gated).
+ */
+export function runResourceAttrs(
+  strategy: string,
+  runId: string,
+  scenario: string,
+): Record<string, string> {
+  return {
+    "project.repo": "langwatch/scenario",
+    experiment: "sc784",
+    strategy,
+    scenario,
+    "run.id": runId,
+    "enduser.id": "andrew@langwatch.ai",
+  };
+}
+
+/**
  * Build the OTEL wiring for one sandbox, or null if no ingestion key is available
  * (fail-open). Returns the NON-secret `env` block for settings.json and the
  * secret-bearing settings.local.json object. Clobber-survival (doc gotcha #1):
  * `OTEL_RESOURCE_ATTRIBUTES` is a single env var and settings.local OUTRANKS
- * settings.json, so the local layer carries ALL attribution tags.
+ * settings.json, so the local layer carries ALL attribution tags. The attribute
+ * SET mirrors {@link runResourceAttrs} (the judge-verdict emit reuses that map, so
+ * the two signals share identical correlation keys — keep them in sync).
  */
 function otelWiring(
   strategy: string,
@@ -181,6 +208,15 @@ export interface Sandbox {
   strategy: StrategyMaterialization;
   /** realpath of the symlinked creds (asserted outside the repo). */
   credsRealpath: string;
+  /**
+   * The resolved per-run correlation resource attributes — identical to what
+   * {@link otelWiring} tagged the CC-session OTLP stream with (same `run.id`,
+   * `experiment=sc784`, `strategy`, `scenario`). Carried so the harness-side
+   * judge-verdict telemetry (`telemetry-judge.ts`) ships the SAME keys and
+   * LangWatch groups it with the run's traces. Present regardless of the ingestion
+   * key (the attrs aren't secret; only the EMIT is key-gated).
+   */
+  otelResourceAttrs: Record<string, string>;
   /** Env the child (claude) must run with. Apply via {@link applyChildEnv}. */
   childEnv: { CLAUDE_CONFIG_DIR: string; ADHERENCE_TRANSCRIPT_DIR: string };
 }
@@ -298,7 +334,11 @@ export function buildSandbox(
   // LangWatch OTLP telemetry (fail-open: null when no ik-lw- key → no env block,
   // no settings.local.json, experiment behavior UNCHANGED). Scenario tag from the
   // runner's ADHERENCE_SCENARIO (per-run attribution); strategy + runId are local.
-  const otel = otelWiring(strategy, runId, process.env.ADHERENCE_SCENARIO ?? "context-load-refund");
+  // Resolve the scenario correlation tag ONCE so the CC-session wiring and the
+  // harness-side judge-verdict emit tag the run identically (same value both places).
+  const scenarioTag = process.env.ADHERENCE_SCENARIO ?? "context-load-refund";
+  const otelResourceAttrs = runResourceAttrs(strategy, runId, scenarioTag);
+  const otel = otelWiring(strategy, runId, scenarioTag);
   writeFileSync(
     join(configDir, "settings.json"),
     JSON.stringify(
@@ -358,6 +398,7 @@ export function buildSandbox(
     corpusDir,
     strategy: materialized,
     credsRealpath,
+    otelResourceAttrs,
     childEnv: {
       CLAUDE_CONFIG_DIR: configDir,
       ADHERENCE_TRANSCRIPT_DIR: join(root, TRANSCRIPT_SUBDIR),

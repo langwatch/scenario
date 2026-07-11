@@ -39,6 +39,7 @@ import { openai } from "@ai-sdk/openai";
 import { buildSandbox, applyChildEnv } from "./sandbox.ts";
 import { loadCorpus } from "./corpus-loader.ts";
 import { AdherenceJudge } from "./judge.ts";
+import { emitJudgeVerdict } from "./telemetry-judge.ts";
 import { callModel, defaultCredsPath } from "./judge-core.ts";
 import { readSubstrate } from "./tee-substrate.ts";
 import { extractActionLog } from "./normalize.ts";
@@ -224,6 +225,26 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
       ],
     };
     checkpoint(join(sandbox.root, "checkpoint.json"), cp);
+
+    // LangWatch judge-verdict telemetry (owner req: scores + reasoning shipped to
+    // LangWatch, ATTACHED to the run's traces via the SAME run.id/experiment/
+    // strategy/scenario resource attrs otelWiring used). FAIL-OPEN + fire-and-forget:
+    // no ik-lw- key ⇒ no-op; the emitter swallows any failure/timeout and we re-guard
+    // here so it can NEVER fail or slow the run. The checkpoint above stays authoritative.
+    try {
+      await emitJudgeVerdict({
+        resourceAttrs: sandbox.otelResourceAttrs,
+        report,
+        scenarioId: contextLoadScenario.id,
+        strategy: sandbox.strategy.name,
+        judgeModel: actualJudgeModel,
+        subjectModel,
+        scenarioRunSuccess: result.success,
+        status: cp.status,
+      });
+    } catch {
+      /* best-effort telemetry — never affect the run */
+    }
 
     // ---- report ----
     log(`\n================ LIVE H3 SESSION — result ================`);
