@@ -171,3 +171,28 @@ The core vendor enforcement still worked — the gate forced `grant-access` (the
 **Fold 2 (delegation dimension) — validated, still degenerate.** Reconstructed from the 313-turn substrate: 0 `Task` + 0 `Agent` tool_use → `delegated=false (taskCalls=0)`, correctly detected (subject worked directly: 14 Read/11 Bash/7 Edit/3 Write). Minor instrumentation gap: the `delegated:` note is written only on the success path — the abort/catch checkpoint omits it.
 
 **Simulations UI — WIRED** (setId `spike-784-adherence`): with `LANGWATCH_API_KEY` set (sk-lw, project `voice-bugbash-nWygNc`), `scenario.run()` posted scenario-events with no POST error; SDK-emitted URL: `https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/spike-784-adherence/scenariobatch_3GMnVTGRGucU3fAzGEWiDGE2byF`. Caveat: independent server-side read is NOT verifiable from the box — `/api/scenario-events` is POST-only (no list GET), `batchRunId` is client-generated (xksuid, doesn't prove ingestion), and the LangWatch MCP is a project-scoped key for a DIFFERENT project (`platform_list_simulation_runs` returns none). The URL is the report — open it to view.
+
+## o. ✅ Claude-gate re-validation — shipped Stop gate proven GPT-free (Sonnet = parity w/ gpt-5.1; Haiku over-blocks → cap-hit) + DATA-FIRST gates query-back-proven
+
+Per the owner constraint (**the shipped Stop gate must run on a CLAUDE model — no GPT in the shipped runtime**) and a DATA-FIRST hold (verify simulations query-back + run-data retention + judge-span landing BEFORE any batch). Referee/final judge stays `gpt-5.1` (experiment-side only, never shipped).
+
+**Gate change (`ba77fae`).** The per-procedure Stop gate now judges via the OAuth Claude Messages API (`callHaiku`); `ADHERENCE_GATE_MODEL` defaults to `claude-sonnet-4-5`, with a Haiku cost arm; a non-Claude value falls back to the OpenAI path (experiment only). Same strict `{followed,missingSteps,reasoning}` contract, fail-open conditioned on gate type, `gateModel` logged. Offline de-risk (`prove-claude-gate.mjs`, 0 subject bucket): contract PASS on both tiers; Sonnet discriminates enacted-vs-skipped like gpt-5.1, Haiku over-blocked an enacted case — confirmed live below.
+
+**3 DATA-FIRST gates proven live (query-back, not just wiring):**
+- **Gate A (simulations query-back).** Root cause of the earlier "simulations UI empty" gap: the predecessor posted with the **voice-bugbash** key, a project the LangWatch MCP cannot read. Fix: post with **the MCP's own project key** (`mr-krusty-klaws-iw3n10`). Proven: `platform_get_simulation_run` returns status + verdict + conversation messages for a mock probe AND both real vendor runs; all 3 listed under setId `spike-784-adherence`.
+- **Gate B (raw artifacts survive teardown).** A hardened wrapper copies checkpoint.json + stream-JSONL substrate + compiled sheet + gate-decisions hook-log into `run-data/claude-gate/<arm>/` the instant the run process exits, before cleanup. Verified both arms: all artifacts present, non-empty, secret-scan CLEAN.
+- **Gate C (judge spans land + are queryable).** `verify-telemetry-live.ts` emitted a real vendor verdict via the MCP project's `LANGWATCH_INGESTION_KEY` → HTTP 200, `rejectedSpans:0`, and `get_trace` returns the full `sc784.judge.verdict` span (per-procedure `followed`/attribution/reasoning + adherence rate). `run-h3.ts` now logs each run's emit `traceId` so every judge span is individually query-back-able going forward.
+
+**PARITY RESULT** (vendor scenario, subject `claude-haiku-4-5` both arms, always-enforced tier OFF to match the pre-fold recorded recipe, referee gpt-5.1, n=1/arm):
+
+| gate judge | decisions | blocks | blocked | outcome | vs recorded gpt-5.1 |
+|---|---|---|---|---|---|
+| gpt-5.1 (11 recorded) | `[noop×3, block, allow-complete-after-retry]` | 1 | `grant-access` | 3/3 | baseline |
+| claude-sonnet-4-5 | `[noop×3, block, block, allow-complete-after-retry]` | 2 | `grant-access` | 3/3, `retryForcedCompletion=true` | **PARITY ✓** |
+| claude-haiku-4-5 | `[noop×3, block, block, block, allow-cap-hit]` | 3 | `provision-account,grant-access` (+ false-blocked `onboard-vendor`) | 3/3, `capHit=true` | **NOT parity ✗** |
+
+**Sonnet ≡ gpt-5.1**: detects the same miss (`grant-access`), blocks, forces the retry, releases via `allow-complete-after-retry`, reaches 3/3 — the extra block (2 vs 1) is a Haiku-*subject* completion nuance (needed one more retry to enact the expiry), not a gate-judgment divergence. **The shipped Stop gate can run GPT-free.**
+
+**Haiku over-blocks**: false-blocked a genuinely-completed procedure (`onboard-vendor`, referee `followed=true`), never converged, cap-hit (retry cap reached, released without a clean completion). The final 3/3 held only because the *subject* completed all three regardless — the gate's own judgment was unreliable. **Sonnet is the floor for gate-judgment parity; Haiku is not a reliable drop-in.** Confirms the offline de-risk signal.
+
+**Caveats:** n=1/arm (demonstration, not a powered rate); Haiku subject both arms (gate parity is subject-invariant — the recorded set includes a Haiku-subject run); always-enforced tier OFF for a clean gate-model comparison (the tier's own regression is the separate finding from §n, still owner-pending). All telemetry now lands in the MCP-readable project so query-back works going forward. Data: `run-data/claude-gate/{claude-sonnet-4-5,claude-haiku-4-5}/`. Never merged.

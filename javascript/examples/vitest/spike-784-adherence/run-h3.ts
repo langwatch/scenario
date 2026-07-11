@@ -237,7 +237,7 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
     // no ik-lw- key ⇒ no-op; the emitter swallows any failure/timeout and we re-guard
     // here so it can NEVER fail or slow the run. The checkpoint above stays authoritative.
     try {
-      await emitJudgeVerdict({
+      const emit = await emitJudgeVerdict({
         resourceAttrs: sandbox.otelResourceAttrs,
         report,
         scenarioId: contextLoadScenario.id,
@@ -247,6 +247,11 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
         scenarioRunSuccess: result.success,
         status: cp.status,
       });
+      // Log the emit result so EACH run's judge-scores+reasoning span is query-back-able
+      // by traceId (owner DATA-FIRST: confirm judge spans landing, per run — get_trace <traceId>).
+      log(
+        `judge-verdict telemetry: emitted=${emit?.emitted} status=${emit?.status} rejectedSpans=${emit?.rejectedSpans} traceId=${emit?.traceId ?? "-"}`,
+      );
     } catch {
       /* best-effort telemetry — never affect the run */
     }

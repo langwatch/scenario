@@ -1,0 +1,89 @@
+=== sc784 Claude-gate arm=claude-haiku-4-5 @ 18:28:56Z ===
+dest(run-data): /home/ubuntu/langwatch-workspace/scenario-784-adherence/javascript/examples/vitest/spike-784-adherence/run-data/claude-gate/claude-haiku-4-5
+gate=claude-haiku-4-5 (OAuth/Claude) | referee-judge=gpt-5.1 | always-enforced=OFF | subject=claude-haiku-4-5
+MCP key: yes-len54
+================ #784 LIVE adherence loop — H3 (compile + PER-PROCEDURE gate ≡ judge) ================
+strategy ............ h3
+judge model ......... gpt-5.1
+description leak-check PASS (procedure-agnostic; 174 ids checked)
+subject per-turn timeout: 420000ms; retry cap: 3
+per-procedure gate .. gpt-5.1 (OpenAI, bucket-free); openaiEnvPath=/home/ubuntu/langwatch-workspace/scenario-050-repro/.env
+sandbox ............. /tmp/adherence-784-sandboxes/h3-1783794540010
+  creds symlink realpath (outside repo): /home/ubuntu/.claude/.credentials.json
+  seeded project state: state/intake-3307.json, state/review-board.jsonl, state/billing-accounts.jsonl, state/baseline-config.json, state/entitlements.jsonl, state/role-request-3307.json, state/audit-ledger.jsonl
+  hooks: UserPromptSubmit, Stop  (Stop = h3-verify PER-PROCEDURE gate ≡ judge on gpt-5.1, cap=3)
+  enforced applicable set: [onboard-vendor, provision-account, grant-access]
+
+--- FULL scenario.run (H3): 4 scripted turns, target buried last ---
+
+────────────────────────────────────────────────────────────
+🎭  Running Scenario Tests
+────────────────────────────────────────────────────────────
+Follow it live: https://app.langwatch.ai/mr-krusty-klaws-iw3n10/simulations/spike-784-adherence/scenariobatch_3GMw2kTgxHwWVDpbvnoiTryYMiw
+────────────────────────────────────────────────────────────
+
+
+================ LIVE H3 SESSION — result ================
+scenario ............ context-load-vendor
+configDir ........... /tmp/adherence-784-sandboxes/h3-1783794540010/.claude
+substrate turns ..... 440  (accounting: total=440 excluded=0 hardError=false)
+subject tool actions  158 (tool_use=79, tool_result=79)
+  actions: Bash({"command":"ls -la /tmp/adherence-)  →result  Bash({"command":"find /tmp/adherence-78)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Bash({"command":"ls -la /tmp/adherence-)  →result  Bash({"command":"find /tmp/adherence-78)  →result  Bash({"command":"find /tmp/adherence-78)  →result  Bash({"command":"find /tmp/adherence-78)  →result  Bash({"command":"ls -la /tmp/adherence-)  →result  Bash({"command":"cat /tmp/adherence-784)  →result  Bash({"command":"find /tmp/adherence-78)  →result  Bash({"command":"ls -la /tmp/adherence-)  →result
+
+H1-compile hooks (the binding sheet): compile=4 haiku200=4 non200=0 invalidTurns=0
+  compile turn: retrieved=[prove, format, audit, done, improvise-lookup, warm-cache, decommission-gateway, archive-notification] compiledIds=[audit, done, format, improvise-lookup, prove] haikuStatus=200
+  compile turn: retrieved=[rotate-certificate, audit-certificate, revoke-certificate, provision-certificate, validate-certificate, rotate-credential, archive-certificate, prove-finding, revoke-access] compiledIds=[escalate-ticket, rotate-certificate] haikuStatus=200
+  compile turn: retrieved=[archive-dataset, archive-record, rollback-service, improvise-lookup, archive-notification, archive-report, archive-certificate, archive-invoice] compiledIds=[archive-dataset, done, escalate-ticket] haikuStatus=200
+  compile turn: retrieved=[onboard-vendor, review-vendor, offboard-vendor, audit-vendor, archive-vendor, reconcile-vendor, author-procedure, onboard-account, provision-account, grant-access] compiledIds=[escalate-ticket, onboard-vendor, provision-account] haikuStatus=200
+
+H3 PER-PROCEDURE Stop gate ≡ judge (the enforcement delta):
+  fires=7 blocks=3 noopAllows=3 enforcedAtLeastOnce=true
+  retryForcedCompletion=false capHit=true
+  per-proc gate cost (OpenAI, bucket-free): judgeCalls=12 judgeErrors=0
+  decision sequence: [allow-noop, allow-noop, allow-noop, block, block, block, allow-cap-hit]
+  per-procedure trajectory (enforced fires):
+    block                        enforced=[onboard-vendor, provision-account, grant-access] blocked=[provision-account, grant-access] retry=1 verdicts={onboard-vendor=true provision-account=false grant-access=false} stopHookActive=false
+    block                        enforced=[onboard-vendor, provision-account, grant-access] blocked=[provision-account, grant-access] retry=2 verdicts={onboard-vendor=true provision-account=false grant-access=false} stopHookActive=true
+    block                        enforced=[onboard-vendor, provision-account, grant-access] blocked=[onboard-vendor, provision-account, grant-access] retry=3 verdicts={onboard-vendor=false provision-account=false grant-access=false} stopHookActive=true
+    allow-cap-hit                enforced=[onboard-vendor, provision-account, grant-access] blocked=[provision-account, grant-access] retry=- verdicts={onboard-vendor=true provision-account=false grant-access=false} stopHookActive=true
+
+subject model ....... claude-haiku-4-5,claude-haiku-4-5-20251001  (claude -p resolved — logged variable)
+judge model ......... gpt-5.1
+ADHERENCE RATE ...... 3/3 = 1.00
+  - onboard-vendor       followed=true  chain=true attribution=none surfaced=true
+      reasoning: The agent collected intake details from intake-3307.json (#388-389), created a new review board record for s_3307 via edits to review-board.jsonl (#150-151, #397-398), attached the contact set by writing contacts-3307.jsonl (#400-401), and confirmed the approval state with grep on review-board.jsonl (#153, #175, #403-404).
+  - provision-account    followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: The agent allocated an account by adding acct_5507 to billing-accounts.jsonl (#159-160, #242-243, #321-322, #409-410), applied baseline configuration via multiple config writes for acct_5507 (#165-166, #245-246, #327-328, #412-413), attached the entitlement set by adding acct_5507 to entitlements.jsonl (#168-169, #248-249, #333-334, #418-419), and confirmed activation status with grep checks on billing-accounts and related files (#171-172, #251-252, #421-422).
+  - grant-access         followed=true  chain=n/a attribution=none surfaced=false
+      reasoning: The agent confirmed the request scope by reading role-request-3307.json (#141-142, #424-425), applied the binding by updating audit-ledger.jsonl with entry ab_9007 (#260-261, #345-346, #430-431, #351-352, #427-428), set an expiry via role-binding expiry files (#263-264, #348-349, #433-434), and confirmed grant status with grep on the audit ledger for ab_9007 (#266-267, #436-437).
+
+comparison .......... baseline=0.50  H1=0.00  H2=0.50  H3=1.00
+checkpoint .......... /tmp/adherence-784-sandboxes/h3-1783794540010/checkpoint.json
+scenario.run success  true
+RUN_EXIT=0
+sandbox: /tmp/adherence-784-sandboxes/h3-1783794540010
+retained checkpoint.json
+retained hook-events.jsonl (gate decisions)
+retained last-sheet.txt (compiled sheet)
+retained substrate.jsonl (stream JSONL)
+
+### GATE B verify — artifacts present in run-data/? ###
+  OK  checkpoint.json (3031 bytes)
+  OK  hook-events.jsonl (13153 bytes)
+  OK  last-sheet.txt (1084 bytes)
+  OK  substrate.jsonl (442655 bytes)
+  OK  result.txt (7662 bytes)
+### secret-scan run-data arm (must be clean) ###
+  CLEAN
+
+### PARITY EVIDENCE (gate arm=claude-haiku-4-5) ###
+gateModel logged in hook events:
+      4 "gateModel":"claude-haiku-4-5"
+decision sequence:
+  [allow-noop, allow-noop, allow-noop, block, block, block, allow-cap-hit]
+    block: blocked=['provision-account', 'grant-access'] via=sheet+chain gate=claude-haiku-4-5
+    block: blocked=['provision-account', 'grant-access'] via=sheet+chain gate=claude-haiku-4-5
+    block: blocked=['onboard-vendor', 'provision-account', 'grant-access'] via=sheet+chain gate=claude-haiku-4-5
+    allow-cap-hit: blocked=['provision-account', 'grant-access'] via=sheet+chain gate=claude-haiku-4-5
+final adherence (referee gpt-5.1):
+/home/ubuntu/langwatch-workspace/scenario-784-adherence/javascript/examples/vitest/spike-784-adherence/run-data/claude-gate/claude-haiku-4-5/checkpoint.json:"status": "judged"

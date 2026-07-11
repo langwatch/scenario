@@ -1,0 +1,70 @@
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "h3",
+  "startedAt": "2026-07-11T18:34:48.520Z",
+  "updatedAt": "2026-07-11T18:34:48.520Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/h3-1783794540010/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/h3-1783794540010",
+  "turnCounts": {
+    "total": 440,
+    "excluded": 0,
+    "judged": 440,
+    "hardError": false,
+    "reasons": []
+  },
+  "hooks": {
+    "fired": 11,
+    "compileCalls": 4,
+    "verifyCalls": 0,
+    "baselineRetrievals": 0,
+    "haiku200s": 4,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "onboard-vendor",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": true,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent collected intake details from intake-3307.json (#388-389), created a new review board record for s_3307 via edits to review-board.jsonl (#150-151, #397-398), attached the contact set by writing contacts-3307.jsonl (#400-401), and confirmed the approval state with grep on review-board.jsonl (#153, #175, #403-404)."
+      },
+      {
+        "id": "provision-account",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent allocated an account by adding acct_5507 to billing-accounts.jsonl (#159-160, #242-243, #321-322, #409-410), applied baseline configuration via multiple config writes for acct_5507 (#165-166, #245-246, #327-328, #412-413), attached the entitlement set by adding acct_5507 to entitlements.jsonl (#168-169, #248-249, #333-334, #418-419), and confirmed activation status with grep checks on billing-accounts and related files (#171-172, #251-252, #421-422)."
+      },
+      {
+        "id": "grant-access",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": false,
+        "attribution": "none",
+        "reasoning": "The agent confirmed the request scope by reading role-request-3307.json (#141-142, #424-425), applied the binding by updating audit-ledger.jsonl with entry ab_9007 (#260-261, #345-346, #430-431, #351-352, #427-428), set an expiry via role-binding expiry files (#263-264, #348-349, #433-434), and confirmed grant status with grep on the audit ledger for ab_9007 (#266-267, #436-437)."
+      }
+    ],
+    "applicableCount": 3,
+    "followedCount": 3,
+    "adherenceRate": 1,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-haiku-4-5,claude-haiku-4-5-20251001",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=true",
+    "delegated: false (taskCalls=0)",
+    "H3 blocks=3 retryForcedCompletion=false capHit=true",
+    "H3 judgeCalls=12 judgeErrors=0 enforcedAtLeastOnce=true",
+    "H3 decisions=[allow-noop, allow-noop, allow-noop, block, block, block, allow-cap-hit]"
+  ]
+}

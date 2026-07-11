@@ -209,3 +209,11 @@ Live H4-vendor run: fold 1's always-enforced meta-proc tier fires correctly (`en
 Fold 2 (delegation) validated live (0 `Task`/0 `Agent` → `delegated=false`) but remains degenerate (n=1, no delegated run drawn yet). Minor gap: the `delegated:` note is written only on the success path — wire it into the abort/catch checkpoint too.
 
 Statistical matrix stays owner-gated (unchanged).
+
+## Claude-gate re-validation (2026-07-11) — shipped gate = claude-sonnet-4-5 via OAuth, PARITY w/ gpt-5.1; Haiku too weak
+
+Per the owner constraint (shipped Stop gate = a CLAUDE model, no GPT in the shipped runtime), swapped the per-procedure gate judge from gpt-5.1 to the OAuth Claude Messages API (`callHaiku`, `ADHERENCE_GATE_MODEL`, default `claude-sonnet-4-5`). **claude-sonnet-4-5 reproduces the gpt-5.1 gate exactly**: same miss detected (`grant-access`), blocks, forces the retry, 3/3 — PARITY (vendor scenario, n=1/arm). **claude-haiku-4-5 OVER-BLOCKS**: false-blocks a genuinely-completed procedure (`onboard-vendor`), never converges, cap-hits; the final 3/3 held only because the subject completed regardless, not because the gate judged correctly. **Sonnet is the floor for gate-judgment parity — do not ship Haiku as the gate judge.**
+
+**Data-infra fix (prerequisite, not a strategy change):** sc784 telemetry must POST with the LangWatch-MCP's own project key (`mr-krusty-klaws-iw3n10`), not the voice-bugbash key — that was the entire cause of "simulations UI empty / can't query back." Fixed; all 3 gates (simulations, run-data retention, judge spans) are now query-back-proven live. Full parity table + de-risk: FINDINGS §o.
+
+**Orthogonal, still owner-pending:** the always-enforced meta-proc tier regression (Fold-1/fold-2 section, above) is untouched by this gate-model swap.
