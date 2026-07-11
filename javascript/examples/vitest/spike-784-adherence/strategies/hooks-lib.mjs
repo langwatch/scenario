@@ -1193,7 +1193,7 @@ async function runH3Verify(input, env) {
   // pure-distractor turn `enforced` is still empty here, so nothing is added and
   // the allow-noop path below is unchanged (no OpenAI calls, no block). The union
   // dedups and tags `enforcedVia` with `+always` when it adds anything.
-  if (enforced.length > 0) {
+  if (env.alwaysEnforced && enforced.length > 0) {
     const already = new Set(enforced);
     const always = alwaysEnforcedIds(corpus).filter((id) => byId.has(id) && !already.has(id));
     if (always.length > 0) {
@@ -1228,9 +1228,11 @@ async function runH3Verify(input, env) {
     process.exit(0);
   }
 
-  // FAIL-OPEN: no judge key ⇒ the per-procedure gate cannot evaluate. Never
-  // block blind; surface it loudly so the run is not silently un-enforced.
-  if (!env.openaiKey) {
+  // FAIL-OPEN: OpenAI-gate ONLY — no judge key ⇒ the per-procedure gate cannot
+  // evaluate. Never block blind; surface it loudly so the run is not silently
+  // un-enforced. (A CLAUDE gate uses OAuth creds via callHaiku; a cred/API failure
+  // fails-open PER-PROC below via judgeOk=false, never here.)
+  if (!/^claude/i.test(env.gateModel) && !env.openaiKey) {
     logHookEvent(env.logPath, {
       mode: "h3-verify",
       event: "stop",
@@ -1254,18 +1256,26 @@ async function runH3Verify(input, env) {
     }
   }
 
-  // Per-procedure gate ≡ judge: one gpt-5.1 action-log check per enforced proc.
+  // Per-procedure gate ≡ judge: one action-log check per enforced proc. SHIPPED on
+  // a CLAUDE model via OAuth (env.gateModel — owner constraint #784: no GPT in the
+  // shipped runtime); a non-claude gateModel routes to the OpenAI path (experiment).
+  const isClaudeGate = /^claude/i.test(env.gateModel);
   const perProc = [];
   for (const id of enforced) {
     const entry = byId.get(id);
     const body = entry ? entry.body : "(body unavailable)";
     const t0 = Date.now();
-    const res = await callOpenAIJudge(
-      buildPerProcJudgeSystem(),
-      buildPerProcJudgeUser(id, body, actions.log),
-      env.judgeModel,
-      env.openaiKey,
-    );
+    const res = isClaudeGate
+      ? await callHaiku(buildPerProcJudgeSystem(), buildPerProcJudgeUser(id, body, actions.log), {
+          model: env.gateModel,
+          credentialsPath: env.credsPath,
+        })
+      : await callOpenAIJudge(
+          buildPerProcJudgeSystem(),
+          buildPerProcJudgeUser(id, body, actions.log),
+          env.judgeModel,
+          env.openaiKey,
+        );
     const latencyMs = Date.now() - t0;
     const parsed = res.ok ? parsePerProcVerdict(res.text) : null;
     perProc.push({
@@ -1297,6 +1307,7 @@ async function runH3Verify(input, env) {
       blockedProcs: [],
       priorBlocks,
       judgeModel: env.judgeModel,
+      gateModel: env.gateModel,
       stopHookActive,
     });
     process.exit(0);
@@ -1315,6 +1326,7 @@ async function runH3Verify(input, env) {
       priorBlocks,
       retryCap: env.retryCap,
       judgeModel: env.judgeModel,
+      gateModel: env.gateModel,
       stopHookActive,
     });
     process.exit(0);
@@ -1377,6 +1389,7 @@ async function runH3Verify(input, env) {
     retryCap: env.retryCap,
     priorBlocks,
     judgeModel: env.judgeModel,
+    gateModel: env.gateModel,
     stopHookActive,
   });
 
@@ -1404,6 +1417,14 @@ function hookEnv() {
     // read from the hook's OWN env first, else from the gitignored .env whose
     // PATH (never value) was baked into the hook command (ADHERENCE_OPENAI_ENV).
     judgeModel: process.env.ADHERENCE_JUDGE_MODEL ?? "gpt-5.1",
+    // H3 SHIPPED gate model — a CLAUDE model via the OAuth Messages API (owner
+    // constraint #784: NO GPT in the shipped runtime). Default Sonnet; Haiku = cost
+    // arm. A non-claude value routes the gate back through the OpenAI path (experiment
+    // only — the referee/final judge in run-h3.ts stays gpt-5.1, unaffected).
+    gateModel: process.env.ADHERENCE_GATE_MODEL ?? "claude-sonnet-4-5",
+    // Two-tier always-enforced fold: on by default; set ADHERENCE_ALWAYS_ENFORCED=0
+    // to disable the union (e.g. a clean parity run vs the pre-fold recorded recipe).
+    alwaysEnforced: process.env.ADHERENCE_ALWAYS_ENFORCED !== "0",
     openaiKey:
       process.env.OPENAI_API_KEY || loadOpenAIKeyFromEnvFile(process.env.ADHERENCE_OPENAI_ENV ?? ""),
   };
