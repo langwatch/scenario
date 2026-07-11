@@ -46,6 +46,7 @@ import { extractActionLog } from "./normalize.ts";
 import {
   classifyRun,
   readHookLog,
+  extractSubjectModel,
   summarizeHooks,
   checkpoint,
   type SessionCheckpoint,
@@ -212,6 +213,8 @@ async function runFull(sandbox: Sandbox, openaiKey: string | undefined): Promise
   const report = judge.lastReport;
   const substrate = readSubstrate(sandbox.workDir);
   const actions = extractActionLog(substrate);
+  // Owner requirement: the resolved subject model is a LOGGED VARIABLE every run.
+  const subjectModel = extractSubjectModel(substrate).join(",") || "unknown";
   const acct = classifyRun(substrate);
   const hooks = summarizeHooks(readHookLog(sandbox.hookLog));
 
@@ -226,7 +229,7 @@ async function runFull(sandbox: Sandbox, openaiKey: string | undefined): Promise
     turnCounts: acct,
     hooks: { ...hooks, events: undefined } as unknown as SessionCheckpoint["hooks"],
     report,
-    notes: [`judge model actually used: ${actualJudgeModel}`, `scenario.run success=${result.success}`],
+    notes: [`subject model resolved: ${subjectModel}`, `judge model actually used: ${actualJudgeModel}`, `scenario.run success=${result.success}`],
   };
   checkpoint(join(sandbox.root, "checkpoint.json"), cp);
 
@@ -242,7 +245,8 @@ async function runFull(sandbox: Sandbox, openaiKey: string | undefined): Promise
   const compiles = hooks.events.filter((e) => e.mode === "h1-compile" && e.event === "userpromptsubmit");
   for (const c of compiles) log(`  compile turn: retrieved=[${(c.retrieved ?? []).join(", ")}] haikuStatus=${c.haikuStatus}`);
 
-  log(`\njudge model ......... ${actualJudgeModel}`);
+  log(`\nsubject model ....... ${subjectModel}  (claude -p resolved — logged variable)`);
+  log(`judge model ......... ${actualJudgeModel}`);
   if (!report) {
     log("judge report ........ (none — run may have aborted before judgment)");
   } else if (report.belowFloor) {

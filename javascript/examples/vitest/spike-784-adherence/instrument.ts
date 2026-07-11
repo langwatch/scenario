@@ -84,6 +84,26 @@ export function classifyRun(turns: NormalizedTurn[]): RunAccounting {
   return { total: turns.length, excluded, judged: Math.max(0, turns.length - excluded), hardError, reasons };
 }
 
+/**
+ * The subject model(s) the `claude -p` session actually RESOLVED to, read from
+ * the tee'd stream-json (the `system:init` event's `model` + each assistant
+ * `message.model`). Owner requirement (2026-07-11): the resolved subject model is
+ * a LOGGED VARIABLE on every run — it is the independent variable of the
+ * model-sweep arm, and `claude -p` with no `--model` resolves to the box default
+ * (observed: `claude-opus-4-8`), which must be recorded, not assumed. Returns the
+ * distinct set (usually one; a `[1m]`-context variant can co-occur).
+ */
+export function extractSubjectModel(turns: NormalizedTurn[]): string[] {
+  const models = new Set<string>();
+  for (const t of turns) {
+    const raw = t.raw as Record<string, unknown>;
+    if (typeof raw["model"] === "string") models.add(raw["model"] as string);
+    const msg = raw["message"] as Record<string, unknown> | undefined;
+    if (msg && typeof msg["model"] === "string") models.add(msg["model"] as string);
+  }
+  return [...models];
+}
+
 // ---------------------------------------------------------------------------
 // H1 hook-log summary.
 // ---------------------------------------------------------------------------

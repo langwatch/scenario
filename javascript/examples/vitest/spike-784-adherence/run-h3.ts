@@ -47,6 +47,7 @@ import {
   readHookLog,
   summarizeHooks,
   summarizeH3,
+  extractSubjectModel,
   checkpoint,
   type SessionCheckpoint,
 } from "./instrument.ts";
@@ -195,6 +196,8 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
     const report = judge.lastReport;
     const substrate = readSubstrate(sandbox.workDir);
     const actions = extractActionLog(substrate);
+    // Owner requirement: the resolved subject model is a LOGGED VARIABLE every run.
+    const subjectModel = extractSubjectModel(substrate).join(",") || "unknown";
     const acct = classifyRun(substrate);
     const hookEvents = readHookLog(sandbox.hookLog);
     const hooks = summarizeHooks(hookEvents);
@@ -212,6 +215,7 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
       hooks: { ...hooks, events: undefined } as unknown as SessionCheckpoint["hooks"],
       report,
       notes: [
+        `subject model resolved: ${subjectModel}`,
         `judge model actually used: ${actualJudgeModel}`,
         `scenario.run success=${result.success}`,
         `H3 blocks=${h3.blocks} retryForcedCompletion=${h3.retryForcedCompletion} capHit=${h3.capHit}`,
@@ -246,7 +250,8 @@ async function runFull(openaiKey: string | undefined): Promise<void> {
       log(`    ${t.decision.padEnd(28)} enforced=[${t.enforced.join(", ")}] blocked=[${t.blockedProcs.join(", ")}] retry=${t.retry ?? "-"} verdicts={${verdicts}} stopHookActive=${t.stopHookActive}`);
     }
 
-    log(`\njudge model ......... ${actualJudgeModel}`);
+    log(`\nsubject model ....... ${subjectModel}  (claude -p resolved — logged variable)`);
+    log(`judge model ......... ${actualJudgeModel}`);
     if (!report) {
       log("judge report ........ (none — run may have aborted before judgment)");
     } else if (report.belowFloor) {
