@@ -54,6 +54,7 @@ import { ensureTranscriptDir, writeTeeShim, TRANSCRIPT_SUBDIR } from "./tee-subs
 import { materializeBaseline } from "./strategies/baseline.ts";
 import { materializeH1 } from "./strategies/h1.ts";
 import { materializeH2 } from "./strategies/h2.ts";
+import { materializeH3 } from "./strategies/h3.ts";
 import type { MaterializeCtx, StrategyMaterialization } from "./strategies/common.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -73,7 +74,7 @@ export const CORPUS_DIR = join(HERE, "corpus");
 const SANDBOX_ROOT = process.env.ADHERENCE_SANDBOX_ROOT ?? join(tmpdir(), "adherence-784-sandboxes");
 const HOOKS_LIB_SRC = join(HERE, "strategies", "hooks-lib.mjs");
 
-export type StrategyName = "baseline" | "h1" | "h2";
+export type StrategyName = "baseline" | "h1" | "h2" | "h3";
 
 export interface Sandbox {
   runId: string;
@@ -138,10 +139,14 @@ export function buildSandbox(
     retrievalK?: number;
     haikuModel?: string;
     corpusDir?: string;
-    /** AUTHORED applicable ids for the scenario (H2 Stop-hook enforcement denominator). */
+    /** AUTHORED applicable ids for the scenario (H2/H3 Stop-hook enforcement denominator). */
     applicable?: string[];
-    /** H2 mandatory-retry cap (default 3). */
+    /** H2/H3 mandatory-retry cap (default 3). */
     retryCap?: number;
+    /** H3-only: the OpenAI model id the per-procedure Stop gate judges on (gpt-5.1). */
+    judgeModel?: string;
+    /** H3-only: path to the gitignored .env the Stop hook reads OPENAI_API_KEY from. */
+    openaiEnvPath?: string;
   } = {},
 ): Sandbox {
   const runId = opts.runId ?? `${strategy}-${Date.now()}`;
@@ -186,18 +191,23 @@ export function buildSandbox(
     retrievalK: opts.retrievalK ?? 8,
     haikuModel: opts.haikuModel ?? "claude-haiku-4-5",
     nodeBin: which("node"),
-    // H2-only: the tee'd substrate dir the Stop hook scores from + the authored
-    // applicable denominator + the retry cap. Harmless for baseline/h1 (unused).
+    // H2/H3-only: the tee'd substrate dir the Stop hook scores from + the
+    // authored applicable denominator + the retry cap. Harmless for
+    // baseline/h1 (unused). H3 also uses judgeModel + openaiEnvPath.
     transcriptDir,
     applicable: opts.applicable,
     retryCap: opts.retryCap,
+    judgeModel: opts.judgeModel,
+    openaiEnvPath: opts.openaiEnvPath,
   };
   const materialized =
-    strategy === "h2"
-      ? materializeH2(ctx)
-      : strategy === "h1"
-        ? materializeH1(ctx)
-        : materializeBaseline(ctx);
+    strategy === "h3"
+      ? materializeH3(ctx)
+      : strategy === "h2"
+        ? materializeH2(ctx)
+        : strategy === "h1"
+          ? materializeH1(ctx)
+          : materializeBaseline(ctx);
   writeFileSync(
     join(configDir, "settings.json"),
     JSON.stringify(

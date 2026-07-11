@@ -111,10 +111,29 @@ export function scenarioTurns(s: ContextLoadScenario = contextLoadScenario): str
 }
 
 /**
- * Seed the CLEAN project cwd with minimal back-office state so the target
- * procedure's steps are ENACTABLE as real tool actions (read the charge, write a
- * refund record, update the ledger). Neutral filenames — nothing names a
- * procedure, so the cwd cannot leak the corpus (L2). Distractor requests need no
+ * Seed the CLEAN project cwd with minimal back-office state so BOTH target
+ * procedures' steps are ENACTABLE as real tool actions:
+ *   - `handle-refund`: read the charge (state/charge-8842.json), the returned
+ *     order (state/orders/ord_8842.json), and the ledger (state/ledger.jsonl).
+ *   - `reconcile-invoice` (the transitive hand-off): read the invoice
+ *     (state/invoice-8842.json) and the reconciliation report
+ *     (state/reconciliation-8842.json), resolve the seeded discrepancy (the
+ *     invoice balance still shows the pre-refund 129.90 vs the report's
+ *     source-of-truth 0.00), and confirm the settlement flag
+ *     (state/settlement-8842.json, `settled:false` → `true`).
+ *
+ * The `reconcile-invoice` artifacts (invoice + reconciliation report +
+ * settlement flag — the procedure's `## Inputs and outputs`) were ADDED for H3:
+ * across baseline/H1/H2 `reconcile-invoice` was `followed=false` every time and
+ * its artifacts were NOT seeded, so the dropped hand-off was ALSO under-enactable
+ * (a confound). Without this seed, H3's per-procedure block fires correctly on
+ * `reconcile-invoice` but the subject cannot satisfy it → cap-hit, not a flip.
+ * All three are tied to the SAME order/charge (ord_8842 / ch_8842) so the refund
+ * → reconcile chain is concrete.
+ *
+ * Neutral filenames — none is a procedure id (`reconcile-invoice`/`handle-refund`
+ * never appear), so the cwd still cannot leak the corpus (L2); they parallel the
+ * pre-existing `charge-8842.json` object-noun style. Distractor requests need no
  * seeded state (they are load; the subject investigates and finds nothing).
  */
 export function seedProject(projectDir: string): string[] {
@@ -149,6 +168,53 @@ export function seedProject(projectDir: string): string[] {
       JSON.stringify({ entry: "e_2001", ref: "ch_8842", type: "charge", amount: 129.9, balance: 129.9 }),
       JSON.stringify({ entry: "e_2002", ref: "misc", type: "charge", amount: 42.0, balance: 171.9 }),
     ].join("\n") + "\n",
+  );
+
+  // --- reconcile-invoice artifacts (the transitive hand-off; ADDED for H3) ---
+  // The invoice: its `## Inputs and outputs` (line items, tax summary, payment
+  // reference, balance). balance still shows the PRE-refund 129.90 — the seeded
+  // discrepancy the subject must resolve (procedure step 3).
+  put(
+    "state/invoice-8842.json",
+    JSON.stringify(
+      {
+        invoice_id: "inv_8842",
+        order_id: "ord_8842",
+        payment_reference: "ch_8842",
+        line_items: [{ sku: "SKU-114", qty: 1, amount: 129.9 }],
+        tax_summary: { rate: 0.0, tax: 0.0, total_tax: 0.0 },
+        balance: 129.9,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  // The reconciliation report = the source of truth to gather the invoice from
+  // and compare the balance against (steps 1-2). After the full refund of
+  // ch_8842, the source-of-truth balance is 0.00 — hence the discrepancy above.
+  put(
+    "state/reconciliation-8842.json",
+    JSON.stringify(
+      {
+        report_id: "rec_8842",
+        order_id: "ord_8842",
+        payment_reference: "ch_8842",
+        source_of_truth_balance: 0.0,
+        expected_line_items: [{ sku: "SKU-114", qty: 1, amount: 129.9, returned: true }],
+        note: "Order ord_8842 was returned and charge ch_8842 refunded in full; the invoice balance must be brought into agreement at 0.00 and the settlement confirmed.",
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  // The settlement flag the subject confirms (step 4): flip settled false → true.
+  put(
+    "state/settlement-8842.json",
+    JSON.stringify(
+      { order_id: "ord_8842", payment_reference: "ch_8842", settled: false, settled_at: null },
+      null,
+      2,
+    ) + "\n",
   );
   return written;
 }

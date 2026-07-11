@@ -39,8 +39,22 @@ export interface MaterializeCtx {
    * never blocked. Only H2 uses it.
    */
   applicable?: string[];
-  /** H2 mandatory-retry cap: max Stop-hook blocks per turn before it releases. */
+  /** H2/H3 mandatory-retry cap: max Stop-hook blocks per turn before it releases. */
   retryCap?: number;
+  /**
+   * H3-only: the strong-model id the PER-PROCEDURE Stop gate runs (OpenAI
+   * `gpt-5.1`, never the Anthropic bucket). The gate makes one action-log
+   * `followed` check per enforced procedure — the SAME action-only judgment
+   * `judge-core` runs — so gate-pass ≡ judge-pass by construction.
+   */
+  judgeModel?: string;
+  /**
+   * H3-only: absolute path to the gitignored `.env` the Stop hook reads
+   * `OPENAI_API_KEY` from at hook time (the key VALUE is never baked into
+   * `settings.json`, only this path). The hook falls back to `OPENAI_API_KEY`
+   * in its own env first.
+   */
+  openaiEnvPath?: string;
 }
 
 /** One Claude Code `command` hook entry. */
@@ -54,7 +68,7 @@ export interface HookCommand {
 export type HooksBlock = Record<string, Array<{ matcher: string; hooks: HookCommand[] }>>;
 
 export interface StrategyMaterialization {
-  name: "baseline" | "h1" | "h2";
+  name: "baseline" | "h1" | "h2" | "h3";
   hooks: HooksBlock;
 }
 

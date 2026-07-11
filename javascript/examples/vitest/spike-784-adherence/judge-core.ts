@@ -411,9 +411,11 @@ function mapAttribution(
 ): Attribution {
   if (followed) return "none";
   if (!surfaced) return "retrieval-miss";
-  // H2 reuses H1's compile hook verbatim, so it shares H1's attribution semantics:
-  // a surfaced procedure the compiled sheet did NOT name is instruction-sheet-miss.
-  if ((strategy === "h1" || strategy === "h2") && !inSheet) return "instruction-sheet-miss";
+  // H2/H3 reuse H1's compile hook verbatim, so they share H1's attribution
+  // semantics: a surfaced procedure the compiled sheet did NOT name is
+  // instruction-sheet-miss.
+  if ((strategy === "h1" || strategy === "h2" || strategy === "h3") && !inSheet)
+    return "instruction-sheet-miss";
   return "agent-override";
 }
 
