@@ -18,6 +18,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { Chain } from "../types.ts";
+import { contextLoadProveScenario, seedProveProject } from "./context-load-prove.ts";
 
 /** A distractor turn and the DISTINCT procedure family its keywords evoke (AC4). */
 export interface Distractor {
@@ -515,6 +516,10 @@ export const SCENARIOS: Record<string, ScenarioBundle> = {
   "context-load-refund": { scenario: contextLoadScenario, seed: seedProject },
   "context-load-vendor": { scenario: contextLoadVendorScenario, seed: seedVendorProject },
   "context-load-credential": { scenario: contextLoadCredentialScenario, seed: seedCredentialProject },
+  // #784 improvised/rubric variant (judgment work — the PROVE-PROCEDURE). Authored
+  // in a separate file to keep this shared registry low-conflict; the rubric-scored
+  // artifact half is handled by run-prove.ts (the action judge alone cannot see it).
+  "context-load-prove": { scenario: contextLoadProveScenario, seed: seedProveProject },
 };
 
 /** Resolve the scenario bundle by id (env ADHERENCE_SCENARIO); defaults to the refund scenario. */
