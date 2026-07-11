@@ -94,6 +94,8 @@ The binding constraint is no longer a strategy — it is the **test**. Until bas
 
 **Pick: build + calibrate the discriminating scenario next** (deeper chain, seeded, baseline<1.0). This is a build, not a one-shot run — the prior arms proved the harness; the missing piece is a test with headroom. Re-rank after baseline-seeded<1.0 is confirmed.
 
+**⚠ Design constraint discovered while building it (see FINDINGS §j — a validity finding).** The subject has NO corpus access, and on the refund target turn `reconcile-invoice` was NOT in baseline's retrieved top-8 — so the transitive hand-off was scored `followed=true` with its procedure text NEVER in context: the subject improvised the steps from the seeded discrepancy (invoice balance wrong + settlement false). "Adherence" for the hand-off has thus been conflating *followed-the-written-procedure* with *did-the-obvious-seed-telegraphed-work*. The discriminating scenario MUST therefore make each chain procedure both **available** (its body injected/retrievable when named — the deep hops `provision-account` rank 47 / `grant-access` rank 11 are NOT co-retrieved, so a naive deep chain is *unfollowable*, not discriminating) AND **necessary** (a non-telegraphing seed — the correct action is a specific value/order/side-effect the seed does not imply, so the subject must consult the procedure text). Prerequisite corpus fix for the 3-hop is done (57a080b); the availability + non-telegraphing controls are the real design work.
+
 ### H3 (original proposal)
 
 ### H3 (original proposal)
