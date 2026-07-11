@@ -1,0 +1,74 @@
+{
+  "scenarioId": "context-load-prove",
+  "strategy": "h5",
+  "startedAt": "2026-07-11T13:05:11.627Z",
+  "updatedAt": "2026-07-11T13:05:11.627Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/h5-1783774823938/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/h5-1783774823938",
+  "turnCounts": {
+    "total": 146,
+    "excluded": 4,
+    "judged": 142,
+    "hardError": false,
+    "reasons": [
+      {
+        "index": 2,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 67,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 103,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 119,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      }
+    ]
+  },
+  "hooks": {
+    "fired": 10,
+    "compileCalls": 0,
+    "verifyCalls": 0,
+    "baselineRetrievals": 4,
+    "haiku200s": 0,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "prove-finding",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent read the prior decision record and reference material, examined the incident evidence and deploy/change history, wrote a detailed substantiated finding with cause, evidence, violated decision, and remediation to analysis-4471.md, and then reread and edited that findings file to refine and confirm its contents."
+      }
+    ],
+    "applicableCount": 1,
+    "followedCount": 1,
+    "adherenceRate": 1,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-opus-4-8[1m],claude-opus-4-8",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=true",
+    "ACTION prove-finding followed=true",
+    "RUBRIC artifact=expected-path score=4/4 passed=true model=gpt-5.1",
+    "RUBRIC perCriterion=identifies_actual_cause=true cites_specific_evidence=true proposes_concrete_fix=true no_unsupported_claims=true",
+    "H4 blocks=0 retryForcedCompletion=false capHit=false decisions=[]",
+    "H5 fires=6 blocks=2 noopAllows=0 retryForcedCompletion=true capHit=false decisions=[block, allow-complete-after-retry, block, allow-complete-after-retry, allow-complete, allow-complete]"
+  ]
+}
