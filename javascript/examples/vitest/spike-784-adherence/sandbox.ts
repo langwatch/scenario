@@ -41,6 +41,7 @@ import {
   existsSync,
   mkdirSync,
   realpathSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -73,6 +74,83 @@ export const CORPUS_DIR = join(HERE, "corpus");
  */
 const SANDBOX_ROOT = process.env.ADHERENCE_SANDBOX_ROOT ?? join(tmpdir(), "adherence-784-sandboxes");
 const HOOKS_LIB_SRC = join(HERE, "strategies", "hooks-lib.mjs");
+
+// ---------------------------------------------------------------------------
+// LangWatch OTLP telemetry (dogfood — sol.langwatch-cc-governance-otlp-setup).
+// Fleet governance pattern EXACTLY: OTEL env block in the SANDBOX's OWN
+// .claude/settings.json; the ik-lw- INGESTION-key Bearer in a gitignored
+// .claude/settings.local.json. HARD-SCOPED to this disposable sandbox tree
+// (which lives under the /tmp sandbox root — OUTSIDE the repo, so the secret is
+// never committed); never the box-wide ~/.claude, the repo, or another session.
+// FIRE-AND-FORGET: keyed on the ik-lw- key being present (fail-open → no key =
+// telemetry OFF = experiment behavior UNCHANGED); JSONL stays authoritative.
+// Per-run attribution via resource attributes.
+// ---------------------------------------------------------------------------
+
+const LW_OTLP_ENDPOINT = "https://app.langwatch.ai/api/otel";
+
+/**
+ * Read the `ik-lw-` OTLP ingestion key from `LANGWATCH_INGESTION_KEY` (env) or the
+ * gitignored external `.env` (same file the OpenAI key rides, OUTSIDE this repo).
+ * Fail-open: absent/malformed key ⇒ undefined ⇒ NO telemetry (experiment
+ * unchanged). Only an `ik-lw-` key is accepted — never the `sk-lw-` read key.
+ */
+function loadIngestionKey(): string | undefined {
+  const direct = process.env.LANGWATCH_INGESTION_KEY;
+  if (direct && direct.startsWith("ik-lw-")) return direct.trim();
+  const envPath =
+    process.env.ADHERENCE_OPENAI_ENV ?? "/home/ubuntu/langwatch-workspace/scenario-050-repro/.env";
+  try {
+    const line = readFileSync(envPath, "utf8")
+      .split("\n")
+      .find((l) => l.startsWith("LANGWATCH_INGESTION_KEY="));
+    const k = line?.slice("LANGWATCH_INGESTION_KEY=".length).replace(/^["']|["']$/g, "").trim();
+    return k && k.startsWith("ik-lw-") ? k : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Build the OTEL wiring for one sandbox, or null if no ingestion key is available
+ * (fail-open). Returns the NON-secret `env` block for settings.json and the
+ * secret-bearing settings.local.json object. Clobber-survival (doc gotcha #1):
+ * `OTEL_RESOURCE_ATTRIBUTES` is a single env var and settings.local OUTRANKS
+ * settings.json, so the local layer carries ALL attribution tags.
+ */
+function otelWiring(
+  strategy: string,
+  runId: string,
+  scenario: string,
+): { settingsEnv: Record<string, string>; local: { env: Record<string, string> } } | null {
+  const key = loadIngestionKey();
+  if (!key) return null;
+  const baseAttrs = `project.repo=langwatch/scenario,experiment=sc784,strategy=${strategy},scenario=${scenario},run.id=${runId}`;
+  const fullAttrs = `${baseAttrs},enduser.id=andrew@langwatch.ai`;
+  return {
+    settingsEnv: {
+      CLAUDE_CODE_ENABLE_TELEMETRY: "1",
+      OTEL_LOGS_EXPORTER: "otlp",
+      OTEL_METRICS_EXPORTER: "otlp",
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
+      OTEL_EXPORTER_OTLP_ENDPOINT: LW_OTLP_ENDPOINT,
+      // Content capture ON per Drew's directive ("tokens, cost, PROMPTS, RESPONSES")
+      // — this is the owner's own experiment on the owner's box (the doc's
+      // "repos you own" carve-out). Drop these four for usage-only.
+      OTEL_LOG_USER_PROMPTS: "1",
+      OTEL_LOG_TOOL_DETAILS: "1",
+      OTEL_LOG_TOOL_CONTENT: "1",
+      OTEL_LOG_RAW_API_BODIES: "1",
+      OTEL_RESOURCE_ATTRIBUTES: baseAttrs,
+    },
+    local: {
+      env: {
+        OTEL_EXPORTER_OTLP_HEADERS: `Authorization=Bearer ${key}`,
+        OTEL_RESOURCE_ATTRIBUTES: fullAttrs,
+      },
+    },
+  };
+}
 
 export type StrategyName = "baseline" | "h1" | "h2" | "h3";
 
@@ -208,6 +286,10 @@ export function buildSandbox(
         : strategy === "h1"
           ? materializeH1(ctx)
           : materializeBaseline(ctx);
+  // LangWatch OTLP telemetry (fail-open: null when no ik-lw- key → no env block,
+  // no settings.local.json, experiment behavior UNCHANGED). Scenario tag from the
+  // runner's ADHERENCE_SCENARIO (per-run attribution); strategy + runId are local.
+  const otel = otelWiring(strategy, runId, process.env.ADHERENCE_SCENARIO ?? "context-load-refund");
   writeFileSync(
     join(configDir, "settings.json"),
     JSON.stringify(
@@ -226,12 +308,21 @@ export function buildSandbox(
         // seed-file shape. See `.sandbox/h1-1783740882052/.transcript/4.stream.jsonl`.
         permissions: { allow: ["Edit", "Write"] },
         hooks: materialized.hooks,
+        // NON-secret OTEL config (endpoint + flags + 2-tag attribution); the
+        // Bearer + full attribution ride settings.local.json below.
+        ...(otel ? { env: otel.settingsEnv } : {}),
       },
       null,
       2,
     ),
     "utf8",
   );
+  // The secret (ik-lw- Bearer) → ONLY this sandbox's OWN .claude, which lives under
+  // the /tmp sandbox root (outside the repo → never committed). settings.local
+  // OUTRANKS settings.json, so its OTEL_RESOURCE_ATTRIBUTES carries ALL tags (gotcha #1).
+  if (otel) {
+    writeFileSync(join(configDir, "settings.local.json"), JSON.stringify(otel.local, null, 2), "utf8");
+  }
 
   // Tee shim = the claudeBin the adapter spawns.
   const shimPath = join(root, "claude-shim.sh");
