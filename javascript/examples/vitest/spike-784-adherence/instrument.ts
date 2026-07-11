@@ -277,6 +277,110 @@ export function summarizeH2(events: HookEvent[]): H2Summary {
 }
 
 // ---------------------------------------------------------------------------
+// H3 hook-log summary — the PER-PROCEDURE Stop gate (gate ≡ judge).
+// ---------------------------------------------------------------------------
+
+/** One enforced procedure's verdict from a single h3-verify Stop fire. */
+export interface H3PerProc {
+  id: string;
+  /** gpt-5.1 verdict for THIS procedure's own steps (null = judge errored → failed open). */
+  followed: boolean | null;
+  judgeOk: boolean;
+  missingSteps?: string[];
+  status?: number;
+  latencyMs?: number;
+}
+
+export interface H3Summary {
+  fires: number;
+  blocks: number;
+  /** Fires that allowed the stop with no per-procedure enforcement in play. */
+  noopAllows: number;
+  /** True iff some enforced turn reached completion only AFTER >=1 block. */
+  retryForcedCompletion: boolean;
+  /** True iff some enforced turn hit the retry cap without every proc followed. */
+  capHit: boolean;
+  /** True iff the per-procedure gate actually ran the judge on >=1 fire. */
+  enforcedAtLeastOnce: boolean;
+  /** Total per-procedure gpt-5.1 checks made across all enforced fires (bucket-free — OpenAI). */
+  judgeCalls: number;
+  /** Per-procedure checks that failed open (judgeOk=false — never block blind). */
+  judgeErrors: number;
+  decisions: string[];
+  /**
+   * The per-procedure trajectory of every ENFORCED fire — which procedures the
+   * gate judged followed/not, which it blocked on, and the retry index. This is
+   * the "did per-procedure gating block the SKIPPED proc while the well-served
+   * one passed" evidence — the exact discrimination H2's aggregate gate lacked.
+   */
+  trajectory: Array<{
+    decision: string;
+    enforced: string[];
+    enforcedVia?: string;
+    blockedProcs: string[];
+    retry?: number;
+    priorBlocks?: number;
+    perProc: H3PerProc[];
+    stopHookActive?: boolean;
+  }>;
+}
+
+/** Decisions where the per-procedure gate actually ran (perProc populated). */
+const H3_ENFORCED_DECISIONS = new Set([
+  "block",
+  "allow-complete",
+  "allow-complete-after-retry",
+  "allow-judge-partial",
+  "allow-cap-hit",
+  "allow-counter-unwritable",
+]);
+
+/**
+ * Summarize the H3 `h3-verify` Stop events. Captures how many times the
+ * per-procedure gate BLOCKED (naming the specific skipped procedure), whether a
+ * retry moved every enforced procedure to followed (`allow-complete-after-retry`),
+ * and whether the run cap-hit (`reconcile-invoice` under-enactable). The
+ * `judgeCalls`/`judgeErrors` counts are the bucket-free OpenAI gate cost.
+ */
+export function summarizeH3(events: HookEvent[]): H3Summary {
+  const fires = events.filter((e) => e.mode === "h3-verify" && e.event === "stop");
+  const decisions = fires.map((e) => String(e.decision ?? ""));
+  const enforcedFires = fires.filter((e) => H3_ENFORCED_DECISIONS.has(String(e.decision ?? "")));
+  const trajectory = enforcedFires.map((e) => ({
+    decision: String(e.decision ?? ""),
+    enforced: (e.enforced as string[]) ?? [],
+    enforcedVia: e["enforcedVia"] as string | undefined,
+    blockedProcs: (e["blockedProcs"] as string[]) ?? [],
+    retry: e["retry"] as number | undefined,
+    priorBlocks: e["priorBlocks"] as number | undefined,
+    perProc: (((e["perProc"] as unknown[]) ?? []) as Array<Record<string, unknown>>).map((p) => ({
+      id: String(p["id"] ?? ""),
+      followed: (p["followed"] ?? null) as boolean | null,
+      judgeOk: p["judgeOk"] === true,
+      missingSteps: p["missingSteps"] as string[] | undefined,
+      status: p["status"] as number | undefined,
+      latencyMs: p["latencyMs"] as number | undefined,
+    })),
+    stopHookActive: e["stopHookActive"] as boolean | undefined,
+  }));
+  const allPerProc = trajectory.flatMap((t) => t.perProc);
+  return {
+    fires: fires.length,
+    blocks: decisions.filter((d) => d === "block").length,
+    noopAllows: decisions.filter(
+      (d) => d === "allow-noop" || d === "allow-no-substrate" || d === "allow-judge-unavailable",
+    ).length,
+    retryForcedCompletion: decisions.includes("allow-complete-after-retry"),
+    capHit: decisions.includes("allow-cap-hit"),
+    enforcedAtLeastOnce: enforcedFires.length > 0,
+    judgeCalls: allPerProc.length,
+    judgeErrors: allPerProc.filter((p) => !p.judgeOk).length,
+    decisions,
+    trajectory,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Per-session checkpoint (survives an abort).
 // ---------------------------------------------------------------------------
 

@@ -15,7 +15,7 @@ demonstrations, not powered claims.
 | baseline | fair BM25 body-injection (`UserPromptSubmit`) | **0.50** | — |
 | H1 | baseline + Haiku compile (binding sheet) + Haiku Stop-*verify* (observe-only) | **0.00** | −0.50 |
 | H2 | H1 compile + **BLOCKING** mechanical Stop hook w/ mandatory retry (cap 3) | **0.50** | +0.50 vs H1 / =baseline |
-| H3 (proposed) | H2 but the Stop gate is **per-procedure** (gate ≡ judge), + seed reconcile artifacts | — | — |
+| H3 | H2 + Stop gate **per-procedure** (gate ≡ judge) + **seeded** reconcile artifacts | **1.00** | +0.50 vs H2 — BUT blocks=0 (attributed to the SEED, not enforcement) |
 
 ---
 
@@ -53,7 +53,32 @@ demonstrations, not powered claims.
 
 ---
 
-## H3 (proposed — ranked next, CC-native) — per-procedure Stop gate (gate ≡ judge)
+## H3 (BUILT + de-risked; live run in flight) — per-procedure Stop gate (gate ≡ judge)
+
+- **Build status (2026-07-11, restart session).** Validated the wedged predecessor's untested WIP (commit e34ef6a) against this spec: `strategies/h3.ts`, `hooks-lib.mjs runH3Verify`, the sandbox wiring, and the `reconcile-invoice` seed (invoice + reconciliation report + settlement flag; balance 129.90 vs source-of-truth 0.00 → enactable) are all coherent. Finished the two missing pieces: `run-h3.ts` (clone of run-h2 that passes `judgeModel` + `openaiEnvPath` so the Stop hook can reach gpt-5.1 — omit `openaiEnvPath` and the gate fails-open → silent H1-degrade; run-h3 hard-errors instead) and `summarizeH3` in `instrument.ts`. Typecheck clean; `summarizeH3` smoke PASS.
+- **Pre-flight de-risk — PASS 14/14 (gpt-5.1, 0 Max bucket)** (`scratchpad/derisk-h3.mjs`, invokes the real `hooks-lib.mjs h3-verify` as CC would):
+  - **Case A (THE thesis):** `handle-refund` fully enacted + `reconcile-invoice` skipped → `decision=block`, `blockedProcs=[reconcile-invoice]` ONLY (handle-refund judged `followed=true`, reconcile `followed=false`). **The per-procedure gate blocks the skipped proc while the well-served one passes — exactly the discrimination H2's aggregate gate lacked.** Gate ≡ judge proven empirically.
+  - **Case B:** distractor turn (sheet names no applicable proc) → `allow-noop`, 0 OpenAI calls (correct scoping; distractor turns never cap-hit).
+  - **Case C:** both procedures enacted → `allow-complete` (gate releases when done; won't spuriously cap-hit).
+- **Live run result (gpt-5.1 judge) — adherence 2/2 = 1.00.** `handle-refund` followed=**true** (chain=true, attribution=none); `reconcile-invoice` followed=**true** (attribution=none). Sandbox `h3-1783754151895`; 127 substrate turns (28 tool actions: 14 tool_use / 14 tool_result), 4 excluded on the conservative `rate_limit_event` overage-quota line (idx 1/49/57/67 — org-overage flag, NOT a session throttle; run success=true, status=`judged`, above floor). Compile 4/4 Haiku 200; target-turn `compiledIds=[escalate-ticket, handle-refund, reconcile-invoice]` (both applicable named → enforcement correctly scoped).
+  - **JUDGE-FREE PROOF (on-disk sandbox state, captured before cleanup):** `invoice-8842.json` balance **129.90 → 0** (+ `refund_reference`, `reconciled_at`); `settlement-8842.json` `settled` **false → true**; `refund-8842.json` **created** (`status:"settled"`, full 129.90); ledger updated. Both procedures genuinely enacted — not a judge hallucination. (`handle-refund` step 3 "record the original charge" satisfied via the refund record + ledger; the subject left `charge-8842.json` status `captured` — recorded, not mutated — which the judge accepted.)
+- **⚠ ATTRIBUTION — the 1.00 is NOT an enforcement effect; it is the SEED (enactability), same trap as H2.** The per-procedure Stop gate fired 4× = `[allow-noop, allow-noop, allow-noop, allow-complete]` — **0 blocks**, `retryForcedCompletion=false`, `capHit=false`. On the target turn both per-proc gpt-5.1 checks already returned `followed=true` → `allow-complete` (judgeCalls=2, judgeErrors=0). So the enforcement machinery **never engaged** (exactly like H2's blocks=0). The lever that flipped `reconcile-invoice` from H2's `followed=false` to H3's `followed=true` is the **SEED**: H3 added `reconcile-invoice`'s invoice/reconciliation/settlement artifacts (absent in baseline/H1/H2 → the hand-off was *under-enactable* there), so the subject could — and did — enact it unforced, with the compile sheet binding both. The blocking gate was a **correct-but-unexercised safety net** (de-risk Case A proved LIVE it WOULD block a real `reconcile-invoice` miss and name only it; this run simply had no miss to catch).
+- **⚠ CONFOUND — the head-to-head is not clean.** H3 changed **two** things vs H2 (per-procedure gate **and** the seed). With blocks=0, the **seed alone plausibly explains the whole flip**, so "H3 1.00 vs H2 0.50" does not isolate the gate. Prior `baseline=0.50 / H1=0.00 / H2=0.50` are on the **UN-seeded** scenario and are no longer directly comparable to H3=1.00 on the **seeded** scenario. Clean attribution requires re-running baseline (± H1) on the seeded scenario — see "next hypothesis" below.
+- **Honesty:** n=1 demonstration, not a powered claim. The goal (100% adherence under load) WAS met on this run (2/2, buried target under 127 turns of distractor load) — but via enactability + compile, with the credited enforcement component unexercised.
+- 🐕 **Dogfood flag:** the sandbox has no `LANGWATCH_API_KEY`, so the H3 session emitted NO LangWatch telemetry ("Simulations will only output final results") — fell back to local JSONL + `checkpoint.json` (permitted by the instrumentation amendment). The adherence-vs-context/corpus curves are not LW-derivable for this run.
+
+## Next hypothesis (generated from H3's attribution) — isolate the SEED vs compile vs enforcement
+
+H3 hit 1.00 but with **blocks=0** (enforcement unexercised) — the second consecutive arm where the Stop gate never fired, so the win is attributed to the **seed** making the transitive hand-off enactable. Two candidate next runs, ranked by P(advancing the fixed goal = *reliable* 100% under load, and by information gained):
+
+1. **H3-attr (highest P + highest info): re-run BASELINE on the SEEDED scenario (n=1, cheap — no Haiku hooks, 1 subject session).** Tests the confound head-on: if baseline-seeded ≈ 1.0, the enactability confound explains the entire H2→H3 flip and neither compile nor enforcement is load-bearing here (a major, clarifying negative). If baseline-seeded < 1.0 (drops the enactable hand-off anyway), then compile and/or the gate DO matter, and H3's 1.00 is not purely the seed. Either outcome sharpens the next mutation. **Lowest bucket cost of any option** (baseline draws no Haiku).
+2. **H-enforce-proof: a scenario where the subject reliably MISSES without the net** (harder load, or a second applicable procedure whose artifacts are deliberately left un-seeded / harder to discover) so the per-procedure gate MUST fire to reach 100% — the definitive live proof that enforcement is load-bearing *for the goal* (de-risk Case A already proved the block mechanism works in isolation; this would prove it flips a real run). Higher bucket cost (H3 arm = compile Haiku + subject).
+
+**Pick: run H3-attr (baseline-seeded) next** — cheapest, and it directly resolves whether the 100% is the seed or the strategy before spending more bucket on enforcement-proof. Re-rank after its result.
+
+### H3 (original proposal)
+
+### H3 (original proposal)
 
 - **Statement.** Keep H2's compile + BLOCKING Stop hook + retry cap, but replace the *aggregate* completion criterion with a **PER-PROCEDURE** one: for EACH applicable procedure the sheet named, independently check whether ITS OWN steps were enacted, and BLOCK (naming that procedure's steps) if any one is not — so the gate cannot be satisfied by piling work onto a single procedure.
 - **Mutation over H2.** Completion check: aggregate `Σ`-thresholds → per-procedure evidence. Highest-P(success) realization: make the gate **≡ the judge** — one cheap `gpt-5.1` action-log check *per enforced procedure* at each Stop fire (the same action-only `followed` logic `judge-core` already runs), block on any `followed=false`. Then gate-pass ≡ judge-pass **by construction**, so the block engages exactly when (and only when) the run would otherwise miss. A bucket-free alternative (H3-lite): per-procedure **artifact-anchored** mechanical gate — require ≥1 action touching that procedure's `## Inputs and outputs` artifacts (for `reconcile-invoice`: invoice / reconciliation report / settlement flag).
