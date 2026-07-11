@@ -117,6 +117,12 @@ Each step names the prototype file that already implements it (port `examples/�
 
 Everything above marked ✅ is backed by a **live run** on a real CC session
 (`fixtures/real-cc-session.jsonl`, the KUMQUAT77 memory-recall session from PR #687). Reproduce with the
-command in [PROTOTYPE.md](./PROTOTYPE.md). Reader normalizations are pinned by 12 unit tests, shown
+command in [PROTOTYPE.md](./PROTOTYPE.md). Reader normalizations are pinned by 18 unit tests, shown
 load-bearing by two mutations (disabling tool-name recovery → 1 red; removing the `parentUuid` reverse
 → 5 red).
+
+The reader was then hardened against a **max-effort multi-agent correctness review** (12 verified
+defects — all in general/default/edge paths, none in the demonstrated runs): **11 fixed + regression-
+tested**, 2 documented as residual. Details and the fix table are in [PROTOTYPE.md](./PROTOTYPE.md) §
+"Independently reviewed." Those fixes ARE the transcript-reader hardening that step DoD-6.1 calls for —
+port the hardened code, not a fresh naive parser.

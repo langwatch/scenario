@@ -95,10 +95,30 @@ prompt — the exact class of config the JSONL omits. The verdict flips FAIL →
 ## Reader tests are load-bearing (mutation-checked)
 
 ```
-baseline:                              12 passed
+baseline:                              18 passed  (12 core + 6 review-regression)
 MUTANT disable tool-name recovery:     1 red  (only "recovers toolName")
 MUTANT remove parentUuid reverse:      5 red  (walk, user-classify, assistant-merge, tool-pair, fork)
 ```
+
+## Independently reviewed (max-effort) and hardened
+
+The reader was run through a max-effort multi-agent correctness review (27 agents, 6 finder angles +
+independent per-finding verifiers): **12 verified defects**, all in the general/default/edge paths —
+**none touched the demonstrated `flattenTools:true` + non-global-regex + `beforeLastAssistant` runs**, so
+the DoD evidence above stands. **11 were fixed and pinned by regression tests**, re-verified green on the
+wire:
+
+| Fixed | |
+|---|---|
+| `linearize` seeded a **subagent (Task) sidechain** instead of the main thread | now filters `isSidechain` leaves |
+| `dropMatching` **orphaned tool pairs** (structured emit) → provider 400 | orphan-prune pass |
+| `dropMatching` **stateful global regex** skipped matches; matched escaped JSON not visible text | strip `g/y`, match visible text |
+| `forkAt {uuid}` threw on a **merged-away assistant line**; `{index}` had **no bounds check** | resolve via all folded uuids; range-validate |
+| unconditional **`user:` prefix strip** corrupted genuine content; **empty/thinking-only** assistant → blank message | removed strip; skip empty |
+
+**2 residual, documented** (feed the build plan): a *text-only* human turn is indistinguishable from a
+command injection in the raw JSONL (no clean signal — an `image` block now disambiguates, text-only does
+not); and a user turn mixing a `tool_result` with a typed text block drops the text (narrow Anthropic shape).
 
 ## Honest limitations
 

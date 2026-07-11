@@ -53,21 +53,78 @@ export interface SeededScenario {
     toolResultTurns: number;
     assistantTurns: number;
     forkTurnIndex: number;
+    prunedOrphanToolParts: number;
   };
 }
 
 function forkIndex(turns: NormalizedTurn[], forkAt: ForkAt | undefined): number {
   if (forkAt && "uuid" in forkAt) {
-    const i = turns.findIndex((t) => t.uuid === forkAt.uuid);
+    // match against ALL source uuids folded into a turn, so a uuid pointing at a merged-away
+    // (non-first) line of a same-message.id assistant still resolves to its turn.
+    const i = turns.findIndex((t) => t.uuids.includes(forkAt.uuid));
     if (i < 0) throw new Error(`forkAt uuid ${forkAt.uuid} not found in transcript`);
     return i;
   }
-  if (forkAt && "index" in forkAt) return forkAt.index;
+  if (forkAt && "index" in forkAt) {
+    const idx = forkAt.index;
+    if (!Number.isInteger(idx) || idx < 0 || idx > turns.length) {
+      throw new Error(`forkAt index ${idx} out of range [0, ${turns.length}]`);
+    }
+    return idx;
+  }
   // default: beforeLastAssistant — the last assistant turn is the "next turn" the live agent replaces
   for (let i = turns.length - 1; i >= 0; i--) {
     if (turns[i].role === "assistant") return i;
   }
   return turns.length; // no assistant turn → seed everything
+}
+
+/** Visible text of a ModelMessage — what a human wrote/read, incl. tool inputs/outputs — for
+ *  dropMatching to test against (NOT JSON.stringify, whose escaping breaks anchors/special chars). */
+function messageText(m: ModelMessage): string {
+  if (typeof m.content === "string") return m.content;
+  if (!Array.isArray(m.content)) return "";
+  return (m.content as any[])
+    .map((p) => {
+      if (p.type === "text") return p.text ?? "";
+      if (p.type === "tool-call") return JSON.stringify(p.input ?? {});
+      if (p.type === "tool-result") return typeof p.output?.value === "string" ? p.output.value : JSON.stringify(p.output);
+      return "";
+    })
+    .join("\n");
+}
+
+/** Remove tool parts left dangling after a drop/fork: a tool-result whose tool-call was removed,
+ *  or a tool-call whose result was removed. Otherwise the provider rejects the message list
+ *  (400: tool result with no matching call). No-op for the flattened (string-content) seed. */
+function pruneOrphanToolParts(msgs: ModelMessage[]): { messages: ModelMessage[]; pruned: number } {
+  const callIds = new Set<string>();
+  const resultIds = new Set<string>();
+  for (const m of msgs) {
+    if (Array.isArray(m.content)) {
+      for (const p of m.content as any[]) {
+        if (p.type === "tool-call") callIds.add(p.toolCallId);
+        if (p.type === "tool-result") resultIds.add(p.toolCallId);
+      }
+    }
+  }
+  let pruned = 0;
+  const out: ModelMessage[] = [];
+  for (const m of msgs) {
+    if (!Array.isArray(m.content)) {
+      out.push(m);
+      continue;
+    }
+    const kept = (m.content as any[]).filter((p) => {
+      if (p.type === "tool-call" && !resultIds.has(p.toolCallId)) return false;
+      if (p.type === "tool-result" && !callIds.has(p.toolCallId)) return false;
+      return true;
+    });
+    pruned += (m.content as any[]).length - kept.length;
+    if (kept.length === 0) continue; // drop a now-empty message
+    out.push({ ...m, content: kept } as ModelMessage);
+  }
+  return { messages: out, pruned };
 }
 
 export function buildScenarioFromTranscript(path: string, opts: FromTranscriptOptions = {}): SeededScenario {
@@ -86,11 +143,18 @@ export function buildScenarioFromTranscript(path: string, opts: FromTranscriptOp
 
   let dropped = 0;
   if (opts.dropMatching) {
-    const re = opts.dropMatching;
+    // Strip g/y flags: RegExp.test is stateful for those (lastIndex carries across .filter calls
+    // and silently skips matches). Test against visible text, not JSON.stringify.
+    const re = new RegExp(opts.dropMatching.source, opts.dropMatching.flags.replace(/[gy]/g, ""));
     const before = seedMessages.length;
-    seedMessages = seedMessages.filter((m) => !re.test(JSON.stringify(m.content)));
+    seedMessages = seedMessages.filter((m) => !re.test(messageText(m)));
     dropped = before - seedMessages.length;
   }
+
+  // A drop or a mid-exchange fork can orphan a tool-call/tool-result across the pair; prune so the
+  // seed is a provider-valid message list. No-op on the flattened (string-content) seed.
+  const { messages: prunedMessages, pruned } = pruneOrphanToolParts(seedMessages);
+  seedMessages = prunedMessages;
 
   const lastHuman = [...seededTurns].reverse().find((t) => t.role === "user" && t.userKind === "human");
 
@@ -113,6 +177,7 @@ export function buildScenarioFromTranscript(path: string, opts: FromTranscriptOp
       toolResultTurns: turns.filter((t) => t.role === "tool").length,
       assistantTurns: turns.filter((t) => t.role === "assistant").length,
       forkTurnIndex: fi,
+      prunedOrphanToolParts: pruned,
     },
   };
 }

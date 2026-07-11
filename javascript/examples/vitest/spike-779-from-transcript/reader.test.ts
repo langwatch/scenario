@@ -146,3 +146,59 @@ describe("fromTranscript builder + DoD-4 turn-free seeding", () => {
     expect(scrubbed.seedMessages.length).toBeLessThan(full.seedMessages.length);
   });
 });
+
+// Regression tests for the correctness bugs surfaced by the max-effort review (all previously green
+// while broken — each fails on the pre-fix code).
+describe("reader hardening (review regressions)", () => {
+  it("linearize ignores subagent (Task) sidechains and walks the MAIN thread", () => {
+    // main thread u1->a1 (leaf a1); a separate sidechain s1->s2 (leaf s2) appears later in file
+    const nodes: any[] = [
+      { uuid: "u1", parentUuid: null, type: "user", message: { role: "user", content: "MAIN question" } },
+      { uuid: "a1", parentUuid: "u1", type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "MAIN answer" }] } },
+      { uuid: "s1", parentUuid: null, type: "user", isSidechain: true, message: { role: "user", content: "SUBAGENT task" } },
+      { uuid: "s2", parentUuid: "s1", type: "assistant", isSidechain: true, message: { role: "assistant", content: [{ type: "text", text: "SUBAGENT chatter" }] } },
+    ];
+    const turns = normalize(linearize(nodes));
+    expect(JSON.stringify(turns)).not.toMatch(/SUBAGENT/); // NOT the sidechain
+    expect(turns.some((t) => /MAIN answer/.test(t.text ?? ""))).toBe(true);
+  });
+
+  it("dropMatching with a GLOBAL regex still scrubs every match (no stateful lastIndex skips)", () => {
+    const g = buildScenarioFromTranscript(FIXTURE, { flattenTools: true, dropMatching: /KUMQUAT77/g });
+    expect(JSON.stringify(g.seedMessages)).not.toMatch(/KUMQUAT77/);
+  });
+
+  it("structured-emit dropMatching leaves NO orphaned tool parts (provider-valid seed)", () => {
+    const scrubbed = buildScenarioFromTranscript(FIXTURE, { dropMatching: /KUMQUAT77/ }); // default structured
+    const callIds = new Set<string>();
+    const resultIds: string[] = [];
+    for (const m of scrubbed.seedMessages) {
+      if (Array.isArray(m.content)) {
+        for (const p of m.content as any[]) {
+          if (p.type === "tool-call") callIds.add(p.toolCallId);
+          if (p.type === "tool-result") resultIds.push(p.toolCallId);
+        }
+      }
+    }
+    expect(resultIds.every((id) => callIds.has(id))).toBe(true); // every result has its call
+  });
+
+  it("forkAt {index} out of range throws instead of silently mis-forking", () => {
+    expect(() => buildScenarioFromTranscript(FIXTURE, { forkAt: { index: -2 } })).toThrow(/out of range/);
+    const n = buildScenarioFromTranscript(FIXTURE).stats.normalizedTurns;
+    expect(() => buildScenarioFromTranscript(FIXTURE, { forkAt: { index: n + 5 } })).toThrow(/out of range/);
+  });
+
+  it("forkAt {uuid} resolves a uuid pointing at a merged-away (non-first) assistant line", () => {
+    // fdf12fbd… is the text line of the first assistant message (merged into the af3e4e11 turn)
+    const b = buildScenarioFromTranscript(FIXTURE, { forkAt: { uuid: "fdf12fbd-a1a9-43f0-98b4-0c67c50a1a45" } });
+    expect(b.stats.forkTurnIndex).toBeGreaterThanOrEqual(0); // resolves; does NOT throw "not found"
+  });
+
+  it("does not strip a leading 'user: ' from genuine human content", () => {
+    const turns = normalize(linearize(parseSessionFile(FIXTURE)));
+    const firstHuman = turns.find((t) => t.role === "user" && t.userKind === "human")!;
+    // the fixture's real content begins with "user: Remember…" — that prefix must survive verbatim
+    expect(firstHuman.text?.startsWith("user: ")).toBe(true);
+  });
+});

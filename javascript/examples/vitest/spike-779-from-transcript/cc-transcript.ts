@@ -82,7 +82,12 @@ export function linearize(nodes: RawNode[], forkAtUuid?: string): RawNode[] {
   let leaf = forkAtUuid;
   if (!leaf) {
     const parents = new Set<string | null | undefined>(nodes.map((n) => n.parentUuid));
-    const leaves = nodes.filter((n) => !parents.has(n.uuid));
+    let leaves = nodes.filter((n) => !parents.has(n.uuid));
+    // Ignore subagent (Task) sidechains: their nodes carry isSidechain:true and their leaf is
+    // appended AFTER the main thread's last line, so the naive "last leaf" would walk the
+    // sub-agent's private conversation instead of the main thread. Prefer non-sidechain leaves.
+    const mainLeaves = leaves.filter((n) => !n.isSidechain);
+    if (mainLeaves.length) leaves = mainLeaves;
     // pick the leaf that appears last in file order = the live conversation tip
     leaf = leaves.length ? leaves[leaves.length - 1].uuid : nodes[nodes.length - 1]?.uuid;
   }
@@ -108,7 +113,11 @@ export function classifyUser(n: RawNode): UserKind {
   if (typeof c === "string") return "human";
   if (Array.isArray(c)) {
     if (c.some((b) => (b as AnthropicBlock).type === "tool_result")) return "tool_result";
-    // array of text blocks with no tool_result = a command/skill injection carried as a user turn
+    // A genuine human turn can arrive as structured content (text + image/file blocks); a
+    // command/skill injection is text-only. Any non-text block (e.g. image) ⇒ human.
+    // NOTE (known limitation): a text-ONLY human array is indistinguishable from an injection
+    // here and is still tagged "injected" — a real signal (userType/isMeta) is productization work.
+    if (c.some((b) => (b as { type?: string }).type && (b as { type?: string }).type !== "text")) return "human";
     return "injected";
   }
   return "injected";
@@ -122,6 +131,9 @@ export interface NormalizedTurn {
   role: "user" | "assistant" | "tool";
   userKind?: UserKind; // only when role==="user"
   uuid: string;
+  /** Every source JSONL uuid that folded into this turn (assistant merges >1). Enables fork-by-uuid
+   *  to resolve a uuid that points at a non-first line of a same-message.id assistant. */
+  uuids: string[];
   timestamp?: string;
   text?: string; // human/injected user text OR assistant visible text
   thinking?: string[]; // assistant reasoning (preserved, may be dropped on emit)
@@ -180,11 +192,13 @@ export function normalize(chain: RawNode[]): NormalizedTurn[] {
         if (text) prev.text = [prev.text, text].filter(Boolean).join("\n");
         if (thinking.length) prev.thinking = [...(prev.thinking ?? []), ...thinking];
         if (toolCalls.length) prev.toolCalls = [...(prev.toolCalls ?? []), ...toolCalls];
+        prev.uuids.push(n.uuid!); // so fork-by-uuid can target a merged-away line
         continue;
       }
       out.push({
         role: "assistant",
         uuid: n.uuid!,
+        uuids: [n.uuid!],
         timestamp: n.timestamp,
         text: text || undefined,
         thinking: thinking.length ? thinking : undefined,
@@ -209,11 +223,14 @@ export function normalize(chain: RawNode[]): NormalizedTurn[] {
             isError: !!tr.is_error,
           };
         });
-      out.push({ role: "tool", uuid: n.uuid!, timestamp: n.timestamp, toolResults });
+      out.push({ role: "tool", uuid: n.uuid!, uuids: [n.uuid!], timestamp: n.timestamp, toolResults });
     } else {
-      let text = kind === "human" ? (n.message!.content as string) : blockText(n.message?.content);
-      text = text.replace(/^user:\s*/, ""); // strip harness "user: " prefix if present
-      out.push({ role: "user", userKind: kind, uuid: n.uuid!, timestamp: n.timestamp, text });
+      // Keep the content verbatim — do NOT strip a leading "user: " (a real human turn may legitimately
+      // begin with "user: …"; stripping corrupts the replayed prompt). blockText handles array content.
+      const text = kind === "human" && typeof n.message?.content === "string"
+        ? (n.message!.content as string)
+        : blockText(n.message?.content);
+      out.push({ role: "user", userKind: kind, uuid: n.uuid!, uuids: [n.uuid!], timestamp: n.timestamp, text });
     }
   }
   return out;
@@ -270,8 +287,9 @@ export function toModelMessages(turns: NormalizedTurn[], opts: EmitOptions = {})
       const bits: string[] = [];
       if (opts.includeThinking && t.thinking?.length) bits.push(t.thinking.map((th) => `[thinking] ${th}`).join("\n"));
       if (t.text) bits.push(t.text);
-      for (const tc of t.toolCalls ?? []) bits.push(`[called ${tc.name}] ${trunc(JSON.stringify(tc.input))}`);
-      msgs.push({ role: "assistant", content: bits.join("\n") || " " });
+      for (const tc of t.toolCalls ?? []) bits.push(`[called ${tc.name}] ${trunc(JSON.stringify(tc.input ?? {}))}`);
+      const content = bits.join("\n");
+      if (content) msgs.push({ role: "assistant", content }); // skip a thinking-only/empty turn
     } else {
       // assistant: may carry text and/or tool-calls (and thinking, usually dropped)
       const parts: any[] = [];
@@ -280,12 +298,13 @@ export function toModelMessages(turns: NormalizedTurn[], opts: EmitOptions = {})
       }
       if (t.text) parts.push({ type: "text", text: t.text });
       for (const tc of t.toolCalls ?? []) {
-        parts.push({ type: "tool-call", toolCallId: tc.id, toolName: tc.name, input: tc.input });
+        parts.push({ type: "tool-call", toolCallId: tc.id, toolName: tc.name, input: tc.input ?? {} });
       }
-      if (parts.length === 1 && parts[0].type === "text") {
+      if (parts.length === 0) {
+        // thinking-only (dropped) or empty assistant turn — skip, don't inject a blank message
+        continue;
+      } else if (parts.length === 1 && parts[0].type === "text") {
         msgs.push({ role: "assistant", content: parts[0].text });
-      } else if (parts.length === 0) {
-        msgs.push({ role: "assistant", content: "" });
       } else {
         msgs.push({ role: "assistant", content: parts });
       }
