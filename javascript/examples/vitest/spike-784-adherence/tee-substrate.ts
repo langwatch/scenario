@@ -47,7 +47,13 @@ echo "$n" > "$idx_file"
 # human turn even if the CLI does not echo it as a user event.
 prompt="\${!#}"
 printf '%s' "$prompt" > "$dir/$n.prompt.txt"
-${JSON.stringify(realClaude)} "$@" | tee "$dir/$n.stream.jsonl"
+# Optional subject-model override for the model-sweep: inject --model when
+# ADHERENCE_SUBJECT_MODEL is set; empty/unset ⇒ account default (current behavior,
+# byte-identical). Placed before "$@" (the adapter passes no --model, so this is
+# the only one → it wins).
+model_args=()
+if [ -n "\${ADHERENCE_SUBJECT_MODEL:-}" ]; then model_args=(--model "\${ADHERENCE_SUBJECT_MODEL}"); fi
+${JSON.stringify(realClaude)} "\${model_args[@]}" "$@" | tee "$dir/$n.stream.jsonl"
 exit "\${PIPESTATUS[0]}"
 `;
 }
