@@ -1,0 +1,6 @@
+# Runtime sandbox (contains the SYMLINKED .credentials.json + tee'd transcripts).
+# Never committed — the symlink target lives outside the repo.
+.sandbox/
+
+# Transient logs / scratch
+*.log

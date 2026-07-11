@@ -1,0 +1,3280 @@
+{
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "seed": 78420711,
+  "tokenizer": "gpt-tokenizer/o200k_base",
+  "totalTokens": 257605,
+  "fileCount": 168,
+  "metaProcedureId": "author-procedure",
+  "procedures": [
+    {
+      "id": "deploy-service",
+      "path": "corpus/deploy-service/PROCEDURE.md",
+      "keywords": [
+        "deploy",
+        "service",
+        "operation",
+        "audited",
+        "procedure"
+      ],
+      "links": [
+        "purge-cache",
+        "escalate-ticket",
+        "reconcile-policy",
+        "restore-credential"
+      ],
+      "status": "active",
+      "tokens": 1601
+    },
+    {
+      "id": "rollback-service",
+      "path": "corpus/rollback-service/PROCEDURE.md",
+      "keywords": [
+        "rollback",
+        "service",
+        "controlled",
+        "operation",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-schema",
+        "restore-dataset",
+        "reconcile-vendor"
+      ],
+      "status": "active",
+      "tokens": 1556
+    },
+    {
+      "id": "restart-service",
+      "path": "corpus/restart-service/PROCEDURE.md",
+      "keywords": [
+        "restart",
+        "service",
+        "runbook",
+        "procedure",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-schema",
+        "archive-release",
+        "validate-payment"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "scale-service",
+      "path": "corpus/scale-service/PROCEDURE.md",
+      "keywords": [
+        "scale",
+        "service",
+        "audited",
+        "procedure",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-service",
+        "handle-refund",
+        "grant-access"
+      ],
+      "status": "active",
+      "tokens": 1553
+    },
+    {
+      "id": "decommission-service",
+      "path": "corpus/decommission-service/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "service",
+        "safety",
+        "controlled",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-notification",
+        "restore-file",
+        "review-release"
+      ],
+      "status": "active",
+      "tokens": 1567
+    },
+    {
+      "id": "patch-service",
+      "path": "corpus/patch-service/PROCEDURE.md",
+      "keywords": [
+        "patch",
+        "service",
+        "audited",
+        "reversible",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-gateway",
+        "archive-notification",
+        "patch-datastore"
+      ],
+      "status": "active",
+      "tokens": 1534
+    },
+    {
+      "id": "reconfigure-service",
+      "path": "corpus/reconfigure-service/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "service",
+        "controlled",
+        "recovery",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-refund",
+        "reconcile-report",
+        "restart-cluster"
+      ],
+      "status": "active",
+      "tokens": 1568
+    },
+    {
+      "id": "snapshot-service",
+      "path": "corpus/snapshot-service/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "service",
+        "runbook",
+        "operation",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-vendor",
+        "validate-cluster",
+        "validate-gateway"
+      ],
+      "status": "active",
+      "tokens": 1555
+    },
+    {
+      "id": "drain-service",
+      "path": "corpus/drain-service/PROCEDURE.md",
+      "keywords": [
+        "drain",
+        "service",
+        "audited",
+        "controlled",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-record",
+        "reconfigure-cache",
+        "restore-datastore"
+      ],
+      "status": "active",
+      "tokens": 1543
+    },
+    {
+      "id": "replicate-service",
+      "path": "corpus/replicate-service/PROCEDURE.md",
+      "keywords": [
+        "replicate",
+        "service",
+        "recovery",
+        "safety",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "backup-credential",
+        "audit-refund",
+        "backup-service"
+      ],
+      "status": "active",
+      "tokens": 1561
+    },
+    {
+      "id": "rotate-credential",
+      "path": "corpus/rotate-credential/PROCEDURE.md",
+      "keywords": [
+        "rotate",
+        "credential",
+        "reversible",
+        "recovery",
+        "procedure"
+      ],
+      "links": [
+        "revoke-access",
+        "escalate-ticket",
+        "audit-account",
+        "dispatch-ticket"
+      ],
+      "status": "active",
+      "tokens": 1606
+    },
+    {
+      "id": "revoke-credential",
+      "path": "corpus/revoke-credential/PROCEDURE.md",
+      "keywords": [
+        "revoke",
+        "credential",
+        "controlled",
+        "audited",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-datastore",
+        "validate-gateway",
+        "throttle-endpoint"
+      ],
+      "status": "active",
+      "tokens": 1571
+    },
+    {
+      "id": "provision-credential",
+      "path": "corpus/provision-credential/PROCEDURE.md",
+      "keywords": [
+        "provision",
+        "credential",
+        "controlled",
+        "runbook",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-file",
+        "decommission-datastore",
+        "provision-account"
+      ],
+      "status": "active",
+      "tokens": 1557
+    },
+    {
+      "id": "audit-credential",
+      "path": "corpus/audit-credential/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "credential",
+        "controlled",
+        "reversible",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "drain-gateway",
+        "audit-vendor",
+        "restore-dataset"
+      ],
+      "status": "active",
+      "tokens": 1548
+    },
+    {
+      "id": "backup-credential",
+      "path": "corpus/backup-credential/PROCEDURE.md",
+      "keywords": [
+        "backup",
+        "credential",
+        "safety",
+        "recovery",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-queue",
+        "restore-file",
+        "throttle-gateway"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "restore-credential",
+      "path": "corpus/restore-credential/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "credential",
+        "audited",
+        "procedure",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-endpoint",
+        "throttle-service",
+        "archive-report"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "validate-credential",
+      "path": "corpus/validate-credential/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "credential",
+        "safety",
+        "recovery",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-cluster",
+        "drain-service",
+        "snapshot-service"
+      ],
+      "status": "active",
+      "tokens": 1518
+    },
+    {
+      "id": "grant-access",
+      "path": "corpus/grant-access/PROCEDURE.md",
+      "keywords": [
+        "grant",
+        "access",
+        "operation",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "scale-service",
+        "audit-refund",
+        "purge-record"
+      ],
+      "status": "active",
+      "tokens": 1545
+    },
+    {
+      "id": "revoke-access",
+      "path": "corpus/revoke-access/PROCEDURE.md",
+      "keywords": [
+        "revoke",
+        "access",
+        "safety",
+        "runbook",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-cluster",
+        "archive-file",
+        "decommission-cluster"
+      ],
+      "status": "active",
+      "tokens": 1558
+    },
+    {
+      "id": "audit-access",
+      "path": "corpus/audit-access/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "access",
+        "recovery",
+        "runbook",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-gateway",
+        "publish-policy",
+        "replicate-dataset"
+      ],
+      "status": "active",
+      "tokens": 1519
+    },
+    {
+      "id": "review-access",
+      "path": "corpus/review-access/PROCEDURE.md",
+      "keywords": [
+        "review",
+        "access",
+        "operation",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-report",
+        "patch-schema",
+        "offboard-account"
+      ],
+      "status": "active",
+      "tokens": 1543
+    },
+    {
+      "id": "reconcile-access",
+      "path": "corpus/reconcile-access/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "access",
+        "procedure",
+        "audited",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-policy",
+        "provision-credential",
+        "reconcile-report"
+      ],
+      "status": "active",
+      "tokens": 1525
+    },
+    {
+      "id": "provision-account",
+      "path": "corpus/provision-account/PROCEDURE.md",
+      "keywords": [
+        "provision",
+        "account",
+        "recovery",
+        "audited",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-dataset",
+        "dispatch-invoice",
+        "reconcile-ticket"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "decommission-account",
+      "path": "corpus/decommission-account/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "account",
+        "safety",
+        "operation",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-service",
+        "drain-service",
+        "snapshot-cluster"
+      ],
+      "status": "active",
+      "tokens": 1522
+    },
+    {
+      "id": "audit-account",
+      "path": "corpus/audit-account/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "account",
+        "controlled",
+        "audited",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "drain-cluster",
+        "snapshot-queue",
+        "drain-service"
+      ],
+      "status": "active",
+      "tokens": 1555
+    },
+    {
+      "id": "restore-account",
+      "path": "corpus/restore-account/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "account",
+        "controlled",
+        "runbook",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-account",
+        "reconcile-payment",
+        "audit-record"
+      ],
+      "status": "active",
+      "tokens": 1540
+    },
+    {
+      "id": "reconfigure-account",
+      "path": "corpus/reconfigure-account/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "account",
+        "recovery",
+        "procedure",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restore-dataset",
+        "revoke-certificate",
+        "archive-vendor"
+      ],
+      "status": "active",
+      "tokens": 1523
+    },
+    {
+      "id": "onboard-account",
+      "path": "corpus/onboard-account/PROCEDURE.md",
+      "keywords": [
+        "onboard",
+        "account",
+        "procedure",
+        "runbook",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-cluster",
+        "reconfigure-queue",
+        "rollback-service"
+      ],
+      "status": "active",
+      "tokens": 1521
+    },
+    {
+      "id": "offboard-account",
+      "path": "corpus/offboard-account/PROCEDURE.md",
+      "keywords": [
+        "offboard",
+        "account",
+        "runbook",
+        "controlled",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-certificate",
+        "decommission-endpoint",
+        "reconcile-datastore"
+      ],
+      "status": "active",
+      "tokens": 1542
+    },
+    {
+      "id": "reconcile-invoice",
+      "path": "corpus/reconcile-invoice/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "invoice",
+        "audited",
+        "controlled",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-invoice",
+        "offboard-vendor",
+        "reconcile-vendor"
+      ],
+      "status": "active",
+      "tokens": 1525
+    },
+    {
+      "id": "validate-invoice",
+      "path": "corpus/validate-invoice/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "invoice",
+        "reversible",
+        "controlled",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "dispatch-payment",
+        "snapshot-cluster",
+        "patch-gateway"
+      ],
+      "status": "active",
+      "tokens": 1524
+    },
+    {
+      "id": "archive-invoice",
+      "path": "corpus/archive-invoice/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "invoice",
+        "controlled",
+        "runbook",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-access",
+        "audit-credential",
+        "audit-account"
+      ],
+      "status": "active",
+      "tokens": 1522
+    },
+    {
+      "id": "dispatch-invoice",
+      "path": "corpus/dispatch-invoice/PROCEDURE.md",
+      "keywords": [
+        "dispatch",
+        "invoice",
+        "safety",
+        "recovery",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconcile-access",
+        "provision-gateway",
+        "reconfigure-queue"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "audit-invoice",
+      "path": "corpus/audit-invoice/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "invoice",
+        "reversible",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "revoke-access",
+        "replicate-service",
+        "onboard-vendor"
+      ],
+      "status": "active",
+      "tokens": 1516
+    },
+    {
+      "id": "escalate-ticket",
+      "path": "corpus/escalate-ticket/PROCEDURE.md",
+      "keywords": [
+        "escalate",
+        "ticket",
+        "recovery",
+        "runbook",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconcile-policy",
+        "patch-service",
+        "revoke-certificate"
+      ],
+      "status": "active",
+      "tokens": 1525
+    },
+    {
+      "id": "dispatch-ticket",
+      "path": "corpus/dispatch-ticket/PROCEDURE.md",
+      "keywords": [
+        "dispatch",
+        "ticket",
+        "controlled",
+        "audited",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-endpoint",
+        "archive-dataset",
+        "audit-gateway"
+      ],
+      "status": "active",
+      "tokens": 1548
+    },
+    {
+      "id": "archive-ticket",
+      "path": "corpus/archive-ticket/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "ticket",
+        "safety",
+        "runbook",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "backup-service",
+        "validate-cluster",
+        "archive-file"
+      ],
+      "status": "active",
+      "tokens": 1541
+    },
+    {
+      "id": "review-ticket",
+      "path": "corpus/review-ticket/PROCEDURE.md",
+      "keywords": [
+        "review",
+        "ticket",
+        "audited",
+        "runbook",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-gateway",
+        "restart-cluster",
+        "archive-notification"
+      ],
+      "status": "active",
+      "tokens": 1509
+    },
+    {
+      "id": "reconcile-ticket",
+      "path": "corpus/reconcile-ticket/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "ticket",
+        "controlled",
+        "procedure",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-account",
+        "validate-release",
+        "grant-access"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "archive-record",
+      "path": "corpus/archive-record/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "record",
+        "reversible",
+        "audited",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-cluster",
+        "validate-policy",
+        "snapshot-dataset"
+      ],
+      "status": "active",
+      "tokens": 1559
+    },
+    {
+      "id": "restore-record",
+      "path": "corpus/restore-record/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "record",
+        "reversible",
+        "controlled",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "onboard-vendor",
+        "offboard-account",
+        "provision-gateway"
+      ],
+      "status": "active",
+      "tokens": 1548
+    },
+    {
+      "id": "purge-record",
+      "path": "corpus/purge-record/PROCEDURE.md",
+      "keywords": [
+        "purge",
+        "record",
+        "audited",
+        "recovery",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-queue",
+        "provision-queue",
+        "audit-certificate"
+      ],
+      "status": "active",
+      "tokens": 1542
+    },
+    {
+      "id": "validate-record",
+      "path": "corpus/validate-record/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "record",
+        "reversible",
+        "controlled",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-file",
+        "quarantine-file",
+        "audit-cluster"
+      ],
+      "status": "active",
+      "tokens": 1545
+    },
+    {
+      "id": "replicate-record",
+      "path": "corpus/replicate-record/PROCEDURE.md",
+      "keywords": [
+        "replicate",
+        "record",
+        "procedure",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-dataset",
+        "audit-policy",
+        "review-vendor"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "audit-record",
+      "path": "corpus/audit-record/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "record",
+        "reversible",
+        "runbook",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconcile-ticket",
+        "restore-datastore",
+        "scale-datastore"
+      ],
+      "status": "active",
+      "tokens": 1519
+    },
+    {
+      "id": "throttle-endpoint",
+      "path": "corpus/throttle-endpoint/PROCEDURE.md",
+      "keywords": [
+        "throttle",
+        "endpoint",
+        "reversible",
+        "recovery",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-refund",
+        "rotate-credential",
+        "validate-release"
+      ],
+      "status": "active",
+      "tokens": 1567
+    },
+    {
+      "id": "validate-endpoint",
+      "path": "corpus/validate-endpoint/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "endpoint",
+        "controlled",
+        "recovery",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-release",
+        "archive-invoice",
+        "handle-refund"
+      ],
+      "status": "active",
+      "tokens": 1538
+    },
+    {
+      "id": "reconfigure-endpoint",
+      "path": "corpus/reconfigure-endpoint/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "endpoint",
+        "controlled",
+        "recovery",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-cluster",
+        "audit-account",
+        "throttle-service"
+      ],
+      "status": "active",
+      "tokens": 1541
+    },
+    {
+      "id": "decommission-endpoint",
+      "path": "corpus/decommission-endpoint/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "endpoint",
+        "controlled",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "scale-gateway",
+        "migrate-service",
+        "purge-report"
+      ],
+      "status": "active",
+      "tokens": 1533
+    },
+    {
+      "id": "patch-endpoint",
+      "path": "corpus/patch-endpoint/PROCEDURE.md",
+      "keywords": [
+        "patch",
+        "endpoint",
+        "audited",
+        "operation",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-invoice",
+        "reconfigure-cache",
+        "warm-cache"
+      ],
+      "status": "active",
+      "tokens": 1533
+    },
+    {
+      "id": "snapshot-endpoint",
+      "path": "corpus/snapshot-endpoint/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "endpoint",
+        "runbook",
+        "audited",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "provision-credential",
+        "restore-file",
+        "replicate-dataset"
+      ],
+      "status": "active",
+      "tokens": 1539
+    },
+    {
+      "id": "purge-cache",
+      "path": "corpus/purge-cache/PROCEDURE.md",
+      "keywords": [
+        "purge",
+        "cache",
+        "procedure",
+        "safety",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-file",
+        "validate-endpoint",
+        "validate-release"
+      ],
+      "status": "active",
+      "tokens": 1540
+    },
+    {
+      "id": "warm-cache",
+      "path": "corpus/warm-cache/PROCEDURE.md",
+      "keywords": [
+        "warm",
+        "cache",
+        "reversible",
+        "controlled",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-cache",
+        "restore-credential",
+        "validate-release"
+      ],
+      "status": "active",
+      "tokens": 1542
+    },
+    {
+      "id": "validate-cache",
+      "path": "corpus/validate-cache/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "cache",
+        "controlled",
+        "procedure",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "quarantine-file",
+        "reconcile-dataset",
+        "decommission-gateway"
+      ],
+      "status": "active",
+      "tokens": 1581
+    },
+    {
+      "id": "reconfigure-cache",
+      "path": "corpus/reconfigure-cache/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "cache",
+        "operation",
+        "runbook",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-notification",
+        "restore-credential",
+        "snapshot-service"
+      ],
+      "status": "active",
+      "tokens": 1564
+    },
+    {
+      "id": "snapshot-cache",
+      "path": "corpus/snapshot-cache/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "cache",
+        "controlled",
+        "procedure",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-dataset",
+        "purge-record",
+        "purge-file"
+      ],
+      "status": "active",
+      "tokens": 1563
+    },
+    {
+      "id": "backup-datastore",
+      "path": "corpus/backup-datastore/PROCEDURE.md",
+      "keywords": [
+        "backup",
+        "datastore",
+        "controlled",
+        "reversible",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-credential",
+        "snapshot-release",
+        "rollback-schema"
+      ],
+      "status": "active",
+      "tokens": 1519
+    },
+    {
+      "id": "restore-datastore",
+      "path": "corpus/restore-datastore/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "datastore",
+        "audited",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "dispatch-invoice",
+        "archive-invoice",
+        "patch-datastore"
+      ],
+      "status": "active",
+      "tokens": 1559
+    },
+    {
+      "id": "migrate-datastore",
+      "path": "corpus/migrate-datastore/PROCEDURE.md",
+      "keywords": [
+        "migrate",
+        "datastore",
+        "runbook",
+        "procedure",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-refund",
+        "validate-policy",
+        "validate-release"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "replicate-datastore",
+      "path": "corpus/replicate-datastore/PROCEDURE.md",
+      "keywords": [
+        "replicate",
+        "datastore",
+        "procedure",
+        "recovery",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-payment",
+        "migrate-service",
+        "provision-gateway"
+      ],
+      "status": "active",
+      "tokens": 1530
+    },
+    {
+      "id": "drain-datastore",
+      "path": "corpus/drain-datastore/PROCEDURE.md",
+      "keywords": [
+        "drain",
+        "datastore",
+        "recovery",
+        "controlled",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-cluster",
+        "patch-endpoint",
+        "migrate-service"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "snapshot-datastore",
+      "path": "corpus/snapshot-datastore/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "datastore",
+        "controlled",
+        "recovery",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-dataset",
+        "provision-gateway",
+        "replicate-dataset"
+      ],
+      "status": "active",
+      "tokens": 1549
+    },
+    {
+      "id": "decommission-datastore",
+      "path": "corpus/decommission-datastore/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "datastore",
+        "reversible",
+        "recovery",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-cache",
+        "reconcile-policy",
+        "quarantine-file"
+      ],
+      "status": "active",
+      "tokens": 1526
+    },
+    {
+      "id": "migrate-schema",
+      "path": "corpus/migrate-schema/PROCEDURE.md",
+      "keywords": [
+        "migrate",
+        "schema",
+        "operation",
+        "controlled",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-service",
+        "drain-service",
+        "restore-datastore"
+      ],
+      "status": "active",
+      "tokens": 1543
+    },
+    {
+      "id": "validate-schema",
+      "path": "corpus/validate-schema/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "schema",
+        "operation",
+        "procedure",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-report",
+        "restart-service",
+        "migrate-service"
+      ],
+      "status": "active",
+      "tokens": 1540
+    },
+    {
+      "id": "rollback-schema",
+      "path": "corpus/rollback-schema/PROCEDURE.md",
+      "keywords": [
+        "rollback",
+        "schema",
+        "operation",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "provision-cluster",
+        "snapshot-cache",
+        "archive-release"
+      ],
+      "status": "active",
+      "tokens": 1511
+    },
+    {
+      "id": "snapshot-schema",
+      "path": "corpus/snapshot-schema/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "schema",
+        "runbook",
+        "recovery",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-cache",
+        "provision-queue",
+        "validate-refund"
+      ],
+      "status": "active",
+      "tokens": 1524
+    },
+    {
+      "id": "patch-schema",
+      "path": "corpus/patch-schema/PROCEDURE.md",
+      "keywords": [
+        "patch",
+        "schema",
+        "controlled",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-file",
+        "audit-service",
+        "archive-ticket"
+      ],
+      "status": "active",
+      "tokens": 1527
+    },
+    {
+      "id": "validate-payment",
+      "path": "corpus/validate-payment/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "payment",
+        "safety",
+        "audited",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-policy",
+        "drain-queue",
+        "replicate-service"
+      ],
+      "status": "active",
+      "tokens": 1543
+    },
+    {
+      "id": "reconcile-payment",
+      "path": "corpus/reconcile-payment/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "payment",
+        "audited",
+        "recovery",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "scale-datastore",
+        "validate-refund",
+        "rollback-schema"
+      ],
+      "status": "active",
+      "tokens": 1529
+    },
+    {
+      "id": "dispatch-payment",
+      "path": "corpus/dispatch-payment/PROCEDURE.md",
+      "keywords": [
+        "dispatch",
+        "payment",
+        "runbook",
+        "recovery",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restore-credential",
+        "archive-file",
+        "snapshot-schema"
+      ],
+      "status": "active",
+      "tokens": 1512
+    },
+    {
+      "id": "audit-payment",
+      "path": "corpus/audit-payment/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "payment",
+        "runbook",
+        "safety",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restore-file",
+        "replicate-datastore",
+        "throttle-gateway"
+      ],
+      "status": "active",
+      "tokens": 1547
+    },
+    {
+      "id": "archive-payment",
+      "path": "corpus/archive-payment/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "payment",
+        "safety",
+        "operation",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "rollback-schema",
+        "rotate-certificate",
+        "scale-cluster"
+      ],
+      "status": "active",
+      "tokens": 1550
+    },
+    {
+      "id": "dispatch-notification",
+      "path": "corpus/dispatch-notification/PROCEDURE.md",
+      "keywords": [
+        "dispatch",
+        "notification",
+        "recovery",
+        "controlled",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "scale-datastore",
+        "validate-file",
+        "snapshot-cluster"
+      ],
+      "status": "active",
+      "tokens": 1533
+    },
+    {
+      "id": "validate-notification",
+      "path": "corpus/validate-notification/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "notification",
+        "reversible",
+        "operation",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "patch-service",
+        "decommission-cluster",
+        "validate-refund"
+      ],
+      "status": "active",
+      "tokens": 1534
+    },
+    {
+      "id": "throttle-notification",
+      "path": "corpus/throttle-notification/PROCEDURE.md",
+      "keywords": [
+        "throttle",
+        "notification",
+        "reversible",
+        "controlled",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-dataset",
+        "scale-cluster",
+        "archive-ticket"
+      ],
+      "status": "active",
+      "tokens": 1547
+    },
+    {
+      "id": "archive-notification",
+      "path": "corpus/archive-notification/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "notification",
+        "runbook",
+        "controlled",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "dispatch-ticket",
+        "audit-access",
+        "archive-file"
+      ],
+      "status": "active",
+      "tokens": 1538
+    },
+    {
+      "id": "onboard-vendor",
+      "path": "corpus/onboard-vendor/PROCEDURE.md",
+      "keywords": [
+        "onboard",
+        "vendor",
+        "controlled",
+        "procedure",
+        "runbook"
+      ],
+      "links": [
+        "provision-account",
+        "escalate-ticket",
+        "warm-cache",
+        "audit-service"
+      ],
+      "status": "active",
+      "tokens": 1575
+    },
+    {
+      "id": "offboard-vendor",
+      "path": "corpus/offboard-vendor/PROCEDURE.md",
+      "keywords": [
+        "offboard",
+        "vendor",
+        "controlled",
+        "reversible",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-certificate",
+        "backup-datastore",
+        "reconfigure-queue"
+      ],
+      "status": "active",
+      "tokens": 1541
+    },
+    {
+      "id": "audit-vendor",
+      "path": "corpus/audit-vendor/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "vendor",
+        "safety",
+        "procedure",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-report",
+        "reconcile-access",
+        "snapshot-gateway"
+      ],
+      "status": "active",
+      "tokens": 1537
+    },
+    {
+      "id": "reconcile-vendor",
+      "path": "corpus/reconcile-vendor/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "vendor",
+        "controlled",
+        "runbook",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-service",
+        "audit-gateway",
+        "archive-payment"
+      ],
+      "status": "active",
+      "tokens": 1553
+    },
+    {
+      "id": "review-vendor",
+      "path": "corpus/review-vendor/PROCEDURE.md",
+      "keywords": [
+        "review",
+        "vendor",
+        "audited",
+        "controlled",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "provision-certificate",
+        "validate-dataset",
+        "revoke-access"
+      ],
+      "status": "active",
+      "tokens": 1557
+    },
+    {
+      "id": "publish-release",
+      "path": "corpus/publish-release/PROCEDURE.md",
+      "keywords": [
+        "publish",
+        "release",
+        "safety",
+        "reversible",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-credential",
+        "reconfigure-service",
+        "validate-cache"
+      ],
+      "status": "active",
+      "tokens": 1548
+    },
+    {
+      "id": "rollback-release",
+      "path": "corpus/rollback-release/PROCEDURE.md",
+      "keywords": [
+        "rollback",
+        "release",
+        "procedure",
+        "reversible",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-report",
+        "restore-account",
+        "restore-datastore"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "validate-release",
+      "path": "corpus/validate-release/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "release",
+        "controlled",
+        "safety",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-endpoint",
+        "reconcile-ticket",
+        "restore-file"
+      ],
+      "status": "active",
+      "tokens": 1526
+    },
+    {
+      "id": "archive-release",
+      "path": "corpus/archive-release/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "release",
+        "audited",
+        "reversible",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-payment",
+        "decommission-datastore",
+        "snapshot-service"
+      ],
+      "status": "active",
+      "tokens": 1545
+    },
+    {
+      "id": "snapshot-release",
+      "path": "corpus/snapshot-release/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "release",
+        "safety",
+        "reversible",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-cluster",
+        "drain-cluster",
+        "drain-datastore"
+      ],
+      "status": "active",
+      "tokens": 1538
+    },
+    {
+      "id": "reconfigure-gateway",
+      "path": "corpus/reconfigure-gateway/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "gateway",
+        "safety",
+        "controlled",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-service",
+        "audit-refund",
+        "patch-schema"
+      ],
+      "status": "active",
+      "tokens": 1549
+    },
+    {
+      "id": "restart-gateway",
+      "path": "corpus/restart-gateway/PROCEDURE.md",
+      "keywords": [
+        "restart",
+        "gateway",
+        "procedure",
+        "reversible",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-invoice",
+        "patch-service",
+        "audit-service"
+      ],
+      "status": "active",
+      "tokens": 1523
+    },
+    {
+      "id": "patch-gateway",
+      "path": "corpus/patch-gateway/PROCEDURE.md",
+      "keywords": [
+        "patch",
+        "gateway",
+        "controlled",
+        "audited",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-notification",
+        "snapshot-release",
+        "backup-credential"
+      ],
+      "status": "active",
+      "tokens": 1558
+    },
+    {
+      "id": "audit-gateway",
+      "path": "corpus/audit-gateway/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "gateway",
+        "safety",
+        "recovery",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-release",
+        "validate-file",
+        "snapshot-queue"
+      ],
+      "status": "active",
+      "tokens": 1534
+    },
+    {
+      "id": "throttle-gateway",
+      "path": "corpus/throttle-gateway/PROCEDURE.md",
+      "keywords": [
+        "throttle",
+        "gateway",
+        "recovery",
+        "runbook",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "escalate-refund",
+        "scale-cluster",
+        "dispatch-notification"
+      ],
+      "status": "active",
+      "tokens": 1577
+    },
+    {
+      "id": "decommission-gateway",
+      "path": "corpus/decommission-gateway/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "gateway",
+        "runbook",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "scale-datastore",
+        "reconfigure-queue",
+        "reconfigure-datastore"
+      ],
+      "status": "active",
+      "tokens": 1532
+    },
+    {
+      "id": "drain-queue",
+      "path": "corpus/drain-queue/PROCEDURE.md",
+      "keywords": [
+        "drain",
+        "queue",
+        "runbook",
+        "safety",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-dataset",
+        "patch-gateway",
+        "audit-vendor"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "purge-queue",
+      "path": "corpus/purge-queue/PROCEDURE.md",
+      "keywords": [
+        "purge",
+        "queue",
+        "runbook",
+        "operation",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "rollback-schema",
+        "restore-account",
+        "snapshot-datastore"
+      ],
+      "status": "active",
+      "tokens": 1520
+    },
+    {
+      "id": "replicate-queue",
+      "path": "corpus/replicate-queue/PROCEDURE.md",
+      "keywords": [
+        "replicate",
+        "queue",
+        "safety",
+        "recovery",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-payment",
+        "audit-invoice",
+        "audit-credential"
+      ],
+      "status": "active",
+      "tokens": 1522
+    },
+    {
+      "id": "validate-queue",
+      "path": "corpus/validate-queue/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "queue",
+        "operation",
+        "procedure",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-service",
+        "backup-datastore",
+        "audit-record"
+      ],
+      "status": "active",
+      "tokens": 1547
+    },
+    {
+      "id": "snapshot-queue",
+      "path": "corpus/snapshot-queue/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "queue",
+        "procedure",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-policy",
+        "validate-release",
+        "onboard-vendor"
+      ],
+      "status": "active",
+      "tokens": 1537
+    },
+    {
+      "id": "reconfigure-queue",
+      "path": "corpus/reconfigure-queue/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "queue",
+        "recovery",
+        "runbook",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconcile-invoice",
+        "drain-datastore",
+        "decommission-endpoint"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "scale-cluster",
+      "path": "corpus/scale-cluster/PROCEDURE.md",
+      "keywords": [
+        "scale",
+        "cluster",
+        "recovery",
+        "reversible",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-report",
+        "rotate-certificate",
+        "reconcile-access"
+      ],
+      "status": "active",
+      "tokens": 1548
+    },
+    {
+      "id": "drain-cluster",
+      "path": "corpus/drain-cluster/PROCEDURE.md",
+      "keywords": [
+        "drain",
+        "cluster",
+        "procedure",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "migrate-datastore",
+        "validate-release",
+        "review-vendor"
+      ],
+      "status": "active",
+      "tokens": 1530
+    },
+    {
+      "id": "patch-cluster",
+      "path": "corpus/patch-cluster/PROCEDURE.md",
+      "keywords": [
+        "patch",
+        "cluster",
+        "controlled",
+        "safety",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restore-file",
+        "restore-record",
+        "warm-cache"
+      ],
+      "status": "active",
+      "tokens": 1546
+    },
+    {
+      "id": "snapshot-cluster",
+      "path": "corpus/snapshot-cluster/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "cluster",
+        "safety",
+        "recovery",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "patch-gateway",
+        "dispatch-report",
+        "audit-certificate"
+      ],
+      "status": "active",
+      "tokens": 1551
+    },
+    {
+      "id": "decommission-cluster",
+      "path": "corpus/decommission-cluster/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "cluster",
+        "recovery",
+        "procedure",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "revoke-credential",
+        "handle-refund",
+        "archive-payment"
+      ],
+      "status": "active",
+      "tokens": 1545
+    },
+    {
+      "id": "reconfigure-cluster",
+      "path": "corpus/reconfigure-cluster/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "cluster",
+        "reversible",
+        "runbook",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "drain-cluster",
+        "audit-vendor",
+        "reconcile-ticket"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "replicate-cluster",
+      "path": "corpus/replicate-cluster/PROCEDURE.md",
+      "keywords": [
+        "replicate",
+        "cluster",
+        "procedure",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-cache",
+        "decommission-cluster",
+        "reconcile-access"
+      ],
+      "status": "active",
+      "tokens": 1552
+    },
+    {
+      "id": "rotate-certificate",
+      "path": "corpus/rotate-certificate/PROCEDURE.md",
+      "keywords": [
+        "rotate",
+        "certificate",
+        "procedure",
+        "operation",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-queue",
+        "purge-report",
+        "snapshot-queue"
+      ],
+      "status": "active",
+      "tokens": 1537
+    },
+    {
+      "id": "revoke-certificate",
+      "path": "corpus/revoke-certificate/PROCEDURE.md",
+      "keywords": [
+        "revoke",
+        "certificate",
+        "runbook",
+        "recovery",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-notification",
+        "validate-invoice",
+        "archive-ticket"
+      ],
+      "status": "active",
+      "tokens": 1550
+    },
+    {
+      "id": "validate-certificate",
+      "path": "corpus/validate-certificate/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "certificate",
+        "operation",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "dispatch-report",
+        "drain-datastore",
+        "snapshot-datastore"
+      ],
+      "status": "active",
+      "tokens": 1567
+    },
+    {
+      "id": "provision-certificate",
+      "path": "corpus/provision-certificate/PROCEDURE.md",
+      "keywords": [
+        "provision",
+        "certificate",
+        "operation",
+        "reversible",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-notification",
+        "archive-certificate",
+        "publish-dataset"
+      ],
+      "status": "active",
+      "tokens": 1522
+    },
+    {
+      "id": "audit-certificate",
+      "path": "corpus/audit-certificate/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "certificate",
+        "recovery",
+        "operation",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-service",
+        "validate-dataset",
+        "validate-record"
+      ],
+      "status": "active",
+      "tokens": 1558
+    },
+    {
+      "id": "archive-certificate",
+      "path": "corpus/archive-certificate/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "certificate",
+        "audited",
+        "runbook",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "rotate-certificate",
+        "scale-cluster",
+        "validate-report"
+      ],
+      "status": "active",
+      "tokens": 1531
+    },
+    {
+      "id": "review-policy",
+      "path": "corpus/review-policy/PROCEDURE.md",
+      "keywords": [
+        "review",
+        "policy",
+        "procedure",
+        "operation",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-refund",
+        "onboard-vendor",
+        "backup-datastore"
+      ],
+      "status": "active",
+      "tokens": 1529
+    },
+    {
+      "id": "publish-policy",
+      "path": "corpus/publish-policy/PROCEDURE.md",
+      "keywords": [
+        "publish",
+        "policy",
+        "recovery",
+        "procedure",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-record",
+        "offboard-vendor",
+        "purge-queue"
+      ],
+      "status": "active",
+      "tokens": 1512
+    },
+    {
+      "id": "archive-policy",
+      "path": "corpus/archive-policy/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "policy",
+        "recovery",
+        "controlled",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "scale-datastore",
+        "drain-service",
+        "throttle-notification"
+      ],
+      "status": "active",
+      "tokens": 1555
+    },
+    {
+      "id": "validate-policy",
+      "path": "corpus/validate-policy/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "policy",
+        "controlled",
+        "safety",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restart-gateway",
+        "review-access",
+        "restore-account"
+      ],
+      "status": "active",
+      "tokens": 1523
+    },
+    {
+      "id": "audit-policy",
+      "path": "corpus/audit-policy/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "policy",
+        "safety",
+        "controlled",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "provision-cluster",
+        "snapshot-cluster",
+        "migrate-datastore"
+      ],
+      "status": "active",
+      "tokens": 1560
+    },
+    {
+      "id": "reconcile-policy",
+      "path": "corpus/reconcile-policy/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "policy",
+        "runbook",
+        "reversible",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-cache",
+        "rollback-schema",
+        "restart-service"
+      ],
+      "status": "active",
+      "tokens": 1539
+    },
+    {
+      "id": "validate-dataset",
+      "path": "corpus/validate-dataset/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "dataset",
+        "procedure",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "patch-endpoint",
+        "reconcile-ticket",
+        "review-vendor"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "archive-dataset",
+      "path": "corpus/archive-dataset/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "dataset",
+        "recovery",
+        "operation",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "drain-queue",
+        "offboard-vendor",
+        "purge-dataset"
+      ],
+      "status": "active",
+      "tokens": 1520
+    },
+    {
+      "id": "replicate-dataset",
+      "path": "corpus/replicate-dataset/PROCEDURE.md",
+      "keywords": [
+        "replicate",
+        "dataset",
+        "safety",
+        "procedure",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restore-datastore",
+        "validate-queue",
+        "validate-notification"
+      ],
+      "status": "active",
+      "tokens": 1544
+    },
+    {
+      "id": "purge-dataset",
+      "path": "corpus/purge-dataset/PROCEDURE.md",
+      "keywords": [
+        "purge",
+        "dataset",
+        "runbook",
+        "procedure",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "replicate-datastore",
+        "restart-service",
+        "reconfigure-datastore"
+      ],
+      "status": "active",
+      "tokens": 1546
+    },
+    {
+      "id": "snapshot-dataset",
+      "path": "corpus/snapshot-dataset/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "dataset",
+        "procedure",
+        "controlled",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "dispatch-ticket",
+        "reconcile-dataset",
+        "archive-payment"
+      ],
+      "status": "active",
+      "tokens": 1557
+    },
+    {
+      "id": "restore-dataset",
+      "path": "corpus/restore-dataset/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "dataset",
+        "runbook",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-policy",
+        "deploy-service",
+        "revoke-certificate"
+      ],
+      "status": "active",
+      "tokens": 1539
+    },
+    {
+      "id": "migrate-dataset",
+      "path": "corpus/migrate-dataset/PROCEDURE.md",
+      "keywords": [
+        "migrate",
+        "dataset",
+        "procedure",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-invoice",
+        "audit-account",
+        "purge-report"
+      ],
+      "status": "active",
+      "tokens": 1532
+    },
+    {
+      "id": "audit-dataset",
+      "path": "corpus/audit-dataset/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "dataset",
+        "safety",
+        "operation",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-invoice",
+        "drain-queue",
+        "audit-gateway"
+      ],
+      "status": "active",
+      "tokens": 1534
+    },
+    {
+      "id": "quarantine-file",
+      "path": "corpus/quarantine-file/PROCEDURE.md",
+      "keywords": [
+        "quarantine",
+        "file",
+        "runbook",
+        "operation",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-queue",
+        "review-vendor",
+        "restart-gateway"
+      ],
+      "status": "active",
+      "tokens": 1528
+    },
+    {
+      "id": "restore-file",
+      "path": "corpus/restore-file/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "file",
+        "procedure",
+        "safety",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "offboard-account",
+        "audit-payment",
+        "throttle-service"
+      ],
+      "status": "active",
+      "tokens": 1514
+    },
+    {
+      "id": "validate-file",
+      "path": "corpus/validate-file/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "file",
+        "procedure",
+        "safety",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "backup-service",
+        "patch-service",
+        "drain-service"
+      ],
+      "status": "active",
+      "tokens": 1543
+    },
+    {
+      "id": "archive-file",
+      "path": "corpus/archive-file/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "file",
+        "procedure",
+        "safety",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-queue",
+        "decommission-endpoint",
+        "validate-invoice"
+      ],
+      "status": "active",
+      "tokens": 1537
+    },
+    {
+      "id": "purge-file",
+      "path": "corpus/purge-file/PROCEDURE.md",
+      "keywords": [
+        "purge",
+        "file",
+        "reversible",
+        "operation",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-vendor",
+        "audit-certificate",
+        "replicate-record"
+      ],
+      "status": "active",
+      "tokens": 1545
+    },
+    {
+      "id": "reconcile-report",
+      "path": "corpus/reconcile-report/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "report",
+        "reversible",
+        "procedure",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-invoice",
+        "scale-service",
+        "archive-dataset"
+      ],
+      "status": "active",
+      "tokens": 1529
+    },
+    {
+      "id": "publish-report",
+      "path": "corpus/publish-report/PROCEDURE.md",
+      "keywords": [
+        "publish",
+        "report",
+        "recovery",
+        "audited",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-service",
+        "reconfigure-service",
+        "rollback-service"
+      ],
+      "status": "active",
+      "tokens": 1516
+    },
+    {
+      "id": "archive-report",
+      "path": "corpus/archive-report/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "report",
+        "controlled",
+        "runbook",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "revoke-access",
+        "audit-credential",
+        "snapshot-queue"
+      ],
+      "status": "active",
+      "tokens": 1524
+    },
+    {
+      "id": "validate-report",
+      "path": "corpus/validate-report/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "report",
+        "operation",
+        "recovery",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-dataset",
+        "audit-gateway",
+        "provision-queue"
+      ],
+      "status": "active",
+      "tokens": 1519
+    },
+    {
+      "id": "review-report",
+      "path": "corpus/review-report/PROCEDURE.md",
+      "keywords": [
+        "review",
+        "report",
+        "operation",
+        "procedure",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-payment",
+        "decommission-queue",
+        "validate-payment"
+      ],
+      "status": "active",
+      "tokens": 1530
+    },
+    {
+      "id": "handle-refund",
+      "path": "corpus/handle-refund/PROCEDURE.md",
+      "keywords": [
+        "handle",
+        "refund",
+        "procedure",
+        "recovery",
+        "operation"
+      ],
+      "links": [
+        "reconcile-invoice",
+        "escalate-ticket",
+        "publish-report",
+        "patch-schema"
+      ],
+      "status": "active",
+      "tokens": 1595
+    },
+    {
+      "id": "validate-refund",
+      "path": "corpus/validate-refund/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "refund",
+        "audited",
+        "controlled",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "review-ticket",
+        "reconcile-invoice",
+        "validate-release"
+      ],
+      "status": "active",
+      "tokens": 1531
+    },
+    {
+      "id": "audit-refund",
+      "path": "corpus/audit-refund/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "refund",
+        "audited",
+        "recovery",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "throttle-notification",
+        "validate-cache",
+        "migrate-service"
+      ],
+      "status": "active",
+      "tokens": 1523
+    },
+    {
+      "id": "escalate-refund",
+      "path": "corpus/escalate-refund/PROCEDURE.md",
+      "keywords": [
+        "escalate",
+        "refund",
+        "safety",
+        "runbook",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-certificate",
+        "patch-schema",
+        "revoke-access"
+      ],
+      "status": "active",
+      "tokens": 1554
+    },
+    {
+      "id": "deploy-release",
+      "path": "corpus/deploy-release/PROCEDURE.md",
+      "keywords": [
+        "deploy",
+        "release",
+        "operation",
+        "recovery",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "migrate-dataset",
+        "decommission-endpoint",
+        "audit-record"
+      ],
+      "status": "active",
+      "tokens": 1537
+    },
+    {
+      "id": "provision-gateway",
+      "path": "corpus/provision-gateway/PROCEDURE.md",
+      "keywords": [
+        "provision",
+        "gateway",
+        "controlled",
+        "reversible",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-record",
+        "patch-datastore",
+        "throttle-notification"
+      ],
+      "status": "active",
+      "tokens": 1540
+    },
+    {
+      "id": "reconcile-datastore",
+      "path": "corpus/reconcile-datastore/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "datastore",
+        "runbook",
+        "recovery",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-release",
+        "validate-gateway",
+        "validate-record"
+      ],
+      "status": "active",
+      "tokens": 1528
+    },
+    {
+      "id": "restart-cluster",
+      "path": "corpus/restart-cluster/PROCEDURE.md",
+      "keywords": [
+        "restart",
+        "cluster",
+        "runbook",
+        "audited",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "provision-certificate",
+        "replicate-dataset",
+        "review-access"
+      ],
+      "status": "active",
+      "tokens": 1523
+    },
+    {
+      "id": "scale-gateway",
+      "path": "corpus/scale-gateway/PROCEDURE.md",
+      "keywords": [
+        "scale",
+        "gateway",
+        "recovery",
+        "runbook",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "reconfigure-service",
+        "purge-cache",
+        "reconfigure-queue"
+      ],
+      "status": "active",
+      "tokens": 1566
+    },
+    {
+      "id": "scale-datastore",
+      "path": "corpus/scale-datastore/PROCEDURE.md",
+      "keywords": [
+        "scale",
+        "datastore",
+        "procedure",
+        "recovery",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-gateway",
+        "rollback-release",
+        "revoke-access"
+      ],
+      "status": "active",
+      "tokens": 1558
+    },
+    {
+      "id": "decommission-queue",
+      "path": "corpus/decommission-queue/PROCEDURE.md",
+      "keywords": [
+        "decommission",
+        "queue",
+        "controlled",
+        "reversible",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "audit-cluster",
+        "archive-file",
+        "snapshot-cache"
+      ],
+      "status": "active",
+      "tokens": 1552
+    },
+    {
+      "id": "patch-datastore",
+      "path": "corpus/patch-datastore/PROCEDURE.md",
+      "keywords": [
+        "patch",
+        "datastore",
+        "recovery",
+        "reversible",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "patch-schema",
+        "snapshot-schema",
+        "reconfigure-service"
+      ],
+      "status": "active",
+      "tokens": 1506
+    },
+    {
+      "id": "reconfigure-datastore",
+      "path": "corpus/reconfigure-datastore/PROCEDURE.md",
+      "keywords": [
+        "reconfigure",
+        "datastore",
+        "controlled",
+        "operation",
+        "audited"
+      ],
+      "links": [
+        "escalate-ticket",
+        "publish-release",
+        "review-report",
+        "publish-report"
+      ],
+      "status": "active",
+      "tokens": 1534
+    },
+    {
+      "id": "drain-gateway",
+      "path": "corpus/drain-gateway/PROCEDURE.md",
+      "keywords": [
+        "drain",
+        "gateway",
+        "operation",
+        "safety",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-schema",
+        "validate-release",
+        "reconfigure-cluster"
+      ],
+      "status": "active",
+      "tokens": 1525
+    },
+    {
+      "id": "provision-queue",
+      "path": "corpus/provision-queue/PROCEDURE.md",
+      "keywords": [
+        "provision",
+        "queue",
+        "operation",
+        "safety",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-invoice",
+        "revoke-credential",
+        "drain-cluster"
+      ],
+      "status": "active",
+      "tokens": 1530
+    },
+    {
+      "id": "provision-cluster",
+      "path": "corpus/provision-cluster/PROCEDURE.md",
+      "keywords": [
+        "provision",
+        "cluster",
+        "runbook",
+        "controlled",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restore-record",
+        "validate-schema",
+        "snapshot-cache"
+      ],
+      "status": "active",
+      "tokens": 1521
+    },
+    {
+      "id": "audit-service",
+      "path": "corpus/audit-service/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "service",
+        "controlled",
+        "audited",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-file",
+        "decommission-account",
+        "replicate-datastore"
+      ],
+      "status": "active",
+      "tokens": 1547
+    },
+    {
+      "id": "audit-cluster",
+      "path": "corpus/audit-cluster/PROCEDURE.md",
+      "keywords": [
+        "audit",
+        "cluster",
+        "audited",
+        "recovery",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "snapshot-schema",
+        "review-vendor",
+        "snapshot-queue"
+      ],
+      "status": "active",
+      "tokens": 1535
+    },
+    {
+      "id": "backup-service",
+      "path": "corpus/backup-service/PROCEDURE.md",
+      "keywords": [
+        "backup",
+        "service",
+        "audited",
+        "operation",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "drain-service",
+        "snapshot-cache",
+        "drain-cluster"
+      ],
+      "status": "active",
+      "tokens": 1531
+    },
+    {
+      "id": "restore-service",
+      "path": "corpus/restore-service/PROCEDURE.md",
+      "keywords": [
+        "restore",
+        "service",
+        "audited",
+        "reversible",
+        "recovery"
+      ],
+      "links": [
+        "escalate-ticket",
+        "decommission-endpoint",
+        "audit-service",
+        "revoke-credential"
+      ],
+      "status": "active",
+      "tokens": 1544
+    },
+    {
+      "id": "validate-gateway",
+      "path": "corpus/validate-gateway/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "gateway",
+        "safety",
+        "controlled",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "drain-datastore",
+        "throttle-endpoint",
+        "validate-cache"
+      ],
+      "status": "active",
+      "tokens": 1529
+    },
+    {
+      "id": "validate-cluster",
+      "path": "corpus/validate-cluster/PROCEDURE.md",
+      "keywords": [
+        "validate",
+        "cluster",
+        "procedure",
+        "recovery",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-certificate",
+        "archive-payment",
+        "review-release"
+      ],
+      "status": "active",
+      "tokens": 1516
+    },
+    {
+      "id": "archive-vendor",
+      "path": "corpus/archive-vendor/PROCEDURE.md",
+      "keywords": [
+        "archive",
+        "vendor",
+        "procedure",
+        "runbook",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "purge-record",
+        "snapshot-gateway",
+        "migrate-service"
+      ],
+      "status": "active",
+      "tokens": 1539
+    },
+    {
+      "id": "purge-report",
+      "path": "corpus/purge-report/PROCEDURE.md",
+      "keywords": [
+        "purge",
+        "report",
+        "reversible",
+        "recovery",
+        "controlled"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-endpoint",
+        "patch-cluster",
+        "archive-record"
+      ],
+      "status": "active",
+      "tokens": 1544
+    },
+    {
+      "id": "migrate-service",
+      "path": "corpus/migrate-service/PROCEDURE.md",
+      "keywords": [
+        "migrate",
+        "service",
+        "reversible",
+        "runbook",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "validate-cache",
+        "reconcile-payment",
+        "patch-schema"
+      ],
+      "status": "active",
+      "tokens": 1543
+    },
+    {
+      "id": "throttle-service",
+      "path": "corpus/throttle-service/PROCEDURE.md",
+      "keywords": [
+        "throttle",
+        "service",
+        "operation",
+        "runbook",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "archive-certificate",
+        "drain-service",
+        "decommission-cluster"
+      ],
+      "status": "active",
+      "tokens": 1536
+    },
+    {
+      "id": "dispatch-report",
+      "path": "corpus/dispatch-report/PROCEDURE.md",
+      "keywords": [
+        "dispatch",
+        "report",
+        "audited",
+        "safety",
+        "procedure"
+      ],
+      "links": [
+        "escalate-ticket",
+        "restart-cluster",
+        "purge-record",
+        "migrate-dataset"
+      ],
+      "status": "active",
+      "tokens": 1513
+    },
+    {
+      "id": "reconcile-dataset",
+      "path": "corpus/reconcile-dataset/PROCEDURE.md",
+      "keywords": [
+        "reconcile",
+        "dataset",
+        "controlled",
+        "runbook",
+        "operation"
+      ],
+      "links": [
+        "escalate-ticket",
+        "patch-gateway",
+        "publish-dataset",
+        "patch-schema"
+      ],
+      "status": "active",
+      "tokens": 1532
+    },
+    {
+      "id": "publish-dataset",
+      "path": "corpus/publish-dataset/PROCEDURE.md",
+      "keywords": [
+        "publish",
+        "dataset",
+        "safety",
+        "reversible",
+        "runbook"
+      ],
+      "links": [
+        "escalate-ticket",
+        "review-ticket",
+        "validate-cache",
+        "validate-file"
+      ],
+      "status": "active",
+      "tokens": 1541
+    },
+    {
+      "id": "review-release",
+      "path": "corpus/review-release/PROCEDURE.md",
+      "keywords": [
+        "review",
+        "release",
+        "runbook",
+        "operation",
+        "reversible"
+      ],
+      "links": [
+        "escalate-ticket",
+        "rollback-service",
+        "publish-release",
+        "rollback-schema"
+      ],
+      "status": "active",
+      "tokens": 1516
+    },
+    {
+      "id": "snapshot-gateway",
+      "path": "corpus/snapshot-gateway/PROCEDURE.md",
+      "keywords": [
+        "snapshot",
+        "gateway",
+        "audited",
+        "operation",
+        "safety"
+      ],
+      "links": [
+        "escalate-ticket",
+        "warm-cache",
+        "replicate-cluster",
+        "snapshot-release"
+      ],
+      "status": "active",
+      "tokens": 1530
+    },
+    {
+      "id": "author-procedure",
+      "path": "corpus/author-procedure/PROCEDURE.md",
+      "keywords": [
+        "author",
+        "procedure",
+        "adopt",
+        "meta",
+        "runbook",
+        "status",
+        "active"
+      ],
+      "links": [
+        "publish-policy",
+        "review-policy",
+        "escalate-ticket"
+      ],
+      "status": "active",
+      "tokens": 501
+    }
+  ],
+  "chains": [
+    {
+      "root": "rotate-credential",
+      "steps": [
+        "rotate-credential",
+        "revoke-access"
+      ],
+      "description": "After rotating a credential, follow revoke-access to invalidate the superseded grant."
+    },
+    {
+      "root": "deploy-service",
+      "steps": [
+        "deploy-service",
+        "purge-cache"
+      ],
+      "description": "After deploying a service, follow purge-cache so stale entries are not served."
+    },
+    {
+      "root": "handle-refund",
+      "steps": [
+        "handle-refund",
+        "reconcile-invoice"
+      ],
+      "description": "After handling a refund, follow reconcile-invoice so the ledger agrees."
+    },
+    {
+      "root": "onboard-vendor",
+      "steps": [
+        "onboard-vendor",
+        "provision-account",
+        "grant-access"
+      ],
+      "description": "Onboarding a vendor transitively requires provisioning its account and then granting access (3-hop)."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "scenario-credential-rotation",
+      "description": "A credential must be rotated during a maintenance window.",
+      "applicable": [
+        "rotate-credential",
+        "revoke-access",
+        "audit-credential"
+      ],
+      "targetChainRoot": "rotate-credential"
+    },
+    {
+      "id": "scenario-service-deploy",
+      "description": "A new service version is promoted to production.",
+      "applicable": [
+        "deploy-service",
+        "purge-cache",
+        "escalate-ticket"
+      ],
+      "targetChainRoot": "deploy-service"
+    },
+    {
+      "id": "scenario-refund",
+      "description": "A customer refund is processed end to end.",
+      "applicable": [
+        "handle-refund",
+        "reconcile-invoice",
+        "validate-payment"
+      ],
+      "targetChainRoot": "handle-refund"
+    },
+    {
+      "id": "scenario-vendor-onboarding",
+      "description": "A new vendor is onboarded with account and access.",
+      "applicable": [
+        "onboard-vendor",
+        "provision-account",
+        "grant-access"
+      ],
+      "targetChainRoot": "onboard-vendor"
+    }
+  ]
+}
