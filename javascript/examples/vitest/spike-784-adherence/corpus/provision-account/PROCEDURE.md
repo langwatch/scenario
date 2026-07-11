@@ -2,7 +2,7 @@
 id: provision-account
 kind: procedure
 keywords: [provision, account, recovery, audited, operation]
-links: [escalate-ticket, audit-dataset, dispatch-invoice, reconcile-ticket]
+links: [grant-access, escalate-ticket, audit-dataset, dispatch-invoice, reconcile-ticket]
 status: active
 ---
 # Provision Account
@@ -54,7 +54,11 @@ If the operation must be undone, restore the tier assignment from the recovery p
 ## Escalation
 If you cannot complete this procedure, or you observe impact beyond account, follow procedure `escalate-ticket` to route the issue to the right responder without delay. Do not keep retrying a step that has failed twice for the same reason.
 
+## Follow-on procedures
+After the steps above are complete, follow procedure `grant-access` to carry out the required follow-on work. This is a transitive hand-off: the wider task is not finished until `grant-access` has also been completed in full.
+
 ## Related procedures
+- `grant-access`
 - `escalate-ticket`
 - `audit-dataset`
 - `dispatch-invoice`
