@@ -16,6 +16,9 @@ demonstrations, not powered claims.
 | H1 | baseline + Haiku compile (binding sheet) + Haiku Stop-*verify* (observe-only) | **0.00** | −0.50 |
 | H2 | H1 compile + **BLOCKING** mechanical Stop hook w/ mandatory retry (cap 3) | **0.50** | +0.50 vs H1 / =baseline |
 | H3 | H2 + Stop gate **per-procedure** (gate ≡ judge) + **seeded** reconcile artifacts | **1.00** | +0.50 vs H2 — BUT blocks=0 (attributed to the SEED, not enforcement) |
+| **baseline-seeded** | fair BM25 body-injection on the **SEEDED** scenario (isolation run) | **1.00** | **== H3** → the SEED, not compile/enforcement, drove the flip |
+
+> ⚠ **baseline / H1 / H2 rates are on the UN-seeded scenario; H3 / baseline-seeded are on the SEEDED scenario — NOT directly comparable.** The isolation run (baseline-seeded=1.00) proves seeding the transitive hand-off's artifacts lifts even plain baseline to 100%: on this scenario, once the task is enactable, the subject completes both procedures under load with NO compile and NO enforcement. **The scenario no longer discriminates strategies** — its ceiling is 1.0 for baseline. Proving any strategy is load-bearing now requires a HARDER, discriminating scenario where baseline reliably MISSES (see below).
 
 ---
 
@@ -75,6 +78,21 @@ H3 hit 1.00 but with **blocks=0** (enforcement unexercised) — the second conse
 2. **H-enforce-proof: a scenario where the subject reliably MISSES without the net** (harder load, or a second applicable procedure whose artifacts are deliberately left un-seeded / harder to discover) so the per-procedure gate MUST fire to reach 100% — the definitive live proof that enforcement is load-bearing *for the goal* (de-risk Case A already proved the block mechanism works in isolation; this would prove it flips a real run). Higher bucket cost (H3 arm = compile Haiku + subject).
 
 **Pick: run H3-attr (baseline-seeded) next** — cheapest, and it directly resolves whether the 100% is the seed or the strategy before spending more bucket on enforcement-proof. Re-rank after its result.
+
+### RESULT — baseline-seeded ran: **2/2 = 1.00** (the SEED explains everything)
+
+Fair-retrieval **baseline on the seeded scenario scored 1.00** (gpt-5.1 judge; 174 substrate turns, 48 tool actions, 4 excluded on the overage line; compile=0/verify=0, 4 baseline retrievals — **no Haiku, no Stop hook, no enforcement**). Both `handle-refund` (chain=true) and `reconcile-invoice` followed=true, `attribution=none`; the subject read the reconciliation report + invoice, edited the balance + settlement, and re-read to confirm.
+
+**Verdict: the entire H2→H3 flip (0.50→1.00) is the SEED (enactability), not compile and not enforcement.** With the transitive hand-off's artifacts present, even the plainest arm completes both procedures under 174 turns of load. Option-1's discriminating outcome fired: **baseline-seeded ≈ 1.0 → neither compile nor enforcement is load-bearing on this scenario, and the scenario's ceiling is 1.0 for baseline** (it cannot discriminate strategies — the plan's un-built AC7 discrimination gate, now empirically demonstrated). H1=0.00/H2=0.50 vs baseline=0.50 were an *enactability artifact* (reconcile-invoice under-seeded), not evidence about the strategies.
+
+### → Re-ranked next step: BUILD A DISCRIMINATING SCENARIO (baseline must miss under load)
+
+The binding constraint is no longer a strategy — it is the **test**. Until baseline reliably drops below 1.0 under load, no arm can show value (every seeded arm hits the ceiling; every unseeded arm is enactability-confounded). Next, highest P(success toward the GOAL = *proving* a strategy reaches 100% where baseline fails):
+
+1. **Author a harder scenario that induces a real baseline miss, enactability held constant (all artifacts seeded).** Lever the issue itself names: **deeper transitive chains** (A→B→C→D) — baseline follows A/B but drops the deep link under load, exactly the transitive-skip the issue defines as *the* mistake. Complement with decision-point distractor pressure and/or a procedure whose correct step is counter-intuitive (tests adherence-over-improvisation). **Calibrate it (AC7): baseline-seeded must score <1.0, reproducibly, BEFORE any strategy is trusted.**
+2. **Then re-run H3 (per-procedure enforcement) on the discriminating scenario.** Now the gate has a real miss to catch — de-risk Case A already proved it blocks a skipped proc and forces the retry; a live run where H3 closes a gap baseline can't is the first genuine evidence enforcement is load-bearing for the goal.
+
+**Pick: build + calibrate the discriminating scenario next** (deeper chain, seeded, baseline<1.0). This is a build, not a one-shot run — the prior arms proved the harness; the missing piece is a test with headroom. Re-rank after baseline-seeded<1.0 is confirmed.
 
 ### H3 (original proposal)
 
