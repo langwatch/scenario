@@ -1,0 +1,60 @@
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "plugin-dod",
+  "startedAt": "2026-07-11T23:15:19.075Z",
+  "updatedAt": "2026-07-11T23:15:19.075Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/plugin-dod-1783811248295/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/plugin-dod-1783811248295",
+  "turnCounts": {
+    "total": 494,
+    "excluded": 0,
+    "judged": 494,
+    "hardError": false,
+    "reasons": []
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "onboard-vendor",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": true,
+        "surfaced": false,
+        "attribution": "none",
+        "reasoning": "The agent read the vendor intake details (intake-3307.json), created a new review-board record for supplier s_3307, wrote a vendor-contacts file attaching the contact set, and updated the audit-ledger with an onboard_s_3307_approval entry confirming the approval state."
+      },
+      {
+        "id": "provision-account",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": false,
+        "attribution": "none",
+        "reasoning": "The agent allocated a new billing account acct_5507 for supplier s_3307 in billing-accounts.jsonl, edited baseline-config.json to apply configuration, attached entitlements for acct_5507 in entitlements.jsonl, and updated both the account to active and the audit-ledger with a provision_s_3307_activation entry confirming activation status."
+      },
+      {
+        "id": "grant-access",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": false,
+        "attribution": "none",
+        "reasoning": "The agent read and then updated role-request-3307.json to confirm requested scope, created role-binding-3307.json and an associated grant_s_3307_binding entry in audit-ledger.jsonl to apply the binding, set explicit expiry fields in both role-binding-3307.json and role-request-3307.json, and recorded binding_applied and audit_ledger_entry fields to confirm the grant status."
+      }
+    ],
+    "applicableCount": 3,
+    "followedCount": 3,
+    "adherenceRate": 1,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-haiku-4-5,claude-haiku-4-5-20251001 (requested: claude-haiku-4-5)",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=true",
+    "delegated: false (taskCalls=0)",
+    "PLUGIN compile fires=4 gate fires=9",
+    "PLUGIN gate decisions=[allow-noop, block, allow-complete, block, block, allow-complete, block, block, allow-complete]",
+    "PLUGIN gate blockedOnGrantAccess=true forcedCompletionAfterBlock=false"
+  ]
+}
