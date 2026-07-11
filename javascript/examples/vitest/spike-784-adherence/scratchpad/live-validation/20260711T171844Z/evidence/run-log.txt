@@ -1,0 +1,96 @@
+=== sc784 live-validation run @ 20260711T171844Z ===
+dest (worktree, data-retention): /home/ubuntu/langwatch-workspace/scenario-784-adherence/javascript/examples/vitest/spike-784-adherence/scratchpad/live-validation/20260711T171844Z
+LANGWATCH_API_KEY present: yes-len54
+OPENAI_API_KEY present in env-file: yes
+--- launching H4-vendor (default subject = account default; judge+gate gpt-5.1) ---
+================ #784 LIVE adherence loop — H3 (compile + PER-PROCEDURE gate ≡ judge) ================
+strategy ............ h3
+judge model ......... gpt-5.1
+description leak-check PASS (procedure-agnostic; 174 ids checked)
+subject per-turn timeout: 420000ms; retry cap: 3
+per-procedure gate .. gpt-5.1 (OpenAI, bucket-free); openaiEnvPath=/home/ubuntu/langwatch-workspace/scenario-050-repro/.env
+sandbox ............. /tmp/adherence-784-sandboxes/h3-1783790327841
+  creds symlink realpath (outside repo): /home/ubuntu/.claude/.credentials.json
+  seeded project state: state/intake-3307.json, state/review-board.jsonl, state/billing-accounts.jsonl, state/baseline-config.json, state/entitlements.jsonl, state/role-request-3307.json, state/audit-ledger.jsonl
+  hooks: UserPromptSubmit, Stop  (Stop = h3-verify PER-PROCEDURE gate ≡ judge on gpt-5.1, cap=3)
+  enforced applicable set: [onboard-vendor, provision-account, grant-access]
+
+--- FULL scenario.run (H3): 4 scripted turns, target buried last ---
+
+────────────────────────────────────────────────────────────
+🎭  Running Scenario Tests
+────────────────────────────────────────────────────────────
+Follow it live: https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/spike-784-adherence/scenariobatch_3GMnVTGRGucU3fAzGEWiDGE2byF
+────────────────────────────────────────────────────────────
+
+[scenario.execution.ScenarioExecution] [scenario_3GMnVSEnECgbQGn7XJtZPmkSQnZ] Script step 8 failed {
+  stepIndex: 7,
+  error: '[ClaudeCodeAgent] Error: Claude Code CLI timed out after 420000ms in /tmp/adherence-784-sandboxes/h3-1783790327841/project',
+  function: '(_state, executor) => {\n' +
+    '    if (options.wait === false) {\n' +
+    '      const ex = executor;\n' +
+    '      if (typeof ex.agentNonBlocking === "function") {\n' +
+    '        ex.agentNonBlocking(options.content);\n' +
+    '        return;\n' +
+    '      }\n' +
+    '      void executor.agent(options.content).catch(() => {\n' +
+    '      });\n' +
+    '      return;\n' +
+    '    }\n' +
+    '    return executor.agent(options.content);\n' +
+    '  }'
+}
+
+!! RUN ABORTED: [ClaudeCodeAgent] Error: Claude Code CLI timed out after 420000ms in /tmp/adherence-784-sandboxes/h3-1783790327841/project
+   substrate captured so far: 313 turns; excluded=0 hardError=false
+   H3 blocks before abort: 2; decisions=[allow-noop, allow-noop, allow-noop, block, block]
+   checkpoint preserved at /tmp/adherence-784-sandboxes/h3-1783790327841/checkpoint.json (status=aborted, NOT measured)
+RUN_EXIT=3 (124=timeout/wedge, 0=clean, 3=aborted-caught)
+sandbox: /tmp/adherence-784-sandboxes/h3-1783790327841
+RETAINED sandbox -> /home/ubuntu/langwatch-workspace/scenario-784-adherence/javascript/examples/vitest/spike-784-adherence/scratchpad/live-validation/20260711T171844Z/sandbox-copy
+
+################## EVIDENCE ##################
+## RUN_EXIT=3
+## --- FOLD 2 (delegation tag) ---
+(delegated note not in checkpoint — reconstruct from substrate)
+## --- FOLD 1 (always-enforced tier +always) ---
+## enforcedVia occurrences in run log:
+## H4 decision sequence + trajectory lines:
+   H3 blocks before abort: 2; decisions=[allow-noop, allow-noop, allow-noop, block, block]
+## H4 decision sequence + trajectory lines:
+## always-enforced ids seen in enforced sets:
+## --- ADHERENCE + gate outcome ---
+## --- SIMULATIONS UI (LangWatch) ---
+https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/spike-784-adherence/scenariobatch_3GMnVTGRGucU3fAzGEWiDGE2byF
+## checkpoint.json (retained):
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "h3",
+  "startedAt": "2026-07-11T17:28:08.298Z",
+  "updatedAt": "2026-07-11T17:28:08.298Z",
+  "status": "aborted",
+  "configDir": "/tmp/adherence-784-sandboxes/h3-1783790327841/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/h3-1783790327841",
+  "turnCounts": {
+    "total": 313,
+    "excluded": 0,
+    "judged": 313,
+    "hardError": false,
+    "reasons": []
+  },
+  "hooks": {
+    "fired": 9,
+    "compileCalls": 4,
+    "verifyCalls": 0,
+    "baselineRetrievals": 0,
+    "haiku200s": 4,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "error": "[ClaudeCodeAgent] Error: Claude Code CLI timed out after 420000ms in /tmp/adherence-784-sandboxes/h3-1783790327841/project",
+  "notes": [
+    "run aborted; checkpoint preserved (not measured)",
+    "H3 blocks=2 decisions=[allow-noop, allow-noop, allow-noop, block, block]"
+  ]
+}################## END EVIDENCE ##################

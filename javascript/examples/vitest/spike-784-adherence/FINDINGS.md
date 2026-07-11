@@ -148,3 +148,26 @@ The optimization phase. Subject model injected via an additive `--model $ADHEREN
 | claude-haiku-4-5 | 2 | 2/2 = 3/3 | fired+forced (blocks=1, blocks=1) |
 
 **11/11 runs = 3/3 = 100%, gate fired-on-miss + forced in EVERY run, across all 3 tiers.** The mechanism does not depend on a strong subject: the cheaper tiers miss the non-obvious steps at least as often (`blocks≥1` every run, identical decision shape `[allow-noop×3, block, allow-complete-after-retry]`), and the gate forces each to 100%. So the recipe is a **model-agnostic guarantee** — the subject can run on a cheap fast model and still hit 100%, because the guarantee lives in the enforcement layer, not the subject's competence. Caveats: n=7/2/2 (demonstration across 11 runs, not a large-sample estimate; H4 is deterministic so the load-bearing observation is the gate FIRING on every tier); one Sonnet run `EXIT=124` = the #791 teardown wedge (worse with telemetry active) killed by `timeout`, its 3/3 checkpointed pre-wedge (valid). **Telemetry LIVE + verified two ways** (ingestion `rejectedSpans:0` + queryable via the sol-doc REST recipe; sk-lw key, sandbox-scoped, secret never committed) — judge scores+reasoning now attach to every run's traces. Sweep results `scratchpad/sweep-results/`; #784 comment 4947699818. **Core question answered end-to-end: CC-native per-procedure enforcement GUARANTEES 100% procedure-adherence under context load — proven, powered (n=7), model-invariant, instrumented.**
+
+## n. ⚠ LIVE-VALIDATION of the two folds — fold-1 mechanism proven live, but UNIFORM enforcement of conditional meta-procs REGRESSES the recipe (fold-2 validated + degenerate, n=1)
+
+One H4-vendor session (subject `claude-opus-4-8`; judge + per-procedure gate gpt-5.1; `LANGWATCH_API_KEY` set) live-validated both optional folds from §m's owner roadmap (two-tier corpus, delegation dimension).
+
+**Fold 1 (always-enforced meta-proc tier) — union + scoping work exactly as designed.** `enforcedVia` split cleanly: **3× `sheet+chain+always` on the 3 real task turns, 3× `action-log` (no `+always`) on the 3 distractor turns** — the tier unions onto enforcement ONLY on real task turns, never over-fires on distractors. ✓
+
+**But uniform enforcement of all 5 meta-procs regressed the proven 100% vendor recipe.** Gate trajectory (per-proc `followed` from gpt-5.1):
+```
+allow-noop ×3            (distractors — correctly no-op, 0 OpenAI)
+block  r1  enforced=[onboard-vendor,provision-account,grant-access, audit,done,format,improvise-lookup,prove]
+           blocked=[grant-access, audit,done,format,improvise-lookup,prove]
+block  r2  blocked=[format, improvise-lookup, prove]      (grant-access,audit,done now followed=true)
+block  r3  blocked=[improvise-lookup, prove]              (format now followed=true)
+allow-cap-hit  blocked=[improvise-lookup, prove]          (never satisfiable)
+```
+The core vendor enforcement still worked — the gate forced `grant-access` (the real miss; onboard/provision/grant all `followed=true` by r2), and `audit`/`done`/`format` were satisfiable and got satisfied on retries. But `prove` (substantiate a claim) and `improvise-lookup` (no covering procedure → author one) are context-INAPPLICABLE to a covered, non-claim vendor task — the gate judged them `followed=false` on every retry → permanent block → cap-hit. Retry churn drove the subject to **313 substrate turns → 420s/turn timeout → run ABORTED** (vendor adherence not measured).
+
+**Consequence:** uniform always-enforcement is unsafe for meta-procs whose applicability is conditional; the tier needs **applicability-conditioning** (enforce `prove` only when a claim is made, `improvise-lookup` only when no procedure covers the task) or **satisfiable-by-construction** meta-procs before it can fold into the headline recipe. n=1, but the failure is structural/deterministic, not a stochastic flake — it will recur every vendor run.
+
+**Fold 2 (delegation dimension) — validated, still degenerate.** Reconstructed from the 313-turn substrate: 0 `Task` + 0 `Agent` tool_use → `delegated=false (taskCalls=0)`, correctly detected (subject worked directly: 14 Read/11 Bash/7 Edit/3 Write). Minor instrumentation gap: the `delegated:` note is written only on the success path — the abort/catch checkpoint omits it.
+
+**Simulations UI — WIRED** (setId `spike-784-adherence`): with `LANGWATCH_API_KEY` set (sk-lw, project `voice-bugbash-nWygNc`), `scenario.run()` posted scenario-events with no POST error; SDK-emitted URL: `https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/spike-784-adherence/scenariobatch_3GMnVTGRGucU3fAzGEWiDGE2byF`. Caveat: independent server-side read is NOT verifiable from the box — `/api/scenario-events` is POST-only (no list GET), `batchRunId` is client-generated (xksuid, doesn't prove ingestion), and the LangWatch MCP is a project-scoped key for a DIFFERENT project (`platform_list_simulation_runs` returns none). The URL is the report — open it to view.
