@@ -200,6 +200,83 @@ export function summarizeHooks(events: HookEvent[]): HookSummary {
 }
 
 // ---------------------------------------------------------------------------
+// H2 blocking-Stop-hook summary (the enforcement-delta evidence).
+// ---------------------------------------------------------------------------
+
+export interface H2Summary {
+  /** Every `h2-verify` Stop event, in order. */
+  fires: number;
+  /** How many of those fires BLOCKED the stop and forced a retry. */
+  blocks: number;
+  /** Fires that allowed the stop because enforcement was not in play this turn. */
+  noopAllows: number;
+  /** True iff some enforced turn reached completion only AFTER >=1 block (retry worked). */
+  retryForcedCompletion: boolean;
+  /** True iff some enforced turn hit the retry cap without ever reaching completion. */
+  capHit: boolean;
+  /** True iff enforcement fired on >=1 turn (an applicable procedure was in play). */
+  enforcedAtLeastOnce: boolean;
+  /** Ordered decisions (e.g. block, block, allow-complete-after-retry). */
+  decisions: string[];
+  /**
+   * The coverage trajectory of every ENFORCED fire — how the action-log step
+   * coverage moved across blocks/retries. This is the "did each retry move a
+   * procedure from incomplete→complete" evidence.
+   */
+  trajectory: Array<{
+    decision: string;
+    enforced: string[];
+    mutations?: number;
+    reads?: number;
+    needMut?: number;
+    needRead?: number;
+    retry?: number;
+    stopHookActive?: boolean;
+  }>;
+}
+
+const H2_ENFORCED_DECISIONS = new Set([
+  "block",
+  "allow-complete",
+  "allow-complete-after-retry",
+  "allow-cap-hit",
+  "allow-counter-unwritable",
+]);
+
+/**
+ * Summarize the H2 `h2-verify` Stop events from the hook log. Captures how many
+ * times the Stop hook BLOCKED and forced a retry, and whether each retry moved a
+ * procedure from incomplete→complete (via the coverage trajectory) — the core
+ * evidence for whether external enforcement flipped the compliance gap.
+ */
+export function summarizeH2(events: HookEvent[]): H2Summary {
+  const fires = events.filter((e) => e.mode === "h2-verify" && e.event === "stop");
+  const decisions = fires.map((e) => String(e.decision ?? ""));
+  const trajectory = fires
+    .filter((e) => H2_ENFORCED_DECISIONS.has(String(e.decision ?? "")))
+    .map((e) => ({
+      decision: String(e.decision ?? ""),
+      enforced: (e.enforced as string[]) ?? [],
+      mutations: e["mutations"] as number | undefined,
+      reads: e["reads"] as number | undefined,
+      needMut: e["needMut"] as number | undefined,
+      needRead: e["needRead"] as number | undefined,
+      retry: e["retry"] as number | undefined,
+      stopHookActive: e["stopHookActive"] as boolean | undefined,
+    }));
+  return {
+    fires: fires.length,
+    blocks: decisions.filter((d) => d === "block").length,
+    noopAllows: decisions.filter((d) => d === "allow-noop" || d === "allow-no-substrate").length,
+    retryForcedCompletion: decisions.includes("allow-complete-after-retry"),
+    capHit: decisions.includes("allow-cap-hit"),
+    enforcedAtLeastOnce: trajectory.length > 0,
+    decisions,
+    trajectory,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Per-session checkpoint (survives an abort).
 // ---------------------------------------------------------------------------
 

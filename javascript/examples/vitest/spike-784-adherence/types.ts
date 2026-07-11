@@ -145,7 +145,7 @@ export type Attribution =
   | "instruction-sheet-miss"
   | "agent-override";
 
-export type Strategy = "none" | "baseline" | "h1";
+export type Strategy = "none" | "baseline" | "h1" | "h2";
 
 /** Per-procedure adherence verdict. */
 export interface ProcedureVerdict {

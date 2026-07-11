@@ -53,6 +53,7 @@ import { fileURLToPath } from "node:url";
 import { ensureTranscriptDir, writeTeeShim, TRANSCRIPT_SUBDIR } from "./tee-substrate.ts";
 import { materializeBaseline } from "./strategies/baseline.ts";
 import { materializeH1 } from "./strategies/h1.ts";
+import { materializeH2 } from "./strategies/h2.ts";
 import type { MaterializeCtx, StrategyMaterialization } from "./strategies/common.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -72,7 +73,7 @@ export const CORPUS_DIR = join(HERE, "corpus");
 const SANDBOX_ROOT = process.env.ADHERENCE_SANDBOX_ROOT ?? join(tmpdir(), "adherence-784-sandboxes");
 const HOOKS_LIB_SRC = join(HERE, "strategies", "hooks-lib.mjs");
 
-export type StrategyName = "baseline" | "h1";
+export type StrategyName = "baseline" | "h1" | "h2";
 
 export interface Sandbox {
   runId: string;
@@ -132,7 +133,16 @@ the applicable procedure has been fully carried out as concrete actions.
  */
 export function buildSandbox(
   strategy: StrategyName,
-  opts: { runId?: string; retrievalK?: number; haikuModel?: string; corpusDir?: string } = {},
+  opts: {
+    runId?: string;
+    retrievalK?: number;
+    haikuModel?: string;
+    corpusDir?: string;
+    /** AUTHORED applicable ids for the scenario (H2 Stop-hook enforcement denominator). */
+    applicable?: string[];
+    /** H2 mandatory-retry cap (default 3). */
+    retryCap?: number;
+  } = {},
 ): Sandbox {
   const runId = opts.runId ?? `${strategy}-${Date.now()}`;
   const root = join(SANDBOX_ROOT, runId);
@@ -176,8 +186,18 @@ export function buildSandbox(
     retrievalK: opts.retrievalK ?? 8,
     haikuModel: opts.haikuModel ?? "claude-haiku-4-5",
     nodeBin: which("node"),
+    // H2-only: the tee'd substrate dir the Stop hook scores from + the authored
+    // applicable denominator + the retry cap. Harmless for baseline/h1 (unused).
+    transcriptDir,
+    applicable: opts.applicable,
+    retryCap: opts.retryCap,
   };
-  const materialized = strategy === "h1" ? materializeH1(ctx) : materializeBaseline(ctx);
+  const materialized =
+    strategy === "h2"
+      ? materializeH2(ctx)
+      : strategy === "h1"
+        ? materializeH1(ctx)
+        : materializeBaseline(ctx);
   writeFileSync(
     join(configDir, "settings.json"),
     JSON.stringify(

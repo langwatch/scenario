@@ -495,6 +495,306 @@ async function runH1Verify(input, env) {
   process.exit(0);
 }
 
+// ---------------------------------------------------------------------------
+// H2 — MECHANICAL, BLOCKING Stop-hook enforcement (the compliance-gap delta).
+//
+// H1's Stop hook was an observe-only Haiku verify. H2 replaces it with a
+// bucket-free MECHANICAL step-coverage gate that, if the applicable procedure(s)
+// this turn's sheet bound are NOT complete in the EXTERNALLY-CHECKABLE action log,
+// BLOCKS the stop (`{"decision":"block","reason":...}` on stdout, exit 0 — the
+// same mechanic `~/.claude/hooks/done-gate-stop.sh` uses) and re-injects a
+// mandatory-retry directive naming the specific missing steps. Bounded by a retry
+// cap. NO Haiku call — the audit is deterministic and draws no bucket.
+// ---------------------------------------------------------------------------
+
+/** Extract the numbered steps of a procedure body's "## Procedure" section. */
+export function parseProcedureSteps(body) {
+  const steps = [];
+  let inProc = false;
+  for (const raw of String(body).split("\n")) {
+    const line = raw.trim();
+    if (/^#{1,6}\s+/.test(line)) {
+      inProc = /^#{1,6}\s+procedure\b/i.test(line); // enter on "## Procedure", leave on the next heading
+      continue;
+    }
+    if (!inProc) continue;
+    const m = /^(\d+)\.\s+(.*)$/.exec(line);
+    if (m) steps.push({ n: Number(m[1]), text: m[2].trim() });
+  }
+  return steps;
+}
+
+// A step is a STATE CHANGE (must be enacted with Write/Edit) vs a read/verify.
+// Verb-led classification: procedure steps are imperative, so the leading verb is
+// the signal. Unknown leading verbs default to read/verify so an ambiguous step
+// never inflates the (stricter) mutation requirement.
+const MUTATING_VERBS = new Set(
+  "process record resolve write update create append apply patch rotate remove delete revoke provision grant archive purge decommission replace mark set add insert restore reattach reconfigure reconcile refund issue post commit".split(
+    /\s+/,
+  ),
+);
+const READING_VERBS = new Set(
+  "gather compare confirm intake verify check read review identify inspect audit validate examine ensure observe compile assess retrieve locate".split(
+    /\s+/,
+  ),
+);
+
+/** True when a numbered step is a state change (needs a Write/Edit action). */
+export function stepIsMutating(text) {
+  const words = String(text).toLowerCase().match(/[a-z]+/g) ?? [];
+  const first = words[0];
+  if (first && MUTATING_VERBS.has(first)) return true;
+  if (first && READING_VERBS.has(first)) return false;
+  return words.some((w) => MUTATING_VERBS.has(w)); // unknown lead verb: only mutating if a mutating verb appears
+}
+
+const MUTATION_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+const READ_TOOLS = new Set(["Read", "Grep", "Glob", "Bash", "LS"]);
+
+/**
+ * Tally the CURRENT turn's subject tool actions from the tee'd substrate
+ * (`<transcriptDir>/<n>.stream.jsonl`, n = the shim's `.counter`). Deliberately
+ * NOT `input.transcript_path`: on a `--resume` continuation turn that on-disk
+ * transcript carries EVERY prior turn's actions too (the distractor turns), which
+ * would falsely satisfy the gate. The per-turn tee file is the correctly-scoped,
+ * externally-checkable action log. Returns null if it cannot be read (caller
+ * FAILS OPEN — never blocks blind). A buffered/partial trailing line is tolerated
+ * (skipped) — earlier tool_use events are long-since flushed by Stop time.
+ */
+export function readCurrentTurnActions(transcriptDir) {
+  if (!transcriptDir) return null;
+  let n;
+  try {
+    n = Number(readFileSync(join(transcriptDir, ".counter"), "utf8").trim());
+  } catch {
+    return null;
+  }
+  if (!Number.isFinite(n) || n < 1) return null;
+  let raw;
+  try {
+    raw = readFileSync(join(transcriptDir, `${n}.stream.jsonl`), "utf8");
+  } catch {
+    return null;
+  }
+  let mutations = 0;
+  let reads = 0;
+  let toolUses = 0;
+  const text = [];
+  for (const line of raw.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    let o;
+    try {
+      o = JSON.parse(s);
+    } catch {
+      continue;
+    }
+    const content = o?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (!b || typeof b !== "object") continue;
+      if (b.type === "tool_use") {
+        toolUses++;
+        const name = typeof b.name === "string" ? b.name : "";
+        let inputText = "";
+        try {
+          inputText = JSON.stringify(b.input ?? "");
+        } catch {
+          /* leave empty */
+        }
+        text.push(`${name} ${inputText}`);
+        if (MUTATION_TOOLS.has(name)) mutations++;
+        else if (READ_TOOLS.has(name)) reads++;
+      } else if (b.type === "tool_result") {
+        const c = typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "");
+        text.push(String(c).slice(0, 400));
+      }
+    }
+  }
+  return { n, mutations, reads, toolUses, text: text.join("\n") };
+}
+
+async function runH2Verify(input, env) {
+  const transcriptDir = env.transcriptDir;
+  const corpus = loadCorpus(env.corpusDir);
+  const byId = new Map(corpus.map((c) => [c.id, c]));
+
+  // Which applicable procedures did THIS turn's compiled sheet bind? Enforcement
+  // is scoped to exactly those, so a distractor turn (whose sheet names another
+  // family, or none) is never blocked into doing refund work.
+  let sheet = "";
+  if (env.sheetFile && existsSync(env.sheetFile)) {
+    try {
+      sheet = readFileSync(env.sheetFile, "utf8");
+    } catch {
+      /* verify without the sheet text */
+    }
+  }
+  const actions = readCurrentTurnActions(transcriptDir);
+
+  let enforced = env.applicable.filter((id) => sheet.includes(id));
+  let enforcedVia = "sheet";
+  if (enforced.length === 0 && actions) {
+    // Fallback: the compile may have been throttled/empty this turn. Enforce an
+    // applicable procedure the subject's OWN action log referenced by id (it
+    // read the procedure file) so a compile miss doesn't disable enforcement.
+    enforced = env.applicable.filter((id) => actions.text.includes(id));
+    enforcedVia = "action-log";
+  }
+  const stopHookActive = input.stop_hook_active === true;
+
+  // Distractor turn — no applicable procedure in play. Allow the stop.
+  if (enforced.length === 0) {
+    logHookEvent(env.logPath, {
+      mode: "h2-verify",
+      event: "stop",
+      decision: "allow-noop",
+      enforced: [],
+      enforcedVia,
+      stopHookActive,
+    });
+    process.exit(0);
+  }
+
+  // FAIL-OPEN: cannot read the action log ⇒ never block blind (done-gate rule).
+  if (!actions) {
+    logHookEvent(env.logPath, {
+      mode: "h2-verify",
+      event: "stop",
+      decision: "allow-no-substrate",
+      enforced,
+      enforcedVia,
+      stopHookActive,
+    });
+    process.exit(0);
+  }
+
+  // Mechanical step-coverage requirement across the enforced set.
+  let needMut = 0;
+  let needRead = 0;
+  let needActions = 0;
+  const perProc = [];
+  for (const id of enforced) {
+    const entry = byId.get(id);
+    const steps = entry ? parseProcedureSteps(entry.body) : [];
+    const mut = steps.filter((s) => stepIsMutating(s.text));
+    const rd = steps.filter((s) => !stepIsMutating(s.text));
+    needMut += mut.length;
+    needRead += rd.length;
+    needActions += steps.length;
+    perProc.push({ id, steps, mut, rd });
+  }
+
+  const complete = actions.mutations >= needMut && actions.reads >= needRead;
+
+  const n = actions.n;
+  const retryFile = join(transcriptDir, `.h2-block-${n}.count`);
+  let priorBlocks = 0;
+  try {
+    priorBlocks = Number(readFileSync(retryFile, "utf8").trim()) || 0;
+  } catch {
+    priorBlocks = 0;
+  }
+
+  if (complete) {
+    logHookEvent(env.logPath, {
+      mode: "h2-verify",
+      event: "stop",
+      decision: priorBlocks > 0 ? "allow-complete-after-retry" : "allow-complete",
+      enforced,
+      enforcedVia,
+      mutations: actions.mutations,
+      reads: actions.reads,
+      toolUses: actions.toolUses,
+      needMut,
+      needRead,
+      needActions,
+      priorBlocks,
+      stopHookActive,
+    });
+    process.exit(0);
+  }
+
+  // Incomplete — enforce, unless the retry cap is hit (bounds the bucket + guarantees termination).
+  if (priorBlocks >= env.retryCap) {
+    logHookEvent(env.logPath, {
+      mode: "h2-verify",
+      event: "stop",
+      decision: "allow-cap-hit",
+      enforced,
+      enforcedVia,
+      mutations: actions.mutations,
+      reads: actions.reads,
+      toolUses: actions.toolUses,
+      needMut,
+      needRead,
+      needActions,
+      priorBlocks,
+      retryCap: env.retryCap,
+      stopHookActive,
+    });
+    process.exit(0);
+  }
+
+  // Build the mandatory-retry directive naming the specific missing steps.
+  const blocks = perProc.map((p) => {
+    const lines = p.steps.map(
+      (s) =>
+        `    ${s.n}. ${s.text}  [${stepIsMutating(s.text) ? "STATE CHANGE — enact with Write/Edit" : "read/verify"}]`,
+    );
+    return `Procedure "${p.id}" — ${p.steps.length} numbered steps (${p.mut.length} require a Write/Edit state change, ${p.rd.length} require a read/verify):\n${lines.join("\n")}`;
+  });
+  const reason = [
+    "MANDATORY RETRY — you tried to finish, but an applicable written procedure is NOT complete.",
+    `Your tool actions THIS turn: ${actions.mutations} state-changing (Write/Edit) and ${actions.reads} read/investigation action(s).`,
+    `The applicable procedure(s) require at least ${needMut} state changes and ${needRead} reads — ${needActions} numbered steps total — EACH carried out as a concrete tool action against the seeded project state (state/charge-*.json, state/orders/*, state/ledger.jsonl).`,
+    "",
+    blocks.join("\n\n"),
+    "",
+    "Carry out every still-missing numbered step NOW as a real tool action: Read the relevant state file, then Write/Edit the file the step calls for — do not merely describe it. Then finish.",
+  ].join("\n");
+
+  try {
+    writeFileSync(retryFile, String(priorBlocks + 1));
+  } catch {
+    // Cannot persist the retry counter. If this is already a re-fire, fail open
+    // to avoid an unbounded loop; a first fire still emits its single block.
+    if (stopHookActive) {
+      logHookEvent(env.logPath, {
+        mode: "h2-verify",
+        event: "stop",
+        decision: "allow-counter-unwritable",
+        enforced,
+        enforcedVia,
+        mutations: actions.mutations,
+        reads: actions.reads,
+      });
+      process.exit(0);
+    }
+  }
+
+  logHookEvent(env.logPath, {
+    mode: "h2-verify",
+    event: "stop",
+    decision: "block",
+    enforced,
+    enforcedVia,
+    mutations: actions.mutations,
+    reads: actions.reads,
+    toolUses: actions.toolUses,
+    needMut,
+    needRead,
+    needActions,
+    retry: priorBlocks + 1,
+    retryCap: env.retryCap,
+    stopHookActive,
+  });
+
+  // Block the stop and re-inject the directive (Stop-hook JSON form; exit 0).
+  process.stdout.write(JSON.stringify({ decision: "block", reason }));
+  process.exit(0);
+}
+
 function hookEnv() {
   return {
     corpusDir: process.env.ADHERENCE_CORPUS_DIR ?? "",
@@ -503,6 +803,13 @@ function hookEnv() {
     haikuModel: process.env.ADHERENCE_HAIKU_MODEL ?? DEFAULT_HAIKU_MODEL,
     credsPath: defaultCredsPath(),
     sheetFile: process.env.ADHERENCE_SHEET_FILE ?? "",
+    // H2 Stop-hook enforcement env.
+    applicable: (process.env.ADHERENCE_APPLICABLE ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    transcriptDir: process.env.ADHERENCE_TRANSCRIPT_DIR ?? "",
+    retryCap: Number(process.env.ADHERENCE_RETRY_CAP ?? 3) || 3,
   };
 }
 
@@ -519,6 +826,7 @@ async function main() {
     if (mode === "baseline") return await runBaseline(input, env);
     if (mode === "h1-compile") return await runH1Compile(input, env);
     if (mode === "h1-verify") return await runH1Verify(input, env);
+    if (mode === "h2-verify") return await runH2Verify(input, env);
     // Unknown mode: no-op, do not disturb the turn.
     process.exit(0);
   } catch (e) {

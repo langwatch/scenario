@@ -25,6 +25,22 @@ export interface MaterializeCtx {
   haikuModel: string;
   /** Absolute path to the `node` binary that runs the hook. */
   nodeBin: string;
+  /**
+   * Absolute path to the tee'd substrate dir (`<workDir>/.transcript`). The H2
+   * blocking Stop hook reads the CURRENT turn's `<n>.stream.jsonl` from here to
+   * score step-coverage from the externally-checkable action log (never the
+   * subject's self-report). Only H2 uses it.
+   */
+  transcriptDir?: string;
+  /**
+   * AUTHORED applicable procedure ids for the scenario under test. The H2 Stop
+   * hook enforces completion of exactly the subset of these that THIS turn's
+   * compiled sheet named — so distractor turns (which name other families) are
+   * never blocked. Only H2 uses it.
+   */
+  applicable?: string[];
+  /** H2 mandatory-retry cap: max Stop-hook blocks per turn before it releases. */
+  retryCap?: number;
 }
 
 /** One Claude Code `command` hook entry. */
@@ -38,7 +54,7 @@ export interface HookCommand {
 export type HooksBlock = Record<string, Array<{ matcher: string; hooks: HookCommand[] }>>;
 
 export interface StrategyMaterialization {
-  name: "baseline" | "h1";
+  name: "baseline" | "h1" | "h2";
   hooks: HooksBlock;
 }
 
@@ -53,13 +69,21 @@ function sh(v: string): string {
  * <mode>`. The creds path is resolved by the hook from `CLAUDE_CONFIG_DIR`,
  * which Claude Code reliably sets for its hook subprocesses.
  */
-export function hookCommand(ctx: MaterializeCtx, mode: string, timeout: number): HookCommand {
+export function hookCommand(
+  ctx: MaterializeCtx,
+  mode: string,
+  timeout: number,
+  extraEnv: Record<string, string> = {},
+): HookCommand {
   const env = [
     `ADHERENCE_CORPUS_DIR=${sh(ctx.corpusDir)}`,
     `ADHERENCE_HOOK_LOG=${sh(ctx.hookLog)}`,
     `ADHERENCE_SHEET_FILE=${sh(ctx.sheetFile)}`,
     `ADHERENCE_RETRIEVAL_K=${ctx.retrievalK}`,
     `ADHERENCE_HAIKU_MODEL=${sh(ctx.haikuModel)}`,
+    // Extra env is appended ONLY when a caller passes it (H2's Stop hook), so
+    // the baseline/h1 command strings stay byte-identical to their documented form.
+    ...Object.entries(extraEnv).map(([k, v]) => `${k}=${sh(v)}`),
   ].join(" ");
   return {
     type: "command",
