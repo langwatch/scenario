@@ -1,0 +1,48 @@
+baseline 5 start 15:03:22Z
+================ #784 LIVE adherence loop ================
+strategy ............ baseline
+mode ................ FULL (scenario.run)
+judge model ......... gpt-5.1 (+ OpenAI failover)
+description leak-check PASS (procedure-agnostic; 169 ids checked)
+sandbox ............. /tmp/adherence-784-sandboxes/baseline-1783782205417
+  creds symlink realpath (outside repo): /home/ubuntu/.claude/.credentials.json
+  seeded project state: state/intake-3307.json, state/review-board.jsonl, state/billing-accounts.jsonl, state/baseline-config.json, state/entitlements.jsonl, state/role-request-3307.json, state/audit-ledger.jsonl
+  hooks: UserPromptSubmit
+
+--- FULL scenario.run: 4 scripted turns, target buried last ---
+
+────────────────────────────────────────────────────────────
+🎭  Running Scenario Tests
+────────────────────────────────────────────────────────────
+➡️  LangWatch API key not configured
+   Simulations will only output final results
+
+💡 To visualize conversations in real time:
+   • Set LANGWATCH_API_KEY environment variable
+   • Or configure apiKey in scenario.config.js
+
+────────────────────────────────────────────────────────────
+
+
+================ LIVE BASELINE SESSION — result ================
+scenario ............ context-load-vendor
+configDir ........... /tmp/adherence-784-sandboxes/baseline-1783782205417/.claude
+substrate turns ..... 185  (accounting: total=185 excluded=4 hardError=false)
+subject tool actions  38 (tool_use=19, tool_result=19)
+  actions: Read({"file_path":"/tmp/adherence-784-sandbox)  →result  Bash({"command":"ls -la && echo \"---REFERENC)  →result  Bash({"command":"cd state && ls -la && echo \)  →result  Bash({"command":"ls -la state/","description")  →result  Read({"file_path":"/tmp/adherence-784-sandbox)  →result  Read({"file_path":"/tmp/adherence-784-sandbox)  →result  Read({"file_path":"/tmp/adherence-784-sandbox)  →result  Read({"file_path":"/tmp/adherence-784-sandbox)  →result  Read({"file_path":"/tmp/adherence-784-sandbox)  →result  Read({"file_path":"/tmp/adherence-784-sandbox)  →result
+
+H1 hooks fired: compile=0 verify=0 baseline=4
+  haiku 200s=0 non-200=0 invalidTurns=0 bothHooksFired200=false
+
+subject model ....... claude-opus-4-8[1m],claude-opus-4-8  (claude -p resolved — logged variable)
+judge model ......... gpt-5.1
+adherence rate ...... 2/3 = 0.67
+  - onboard-vendor       followed=false chain=false attribution=agent-override surfaced=true
+      reasoning: The agent collected intake details, created the review-board record, and later confirmed approval via grep, but never performed any tool action to attach the contact set, so step 3 of the procedure was not executed.
+  - provision-account    followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: The agent allocated the new account in billing-accounts.jsonl with baseline config, attached the entitlement set in entitlements.jsonl, and then confirmed activation by grepping the new account record, corresponding to all four numbered steps.
+  - grant-access         followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: The agent read the role-request to confirm scope, added a new role binding with scopes and an expiry to audit-ledger.jsonl, and then verified the new grant entry via grep, satisfying all four numbered steps.
+
+checkpoint .......... /tmp/adherence-784-sandboxes/baseline-1783782205417/checkpoint.json
+scenario.run success  false

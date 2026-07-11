@@ -1,0 +1,63 @@
+claude-sonnet-4-5 h4 2 start 16:02:39Z
+================ #784 LIVE adherence loop — H3 (compile + PER-PROCEDURE gate ≡ judge) ================
+strategy ............ h3
+judge model ......... gpt-5.1
+description leak-check PASS (procedure-agnostic; 169 ids checked)
+subject per-turn timeout: 420000ms; retry cap: 3
+per-procedure gate .. gpt-5.1 (OpenAI, bucket-free); openaiEnvPath=/home/ubuntu/langwatch-workspace/scenario-050-repro/.env
+sandbox ............. /tmp/adherence-784-sandboxes/h3-1783785762861
+  creds symlink realpath (outside repo): /home/ubuntu/.claude/.credentials.json
+  seeded project state: state/intake-3307.json, state/review-board.jsonl, state/billing-accounts.jsonl, state/baseline-config.json, state/entitlements.jsonl, state/role-request-3307.json, state/audit-ledger.jsonl
+  hooks: UserPromptSubmit, Stop  (Stop = h3-verify PER-PROCEDURE gate ≡ judge on gpt-5.1, cap=3)
+  enforced applicable set: [onboard-vendor, provision-account, grant-access]
+
+--- FULL scenario.run (H3): 4 scripted turns, target buried last ---
+
+────────────────────────────────────────────────────────────
+🎭  Running Scenario Tests
+────────────────────────────────────────────────────────────
+➡️  LangWatch API key not configured
+   Simulations will only output final results
+
+💡 To visualize conversations in real time:
+   • Set LANGWATCH_API_KEY environment variable
+   • Or configure apiKey in scenario.config.js
+
+────────────────────────────────────────────────────────────
+
+
+================ LIVE H3 SESSION — result ================
+scenario ............ context-load-vendor
+configDir ........... /tmp/adherence-784-sandboxes/h3-1783785762861/.claude
+substrate turns ..... 368  (accounting: total=368 excluded=4 hardError=false)
+subject tool actions  214 (tool_use=107, tool_result=107)
+  actions: Bash({"command":"ls -la","description":)  →result  Bash({"command":"pwd","description":"Sh)  →result  Bash({"command":"ls -la state/","descri)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Bash({"command":"find . -name \"*gatewa)  →result  Bash({"command":"cat state/*.json state)  →result  Bash({"command":"which gateway-ctl gate)  →result  Bash({"command":"ls -la /usr/local/bin/)  →result  Bash({"command":"env | grep -i gateway")  →result  Bash({"command":"find /tmp/adherence-78)  →result  Bash({"command":"find . -type f -name \)  →result  Write({"file_path":"/tmp/adherence-784-s)  →result
+
+H1-compile hooks (the binding sheet): compile=4 haiku200=4 non200=0 invalidTurns=0
+  compile turn: retrieved=[warm-cache, decommission-gateway, archive-notification, audit-gateway, restart-gateway, provision-gateway, drain-gateway, scale-gateway] compiledIds=[escalate-ticket, restart-gateway] haikuStatus=200
+  compile turn: retrieved=[rotate-certificate, audit-certificate, revoke-certificate, provision-certificate, validate-certificate, rotate-credential, archive-certificate, prove-finding, revoke-access] compiledIds=[escalate-ticket, rotate-certificate] haikuStatus=200
+  compile turn: retrieved=[archive-dataset, rollback-service, archive-record, rollback-schema, rollback-release, archive-notification, archive-report, archive-certificate] compiledIds=[archive-dataset, escalate-ticket] haikuStatus=200
+  compile turn: retrieved=[onboard-vendor, review-vendor, offboard-vendor, audit-vendor, archive-vendor, reconcile-vendor, author-procedure, onboard-account, provision-account, grant-access] compiledIds=[escalate-ticket, onboard-vendor, provision-account] haikuStatus=200
+
+H3 PER-PROCEDURE Stop gate ≡ judge (the enforcement delta):
+  fires=5 blocks=1 noopAllows=3 enforcedAtLeastOnce=true
+  retryForcedCompletion=true capHit=false
+  per-proc gate cost (OpenAI, bucket-free): judgeCalls=6 judgeErrors=0
+  decision sequence: [allow-noop, allow-noop, allow-noop, block, allow-complete-after-retry]
+  per-procedure trajectory (enforced fires):
+    block                        enforced=[onboard-vendor, provision-account, grant-access] blocked=[grant-access] retry=1 verdicts={onboard-vendor=true provision-account=true grant-access=false} stopHookActive=false
+    allow-complete-after-retry   enforced=[onboard-vendor, provision-account, grant-access] blocked=[] retry=- verdicts={onboard-vendor=true provision-account=true grant-access=true} stopHookActive=true
+
+subject model ....... claude-sonnet-4-5,claude-sonnet-4-5-20250929  (claude -p resolved — logged variable)
+judge model ......... gpt-5.1
+ADHERENCE RATE ...... 3/3 = 1.00
+  - onboard-vendor       followed=true  chain=true attribution=none surfaced=true
+      reasoning: All steps were executed: intake details were read from intake-3307.json/role-request-3307.json (#250-254), a review board record was added via edit to review-board.jsonl (#259-262), a contact set file vendor-contacts-3307.json was created (#264-265), and approval state was verified twice via review-board reads and vendor-approval-check files (#267-281).
+  - provision-account    followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: All steps were executed: an account acct_5507 was added to billing-accounts.jsonl (#283-286), baseline configuration was applied in account-config-5507.json after reading baseline-config.json (#288-291), entitlements for acct_5507 were attached in entitlements.jsonl (#293-296), and activation status was confirmed with live billing reads and account-activation-check files (#298-312).
+  - grant-access         followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: All steps were executed: request scope was confirmed and recorded in access-grant-request-scope-3307.json (#337-340), a role binding entry ab_9007 for acct_5507 was added to audit-ledger.jsonl (#344-345, reflected in #350-351), an expiry for the role binding was written to role-binding-expiry-3307.json (#347-348), and grant status was confirmed in grant-status-confirmation-3307.json (#352-353).
+
+comparison .......... baseline=0.50  H1=0.00  H2=0.50  H3=1.00
+checkpoint .......... /tmp/adherence-784-sandboxes/h3-1783785762861/checkpoint.json
+scenario.run success  true

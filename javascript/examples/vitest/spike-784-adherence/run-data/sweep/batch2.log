@@ -1,0 +1,4 @@
+SWEEP BATCH2 start 16:02:39Z
+claude-sonnet-4-5 h4 2 EXIT=124 | ADHERENCE RATE ...... 3/3 = 1.00 |  fires=5 blocks=1 noopAllows=3 enforcedAtLeastOnce=true | 16:22:39Z
+claude-haiku-4-5 h4 2 EXIT=0 | ADHERENCE RATE ...... 3/3 = 1.00 |  fires=5 blocks=1 noopAllows=3 enforcedAtLeastOnce=true | 16:31:32Z
+SWEEP BATCH2 DONE 16:31:32Z

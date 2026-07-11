@@ -1,0 +1,11 @@
+VARIANCE BATCH start 13:47:57Z
+h4 1 EXIT=0 | ADHERENCE RATE ...... 3/3 = 1.00 | ckpt=/tmp/adherence-784-sandboxes/h3-1783777680528/checkpoint.json | 13:59:35Z
+baseline 2 EXIT=0 | adherence rate ...... 3/3 = 1.00 | ckpt=/tmp/adherence-784-sandboxes/baseline-1783778378435/checkpoint.json | 14:09:56Z
+h4 2 EXIT=0 | ADHERENCE RATE ...... 3/3 = 1.00 | ckpt=/tmp/adherence-784-sandboxes/h3-1783778999224/checkpoint.json | 14:21:14Z
+baseline 3 EXIT=0 | adherence rate ...... 1/3 = 0.33 | ckpt=/tmp/adherence-784-sandboxes/baseline-1783779677826/checkpoint.json | 14:31:57Z
+h4 3 EXIT=0 | ADHERENCE RATE ...... 3/3 = 1.00 | ckpt=/tmp/adherence-784-sandboxes/h3-1783780320433/checkpoint.json | 14:43:05Z
+baseline 4 EXIT=0 | adherence rate ...... 0/3 = 0.00 | ckpt=/tmp/adherence-784-sandboxes/baseline-1783780988186/checkpoint.json | 14:52:41Z
+h4 4 EXIT=0 | ADHERENCE RATE ...... 3/3 = 1.00 | ckpt=/tmp/adherence-784-sandboxes/h3-1783781564167/checkpoint.json | 15:03:22Z
+baseline 5 EXIT=0 | adherence rate ...... 2/3 = 0.67 | ckpt=/tmp/adherence-784-sandboxes/baseline-1783782205417/checkpoint.json | 15:13:18Z
+h4 5 EXIT=0 | ADHERENCE RATE ...... 3/3 = 1.00 | ckpt=/tmp/adherence-784-sandboxes/h3-1783782801264/checkpoint.json | 15:23:52Z
+VARIANCE BATCH DONE 15:23:52Z
