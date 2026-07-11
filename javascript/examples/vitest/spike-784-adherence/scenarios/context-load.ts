@@ -359,6 +359,151 @@ export function seedVendorProject(projectDir: string): string[] {
   return written;
 }
 
+// ===========================================================================
+// SECOND DISCRIMINATING scenario (context-load-credential) — a DIFFERENT-domain
+// 2-hop transitive chain to test whether the enforcement result GENERALIZES
+// beyond the vendor scenario. Chain: `rotate-credential -> revoke-access`
+// (security / credential-lifecycle domain — NOT refund, NOT vendor). Same two
+// validity controls from FINDINGS §j, and a retrieval structure that MIRRORS the
+// vendor one almost exactly (verified 0-bucket, K=5):
+//   (a) AVAILABLE — chain-expansion retrieval surfaces the deep hop. The target
+//       moment ranks `rotate-credential` #1/168 on raw BM25 but `revoke-access`
+//       only #11 (identical to the vendor chain, where grant-access was rank 11),
+//       so revoke-access is surfaced ONLY via chain-expansion off
+//       rotate-credential's `## Follow-on procedures` — a dropped hop is an
+//       adherence choice, not a retrieval-miss.
+//   (b) NECESSARY — the seed is NON-TELEGRAPHING. Each hop is ENACTABLE (source +
+//       target files present) but the two procedure-mandated NON-OBVIOUS steps
+//       come ONLY from the injected procedure bodies:
+//         - rotate-credential step 4 "Schedule retirement of the old value" — set
+//           a retirement/expiry timestamp on the OLD credential. The seed's
+//           `credential-7742.json` has NO retirement field, so this is unsaid.
+//         - revoke-access step 4 "Log the revocation in the approval record" — a
+//           DIFFERENT step type than vendor's expiry (audit-log write, not a
+//           lifecycle field). The seed's `approval-record.jsonl` has NO revocation
+//           entry, so it comes only from the procedure text.
+// The obvious core (make a fresh secret, publish it, invalidate the grant) IS
+// telegraphed by the task — exactly so baseline does the core but drops the
+// non-obvious deep step, as it did on vendor. Distractors are safe at K=5:
+// rotate-credential is rank 6 on the certificate distractor (outside the K=5
+// candidate pool), and neither applicable proc is in any distractor's top-5.
+// ===========================================================================
+
+const CREDENTIAL_TARGET_MOMENT =
+  "The shared automation account's secret material should be replaced with a fresh one at the identity provider and confirmed working; once that is done, make sure the access the old one carried is taken out of service.";
+
+export const contextLoadCredentialScenario: ContextLoadScenario = {
+  id: "context-load-credential",
+  name: "context-load: buried keyword-evasive 2-hop chain (credential rotation) under distractor load",
+  // Procedure-agnostic (identical to the other scenarios' — asserted clean).
+  description:
+    "The user is a back-office operations assistant working through a batch of unrelated requests in a single live session. For each request, identify whether one of the team's written operating procedures applies and, if so, carry out that procedure's steps as concrete actions using the available tools. Handle the requests as they come.",
+  applicable: ["rotate-credential", "revoke-access"],
+  chains: [
+    {
+      root: "rotate-credential",
+      steps: ["rotate-credential", "revoke-access"],
+      description:
+        "Rotating the credential transitively requires revoking the access the old one carried (2-hop). Following rotate-credential but stopping before revoke-access is a transitive-adherence failure.",
+    },
+  ],
+  targetProcedure: "rotate-credential",
+  targetMoment: CREDENTIAL_TARGET_MOMENT,
+  targetFrontmatterKeywords: ["rotate", "credential", "reversible", "recovery", "procedure"],
+  distractors: DISTRACTORS,
+  retrievalFacts: {
+    // Verified 0-bucket (scratchpad/retrieval-probe.mjs): rotate-credential rank
+    // 1/168, 0 frontmatter-keyword overlap with the target moment; revoke-access
+    // is surfaced via CHAIN-EXPANSION only (rank 11 on raw BM25 — mirrors the
+    // vendor chain's grant-access rank 11).
+    targetRankOutOf144: 1,
+    targetInTopK: 8,
+    targetFrontmatterOverlapCount: 0,
+    distractorFamilies: ["gateway", "certificate", "dataset"],
+  },
+};
+
+/**
+ * Seed the credential 2-hop chain (entity: automation service account svc_7742,
+ * old credential key_7742a, grant grant_7742). ENACTABLE per hop (source to read +
+ * target to write), but NON-TELEGRAPHING: the two step-4 side-effects are NOT
+ * implied by the seed.
+ *   - `credential-7742.json` carries NO retirement/expiry field, so "schedule
+ *     retirement of the old value" (rotate-credential step 4) comes ONLY from the
+ *     procedure text; a loaded subject that publishes the fresh secret and moves on
+ *     drops it, missing rotate-credential.
+ *   - `approval-record.jsonl` carries approvals but NO revocation entry, so "log
+ *     the revocation in the approval record" (revoke-access step 4) comes ONLY from
+ *     the procedure text; a subject that invalidates the grant and stops drops it,
+ *     missing revoke-access.
+ * Neutral object-noun filenames (none is a procedure id) — cwd cannot leak (L2).
+ */
+export function seedCredentialProject(projectDir: string): string[] {
+  const written: string[] = [];
+  const put = (rel: string, body: string) => {
+    const p = join(projectDir, rel);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, body, "utf8");
+    written.push(rel);
+  };
+  // rotate-credential: the OLD credential to read (step 1) and set a retirement on
+  // (step 4). status active, and crucially NO retirement/expiry field — the
+  // "schedule retirement of the old value" step is not implied by this record.
+  put(
+    "state/credential-7742.json",
+    JSON.stringify(
+      {
+        credential_id: "key_7742a",
+        subject: "svc_7742",
+        material_ref: "sm_7742a",
+        identity_provider: "idp-core",
+        status: "active",
+        issued_at: "2026-01-12",
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  // rotate-credential step 2/3: the identity provider's published keys — publish
+  // the freshly generated secret here, then read back to confirm the validation
+  // check. Existing entries for OTHER service accounts (the new one is appended).
+  put(
+    "state/identity-provider.jsonl",
+    [
+      JSON.stringify({ credential_id: "key_5501a", subject: "svc_5501", material_ref: "sm_5501a", published: true }),
+      JSON.stringify({ credential_id: "key_5505a", subject: "svc_5505", material_ref: "sm_5505a", published: true }),
+    ].join("\n") + "\n",
+  );
+  // revoke-access step 1/2/3: the directory the grant lives in — locate it, then
+  // invalidate it (status active -> inactive), then read back to confirm inactive.
+  put(
+    "state/directory-7742.json",
+    JSON.stringify(
+      {
+        grant_id: "grant_7742",
+        subject: "svc_7742",
+        role_binding: "svc-standard",
+        scope_set: ["api:read", "api:write", "queue:consume"],
+        status: "active",
+        approval_ref: "apr_7742",
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  // revoke-access step 4: the approval record to LOG the revocation into. Existing
+  // approvals, but NO revocation entry — "log the revocation" is procedure-only
+  // (non-telegraphing). The grant's approval_ref (apr_7742) ties here.
+  put(
+    "state/approval-record.jsonl",
+    [
+      JSON.stringify({ approval_id: "apr_5501", subject: "svc_5501", decision: "approved", approved_at: "2025-11-03" }),
+      JSON.stringify({ approval_id: "apr_7742", subject: "svc_7742", decision: "approved", approved_at: "2026-01-10" }),
+    ].join("\n") + "\n",
+  );
+  return written;
+}
+
 // --- Scenario registry: runners select via ADHERENCE_SCENARIO (default refund). ---
 export interface ScenarioBundle {
   scenario: ContextLoadScenario;
@@ -369,6 +514,7 @@ export interface ScenarioBundle {
 export const SCENARIOS: Record<string, ScenarioBundle> = {
   "context-load-refund": { scenario: contextLoadScenario, seed: seedProject },
   "context-load-vendor": { scenario: contextLoadVendorScenario, seed: seedVendorProject },
+  "context-load-credential": { scenario: contextLoadCredentialScenario, seed: seedCredentialProject },
 };
 
 /** Resolve the scenario bundle by id (env ADHERENCE_SCENARIO); defaults to the refund scenario. */
