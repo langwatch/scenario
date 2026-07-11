@@ -92,6 +92,24 @@ Directly testing H3's confound: **fair-retrieval baseline on the seeded scenario
 
 **Consequence for the program.** The `context-load-refund` scenario **does not discriminate strategies** once seeded — its ceiling is 1.0 for baseline. The plan's pre-registered discrimination gate (AC7) — which was supposed to certify the scenario actually discriminates *before* any head-to-head number is trusted — was never built, and this is exactly what it would have caught. **The binding constraint is now the test, not the strategy:** the next step is to author a HARDER scenario (deeper A→B→C→D transitive chain — the issue's own definition of the core mistake — with decision-point distractor pressure, all artifacts seeded so enactability is held constant) and **calibrate it so baseline-seeded reliably scores <1.0**, THEN re-run H3 to see whether per-procedure enforcement closes a gap baseline cannot. Only then can any strategy be shown load-bearing for the goal. See `HYPOTHESES.md` for the re-ranked next step.
 
+## k. ✅ SUCCESS CONDITION MET — 100% adherence under context load via per-procedure enforcement (baseline 0/3 → H3 2/3 → H4 3/3, n=1)
+
+On the discriminating vendor scenario (baseline reliably fails 0/3 via genuine adherence misses), the full recipe reaches **100%** with a clean causal attribution:
+
+| arm | rate | mechanism |
+|---|---|---|
+| baseline-vendor | 0/3 | had all 3 procedures (chain-expansion), dropped the non-obvious steps (contacts / baseline-config / expiry) |
+| H3-vendor | 2/3 | the **compile** made non-obvious steps binding → onboard + provision done; grant-access dropped (compile omitted it from the sheet; sheet-scoped gate never fired) |
+| **H4-vendor** | **3/3** | **+ transitive enforcement scoping → the gate FIRED**: blocked grant-access for the missing expiry, forced a retry, subject complied |
+
+**The blocking enforcement fired for the first time and it was load-bearing.** `fires=5, blocks=1, retryForcedCompletion=true`; the block event `enforced=[onboard-vendor, provision-account, grant-access] blocked=[grant-access] enforcedVia=sheet+chain retry=1` — H4's chain-closure (`+chain`) put grant-access back under enforcement after the Haiku compile dropped it; the gate judged it `followed=false` and blocked; the retry forced the missed step. **Judge-free proof:** the audit-ledger binding now carries `"expires_at":"2028-07-10"` with a contract-derived `expiry_basis` — the exact step baseline skipped.
+
+**Why this is not a confound.** Baseline had the identical seed + chain-expansion (so identical enactability/availability) and still scored 0/3; H3 (sheet-scoped gate) scored 2/3 with `blocks=0`. The only delta that produced 3/3 is the *firing* gate — mechanically evidenced by `blocks=1` + `retryForcedCompletion=true` + the on-disk forced expiry. This is the opposite of the earlier refund result (§h/§i), where the gate never fired and the "100%" was enactability: here the gate demonstrably forced a step the subject would otherwise have skipped.
+
+**The recipe (CC-native, all within Claude Code's extension surface):** (1) chain-expansion retrieval so a named hand-off's steps are available; (2) a Haiku pre-turn compile that makes non-obvious procedure steps binding; (3) a per-procedure BLOCKING Stop gate ≡ the judge, scoped to the authored chain (transitively closed), that blocks + forces a retry on any `followed=false`.
+
+**Residuals (honest):** n=1 per arm — airtight *mechanism*, not a powered claim; next is a reproducibility pass (2-3× each) + a 2nd discriminating scenario class before "the recipe generalizes" is claimed. The compile still drops hops (H4 makes enforcement robust to that rather than fixing it). See `HYPOTHESES.md` for the re-ranked next steps. **But the experiment's success condition — perfect adherence under confusing context load, achieved by a CC-native system, on a test where the naive baseline fails — is now demonstrated live.**
+
 ## j. ⚠ VALIDITY FINDING — the transitive hand-off was "followed" WITHOUT its procedure ever being in context (seed-telegraphing)
 
 Surfaced while designing the discriminating scenario, then verified rigorously against the baseline-seeded run's own logs. Two hard facts:

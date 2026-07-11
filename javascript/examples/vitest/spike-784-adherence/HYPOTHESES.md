@@ -108,7 +108,8 @@ Both §j controls implemented:
 | arm | mechanism | rate | notes |
 |---|---|---|---|
 | baseline-vendor | fair BM25 + chain-expansion, seeded | **0/3 = 0.00** | all agent-override, all surfaced — drops contacts / baseline-config / expiry |
-| H3-vendor | + per-procedure BLOCKING gate ≡ judge | **2/3 = 0.67** | onboard ✓ + provision ✓ (compile made the non-obvious steps binding); grant-access ✗ — **compile dropped it from the sheet**; gate never fired (blocks=0) |
+| H3-vendor | + per-procedure BLOCKING gate ≡ judge (sheet-scoped) | **2/3 = 0.67** | onboard ✓ + provision ✓ (compile made the non-obvious steps binding); grant-access ✗ — compile dropped it from the sheet; gate never fired (blocks=0) |
+| **H4-vendor** | + **TRANSITIVE enforcement scoping** (gate the authored chain) | **3/3 = 1.00** ✅ | **gate FIRED (blocks=1, `enforcedVia=sheet+chain`, `retryForcedCompletion=true`)** — blocked grant-access for the missing expiry → forced retry → subject set a contract-derived expiry → 100% |
 
 **Result — H3-vendor = 2/3 = 0.67 (vs baseline-vendor 0/3), but the mechanism is NOT enforcement.**
 - **The COMPILE helped (first positive strategy signal, n=1).** `onboard-vendor` and `provision-account` flipped baseline-false → H3-true: the subject attached the contact set and applied `baseline-config.json` — the exact non-obvious steps it dropped under baseline — *because H3's compiled sheet named them as binding*. So making the procedure's non-obvious steps explicit/binding (H1's compile mechanism) DID raise adherence where the seed doesn't telegraph the step. On refund this couldn't show (steps were obvious); on vendor it does.
@@ -118,6 +119,22 @@ Both §j controls implemented:
 ### → Next hypothesis H4 (highest P(success), CC-native): TRANSITIVE enforcement scoping — gate the authored CHAIN, not the sheet subset
 
 Keep H3's compile + per-procedure gate, but change `enforced` from `applicable ∩ sheet` to **the authored chain transitively closed**: when a sheet-named applicable procedure has a `## Follow-on` to another applicable procedure, enforce it too (reuse `followOnIds`/`expandChain`, intersect with `applicable`). Then a compile that names `onboard-vendor` (chain root) pulls `provision-account` + `grant-access` into enforcement regardless of whether the sheet named them — the gate judges `grant-access` followed=false → **BLOCKS** → re-injects "set an expiry on the role binding" → the subject completes it → potentially 3/3. This is the surgical fix that would let enforcement FINALLY fire on the hop most likely to be dropped, without enforcing on distractor turns (a distractor sheet still names no applicable chain root → enforced stays empty → allow-noop). Predicted: H4 blocks grant-access, forces the expiry, → 3/3; if it cap-hits instead, the expiry step is under-enactable (it is not — `audit-ledger.jsonl` is writable). Ranked above a "fix the compile to be chain-complete" variant (H4 makes enforcement robust to ANY compile omission, which is the stronger guarantee).
+
+### RESULT — H4-vendor = 3/3 = 1.00 ✅ THE GATE FIRED — first enforcement success, GOAL MET (n=1)
+
+**This is the experiment's success condition: 100% adherence under confusing context load, CC-native, on a VALID discriminating scenario where baseline fails 0/3 — and it is cleanly attributed to per-procedure enforcement, not a confound.**
+
+- **The gate FIRED for the first time across all arms.** `fires=5, blocks=1, retryForcedCompletion=true, capHit=false`; decisions `[allow-noop×3, block, allow-complete-after-retry]`. (H2, H3, H3-vendor were all `blocks=0`.)
+- **The H4 transitive closure is what made it fire** — the block event: `enforced=[onboard-vendor, provision-account, grant-access] blocked=[grant-access] enforcedVia=sheet+chain retry=1`. The Haiku compile again named a subset; **`enforcedVia=sheet+chain` proves the chain-closure added `grant-access` back into enforcement**, so the gate judged it `followed=false` (no expiry) and BLOCKED — exactly the hop H3-vendor's sheet-scoping let slip.
+- **The block FORCED the missed step.** After the block re-injected "set an expiry on the role binding", the retry moved `grant-access` false→true. **Judge-free on-disk proof:** `audit-ledger.jsonl` binding `ab_9007` now carries `"expires_at":"2028-07-10"`, `"expiry_basis":"contract term: signed 2026-07-10 + 24 months"` — a thoughtful contract-derived expiry, the exact step baseline dropped.
+- **All three procedures `followed=true, attribution=none`.** onboard (contacts), provision (baseline config), grant-access (expiry). 242 substrate turns, 64 tool actions, 4 excluded (overage line), run success=true.
+
+**The complete causal story (n=1, but the mechanism is airtight): baseline 0/3 → H3 2/3 → H4 3/3.**
+- The **compile** (make non-obvious steps binding) closes 2/3 of the gap — the subject does the contact-set + baseline-config it drops under baseline.
+- **Per-procedure transitive enforcement** closes the final 1/3 — the gate catches the dropped deep-hop step (expiry) the compile omitted and *forces* it via a blocking retry.
+- Neither enactability nor seed-telegraphing explains it: baseline had the same seed + chain-expansion and scored 0/3; the difference is the compile + the *firing* gate, proven by `blocks=1` + `retryForcedCompletion=true` + the on-disk forced expiry.
+
+**Honesty / residuals.** (i) n=1 per arm — a demonstration with an airtight mechanism, not a powered claim; the natural next step is a reproducibility pass (2-3× each of baseline/H3/H4 on vendor) to confirm the ordering holds. (ii) Contamination/generality: one scenario class (vendor 3-hop) — the win should be replicated on a second discriminating class before "the recipe works" is a general claim. (iii) The compile still drops hops (a separate weakness); H4 makes enforcement robust to it, but a chain-complete compile would also help H3-style arms. **Next hypotheses (re-rank): (a) reproducibility pass on vendor; (b) a 2nd discriminating scenario class; (c) fold transitive scoping back as the default gate for all chains.** The loop continues — but the SUCCESS CONDITION has now been demonstrated live.
 
 ### H3 (original proposal)
 
