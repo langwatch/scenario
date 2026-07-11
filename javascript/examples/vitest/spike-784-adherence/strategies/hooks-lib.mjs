@@ -1296,7 +1296,7 @@ async function runH3Verify(input, env) {
     "",
     blocks.join("\n\n"),
     "",
-    "Carry out EVERY still-missing numbered step NOW as a real tool action against the seeded project state (files under state/: state/charge-*.json, state/orders/*, state/ledger.jsonl, state/invoice-*.json, state/reconciliation-*.json, state/settlement-*.json). Read the relevant state file, then Write/Edit the file the step calls for — do not merely describe it. Then finish.",
+    "Carry out EVERY still-missing numbered step NOW as a real tool action against the seeded project state under state/ (list the directory if you need to find the relevant file). Read the relevant state file, then Write/Edit the file the step calls for — do not merely describe it. Then finish.",
   ].join("\n");
 
   if (retryFile) {
