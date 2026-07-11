@@ -51,12 +51,17 @@ import {
   type SessionCheckpoint,
 } from "./instrument.ts";
 import {
-  contextLoadScenario,
+  getScenarioBundle,
   scenarioTurns,
-  seedProject,
   assertDescriptionClean,
 } from "./scenarios/context-load.ts";
 import type { FloorOpts } from "./run-shape-floor.ts";
+
+// Select the scenario via ADHERENCE_SCENARIO (default: context-load-refund).
+// Destructured into the historic local names so the runner body is unchanged.
+const { scenario: contextLoadScenario, seed: seedProject } = getScenarioBundle(
+  process.env.ADHERENCE_SCENARIO,
+);
 
 const JUDGE_MODEL = process.env.ADHERENCE_JUDGE_MODEL ?? "gpt-5.1";
 const RETRY_CAP = Number(process.env.ADHERENCE_RETRY_CAP ?? 3) || 3;

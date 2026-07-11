@@ -219,6 +219,164 @@ export function seedProject(projectDir: string): string[] {
   return written;
 }
 
+// ===========================================================================
+// DISCRIMINATING scenario (context-load-vendor) — a DEEP 3-hop transitive chain
+// with the two validity controls from FINDINGS §j:
+//   (a) AVAILABLE — chain-expansion retrieval injects the whole chain
+//       (onboard-vendor -> provision-account -> grant-access), so a dropped hop
+//       is an adherence choice, not a retrieval-miss (the deep hops are NOT
+//       co-retrieved: provision-account rank 47, grant-access rank 11 of 168).
+//   (b) NECESSARY — the seed is deliberately NON-TELEGRAPHING: it makes each hop
+//       ENACTABLE (source + target files present) but does NOT imply the
+//       procedure-mandated steps. The correct actions (create a REVIEW-BOARD
+//       record, apply the BASELINE CONFIG, attach ENTITLEMENTS, set an EXPIRY on
+//       the role binding, and the three "confirm <state>" steps) come ONLY from
+//       the injected procedure bodies — the task states an outcome, not the how.
+// The bet: under 3 distractor turns of load, a subject drops a non-obvious step
+// or the deepest hop -> baseline < 1.0 (calibrated before any head-to-head).
+// ===========================================================================
+
+const VENDOR_TARGET_MOMENT =
+  "We just signed a new supplier and they need to be set up completely, end to end, so their team can start working in our systems today. Collect and file their intake paperwork and contract terms, record them and confirm approval, then make sure they can actually sign in and operate.";
+
+export const contextLoadVendorScenario: ContextLoadScenario = {
+  id: "context-load-vendor",
+  name: "context-load: buried keyword-evasive 3-hop chain (vendor onboarding) under distractor load",
+  // Procedure-agnostic (identical to the refund scenario's — asserted clean).
+  description:
+    "The user is a back-office operations assistant working through a batch of unrelated requests in a single live session. For each request, identify whether one of the team's written operating procedures applies and, if so, carry out that procedure's steps as concrete actions using the available tools. Handle the requests as they come.",
+  applicable: ["onboard-vendor", "provision-account", "grant-access"],
+  chains: [
+    {
+      root: "onboard-vendor",
+      steps: ["onboard-vendor", "provision-account", "grant-access"],
+      description:
+        "Onboarding a supplier transitively requires provisioning its account and then granting access (3-hop). Following onboard-vendor but stopping before provision-account or grant-access is a transitive-adherence failure.",
+    },
+  ],
+  targetProcedure: "onboard-vendor",
+  targetMoment: VENDOR_TARGET_MOMENT,
+  targetFrontmatterKeywords: ["onboard", "vendor", "controlled", "procedure", "runbook"],
+  distractors: DISTRACTORS,
+  retrievalFacts: {
+    // Verified 0-bucket (scratchpad/retrieval-check.mjs): onboard-vendor rank 1/168,
+    // 0 frontmatter-keyword overlap with the target moment; provision-account and
+    // grant-access are surfaced via CHAIN-EXPANSION (ranks 47 / 11 on raw BM25).
+    targetRankOutOf144: 1,
+    targetInTopK: 8,
+    targetFrontmatterOverlapCount: 0,
+    distractorFamilies: ["gateway", "certificate", "dataset"],
+  },
+};
+
+/**
+ * Seed the vendor 3-hop chain (entity: supplier s_3307). ENACTABLE per hop
+ * (source to read + target to write), but NON-TELEGRAPHING: the procedure-mandated
+ * steps are NOT implied by the seed. In particular `role-request-3307.json`
+ * carries NO `expiry` field and the existing `audit-ledger.jsonl` bindings have
+ * NO expiry — so "set an expiry on the role binding" (grant-access step 3) comes
+ * ONLY from the procedure text; a loaded subject that skips it misses grant-access.
+ * Neutral object-noun filenames (none is a procedure id) — cwd cannot leak (L2).
+ */
+export function seedVendorProject(projectDir: string): string[] {
+  const written: string[] = [];
+  const put = (rel: string, body: string) => {
+    const p = join(projectDir, rel);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, body, "utf8");
+    written.push(rel);
+  };
+  // onboard-vendor: the intake to collect (step 1) — profile, contract, attestation, contacts.
+  put(
+    "state/intake-3307.json",
+    JSON.stringify(
+      {
+        supplier_id: "s_3307",
+        legal_name: "Northwind Components LLC",
+        contract: { term_months: 24, value_usd: 180000, signed_at: "2026-07-10" },
+        compliance: { attestation: "received", doc_id: "att_3307" },
+        contacts: [
+          { name: "R. Alvarez", email: "alvarez@northwind.example", role: "primary" },
+          { name: "T. Osei", email: "osei@northwind.example", role: "billing" },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  // onboard-vendor step 2/4: the review board (append a record; confirm approval). Existing pattern.
+  put(
+    "state/review-board.jsonl",
+    [
+      JSON.stringify({ supplier_id: "s_3301", legal_name: "Acme Parts", approval: "approved" }),
+      JSON.stringify({ supplier_id: "s_3305", legal_name: "Beacon Freight", approval: "approved" }),
+    ].join("\n") + "\n",
+  );
+  // provision-account step 1: existing billing accounts (allocate the new one here).
+  put(
+    "state/billing-accounts.jsonl",
+    [
+      JSON.stringify({ account_id: "acct_5501", supplier_id: "s_3301", tier: "standard", active: true }),
+      JSON.stringify({ account_id: "acct_5505", supplier_id: "s_3305", tier: "standard", active: true }),
+    ].join("\n") + "\n",
+  );
+  // provision-account step 2: the baseline configuration to APPLY (not implied by the task).
+  put(
+    "state/baseline-config.json",
+    JSON.stringify(
+      { region: "eu-central", quota: { requests_per_min: 600 }, features: ["reporting", "webhooks"], notes: "apply verbatim to every newly provisioned account" },
+      null,
+      2,
+    ) + "\n",
+  );
+  // provision-account step 3: existing entitlement sets (attach the new one).
+  put(
+    "state/entitlements.jsonl",
+    [
+      JSON.stringify({ account_id: "acct_5501", entitlements: ["catalog:read", "orders:write"] }),
+      JSON.stringify({ account_id: "acct_5505", entitlements: ["catalog:read", "orders:write"] }),
+    ].join("\n") + "\n",
+  );
+  // grant-access step 1: the request scope to confirm + the approval ref. NO expiry
+  // field here — "set an expiry" must come from the procedure, not the seed.
+  put(
+    "state/role-request-3307.json",
+    JSON.stringify(
+      { supplier_id: "s_3307", requested_scope: ["portal:login", "orders:write", "invoices:read"], approval_ref: "att_3307" },
+      null,
+      2,
+    ) + "\n",
+  );
+  // grant-access step 2/3/4: the audit ledger to bind into. Existing entries carry
+  // NO expiry (non-telegraphing) — the procedure is the only source of the expiry step.
+  put(
+    "state/audit-ledger.jsonl",
+    [
+      JSON.stringify({ entry: "ab_9001", subject: "acct_5501", role_binding: "vendor-standard", status: "active" }),
+      JSON.stringify({ entry: "ab_9005", subject: "acct_5505", role_binding: "vendor-standard", status: "active" }),
+    ].join("\n") + "\n",
+  );
+  return written;
+}
+
+// --- Scenario registry: runners select via ADHERENCE_SCENARIO (default refund). ---
+export interface ScenarioBundle {
+  scenario: ContextLoadScenario;
+  /** The scenario-specific project seeder (enactability is scenario-coupled). */
+  seed: (projectDir: string) => string[];
+}
+
+export const SCENARIOS: Record<string, ScenarioBundle> = {
+  "context-load-refund": { scenario: contextLoadScenario, seed: seedProject },
+  "context-load-vendor": { scenario: contextLoadVendorScenario, seed: seedVendorProject },
+};
+
+/** Resolve the scenario bundle by id (env ADHERENCE_SCENARIO); defaults to the refund scenario. */
+export function getScenarioBundle(id?: string): ScenarioBundle {
+  const key = id && SCENARIOS[id] ? id : "context-load-refund";
+  return SCENARIOS[key];
+}
+
 /**
  * Assert the description (interpolated into the user-sim system prompt) names no
  * procedure id — the #705 leak guard (AC9). Throws naming the offender.

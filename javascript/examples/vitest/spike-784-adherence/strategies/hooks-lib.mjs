@@ -147,9 +147,61 @@ export function bm25(query, corpus, k = 5, { k1 = 1.5, b = 0.75 } = {}) {
     .map((s) => ({ ...s.entry, score: s.score }));
 }
 
-/** Retrieve top-K candidate procedure entries for a query. */
+/**
+ * The procedure ids named in an entry's `## Follow-on procedures` section — the
+ * TRANSITIVE CHAIN hand-off (e.g. handle-refund → reconcile-invoice), NOT the
+ * `## Escalation` `escalate-ticket` note (which every procedure carries) and NOT
+ * the `## Related procedures` list. Scoped to the Follow-on section only.
+ */
+export function followOnIds(entry) {
+  const body = entry?.body || "";
+  const m = /##\s*Follow-on procedures\b([\s\S]*?)(?:\n##\s|$)/i.exec(body);
+  if (!m) return [];
+  return [...m[1].matchAll(/follow procedure\s+`([a-z0-9][a-z0-9-]*)`/gi)].map((x) => x[1]);
+}
+
+/**
+ * Chain-expand a retrieved set: for each entry, transitively APPEND the bodies of
+ * the procedures its `## Follow-on procedures` section names (bounded depth,
+ * dedup). WHY (FINDINGS §j — the availability control): the subject has no corpus
+ * access, and a chained hand-off (e.g. reconcile-invoice, provision-account,
+ * grant-access) is usually NOT itself in the BM25 top-K — so without expansion the
+ * subject is told "then follow X" but never receives X's steps, making a dropped
+ * hand-off a RETRIEVAL-miss rather than an adherence choice. Expansion makes the
+ * whole chain AVAILABLE to every arm equally (baseline bodies + compile
+ * candidates), so a skipped hop measures real transitive adherence. This models
+ * native skill-chains (invoking A gives you access to the B it calls).
+ */
+export function expandChain(entries, corpus, maxDepth = 4) {
+  const byId = new Map(corpus.map((c) => [c.id, c]));
+  const seen = new Set(entries.map((e) => e.id));
+  const out = [...entries];
+  let frontier = [...entries];
+  for (let d = 0; d < maxDepth && frontier.length; d++) {
+    const next = [];
+    for (const e of frontier) {
+      for (const fid of followOnIds(e)) {
+        if (seen.has(fid) || !byId.has(fid)) continue;
+        seen.add(fid);
+        const fe = byId.get(fid);
+        out.push(fe);
+        next.push(fe);
+      }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
+/**
+ * Retrieve top-K candidate procedure entries for a query, then CHAIN-EXPAND
+ * (append transitively-named Follow-on procedures). Chain members are appended
+ * AFTER the top-K so BM25 rank order is preserved for the head. Uniform across
+ * arms (baseline injection + H1/H3 compile candidates) — the availability control
+ * for a valid transitive-adherence test (FINDINGS §j).
+ */
 export function retrieve(query, corpus, k = 5) {
-  return bm25(query, corpus, k);
+  return expandChain(bm25(query, corpus, k), corpus);
 }
 
 /** Render retrieved procedure BODIES for verbatim baseline injection. */
