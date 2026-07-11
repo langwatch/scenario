@@ -155,7 +155,7 @@ function runSmoke(sandbox: Sandbox): void {
 /** FULL: scenario.run drives the multi-turn subject; the AdherenceJudge scores. */
 async function runFull(sandbox: Sandbox, openaiKey: string | undefined): Promise<void> {
   const corpus = loadCorpus();
-  const turns = scenarioTurns();
+  const turns = scenarioTurns(contextLoadScenario);
   let actualJudgeModel = JUDGE_MODEL;
 
   const subject = new ClaudeCodeAgentAdapter({

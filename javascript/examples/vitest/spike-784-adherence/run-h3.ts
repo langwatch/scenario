@@ -104,7 +104,7 @@ function loadOpenAIKey(): string | undefined {
 
 async function runFull(openaiKey: string | undefined): Promise<void> {
   const corpus = loadCorpus();
-  const turns = scenarioTurns();
+  const turns = scenarioTurns(contextLoadScenario);
   let actualJudgeModel = JUDGE_MODEL;
 
   const sandbox = buildSandbox("h3", {
