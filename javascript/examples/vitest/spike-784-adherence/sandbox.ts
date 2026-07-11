@@ -90,22 +90,37 @@ const HOOKS_LIB_SRC = join(HERE, "strategies", "hooks-lib.mjs");
 export const LW_OTLP_ENDPOINT = "https://app.langwatch.ai/api/otel";
 
 /**
- * Read the `ik-lw-` OTLP ingestion key from `LANGWATCH_INGESTION_KEY` (env) or the
- * gitignored external `.env` (same file the OpenAI key rides, OUTSIDE this repo).
- * Fail-open: absent/malformed key ⇒ undefined ⇒ NO telemetry (experiment
- * unchanged). Only an `ik-lw-` key is accepted — never the `sk-lw-` read key.
+ * Resolve the LangWatch OTLP key — `sk-lw-` OR `ik-lw-` (BOTH ingest OTLP
+ * identically; owner-confirmed 2026-07-11, sol.langwatch-cc-governance-otlp-setup
+ * BLUF corrected). Precedence: explicit `LANGWATCH_INGESTION_KEY` env > the box-wide
+ * `~/.claude/settings.json` `OTEL_EXPORTER_OTLP_HEADERS` Bearer (the `sk-lw-` key the
+ * owner points to, planner-verified HTTP 200) > the legacy `ik-lw-` drop-path > the
+ * gitignored external `.env`. The key is READ at runtime and wired SANDBOX-SCOPED
+ * into the disposable sandbox's gitignored `settings.local.json` only (never
+ * committed, zero effect elsewhere). Fail-open: no key anywhere ⇒ undefined ⇒ NO
+ * telemetry (experiment unchanged).
  */
 export function loadIngestionKey(): string | undefined {
-  const direct = process.env.LANGWATCH_INGESTION_KEY;
-  if (direct && direct.startsWith("ik-lw-")) return direct.trim();
-  // Owner drop path: a raw ik-lw- key file the owner drops when minted off-device
-  // (~/.claude/orchardist/sc784-ik-lw.key). Auto-activates telemetry on the next
-  // run with no code change — experiments never stall waiting for it.
+  const isLwKey = (k: string): boolean => /^(sk|ik)-lw-/.test(k);
+  const direct = process.env.LANGWATCH_INGESTION_KEY?.trim();
+  if (direct && isLwKey(direct)) return direct;
+  // The box-wide OTLP key the owner points to: ~/.claude/settings.json env
+  // OTEL_EXPORTER_OTLP_HEADERS = "Authorization=Bearer <sk-lw-…>". Extract the token.
+  try {
+    const s = JSON.parse(readFileSync(join(homedir(), ".claude/settings.json"), "utf8")) as {
+      env?: Record<string, string>;
+    };
+    const m = /Bearer\s+((?:sk|ik)-lw-[A-Za-z0-9_-]+)/.exec(s.env?.OTEL_EXPORTER_OTLP_HEADERS ?? "");
+    if (m && isLwKey(m[1])) return m[1];
+  } catch {
+    /* box settings absent/malformed — fall through (fail-open) */
+  }
+  // Legacy owner drop path (the ik-lw- mint path, still honored).
   try {
     const dropped = readFileSync(join(homedir(), ".claude/orchardist/sc784-ik-lw.key"), "utf8").trim();
-    if (dropped.startsWith("ik-lw-")) return dropped;
+    if (isLwKey(dropped)) return dropped;
   } catch {
-    /* not dropped yet — fall through (fail-open) */
+    /* not dropped — fall through (fail-open) */
   }
   const envPath =
     process.env.ADHERENCE_OPENAI_ENV ?? "/home/ubuntu/langwatch-workspace/scenario-050-repro/.env";
@@ -114,7 +129,7 @@ export function loadIngestionKey(): string | undefined {
       .split("\n")
       .find((l) => l.startsWith("LANGWATCH_INGESTION_KEY="));
     const k = line?.slice("LANGWATCH_INGESTION_KEY=".length).replace(/^["']|["']$/g, "").trim();
-    return k && k.startsWith("ik-lw-") ? k : undefined;
+    return k && isLwKey(k) ? k : undefined;
   } catch {
     return undefined;
   }
@@ -168,7 +183,7 @@ function otelWiring(
       CLAUDE_CODE_ENABLE_TELEMETRY: "1",
       OTEL_LOGS_EXPORTER: "otlp",
       OTEL_METRICS_EXPORTER: "otlp",
-      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/json",
       OTEL_EXPORTER_OTLP_ENDPOINT: LW_OTLP_ENDPOINT,
       // Content capture ON per Drew's directive ("tokens, cost, PROMPTS, RESPONSES")
       // — this is the owner's own experiment on the owner's box (the doc's
