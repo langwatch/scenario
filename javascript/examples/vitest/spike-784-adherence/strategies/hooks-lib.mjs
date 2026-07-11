@@ -204,6 +204,37 @@ export function retrieve(query, corpus, k = 5) {
   return expandChain(bm25(query, corpus, k), corpus);
 }
 
+/**
+ * H4 — transitively close a set of enforced procedure ids over the authored chain:
+ * add any APPLICABLE procedure reachable via `## Follow-on` links from an
+ * already-enforced one. Makes the H3 Stop gate robust to a compile that names a
+ * chain ROOT but drops a downstream hop from the sheet (the H3-vendor failure:
+ * Haiku dropped grant-access, so the sheet-scoped gate never enforced it and the
+ * subject skipped its expiry step). Applicable-only + bounded, so it never enforces
+ * a non-applicable or off-chain procedure; a distractor turn (no applicable root
+ * enforced) stays empty → allow-noop.
+ */
+export function closeEnforcedChain(ids, applicable, byId) {
+  const app = new Set(applicable);
+  const out = new Set(ids.filter((id) => app.has(id)));
+  let frontier = [...out];
+  for (let d = 0; d < 6 && frontier.length; d++) {
+    const next = [];
+    for (const id of frontier) {
+      const e = byId.get(id);
+      if (!e) continue;
+      for (const fid of followOnIds(e)) {
+        if (app.has(fid) && !out.has(fid)) {
+          out.add(fid);
+          next.push(fid);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return [...out];
+}
+
 /** Render retrieved procedure BODIES for verbatim baseline injection. */
 export function formatRetrievedBodies(entries) {
   if (!entries.length) {
@@ -1114,6 +1145,17 @@ async function runH3Verify(input, env) {
     // applicable procedure the subject's OWN action log referenced by id.
     enforced = env.applicable.filter((id) => actions.log.includes(id));
     enforcedVia = "action-log";
+  }
+  // H4 — TRANSITIVE enforcement scoping: close `enforced` over the authored chain
+  // (## Follow-on links ∩ applicable). A compile that names a chain ROOT then
+  // enforces the WHOLE chain even if the sheet dropped a downstream hop — the
+  // H3-vendor gap (Haiku dropped grant-access → the sheet-scoped gate never
+  // enforced it → the subject skipped its expiry). A distractor turn names no
+  // applicable root, so `enforced` stays empty → allow-noop (unchanged).
+  if (enforced.length > 0) {
+    const closed = closeEnforcedChain(enforced, env.applicable, byId);
+    if (closed.length > enforced.length) enforcedVia += "+chain";
+    enforced = closed;
   }
 
   // Distractor turn — no applicable procedure in play. Allow the stop.
