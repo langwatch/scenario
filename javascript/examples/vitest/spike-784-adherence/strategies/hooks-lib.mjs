@@ -47,11 +47,18 @@ export const CLAUDE_CODE_SPOOF =
 // Corpus loading + BM25 retrieval (node-builtins only).
 // ---------------------------------------------------------------------------
 
-/** Parse `---`-fenced frontmatter (id/keywords/links/status) + body. */
+/**
+ * Parse `---`-fenced frontmatter (id/keywords/links/status/always_enforced) + body.
+ * `always_enforced` is the #784 two-tier marker: a corpus entry with
+ * `always_enforced: true` is enforced UNIFORMLY by the per-procedure gate on every
+ * real task turn, not only when a scenario's compile-sheet names it. It is parsed
+ * to a strict boolean (default false); all other unknown keys still pass through
+ * verbatim (as trimmed strings).
+ */
 export function parseFrontmatter(raw) {
   const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(raw);
-  if (!m) return { id: "", keywords: [], links: [], status: "active", body: raw };
-  const fm = { id: "", keywords: [], links: [], status: "active" };
+  if (!m) return { id: "", keywords: [], links: [], status: "active", always_enforced: false, body: raw };
+  const fm = { id: "", keywords: [], links: [], status: "active", always_enforced: false };
   for (const line of m[1].split("\n")) {
     const kv = /^(\w+):\s*(.*)$/.exec(line);
     if (!kv) continue;
@@ -62,6 +69,8 @@ export function parseFrontmatter(raw) {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+    } else if (k === "always_enforced") {
+      fm[k] = v.trim() === "true";
     } else {
       fm[k] = v.trim();
     }
@@ -78,13 +87,14 @@ export function loadCorpus(dir) {
     const file = join(dir, d.name, "PROCEDURE.md");
     if (!existsSync(file)) continue;
     const raw = readFileSync(file, "utf8");
-    const { id, keywords, links, status, body } = parseFrontmatter(raw);
+    const { id, keywords, links, status, always_enforced, body } = parseFrontmatter(raw);
     entries.push({
       id: id || d.name,
       path: `corpus/${d.name}/PROCEDURE.md`,
       keywords,
       links,
       status,
+      always_enforced: always_enforced === true,
       body,
       tokens: tokenize(body),
     });
@@ -233,6 +243,20 @@ export function closeEnforcedChain(ids, applicable, byId) {
     frontier = next;
   }
   return [...out];
+}
+
+/**
+ * #784 two-tier corpus — the ids of the ALWAYS-ENFORCED meta-procedures (corpus
+ * entries whose frontmatter carries `always_enforced: true`). These are enforced
+ * UNIFORMLY by the per-procedure gate on every REAL task turn, not only when a
+ * scenario's compile-sheet names them — folding claim-verification (`done`/`prove`)
+ * and improvisation (`improvise-lookup`) into the single enforced tier. The caller
+ * (runH3Verify) unions these into `enforced` ONLY when the turn is already a real
+ * task turn (>=1 applicable procedure enforced), so a pure-distractor turn is never
+ * dragged into the always-enforced tier.
+ */
+export function alwaysEnforcedIds(corpus) {
+  return corpus.filter((c) => c.always_enforced === true).map((c) => c.id);
 }
 
 /** Render retrieved procedure BODIES for verbatim baseline injection. */
@@ -1156,6 +1180,26 @@ async function runH3Verify(input, env) {
     const closed = closeEnforcedChain(enforced, env.applicable, byId);
     if (closed.length > enforced.length) enforcedVia += "+chain";
     enforced = closed;
+  }
+
+  // #784 two-tier corpus — the ALWAYS-ENFORCED tier. Certain meta-procedures
+  // (`done`/`prove`/`format`/`audit`/`improvise-lookup`, frontmatter
+  // `always_enforced: true`) are enforced UNIFORMLY, not only when this turn's
+  // sheet named them: this dissolves the claim-verification gap (a `done`/`prove`
+  // step is always checked) and folds improvisation into the single enforced tier.
+  // OVER-FIRE GUARD: union them in ONLY when the turn is already a REAL task turn
+  // — i.e. `enforced` is already non-empty (the sheet named >=1 applicable
+  // procedure, or the action-log fallback found one, then chain-closed). On a
+  // pure-distractor turn `enforced` is still empty here, so nothing is added and
+  // the allow-noop path below is unchanged (no OpenAI calls, no block). The union
+  // dedups and tags `enforcedVia` with `+always` when it adds anything.
+  if (enforced.length > 0) {
+    const already = new Set(enforced);
+    const always = alwaysEnforcedIds(corpus).filter((id) => byId.has(id) && !already.has(id));
+    if (always.length > 0) {
+      enforced = [...enforced, ...always];
+      enforcedVia += "+always";
+    }
   }
 
   // Distractor turn — no applicable procedure in play. Allow the stop.
