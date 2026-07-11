@@ -199,6 +199,10 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
     this._webhookInvocations = 0;
+    // MUST-FIX (#775 review): reset alongside the other Tier-2b counters so a
+    // reconnect on the same instance doesn't leak the previous session's
+    // rejected count (see the matching reset in disconnect()).
+    this.rejectedCount = 0;
 
     this._webhookServer = new TwilioWebhookServer(this);
     await this._webhookServer.start();
@@ -237,9 +241,27 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       }
     }
 
+    // Tear the server down FIRST. This is what ACTUALLY closes a still-live
+    // media stream (`stop()` closes every open `wss` client), which is what
+    // lets `mediaStreamLoop`'s catch/terminal branches (twilio-server.ts)
+    // make their FINAL writes to `_framesReceived` / `_streamEndedReason` /
+    // etc. The counter stamp below MUST run after this await, not before —
+    // stamping first (the #775 review-caught bug) reads the pre-teardown
+    // snapshot and reports `stream_ended_reason=="none"` / undercounted
+    // frames for a call that was still live when disconnect() was invoked,
+    // even though the call did in fact end (via this very shutdown) moments
+    // later.
+    if (this._webhookServer) {
+      await this._webhookServer.stop();
+    }
+
     // Stamp call-lifetime counters onto the active `voice.adapter.disconnect`
     // span (opened by `stopVoiceAdapters`) — mirrors ElevenLabs' pump-counter
-    // stamp (`adapters/elevenlabs.ts`).
+    // stamp (`adapters/elevenlabs.ts`). Sampled AFTER the shutdown-await above
+    // (not before) so a still-live call's FINAL counts/reason are captured,
+    // not a mid-call snapshot. The disconnect span stays the active span
+    // across the await (AsyncLocalStorage context survives awaits), so
+    // `currentSpan()` here still targets it.
     setSpanAttributes(currentSpan(), {
       "voice.twilio.frames_received": this._framesReceived,
       "voice.twilio.dtmf_received": this._dtmfReceived,
@@ -249,9 +271,6 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       "voice.twilio.rest_restore_failed": restRestoreFailed,
     });
 
-    if (this._webhookServer) {
-      await this._webhookServer.stop();
-    }
     this._connected = false;
     this._webhookServer = null;
     this._rest = null;
@@ -270,6 +289,11 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._dtmfReceived = 0;
     this._streamEndedReason = "none";
     this._webhookInvocations = 0;
+    // MUST-FIX (#775 review): every other Tier-2b counter resets on both
+    // connect() and disconnect() — this pre-existing field didn't, so a
+    // reconnect on the same instance leaked the previous session's rejected
+    // count into the new session's disconnect span.
+    this.rejectedCount = 0;
   }
 
   // ------------------------------------------------------------------ direction
@@ -333,9 +357,14 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           } catch (err) {
             // The media stream never connected — the marquee "I placed the
             // call but no media ever streamed" failure. Tag the outcome
-            // BEFORE re-throwing; the re-thrown error still marks the span
-            // ERROR (voiceSpan's own exception handling).
-            span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+            // BEFORE re-throwing ONLY when it's genuinely the timeout
+            // (matches Python's `except asyncio.TimeoutError` scoping — a
+            // non-timeout rejection of the deferred must not be mislabeled).
+            // The re-thrown error still marks the span ERROR either way
+            // (voiceSpan's own exception handling).
+            if (err instanceof DeferredTimeoutError) {
+              span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+            }
             throw err;
           }
           setSpanAttributes(span, {
@@ -378,10 +407,14 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
         try {
           await this._streamConnected.promiseWithTimeout(timeoutMs);
         } catch (err) {
-          // Nobody dialed in — tag the outcome BEFORE re-throwing; the
-          // re-thrown error still marks the span ERROR (voiceSpan's own
+          // Nobody dialed in — tag the outcome BEFORE re-throwing ONLY when
+          // it's genuinely the timeout (matches Python's
+          // `except asyncio.TimeoutError` scoping). The re-thrown error
+          // still marks the span ERROR either way (voiceSpan's own
           // exception handling).
-          span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+          if (err instanceof DeferredTimeoutError) {
+            span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+          }
           throw err;
         }
         setSpanAttributes(span, {
@@ -570,6 +603,12 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   get _streamSidForTest(): string | undefined {
     return this._streamSid;
   }
+  /** @internal Test-only view of the disconnect-counter (#775 review): lets a
+   * test poll for a REAL wire delivery to have landed before proceeding,
+   * instead of a blind sleep. */
+  get _framesReceivedForTest(): number {
+    return this._framesReceived;
+  }
   /** @internal */ _onWebhookRejected(): void {
     this.rejectedCount += 1;
   }
@@ -621,6 +660,22 @@ interface Deferred<T> {
   promiseWithTimeout(timeoutMs: number): Promise<T>;
 }
 
+/**
+ * Thrown by {@link Deferred.promiseWithTimeout} specifically when the
+ * timeout elapses — a distinct type (not a plain `Error`) so callers
+ * (placeCall/waitForCall's `dial_outcome` tagging) can precisely distinguish
+ * "the wait timed out" from any OTHER rejection of the underlying deferred
+ * (e.g. a future `.reject(...)` caller), matching Python's
+ * `except asyncio.TimeoutError` scoping (#775 review fix — the original code
+ * tagged ANY rejection as a timeout).
+ */
+class DeferredTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`TwilioAgentAdapter: timed out after ${timeoutMs}ms`);
+    this.name = "DeferredTimeoutError";
+  }
+}
+
 function makeDeferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -639,7 +694,7 @@ function makeDeferred<T>(): Deferred<T> {
           promise,
           new Promise<T>((_, rej) => {
             timer = setTimeout(
-              () => rej(new Error(`TwilioAgentAdapter: timed out after ${timeoutMs}ms`)),
+              () => rej(new DeferredTimeoutError(timeoutMs)),
               timeoutMs,
             );
           }),

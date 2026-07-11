@@ -54,6 +54,7 @@ from scenario.voice.adapters._twilio_shared import build_media_frame
 from scenario.voice.testing.wrapper_harness import (
     drive_call,
     drive_twilio_production,
+    free_port,
     make_agent_input,
     make_connected_twilio_adapter,
 )
@@ -151,6 +152,25 @@ def _install_fake_rest(monkeypatch: Any) -> list[FakeREST]:
         return
 
     monkeypatch.setattr(TwilioAgentAdapter, "_run_server", _fake_run_server)
+    return rest_instances
+
+
+def _install_fake_rest_real_server(monkeypatch: Any) -> list[FakeREST]:
+    """Like :func:`_install_fake_rest`, but leaves ``_run_server`` INTACT so a
+    REAL uvicorn server binds and a REAL WebSocket connection can be closed by
+    disconnect()'s own server-shutdown path — needed by the disconnect-ordering
+    regression test below (PR #788 review), which specifically exercises the
+    REAL ``_server_task`` teardown (the mechanism that actually closes a
+    still-live socket), not the faked no-op every other test in this file
+    uses."""
+    rest_instances: list[FakeREST] = []
+
+    def _factory(account_sid: str, auth_token: str) -> FakeREST:
+        r = FakeREST(account_sid, auth_token)
+        rest_instances.append(r)
+        return r
+
+    monkeypatch.setattr("scenario.voice.adapters.twilio.TwilioRESTHelper", _factory)
     return rest_instances
 
 
@@ -515,6 +535,72 @@ async def test_t3_disconnect_rest_restore_failed_is_true_when_rest_restore_raise
 
     disconnect = _by_name(exporter.get_finished_spans())["voice.adapter.disconnect"]
     assert attrs(disconnect)["voice.twilio.rest_restore_failed"] is True
+
+
+@pytest.mark.asyncio
+async def test_t3_disconnect_reflects_the_actual_stream_close_not_a_pre_teardown_snapshot(
+    monkeypatch,
+):
+    """T3 (regression — PR #788 review, reproduced empirically): the
+    disconnect() counter / stream_ended_reason stamp must sample state AFTER
+    the transport has ACTUALLY torn down, not before.
+
+    Every other T3 test above pre-drives its socket double to a natural
+    stop/close/error completion BEFORE calling disconnect() — which dodges
+    this exact race, since ``_stream_ended_reason`` is already final by the
+    time disconnect() runs. This test instead keeps a REAL WebSocket
+    connection open with real media flowing and NO terminal frame, then runs
+    the REAL executor teardown while the call is genuinely still live — so
+    the server-shutdown inside disconnect() (``_server_shutdown.set()`` +
+    ``await asyncio.wait_for(self._server_task, ...)``) is what forces the
+    closure the span must observe. A queue-fed double (``_ControllableWS`` /
+    the faked no-op ``_run_server``) can't discriminate this: nothing ties
+    disconnect()'s shutdown signal to a fake socket's queue, so the loop would
+    never terminate regardless of stamp ordering. Only a REAL uvicorn server +
+    REAL client socket makes the shutdown-await the thing that closes the
+    stream — which is exactly the mechanism the bug is about.
+
+    FALSIFIER: on the pre-fix code (the counter stamp BEFORE the
+    ``_server_task`` shutdown-await), this fails —
+    ``stream_ended_reason=="none"`` and ``frames_received`` undercounted,
+    because the media loop hasn't reacted to the shutdown yet when the span is
+    stamped. Fixed code stamps AFTER the await and passes.
+    """
+    exporter = _install_in_memory_provider()
+    _install_fake_rest_real_server(monkeypatch)
+    adapter = _make_adapter(http_port=free_port())
+    executor = _exec(adapter)
+    await executor._voice_connect_all()
+
+    import websockets
+
+    ws_url = f"ws://127.0.0.1:{adapter.http_port}/twilio/stream"
+    async with websockets.connect(ws_url) as client:
+        await client.send(_start_frame())
+        assert adapter._stream_connected is not None
+        await asyncio.wait_for(adapter._stream_connected.wait(), timeout=5.0)
+
+        # Three individually-flushing media frames — NO stop frame. The
+        # stream is still LIVE when teardown begins below.
+        for _ in range(3):
+            await client.send(build_media_frame(STREAM_SID, bytes([0x7F]) * 800))
+        # Poll for the REAL server-side loop to actually decode+enqueue what
+        # was sent over the wire (real TCP, not an in-process queue) — avoids
+        # a flaky blind sleep.
+        for _ in range(200):
+            if adapter._frames_received >= 3:
+                break
+            await asyncio.sleep(0.01)
+        assert adapter._frames_received == 3  # sanity: frames genuinely landed
+
+        # The REAL teardown, invoked while the socket is STILL open — nobody
+        # sent a stop frame or closed the connection. disconnect()'s own
+        # server-shutdown is what forces the close.
+        await executor._voice_disconnect_all()
+
+    disconnect = _by_name(exporter.get_finished_spans())["voice.adapter.disconnect"]
+    assert int_attr(disconnect, "voice.twilio.frames_received") == 3
+    assert attrs(disconnect)["voice.twilio.stream_ended_reason"] != "none"
 
 
 # --- T4 / T5 (dial OK) -----------------------------------------------------------

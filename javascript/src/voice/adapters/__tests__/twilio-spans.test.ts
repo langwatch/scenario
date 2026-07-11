@@ -44,6 +44,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import WebSocket from "ws";
 
 // Register a context manager ONCE so context.with propagates across awaits —
 // mirrors voice-spans.test.ts (this file's module graph is isolated per
@@ -455,6 +456,117 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       const disconnect = byName(exporter.getFinishedSpans())["voice.adapter.disconnect"];
       expect(disconnect.attributes["voice.twilio.rest_restore_failed"]).toBe(true);
     });
+
+    it("resets webhook_invocations / webhook_rejected across a reconnect on the same instance (MUST-FIX #788 review: rejectedCount previously leaked)", async () => {
+      const authToken = "the-shared-secret";
+      const { rest } = stubRest(PHONE_NUMBER_SID);
+      const adapter = makeAdapter({ rest, validateSignature: true, authToken, httpPort: 0 });
+      tracked.push(adapter);
+
+      // Session 1: one unsigned POST -> rejected.
+      await startVoiceAdapters([adapter], bareVoiceState());
+      const form = new URLSearchParams({ From: "+14155551234" });
+      const r1 = await fetch(`${adapter.localBaseUrl}/twilio/voice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      });
+      await r1.text();
+      expect(r1.status).toBe(403);
+      await stopVoiceAdapters([adapter]);
+
+      const disconnect1 = byName(exporter.getFinishedSpans())["voice.adapter.disconnect"];
+      expect(disconnect1.attributes["voice.twilio.webhook_invocations"]).toBe(1);
+      expect(disconnect1.attributes["voice.twilio.webhook_rejected"]).toBe(1);
+
+      // Session 2: reconnect the SAME instance, make ZERO webhook calls. Prior
+      // to the fix, `rejectedCount` (the webhook_rejected source) was never
+      // reset in connect()/disconnect() — unlike every other Tier-2b counter
+      // — so this session's disconnect span still reported the stale 1 from
+      // session 1.
+      //
+      // disconnect() nulls the injected REST stub as part of its normal full
+      // teardown (unrelated to this fix), so connect() would otherwise build
+      // a REAL TwilioRESTHelper hitting the live API on the reconnect. Patch
+      // the prototype for the duration of session 2 so it stays hermetic too
+      // — mirroring what constructing a second stubbed adapter would give it.
+      const originalResolve = TwilioRESTHelper.prototype.resolvePhoneNumberSid;
+      TwilioRESTHelper.prototype.resolvePhoneNumberSid = async () => PHONE_NUMBER_SID;
+      try {
+        await startVoiceAdapters([adapter], bareVoiceState());
+        await stopVoiceAdapters([adapter]);
+      } finally {
+        TwilioRESTHelper.prototype.resolvePhoneNumberSid = originalResolve;
+      }
+
+      const disconnectSpans = exporter
+        .getFinishedSpans()
+        .filter((s) => s.name === "voice.adapter.disconnect");
+      expect(disconnectSpans).toHaveLength(2);
+      const disconnect2 = disconnectSpans[1]!;
+      expect(disconnect2.attributes["voice.twilio.webhook_invocations"]).toBe(0);
+      expect(disconnect2.attributes["voice.twilio.webhook_rejected"]).toBe(0);
+    });
+
+    it(
+      "stream_ended_reason reflects the ACTUAL close (not a pre-teardown snapshot) when the call " +
+        "is still live at disconnect() time (MUST-FIX #788 review, regression)",
+      async () => {
+        // Every other T3 test above pre-drives its socket double to a
+        // natural stop/close/error completion BEFORE calling disconnect() —
+        // which dodges this exact race (reviewer-reproduced empirically).
+        // This test instead keeps a REAL WebSocket connection open with real
+        // media flowing and NO terminal frame, then runs the REAL
+        // stopVoiceAdapters teardown while the call is genuinely still live
+        // — so the server-shutdown inside disconnect() (`webhookServer.stop()`,
+        // which closes every open `wss` client) is what forces the closure
+        // the span must observe. A fake `MediaStreamWebSocket` double can't
+        // discriminate this: `stop()` only closes REAL `wss` clients, so a
+        // fake socket fed via `_driveStreamSession` is never affected
+        // regardless of stamp ordering. Only a REAL `ws` client makes the
+        // shutdown-await the thing that closes the stream — exactly the
+        // mechanism the bug is about.
+        //
+        // FALSIFIER: on the pre-fix code (the counter stamp BEFORE
+        // `webhookServer.stop()`), this fails —
+        // stream_ended_reason=="none" — because the media loop hasn't
+        // reacted to the shutdown yet when the span is stamped. Fixed code
+        // stamps AFTER stop() and passes.
+        const { rest } = stubRest(PHONE_NUMBER_SID);
+        const adapter = makeAdapter({ rest, httpPort: 0 });
+        tracked.push(adapter);
+        await startVoiceAdapters([adapter], bareVoiceState());
+
+        const wsUrl = `${adapter.localBaseUrl.replace(/^http:/, "ws:")}/twilio/stream`;
+        const client = await new Promise<WebSocket>((resolve, reject) => {
+          const c = new WebSocket(wsUrl);
+          c.once("open", () => resolve(c));
+          c.once("error", reject);
+        });
+        client.send(startFrame());
+        await vi.waitFor(() => expect(adapter._streamSidForTest).toBe(STREAM_SID));
+
+        // Three individually-flushing media frames — NO stop frame. The
+        // stream is still LIVE when teardown begins below.
+        for (let i = 0; i < 3; i++) {
+          client.send(buildMediaFrame(STREAM_SID, new Uint8Array(800).fill(0x7f)));
+        }
+        // Poll for the REAL server-side loop to actually decode+enqueue what
+        // was sent over the wire (real TCP, not an in-process queue) —
+        // avoids a flaky blind sleep.
+        await vi.waitFor(() => expect(adapter._framesReceivedForTest).toBe(3));
+
+        // The REAL teardown, invoked while the socket is STILL open — nobody
+        // sent a stop frame or closed the connection. disconnect()'s own
+        // server-shutdown is what forces the close.
+        await stopVoiceAdapters([adapter]);
+        client.close();
+
+        const disconnect = byName(exporter.getFinishedSpans())["voice.adapter.disconnect"];
+        expect(disconnect.attributes["voice.twilio.frames_received"]).toBe(3);
+        expect(disconnect.attributes["voice.twilio.stream_ended_reason"]).not.toBe("none");
+      },
+    );
   });
 
   // --- T4 / T5 (dial OK) -----------------------------------------------------

@@ -34,11 +34,13 @@ TwilioAdapterMode = Literal["idle", "answer", "call"]
 #: (`_twilio_server.py`) at each of its three termination paths.
 TwilioStreamEndedReason = Literal["stop", "close", "error", "none"]
 
+from opentelemetry import trace as _otel_trace
+
 from ...types import AgentRole
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
-from .._telemetry import voice_span
+from .._telemetry import set_span_attributes, voice_span
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
     TwilioRESTHelper,
@@ -232,9 +234,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # agnostic (``_mode`` stays "idle" until place_call()/wait_for_call(),
         # after this span has already closed); direction is stamped on the NEW
         # ``voice.adapter.dial`` span instead (see place_call/wait_for_call).
-        from opentelemetry import trace as _otel_trace
-        from .._telemetry import set_span_attributes
-
         set_span_attributes(
             _otel_trace.get_current_span(),
             {
@@ -305,12 +304,31 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             except Exception:
                 rest_restore_failed = True
 
+        # 2. Signal server to shut down, then wait for the task. This is what
+        # ACTUALLY closes a still-live media stream (uvicorn's graceful
+        # shutdown tears down the open WS), which is what lets the media
+        # loop's ``finally``/except-handlers (``_twilio_server.py``) make
+        # their FINAL writes to ``_frames_received`` / ``_stream_ended_reason``
+        # / etc. The counter stamp below MUST run after this await, not
+        # before — stamping first (the #775 review-caught bug) reads the
+        # pre-teardown snapshot and reports ``stream_ended_reason=="none"`` /
+        # undercounted frames for a call that was still live when disconnect()
+        # was invoked, even though the call did in fact end (via this very
+        # shutdown) moments later.
+        if self._server_shutdown is not None:
+            self._server_shutdown.set()
+        if self._server_task is not None:
+            with suppress(Exception):
+                await asyncio.wait_for(self._server_task, timeout=3.0)
+
         # Stamp call-lifetime counters onto the active ``voice.adapter.disconnect``
         # span (opened by the executor disconnect loop) — mirrors ElevenLabs'
-        # pump-counter stamp (``adapters/elevenlabs.py``).
-        from opentelemetry import trace as _otel_trace
-        from .._telemetry import set_span_attributes
-
+        # pump-counter stamp (``adapters/elevenlabs.py``). Sampled AFTER the
+        # shutdown-await above (not before) so a still-live call's FINAL
+        # counts/reason are captured, not a mid-call snapshot. The disconnect
+        # span stays the current span across the await (contextvars survive
+        # awaits within the same task), so ``get_current_span()`` here still
+        # targets it.
         set_span_attributes(
             _otel_trace.get_current_span(),
             {
@@ -322,13 +340,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
                 "voice.twilio.rest_restore_failed": rest_restore_failed,
             },
         )
-
-        # 2. Signal server to shut down, then wait for the task.
-        if self._server_shutdown is not None:
-            self._server_shutdown.set()
-        if self._server_task is not None:
-            with suppress(Exception):
-                await asyncio.wait_for(self._server_task, timeout=3.0)
 
         # 3. Reset state.
         self._rest = None
@@ -419,8 +430,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # wait_for_call() run (the ``voice.adapter.connect`` span already
         # closed). Wraps the REST dial + the ``_stream_connected`` wait — the
         # "I placed the call but no media ever streamed" failure surface.
-        from .._telemetry import set_span_attributes
-
         with voice_span(
             "voice.adapter.dial",
             {
@@ -535,8 +544,6 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         # NEW ``voice.adapter.dial`` span (#775 Tier 2a) — see place_call()'s
         # comment for the rationale (self-instrumented, no executor span active
         # here).
-        from .._telemetry import set_span_attributes
-
         with voice_span(
             "voice.adapter.dial",
             {
