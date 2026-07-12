@@ -109,8 +109,11 @@ describe("RealtimeAgentAdapter — response.create guard", () => {
     // Make the handler believe a response is active by firing response.created
     transport.fire("response.created");
 
-    // handleInitialResponse is private — call via any
-    const promise = (adapter as any).handleInitialResponse();
+    // handleInitialResponse is private — reach it via a typed cast (not `any`),
+    // matching the sibling openai-realtime-response-guard.test.ts pattern.
+    const promise = (
+      adapter as unknown as { handleInitialResponse(): Promise<unknown> }
+    ).handleInitialResponse();
 
     // The send decision is made synchronously, before the method's first `await`
     // (waitForResponse), so response.create has already been sent or suppressed by
@@ -133,7 +136,9 @@ describe("RealtimeAgentAdapter — response.create guard", () => {
     transport.fire("response.created");
 
     const b64audio = Buffer.from(new Uint8Array(160)).toString("base64");
-    const promise = (adapter as any).handleAudioInput(b64audio);
+    const promise = (
+      adapter as unknown as { handleAudioInput(audio: string): Promise<unknown> }
+    ).handleAudioInput(b64audio);
 
     // Same deterministic settle as AC-JS4: sends are synchronous before the first
     // await, so flush microtasks then resolve waitForResponse promptly.

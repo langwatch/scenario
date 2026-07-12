@@ -645,3 +645,57 @@ async def test_ac_defer_send_text_deferred_create_fires_exactly_once():
         f"AC-DEFER FAIL: response.create at log[{log_create}] was before "
         f"response.done at log[{log_done}]; log={mock_ws.log}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Reconnect hygiene — connect()/disconnect() reset the response-lifecycle flags
+# (JS parity: openai-realtime.ts clears these in both; see PR #669 review).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_connect_disconnect_reset_response_lifecycle_flags(monkeypatch):
+    """A reused adapter must NOT carry a stale ``_response_active`` /
+    ``_deferred_response_create`` across a reconnect. Without the reset, an adapter
+    that disconnected mid-response keeps ``_response_active=True`` into the next
+    connection; the next turn's user-audio commit then takes the defer branch
+    forever (no ``response.done`` ever arrives to fire it) and ``recv_audio`` drains
+    to timeout. Mirrors the JS reconnect-hygiene guard added for the same PR."""
+    import websockets
+
+    mock_ws = _MockWS([])
+
+    async def _fake_connect(url, additional_headers=None, **kw):
+        return mock_ws
+
+    monkeypatch.setattr(websockets, "connect", _fake_connect)
+
+    adapter = OpenAIRealtimeAgentAdapter(api_key="test-sk-not-real")
+
+    # Simulate stale state left by a prior mid-response disconnect.
+    adapter._response_active = True
+    adapter._deferred_response_create = True
+
+    await adapter.connect()
+
+    # connect() must start each connection with a clean slate.
+    assert adapter._response_active is False, (
+        "connect() did not clear stale _response_active; a reconnected adapter would "
+        "defer response.create forever"
+    )
+    assert adapter._deferred_response_create is False, (
+        "connect() did not clear stale _deferred_response_create"
+    )
+
+    # Dirty the flags again, then confirm disconnect() clears them on teardown too.
+    adapter._response_active = True
+    adapter._deferred_response_create = True
+
+    await adapter.disconnect()
+
+    assert adapter._response_active is False, (
+        "disconnect() did not clear _response_active on teardown"
+    )
+    assert adapter._deferred_response_create is False, (
+        "disconnect() did not clear _deferred_response_create on teardown"
+    )

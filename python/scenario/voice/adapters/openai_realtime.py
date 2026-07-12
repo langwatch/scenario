@@ -306,6 +306,15 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         """Open the Realtime WebSocket and send the initial session.update."""
         import websockets
 
+        # Issue #662 / reconnect hygiene (JS parity — openai-realtime.ts connect()):
+        # a reused adapter instance must start each connection with a clean slate.
+        # Clearing _response_active matters most: a disconnect mid-response would
+        # otherwise leave it True, and the next turn's user-audio commit would take
+        # the defer branch forever (no response.done ever arrives to fire it), draining
+        # recv_audio to timeout.
+        self._response_active = False
+        self._deferred_response_create = False
+
         self._ws = await websockets.connect(
             self.url,
             additional_headers={
@@ -354,6 +363,11 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 pass
             finally:
                 self._ws = None
+            # Issue #662 / reconnect hygiene (JS parity): clear response-lifecycle
+            # guard state on teardown so a reused adapter instance does not carry a
+            # stale active/deferred flag into its next connection.
+            self._response_active = False
+            self._deferred_response_create = False
             logger.debug("OpenAIRealtimeAgentAdapter: disconnected")
 
     # ------------------------------------------------------------------ I/O

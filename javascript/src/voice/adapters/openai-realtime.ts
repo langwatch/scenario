@@ -505,7 +505,12 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         if (this._deferredResponseCreate) {
           this._ws.send(JSON.stringify({ type: "response.create" }));
           this._deferredResponseCreate = false;
-          this._responseActive = true; // mirror Python: close the window before response.created arrives
+          // Eager set (unlike the preamble/sendText sites, which let the server's
+          // `response.created` echo flip the flag): this branch can `return` right
+          // below via the tool-only early-exit BEFORE the loop ever reads the echo,
+          // so without setting it here a follow-up send would see false and
+          // double-fire. Mirrors Python (openai_realtime.py response.done handler).
+          this._responseActive = true;
         }
         // Issue #646: a tool-only turn (function call, NO audio delta) would
         // otherwise loop here forever and hit the receiveAudio timeout — the
@@ -903,6 +908,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (!this._ws) {
       throw new Error("OpenAIRealtimeAgentAdapter: not connected");
     }
+    // Issue #662 carve-out (tracked: #792) — this out-of-band, parameterized
+    // `response.create` is deliberately NOT `_responseActive`-guarded like the
+    // agent-path sites (receiveAudio/sendText). It is single-flight by
+    // construction: each USER turn is fully drained (`_drainSpokenTurn`) before
+    // the next, and the executor drives turns serially. The `_responseActive`
+    // defer-and-refire machinery re-fires a BARE `{type:"response.create"}`;
+    // reusing it here would drop this send's `conversation:"none"` + `input:[]` +
+    // persona `instructions` and reintroduce the #705 persona-drift bug. Only a
+    // >15s mid-response inter-frame stall could strand `_responseActive` true
+    // into the next turn — tracked in #792 (needs a non-bare-refire fix).
     this._ws.send(
       JSON.stringify({
         type: "response.create",
@@ -1038,6 +1053,14 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       this._ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       this._pendingAudioBytes = 0;
     }
+    // Issue #662 carve-out (tracked: #792) — like `_speakVerbatim`, this
+    // parameterized `response.create` is deliberately NOT `_responseActive`-
+    // guarded. It self-commits + zeroes `_pendingAudioBytes` (above) so the
+    // drain's `receiveAudio` preamble cannot fire a second bare create, and each
+    // USER turn is fully drained before the next (single-flight). The agent-path
+    // defer-and-refire fires a BARE create, which would drop the persona
+    // `instructions` below — so it must not be reused here. Residual >15s-stall
+    // window tracked in #792.
     this._ws.send(
       JSON.stringify({
         type: "response.create",
