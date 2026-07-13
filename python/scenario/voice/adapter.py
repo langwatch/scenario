@@ -310,7 +310,45 @@ class VoiceAgentAdapter(AgentAdapter):
         if not merged.data or merged.transcript:
             return merged
         try:
-            text = await transcribe(merged)
+            # ``voice.stt.transcribe`` — one span per per-turn STT provider call,
+            # nesting under this turn's ``voice.turn`` span (#776). Python runs
+            # STT per-turn (here); the TS mirror is a per-RUN back-fill batch
+            # (``voice.stt.backfill`` → ``voice.stt.transcribe``). Shared
+            # attributes across BOTH languages: ``voice.stt.scope`` /
+            # ``.speaker`` / ``.audio_bytes`` / ``.transcript_chars``.
+            # ``voice.adapter.class`` is Python-ONLY here: the per-turn STT always
+            # transcribes THIS adapter's own agent output, whereas the TS per-run
+            # back-fill is adapter-agnostic over recorded segments. Disambiguate
+            # cross-language by ``voice.stt.scope`` (turn vs run).
+            with voice_span(
+                "voice.stt.transcribe",
+                {
+                    "voice.adapter.class": type(self).__name__,
+                    "voice.stt.scope": "turn",
+                    "voice.stt.speaker": "agent",
+                    "voice.stt.audio_bytes": len(merged.data),
+                },
+            ) as stt_span:
+                try:
+                    text = await transcribe(merged)
+                except Exception as exc:
+                    # Sanitize BEFORE the span records it: provider SDK errors
+                    # (OpenAI/ElevenLabs) can embed the raw response body — and a
+                    # key fragment on a 401 — in the message, which
+                    # ``voice_span``'s ``record_exception`` would EXPORT to
+                    # telemetry. Log the detail locally at DEBUG (non-exported);
+                    # raise a minimal, provider-agnostic error (``from None`` so
+                    # the chained original is not formatted into the recorded
+                    # traceback) so the span still marks ERROR without leaking.
+                    # Mirrors ``ElevenLabsSTTProvider`` in ``voice/stt.py``.
+                    logger.debug(
+                        "voice: STT provider error detail", exc_info=True
+                    )
+                    raise RuntimeError(
+                        f"STT provider failed: {type(exc).__name__}"
+                    ) from None
+                if text:
+                    stt_span.set_attribute("voice.stt.transcript_chars", len(text))
         except Exception:
             logger.warning(
                 "voice: agent-turn STT failed; the user simulator will see "
