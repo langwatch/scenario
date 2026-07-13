@@ -276,12 +276,12 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         exc = self._recv_loop_exc
         if exc is not None:
             return PipecatRecvError(
-                "pipecat recv loop crashed before the agent produced audio: "
+                "pipecat recv loop crashed; no further audio will arrive: "
                 f"{type(exc).__name__}: {exc}"
             )
         return PipecatRecvError(
-            "pipecat bot closed the WebSocket before producing audio — the bot "
-            "hung up or its pipeline stopped without responding"
+            "pipecat bot closed the WebSocket; no further audio will arrive — the "
+            "bot hung up or its pipeline stopped without responding"
         )
 
     async def interrupt(self) -> None:
