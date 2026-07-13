@@ -43,8 +43,8 @@ derive the prompt text from those arrays itself.
 
 ### The authoritative in-repo precedent is PR #687
 
-`ClaudeCodeAgentAdapter` (PR #687, open at time of writing) is the correct
-structural template:
+`ClaudeCodeAgentAdapter` (the sibling adapter in `agents/claude-code/`) is the
+correct structural template:
 - `class ClaudeCodeAgentAdapter extends AgentAdapter` with `role = AgentRole.AGENT`
   and a named `sessions = new Map<string, string>()`.
 - A lowercase `claudeCodeAgent(config)` factory as the public entry point.

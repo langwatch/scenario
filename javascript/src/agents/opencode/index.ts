@@ -9,8 +9,8 @@ export type {
 
 /**
  * Factory for {@link OpenCodeAgentAdapter}, following the lowercase-factory idiom
- * used by `userSimulatorAgent` (and planned for the in-flight Claude Code adapter,
- * PR #687).
+ * used by `userSimulatorAgent` (and the sibling Claude Code adapter in
+ * `claude-code/`).
  *
  * Pass an injected `config.client` to drive a fake/real OpencodeClient directly
  * (no server spawn); omit it to let the adapter lazily spawn and own an OpenCode
