@@ -74,7 +74,7 @@ dev = [
     "pytest-cov",
     "pre-commit",
     "pyright",
-    "pydantic-ai-slim[openai]>=1.56.0",
+    "pydantic-ai-slim[openai]>=1.102.0,<2.0.0",
     "function-schema",
     "pdoc3",
     "respx",
@@ -122,7 +122,7 @@ constraint-dependencies = [
 dev = [
     "function-schema>=0.4.5",
     "pre-commit>=4.2.0",
-    "pydantic-ai-slim[openai]>=1.56.0",
+    "pydantic-ai-slim[openai]>=1.102.0,<2.0.0",
     "pyright>=1.1.405",
     "pytest-asyncio-concurrent>=0.4.1",
     "pdoc3>=0.11.6",
