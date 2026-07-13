@@ -38,7 +38,7 @@ dependencies = [
     "httpx>=0.27.0",
     "rx>=3.2.0",
     "python-dateutil>=2.9.0.post0",
-    "pydantic-settings>=2.9.1",
+    "pydantic-settings>=2.14.2",
     # Pin <0.3 — 0.22.0 imports pandas at module load (via langwatch.evaluation),
     # which breaks `test (3.12)` CI since pandas is in the [report] extra not
     # installed by default. Reverting an unbounded floor that surfaced on rebase.
@@ -112,7 +112,7 @@ markers = ["agent_test: marks tests as agent scenario tests"]
 [tool.uv]
 constraint-dependencies = [
     "urllib3>=2.7.0",
-    "python-liquid>=2.2.0",
+    "python-liquid>=2.2.1",
     "filelock>=3.20.3",
     "virtualenv>=20.36.1",
 ]
