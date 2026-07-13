@@ -131,6 +131,14 @@ jobs:
         # also hid real test failures. Tolerate exit 5 only; propagate every
         # other non-zero so a genuine failure fails the step and the workflow.
         #
+        # `--timeout=540` is NOT optional (issue #491). pytest.ini sets `timeout = 60`
+        # and WINS over pyproject.toml, and `timeout_method = thread` kills the ENTIRE
+        # pytest process — not just the slow test. In THIS workflow LANGWATCH_API_KEY is
+        # set, so every scenario.run() pays a telemetry drain of ~30s PER EVENT, serial
+        # (measured: +153s on a 27.6s demo). Without an override that drain pushes tests
+        # past 60s and the step dies mid-suite. PROVEN in run 29231496466: this step's
+        # sibling ("Run @e2e voice demos") had no override and was killed twice by the
+        # cap, while the isolated step — which does override — took zero kills.
         # `not voice_multiturn` keeps the multi-turn @e2e demos out of this
         # single-process run — they wedge when collected together (issue #491)
         # and are exercised one-process-each by the isolated step below.
@@ -140,7 +148,7 @@ jobs:
           # `--reruns 1` (pytest-rerunfailures, already a dep): absorb a single
           # ambient hosted-EL flake (#708) while a genuine failure that fails
           # both attempts still propagates.
-          uv run pytest tests/voice -m "integration and not voice_multiturn" -v --tb=short --reruns 1 || rc=$?
+          uv run pytest tests/voice -m "integration and not voice_multiturn" -v --tb=short --reruns 1 --timeout=540 || rc=$?
           if [ "$rc" -eq 5 ]; then
             echo "No integration-marked tests collected — treating as pass."
             exit 0
@@ -174,7 +182,7 @@ jobs:
         # every other test in the suite. Gated on the bot rather than always() so a
         # bot-startup failure doesn't spawn 6 doomed 10-minute demo runs.
         if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
-        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
+        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short --timeout=300
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -198,7 +206,7 @@ jobs:
           # `--reruns 1` (pytest-rerunfailures): absorb a single ambient
           # hosted-EL flake (#708); a genuine failure that fails both attempts
           # still propagates through `pipefail` and fails the step.
-          uv run pytest tests/voice/ -m "not voice_multiturn" -v --tb=short -q --reruns 1 2>&1 | tee /tmp/e2e-voice-results.log
+          uv run pytest tests/voice/ -m "not voice_multiturn" -v --tb=short -q --reruns 1 --timeout=540 2>&1 | tee /tmp/e2e-voice-results.log
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
