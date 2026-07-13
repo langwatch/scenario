@@ -7,9 +7,9 @@
  * thread, drives a single `session.prompt(...)` completion, and returns the
  * assistant-visible text as a `string`.
  *
- * Unlike a replay-style coding adapter — e.g. the in-flight Claude Code adapter
- * (PR #687), which spawns `claude -p` per turn and REPLAYS the conversation as a
- * flat prompt — OpenCode keeps the full transcript SERVER-SIDE keyed by a session
+ * Unlike a replay-style coding adapter — e.g. the sibling Claude Code adapter
+ * (`claude-code/`), which spawns `claude -p` per turn and REPLAYS the conversation
+ * as a flat prompt — OpenCode keeps the full transcript SERVER-SIDE keyed by a session
  * id. The SDK's `session.prompt(...)` resolves
  * only after the assistant finishes (a completion primitive; no SSE needed), and
  * the session already holds the prior turns. Therefore:
@@ -26,7 +26,7 @@
  *  - If a continuation `prompt(...)` fails at the transport layer, the stored id
  *    is EVICTED so the next turn for that thread recreates the session (the
  *    stored session may no longer resolve) — the same eviction-on-failure stance
- *    the in-flight Claude Code adapter (PR #687) takes for its `--resume` id.
+ *    the sibling Claude Code adapter (`claude-code/`) takes for its `--resume` id.
  *
  * Two-layer error handling (the SDK uses responseStyle "fields" with
  * `throwOnError` defaulting to `false`, so the calls resolve to `{ data, error }`
@@ -43,7 +43,7 @@
  * completion with NO parts at all is treated as a genuine empty response and
  * rejected.
  *
- * Hardening (a–c mirror the in-flight Claude Code adapter, PR #687; d–e are
+ * Hardening (a–c mirror the sibling Claude Code adapter (`claude-code/`); d–e are
  * specific to this adapter's SDK/server model):
  *  a. Structured non-text parts are rendered readably, never `[object Object]`.
  *  b. An optional `timeout` cancels the in-flight prompt via `AbortSignal`.
@@ -120,8 +120,16 @@ export interface OpenCodeAgentAdapterConfig {
    * both `session.create` and `session.prompt` (the SDK has no top-level `cwd`;
    * working directory is a per-request query parameter). Files the agent reads
    * or writes resolve relative to this.
+   *
+   * REQUIRED — mirrors the sibling Claude Code adapter's `workingDirectory`.
+   * OpenCode is tool-bearing (it reads/writes files and runs shell), so the
+   * caller MUST name the directory it operates in. Were this optional and left
+   * unset, no `query.directory` would be sent and the agent would fall back to
+   * the OpenCode server's inherited process cwd — whatever launched it — which
+   * may hold secrets (e.g. a gitignored `.env`). Point it at a scratch or
+   * project directory the agent is meant to touch, never one holding credentials.
    */
-  workingDirectory?: string;
+  workingDirectory: string;
 
   /**
    * Timeout in milliseconds for the `session.prompt` call. When set, the
@@ -222,11 +230,9 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     return client;
   }
 
-  /** `query.directory` payload when a working directory is configured, else nothing. */
-  private directoryQuery(): { directory: string } | undefined {
-    return this.config.workingDirectory
-      ? { directory: this.config.workingDirectory }
-      : undefined;
+  /** `query.directory` payload scoping the agent to the configured working directory (always set — the field is required). */
+  private directoryQuery(): { directory: string } {
+    return { directory: this.config.workingDirectory };
   }
 
   /**
@@ -234,7 +240,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
    * value. A null timeout is unbounded (returns undefined); a non-positive or
    * non-finite value (e.g. an explicitly-set `0`) throws so a bad timeout fails
    * loudly rather than being silently ignored by a truthiness check — the same
-   * timeout validation the in-flight Claude Code adapter (PR #687) performs.
+   * timeout validation the sibling Claude Code adapter (`claude-code/`) performs.
    *
    * Returning the value (rather than re-reading `config.timeout` at the signal
    * site) keeps "the value validated" and "the value used" the same number:
@@ -293,7 +299,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
     const creating = (async () => {
       const created = await client.session.create({
         body: { title: `scenario:${threadId}` },
-        ...(query ? { query } : {}),
+        query,
       });
       if (created.error || !created.data?.id) {
         throw new Error(
@@ -377,7 +383,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
         model: this.config.model,
         parts: [{ type: "text", text: promptText }],
       },
-      ...(query ? { query } : {}),
+      query,
       // Best-effort cancellation: AbortSignal.timeout is a valid prompt option
       // (it survives on RequestOptions). If the server ignores it, the call
       // still settles when the prompt resolves.
@@ -487,7 +493,7 @@ export class OpenCodeAgentAdapter extends AgentAdapter {
  * dropped and the rest joined by a blank line. Returns "" when there is no user
  * content (the agent-first / empty-delta case the caller guards on).
  */
-export function extractNewUserText(newMessages: ModelMessage[]): string {
+function extractNewUserText(newMessages: ModelMessage[]): string {
   return newMessages
     .filter((m) => m.role === "user")
     .map((m) => renderContent(m.content))
@@ -504,7 +510,7 @@ export function extractNewUserText(newMessages: ModelMessage[]): string {
  * only ever feeds USER-role content here, which never carries tool-call /
  * tool-result / reasoning blocks, so those need no handling.
  */
-export function renderContent(content: ModelMessage["content"]): string {
+function renderContent(content: ModelMessage["content"]): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
@@ -534,7 +540,7 @@ export function renderContent(content: ModelMessage["content"]): string {
  * `Record<string, unknown>`, restoring compile-time safety: if the SDK renames
  * or adds a text variant, the build fails here instead of silently dropping text.
  */
-export function partsToText(parts: Part[] | undefined): string {
+function partsToText(parts: Part[] | undefined): string {
   return (parts ?? [])
     .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text" && p.ignored !== true)
     .map((p) => p.text)
@@ -547,7 +553,7 @@ export function partsToText(parts: Part[] | undefined): string {
  * fallback (a completion with parts but no visible text). Surfaces the part type
  * and, when present, a name/tool/path hint — never returns "" for a real part.
  */
-export function renderNonTextPart(part: unknown): string {
+function renderNonTextPart(part: unknown): string {
   if (!part || typeof part !== "object") return stringifyValue(part);
   const p = part as Record<string, unknown>;
   const type = typeof p["type"] === "string" ? (p["type"] as string) : "part";

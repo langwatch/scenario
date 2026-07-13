@@ -125,7 +125,12 @@ function makeConfig(
   overrides: Partial<Omit<OpenCodeAgentAdapterConfig, "client" | "model">> = {},
 ): OpenCodeAgentAdapterConfig {
   return {
+    // workingDirectory is required (the adapter refuses to run the tool-bearing
+    // agent in an unspecified cwd); a placeholder is fine for the injected-client
+    // unit tests, which never spawn a real server. Tests that assert directory
+    // forwarding override it via `overrides`.
     model: { providerID: "openai", modelID: "gpt-5.4-mini" },
+    workingDirectory: "/tmp/opencode-unit-wd",
     client,
     ...overrides,
   };
@@ -424,7 +429,12 @@ describe("OpenCodeAgentAdapter AC-6/R2/R3 — parts filtering and error handling
       });
       const adapter = new OpenCodeAgentAdapter(makeConfig(client));
 
-      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(/prompt failed/);
+      // Assert on describeError's INTERPOLATED output (message + status), not
+      // just the static "prompt failed" prefix — otherwise a regression that
+      // guts describeError to a constant string would still pass this test.
+      await expect(adapter.call(SIMPLE_INPUT)).rejects.toThrow(
+        /prompt failed: internal server error \(status 500\)/,
+      );
     });
   });
 
@@ -532,9 +542,12 @@ describe("OpenCodeAgentAdapter R4 — stale session eviction after prompt error"
       },
     });
     const adapter = new OpenCodeAgentAdapter(makeConfig(client));
+    // Pin describeError's INTERPOLATED output (message + status), not just the
+    // static "session.create failed" prefix — otherwise gutting describeError to
+    // a constant string would leave this test green.
     await expect(
       adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "create-fail" })),
-    ).rejects.toThrow(/session\.create failed/);
+    ).rejects.toThrow(/session\.create failed for thread "create-fail": unavailable \(status 503\)/);
     // next call on the same thread must retry create (stale rejected promise evicted)
     await adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "create-fail" }));
     expect(createSpy).toHaveBeenCalledTimes(2);
@@ -586,10 +599,12 @@ describe("OpenCodeAgentAdapter concurrency + config validation", () => {
 
     const p1 = adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race-reject" }));
     const p2 = adapter.call(makeInput([SIMPLE_USER_MSG], { threadId: "race-reject" }));
-    // Attach both rejection expectations BEFORE releasing the gate so neither
-    // rejection is ever unobserved.
-    const e1 = expect(p1).rejects.toThrow(/session\.create failed/);
-    const e2 = expect(p2).rejects.toThrow(/session\.create failed/);
+    // Observe BOTH rejections immediately via allSettled — it attaches handlers
+    // synchronously, so neither rejection is ever unobserved — rather than storing
+    // deferred `expect(...).rejects` assertions and awaiting them later. That
+    // deferred pattern is deprecated in vitest and, on a real regression, splits
+    // one failure into a waitFor timeout plus a disconnected unhandled rejection.
+    const settled = Promise.allSettled([p1, p2]);
     // Wait for a macrotask boundary (vi.waitFor polls on timers), which drains
     // BOTH calls' microtask chains regardless of call()'s internal await depth:
     // p1 is parked inside the gated create, p2 is attached to the same stored
@@ -597,7 +612,17 @@ describe("OpenCodeAgentAdapter concurrency + config validation", () => {
     // call()/resolveSessionId cannot break this synchronization.
     await vi.waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
     releaseCreate();
-    await Promise.all([e1, e2]);
+    const results = await settled;
+    // Both concurrent callers reject with the SAME create-failed error — content
+    // pinned (message + status), not just the static prefix.
+    expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+    for (const r of results) {
+      const reason = (r as PromiseRejectedResult).reason as Error;
+      expect(reason).toBeInstanceOf(Error);
+      expect(reason.message).toMatch(
+        /session\.create failed for thread "race-reject": unavailable \(status 503\)/,
+      );
+    }
     // Both concurrent callers shared ONE create attempt.
     expect(createSpy).toHaveBeenCalledTimes(1);
 

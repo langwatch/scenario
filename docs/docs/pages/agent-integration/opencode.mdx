@@ -129,7 +129,7 @@ own user-simulator and judge agents also need an LLM key — typically
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | `{ providerID: string; modelID: string }` | **required** | Provider and model the OpenCode agent runs. Required as a product decision for reproducible, auditable evaluations — pin a deterministic model. Example: `{ providerID: "openai", modelID: "gpt-5.4-mini" }`. |
-| `workingDirectory` | `string` | — | Directory the OpenCode agent operates on. Forwarded as `query.directory` on each SDK call. File reads and writes inside the agent resolve relative to this path. |
+| `workingDirectory` | `string` | **required** | Directory the OpenCode agent operates on. Forwarded as `query.directory` on each SDK call. File reads and writes inside the agent resolve relative to this path. **Required for safety** — OpenCode is tool-bearing, so you must scope it to a directory it is meant to touch (see the security caveat below). |
 | `timeout` | `number` | none (unbounded) | Timeout in ms for the `session.prompt` call. Cancels the in-flight prompt via `AbortSignal` and rejects the call. Bounds the **prompt only** — not the one-time server spawn or `session.create` — so total `call()` time is `spawn + create + timeout`. Best-effort: depends on whether the underlying server honours the abort. |
 | `logger` | `OpenCodeLogger` | no-op | Receives all adapter diagnostics (`log`). Omit for silent operation. |
 | `client` | `OpencodeClient` | — | Advanced injection seam. Provide a pre-built `OpencodeClient` to drive a custom or pre-started server, or to inject a fake for unit tests. When provided, `close()` is a no-op. |
@@ -146,6 +146,14 @@ deltas only.
 
 ## Caveats
 
+- **`workingDirectory` scopes the agent — never point it at a directory holding
+  secrets.** OpenCode is tool-bearing: it reads and writes files and runs shell
+  inside `workingDirectory`. Point it at a scratch or fixture directory the agent
+  is meant to operate on — never your repo root or any directory containing a
+  `.env`, credentials, or private source. The field is **required** precisely so
+  this choice is always explicit; the sibling Claude Code adapter takes the same
+  stance. (Left unscoped, the agent would inherit the server process's cwd, which
+  in a test run is often the very directory holding your keys.)
 - **`opencode` must be on PATH** (or installed globally via `npm i -g opencode-ai`)
   when no `client` is injected. The adapter does not install the binary.
 - **Provider keys are not injected** — configure them in the environment as
