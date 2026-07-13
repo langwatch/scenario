@@ -50,8 +50,13 @@ class _ScriptedVad:
         return self._verdicts.pop(0) if self._verdicts else False
 
 
-def _vad_with_scripted_verdicts(verdicts: list[bool]):
-    """Build a fallback whose classifier is scripted; return (vad, stub, starts, ends)."""
+def _vad_with_scripted_verdicts(monkeypatch: pytest.MonkeyPatch, verdicts: list[bool]):
+    """Build a fallback whose classifier is scripted; return (vad, stub, starts, ends).
+
+    ``monkeypatch`` (rather than a direct ``vad._vad = stub``) because the real
+    ``_vad`` is nominally a ``webrtcvad.Vad`` — a C-extension class the stub cannot
+    subclass — so a plain assignment is a pyright ``reportAttributeAccessIssue``.
+    """
     WebRTCVadFallback.reset_warnings()
     starts: list[bool] = []
     ends: list[bool] = []
@@ -61,11 +66,11 @@ def _vad_with_scripted_verdicts(verdicts: list[bool]):
         on_speech_end=lambda: ends.append(True),
     )
     stub = _ScriptedVad(verdicts)
-    vad._vad = stub  # noqa: SLF001 — pin the state machine, not webrtcvad's acoustics
+    monkeypatch.setattr(vad, "_vad", stub)
     return vad, stub, starts, ends
 
 
-def test_vad_fires_one_event_per_transition_not_per_frame():
+def test_vad_fires_one_event_per_transition_not_per_frame(monkeypatch: pytest.MonkeyPatch):
     """Callbacks are **edge**-triggered: one event per speech *run*, not per frame.
 
     The transition tests above assert ``>= 1`` start/end because the real
@@ -76,7 +81,7 @@ def test_vad_fires_one_event_per_transition_not_per_frame():
     surrounded by silence yields exactly ONE start and exactly ONE end.
     """
     verdicts = [False, True, True, True, True, True, False, False]
-    vad, stub, starts, ends = _vad_with_scripted_verdicts(verdicts)
+    vad, stub, starts, ends = _vad_with_scripted_verdicts(monkeypatch, verdicts)
 
     vad.process(AudioChunk(data=_frames(len(verdicts))))
 
@@ -86,7 +91,7 @@ def test_vad_fires_one_event_per_transition_not_per_frame():
     assert not vad.is_speaking
 
 
-def test_vad_buffers_partial_frames_across_chunks():
+def test_vad_buffers_partial_frames_across_chunks(monkeypatch: pytest.MonkeyPatch):
     """A frame split across chunks is reassembled — the residual is not dropped.
 
     ``process()`` keeps a partial frame in ``self._buf`` and completes it from the
@@ -95,7 +100,7 @@ def test_vad_buffers_partial_frames_across_chunks():
     unnoticed. Streaming transports hand us arbitrarily-sized chunks, so this is
     the class's normal operating mode, not an edge case.
     """
-    vad, stub, starts, _ends = _vad_with_scripted_verdicts([True])
+    vad, stub, starts, _ends = _vad_with_scripted_verdicts(monkeypatch, [True])
     payload = _frames(1)
     third = len(payload) // 3
 
