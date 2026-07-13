@@ -195,8 +195,14 @@ jobs:
           # demo errors on import while others collect: pytest exits non-zero and
           # we must fail, not silently run the subset (that would re-introduce the
           # very "asserted-but-never-run" hole this step closes).
-          collect_out=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>&1)
-          collect_rc=$?
+          #
+          # `|| collect_rc=$?` is load-bearing: this step runs under GitHub's
+          # default `bash -e {0}`, so a bare `collect_out=$(...)` assignment would
+          # abort the step the instant pytest exits non-zero — before `$?` is read,
+          # discarding the diagnostics we just captured into the variable and
+          # failing with NO output. The `||` suppresses errexit so we can report.
+          collect_rc=0
+          collect_out=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>&1) || collect_rc=$?
           if [ "$collect_rc" -ne 0 ]; then
             echo "ERROR: collecting voice_multiturn demos failed (pytest exit $collect_rc):" >&2
             printf '%s\n' "$collect_out" >&2
