@@ -1,7 +1,7 @@
 """
 E2E check — OpenAI Realtime adapter (AGENT role) against the GA Realtime API.
 
-Integration / nightly, key-gated (``requires_llm``).  Runs the
+Integration / on-demand, key-gated (``requires_llm``).  Runs the
 ``openai_realtime_agent`` demo script end-to-end against the real OpenAI
 Realtime WebSocket API and asserts ``result.success`` is True.
 """

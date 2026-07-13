@@ -217,6 +217,11 @@ jobs:
           # Discover the demo set by marker so it can't drift from the test files.
           mapfile -t files < <(printf '%s\n' "$collect_out" | grep '::' | cut -d: -f1 | sort -u)
           echo "Isolated multi-turn demos:"; printf '  %s\n' "${files[@]:-}"
+          # Belt-and-braces, and deliberately kept though currently UNREACHABLE: pytest
+          # exits 5 when a marker collects nothing and 2 on a collection error, so the
+          # rc check above already catches every path that would leave `files` empty.
+          # Retained because "silently ran zero demos" is the exact hole this step exists
+          # to close — if a future pytest ever returns 0 with no matches, this is the net.
           if [ "${#files[@]}" -eq 0 ]; then
             echo "ERROR: no voice_multiturn demos discovered — marker drift or rename." >&2
             exit 1
