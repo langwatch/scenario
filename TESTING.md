@@ -108,24 +108,65 @@ between function-scoped event loops, and the `ffmpeg` playback subprocess in
 `python/scenario/voice/playback.py` not always exiting cleanly on `.stop()`.
 
 A narrower SDK-level fix — bounding `event_bus.drain()` so telemetry can never
-block test teardown indefinitely — is recommended as a follow-up. It changes the
-shared event-bus delivery guarantee for *every* `scenario.run()` caller, so it is
-tracked separately from this process-isolation resolution.
+block test teardown indefinitely — is recommended as a follow-up (#791). It changes
+the shared event-bus delivery guarantee for *every* `scenario.run()` caller, so it
+is tracked separately from this process-isolation resolution.
+
+### Reproducing the drain — creds-free, ~3 minutes
+
+You do not need a LangWatch account. Point the endpoint at a socket that **accepts
+but never responds**; any dummy key works, because nothing ever answers.
+
+```python
+# blackhole.py — accepts TCP, swallows the request, never writes a response.
+import socket, threading, time
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", 9099)); s.listen(128)
+def handle(c):
+    c.recv(65536)
+    while True: time.sleep(3600)   # hold it open, never respond
+while True:
+    c, _ = s.accept(); threading.Thread(target=handle, args=(c,), daemon=True).start()
+```
+
+```bash
+python3 blackhole.py &
+export LANGWATCH_ENDPOINT=http://127.0.0.1:9099
+export LANGWATCH_API_KEY=sk-lw-blackhole-not-a-real-key
+pytest -p no:cacheprovider -x python/tests/voice/test_multi_intent_e2e.py --timeout=540
+```
+
+**Measured:** that demo takes **27.6s** with telemetry off and **181s** against the
+black hole — **+153s of pure teardown**. A stack dump mid-teardown parks at
+`event_bus.drain()` → `_event_queue.join()` → `all_tasks_done.wait()`, and the POST
+`ReadTimeout`s land **exactly 30s apart**. So: **teardown ≈ `events × 30s`**, serial,
+unbounded. That is the number #791 needs.
 
 ### Running the multi-turn demos
 
+**Always pass an explicit `--timeout`.** `pytest.ini` sets `timeout = 60` and it
+**wins over** `pyproject.toml` (pytest says so: `configfile: pytest.ini (WARNING:
+ignoring pytest config in pyproject.toml!)`). Worse, `timeout_method = thread` kills
+the **entire pytest process**, not just the slow test — so one demo over the cap
+takes the whole suite down with a thread dump, which looks exactly like a hang. Three
+of these demos exceed 60s even with telemetry off, and the drain above adds far more.
+
 ```bash
 # Supported: one process per demo (what voice-integration.yml does).
-pytest -p no:cacheprovider -x python/tests/voice/test_long_hold_e2e.py
-pytest -p no:cacheprovider -x python/tests/voice/test_emotional_escalation_e2e.py
+pytest -p no:cacheprovider -x python/tests/voice/test_long_hold_e2e.py --timeout=540
 
 # …or discover the whole set by marker and loop, one process each:
 for f in $(pytest python/tests/voice -m voice_multiturn --collect-only -q \
             | grep '::' | cut -d: -f1 | sort -u); do
-  pytest -p no:cacheprovider -x "$f"
+  timeout 600 pytest -p no:cacheprovider -x "$f" --timeout=540
 done
 
-# NOT supported: collecting them together in one process — will wedge.
+# Collecting them together in ONE process is not supported — but be precise about
+# why: it is not intrinsic. With the cap lifted and telemetry off they complete
+# together in ~424s. What kills a shared run is the drain pushing a demo past the
+# 60s cap, at which point the thread method destroys the whole process. Per-process
+# isolation is defence-in-depth (it caps a pathological drain at one demo instead of
+# the suite) — the load-bearing fix is the timeout override.
 pytest -m voice_multiturn python/tests/voice/
 ```
 ## WAV / Recording File Policy
