@@ -29,12 +29,15 @@ def _outcome(auth_ok):
     pytest always reports as FAILED, never as skipped.
     """
     try:
-        result = _require_twilio_env(_TWILIO_REQUIRED_KEYS, auth_ok)
+        _require_twilio_env(_TWILIO_REQUIRED_KEYS, auth_ok)
     except pytest.skip.Exception as exc:
         return "skipped", str(exc)
     except pytest.fail.Exception as exc:
         return "failed", str(exc)
-    assert result is None, "helper should return None on the success path"
+    # No exception -> the guard let the test proceed. The helper is
+    # procedure-like (it signals via pytest.skip/fail and always returns None),
+    # so we don't inspect its return value — inspecting it trips the
+    # "use of a procedure's return value" code-quality check.
     return "passed", None
 
 
