@@ -166,12 +166,14 @@ jobs:
           TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
       - name: Run example-suite voice integration tests
-        # Reachability gate (issue #491). Without this, the demos this PR exists to
-        # un-skip can NEVER run: the step above collects three Twilio-gated tests
-        # (test_twilio_inbound/outbound/dtmf_ivr_e2e.py) whose fixtures pytest.FAIL —
-        # by design — when TWILIO_* env is absent, and those secrets are not configured
-        # on this repo. A failed step aborts the job, so every step below it is skipped.
-        # That is why voice-integration is 30/30 red and the isolated step has 0 runs.
+        # Reachability gate (issue #491), now belt-and-suspenders with #796. The step
+        # above collects three Twilio-gated tests (test_twilio_inbound/outbound/
+        # dtmf_ivr_e2e.py). Since #796 their fixtures SKIP when TWILIO_* env is absent
+        # (option b) instead of failing, so a missing-secret repo no longer aborts the
+        # job here — but this gate stays as defense-in-depth: any OTHER failure in the
+        # step above (an unrelated test, a live-provider blip) would still abort every
+        # step below it. Historically that abort — Twilio fixtures failing on absent
+        # env — is why voice-integration was 30/30 red with 0 runs of the isolated step.
         # Un-skipping the demos while leaving them unreachable would just trade
         # "@pytest.mark.skip" for "step never executes" — the same asserted-but-never-run
         # hole in a new costume.

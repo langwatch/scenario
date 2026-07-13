@@ -3,13 +3,14 @@ Shared test configuration and fail-fast preflight fixtures for the voice suite.
 
 Philosophy per TESTING.md ("E2E = happy paths via real examples, no mocks"):
 missing infrastructure is a test FAILURE with a clear message, not a silent
-skip. There are two narrow, deliberate exceptions: code that genuinely isn't
-shipped yet (transport stubs that still raise PendingTransportError), and the
-Twilio preflight fixtures below, which SKIP when TWILIO_* env is absent per
-the #796 decision (option b) — the on-demand voice-integration job must reach
-its later steps even when Twilio secrets aren't configured. A present-but-
-broken Twilio credential (env set but auth fails) still FAILS; skip-on-absence
-never masks a real failure.
+skip. A handful of fixtures deliberately skip instead: code not shipped yet
+(transport stubs raising PendingTransportError), optional/paid capability gates
+(ELEVENLABS_VOICE_ID, a provider-rejected GEMINI key), and — per the #796
+decision (option b) — the Twilio preflight fixtures below, which SKIP when
+TWILIO_* env is absent so the on-demand voice-integration job reaches its later
+steps even when Twilio secrets aren't configured. A present-but-broken Twilio
+credential (env set but auth fails) still FAILS; only genuine absence skips
+(a partial Twilio config — some keys set — is treated as absent).
 
 Preflight fixtures assert the required infrastructure is reachable before the
 test body runs. If anything is missing, the fixture fails with a one-line
@@ -91,10 +92,9 @@ def _require_twilio_env(keys: tuple[str, ...], auth_ok: Callable[[], bool]) -> N
 
     SKIP when any required var is ABSENT — a missing-secret run must not abort
     the CI job before later steps (the six target demos need no Twilio at all).
-    FAIL when env is present but the credentials don't authenticate — a
-    present-but-broken credential is a REAL failure, never a skip. This is the
-    one sanctioned exception to this file's fail-fast "missing infra is a
-    FAILURE" policy, and it is scoped to absence only.
+    A partial config (only some keys set) counts as absent and also skips.
+    FAIL when all keys are present but the credentials don't authenticate — a
+    present-but-broken credential is a REAL failure, not a skip.
     """
     missing = [k for k in keys if not os.getenv(k)]
     if missing:
@@ -105,9 +105,10 @@ def _require_twilio_env(keys: tuple[str, ...], auth_ok: Callable[[], bool]) -> N
         )
     if not auth_ok():
         pytest.fail(
-            "Twilio env is present but authentication failed. A present-but-"
-            "broken credential is a real failure, not a skip (#796): rotate "
-            "TWILIO_AUTH_TOKEN in python/.env (account creds are stale)."
+            "Twilio env is present but the credential check did not pass "
+            "(auth rejected, or the Twilio API was unreachable). A present-but-"
+            "broken credential is a real failure, not a skip (#796): verify "
+            "TWILIO_* in python/.env (rotate TWILIO_AUTH_TOKEN if creds are stale)."
         )
 
 
@@ -279,10 +280,10 @@ _twilio_auth_ok_cache: Optional[bool] = None
 def _twilio_auth_ok() -> bool:
     """Session-cached probe: does the Twilio auth token actually work?
 
-    Returns True if creds authenticate, False if 401. Skip (not fail) on 401
-    so a known-revoked token produces a clear 'rotate this var' message
-    instead of flooding the suite with noise. Missing env vars still FAIL
-    (fail-fast per TESTING.md) — this probe only runs once env is present.
+    Returns True if creds authenticate, False otherwise (a 401, or any error
+    reaching the Twilio API). Per the #796 decision the caller
+    (``_require_twilio_env``) treats a present-but-False result as a FAIL and a
+    fully-absent config as a SKIP; this probe only runs once env is present.
     """
     global _twilio_auth_ok_cache
     if _twilio_auth_ok_cache is not None:
