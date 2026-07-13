@@ -35,7 +35,13 @@ concurrency:
 jobs:
   integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90, not 45: the isolated multi-turn step caps each of its 6 demos at
+    # `timeout 600`, so that step alone has a 60-min worst case — a 45-min job cap
+    # would fire mid-loop and cancel the run, which is exactly what the per-demo
+    # cap exists to prevent ("cap one bad demo instead of letting it ride the job
+    # timeout"). 60 min for the isolated step + headroom for install and the three
+    # bulk steps.
+    timeout-minutes: 90
     env:
       CI: true
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
@@ -218,11 +224,28 @@ jobs:
           rc=0
           for f in "${files[@]}"; do
             echo "::group::${f} (isolated process)"
-            # External per-file wall-clock cap. pytest-timeout's signal/thread
-            # methods can't interrupt these asyncio teardown hangs (see
-            # pyproject.toml note), so if the drain wedge ever recurs, this caps
-            # one bad demo at 10 min instead of letting it ride the job timeout.
-            timeout 600 uv run pytest -p no:cacheprovider -x "$f" -v --tb=short || rc=1
+            # TWO nested caps, and `--timeout=540` is NOT optional:
+            #
+            # pytest.ini sets `timeout = 60` for the unit suite, and pytest.ini
+            # WINS over pyproject.toml — pytest says so out loud: "configfile:
+            # pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)".
+            # So pyproject's "@e2e voice tests can legitimately take 5+ min /
+            # per-test timeout deliberately NOT set" note is DEAD CONFIG, and
+            # without an override these demos inherit the 60s cap. They blow
+            # through it structurally — long_hold alone does a 15s wall-clock
+            # scenario.sleep(15) before 8 live LLM+TTS+STT turns — so un-skipping
+            # them under a 60s cap would just trade "asserted but never run" for
+            # "shot at 60s, red". Same idiom as python-ci's Examples step, which
+            # overrides to --timeout=300 for exactly this reason.
+            #
+            # Inner (pytest-timeout, 540s, thread method): fires FIRST and dumps
+            # every thread's stack — that thread-dump IS the #491 diagnostic (it
+            # is how the event_bus.drain() -> queue.join() wedge was root-caused),
+            # so a recurrence arrives as a readable traceback, not a silent kill.
+            # Outer (`timeout 600`): hard backstop for a hang pytest cannot
+            # interrupt at all, capping one bad demo at 10 min rather than letting
+            # it ride the job timeout.
+            timeout 600 uv run pytest -p no:cacheprovider -x "$f" -v --tb=short --timeout=540 || rc=1
             echo "::endgroup::"
           done
           exit $rc
