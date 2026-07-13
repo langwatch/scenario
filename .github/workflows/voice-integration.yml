@@ -22,8 +22,16 @@ name: voice-integration
 #     TWILIO_PHONE_NUMBER_2 — two Twilio-owned numbers for fully automated
 #     inbound/outbound demos
 #
-# If a secret is absent the relevant tests FAIL with a clear diagnosis message.
-# The workflow stays green as long as the tests that DID run passed.
+# If a secret is absent the relevant tests FAIL with a clear diagnosis message
+# (`_require_env` -> pytest.fail, deliberately: "e2e tests fail on missing
+# infrastructure, not skip"). A failed test fails its step, and a failed step fails
+# the JOB — this workflow does NOT go green just because the tests that ran passed.
+#
+# Consequence worth knowing (issue #491): the TWILIO_* secrets are not configured on
+# this repo, so the marker-tagged step always fails. The test steps below therefore
+# carry a reachability gate (`steps.stub_bot.outcome == 'success'`) so ONE missing
+# secret family cannot silence every other test in the suite. They still report
+# honestly and the job still fails — the gate buys visibility, not a green.
 
 on:
   workflow_dispatch:
@@ -79,6 +87,7 @@ jobs:
       # e2e tests stop skipping.
       # ---------------------------------------------------------------
       - name: Start bundled Pipecat stub bot
+        id: stub_bot
         run: |
           uv run python examples/voice/_bot/bot.py \
             >> /tmp/voice-pipecat-bot.log 2>&1 &
@@ -149,6 +158,22 @@ jobs:
           TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
       - name: Run example-suite voice integration tests
+        # Reachability gate (issue #491). Without this, the demos this PR exists to
+        # un-skip can NEVER run: the step above collects three Twilio-gated tests
+        # (test_twilio_inbound/outbound/dtmf_ivr_e2e.py) whose fixtures pytest.FAIL —
+        # by design — when TWILIO_* env is absent, and those secrets are not configured
+        # on this repo. A failed step aborts the job, so every step below it is skipped.
+        # That is why voice-integration is 30/30 red and the isolated step has 0 runs.
+        # Un-skipping the demos while leaving them unreachable would just trade
+        # "@pytest.mark.skip" for "step never executes" — the same asserted-but-never-run
+        # hole in a new costume.
+        #
+        # So: run whenever the stub bot came up, regardless of an unrelated step's
+        # failure. This does NOT hide anything — a failed step still fails the JOB, so
+        # there is no hollow green; it only stops one missing secret from silencing
+        # every other test in the suite. Gated on the bot rather than always() so a
+        # bot-startup failure doesn't spawn 6 doomed 10-minute demo runs.
+        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
         run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
         working-directory: python
         env:
@@ -162,6 +187,8 @@ jobs:
       # each (issue #491); those run in the dedicated isolated step below.
       # ---------------------------------------------------------------
       - name: Run @e2e voice demos
+        # Reachability gate — see the first occurrence above (issue #491).
+        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
         # CI honesty (#708): `tee` masks pytest's exit without `pipefail` (same
         # class of bug as the vitest step). Set it so a failing demo fails the
         # step instead of being swallowed by tee's exit 0.
@@ -194,6 +221,8 @@ jobs:
       # `voice_multiturn` marker so this list never drifts from the test files.
       # ---------------------------------------------------------------
       - name: Run multi-turn voice @e2e demos (isolated — one process each)
+        # Reachability gate — see the first occurrence above (issue #491).
+        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
         run: |
           set -uo pipefail
           # Capture collection output AND exit code (stderr merged in). A NON-zero
