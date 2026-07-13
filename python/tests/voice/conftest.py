@@ -3,8 +3,13 @@ Shared test configuration and fail-fast preflight fixtures for the voice suite.
 
 Philosophy per TESTING.md ("E2E = happy paths via real examples, no mocks"):
 missing infrastructure is a test FAILURE with a clear message, not a silent
-skip. The only legitimate "skip" is for code that genuinely isn't shipped yet
-(transport stubs that still raise PendingTransportError).
+skip. There are two narrow, deliberate exceptions: code that genuinely isn't
+shipped yet (transport stubs that still raise PendingTransportError), and the
+Twilio preflight fixtures below, which SKIP when TWILIO_* env is absent per
+the #796 decision (option b) — the on-demand voice-integration job must reach
+its later steps even when Twilio secrets aren't configured. A present-but-
+broken Twilio credential (env set but auth fails) still FAILS; skip-on-absence
+never masks a real failure.
 
 Preflight fixtures assert the required infrastructure is reachable before the
 test body runs. If anything is missing, the fixture fails with a one-line
@@ -25,7 +30,7 @@ import socket
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import pytest
 
@@ -69,6 +74,40 @@ def _require_env(*keys: str) -> None:
             f"Required env var(s) missing: {', '.join(missing)}. "
             "Set them in python/.env (see python/.env.example) — "
             "e2e tests fail on missing infrastructure, not skip."
+        )
+
+
+# Twilio keys required by both the outbound and inbound demos.
+_TWILIO_REQUIRED_KEYS = (
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_PHONE_NUMBER",
+    "TWILIO_PHONE_NUMBER_2",
+)
+
+
+def _require_twilio_env(keys: tuple[str, ...], auth_ok: Callable[[], bool]) -> None:
+    """Gate a Twilio fixture per the #796 decision (option b).
+
+    SKIP when any required var is ABSENT — a missing-secret run must not abort
+    the CI job before later steps (the six target demos need no Twilio at all).
+    FAIL when env is present but the credentials don't authenticate — a
+    present-but-broken credential is a REAL failure, never a skip. This is the
+    one sanctioned exception to this file's fail-fast "missing infra is a
+    FAILURE" policy, and it is scoped to absence only.
+    """
+    missing = [k for k in keys if not os.getenv(k)]
+    if missing:
+        pytest.skip(
+            "Twilio env absent: " + ", ".join(missing) + ". Skipping "
+            "(skip-on-absent per #796 option b) — set these in python/.env "
+            "to run this test."
+        )
+    if not auth_ok():
+        pytest.fail(
+            "Twilio env is present but authentication failed. A present-but-"
+            "broken credential is a real failure, not a skip (#796): rotate "
+            "TWILIO_AUTH_TOKEN in python/.env (account creds are stale)."
         )
 
 
@@ -298,48 +337,22 @@ def _gemini_key_ok() -> bool:
 
 @pytest.fixture
 def requires_twilio_outbound():
-    """Fail unless Twilio outbound demo env is fully configured.
+    """Skip when Twilio env is ABSENT; FAIL when present-but-broken (#796 opt b).
 
     Outbound dials TWILIO_PHONE_NUMBER_2 by default — a second Twilio-owned
-    number whose own harness will answer. No human required.
-
-    If env is present but auth is rejected (401), skip with a clear 'rotate
-    TWILIO_AUTH_TOKEN' message. Missing env is still a FAIL.
+    number whose own harness answers. No human required.
     """
-    _require_env(
-        "TWILIO_ACCOUNT_SID",
-        "TWILIO_AUTH_TOKEN",
-        "TWILIO_PHONE_NUMBER",
-        "TWILIO_PHONE_NUMBER_2",
-    )
-    if not _twilio_auth_ok():
-        pytest.skip(
-            "Twilio auth token rejected (401). Rotate TWILIO_AUTH_TOKEN in "
-            "python/.env — account creds are stale."
-        )
+    _require_twilio_env(_TWILIO_REQUIRED_KEYS, _twilio_auth_ok)
 
 
 @pytest.fixture
 def requires_twilio_inbound():
-    """Fail unless Twilio inbound demo env is configured.
+    """Skip when Twilio env is ABSENT; FAIL when present-but-broken (#796 opt b).
 
     Inbound uses a second Twilio number (TWILIO_PHONE_NUMBER_2) to dial in
     to the primary (TWILIO_PHONE_NUMBER). No human required.
-
-    If env is present but auth is rejected (401), skip with a clear 'rotate
-    TWILIO_AUTH_TOKEN' message. Missing env is still a FAIL.
     """
-    _require_env(
-        "TWILIO_ACCOUNT_SID",
-        "TWILIO_AUTH_TOKEN",
-        "TWILIO_PHONE_NUMBER",
-        "TWILIO_PHONE_NUMBER_2",
-    )
-    if not _twilio_auth_ok():
-        pytest.skip(
-            "Twilio auth token rejected (401). Rotate TWILIO_AUTH_TOKEN in "
-            "python/.env — account creds are stale."
-        )
+    _require_twilio_env(_TWILIO_REQUIRED_KEYS, _twilio_auth_ok)
 
 
 @pytest.fixture
