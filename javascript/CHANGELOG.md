@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.3](https://github.com/langwatch/scenario/compare/javascript/v0.5.2...javascript/v0.5.3) (2026-07-16)
+
+
+### Features
+
+* add Claude Code agent adapter ([#687](https://github.com/langwatch/scenario/issues/687)) ([8d642d4](https://github.com/langwatch/scenario/commit/8d642d441c883327de8c9abd8ab0364b2667e7a8))
+* **events:** support LANGWATCH_PROJECT_ID via X-Project-Id header ([#619](https://github.com/langwatch/scenario/issues/619)) ([7aec1c7](https://github.com/langwatch/scenario/commit/7aec1c7c88a08ee4d732609fa480489e100f22e5))
+
+
+### Bug Fixes
+
+* **#695:** twilio terminal sentinel on silent/tool-only stop (dead-recv-loop hang) ([#697](https://github.com/langwatch/scenario/issues/697)) ([e675224](https://github.com/langwatch/scenario/commit/e675224226974eeb69a0ddffee48d47cca35b77c))
+* **voice/#662:** guard [#662](https://github.com/langwatch/scenario/issues/662)'s response.create call sites against the active-response race (JS + PY) ([#669](https://github.com/langwatch/scenario/issues/669)) ([0968374](https://github.com/langwatch/scenario/commit/0968374e2232af05cffd32b87c00e341511b2723))
+
+
+### Miscellaneous
+
+* **lint:** forbid non-null assertions in library src and gate it in CI ([#751](https://github.com/langwatch/scenario/issues/751)) ([#755](https://github.com/langwatch/scenario/issues/755)) ([c8eeb5e](https://github.com/langwatch/scenario/commit/c8eeb5e33fc958702ba2c9778f9645964cfcb678))
+
 ## [0.5.2](https://github.com/langwatch/scenario/compare/javascript/v0.5.1...javascript/v0.5.2) (2026-07-09)
 
 
