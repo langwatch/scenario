@@ -74,7 +74,7 @@
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^6.5.0",
     "@types/ws": "^8.18.1",
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^10.0.1",
     "@google/genai": "^2.5.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
@@ -82,7 +82,7 @@
     "@typescript/native-preview": "7.0.0-dev.20251128.1",
     "@vitest/coverage-v8": "4.0.14",
     "dotenv": "^17.2.3",
-    "eslint": "^9.39.1",
+    "eslint": "^10.7.0",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-unused-imports": "^4.3.0",
