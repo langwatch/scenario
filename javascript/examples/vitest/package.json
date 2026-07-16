@@ -24,11 +24,11 @@
     "@ai-sdk/anthropic": "3.0.41",
     "@ai-sdk/xai": "3.0.50",
     "@langwatch/scenario": "workspace:*",
-    "@openai/agents": "^0.3.3",
+    "@openai/agents": "^0.13.4",
     "ai": "^6.0.0",
     "express": "^5.1.0",
     "openai": "^6.9.1",
-    "vite": "^7.2.4",
+    "vite": "^8.1.5",
     "vitest": "^4.0.14",
     "zod": "^4.1.13"
   }
