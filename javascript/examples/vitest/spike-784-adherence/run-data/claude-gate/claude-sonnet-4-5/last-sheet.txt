@@ -1,0 +1,19 @@
+GOVERNING PROCEDURE: onboard-vendor
+
+BINDING INSTRUCTION SHEET
+
+You must execute procedure `onboard-vendor` in full, followed by its transitive hand-off to `provision-account`.
+
+**ONBOARD-VENDOR steps:**
+1. Collect the intake details for vendor (paperwork and contract terms).
+2. Create the records in the review board.
+3. Attach the contact set.
+4. Confirm the approval state.
+
+**PROVISION-ACCOUNT steps (transitive hand-off):**
+1. Allocate account in the billing system.
+2. Apply the baseline configuration.
+3. Attach the entitlement set.
+4. Confirm the activation status.
+
+Before starting: verify all preconditions are met (authorization, change window open, dashboards visible, rollback path known, no conflicting operations). After each procedure completes, re-verify the approval/activation state against live systems, not cached copies. Tag all artifacts with the operation id. If any step fails twice for the same reason, escalate via `escalate-ticket` without further retries. Do not disable safety checks. The wider task is not complete until both procedures finish in full.

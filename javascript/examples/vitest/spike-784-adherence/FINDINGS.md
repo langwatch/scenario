@@ -1,0 +1,198 @@
+# #784 — Procedure Adherence: Findings (v0 spike)
+
+Issue: https://github.com/langwatch/scenario/issues/784 · Branch: `spike/784-procedure-adherence`
+
+**Headline:** the harness works end-to-end and is independently proven at three layers (corpus, judge, post-dry-run fixes). The one live head-to-head run we have (n=1) shows **H1 (0.0) underperforming the fair baseline (0.5)** — not a statistical result, but a real, honestly-reported data point that does not favor H1. Separately, the self-hardening **growth loop is now demonstrated LIVE** (baseline only, judged on gpt-5.1): a subject's OWN `Write` grew the corpus 168→169 via the `author-procedure` meta-procedure, and a FRESH `claude -p` session (no `--resume`) adhered to that brand-new procedure UNPROMPTED (gpt-5.1 `followed=true`, rule text absent from its prompt) — adopt→adhere **CLOSED** (n=1). See §c.
+
+## a. What's proven and verified
+
+The harness runs end-to-end through `scenario.run`: a sandboxed `claude -p` subject, its raw `stream-json` stdout tee'd to a substrate file, a run-shape floor that excludes degenerate/aborted runs before judging, and an `AdherenceJudge` that scores `followed` from `tool_use`/`tool_result` action-log evidence only. `applied` (authored), `surfaced`, `transitiveChainFollowed`, and `attribution` are all deterministic — the model decides `followed` and nothing else.
+
+Three independent proof scripts back this up:
+
+- **Corpus (`prove-ac1.ts`)** — 168 synthetic `PROCEDURE.md` files totalling **257,605 real tokens** (`gpt-tokenizer`/`o200k_base`; gate `>200,000`), **4 authored A→B transitive chains** (including a 3-hop `onboard-vendor → provision-account → grant-access`), neutral vocabulary, banned-term grep = 0. `AC1 VERDICT: PASS (all three gates)`.
+- **Judge accuracy (`prove-ac5.ts`)** — the strong judge (gpt-5.1) matches declared ground truth on **10/10 procedure judgments across 6/6 fixtures** (100%), spanning **3 distinct attribution classes** (`agent-override`, `retrieval-miss`, `instruction-sheet-miss`). It correctly scores a prose/`thinking`-only claim `followed=false`, resists an injected-sheet-as-evidence trap, and the run-shape floor correctly excludes a below-shape monologue. `AC5 VERDICT: PASS — judge equals ground truth on followed AND attribution (100%)`.
+- **Post-dry-run fixes (`prove-fixes.ts`)** — FIX 1: the corpus floor is genuinely reachable (a fully-adherent transcript scores `followed=true` for both procedures with `chain=true`) and still discriminates two distinct partial transcripts (one whole procedure skipped; one of four steps skipped), both correctly `followed=false`. FIX 2: H1 attribution is corrected — a sheet-surfaced-but-skipped procedure now scores `agent-override`/`instruction-sheet-miss` instead of the old, wrong `retrieval-miss` mislabel, while a genuinely never-retrieved procedure still correctly scores `retrieval-miss`. `PROVE-FIXES: PASS`, verified stable across 5 runs.
+
+**Isolation and secrets:** the sandbox root defaults to `<tmpdir>/adherence-784-sandboxes`, outside the repo tree (`sandbox.ts` fails loud if it ever resolves inside the repo); credentials are symlinked in (realpath outside the repo); `.sandbox/` is gitignored; 0 secrets committed.
+
+## b. Head-to-head result (n=1 — a demonstration, not a statistical claim)
+
+One live scenario (`context-load-refund`, judge gpt-5.1), run once per strategy:
+
+| strategy | handle-refund | reconcile-invoice | rate |
+|---|---|---|---|
+| baseline (body-injection) | followed=TRUE | followed=false (agent-override) | **0.5** |
+| H1 (Haiku compile+verify; 8/8 hooks HTTP 200, both fired) | followed=false (agent-override) | followed=false (agent-override) | **0.0** |
+
+**The fair baseline beat H1 on this run.** This is the headline, reported straight: no CI, no averaging over trials, just what happened once.
+
+H1's hooks were not the failure mode: both the pre-turn compile and the post-turn verify fired on every turn, all 8 Messages-API calls returning HTTP 200. The subject still did not complete either procedure despite holding a compiled, binding instruction sheet. All three misses — baseline's `reconcile-invoice` and both of H1's procedures — are attributed `agent-override`, meaning the judge found the procedure was surfaced to the subject (injected body, or named in the compiled sheet) but the subject's own actions still didn't complete it. Neither strategy failed to retrieve; both failed to finish.
+
+Separately: the subject's `Edit` calls into the seeded project state succeeded this run. That confirms the sandbox-permissions bug from the earlier pre-fix dry run (denied edits, see README "#784 fixes") is fixed and is not a confound in this result — this 0.0 is a new, different data point, not the old bug recurring.
+
+This is **one session**. Treat it as a demonstration, not a powered comparison — see Residual (b).
+
+## c. Growth loop (LIVE) — CLOSED
+
+The self-hardening loop was demonstrated **LIVE** this session: the corpus GREW mid-run via the subject's own use of the `author-procedure` meta-procedure, and a later FRESH session adhered to that brand-new procedure UNPROMPTED. **BASELINE strategy only** (grep/BM25 body-injection — no Haiku hooks), judged on **OpenAI `gpt-5.1`** (never the Anthropic path). Two `claude -p` sessions, each run synchronously in the foreground with a hard timeout; both completed cleanly (exit 0, no throttle). Harness: `growth-loop.ts` (`--phase=adopt` then `--phase=adhere`).
+
+**Step 1 — ADOPT (corpus grows +1 via the subject's OWN `Write`).** A baseline session got a webhook-setup task with **no covering procedure** in the 168-proc corpus, under the standing rule *"if no procedure covers the request, FIRST author one via `author-procedure`, then do it."* Baseline retrieval confirmed non-coverage (top hits `author-procedure` + `archive-notification`/`quarantine-file` distractors — nothing covering). The subject then, on its own:
+- **subject `Write` evidence:** its OWN `Write` tool_use created `corpus/create-subscription/PROCEDURE.md` (a neutral verb-object id *it* chose), and it `Edit`ed `onboard-account` to link the new procedure (meta-procedure step 5). On disk the new file carries `status: active`.
+- **new procedure:** id `create-subscription`, path `corpus/create-subscription/PROCEDURE.md`, status `active` — a well-formed 5-step procedure (read request → validate → read store → append an active record → mark request fulfilled).
+- **corpus-count diff (before/after):** **168 → 169** procedures on disk (the sole new dir is `create-subscription`).
+- It then *used* its new procedure to enact the original task (appended an active `wh_1002`, marked `setup-3310` fulfilled) — authored **and** applied, not shelf-ware. Substrate: 160 turns, 35 `tool_use` / 35 `tool_result`; 212 s.
+
+**Step 2 — FRESH-ADHERE (unprompted adherence to the procedure that did not exist at session start).** A **fresh sandbox** — new `claude -p`, **NO `--resume`**; the on-disk grown 169-corpus is the SOLE carrier — got the SAME task class for a DIFFERENT customer, with the new procedure's NAME and MECHANICAL steps **absent** from the prompt:
+- **prompt-grep clean:** the prompt contains neither `create-subscription` nor any mechanic token (`append`, `registry`, `subscription`, `status: active`, `fulfilled`, `subscription_id`) — it states only the task outcome ("get their integration set up so their system starts receiving these events"); the "how" comes only from retrieval.
+- **surfaced by retrieval, live:** the baseline hook retrieved `create-subscription` at **rank #1** and injected its body this run (`retrieved=[create-subscription, onboard-account, author-procedure, …]`).
+- **followed UNPROMPTED:** the subject Read the request, Read the store, `Write`-appended a new **active** `wh_1002` record (event types verbatim), `Write`-updated the request to `fulfilled` with the `subscription_id`, then re-read to verify. On-disk state confirms the effect independently of the judge.
+- **gpt-5.1 verdict:** `followed=true`, `attribution=none` — *"The agent read the setup request, … read the existing webhooks store to choose the next subscription_id and avoid conflicts, wrote a new active subscription line, updated the request to fulfilled with the subscription_id, and then re-read both files to verify."* Substrate: 30 turns, 7 `tool_use` / 7 `tool_result`; 32 s; passed the run-shape floor.
+
+**Verdict: adopt→adhere CLOSED** — corpus grew +1 by the subject's own `Write` via the meta-procedure, and a fresh unprompted session followed the new procedure to a `gpt-5.1` `followed=true`. Honesty notes: (i) this is n=1, a demonstration, not a powered claim; (ii) the adhere run reported `excluded=1` — a *conservative* match on the quota line's `overageStatus:"rejected"` (org-level overage disabled), NOT a session throttle: the rate-limit `status` was `"allowed"` and the session completed exit 0, so it does not touch the single-procedure judge verdict. **Bucket:** only the 2 subject sessions drew from Claude Max (baseline ⇒ no Haiku hooks; judge ⇒ gpt-5.1/OpenAI); no 429/backoff was hit, both sessions returned rate-limit `status:"allowed"`. Evidence (captured, then the sandboxes cleaned per brief): per-session `checkpoint.json` + tee'd substrates under `/tmp/adherence-784-sandboxes/{adopt,adhere}-*`, the authored `create-subscription/PROCEDURE.md`, and the run logs.
+
+## d. The two issue questions, answered
+
+1. **Does the loop close** (task with no covering procedure → subject authors one via the meta-procedure → fresh session adheres unprompted)? **YES — demonstrated LIVE this session (§c).** A baseline subject's own `Write` grew the corpus 168→169 with an `active` `create-subscription` procedure; a FRESH session (new `claude -p`, no `--resume`), with that rule text absent from its prompt, had the procedure surfaced by baseline retrieval at rank #1 and **followed it unprompted** — `gpt-5.1` judged `followed=true` (`attribution=none`), corroborated by the on-disk effect. Loop **CLOSED** (n=1 demonstration, not a powered claim).
+2. **H1 vs. baseline?** In the one live demonstration we have, **H1 underperformed the fair baseline** (0.0 vs 0.5). This is not statistically powered (n=1) and must not be read as "H1 disproven" — but it is a real early signal that H1 may not help, or may hurt, under context load, to be settled by the deferred full matrix.
+
+## e. Residual risks (3)
+
+1. **Confounded H1.** H1 bundles a pre-turn Haiku compile with a post-turn Haiku Stop-verify. This one result can't attribute the outcome to either half individually. An ablation is deferred.
+2. **Low statistical power.** n=1 session per strategy (2 procedure judgments each). Only a large effect would be visible at this N — and the plan's own pre-registered discrimination gate (AC7 / `calibration.json`), which is supposed to certify the scenario actually discriminates before any head-to-head number is trusted as a comparative verdict, has not been built yet either.
+3. **Synthetic-corpus external validity.** The corpus is deliberately clean, synthetic, neutral-vocabulary procedures, chosen for validity reasons (plan §6). That cleanliness means a result here may not transfer to the owner's actual, messier procedure corpus.
+
+## f. Deferred / next (owner's call)
+
+The full scored 12-session head-to-head matrix (2 situations × 3 trials × 2 strategies, interleaved — plan §5 slice 2), including the pre-registered discrimination calibration (AC7) that gates it, is deferred. It is **bucket-gated**: an H1 session's Haiku compile+verify calls draw from the same Claude Max subscription bucket as the subject session itself, so roughly one H1 session ≈ one bucket exhaustion — running all 12 would saturate the owner's subscription for hours.
+
+Also out of scope per the plan's own explicit cuts (§DEFER): the compile-vs-Stop-verify ablation (would resolve Residual 1), the pointer-only-router third arm, and the >8-fixture judge battery.
+
+## g. H2 — enforcement arm (compile + BLOCKING Stop hook + mandatory retry): did NOT flip (n=1)
+
+H2 keeps H1's Haiku compile verbatim and converts the Stop hook from H1's observe-only Haiku verify to a **mechanical, BLOCKING** gate that audits the tee'd action log for step-coverage and, if incomplete, blocks the stop (`{"decision":"block","reason":…}`, the `done-gate-stop.sh` mechanic) with a mandatory-retry directive, capped at 3 retries. Motivated by the compliance-gap attribution of H1's `agent-override` misses (legible instruction ≠ enforcement). Pre-flight de-risk proved (i) the mechanical gate blocks/allows/caps correctly offline (0 bucket), and (ii) **a Stop `block` DOES force continuation under `claude -p`** (entrypoint `sdk-cli`; probe hook fired 3× and the model emitted the demanded continuation tokens). **Live result: adherence 1/2 = 0.50** (`handle-refund` followed=true; `reconcile-invoice` followed=false, agent-override) — vs H1 0.00 / baseline 0.50, judged on `gpt-5.1`. **But the block fired 0 times** (Stop decisions `[allow-noop×3, allow-complete]`): on the target turn the gate saw `mutations=4/3, reads=9/5` on its only fire and allowed the stop, because the criterion aggregated action *types* across the enforced set — the subject's heavy work on `handle-refund` alone (4 mutations, 9 reads, all charge/refund/ledger; **zero** on `reconcile-invoice`'s invoice/reconciliation/settlement artifacts) satisfied the set threshold. So **the +0.50 over H1 is NOT an enforcement effect** (enforcement never engaged); it is the compile-only mechanism completing `handle-refund` this run, exactly as baseline did, with the transitive hand-off `reconcile-invoice` dropped. **Attributed failing component: the mechanical completion check (too lax — aggregate, not per-procedure); the enforcement machinery itself is sound but was never triggered.** Note `reconcile-invoice` is `followed=false` across all three arms and its artifacts are absent from the seed, so it may also be under-enactable (a confound). **Next → H3:** make the Stop gate PER-PROCEDURE (ideally gate ≡ the gpt-5.1 judge — one cheap action-log check per enforced procedure, block on any `followed=false`) so a single well-served procedure can no longer mask a skipped one, and seed `reconcile-invoice`'s artifacts so the forced retry can actually be satisfied rather than cap-hit. Bucket: 4 Haiku compile calls (all 200) + 1 subject session + gpt-5.1 judge; 0 Haiku Stop calls (mechanical); 4 turns conservatively flagged `throttle` on the overage quota line (not a session throttle — completed and `judged`); process ended `exit 124` on the known teardown telemetry-drain wedge, after the verdict was checkpointed. See the ledger: `HYPOTHESES.md`.
+
+## h. H3 — per-procedure Stop gate (gate ≡ judge) + seeded reconcile artifacts: hit 1.00, but the SEED did it (n=1)
+
+H3 keeps H1's Haiku compile and replaces H2's *aggregate* blocking gate with a **per-procedure** one: at each Stop, one gpt-5.1 action-log `followed` check PER enforced procedure (the same action-only judgment `judge-core` runs), block on ANY `followed=false` — so gate-pass ≡ judge-pass by construction, and a well-served procedure can no longer mask a skipped one (H2's exact failure). It also **seeds** `reconcile-invoice`'s artifacts (invoice + reconciliation report + settlement flag), which were ABSENT in baseline/H1/H2 — where `reconcile-invoice` was `followed=false` every time and was therefore *under-enactable*, a confound H2 flagged.
+
+**Pre-flight de-risk (gpt-5.1, 0 Max bucket) — 14/14.** Invoking the real `hooks-lib.mjs h3-verify` as Claude Code would: (A) `handle-refund` fully enacted + `reconcile-invoice` skipped → `decision=block`, `blockedProcs=[reconcile-invoice]` ONLY — the per-procedure discrimination H2's aggregate gate lacked, proven live; (B) distractor turn → `allow-noop`, 0 OpenAI calls (correct scoping); (C) both enacted → `allow-complete` (releases when done).
+
+**Live result (gpt-5.1 judge) — adherence 2/2 = 1.00.** `handle-refund` followed=true (chain=true), `reconcile-invoice` followed=true, both `attribution=none`. **Judge-free proof on disk:** invoice balance 129.90→0, settlement false→true, `refund-8842.json` created, ledger updated — both procedures genuinely enacted. baseline=0.50 / H1=0.00 / H2=0.50 / **H3=1.00**.
+
+**BUT — the 1.00 is NOT an enforcement effect (blocks=0), same trap as H2.** The Stop gate fired 4× = `[allow-noop×3, allow-complete]`: on the target turn both per-proc checks already returned `followed=true` → `allow-complete` (0 blocks, `retryForcedCompletion=false`, `capHit=false`). The enforcement never engaged. The lever that flipped `reconcile-invoice` (H2 false → H3 true) is the **SEED** making the transitive hand-off enactable, + the compile sheet binding both; the subject completed both procedures unforced. The per-procedure block was a **correct-but-unexercised safety net** — de-risk Case A proves it WOULD block a real miss; this run had none to catch.
+
+**Confound:** H3 changed two things vs H2 (per-procedure gate AND the seed). With blocks=0, the seed alone plausibly explains the whole flip, so "H3 1.00 vs H2 0.50" does not isolate the gate — and the prior `baseline/H1/H2` numbers are on the UN-seeded scenario. **Next → isolate the seed:** re-run baseline on the SEEDED scenario (cheapest, no Haiku); if it also ≈1.0, enactability was the entire story and neither compile nor enforcement is load-bearing here; if <1.0, compile/gate do matter. Then a scenario engineered so the subject reliably misses, forcing the gate to actually fire — the definitive live proof enforcement is load-bearing for the goal. n=1 throughout; the goal (100% under load) WAS met this run, but via enactability, not the credited enforcement. See `HYPOTHESES.md` for the ranked next hypotheses.
+
+## i. Isolation run — baseline on the SEEDED scenario: 1.00 (the SEED explains the whole flip)
+
+Directly testing H3's confound: **fair-retrieval baseline on the seeded scenario scored 2/2 = 1.00** (gpt-5.1 judge; 174 substrate turns, 48 tool actions, 4 excluded on the overage line; hooks fired = 4 baseline retrievals, **compile=0, verify=0 — no Haiku, no Stop hook, no enforcement of any kind**). Both `handle-refund` (chain=true) and `reconcile-invoice` followed=true; the subject read the reconciliation report + invoice, edited the balance and settlement flag, and re-read to confirm.
+
+**This resolves the head-to-head.** baseline-seeded (1.00) == H3 (1.00); the prior baseline=0.50 / H1=0.00 / H2=0.50 were all on the UN-seeded scenario where `reconcile-invoice`'s artifacts were absent and the transitive hand-off was *under-enactable*. So **the entire cross-arm variance was ENACTABILITY (the seed), not the strategy** — compile (H1/H3) and per-procedure enforcement (H2/H3) added nothing measurable, and across H2+H3 the blocking Stop gate never once fired (blocks=0). Once the task is enactable, even the plainest arm completes both procedures under 174 turns of distractor load.
+
+**Consequence for the program.** The `context-load-refund` scenario **does not discriminate strategies** once seeded — its ceiling is 1.0 for baseline. The plan's pre-registered discrimination gate (AC7) — which was supposed to certify the scenario actually discriminates *before* any head-to-head number is trusted — was never built, and this is exactly what it would have caught. **The binding constraint is now the test, not the strategy:** the next step is to author a HARDER scenario (deeper A→B→C→D transitive chain — the issue's own definition of the core mistake — with decision-point distractor pressure, all artifacts seeded so enactability is held constant) and **calibrate it so baseline-seeded reliably scores <1.0**, THEN re-run H3 to see whether per-procedure enforcement closes a gap baseline cannot. Only then can any strategy be shown load-bearing for the goal. See `HYPOTHESES.md` for the re-ranked next step.
+
+## k. ✅ SUCCESS CONDITION MET — 100% adherence under context load via per-procedure enforcement (baseline 0/3 → H3 2/3 → H4 3/3, n=1)
+
+On the discriminating vendor scenario (baseline reliably fails 0/3 via genuine adherence misses), the full recipe reaches **100%** with a clean causal attribution:
+
+| arm | rate | mechanism |
+|---|---|---|
+| baseline-vendor | 0/3 | had all 3 procedures (chain-expansion), dropped the non-obvious steps (contacts / baseline-config / expiry) |
+| H3-vendor | 2/3 | the **compile** made non-obvious steps binding → onboard + provision done; grant-access dropped (compile omitted it from the sheet; sheet-scoped gate never fired) |
+| **H4-vendor** | **3/3** | **+ transitive enforcement scoping → the gate FIRED**: blocked grant-access for the missing expiry, forced a retry, subject complied |
+
+**The blocking enforcement fired for the first time and it was load-bearing.** `fires=5, blocks=1, retryForcedCompletion=true`; the block event `enforced=[onboard-vendor, provision-account, grant-access] blocked=[grant-access] enforcedVia=sheet+chain retry=1` — H4's chain-closure (`+chain`) put grant-access back under enforcement after the Haiku compile dropped it; the gate judged it `followed=false` and blocked; the retry forced the missed step. **Judge-free proof:** the audit-ledger binding now carries `"expires_at":"2028-07-10"` with a contract-derived `expiry_basis` — the exact step baseline skipped.
+
+**Why this is not a confound.** Baseline had the identical seed + chain-expansion (so identical enactability/availability) and still scored 0/3; H3 (sheet-scoped gate) scored 2/3 with `blocks=0`. The only delta that produced 3/3 is the *firing* gate — mechanically evidenced by `blocks=1` + `retryForcedCompletion=true` + the on-disk forced expiry. This is the opposite of the earlier refund result (§h/§i), where the gate never fired and the "100%" was enactability: here the gate demonstrably forced a step the subject would otherwise have skipped.
+
+**The recipe (CC-native, all within Claude Code's extension surface):** (1) chain-expansion retrieval so a named hand-off's steps are available; (2) a Haiku pre-turn compile that makes non-obvious procedure steps binding; (3) a per-procedure BLOCKING Stop gate ≡ the judge, scoped to the authored chain (transitively closed), that blocks + forces a retry on any `followed=false`.
+
+**⚠ CORRECTION after the reproducibility pass (honest ledger over green claims).** The "baseline reliably fails 0/3" claim above was ONE draw from a BIMODAL distribution. A second baseline-vendor run scored **3/3** (the subject did the contacts + baseline-config + expiry unforced). So:
+- **Baseline is high-variance** (0/3 ↔ 3/3 run-to-run); the scenario does NOT reliably discriminate, and the clean "baseline fails, H4 succeeds" attribution does NOT hold as stated.
+- **What DOES hold (still a real, positive enforcement result): H4's gate fired in BOTH H4 runs** (`blocks=1`, `blocked=[grant-access]` both), i.e. the subject initially skipped the expiry both times and was FORCED to complete it. So the demonstrated value of per-procedure enforcement is **converting variable/unreliable unforced adherence into GUARANTEED adherence** — the gate detects the miss when it occurs and forces the step. That IS the goal (perfect = reliable), but it is proven at the MECHANISM level (fire-on-miss + force, 2/2), NOT via a stable baseline-vs-H4 rate gap.
+- **Re-ranked next:** characterize baseline VARIANCE (~5-10 runs each of baseline/H3/H4 to quantify P(miss per step) and confirm `blocks>0 ⟺ pre-Stop miss`) BEFORE any powered rate claim; generality (2nd scenario) is secondary. The success is a demonstrated *mechanism* ("enforcement fires exactly on a real miss and forces the step"), not yet a powered *population* result.
+
+**Prior (pre-correction) residual note, retained:** n=1 per arm; the compile still drops hops (H4 makes enforcement robust to that rather than fixing it). See `HYPOTHESES.md` for the re-ranked next steps.
+
+## j. ⚠ VALIDITY FINDING — the transitive hand-off was "followed" WITHOUT its procedure ever being in context (seed-telegraphing)
+
+Surfaced while designing the discriminating scenario, then verified rigorously against the baseline-seeded run's own logs. Two hard facts:
+1. **The subject has NO corpus access** — zero `PROCEDURE.md` reads in the substrate. A procedure is followable ONLY if its body is *injected* (baseline: BM25 top-K stdout) or *compiled into the sheet* (H1/H3). The subject cannot look a procedure up.
+2. **On the refund target turn, baseline's retrieved top-8 was `[handle-refund, audit-refund, escalate-refund, validate-refund, reconcile-payment, validate-payment, dispatch-payment, audit-payment]` — `reconcile-invoice` is ABSENT.** So `reconcile-invoice`'s body was never injected, and (per fact 1) never readable.
+
+Yet `reconcile-invoice` scored **followed=true** (baseline-seeded, and H3). Therefore **its procedure text was never in the subject's context in any arm** — the subject knew only (a) `handle-refund`'s Follow-on note ("then follow `reconcile-invoice`") and (b) the **seed**: an invoice whose balance disagreed with a reconciliation report + a `settled:false` flag. It resolved the visible discrepancy (edit balance→0, flip settlement→true), and the judge — which scores `followed` from whether the actions match the procedure's steps — read that as adherence. (In H3 the Haiku compile *named* `reconcile-invoice` from the hand-off text but, since `reconcile-invoice` was not among the retrieved candidates, could not supply its steps either — same seed-telegraphing.)
+
+**Consequence — the transitive-adherence signal is confounded by seed-obviousness.** "Followed" for the hand-off has been conflating *consulted-and-followed-the-written-procedure* with *did-the-self-evident-work-the-seed-telegraphs*. This deepens finding §i: the seed didn't merely make the hand-off *enactable*, it made the correct actions *self-evident*, so the procedure text was never needed. Every `reconcile-invoice=followed=true` across arms is seed-driven, not procedure-driven — which further undercuts any claim that compile/enforcement drove adherence (the procedure they'd enforce wasn't even in context).
+
+**Design constraint on the discriminating scenario (task #8).** For "followed" to measure *procedure*-adherence, the hand-off procedure must be BOTH: (a) **available** — its body injected/retrievable when named (else it's a retrieval-miss, not an adherence choice; note the deep hops `provision-account` rank 47 / `grant-access` rank 11 are NOT co-retrieved for the vendor target, so a naive deep-chain scenario would be *unfollowable*, not discriminating); AND (b) **necessary** — the correct actions must NOT be obvious from the seed alone, so the subject must actually consult the procedure text (a non-telegraphing seed: e.g. the required step is a specific, non-obvious value/order/side-effect the seed does not imply). Only then does baseline-miss vs strategy-catch measure real adherence. This is a prerequisite the current harness does not meet and must be built before the discriminating head-to-head is trustworthy.
+
+## l. ✅ VARIANCE RUNS — the fire-on-miss→force mechanism is POWERED (n=7/arm), baseline unreliable → H4 guaranteed 100%
+
+The reproducibility/variance pass the earlier bimodal correction owed. Vendor scenario, **n=5/arm this batch + 2 prior = n=7/arm**; subject `claude-opus-4-8`; action judge + per-procedure gate on gpt-5.1; interleaved to control temporal drift; each run timeout-bounded, checkpoint-authoritative.
+
+**Baseline-vendor (no gate) — UNRELIABLE.** n=5 rates {0.00, 0.33, 0.33, 0.67, 1.00}, mean ≈ 0.47, full-set adherence 1/5; + 2 prior (0/3, 3/3) ⇒ spans 0/3↔3/3. **Per-step miss rate: onboard-vendor 4/5 (80%), provision-account 3/5 (60%), grant-access 1/5 (20%)** — the subject drops the shallower non-obvious steps far more than the deep hop; unforced adherence is genuinely unreliable and step-dependent.
+
+**H4-vendor (compile + per-procedure blocking gate ≡ judge, chain-closed) — GUARANTEED 100%.** **5/5 = 3/3, gate fired + forced in EVERY run** (blocks=1, retryForcedCompletion=true; + 2 prior = 7/7). Every run's decisions are identical: `[allow-noop×3, block, allow-complete-after-retry]` — allow the 3 distractor turns, block the target turn on the incomplete action log, force the missing step, → 100%.
+
+**The powered claim:** `blocks>0 ⟺ pre-Stop miss` is confirmed with **no over-fire** (0 blocks on distractor turns, all 7 runs) and **no under-fire** (caught the miss and forced it every run). Enforcement converts the subject's unreliable adherence (mean 0.47, per-step misses 80/60/20%) into **deterministic 100%** — cleanly attributed to the *firing* gate (blocks=1 + on-disk forced steps), since baseline had the identical seed + chain-expansion and still dropped steps 4/5. This retires the earlier single-draw over-claim: across n=7, the gate fires-on-miss and forces completion every time. Caveats: n=7/arm is a solid mechanism demonstration, not a precise rate estimate; one #791 teardown wedge hit h4-1 (checkpoint written before the hang → data intact; wedged process killed to advance the batch). Batch: `scratchpad/variance-batch/`; ledger comment on #784. **Next per the owner sequence: optimization of the working mechanical recipe (model-sweep). The judge-verdict→LangWatch telemetry (owner req) is built + fail-open (proven) + landed in-tree, a no-op during this batch (no ik-lw key).**
+
+## m. ✅ MODEL-SWEEP — the enforcement recipe is MODEL-INVARIANT (100% on Opus, Sonnet, Haiku)
+
+The optimization phase. Subject model injected via an additive `--model $ADHERENCE_SUBJECT_MODEL` override in the tee shim (adapter passes none → account default; empty ⇒ byte-identical), logged resolved every run. H4-vendor recipe; judge + gate gpt-5.1.
+
+| subject | runs | adherence | gate |
+|---|---|---|---|
+| claude-opus-4-8 | 7 (variance) | 7/7 = 3/3 | fired+forced every run |
+| claude-sonnet-4-5 | 2 | 2/2 = 3/3 | fired+forced (blocks=2, blocks=1) |
+| claude-haiku-4-5 | 2 | 2/2 = 3/3 | fired+forced (blocks=1, blocks=1) |
+
+**11/11 runs = 3/3 = 100%, gate fired-on-miss + forced in EVERY run, across all 3 tiers.** The mechanism does not depend on a strong subject: the cheaper tiers miss the non-obvious steps at least as often (`blocks≥1` every run, identical decision shape `[allow-noop×3, block, allow-complete-after-retry]`), and the gate forces each to 100%. So the recipe is a **model-agnostic guarantee** — the subject can run on a cheap fast model and still hit 100%, because the guarantee lives in the enforcement layer, not the subject's competence. Caveats: n=7/2/2 (demonstration across 11 runs, not a large-sample estimate; H4 is deterministic so the load-bearing observation is the gate FIRING on every tier); one Sonnet run `EXIT=124` = the #791 teardown wedge (worse with telemetry active) killed by `timeout`, its 3/3 checkpointed pre-wedge (valid). **Telemetry LIVE + verified two ways** (ingestion `rejectedSpans:0` + queryable via the sol-doc REST recipe; sk-lw key, sandbox-scoped, secret never committed) — judge scores+reasoning now attach to every run's traces. Sweep results `scratchpad/sweep-results/`; #784 comment 4947699818. **Core question answered end-to-end: CC-native per-procedure enforcement GUARANTEES 100% procedure-adherence under context load — proven, powered (n=7), model-invariant, instrumented.**
+
+## n. ⚠ LIVE-VALIDATION of the two folds — fold-1 mechanism proven live, but UNIFORM enforcement of conditional meta-procs REGRESSES the recipe (fold-2 validated + degenerate, n=1)
+
+One H4-vendor session (subject `claude-opus-4-8`; judge + per-procedure gate gpt-5.1; `LANGWATCH_API_KEY` set) live-validated both optional folds from §m's owner roadmap (two-tier corpus, delegation dimension).
+
+**Fold 1 (always-enforced meta-proc tier) — union + scoping work exactly as designed.** `enforcedVia` split cleanly: **3× `sheet+chain+always` on the 3 real task turns, 3× `action-log` (no `+always`) on the 3 distractor turns** — the tier unions onto enforcement ONLY on real task turns, never over-fires on distractors. ✓
+
+**But uniform enforcement of all 5 meta-procs regressed the proven 100% vendor recipe.** Gate trajectory (per-proc `followed` from gpt-5.1):
+```
+allow-noop ×3            (distractors — correctly no-op, 0 OpenAI)
+block  r1  enforced=[onboard-vendor,provision-account,grant-access, audit,done,format,improvise-lookup,prove]
+           blocked=[grant-access, audit,done,format,improvise-lookup,prove]
+block  r2  blocked=[format, improvise-lookup, prove]      (grant-access,audit,done now followed=true)
+block  r3  blocked=[improvise-lookup, prove]              (format now followed=true)
+allow-cap-hit  blocked=[improvise-lookup, prove]          (never satisfiable)
+```
+The core vendor enforcement still worked — the gate forced `grant-access` (the real miss; onboard/provision/grant all `followed=true` by r2), and `audit`/`done`/`format` were satisfiable and got satisfied on retries. But `prove` (substantiate a claim) and `improvise-lookup` (no covering procedure → author one) are context-INAPPLICABLE to a covered, non-claim vendor task — the gate judged them `followed=false` on every retry → permanent block → cap-hit. Retry churn drove the subject to **313 substrate turns → 420s/turn timeout → run ABORTED** (vendor adherence not measured).
+
+**Consequence:** uniform always-enforcement is unsafe for meta-procs whose applicability is conditional; the tier needs **applicability-conditioning** (enforce `prove` only when a claim is made, `improvise-lookup` only when no procedure covers the task) or **satisfiable-by-construction** meta-procs before it can fold into the headline recipe. n=1, but the failure is structural/deterministic, not a stochastic flake — it will recur every vendor run.
+
+**Fold 2 (delegation dimension) — validated, still degenerate.** Reconstructed from the 313-turn substrate: 0 `Task` + 0 `Agent` tool_use → `delegated=false (taskCalls=0)`, correctly detected (subject worked directly: 14 Read/11 Bash/7 Edit/3 Write). Minor instrumentation gap: the `delegated:` note is written only on the success path — the abort/catch checkpoint omits it.
+
+**Simulations UI — WIRED** (setId `spike-784-adherence`): with `LANGWATCH_API_KEY` set (sk-lw, project `voice-bugbash-nWygNc`), `scenario.run()` posted scenario-events with no POST error; SDK-emitted URL: `https://app.langwatch.ai/voice-bugbash-nWygNc/simulations/spike-784-adherence/scenariobatch_3GMnVTGRGucU3fAzGEWiDGE2byF`. Caveat: independent server-side read is NOT verifiable from the box — `/api/scenario-events` is POST-only (no list GET), `batchRunId` is client-generated (xksuid, doesn't prove ingestion), and the LangWatch MCP is a project-scoped key for a DIFFERENT project (`platform_list_simulation_runs` returns none). The URL is the report — open it to view.
+
+## o. ✅ Claude-gate re-validation — shipped Stop gate proven GPT-free (Sonnet = parity w/ gpt-5.1; Haiku over-blocks → cap-hit) + DATA-FIRST gates query-back-proven
+
+Per the owner constraint (**the shipped Stop gate must run on a CLAUDE model — no GPT in the shipped runtime**) and a DATA-FIRST hold (verify simulations query-back + run-data retention + judge-span landing BEFORE any batch). Referee/final judge stays `gpt-5.1` (experiment-side only, never shipped).
+
+**Gate change (`ba77fae`).** The per-procedure Stop gate now judges via the OAuth Claude Messages API (`callHaiku`); `ADHERENCE_GATE_MODEL` defaults to `claude-sonnet-4-5`, with a Haiku cost arm; a non-Claude value falls back to the OpenAI path (experiment only). Same strict `{followed,missingSteps,reasoning}` contract, fail-open conditioned on gate type, `gateModel` logged. Offline de-risk (`prove-claude-gate.mjs`, 0 subject bucket): contract PASS on both tiers; Sonnet discriminates enacted-vs-skipped like gpt-5.1, Haiku over-blocked an enacted case — confirmed live below.
+
+**3 DATA-FIRST gates proven live (query-back, not just wiring):**
+- **Gate A (simulations query-back).** Root cause of the earlier "simulations UI empty" gap: the predecessor posted with the **voice-bugbash** key, a project the LangWatch MCP cannot read. Fix: post with **the MCP's own project key** (`mr-krusty-klaws-iw3n10`). Proven: `platform_get_simulation_run` returns status + verdict + conversation messages for a mock probe AND both real vendor runs; all 3 listed under setId `spike-784-adherence`.
+- **Gate B (raw artifacts survive teardown).** A hardened wrapper copies checkpoint.json + stream-JSONL substrate + compiled sheet + gate-decisions hook-log into `run-data/claude-gate/<arm>/` the instant the run process exits, before cleanup. Verified both arms: all artifacts present, non-empty, secret-scan CLEAN.
+- **Gate C (judge spans land + are queryable).** `verify-telemetry-live.ts` emitted a real vendor verdict via the MCP project's `LANGWATCH_INGESTION_KEY` → HTTP 200, `rejectedSpans:0`, and `get_trace` returns the full `sc784.judge.verdict` span (per-procedure `followed`/attribution/reasoning + adherence rate). `run-h3.ts` now logs each run's emit `traceId` so every judge span is individually query-back-able going forward.
+
+**PARITY RESULT** (vendor scenario, subject `claude-haiku-4-5` both arms, always-enforced tier OFF to match the pre-fold recorded recipe, referee gpt-5.1, n=1/arm):
+
+| gate judge | decisions | blocks | blocked | outcome | vs recorded gpt-5.1 |
+|---|---|---|---|---|---|
+| gpt-5.1 (11 recorded) | `[noop×3, block, allow-complete-after-retry]` | 1 | `grant-access` | 3/3 | baseline |
+| claude-sonnet-4-5 | `[noop×3, block, block, allow-complete-after-retry]` | 2 | `grant-access` | 3/3, `retryForcedCompletion=true` | **PARITY ✓** |
+| claude-haiku-4-5 | `[noop×3, block, block, block, allow-cap-hit]` | 3 | `provision-account,grant-access` (+ false-blocked `onboard-vendor`) | 3/3, `capHit=true` | **NOT parity ✗** |
+
+**Sonnet ≡ gpt-5.1**: detects the same miss (`grant-access`), blocks, forces the retry, releases via `allow-complete-after-retry`, reaches 3/3 — the extra block (2 vs 1) is a Haiku-*subject* completion nuance (needed one more retry to enact the expiry), not a gate-judgment divergence. **The shipped Stop gate can run GPT-free.**
+
+**Haiku over-blocks**: false-blocked a genuinely-completed procedure (`onboard-vendor`, referee `followed=true`), never converged, cap-hit (retry cap reached, released without a clean completion). The final 3/3 held only because the *subject* completed all three regardless — the gate's own judgment was unreliable. **Sonnet is the floor for gate-judgment parity; Haiku is not a reliable drop-in.** Confirms the offline de-risk signal.
+
+**Caveats:** n=1/arm (demonstration, not a powered rate); Haiku subject both arms (gate parity is subject-invariant — the recorded set includes a Haiku-subject run); always-enforced tier OFF for a clean gate-model comparison (the tier's own regression is the separate finding from §n, still owner-pending). All telemetry now lands in the MCP-readable project so query-back works going forward. Data: `run-data/claude-gate/{claude-sonnet-4-5,claude-haiku-4-5}/`. Never merged.

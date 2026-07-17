@@ -1,0 +1,87 @@
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "baseline",
+  "startedAt": "2026-07-11T14:04:56.199Z",
+  "updatedAt": "2026-07-11T14:04:56.200Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/baseline-1783778378435/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/baseline-1783778378435",
+  "turnCounts": {
+    "total": 188,
+    "excluded": 4,
+    "judged": 184,
+    "hardError": false,
+    "reasons": [
+      {
+        "index": 2,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 68,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 80,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 88,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      }
+    ]
+  },
+  "hooks": {
+    "fired": 4,
+    "compileCalls": 0,
+    "verifyCalls": 0,
+    "baselineRetrievals": 4,
+    "haiku200s": 0,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "onboard-vendor",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": true,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent read the intake details (intake-3307.json), wrote a new vendor record with contacts and approval into review-board.jsonl, and then used grep over the state files to verify the new approved record, satisfying all four numbered steps."
+      },
+      {
+        "id": "provision-account",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent allocated a new billing account (acct_5507) in billing-accounts.jsonl with baseline config derived from baseline-config.json, attached entitlements for that account in entitlements.jsonl, and used grep over the state files including billing-accounts.jsonl to confirm the new active account record, covering all four procedure steps."
+      },
+      {
+        "id": "grant-access",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent read the role-request-3307.json to obtain and thus confirm scope, wrote a new audit-ledger entry binding the role with an expiry, and then used grep/counts over audit-ledger.jsonl to verify the new active grant record, fulfilling all four numbered steps."
+      }
+    ],
+    "applicableCount": 3,
+    "followedCount": 3,
+    "adherenceRate": 1,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-opus-4-8[1m],claude-opus-4-8",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=true"
+  ]
+}

@@ -1,0 +1,63 @@
+h4 2 start 14:09:56Z
+================ #784 LIVE adherence loop — H3 (compile + PER-PROCEDURE gate ≡ judge) ================
+strategy ............ h3
+judge model ......... gpt-5.1
+description leak-check PASS (procedure-agnostic; 169 ids checked)
+subject per-turn timeout: 420000ms; retry cap: 3
+per-procedure gate .. gpt-5.1 (OpenAI, bucket-free); openaiEnvPath=/home/ubuntu/langwatch-workspace/scenario-050-repro/.env
+sandbox ............. /tmp/adherence-784-sandboxes/h3-1783778999224
+  creds symlink realpath (outside repo): /home/ubuntu/.claude/.credentials.json
+  seeded project state: state/intake-3307.json, state/review-board.jsonl, state/billing-accounts.jsonl, state/baseline-config.json, state/entitlements.jsonl, state/role-request-3307.json, state/audit-ledger.jsonl
+  hooks: UserPromptSubmit, Stop  (Stop = h3-verify PER-PROCEDURE gate ≡ judge on gpt-5.1, cap=3)
+  enforced applicable set: [onboard-vendor, provision-account, grant-access]
+
+--- FULL scenario.run (H3): 4 scripted turns, target buried last ---
+
+────────────────────────────────────────────────────────────
+🎭  Running Scenario Tests
+────────────────────────────────────────────────────────────
+➡️  LangWatch API key not configured
+   Simulations will only output final results
+
+💡 To visualize conversations in real time:
+   • Set LANGWATCH_API_KEY environment variable
+   • Or configure apiKey in scenario.config.js
+
+────────────────────────────────────────────────────────────
+
+
+================ LIVE H3 SESSION — result ================
+scenario ............ context-load-vendor
+configDir ........... /tmp/adherence-784-sandboxes/h3-1783778999224/.claude
+substrate turns ..... 206  (accounting: total=206 excluded=4 hardError=false)
+subject tool actions  44 (tool_use=22, tool_result=22)
+  actions: Bash({"command":"ls -la /tmp/adherence-)  →result  Bash({"command":"ls -la state && echo \)  →result  Bash({"command":"ls -la state/","descri)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Read({"file_path":"/tmp/adherence-784-s)  →result  Bash({"command":"echo \"=== s_3307 anyw)  →result  Edit({"replace_all":false,"file_path":")  →result
+
+H1-compile hooks (the binding sheet): compile=4 haiku200=4 non200=0 invalidTurns=0
+  compile turn: retrieved=[warm-cache, decommission-gateway, archive-notification, audit-gateway, restart-gateway, provision-gateway, drain-gateway, scale-gateway] compiledIds=[escalate-ticket, restart-gateway] haikuStatus=200
+  compile turn: retrieved=[rotate-certificate, audit-certificate, revoke-certificate, provision-certificate, validate-certificate, rotate-credential, archive-certificate, prove-finding, revoke-access] compiledIds=[escalate-ticket, rotate-certificate] haikuStatus=200
+  compile turn: retrieved=[archive-dataset, rollback-service, archive-record, rollback-schema, rollback-release, archive-notification, archive-report, archive-certificate] compiledIds=[archive-dataset, escalate-ticket] haikuStatus=200
+  compile turn: retrieved=[onboard-vendor, review-vendor, offboard-vendor, audit-vendor, archive-vendor, reconcile-vendor, author-procedure, onboard-account, provision-account, grant-access] compiledIds=[escalate-ticket, onboard-vendor, provision-account] haikuStatus=200
+
+H3 PER-PROCEDURE Stop gate ≡ judge (the enforcement delta):
+  fires=5 blocks=1 noopAllows=3 enforcedAtLeastOnce=true
+  retryForcedCompletion=true capHit=false
+  per-proc gate cost (OpenAI, bucket-free): judgeCalls=6 judgeErrors=0
+  decision sequence: [allow-noop, allow-noop, allow-noop, block, allow-complete-after-retry]
+  per-procedure trajectory (enforced fires):
+    block                        enforced=[onboard-vendor, provision-account, grant-access] blocked=[grant-access] retry=1 verdicts={onboard-vendor=true provision-account=true grant-access=false} stopHookActive=false
+    allow-complete-after-retry   enforced=[onboard-vendor, provision-account, grant-access] blocked=[] retry=- verdicts={onboard-vendor=true provision-account=true grant-access=true} stopHookActive=true
+
+subject model ....... claude-opus-4-8[1m],claude-opus-4-8  (claude -p resolved — logged variable)
+judge model ......... gpt-5.1
+ADHERENCE RATE ...... 3/3 = 1.00
+  - onboard-vendor       followed=true  chain=true attribution=none surfaced=true
+      reasoning: The agent read the vendor intake details (intake-3307.json), created a new review-board record including contacts via Edit, and later verified the approval field via grep-based checks.
+  - provision-account    followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: The agent added a new billing account record for acct_5509 with baseline config, added corresponding entitlements, and then confirmed activation and related fields via multiple live-read Bash checks.
+  - grant-access         followed=true  chain=n/a attribution=none surfaced=true
+      reasoning: The agent read and compared the requested scope, added an audit-ledger entry with the role binding, updated it to include an expiry, and then verified scope, binding, expiry, and status via grep-based grant-access verification.
+
+comparison .......... baseline=0.50  H1=0.00  H2=0.50  H3=1.00
+checkpoint .......... /tmp/adherence-784-sandboxes/h3-1783778999224/checkpoint.json
+scenario.run success  true

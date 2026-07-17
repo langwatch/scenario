@@ -1,0 +1,74 @@
+{
+  "scenarioId": "context-load-prove",
+  "strategy": "h5",
+  "startedAt": "2026-07-11T12:53:01.171Z",
+  "updatedAt": "2026-07-11T12:53:01.171Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/h5-1783774054902/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/h5-1783774054902",
+  "turnCounts": {
+    "total": 170,
+    "excluded": 4,
+    "judged": 166,
+    "hardError": false,
+    "reasons": [
+      {
+        "index": 2,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 86,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 134,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 149,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      }
+    ]
+  },
+  "hooks": {
+    "fired": 11,
+    "compileCalls": 0,
+    "verifyCalls": 0,
+    "baselineRetrievals": 4,
+    "haiku200s": 0,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "prove-finding",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "They read the prior decision/reference record (pool-sizing-decision.md) and incident artifacts, examined incident evidence and deploy/change history (incident-4471.json, metrics-4471.json, deploy-log-4471.jsonl), wrote a detailed finding to the specified findings file (analysis-4471.md) via Write/Edit actions, and later re-read that file (Read) to confirm its contents, satisfying all numbered steps."
+      }
+    ],
+    "applicableCount": 1,
+    "followedCount": 1,
+    "adherenceRate": 1,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-opus-4-8[1m],claude-opus-4-8",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=true",
+    "ACTION prove-finding followed=true",
+    "RUBRIC artifact=expected-path score=4/4 passed=true model=gpt-5.1",
+    "RUBRIC perCriterion=identifies_actual_cause=true cites_specific_evidence=true proposes_concrete_fix=true no_unsupported_claims=true",
+    "H4 blocks=0 retryForcedCompletion=false capHit=false decisions=[]",
+    "H5 fires=7 blocks=3 noopAllows=0 retryForcedCompletion=true capHit=false decisions=[block, block, allow-complete-after-retry, block, allow-complete-after-retry, allow-complete, allow-complete]"
+  ]
+}

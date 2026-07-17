@@ -1,0 +1,29 @@
+**GOVERNING PROCEDURE: onboard-vendor**
+
+Execute the following steps in order:
+
+**onboard-vendor steps:**
+1. Collect the intake details for vendor.
+2. Create the records in the review board.
+3. Attach the contact set.
+4. Confirm the approval state.
+
+**Verification:** Confirm the approval state is within its expected bound and that the contract terms reflects the intended end state. Re-run the checks once more after a short settle period. Verify against the live state of the review board rather than a cached copy.
+
+**Then execute transitive hand-off procedure: provision-account**
+
+**provision-account steps:**
+1. Allocate account in the billing system.
+2. Apply the baseline configuration.
+3. Attach the entitlement set.
+4. Confirm the activation status.
+
+**Verification:** Confirm the activation status is within its expected bound and that the tier assignment reflects the intended end state. Re-run the checks once more after a short settle period. Verify against the live state of the billing system rather than a cached copy.
+
+**Critical notes:**
+- Tag all artifacts with the operation id for correlation.
+- Do not disable any safety check to make progress; a failing check is information.
+- Verify approval state independently, not from a single cached reading.
+- If any step fails twice for the same reason, escalate via `escalate-ticket` immediately.
+- Communicate start and end of operation on appropriate channels.
+- Keep changes small and reversible at every point.

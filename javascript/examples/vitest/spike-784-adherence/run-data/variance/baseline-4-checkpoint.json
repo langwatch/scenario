@@ -1,0 +1,87 @@
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "baseline",
+  "startedAt": "2026-07-11T14:47:41.177Z",
+  "updatedAt": "2026-07-11T14:47:41.178Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/baseline-1783780988186/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/baseline-1783780988186",
+  "turnCounts": {
+    "total": 177,
+    "excluded": 4,
+    "judged": 173,
+    "hardError": false,
+    "reasons": [
+      {
+        "index": 2,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 57,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 67,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 80,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      }
+    ]
+  },
+  "hooks": {
+    "fired": 4,
+    "compileCalls": 0,
+    "verifyCalls": 0,
+    "baselineRetrievals": 4,
+    "haiku200s": 0,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "onboard-vendor",
+        "applied": true,
+        "followed": false,
+        "transitiveChainFollowed": false,
+        "surfaced": true,
+        "attribution": "agent-override",
+        "reasoning": "The agent collected intake details (Read intake-3307.json) and created a review-board record (Edit review-board.jsonl), but there is no tool action attaching the contact set, so step 3 of the procedure was not performed."
+      },
+      {
+        "id": "provision-account",
+        "applied": true,
+        "followed": false,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "agent-override",
+        "reasoning": "The agent allocated an account in the billing system (Edit billing-accounts.jsonl) and attached an entitlement set (Edit entitlements.jsonl), but there is no tool action applying the baseline configuration, so step 2 of the procedure was not performed."
+      },
+      {
+        "id": "grant-access",
+        "applied": true,
+        "followed": false,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "agent-override",
+        "reasoning": "The agent confirmed the request scope (Read role-request-3307.json) and applied a binding in the audit ledger (Edit audit-ledger.jsonl), but there is no tool action setting an expiry on the role binding, so step 3 of the procedure was not performed."
+      }
+    ],
+    "applicableCount": 3,
+    "followedCount": 0,
+    "adherenceRate": 0,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-opus-4-8[1m],claude-opus-4-8",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=false"
+  ]
+}

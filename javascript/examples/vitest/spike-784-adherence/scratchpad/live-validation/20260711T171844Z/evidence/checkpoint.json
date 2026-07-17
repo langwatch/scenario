@@ -1,0 +1,31 @@
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "h3",
+  "startedAt": "2026-07-11T17:28:08.298Z",
+  "updatedAt": "2026-07-11T17:28:08.298Z",
+  "status": "aborted",
+  "configDir": "/tmp/adherence-784-sandboxes/h3-1783790327841/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/h3-1783790327841",
+  "turnCounts": {
+    "total": 313,
+    "excluded": 0,
+    "judged": 313,
+    "hardError": false,
+    "reasons": []
+  },
+  "hooks": {
+    "fired": 9,
+    "compileCalls": 4,
+    "verifyCalls": 0,
+    "baselineRetrievals": 0,
+    "haiku200s": 4,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "error": "[ClaudeCodeAgent] Error: Claude Code CLI timed out after 420000ms in /tmp/adherence-784-sandboxes/h3-1783790327841/project",
+  "notes": [
+    "run aborted; checkpoint preserved (not measured)",
+    "H3 blocks=2 decisions=[allow-noop, allow-noop, allow-noop, block, block]"
+  ]
+}

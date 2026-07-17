@@ -1,0 +1,12 @@
+# Runtime sandbox (contains the SYMLINKED .credentials.json + tee'd transcripts).
+# Never committed — the symlink target lives outside the repo.
+.sandbox/
+
+# Transient logs / scratch
+*.log
+
+# Retained live-run sandbox copies contain .claude secrets (settings.local.json sk-lw, .claude.json oauth,
+# .credentials.json symlink) — kept on-disk for data-retention, NEVER committed. Only evidence/ (secret-free) is tracked.
+scratchpad/live-validation/*/sandbox-copy/
+scratchpad/live-validation/*/sandbox-secured/
+run-data/plugin-dod/*/transcript/

@@ -1,0 +1,87 @@
+{
+  "scenarioId": "context-load-vendor",
+  "strategy": "baseline",
+  "startedAt": "2026-07-11T15:08:18.314Z",
+  "updatedAt": "2026-07-11T15:08:18.314Z",
+  "status": "judged",
+  "configDir": "/tmp/adherence-784-sandboxes/baseline-1783782205417/.claude",
+  "workDir": "/tmp/adherence-784-sandboxes/baseline-1783782205417",
+  "turnCounts": {
+    "total": 185,
+    "excluded": 4,
+    "judged": 181,
+    "hardError": false,
+    "reasons": [
+      {
+        "index": 2,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 61,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 68,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      },
+      {
+        "index": 80,
+        "kind": "throttle",
+        "detail": "rate_limit_event signalled a hit"
+      }
+    ]
+  },
+  "hooks": {
+    "fired": 4,
+    "compileCalls": 0,
+    "verifyCalls": 0,
+    "baselineRetrievals": 4,
+    "haiku200s": 0,
+    "haikuNon200s": 0,
+    "invalidTurns": 0,
+    "bothHooksFired200": false
+  },
+  "report": {
+    "perProcedure": [
+      {
+        "id": "onboard-vendor",
+        "applied": true,
+        "followed": false,
+        "transitiveChainFollowed": false,
+        "surfaced": true,
+        "attribution": "agent-override",
+        "reasoning": "The agent collected intake details, created the review-board record, and later confirmed approval via grep, but never performed any tool action to attach the contact set, so step 3 of the procedure was not executed."
+      },
+      {
+        "id": "provision-account",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent allocated the new account in billing-accounts.jsonl with baseline config, attached the entitlement set in entitlements.jsonl, and then confirmed activation by grepping the new account record, corresponding to all four numbered steps."
+      },
+      {
+        "id": "grant-access",
+        "applied": true,
+        "followed": true,
+        "transitiveChainFollowed": null,
+        "surfaced": true,
+        "attribution": "none",
+        "reasoning": "The agent read the role-request to confirm scope, added a new role binding with scopes and an expiry to audit-ledger.jsonl, and then verified the new grant entry via grep, satisfying all four numbered steps."
+      }
+    ],
+    "applicableCount": 3,
+    "followedCount": 2,
+    "adherenceRate": 0.6666666666666666,
+    "model": "gpt-5.1"
+  },
+  "notes": [
+    "subject model resolved: claude-opus-4-8[1m],claude-opus-4-8",
+    "judge model actually used: gpt-5.1",
+    "scenario.run success=false"
+  ]
+}
