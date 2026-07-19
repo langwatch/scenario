@@ -118,7 +118,23 @@ jobs:
       # produces a green run for the demos that DID run.
       # ---------------------------------------------------------------
       - name: Run @e2e voice demos
-        run: pnpm -F vitest-examples test run tests/voice 2>&1 | tee /tmp/js-e2e-voice-results.log
+        # CI honesty (#708): `tee` is the last command in the pipe, so without
+        # `pipefail` the step exits 0 (tee's status) even when vitest fails —
+        # the bug that let run 28175076500 report `success` while the vitest
+        # summary read `Test Files 4 failed`. GitHub's default `run` shell is
+        # `bash -e {0}` (no pipefail); `shell: bash` + `set -o pipefail` make
+        # vitest's non-zero exit the pipeline's exit, so a real test failure
+        # fails this step and the workflow.
+        shell: bash
+        run: |
+          set -o pipefail
+          # Flake tolerance (#708): the hosted-ElevenLabs live demos are
+          # ambiently flaky (intermittent `receiveAudio timed out` /
+          # `Event POST failed`). `--retry.count=1` reruns only a failing test
+          # once — a transient flake is absorbed, but a genuinely-failing test
+          # fails BOTH attempts and still goes red, so the gate stays both
+          # deterministic and honest (retry is not the same as swallowing).
+          pnpm -F vitest-examples test run tests/voice --retry.count=1 2>&1 | tee /tmp/js-e2e-voice-results.log
         working-directory: javascript
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

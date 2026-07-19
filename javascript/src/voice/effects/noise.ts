@@ -117,7 +117,7 @@ function wavToInt16(buf: Uint8Array): Int16Array {
     for (let i = 0; i < frameCount; i++) {
       let sum = 0;
       for (let c = 0; c < channels; c++) {
-        sum += rawSamples[i * channels + c]!;
+        sum += rawSamples[i * channels + c];
       }
       mono[i] = Math.round(sum / channels);
     }
@@ -202,7 +202,7 @@ export function backgroundNoise(presetOrPath: string, volume = 0.3): EffectFn {
     const out = new Float32Array(signal.length);
     for (let i = 0; i < signal.length; i++) {
       const noiseIdx = i % sample.length;
-      out[i] = signal[i]! + sample[noiseIdx]! * volume;
+      out[i] = signal[i] + sample[noiseIdx] * volume;
     }
     return int16ToPcm16(out);
   };
@@ -221,7 +221,7 @@ export function static_(intensity = 0.05): EffectFn {
       // Box-Muller-free approximation: (Math.random() - 0.5) * 2 gives uniform
       // [-1, 1]; close enough for noise generation.
       const noise = (Math.random() - 0.5) * 2 * 32767 * intensity;
-      out[i] = signal[i]! + noise;
+      out[i] = signal[i] + noise;
     }
     return int16ToPcm16(out);
   };
@@ -257,7 +257,7 @@ export function multipleVoices(
     const out = new Float32Array(signal.length);
     for (let i = 0; i < signal.length; i++) {
       const babbleIdx = i % sample.length;
-      out[i] = signal[i]! + sample[babbleIdx]! * volume;
+      out[i] = signal[i] + sample[babbleIdx] * volume;
     }
     return int16ToPcm16(out);
   };

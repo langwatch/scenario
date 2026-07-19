@@ -40,6 +40,7 @@ import pytest
 import scenario
 from scenario.config import ScenarioConfig
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
+from scenario.voice.testing import drive_call
 from scenario.user_simulator_agent import UserSimulatorAgent
 
 
@@ -97,6 +98,9 @@ class _MockWS:
         self._events = list(events)
         self._idx = 0
         self.sent: List[Any] = []
+        # Observable disconnect: set True by close() so the wrapper-level smoke
+        # test can assert the real disconnect() reached the transport.
+        self.closed = False
 
     async def send(self, msg: Any) -> None:
         self.sent.append(msg)
@@ -111,7 +115,7 @@ class _MockWS:
         return evt
 
     async def close(self) -> None:
-        pass
+        self.closed = True
 
 
 class _CommandDrivenMockWS:
@@ -750,3 +754,105 @@ async def test_no_spurious_response_create_on_user_first():
     assert len(assistant_turns) == 1, (
         f"Expected exactly 1 assistant turn, got {len(assistant_turns)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper-level smoke — REAL .connect() + .call() over a faked network client
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_wrapper_real_connect_call_disconnect_smoke(monkeypatch):
+    """Wrapper-level (real ``.connect()`` + ``.call()``) smoke test closing the
+    seam-only gap.
+
+    Every other test in this suite replaces ``connect`` wholesale (assigning
+    ``adapter._ws`` directly), so the real ``session.update`` handshake
+    (openai_realtime.py:305-343) had ZERO coverage before this test. Here we fake
+    ONLY the network-client boundary — ``websockets.connect`` — and drive the
+    REAL connect handshake, the REAL ``call()`` drain, and the REAL disconnect
+    over that fake transport.
+    """
+    import websockets
+
+    mock_ws = _MockWS(_agent_event_sequence(QUESTION))
+    captured: dict = {}
+
+    async def _fake_connect(url, additional_headers=None, **kw):
+        captured["url"] = url
+        captured["headers"] = dict(additional_headers or {})
+        return mock_ws
+
+    monkeypatch.setattr(websockets, "connect", _fake_connect)
+
+    adapter = OpenAIRealtimeAgentAdapter(
+        api_key="test-sk-not-real",
+        instructions="You are an interviewer.",
+        speaks_first=True,
+    )
+
+    await adapter.connect()             # REAL connect: URL, auth header, session.update
+    result = await drive_call(adapter)  # REAL call(): drain + transcript override
+    await adapter.disconnect()
+
+    # 1. Real endpoint URL + real auth header over the fake transport.
+    assert captured["url"] == f"wss://api.openai.com/v1/realtime?model={adapter.model}", (
+        f"connect() did not build the real Realtime URL; got {captured.get('url')!r}"
+    )
+    assert captured["headers"].get("Authorization") == "Bearer test-sk-not-real", (
+        f"connect() did not send the Bearer auth header; headers={captured.get('headers')!r}"
+    )
+
+    # 2. The session.update handshake — asserted structurally (the exact code the
+    #    seam tests skipped).
+    assert mock_ws.sent, "connect() sent nothing — session.update handshake missing"
+    handshake = json.loads(mock_ws.sent[0])
+    assert handshake.get("type") == "session.update", (
+        f"first send was not session.update; got {handshake.get('type')!r}"
+    )
+    session = handshake["session"]
+    assert session.get("type") == "realtime", (
+        f"session.type != 'realtime'; got {session.get('type')!r}"
+    )
+    assert session["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 24000}, (
+        f"input format wrong; got {session['audio']['input'].get('format')!r}"
+    )
+    assert session["audio"]["input"]["turn_detection"] is None, (
+        "server VAD not disabled (turn_detection should be None)"
+    )
+    assert session["audio"]["output"]["voice"] == adapter.voice, (
+        f"output voice != adapter.voice; got {session['audio']['output'].get('voice')!r}"
+    )
+    assert session.get("instructions"), (
+        "instructions absent from the session.update handshake"
+    )
+
+    # 3. Ordering: the session.update send precedes any response.create send.
+    sent_types = [
+        json.loads(s).get("type") for s in mock_ws.sent if isinstance(s, str)
+    ]
+    assert "session.update" in sent_types and "response.create" in sent_types, (
+        f"expected both session.update and response.create in sends; got {sent_types}"
+    )
+    assert sent_types.index("session.update") < sent_types.index("response.create"), (
+        f"session.update must precede response.create; sent order={sent_types}"
+    )
+
+    # 4. The assistant turn carries non-empty audio AND the surfaced transcript.
+    content = result.get("content") if isinstance(result, dict) else None
+    assert isinstance(content, list), f"result is not an assistant audio message: {result!r}"
+    audio_parts = [
+        p for p in content if isinstance(p, dict) and p.get("type") == "input_audio"
+    ]
+    text_parts = [
+        p for p in content if isinstance(p, dict) and p.get("type") == "text"
+    ]
+    assert audio_parts and audio_parts[0]["input_audio"].get("data"), (
+        "assistant turn has no non-empty input_audio part"
+    )
+    assert any(QUESTION in (p.get("text") or "") for p in text_parts), (
+        f"transcript {QUESTION!r} not surfaced as a text part through the real drain"
+    )
+
+    # 5. Disconnect is observable and clears the socket reference.
+    assert mock_ws.closed is True, "disconnect() did not close the websocket"
+    assert adapter._ws is None, "disconnect() did not clear adapter._ws"

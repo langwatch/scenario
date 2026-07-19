@@ -252,6 +252,11 @@ async def test_elevenlabs_hosted_adapter_connects_and_sends_pcm16():
     mock_ws.recv = fake_recv
     mock_ws.send = AsyncMock()
     mock_ws.close = AsyncMock()
+    # is_connected() reads the websockets connection state; give the mock an
+    # OPEN state so the pump considers the socket live and drains its queue.
+    from websockets.protocol import State
+
+    mock_ws.state = State.OPEN
 
     # Patch websockets.connect to return our mock.
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)) as mock_connect:
@@ -262,20 +267,27 @@ async def test_elevenlabs_hosted_adapter_connects_and_sends_pcm16():
         assert "agent_id=test_agent" in connect_url
         assert "api.elevenlabs.io" in connect_url
 
-        # send_audio should emit a base64-encoded user_audio_chunk message.
-        # connect() sends conversation_initiation_client_data first, then
-        # send_audio emits TWO chunks per call (speech + silence tail —
-        # see ElevenLabsAgentAdapter.send_audio for the empirical
-        # rationale). Walk all sent messages and assert the speech chunk
-        # is among them.
-        chunk = AudioChunk(data=b"\x10\x20" * 100)
+        # send_audio (no transcript → fallback path) ENQUEUES the speech +
+        # closing-silence tail onto the pump's outbound queue; the pump is the
+        # single WS writer and emits them as fixed 960-byte user_audio_chunk
+        # frames (no direct-write racing the background pump). Take manual pump
+        # control and drain deterministically, then assert the speech frame
+        # (the chunk's 200 bytes, zero-padded to 960) reached the wire.
+        await adapter.stop_pump()
+        chunk = AudioChunk(data=b"\x10\x20" * 100)  # 200 bytes
         await adapter.send_audio(chunk)
+        while adapter._outbound_frames:
+            await adapter._pump_tick()
         user_audio_decoded = []
         for call in mock_ws.send.call_args_list:
             payload = json.loads(call[0][0])
             if "user_audio_chunk" in payload:
                 user_audio_decoded.append(base64.b64decode(payload["user_audio_chunk"]))
-        assert chunk.data in user_audio_decoded
+        # Fixed 960-byte cadence; the first speech frame carries the chunk bytes.
+        assert user_audio_decoded, "expected pump to emit the enqueued frames"
+        assert all(len(f) == 960 for f in user_audio_decoded)
+        speech_frame = chunk.data + b"\x00" * (960 - len(chunk.data))
+        assert speech_frame in user_audio_decoded
 
         # recv_audio must skip metadata + transcript and return audio bytes.
         result = await adapter.recv_audio(timeout=5.0)

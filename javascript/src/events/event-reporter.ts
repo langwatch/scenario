@@ -40,14 +40,15 @@ export class EventReporter {
     this.logger.debug(`[${event.type}] Posting event`, { event });
     const processedEvent = this.processEventForApi(event);
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.apiKey}`,
+    };
+    if (this.projectId) {
+      headers["X-Project-Id"] = this.projectId;
+    }
+
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "X-Auth-Token": this.apiKey,
-      };
-      if (this.projectId) {
-        headers["X-Project-Id"] = this.projectId;
-      }
       const response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
         body: JSON.stringify(processedEvent),

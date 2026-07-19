@@ -235,9 +235,27 @@ export class TwilioWebhookServer {
   }
 
   private async _handleStreamSocket(ws: WsWebSocket): Promise<void> {
-    const adapted = adaptWsSocket(ws);
+    await this.runStreamSession(adaptWsSocket(ws));
+  }
+
+  /**
+   * Production per-connection wrapper around {@link mediaStreamLoop}: runs the
+   * loop, then — in a `finally` that fires on stop, socket close, OR a throw —
+   * nulls the adapter's `_streamWs`/`_streamSid` transport state, exactly as the
+   * real `/twilio/stream` handler does after a call ends.
+   *
+   * This is the seam tests must drive to reproduce the #695 teardown race: the
+   * terminal sentinel is enqueued inside the loop's own `finally`, then THIS
+   * `finally` nulls the transport — so a `receiveAudio` following the reset must
+   * still drain cleanly. Driving `mediaStreamLoop` alone skips this reset and
+   * hides the bug (that was the shipped tests' flaw, PR #697 P2 blocker).
+   *
+   * @internal Production entry is `_handleStreamSocket`; tests reach this via
+   * `TwilioAgentAdapter._driveStreamSession`. Not public API.
+   */
+  async runStreamSession(ws: MediaStreamWebSocket): Promise<void> {
     try {
-      await this.mediaStreamLoop(adapted);
+      await this.mediaStreamLoop(ws);
     } finally {
       this._adapter._setStreamWs(null);
       this._adapter._setStreamSid(undefined);
@@ -253,6 +271,13 @@ export class TwilioWebhookServer {
   async mediaStreamLoop(ws: MediaStreamWebSocket): Promise<void> {
     const adapter = this._adapter;
     adapter._setStreamWs(ws);
+    // The terminal flag AND the inbound queue are per-CALL state: re-arm both
+    // alongside `_streamWs` so a second media-stream session on the same
+    // connected adapter (Twilio reconnect, back-to-back call) starts clean —
+    // neither inheriting the previous call's terminal flag nor draining its
+    // leftover terminal sentinel as this call's first chunk. See
+    // `_resetCallState`.
+    adapter._resetCallState();
 
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law
@@ -265,36 +290,56 @@ export class TwilioWebhookServer {
       adapter._enqueueInbound(new AudioChunk({ data: pcm }));
     };
 
-    while (true) {
-      const text = await ws.receiveText();
-      if (text == null) return; // socket closed
-      const frame = parseMediaStreamFrame(text);
-      if (!frame) continue;
+    try {
+      while (true) {
+        const text = await ws.receiveText();
+        if (text == null) return; // socket closed
+        const frame = parseMediaStreamFrame(text);
+        if (!frame) continue;
 
-      if (frame.event === "start") {
-        if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
-        if (frame.callSid) adapter._setCallSid(frame.callSid);
-        adapter._signalStreamConnected();
-      } else if (frame.event === "media" && frame.payloadMulaw) {
-        for (const byte of frame.payloadMulaw) buffered.push(byte);
-        if (buffered.length >= flushThresholdBytes) flush();
-      } else if (frame.event === "dtmf" && frame.dtmfDigit) {
-        twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
-        if (adapter.onDtmf) {
-          try {
-            adapter.onDtmf(frame.dtmfDigit);
-          } catch (err) {
-            // Callback errors are swallowed — adapter contract says they don't
-            // tear down the stream — but they ARE worth logging.
-            twilioLogger.warn("onDtmf callback raised; continuing", {
-              error: err instanceof Error ? err.message : String(err),
-            });
+        if (frame.event === "start") {
+          if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
+          if (frame.callSid) adapter._setCallSid(frame.callSid);
+          adapter._signalStreamConnected();
+        } else if (frame.event === "media" && frame.payloadMulaw) {
+          for (const byte of frame.payloadMulaw) buffered.push(byte);
+          if (buffered.length >= flushThresholdBytes) flush();
+        } else if (frame.event === "dtmf" && frame.dtmfDigit) {
+          twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
+          if (adapter.onDtmf) {
+            try {
+              adapter.onDtmf(frame.dtmfDigit);
+            } catch (err) {
+              // Callback errors are swallowed — adapter contract says they don't
+              // tear down the stream — but they ARE worth logging.
+              twilioLogger.warn("onDtmf callback raised; continuing", {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
           }
+        } else if (frame.event === "stop") {
+          flush();
+          return;
         }
-      } else if (frame.event === "stop") {
-        flush();
-        return;
       }
+    } finally {
+      // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop
+      // exits on a "stop" frame, a socket close (`receiveText` resolves null),
+      // or a throw, mark the call ended and enqueue an empty AudioChunk so a
+      // `receiveAudio` blocked on the inbound queue returns cleanly instead of
+      // timing out on a silent / tool-only turn. All three termination paths
+      // (stop / close / throw) funnel through this `finally`, so the sentinel is
+      // genuinely reachable on each.
+      //
+      // `_markStreamEnded()` is called FIRST and unconditionally:
+      // `_handleStreamSocket` nulls `_streamWs`/`_streamSid` synchronously right
+      // after this loop returns, so `receiveAudio`'s follow-up call would
+      // otherwise trip `_assertStreamLive`. The flag tells `receiveAudio` to
+      // keep draining post-teardown rather than assert liveness. Unlike the
+      // Python twin, no null-guard is needed on the queue: it's never nulled —
+      // `disconnect()` only `reset()`s it.
+      adapter._markStreamEnded();
+      adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
     }
   }
 }
@@ -325,7 +370,7 @@ function parseFormUrlEncoded(body: string): Record<string, string> {
   for (const pair of body.split("&")) {
     if (!pair) continue;
     const [rawKey, rawValue = ""] = pair.split("=");
-    const key = decodeURIComponent(rawKey!.replace(/\+/g, " "));
+    const key = decodeURIComponent(rawKey.replace(/\+/g, " "));
     const value = decodeURIComponent(rawValue.replace(/\+/g, " "));
     params[key] = value;
   }
@@ -355,7 +400,10 @@ function adaptWsSocket(ws: WsWebSocket): MediaStreamWebSocket {
   const handleEnd = (): void => {
     if (closed) return;
     closed = true;
-    while (waiters.length > 0) waiters.shift()!.resolve(null);
+    while (waiters.length > 0) {
+      const waiter = waiters.shift();
+      if (waiter) waiter.resolve(null);
+    }
   };
   ws.on("close", handleEnd);
   ws.on("error", handleEnd);

@@ -140,11 +140,10 @@ Feature: User-facing docs surface for the voice-agent adapter system
     And the legacy Multimodal -> Voice Agents group is removed from the sidebar config
 
   @integration
-  Scenario: The voice docs cross-link to the proposal and the behavioral contract
+  Scenario: The voice docs cross-link to the behavioral contract
     Given the Voice Agents docs section is published
     When a reader opens Getting Started or Choosing an Adapter
-    Then the page links to docs/proposals/issue-350-voice-agents-source.md for design context
-    And the page links to specs/voice-agents.feature for the 99-scenario behavioral contract
+    Then the page links to specs/voice-agents.feature for the 99-scenario behavioral contract
 
   # ============================================================
   # Group: Legacy gpt-4o-audio-preview voice surface retirement

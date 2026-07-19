@@ -211,3 +211,164 @@ async def test_tail_silence_timeout_ends_drain_without_raising():
         "returned audio must contain the first chunk's data after the "
         f"tail-silence cutoff; got {len(result.data)} bytes"
     )
+
+
+# ---------------------------------------------------------------- #
+# Part 2 — AgentStreamEndedError propagation (#498 diagnostic slice) #
+# ---------------------------------------------------------------- #
+#
+# Two tests pin the contract for when the adapter's transport terminates:
+#
+#   A. recv_audio raises AgentStreamEndedError on the FIRST call
+#      (loop crashed / peer closed before any audio) →
+#      _drain_agent_response PROPAGATES the error unchanged, does NOT
+#      wrap it in FirstChunkTimeoutError.
+#
+#   B. recv_audio returns one real chunk THEN raises AgentStreamEndedError
+#      (clean close after turn-1 audio) →
+#      _drain_agent_response treats it like tail-silence and RETURNS the
+#      collected audio without raising.
+#
+# Both tests reference new symbols via _adapter_mod so a missing symbol
+# fails only the dereferencing assertion, not import-time collection.
+
+
+class _StreamEndedOnFirstAdapter(VoiceAgentAdapter):
+    """Transport terminates before any audio chunk — recv_audio raises
+    AgentStreamEndedError on the very first call.
+
+    __cause__ is set to a ConnectionResetError so we can verify the cause
+    is threaded through unchanged by _drain_agent_response.
+    """
+
+    capabilities = AdapterCapabilities()
+
+    _SENTINEL_MSG = "sentinel stream ended message"
+    _CAUSE = ConnectionResetError("peer reset")
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def send_audio(self, chunk: AudioChunk) -> None:
+        pass
+
+    async def recv_audio(self, timeout: float) -> AudioChunk:
+        # Raise the new contract exception — exactly what PipecatAgentAdapter
+        # will raise when its _recv_loop has terminated and the queue is drained.
+        # We raise it with __cause__ so the propagation test can check it too.
+        exc = _adapter_mod.AgentStreamEndedError(self._SENTINEL_MSG)
+        exc.__cause__ = self._CAUSE
+        raise exc
+
+
+class _StreamEndedAfterFirstChunkAdapter(VoiceAgentAdapter):
+    """Transport delivers one real chunk then closes cleanly.
+
+    Call 1: returns a non-empty AudioChunk.
+    Call 2+: raises AgentStreamEndedError — transport is gone.
+
+    This mirrors the #498 scenario: turn-1 audio OK, then on the next
+    drain's tail recv the loop has exited.  Expected: drain returns the
+    collected audio, same as a tail-silence asyncio.TimeoutError.
+    """
+
+    FIRST_CHUNK = AudioChunk(data=b"\x03\x04" * 600, transcript="world")
+
+    capabilities = AdapterCapabilities()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._calls = 0
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+    async def send_audio(self, chunk: AudioChunk) -> None:
+        pass
+
+    async def recv_audio(self, timeout: float) -> AudioChunk:
+        self._calls += 1
+        if self._calls == 1:
+            return self.FIRST_CHUNK
+        raise _adapter_mod.AgentStreamEndedError("stream closed after first chunk")
+
+
+@pytest.mark.asyncio
+async def test_first_chunk_stream_ended_propagates_unchanged():
+    """When the transport ends BEFORE the first chunk, _drain_agent_response
+    must propagate AgentStreamEndedError UNCHANGED — not re-wrap it as
+    FirstChunkTimeoutError (which would bury the real cause).
+
+    RED against current code: AgentStreamEndedError does not yet exist in
+    scenario.voice.adapter, so dereferencing _adapter_mod.AgentStreamEndedError
+    raises AttributeError at the assertion line (not at collection time).
+
+    The two falsifiable properties:
+      1. The raised type IS AgentStreamEndedError (str matches sentinel).
+      2. The raised type is NOT FirstChunkTimeoutError (anti-relabel check).
+    """
+    adapter = _StreamEndedOnFirstAdapter()
+    adapter.response_timeout = _SENTINEL_TIMEOUT
+
+    # Dereference the not-yet-defined contract symbol; fails RED if absent.
+    AgentStreamEndedError = _adapter_mod.AgentStreamEndedError  # noqa: N806
+
+    with pytest.raises(AgentStreamEndedError) as excinfo:
+        await adapter._drain_agent_response()
+
+    # AC1 — message is the sentinel we embedded, passed through verbatim.
+    assert str(excinfo.value) == _StreamEndedOnFirstAdapter._SENTINEL_MSG, (
+        "AgentStreamEndedError message must propagate unchanged; "
+        f"got: {str(excinfo.value)!r}"
+    )
+
+    # AC2 — __cause__ is the ConnectionResetError we set, not lost or replaced.
+    assert excinfo.value.__cause__ is _StreamEndedOnFirstAdapter._CAUSE, (
+        "AgentStreamEndedError.__cause__ must be the original ConnectionResetError; "
+        f"got: {excinfo.value.__cause__!r}"
+    )
+
+    # AC3 — critical anti-relabel: must NOT be a FirstChunkTimeoutError.
+    # If _drain_agent_response catches AgentStreamEndedError and re-wraps it
+    # as FirstChunkTimeoutError (as the old asyncio.TimeoutError branch did),
+    # this assertion catches the regression.
+    assert not isinstance(excinfo.value, _adapter_mod.FirstChunkTimeoutError), (
+        "AgentStreamEndedError on first recv must NOT be re-wrapped as "
+        "FirstChunkTimeoutError — that hides the real transport failure cause"
+    )
+
+
+@pytest.mark.asyncio
+async def test_tail_stream_ended_ends_drain_without_raising():
+    """When the transport closes AFTER the first chunk, _drain_agent_response
+    must return the collected audio (treating the close like tail-silence) —
+    NOT raise AgentStreamEndedError.
+
+    This is the falsifiable guard that the first-chunk propagation fix is
+    SCOPED to the first recv: if the fix re-raised on every recv_audio
+    AgentStreamEndedError, this test would catch it as a regression.
+
+    Return shape: single collected chunk → _merge_chunks returns it
+    unchanged, so result.data equals the first chunk's data verbatim.
+    """
+    adapter = _StreamEndedAfterFirstChunkAdapter()
+    adapter.response_timeout = _SENTINEL_TIMEOUT
+
+    # Must RETURN, not raise. (The adapter's recv_audio dereferences
+    # _adapter_mod.AgentStreamEndedError directly, so a missing contract symbol
+    # still fails this test RED — no separate dereference needed here.)
+    result = await adapter._drain_agent_response()
+
+    assert isinstance(result, AudioChunk), (
+        f"drain must return an AudioChunk after tail-close; got: {result!r}"
+    )
+    assert result.data == _StreamEndedAfterFirstChunkAdapter.FIRST_CHUNK.data, (
+        "returned audio must equal the first chunk's data; "
+        f"got {len(result.data)} bytes"
+    )

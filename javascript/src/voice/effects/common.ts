@@ -28,7 +28,7 @@ export function pcm16ToInt16(b: Uint8Array): Int16Array {
 export function int16ToPcm16(arr: Int16Array | Float32Array): Uint8Array {
   const out = new Int16Array(arr.length);
   for (let i = 0; i < arr.length; i++) {
-    const v = arr[i]!;
+    const v = arr[i];
     // Clip to int16 range
     out[i] = Math.max(-32768, Math.min(32767, Math.round(v)));
   }
@@ -50,7 +50,7 @@ export function linearResample(arr: Int16Array, newLen: number): Int16Array {
   const denom = newLen - 1 || 1;
   for (let i = 0; i < newLen; i++) {
     const idx = Math.min(arr.length - 1, Math.floor((i * (arr.length - 1)) / denom));
-    out[i] = arr[idx]!;
+    out[i] = arr[idx];
   }
   return out;
 }

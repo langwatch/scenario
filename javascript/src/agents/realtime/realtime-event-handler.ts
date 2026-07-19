@@ -1,5 +1,7 @@
 import type { RealtimeSession } from "@openai/agents/realtime";
 
+import { Logger } from "../../utils/logger";
+
 /**
  * Event emitted when an audio response is completed
  */
@@ -43,6 +45,8 @@ export class RealtimeEventHandler {
   private responseResolver: ((value: AudioResponseEvent) => void) | null = null;
   private errorRejecter: ((error: Error) => void) | null = null;
   private listenersSetup = false;
+  private readonly logger = new Logger("RealtimeEventHandler");
+  private _active = false;
 
   /**
    * Creates a new RealtimeEventHandler instance
@@ -87,7 +91,7 @@ export class RealtimeEventHandler {
     const transport = this.getTransport();
 
     if (!transport) {
-      console.error("❌ Transport not available on session");
+      this.logger.error("Transport not available on session");
       return;
     }
 
@@ -107,8 +111,18 @@ export class RealtimeEventHandler {
       }
     });
 
+    // Track response lifecycle — set on response.created, clear on response.done/cancelled
+    transport.on("response.created", () => {
+      this._active = true;
+    });
+
+    transport.on("response.cancelled", () => {
+      this._active = false;
+    });
+
     // Listen for response completion
     transport.on("response.done", () => {
+      this._active = false;
       const fullAudio = this.currentAudioChunks.join("");
       const audioResponse: AudioResponseEvent = {
         transcript: this.currentResponse,
@@ -123,7 +137,7 @@ export class RealtimeEventHandler {
 
     // Handle transport errors
     transport.on("error", (error: unknown) => {
-      console.error(`❌ Transport error:`, error);
+      this.logger.error("Transport error", error);
       if (this.errorRejecter) {
         const errorObj =
           error instanceof Error ? error : new Error(String(error));
@@ -167,9 +181,18 @@ export class RealtimeEventHandler {
    * Resets the internal state for the next response
    */
   private reset(): void {
+    this._active = false;
     this.responseResolver = null;
     this.errorRejecter = null;
     this.currentResponse = "";
     this.currentAudioChunks = [];
+  }
+
+  /**
+   * Returns true while a response is in flight (between response.created
+   * and response.done). Used by RealtimeAgentAdapter to guard response.create.
+   */
+  isResponseActive(): boolean {
+    return this._active;
   }
 }

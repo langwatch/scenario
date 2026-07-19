@@ -16,7 +16,7 @@ export function lowVolume(factor = 0.5): EffectFn {
     const arr = pcm16ToInt16(audio);
     const out = new Float32Array(arr.length);
     for (let i = 0; i < arr.length; i++) {
-      out[i] = arr[i]! * factor;
+      out[i] = arr[i] * factor;
     }
     return int16ToPcm16(out);
   };
@@ -32,7 +32,7 @@ export function highVolume(factor = 1.5): EffectFn {
     const arr = pcm16ToInt16(audio);
     const out = new Float32Array(arr.length);
     for (let i = 0; i < arr.length; i++) {
-      out[i] = arr[i]! * factor;
+      out[i] = arr[i] * factor;
     }
     return int16ToPcm16(out);
   };

@@ -37,6 +37,22 @@ _FIRST_CHUNK_PHASE = "first-chunk"
 """Phase marker for the first-chunk recv timeout (used in FirstChunkTimeoutError)."""
 
 
+class AgentStreamEndedError(Exception):
+    """An adapter's recv_audio raises this when the agent's audio transport has
+    TERMINATED — a background read-loop crash or a clean close by the peer — so
+    no further audio can arrive on this connection.
+
+    WHY distinct from asyncio.TimeoutError: a timeout is TRANSIENT (the agent may
+    still be mid-think; audio could still arrive), a stream-ended is TERMINAL (the
+    connection is done). _drain_agent_response treats them differently: on the
+    FIRST chunk it propagates this unchanged (it already names the real cause —
+    this is the #498 diagnostic fix), on TAIL chunks it ends the turn normally
+    (the peer closed after the agent finished speaking). Subclasses (e.g.
+    PipecatRecvError) carry a transport-specific message and chain the underlying
+    cause via __cause__.
+    """
+
+
 class FirstChunkTimeoutError(asyncio.TimeoutError):
     """Raised when the agent fails to send its first audio chunk within ``response_timeout``.
 
@@ -131,6 +147,18 @@ class VoiceAgentAdapter(AgentAdapter):
             self._agent_speaking = ev
         return ev
 
+    def is_connected(self) -> bool:
+        """Whether the transport is open and ready to exchange audio.
+
+        Base default is ``True``: adapters without a persistent socket (or
+        that manage liveness elsewhere) are always considered ready, so the
+        pre-turn guard in :meth:`call` never blocks them. Transports with a
+        real socket override this — e.g. :class:`ElevenLabsAgentAdapter`
+        returns ``self._ws is not None and not self._ws.closed`` (parity with
+        the TS ``isConnected()`` override, ``adapters/elevenlabs.ts:531-534``).
+        """
+        return True
+
     @abstractmethod
     async def connect(self) -> None:
         """Open the transport and prepare to exchange audio."""
@@ -203,6 +231,25 @@ class VoiceAgentAdapter(AgentAdapter):
         Subclasses may override this for specialised flows but will usually
         inherit it.
         """
+        # Uniform pre-turn connected-state gate (mirror TS
+        # ``adapter.runtime.ts:249-254``): a call() issued before the
+        # executor's connect() — or after a dropped transport — fails once with
+        # a clear error naming the adapter, rather than a transport-specific
+        # null-deref or a silent hang. Checked ONCE, BEFORE send_audio/
+        # recv_audio. It does NOT suppress ``FirstChunkTimeoutError``: a
+        # connected adapter whose first chunk never arrives still surfaces that
+        # timeout from the drain below.
+        #
+        # We raise ``TransportNotConnectedError`` (a subclass of
+        # ``PendingTransportError``, so the TS-parity ``except
+        # PendingTransportError`` gate still catches it) whose message is
+        # actionable for a real, implemented adapter — "call connect()/reconnect"
+        # — rather than the base "implement your transport" guidance meant for
+        # unshipped stubs.
+        if not self.is_connected():
+            from .adapters._stub import TransportNotConnectedError
+
+            raise TransportNotConnectedError(type(self).__name__)
         # Clear the speaking-event for this turn — set in _drain on first chunk.
         self._agent_speaking_event.clear()
         recorder = _AdapterRecorder(input)
@@ -271,6 +318,11 @@ class VoiceAgentAdapter(AgentAdapter):
             first = await self.recv_audio(timeout=self.response_timeout)
         except asyncio.TimeoutError as err:
             raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
+        # An AgentStreamEndedError is intentionally NOT caught here: it is not a
+        # TimeoutError, so it propagates past this handler unchanged. That
+        # preserves the real terminal cause (recv-loop crash or clean peer close)
+        # for the #498 diagnostic fix instead of masking it as a first-chunk
+        # timeout. Do NOT add a bare ``except Exception`` here.
         # First chunk arrived → agent is now speaking. Wakes anyone awaiting
         # _agent_speaking_event (the interruption path).
         if first.data and on_first_chunk is not None:
@@ -282,6 +334,11 @@ class VoiceAgentAdapter(AgentAdapter):
             try:
                 nxt = await self.recv_audio(timeout=self.response_tail_silence)
             except asyncio.TimeoutError:
+                break
+            except AgentStreamEndedError:
+                # The stream ended after the agent already spoke — a normal
+                # end-of-turn (the peer closed once it finished). Return the
+                # audio collected so far instead of surfacing the terminal cause.
                 break
             if not nxt.data:
                 break

@@ -3,7 +3,7 @@ Unit-level mechanism probes for the five §8 pain patterns.
 
 These are the user-value scenarios that justify the voice feature. Each
 pain-pattern scenario in ``specs/voice-agents.feature`` is tagged
-``@integration`` (full end-to-end exercise runs under the nightly voice
+``@integration`` (full end-to-end exercise runs under the on-demand voice
 workflow). The tests here probe the *mechanisms* that enable each pattern,
 on mocked adapters, so the implementation seam is regression-guarded even
 without live providers.

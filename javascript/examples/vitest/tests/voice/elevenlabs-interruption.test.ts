@@ -22,19 +22,14 @@
  * Binds `@e2e @ts-elevenlabs-interruption-demo`. Env-gated on `OPENAI_API_KEY`
  * (judge LLM + user-sim TTS), `ELEVENLABS_API_KEY`, and `ELEVENLABS_AGENT_ID`.
  *
- * STATUS — GATED OFF by default (`RUN_EL_INTERRUPTION=1` to run), but it now
- * CAPTURES a real cut-off when it does run. After the #372 barge-in fixes
- * (agentSpeakingEvent wiring → the interrupt lands after the agent starts
- * speaking; clock-agnostic transcriptTruncated marking) a successful run
- * produces TWO truncated agent segments (the greeting + the verbose products
- * reply) and the agent PIVOTS to business hours — verified live. It stays
- * gated because the live ConvAI socket is FLAKY for scripted interrupts: one
- * attempt timed out on the post-interrupt receive (`receiveAudio timed out`),
- * the next succeeded. The barge-in MECHANISM is also proven NON-flakily on the
- * other server-VAD transport (`gemini_live_interruption`, no client cancel) and
- * on Pipecat (`interruption_recovery` / `random_interruptions`), so this
- * per-adapter EL variant is opt-in rather than a CI gate. NOT faked — when run,
- * the code asserts a real truncated segment.
+ * STATUS — Un-gated after 3/3 consecutive clean live runs (#731). A successful
+ * run produces at least one truncated agent segment (barge-in cuts the agent
+ * mid-utterance) and the agent PIVOTS to business hours — verified live. The barge-in
+ * MECHANISM is also proven NON-flakily on the other server-VAD transport
+ * (`gemini_live_interruption`, no client cancel) and on Pipecat
+ * (`interruption_recovery` / `random_interruptions`). NOT faked — when run,
+ * the code asserts a real truncated segment. Test skips when ElevenLabs or
+ * OpenAI credentials are absent.
  */
 
 import { dirname, resolve } from "node:path";
@@ -42,7 +37,7 @@ import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import scenario, { type ScenarioResult } from "@langwatch/scenario";
-import { describe, it, expect, type TestContext } from "vitest";
+import { expect } from "vitest";
 
 import { saveDemoRecording } from "./helpers/save-demo-recording";
 
@@ -61,31 +56,27 @@ const FEATURE_PATH = resolve(
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID;
 const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
-// Off by default — the live ConvAI scripted-interrupt flow times out on the
-// post-interrupt receive (documented above). Opt in with RUN_EL_INTERRUPTION=1.
-const RUN_EL_INTERRUPTION = process.env.RUN_EL_INTERRUPTION === "1";
-const RUN_E2E = Boolean(
-  RUN_EL_INTERRUPTION && ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && hasOpenAI,
-);
+const RUN_E2E = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_AGENT_ID && hasOpenAI);
 
-if (RUN_E2E) {
-  const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(FEATURE_PATH);
 
-  describeFeature(
-    feature,
-    ({ Scenario }) => {
-      Scenario(
-        "Demo — ElevenLabs interruption (server VAD barge-in)",
-        ({ Given, When, Then }) => {
-          let result: ScenarioResult | null = null;
-          let recordingDir: string | null = null;
+describeFeature(
+  feature,
+  ({ Scenario }) => {
+    const Bind = RUN_E2E ? Scenario : Scenario.skip;
 
-          Given(
-            "a hosted ElevenLabs ConvAI agent and a mid-utterance interrupt()",
-            (ctx: TestContext) => {
-              if (!RUN_E2E) ctx.skip();
-            },
-          );
+    Bind(
+      "Demo — ElevenLabs interruption (server VAD barge-in)",
+      ({ Given, When, Then }) => {
+        let result: ScenarioResult | null = null;
+        let recordingDir: string | null = null;
+
+        Given(
+          "a hosted ElevenLabs ConvAI agent and a mid-utterance interrupt()",
+          () => {
+            expect(RUN_E2E).toBe(true);
+          },
+        );
 
           When("the demo script runs via scenario.run()", async () => {
             result = await scenario.run({
@@ -184,17 +175,3 @@ if (RUN_E2E) {
     },
     { includeTags: ["ts-elevenlabs-interruption-demo"] },
   );
-} else {
-  // Gated off — a live-transport limitation, NOT faked: the live ConvAI
-  // scripted-interrupt flow times out on the post-interrupt receive. The
-  // barge-in mechanism is proven over Pipecat by interruption_recovery +
-  // random_interruptions. Opt in with RUN_EL_INTERRUPTION=1 (+ EL/OpenAI keys);
-  // see the file docstring. A `describe.skip` with a hollow `expect(true)` body
-  // was removed (review NIT) — the skip + this note document the gate instead.
-  describe.skip(
-    "ElevenLabs interruption demo (gated off — live-transport limitation)",
-    () => {
-      it("opt in with RUN_EL_INTERRUPTION=1 (+ EL/OpenAI keys); see file docstring", () => {});
-    },
-  );
-}

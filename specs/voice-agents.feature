@@ -14,6 +14,26 @@ Feature: Voice agent testing in Scenario SDK
     And optional TTS provider deps (google-cloud-texttospeech, cartesia) are lazy-imported only when their provider prefix is used
 
   # ======================================================================
+  # README — @e2e voice demo isolation requirement (issue #491)
+  #
+  # The @e2e scenarios below are demonstrated by runnable examples in
+  # python/examples/voice/, wrapped by python/tests/voice/test_*_e2e.py, and
+  # exercised only by the on-demand voice-integration.yml workflow (they hit
+  # live providers and need API keys). python-ci deselects them via
+  # `-m "not integration"`.
+  #
+  # The MULTI-TURN demos (long_hold, accent_loop, emotional_escalation,
+  # multi_intent, silence_handling, random_interruptions) additionally carry
+  # the `voice_multiturn` pytest marker and MUST run one pytest process each —
+  # see TESTING.md "Voice @e2e suite — isolation requirement". Collecting them
+  # together in one process wedges teardown (the synchronous LangWatch
+  # event-bus drain blocks on telemetry; root cause documented in TESTING.md).
+  # Do NOT re-suppress a wedge with @pytest.mark.skip — that leaves the @e2e
+  # contract asserted-but-never-run. voice-integration.yml runs each marked
+  # demo in its own process instead.
+  # ======================================================================
+
+  # ======================================================================
   # Core API — §4.1 Voice Agent Adapters (Source L130-243)
   # ======================================================================
 

@@ -21,10 +21,11 @@
  *   exception.
  */
 
-import type { AgentInput, AgentReturnTypes } from "../domain/agents";
-import { AudioChunk, silentChunk } from "./audio-chunk";
 import type { VoiceAgentAdapter } from "./adapter";
+import { PendingTransportError } from "./adapters/pending-transport-error";
+import { AudioChunk, silentChunk } from "./audio-chunk";
 import { createAudioMessage, extractAudio } from "./messages";
+import { VoiceRecordingRuntime } from "./recording.runtime";
 import type {
   AudioSegment,
   LatencyMetrics,
@@ -32,10 +33,29 @@ import type {
   VoiceEvent,
   VoiceRecording,
 } from "./recording.types";
-import { VoiceRecordingRuntime } from "./recording.runtime";
-import type { VoiceExecutorState } from "./voice-executor-state";
 import { WebRTCVadFallback } from "./vad";
-import { PendingTransportError } from "./adapters/pending-transport-error";
+import type { VoiceExecutorState } from "./voice-executor-state";
+import type { AgentInput, AgentReturnTypes } from "../domain/agents";
+import { Logger } from "../utils/logger";
+
+/** Shared drain logger — surfaces the #747 max-duration / ceiling warnings. */
+const logger = new Logger("voice.adapter.runtime");
+
+/**
+ * A `Promise<void>` paired with its external `resolve` handle. The Promise
+ * executor runs synchronously, so `resolve` is always captured before this
+ * returns; the guard states that contract rather than asserting it away.
+ */
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: (() => void) | undefined;
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+  if (!resolve) {
+    throw new Error("createDeferred: Promise executor did not run synchronously");
+  }
+  return { promise, resolve };
+}
 
 /**
  * `asyncio.Event` analogue: a `Promise<void>` + external resolve handle.
@@ -47,13 +67,13 @@ import { PendingTransportError } from "./adapters/pending-transport-error";
  */
 export class AgentSpeakingEvent {
   private resolved = false;
-  private resolveFn!: () => void;
+  private resolveFn: () => void;
   private promise: Promise<void>;
 
   constructor() {
-    this.promise = new Promise<void>((resolve) => {
-      this.resolveFn = resolve;
-    });
+    const deferred = createDeferred();
+    this.promise = deferred.promise;
+    this.resolveFn = deferred.resolve;
   }
 
   /** Resolve any pending {@link wait} callers and stay resolved. */
@@ -82,15 +102,40 @@ export class AgentSpeakingEvent {
   /** Rebuild the underlying promise so the next turn can wait again. */
   clear(): void {
     this.resolved = false;
-    this.promise = new Promise<void>((resolve) => {
-      this.resolveFn = resolve;
-    });
+    const deferred = createDeferred();
+    this.promise = deferred.promise;
+    this.resolveFn = deferred.resolve;
   }
 }
 
 const SAFE_DEFAULT_RESPONSE_TIMEOUT_S = 30;
 const SAFE_DEFAULT_TAIL_SILENCE_S = 0.6;
 const SAFE_DEFAULT_MAX_DURATION_S = 30;
+/**
+ * Absolute ceiling on ONE agent turn's audio, as a multiple of
+ * `responseMaxDuration` (#747). The old drain STOPPED at `responseMaxDuration`
+ * and abandoned any audio still queued — a mid-utterance CHOP whose remainder
+ * bled into the next turn. Now `responseMaxDuration` is a soft cap that only
+ * WARNS: the drain keeps consuming audio that is genuinely still arriving so a
+ * long-but-single utterance lands whole. This ceiling is the runaway backstop
+ * that replaces the chop — a real utterance always ends earlier via tail-silence,
+ * so it fires only for a transport that never signals end-of-stream (AC4b). 2x
+ * leaves generous headroom for a legitimately long utterance (the real repro is
+ * a ~50s greeting vs the 30s cap = 1.67x) while still bounding an infinite stream.
+ *
+ * SEMANTIC CHANGE (intended): `responseMaxDuration` is no longer a HARD per-turn
+ * cap — it is a soft target that warns; the hard bound is now `2×` it. A
+ * *never-silent* transport (a runaway/looping agent) therefore blocks the drain up
+ * to ~2× longer worst-case than before (~60s at the 30s default). This is the cost
+ * of not splitting a legitimately long utterance and affects only the pathological
+ * never-goes-silent case — a real agent falls silent between utterances and drains
+ * via tail-silence well before the ceiling. Callers needing a tighter per-turn
+ * wall-clock bound should lower `responseMaxDuration`.
+ */
+const MAX_DURATION_CEILING_FACTOR = 2;
+const SAFE_DEFAULT_TRANSCRIPT_GRACE_WAIT_S = 2.0;
+/** Poll interval for the transcript grace-wait — fine enough to add no felt latency. */
+const TRANSCRIPT_GRACE_POLL_MS = 10;
 
 /**
  * Per-scenario VAD fallback registry. Keyed by adapter instance so the
@@ -260,6 +305,16 @@ export async function defaultVoiceCall(
 
   const incoming = extractIncomingAudio(input.newMessages);
   if (incoming) {
+    // #747 — BEFORE committing this user turn, reconcile any audio still queued
+    // from the PRIOR agent turn. At this instant (the user is replying; the
+    // hosted agent has not begun its next reply) queued agent audio can only be
+    // prior-turn leftover — the split remainder a >ceiling utterance or a rare
+    // gap-split stranded. Attribute it to the prior agent segment (cursor-safe
+    // here, BEFORE recordUser lays the user segment) so the next drain does not
+    // shift it out as the fake first audio of a new turn. Skipped when there is
+    // no prior agent segment (the opening greeting), so the greeting is never
+    // reconciled away (AC8).
+    reconcilePriorAgentAudio(adapter, state);
     await adapter.sendAudio(incoming);
     feedVad(adapter, incoming);
     recorder.recordUser(incoming);
@@ -281,6 +336,22 @@ export async function defaultVoiceCall(
   const merged = await drainAgentResponse(adapter, speakingEvent, () => {
     recorder.markAgentStart();
   });
+  // #734 — bounded grace-wait for the pending transcript BEFORE the back-fill
+  // reads it. Audio silence closed the turn above (`responseTailSilence`), but a
+  // live voice agent (hosted ElevenLabs) sends the turn's text on a SEPARATE
+  // socket event that can land AFTER the audio-silence boundary. Snapshotting
+  // `lastAgentTranscript` at drain-close would then read `null` → the turn
+  // reaches the text-only simulator as a bare `[audio message]` and it
+  // fabricates. Wait (bounded) for the transcript event instead of racing it.
+  // Gated on `merged` having audio: a no-audio turn is never labeled anyway
+  // (attachAgentTurnTranscript short-circuits on empty data), so there is
+  // nothing to wait for. awaitAgentTranscript itself short-circuits both when the
+  // transcript is already present AND when the adapter does not expose the
+  // `lastAgentTranscript` convention at all (Twilio/Pipecat/Composable) — so a
+  // transcript-less adapter pays ZERO added latency here.
+  if (merged.data.length > 0 && !merged.transcript) {
+    await awaitAgentTranscript(adapter);
+  }
   // Carry the agent turn's NATIVE transcript onto the chunk when the merged
   // audio has none (#705). A live voice agent (hosted ElevenLabs, Gemini Live,
   // OpenAI Realtime) streams raw PCM frames with NO per-chunk transcript but
@@ -327,6 +398,59 @@ function attachAgentTurnTranscript(
 }
 
 /**
+ * Bounded grace-wait for the agent turn's native transcript (#734).
+ *
+ * Audio silence closes the turn in {@link drainAgentResponse}, but a live voice
+ * agent (hosted ElevenLabs) delivers the turn's text on a SEPARATE socket event
+ * (`agent_response` → `lastAgentTranscript`) that can land AFTER the audio
+ * boundary. This polls `lastAgentTranscript` up to `adapter.transcriptGraceWait`
+ * seconds so a transcript arriving within the window is present when
+ * {@link attachAgentTurnTranscript} reads it.
+ *
+ * Short-circuits (returns immediately, no timer, ZERO added latency) when the
+ * transcript is ALREADY set at entry — the common happy path where the
+ * transcript won the race (AC3, no-regression). Bounded so a genuine
+ * ElevenLabs drop (transcript never sent) still terminates the turn after the
+ * ceiling. A `transcriptGraceWait` of 0 disables the wait entirely.
+ *
+ * Duck-typed on `lastAgentTranscript` (symmetric with the read/reset) so it
+ * composes with every adapter following the harness convention without widening
+ * the base contract.
+ *
+ * CRITICAL — only adapters that actually EXPOSE the `lastAgentTranscript`
+ * convention are waited on. An adapter that does NOT declare the field
+ * (Twilio/Pipecat return raw audio; Composable carries its text on a different
+ * field) can never populate it, so waiting on it would burn the full
+ * `transcriptGraceWait` ceiling EVERY turn for nothing — seconds of artificial
+ * latency across a long `proceed()` run. For those, the property is absent and
+ * we skip the wait entirely (property present-but-null → wait; property absent
+ * → no wait). This is why the base-class default (2.0s) is safe to ship on the
+ * shared `VoiceAgentAdapter`: it only ever costs a transcript-capable adapter.
+ */
+async function awaitAgentTranscript(adapter: VoiceAgentAdapter): Promise<void> {
+  // Absent property → this adapter does not use the native-transcript convention;
+  // waiting could never succeed, so skip (zero added latency). Present-but-null →
+  // the transcript event is pending; fall through and wait for it.
+  if (!("lastAgentTranscript" in (adapter as object))) return;
+
+  const hasTranscript = (): boolean => {
+    const native = (adapter as { lastAgentTranscript?: string | null })
+      .lastAgentTranscript;
+    return typeof native === "string" && native.length > 0;
+  };
+  if (hasTranscript()) return;
+
+  const ceilingS = adapter.transcriptGraceWait ?? SAFE_DEFAULT_TRANSCRIPT_GRACE_WAIT_S;
+  if (ceilingS <= 0) return;
+
+  const deadline = Date.now() + ceilingS * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, TRANSCRIPT_GRACE_POLL_MS));
+    if (hasTranscript()) return;
+  }
+}
+
+/**
  * Null the adapter's `lastAgentTranscript` at agent-turn start so the back-fill
  * ({@link attachAgentTurnTranscript}) reads only the transcript produced during
  * THIS turn's drain. Duck-typed (symmetric with the read) — adapters that do not
@@ -337,6 +461,122 @@ function resetAgentTurnTranscript(adapter: VoiceAgentAdapter): void {
     (adapter as { lastAgentTranscript?: string | null }).lastAgentTranscript =
       null;
   }
+}
+
+/**
+ * #747 — reconcile prior-turn leftover audio at a user-turn boundary.
+ *
+ * A split utterance can strand audio in a buffering adapter's queue: a single
+ * utterance longer than the drain's `2× responseMaxDuration` ceiling, or a rare
+ * gap-split whose continuation lands after the turn already closed. Left alone,
+ * the next {@link drainAgentResponse} shifts that leftover out as the fake first
+ * audio of a new agent turn — the bleed #747 fixes.
+ *
+ * This runs at pre-user-`sendAudio`, BEFORE {@link AdapterRecorder.recordUser}.
+ * The queue is drained UNCONDITIONALLY first — so stranded prior-turn audio can
+ * never bleed out as the next drain's fake first audio, even on the cursor-unsafe
+ * barge-in path (where a user segment is already last on the cursor). Only the
+ * ATTRIBUTION of the drained audio is position-gated:
+ *
+ *  - Cursor-safe (a prior AGENT segment is still last on the byte cursor —
+ *    recordUser has not laid the user segment yet, review M1 invariant): grow that
+ *    segment. Extending its `endTime` + advancing the cursor cannot overlap a later
+ *    segment. The grown bytes are ALSO routed through {@link fireAudioChunk} (so
+ *    the `onAudioChunk` hook + live playback sink receive them, like every other
+ *    recorded agent chunk) and the segment is flagged for the finalize STT
+ *    back-fill (its existing transcript may not cover a gap-split continuation).
+ *  - Cursor-unsafe (no recording, the opening greeting with no prior agent segment
+ *    → AC8, or a barge-in where a user segment is last → AC9): the audio is already
+ *    out of the queue (no bleed), so it is DROPPED with a warning rather than
+ *    corrupting the append-only cursor by growing an out-of-order segment. The
+ *    dropped tail is the post-interrupt remainder the barge-in cut off.
+ *
+ * Duck-typed on `reconcilePendingAudio` (symmetric with the `lastAgentTranscript`
+ * convention): adapters without a buffered queue expose no such method and are
+ * untouched (Twilio/Pipecat/composable/OpenAI-Realtime/Gemini).
+ *
+ * Known limitation: for a SINGLE continuous utterance exceeding the drain's `2×
+ * responseMaxDuration` ceiling, frames the transport delivers AFTER this snapshot
+ * (during the subsequent `sendAudio`) can still bleed — this reconcile is a
+ * point-in-time drain, not a subscription. The realistic case (EL bursts a >30s
+ * greeting; the un-chop consumes it whole via tail-silence) is fully covered.
+ */
+function reconcilePriorAgentAudio(
+  adapter: VoiceAgentAdapter,
+  state: VoiceExecutorState | null,
+): void {
+  const reconcile = (
+    adapter as { reconcilePendingAudio?: () => AudioChunk | null }
+  ).reconcilePendingAudio;
+  if (typeof reconcile !== "function" || !state) return;
+  // Drain the queue FIRST, unconditionally — this is what prevents the bleed. The
+  // attribution below is best-effort and never gates the drain.
+  const leftover = reconcile.call(adapter);
+  if (!leftover || leftover.data.length === 0) return;
+
+  const segments = state.voiceRecording?.segments;
+  const last =
+    segments && segments.length > 0
+      ? segments[segments.length - 1]
+      : undefined;
+  // Attribute only when the prior AGENT segment is still last on the cursor.
+  if (!last || last.speaker !== "agent") {
+    logger.warn(
+      "drained prior-turn leftover audio at a boundary where it cannot be " +
+        "attributed cursor-safely (no prior agent segment, or a user segment is " +
+        "last, e.g. barge-in) — dropped so it is not emitted as a fake next turn " +
+        "(#747)",
+      { droppedSeconds: leftover.durationSeconds },
+    );
+    return;
+  }
+  // Cursor-safe: deliver the reconciled bytes to the hooks/playback sink (parity
+  // with recordAgent → fireAudioChunk), then grow the segment.
+  fireAudioChunk(state, leftover);
+  const oldEnd = last.endTime;
+  const grown = new Uint8Array(last.audio.length + leftover.data.length);
+  grown.set(last.audio, 0);
+  grown.set(leftover.data, last.audio.length);
+  last.audio = grown;
+  last.endTime = oldEnd + leftover.durationSeconds;
+  state.voiceAudioCursor = last.endTime;
+  // The grown audio may carry speech the segment's transcript does not cover (a
+  // gap-split continuation) — flag it so the finalize STT back-fill re-transcribes
+  // it (the back-fill otherwise skips segments that already have a transcript).
+  last.transcriptTruncated = true;
+  // Keep the timeline consistent with the grown segment: recordAgent emitted
+  // agent_stop_speaking at oldEnd, so move it to the new end (this reconcile grows
+  // the segment out-of-band; re-establish the recordAgent endTime↔stop invariant).
+  moveAgentStopSpeaking(state, oldEnd, last.endTime);
+  logger.warn(
+    "reconciled prior-turn leftover audio into the previous agent segment so it " +
+      "is not emitted as a fake next turn (#747)",
+    { reconciledSeconds: leftover.durationSeconds },
+  );
+}
+
+/**
+ * Move the most-recent `agent_stop_speaking` event from `oldTime` to `newTime`
+ * (#747). {@link appendEvent} pushes the SAME event object to both
+ * `voiceTimeline` and `voiceRecording.timeline`, so mutating it once via the
+ * recording timeline updates both sinks. No-op if no matching event is found.
+ */
+function moveAgentStopSpeaking(
+  state: VoiceExecutorState,
+  oldTime: number,
+  newTime: number,
+): void {
+  const timeline = state.voiceRecording?.timeline;
+  if (!timeline) return;
+  // `findLast` walks from the end, so this is the most-recent match — the same
+  // event the old reverse scan settled on. It returns `VoiceEvent | undefined`,
+  // which makes the check below a real guard rather than an assertion.
+  const event = timeline.findLast(
+    (candidate) =>
+      candidate.type === "agent_stop_speaking" &&
+      Math.abs(candidate.time - oldTime) < 1e-6,
+  );
+  if (event) event.time = newTime;
 }
 
 /**
@@ -374,6 +614,8 @@ async function drainAgentResponse(
     adapter.responseTimeout ?? SAFE_DEFAULT_RESPONSE_TIMEOUT_S;
   const maxDuration =
     adapter.responseMaxDuration ?? SAFE_DEFAULT_MAX_DURATION_S;
+  // The runaway backstop that replaces the old mid-utterance chop (#747).
+  const hardCeiling = maxDuration * MAX_DURATION_CEILING_FACTOR;
 
   const first = await adapter.receiveAudio(responseTimeout);
   if (first.data.length > 0) {
@@ -383,7 +625,26 @@ async function drainAgentResponse(
 
   const chunks: AudioChunk[] = [first];
   let accumulated = first.durationSeconds;
-  while (accumulated < maxDuration) {
+  let softCapWarned = false;
+  // Warn ONCE the first time accumulated audio crosses the soft cap — covering a
+  // first chunk that already exceeds it, not only later chunks.
+  const maybeWarnSoftCap = (): void => {
+    if (accumulated >= maxDuration && !softCapWarned) {
+      softCapWarned = true;
+      logger.warn(
+        "agent turn exceeded responseMaxDuration; continuing to drain in-flight " +
+          "audio so the utterance is not split across turns (#747)",
+        { responseMaxDurationS: maxDuration, accumulatedS: accumulated },
+      );
+    }
+  };
+  maybeWarnSoftCap();
+  // Drain until a REAL turn-end signal: tail-silence (the `catch`, the agent
+  // stopped talking) or a terminal empty chunk. `responseMaxDuration` no longer
+  // ends the loop — it only warns — so already-arriving audio for a single long
+  // utterance is not abandoned in the adapter's queue to bleed into the next turn
+  // (#747). The hard ceiling still bounds a transport that never goes silent.
+  while (accumulated < hardCeiling) {
     let next: AudioChunk;
     try {
       next = await adapter.receiveAudio(tailSilence);
@@ -395,12 +656,23 @@ async function drainAgentResponse(
     }
     chunks.push(next);
     accumulated += next.durationSeconds;
+    maybeWarnSoftCap();
+  }
+  if (accumulated >= hardCeiling) {
+    // Reached the absolute ceiling without a tail-silence / terminal signal — a
+    // transport that never signalled end-of-stream. Bounded + warned, never a
+    // silent cap and never an infinite wedge (AC4b).
+    logger.warn(
+      "agent turn hit the absolute audio ceiling; terminating the drain (the " +
+        "transport never signalled end-of-stream)",
+      { ceilingS: hardCeiling, responseMaxDurationS: maxDuration },
+    );
   }
   return mergeChunks(chunks);
 }
 
 function mergeChunks(chunks: AudioChunk[]): AudioChunk {
-  if (chunks.length === 1) return chunks[0]!;
+  if (chunks.length === 1) return chunks[0];
   const total = chunks.reduce((acc, c) => acc + c.data.length, 0);
   const data = new Uint8Array(total);
   let offset = 0;

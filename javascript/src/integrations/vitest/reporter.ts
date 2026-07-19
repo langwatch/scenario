@@ -111,8 +111,12 @@ class VitestReporter implements Reporter {
     for (const event of events) {
       const runId =
         (event as { scenarioRunId?: string }).scenarioRunId ?? "unknown";
-      if (!runs.has(runId)) runs.set(runId, []);
-      runs.get(runId)!.push(event);
+      let bucket = runs.get(runId);
+      if (!bucket) {
+        bucket = [];
+        runs.set(runId, bucket);
+      }
+      bucket.push(event);
     }
 
     for (const [runId, runEvents] of Array.from(runs.entries())) {

@@ -33,9 +33,9 @@ export {
 export { pcm16ToWav } from "./wav";
 
 // --- Registration (side effects) ------------------------------------------
-import { registerSttProvider } from "./stt-provider";
-import { OpenAISTTProvider } from "./openai-stt";
 import { ElevenLabsSTTProvider } from "./elevenlabs-stt";
+import { OpenAISTTProvider } from "./openai-stt";
+import { registerSttProvider } from "./stt-provider";
 
 registerSttProvider("openai", (model) =>
   model ? new OpenAISTTProvider({ model }) : new OpenAISTTProvider(),

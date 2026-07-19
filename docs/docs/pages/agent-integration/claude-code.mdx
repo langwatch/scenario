@@ -1,0 +1,195 @@
+---
+title: Claude Code Adapter
+description: Drive the Claude Code CLI as an agent-under-test in a Scenario run — tests real skill discovery and permission behaviour, not a mock.
+---
+
+# `ClaudeCodeAgentAdapter`
+
+Drives the Claude Code CLI (`claude -p --output-format stream-json`) as an
+agent-under-test inside a Scenario run. Because it spawns the real binary,
+skill loading, CLAUDE.md discovery, and permission prompts behave exactly as
+they do in production — making it the right tool for testing Claude Code skills
+and subagents end-to-end.
+
+> **Placement note:** This page lives under `agent-integration/` rather than
+> `voice/adapters/`. The decision to back this adapter with the CLI (not the
+> Anthropic SDK) is intentional — see PR / issue #686 for rationale. Maintainers
+> may relocate this page once a canonical non-voice adapter section is
+> established.
+
+:::info TypeScript only
+
+The Claude Code adapter is TypeScript-only today. Python parity is tracked as a
+follow-up.
+
+:::
+
+## Constructor
+
+:::code-group
+
+```typescript [typescript]
+import scenario from "@langwatch/scenario";
+import { claudeCodeAgent } from "@langwatch/scenario";
+import path from "path";
+
+const result = await scenario.run({
+  name: "My skill scenario",
+  agents: [
+    claudeCodeAgent({
+      workingDirectory: "/tmp/my-project",
+      model: "claude-sonnet-4-5",
+      skillPath: path.resolve(__dirname, "../skills/my-skill/SKILL.md"),
+      skipPermissions: true, // only in sandboxed / CI environments
+      timeout: 60_000,
+    }),
+    scenario.userSimulatorAgent(),
+    scenario.judgeAgent({
+      criteria: ["Agent completed the task correctly"],
+    }),
+  ],
+  script: [scenario.user("Do something"), scenario.agent(), scenario.judge()],
+});
+```
+
+:::
+
+`claudeCodeAgent(config)` is the recommended factory. It wraps
+`new ClaudeCodeAgentAdapter(config)` and additionally injects the skill (if
+`skillPath` is set) before the adapter is returned.
+
+## Configuration
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `workingDirectory` | `string` | **required** | Directory the CLI is spawned in. All file reads/writes resolve relative to this. |
+| `model` | `string` | CLI default | Passed as `--model <model>`. Omit to let the CLI use its own default. |
+| `timeout` | `number` | `120000` | Per-call timeout in ms. The child is killed and the call rejects on exceed. |
+| `skipPermissions` | `boolean` | `false` | When `true`, passes `--dangerously-skip-permissions`. Off by default — opt in only in sandboxed or CI contexts. |
+| `replayOnLostSession` | `boolean` | `false` | What to do when a `--resume`d session has vanished server-side. `false` (default) rejects the turn with an actionable error; `true` rebuilds it in place from the full transcript against a fresh session. Off by default because the rebuild loses server-side session state — see [Session continuation](#caveats). |
+| `skillPath` | `string` | — | Absolute path to a `SKILL.md` to inject into the working directory before the CLI runs (see [Skill testing](#skill-testing)). |
+| `logger` | `Logger` | no-op | Receives all diagnostic output (`log` and `warn`). Omit for silent operation. |
+| `extraArgs` | `string[]` | `[]` | Extra CLI arguments inserted before the prompt. Use for flags not modelled by config fields. |
+| `claudeBin` | `string` | `"claude"` | Path or name of the Claude Code binary. Resolution order: `claudeBin` → `CLAUDE_BIN` env var → `"claude"`. |
+
+## Skill testing
+
+The adapter's distinguishing feature is first-class skill testing:
+
+**Injection via `skillPath`** — pass an absolute path to a `SKILL.md` and the
+factory will copy it into `<workingDirectory>/.skills/<skill-name>/SKILL.md`
+and write a `CLAUDE.md` (if one does not already exist) that instructs Claude
+to read the skill before doing anything else. The injected layout matches
+Claude Code's native discovery conventions.
+
+**Asserting the skill was read** — after the scenario run, call
+`assertSkillWasRead(state, skillName)` to verify that the skill file actually
+appeared in the conversation. It throws (naming the skill) if no read evidence
+is found, catching cases where the agent hallucinated instructions rather than
+reading the skill.
+
+```typescript
+import { assertSkillWasRead } from "@langwatch/scenario";
+
+// inside your test, after scenario.run():
+assertSkillWasRead(result, "my-skill");
+```
+
+`skillName` is the parent directory name of the `SKILL.md` — i.e. the segment
+in `.skills/<skillName>/SKILL.md`.
+
+## Error handling
+
+`call()` rejects with `ClaudeCodeCliError` when the CLI exits non-zero or is
+killed by a signal — auth failures, rate limits, an unknown `model`, and
+similar unrecoverable errors all surface this way. That's what you get
+calling `call()` directly; through `scenario.run(...)` — the common path —
+the executor wraps every adapter error in a plain `Error`, so catch that and
+read the original off `.cause`:
+
+```typescript
+import { ClaudeCodeCliError, LostSessionError } from "@langwatch/scenario";
+
+try {
+  await scenario.run({ /* ... */ });
+} catch (err) {
+  // scenario.run wraps adapter errors — the original is on `.cause`
+  const cause = err instanceof Error ? err.cause : undefined;
+  if (cause instanceof LostSessionError) {
+    // the --resume session vanished; sessionId / threadId name the dead session
+    console.error("lost session", cause.sessionId, cause.threadId);
+  } else if (cause instanceof ClaudeCodeCliError) {
+    console.error(cause.exitCode, cause.signal, cause.stderr);
+  }
+}
+```
+
+`exitCode` (`number | null`) and `signal` (`NodeJS.Signals | null`) mirror
+Node's `child_process` exit info; `stderr` (`string`) is the CLI's captured
+output. `subtype` (`string | undefined`) is the CLI's machine-readable failure
+class off its terminal `result` envelope (e.g. `"error_during_execution"`), and
+`errors` (`string[] | undefined`) is the structured `errors[]` array the CLI
+fielded on that envelope.
+
+A vanished `--resume` session rejects with **`LostSessionError`**, a
+`ClaudeCodeCliError` subclass that additionally exposes the dead `sessionId` and
+its `threadId` and sets the originating `ClaudeCodeCliError` as `.cause`. Because
+it is a subclass, `instanceof ClaudeCodeCliError` still matches it while
+`instanceof LostSessionError` singles it out — see [Lost
+session](#caveats). (It is thrown only under the default
+`replayOnLostSession: false`; with replay on, the turn rebuilds instead of
+throwing.)
+
+:::warning `stderr` and `errors` are unredacted CLI output
+
+`stderr` and every entry of `errors[]` carry whatever the CLI wrote verbatim —
+they may include sensitive detail (environment values, a rejected API key echoed
+in an error). Both are enumerable (as is `subtype`), so they appear in
+`JSON.stringify(error)` too, and `errors[]` is additionally embedded into the
+error's `message` (falling back to `stderr` when the envelope carried no
+`errors[]`). Do not log them verbatim to shared or public sinks; redact or drop
+them before they leave a trusted boundary.
+
+:::
+
+:::warning Error messages are exported to tracing by default
+
+When an `agent.call()` fails inside `scenario.run(...)`, the error `message` —
+which embeds the CLI's `errors[]` (or `stderr`) verbatim — is exported to
+whatever tracing backend LangWatch is configured with: the span handling calls
+`recordException(err)` and `setStatus({ message: err.message })` with **no
+redaction and no opt-out**. Any sensitive detail in the CLI's error output
+therefore reaches your tracing sink on every failed turn. A scrubbing hook is
+tracked in
+[#754](https://github.com/langwatch/scenario/issues/754).
+
+:::
+
+## Caveats
+
+- **`claude` must be on `PATH`** (or pointed to via `claudeBin` / `CLAUDE_BIN`).
+  The adapter does NOT install the CLI automatically — it is not an npm
+  dependency. Install it separately:
+  [claude.ai/code](https://claude.ai/code).
+- **stream-json format stability** — the adapter parses the CLI's
+  `--output-format stream-json` output. Output shape can change across CLI
+  versions; pin the CLI version in CI if you need reproducibility.
+- **`--dangerously-skip-permissions`** — `skipPermissions: true` runs the
+  agent without any permission prompts. Only enable this in sandboxed or CI
+  environments where you control the working directory.
+- **Session continuation** — per `threadId`, the first turn sends the full
+  history with no `--resume`; later turns pass `--resume <session_id>` and
+  send only the new messages.
+- **Lost session (default: fail loudly)** — if the CLI reports that a resumed
+  session no longer exists, the adapter evicts the dead id and, **by default,
+  rejects the turn** with an actionable error naming `replayOnLostSession`.
+  Rejecting is the default on purpose: the only alternative is to rebuild the
+  turn by re-flattening the whole transcript into a fresh session, which loses
+  server-side session state (context cache, tool state) — a real modality
+  change that would silently alter what a run measures. Set
+  `replayOnLostSession: true` to opt into that rebuild; then a single `call()`
+  can spawn the CLI twice (the doomed resume, then the replay) and warns via
+  the injected `logger`. Any other CLI failure — auth, rate limit, unknown
+  model, a signal, a timeout — rejects with `ClaudeCodeCliError` (see
+  [Error handling](#error-handling)), never evicts the session, and is not
+  retried.

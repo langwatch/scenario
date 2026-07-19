@@ -33,7 +33,6 @@ import {
   AgentRole,
   type AgentInput,
   type AgentReturnTypes,
-  JudgeAgentAdapter,
   UserSimulatorAgentAdapter,
 } from "../../domain";
 import { agent, judge, user } from "../../script";
@@ -42,6 +41,7 @@ import { AudioChunk, PCM16_SAMPLE_RATE, PCM16_SAMPLE_WIDTH_BYTES } from "../audi
 import { createAudioMessage } from "../messages";
 import { VoiceRecordingRuntime } from "../recording.runtime";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
+import { PassingJudge } from "./fixtures/passing-judge";
 
 /** WAV header is 44 bytes; the PCM payload follows. */
 const WAV_HEADER_BYTES = 44;
@@ -79,18 +79,6 @@ class AudioUserSimulator extends UserSimulatorAgentAdapter {
   }
 }
 
-class PassingJudge extends JudgeAgentAdapter {
-  criteria: string[] = ["Agent responds"];
-  async call(input: AgentInput) {
-    if (!input.judgmentRequest) return null;
-    return {
-      success: true,
-      reasoning: "voice turn completed",
-      metCriteria: [...this.criteria],
-      unmetCriteria: [],
-    };
-  }
-}
 
 /**
  * Build a voice run whose agent answers in MULTIPLE chunks so the merged

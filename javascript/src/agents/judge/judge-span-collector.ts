@@ -61,8 +61,9 @@ export class JudgeSpanCollector implements SpanProcessor {
         return true;
       }
       const parentId = getParentSpanId(span);
-      if (parentId && spanMap.has(parentId)) {
-        return belongsToThread(spanMap.get(parentId)!, visited);
+      const parentSpan = parentId ? spanMap.get(parentId) : undefined;
+      if (parentSpan) {
+        return belongsToThread(parentSpan, visited);
       }
       return false;
     };

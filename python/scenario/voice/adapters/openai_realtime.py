@@ -306,6 +306,15 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         """Open the Realtime WebSocket and send the initial session.update."""
         import websockets
 
+        # Issue #662 / reconnect hygiene (JS parity — openai-realtime.ts connect()):
+        # a reused adapter instance must start each connection with a clean slate.
+        # Clearing _response_active matters most: a disconnect mid-response would
+        # otherwise leave it True, and the next turn's user-audio commit would take
+        # the defer branch forever (no response.done ever arrives to fire it), draining
+        # recv_audio to timeout.
+        self._response_active = False
+        self._deferred_response_create = False
+
         self._ws = await websockets.connect(
             self.url,
             additional_headers={
@@ -354,6 +363,11 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 pass
             finally:
                 self._ws = None
+            # Issue #662 / reconnect hygiene (JS parity): clear response-lifecycle
+            # guard state on teardown so a reused adapter instance does not carry a
+            # stale active/deferred flag into its next connection.
+            self._response_active = False
+            self._deferred_response_create = False
             logger.debug("OpenAIRealtimeAgentAdapter: disconnected")
 
     # ------------------------------------------------------------------ I/O
@@ -417,6 +431,7 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         if self._pending_audio_bytes > 0:
             await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
             self._pending_audio_bytes = 0
+            self._agent_turn_pending = False  # user spoke → per-turn signal consumed (always)
             if self._response_active:
                 # Race guard (#657): server rejects/ignores a duplicate
                 # response.create while a response is in flight, which causes the
@@ -425,10 +440,8 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
                 # the response.done handler fires response.create once the in-flight
                 # response clears.
                 self._deferred_response_create = True
-                self._agent_turn_pending = False  # user spoke → consume turn signal even when deferred
             else:
                 await self._ws.send(json.dumps({"type": "response.create"}))
-                self._agent_turn_pending = False  # user spoke → per-turn signal consumed
 
         # Gap 1: agent-speaks-first / multi-turn agent initiation.
         # When the executor signals an agent turn via notify_agent_turn() and
@@ -716,7 +729,12 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
             )
         )
         # Prompt the model to generate audio output.
+        # Guard: if a response is already in flight, defer the create rather than
+        # firing unconditionally — mirrors the recv_audio user-audio branch guard.
+        if self._response_active:
+            self._deferred_response_create = True
+            return
         await self._ws.send(json.dumps({"type": "response.create"}))
         logger.debug(
-            "OpenAIRealtimeAgentAdapter: send_text injected %r", text[:60]
+            "OpenAIRealtimeAgentAdapter: send_text injected text (%d chars)", len(text)
         )

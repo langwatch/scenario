@@ -76,7 +76,7 @@ export class CrescendoStrategy implements RedTeamStrategy {
       }
     }
     // Should not be reached — last phase end is Infinity
-    const last = PHASES[PHASES.length - 1]!;
+    const last = PHASES[PHASES.length - 1];
     return { name: last.name, instructions: last.instructions };
   }
 

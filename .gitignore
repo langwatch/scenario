@@ -195,47 +195,56 @@ docs/docs/public/reference/python/**/*
 .claude/settings.local.json
 .worktrees
 
-# Voice demo recordings — most are regenerated per local run, NOT
-# committed. But the subset listed below is checked in as PR
-# evidence: each demo's `full.wav`, `manifest.json`, and per-turn
-# `segments/` directory are the canonical "prove it" artifacts for
-# reviewers. See python/recordings/README.md.
-python/recordings/*
-!python/recordings/README.md
-!python/recordings/elevenlabs_hosted/
-!python/recordings/elevenlabs_branded/
-!python/recordings/elevenlabs_interruption/
-!python/recordings/twilio_inbound/
-!python/recordings/twilio_outbound/
-!python/recordings/gemini_live/
-!python/recordings/gemini_live_interruption/
+# Python voice demo outputs (recordings + manifests). Most are regenerated
+# per local run, NOT committed. But the subset listed below is checked in as
+# PR evidence: each demo's `full.wav`, `manifest.json`, and for the core
+# provider demos the per-turn `segments/` directory are the canonical
+# "prove it" artifacts for reviewers. See python/outputs/README.md (parent
+# index) and python/outputs/recordings/README.md (audio policy).
+#
+# Shape: outputs/ is the artifact parent (room for traces/, logs/,
+# screenshots/ later). recordings/ is the audio subdir, and only it is
+# whitelisted today; new artifact siblings will get their own block when added.
+python/outputs/*
+!python/outputs/README.md
+!python/outputs/recordings/
+python/outputs/recordings/*
+!python/outputs/recordings/README.md
+# Core provider demos: commit full.wav + manifest.json + per-turn segments/.
+!python/outputs/recordings/elevenlabs_hosted/
+!python/outputs/recordings/elevenlabs_branded/
+!python/outputs/recordings/elevenlabs_interruption/
+!python/outputs/recordings/twilio_inbound/
+!python/outputs/recordings/twilio_outbound/
+!python/outputs/recordings/gemini_live/
+!python/outputs/recordings/gemini_live_interruption/
 # Additional demos — commit only full.wav + manifest.json (skip segments/
 # to avoid hundreds of tiny per-turn wavs in the tree).
-!python/recordings/openai_realtime_agent/
-python/recordings/openai_realtime_agent/segments/
-!python/recordings/pipecat_scenario/
-python/recordings/pipecat_scenario/segments/
-!python/recordings/pipecat_ws/
-python/recordings/pipecat_ws/segments/
-!python/recordings/basic_greeting/
-python/recordings/basic_greeting/segments/
-!python/recordings/voice_text_parity/
-python/recordings/voice_text_parity/segments/
-!python/recordings/recording_playback/
-python/recordings/recording_playback/segments/
-!python/recordings/interruption_recovery/
-python/recordings/interruption_recovery/segments/
-!python/recordings/random_interruptions/
-python/recordings/random_interruptions/segments/
-!python/recordings/angry_customer/
-python/recordings/angry_customer/segments/
-!python/recordings/background_handoff/
-python/recordings/background_handoff/segments/
-!python/recordings/stt_swap/
-python/recordings/stt_swap/segments/
+!python/outputs/recordings/openai_realtime_agent/
+python/outputs/recordings/openai_realtime_agent/segments/
+!python/outputs/recordings/pipecat_scenario/
+python/outputs/recordings/pipecat_scenario/segments/
+!python/outputs/recordings/pipecat_ws/
+python/outputs/recordings/pipecat_ws/segments/
+!python/outputs/recordings/basic_greeting/
+python/outputs/recordings/basic_greeting/segments/
+!python/outputs/recordings/voice_text_parity/
+python/outputs/recordings/voice_text_parity/segments/
+!python/outputs/recordings/recording_playback/
+python/outputs/recordings/recording_playback/segments/
+!python/outputs/recordings/interruption_recovery/
+python/outputs/recordings/interruption_recovery/segments/
+!python/outputs/recordings/random_interruptions/
+python/outputs/recordings/random_interruptions/segments/
+!python/outputs/recordings/angry_customer/
+python/outputs/recordings/angry_customer/segments/
+!python/outputs/recordings/background_handoff/
+python/outputs/recordings/background_handoff/segments/
+!python/outputs/recordings/stt_swap/
+python/outputs/recordings/stt_swap/segments/
 
 # TypeScript voice demo outputs (recordings + manifests) — same policy as
-# python/recordings/ above. Regenerated per local run by the @e2e demo tests
+# python/outputs/recordings/ above. Regenerated per local run by the @e2e demo tests
 # under javascript/examples/vitest/tests/voice/; the committed subset below
 # is the canonical "prove it" audio evidence. See
 # javascript/examples/vitest/outputs/README.md (parent index) and

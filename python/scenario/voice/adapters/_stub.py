@@ -30,3 +30,28 @@ class PendingTransportError(NotImplementedError):
             "after_words interruption."
         )
         self.adapter_name = adapter_name
+
+
+class TransportNotConnectedError(PendingTransportError):
+    """Raised by the pre-turn guard when a real adapter's transport is not
+    connected at ``call()`` time — the socket dropped, or ``connect()`` was
+    never called.
+
+    Subclasses :class:`PendingTransportError` so existing
+    ``except PendingTransportError`` handlers (and the uniform pre-turn gate
+    that mirrors the TS ``PendingTransportError`` throw) still catch it, but
+    carries an ACTIONABLE message: the transport IS implemented, so the fix is
+    to ``connect()``/reconnect, not to subclass and implement send/recv.
+    """
+
+    def __init__(self, adapter_name: str) -> None:
+        # Bypass PendingTransportError.__init__ (its message tells the user to
+        # implement a transport that already exists) and set an accurate one.
+        NotImplementedError.__init__(
+            self,
+            f"{adapter_name}: transport is not connected. The executor calls "
+            "connect() at scenario start and disconnect() at end; if you drive "
+            "the adapter directly, call connect() (or reconnect) before call(). "
+            "A dropped socket also lands here — check the transport/session logs.",
+        )
+        self.adapter_name = adapter_name

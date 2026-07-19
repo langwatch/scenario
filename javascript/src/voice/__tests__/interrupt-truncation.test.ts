@@ -24,7 +24,6 @@ import {
   AgentRole,
   type AgentInput,
   type AgentReturnTypes,
-  JudgeAgentAdapter,
   UserSimulatorAgentAdapter,
 } from "../../domain";
 import { ScenarioExecution } from "../../execution/scenario-execution";
@@ -36,6 +35,7 @@ import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage } from "../messages";
 import type { AudioSegment, VoiceEvent } from "../recording.types";
 import { markTruncatedAgentSegments } from "../segment-utils";
+import { PassingJudge } from "./fixtures/passing-judge";
 
 /** A non-silent PCM16 tone (mono, 24kHz) carrying a transcript. */
 function tone(durationSeconds: number, transcript: string): AudioChunk {
@@ -174,13 +174,6 @@ class AudioUserSim extends UserSimulatorAgentAdapter {
   }
 }
 
-class PassingJudge extends JudgeAgentAdapter {
-  criteria = ["ok"];
-  async call(input: AgentInput) {
-    if (!input.judgmentRequest) return null;
-    return { success: true, reasoning: "done", metCriteria: ["ok"], unmetCriteria: [] };
-  }
-}
 
 /** Voice agent that produces a LONG reply (many chunks) so a barge-in lands within it. */
 class VerboseVoiceAdapter extends VoiceAgentAdapter {

@@ -33,7 +33,7 @@ export function phoneQuality(): EffectFn {
 
     // Zero-pad real input into the interleaved complex format expected by realTransform
     const realInput = new Array<number>(fftSize).fill(0);
-    for (let i = 0; i < n; i++) realInput[i] = arr[i]!;
+    for (let i = 0; i < n; i++) realInput[i] = arr[i];
 
     // forward transform → complex array (interleaved: [re0, im0, re1, im1, ...])
     const spectrum = fft.createComplexArray();
@@ -61,12 +61,12 @@ export function phoneQuality(): EffectFn {
     // Extract real parts, truncate to original length
     const filtered = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      filtered[i] = reconstructed[i * 2]!;
+      filtered[i] = reconstructed[i * 2];
     }
 
     // Mild tanh compression
     for (let i = 0; i < n; i++) {
-      filtered[i] = Math.tanh(filtered[i]! / 16000) * 16000;
+      filtered[i] = Math.tanh(filtered[i] / 16000) * 16000;
     }
 
     return int16ToPcm16(filtered);
@@ -137,9 +137,9 @@ export function echo(delayMs = 200, decay = 0.5): EffectFn {
 
     const out = new Float32Array(arr.length);
     for (let i = 0; i < arr.length; i++) {
-      out[i] = arr[i]!;
+      out[i] = arr[i];
       if (i >= delaySamples) {
-        out[i] += arr[i - delaySamples]! * decay;
+        out[i] += arr[i - delaySamples] * decay;
       }
     }
     return int16ToPcm16(out);
@@ -163,7 +163,7 @@ export function robotic(): EffectFn {
     for (let i = 0; i < arr.length; i++) {
       const t = i / sr;
       const carrier = Math.sin(2 * Math.PI * 100 * t);
-      out[i] = arr[i]! * carrier;
+      out[i] = arr[i] * carrier;
     }
     return int16ToPcm16(out);
   };

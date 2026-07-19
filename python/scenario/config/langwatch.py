@@ -19,25 +19,32 @@ class LangWatchSettings(BaseSettings):
     Attributes:
         endpoint: LangWatch API endpoint URL
         api_key: API key for LangWatch authentication
+        project_id: Optional LangWatch project ID. When set, requests scope to
+            this project via the X-Project-Id header. Required for API keys
+            that are not bound to a single project.
 
     Environment Variables:
         LANGWATCH_ENDPOINT: LangWatch API endpoint (defaults to https://app.langwatch.ai)
         LANGWATCH_API_KEY: API key for authentication (defaults to empty string)
+        LANGWATCH_PROJECT_ID: Project ID for project-scoped requests (defaults to empty string)
 
     Example:
         ```
         # Using environment variables
         # export LANGWATCH_ENDPOINT="https://app.langwatch.ai"
         # export LANGWATCH_API_KEY="your-api-key"
+        # export LANGWATCH_PROJECT_ID="project_xxx"
 
         settings = LangWatchSettings()
-        print(settings.endpoint)  # https://app.langwatch.ai
-        print(settings.api_key)   # your-api-key
+        print(settings.endpoint)    # https://app.langwatch.ai
+        print(settings.api_key)     # your-api-key
+        print(settings.project_id)  # project_xxx
 
         # Or override programmatically
         settings = LangWatchSettings(
             endpoint="https://custom.langwatch.ai",
-            api_key="your-api-key"
+            api_key="your-api-key",
+            project_id="project_xxx",
         )
         ```
     """
@@ -49,3 +56,7 @@ class LangWatchSettings(BaseSettings):
         description="LangWatch API endpoint URL",
     )
     api_key: str = Field(default="", description="API key for LangWatch authentication")
+    project_id: str = Field(
+        default="",
+        description="LangWatch project ID, sent as X-Project-Id when present",
+    )

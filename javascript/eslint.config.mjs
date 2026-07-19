@@ -75,4 +75,15 @@ export default defineConfig([
       ],
     },
   },
+  {
+    // Forbid non-null assertions (`!`) in shipped library source. Tests and
+    // examples legitimately assert known-present fixtures, so the rule is
+    // scoped to non-test `src/` only; extending the lint gate to the rest of
+    // the package is tracked in #565.
+    files: ["src/**/*.ts"],
+    ignores: ["src/**/*.test.ts", "src/**/__tests__/**"],
+    rules: {
+      "@typescript-eslint/no-non-null-assertion": "error",
+    },
+  },
 ]);

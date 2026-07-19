@@ -1,7 +1,92 @@
 version: 2
+
+# Update policy (mirrors langwatch/langwatch):
+#   - Weekly (Monday) so version churn arrives as one predictable batch.
+#   - Coordinated dependency families are each grouped into one PR via
+#     `patterns`; the JS workspaces share one entry through `directories` so a
+#     shared dependency is bumped across them together. A `minor-and-patch`
+#     catch-all sweeps the long tail; ungrouped majors stay individual.
+#   - Security updates are NOT grouped (no group targets security-updates), so
+#     every advisory fix stays an independent, individually-mergeable PR that
+#     lands as soon as a patched version is available.
 updates:
+  - package-ecosystem: "npm"
+    directories:
+      - "/javascript"
+      - "/docs"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 20
+    groups:
+      opentelemetry:
+        applies-to: version-updates
+        patterns:
+          - "@opentelemetry/*"
+          - "import-in-the-middle"
+      ai-sdk:
+        applies-to: version-updates
+        patterns:
+          - "@ai-sdk/*"
+          - "ai"
+      vitest:
+        applies-to: version-updates
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      eslint:
+        applies-to: version-updates
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+          - "eslint-plugin-*"
+          - "eslint-import-resolver-*"
+      typescript-native-preview:
+        applies-to: version-updates
+        patterns:
+          - "@typescript/native-preview"
+      types:
+        applies-to: version-updates
+        patterns:
+          - "@types/*"
+      minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 20
+    groups:
+      opentelemetry:
+        applies-to: version-updates
+        patterns:
+          - "opentelemetry-*"
+          - "openinference-*"
+      minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"

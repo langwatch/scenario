@@ -303,6 +303,10 @@ export default defineConfig({
           text: "Vercel AI SDK",
           link: "/agent-integration/vercel-ai",
         },
+        {
+          text: "Claude Code",
+          link: "/agent-integration/claude-code",
+        },
       ],
     },
     {

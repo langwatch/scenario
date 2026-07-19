@@ -57,25 +57,26 @@
 import { Buffer } from "node:buffer";
 
 import { openai } from "@ai-sdk/openai";
-import type { LanguageModel } from "ai";
 // The Conversation constructor types its `client` as the *base* Fern client
 // (`@elevenlabs/elevenlabs-js/Client`), NOT the root-export wrapper
 // (`@elevenlabs/elevenlabs-js`). The wrapper extends the base but, under TS
 // private-field nominal typing, is not assignable to it — so the hosted adapter
 // constructs the base client directly. (STT/TTS keep using the root wrapper.)
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
 // EXPLICIT-FILE imports: a directory/package import of `.../conversation` resolves
 // to its `index.js` barrel, which fails under our ESM (`moduleResolution: bundler`)
 // build — import the concrete files instead.
-import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation";
 import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface";
+import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation";
 import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/ConversationClient";
 import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
+import type { LanguageModel } from "ai";
 
 import { AgentRole } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
+import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
-import { VoiceAgentAdapter } from "../adapter";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
   ELEVENLABS_DEFAULT_VOICE_ID,
@@ -372,6 +373,20 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   lastAgentTranscript: string | null = null;
 
   /**
+   * Wall-clock (ms) of the most-recent agent AUDIO frame for the current turn
+   * (#734). Set in {@link onAgentAudio}; read in `callbackAgentResponse` to log
+   * how far the `agent_response` TRANSCRIPT event lags the audio it describes.
+   * That per-turn lag is the direct measurement behind the grace-wait: a
+   * POSITIVE lag past `responseTailSilence` is a turn that would have lost the
+   * race (transcript arriving after audio-silence drain-close) — i.e. the
+   * late-vs-never signal the fix (AC4) makes observable in live runs.
+   */
+  private lastAgentAudioAtMs: number | null = null;
+
+  /** Debug logger for the #734 transcript-lag instrumentation (AC4). */
+  private readonly logger = new Logger("ElevenLabsAgentAdapter");
+
+  /**
    * How many user turns this adapter committed by streaming real PCM. The
    * voice-specific assertion keys on this together with {@link
    * lastUserTranscript}: a non-empty `user_transcript` after `audioCommitCount`
@@ -469,6 +484,19 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         this.lastUserTranscript = transcript;
       },
       callbackAgentResponse: (response) => {
+        // #734 (AC4) — measure how far this transcript event lags the audio it
+        // describes. A lag exceeding `responseTailSilence` is a turn whose
+        // transcript would have LOST the drain-close race pre-fix; the grace-wait
+        // now covers it. Emitting the per-turn lag makes late-vs-never (the
+        // issue's open question) observable in a forced-race run. Debug-level:
+        // silent by default, surfaced with LOG_LEVEL=debug.
+        const audioAt = this.lastAgentAudioAtMs;
+        const lagMs = audioAt !== null ? Date.now() - audioAt : null;
+        this.logger.debug("agent_response transcript received", {
+          transcriptLagMs: lagMs,
+          responseTailSilenceMs: this.responseTailSilence * 1000,
+          lostRacePreFix: lagMs !== null && lagMs > this.responseTailSilence * 1000,
+        });
         this.lastAgentTranscript = response;
       },
       callbackAgentResponseCorrection: (_original, corrected) => {
@@ -512,6 +540,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // user turn ({@link enqueueSpeech} clears the flag). Idempotent — the FIRST
     // agent frame of the response is the real transition; later frames re-assert it.
     this.awaitingUserTurn = true;
+    // #734 — stamp the last agent-audio arrival so callbackAgentResponse can log
+    // transcript-lag-vs-audio-drain. Every frame re-stamps; the field therefore
+    // holds the LAST audio frame of the turn, the tightest baseline for the lag.
+    this.lastAgentAudioAtMs = Date.now();
     // EL audio is PCM16 (even byte count); trim a stray odd byte defensively so the
     // AudioChunk invariant never throws.
     let pcm = audio;
@@ -533,7 +565,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   /** Called when the SDK re-emits a WS `error` on the Conversation. */
   private onSessionError(err: Error): void {
-    // eslint-disable-next-line no-console
+     
     console.warn(`ElevenLabsAgentAdapter: session error: ${err.message}`);
     // Stop the pump so no frame is fed to a dead session, drain parked receivers so
     // the executor unwinds rather than hanging, and null the session so subsequent
@@ -708,6 +740,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // A real user turn is starting → lift the post-response pause so the closing
     // silence streams again once this speech drains (see pumpTick).
     this.awaitingUserTurn = false;
+    // #734 — a new user turn opens a new agent turn; clear the last-audio stamp so
+    // callbackAgentResponse measures transcript lag against THIS turn's audio only.
+    // Without this, a turn whose transcript arrives with no fresh audio frame would
+    // report lag against a PRIOR turn's audio, making transcriptLagMs/lostRacePreFix
+    // (AC4 telemetry) misleading.
+    this.lastAgentAudioAtMs = null;
     // Count the turn ONCE per non-empty sendAudio (not once per 20 ms frame) so the
     // STT assertion still counts turns, not frames.
     this.audioCommitCount += 1;
@@ -751,6 +789,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // slow-but-responding agent), but at least 45s even for sub-second tail-probe
       // calls. In the real drain `timeout` is the 30s response budget or the 0.6s
       // tail probe, so the ceiling is 45s.
+      // Must stay `let`: the cleanup() closure below captures hardTimer before
+      // it is assigned, so declaration and assignment cannot be merged (const).
+      // eslint-disable-next-line prefer-const
       let hardTimer: ReturnType<typeof setTimeout>;
       const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
 
@@ -797,6 +838,36 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });
+  }
+
+  /**
+   * Synchronously drain every chunk currently buffered on {@link audioQueue} and
+   * return them merged (null when the queue is empty). The turn-boundary
+   * reconcile (#747) calls this at the moment a NEW user turn commits: at that
+   * instant the queue can hold ONLY leftover from the PRIOR agent turn — the user
+   * just spoke and the hosted agent has not begun its next reply, so any audio
+   * still queued is stale-by-position. Returning it here lets the runtime
+   * attribute it to the utterance that produced it instead of the next
+   * {@link receiveAudio} shifting it out as the fake first audio of the next turn
+   * (the split-utterance bleed). Called ONLY at the cursor-safe pre-user-sendAudio
+   * hook and never while a drain is in flight, so it does not race
+   * {@link receiveAudio} on the shared queue.
+   *
+   * Duck-typed convention (symmetric with {@link lastAgentTranscript}): the shared
+   * runtime feature-detects this method, so adapters without a buffered queue are
+   * untouched.
+   */
+  reconcilePendingAudio(): AudioChunk | null {
+    if (this.audioQueue.length === 0) return null;
+    const chunks = this.audioQueue.splice(0, this.audioQueue.length);
+    const total = chunks.reduce((acc, c) => acc + c.data.length, 0);
+    const data = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      data.set(chunk.data, offset);
+      offset += chunk.data.length;
+    }
+    return new AudioChunk({ data });
   }
 
   // ---------------------------------------------------------------- internals
@@ -854,14 +925,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     const outFmt = meta.agent_output_audio_format as string | undefined;
     const inFmt = meta.user_input_audio_format as string | undefined;
     if (outFmt && outFmt !== "pcm_24000") {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `ElevenLabsAgentAdapter: agent_output_audio_format=${outFmt} differs ` +
           `from advertised pcm16/24000 capability; audio may pitch-shift or fail to decode.`,
       );
     }
     if (inFmt && inFmt !== "pcm_24000") {
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `ElevenLabsAgentAdapter: user_input_audio_format=${inFmt} differs ` +
           `from advertised pcm16/24000 capability; the agent may not understand audio we send.`,
@@ -912,7 +983,9 @@ export interface ElevenLabsVoiceAgentOptions {
  * @example
  * ```ts
  * // Defaults — all ElevenLabs STT, gpt-5.4-mini, EL TTS
- * const agent = new ElevenLabsVoiceAgent({ apiKey: process.env.ELEVENLABS_API_KEY! });
+ * const apiKey = process.env.ELEVENLABS_API_KEY;
+ * if (!apiKey) throw new Error("ELEVENLABS_API_KEY is required");
+ * const agent = new ElevenLabsVoiceAgent({ apiKey });
  *
  * // Override just the LLM
  * import { anthropic } from "@ai-sdk/anthropic";

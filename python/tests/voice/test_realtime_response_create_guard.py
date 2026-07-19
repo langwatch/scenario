@@ -1,5 +1,5 @@
 """
-Issue #657 — regression tests for recv_audio response.create race condition.
+Issues #657 + #662 — regression tests for response.create race guards (recv_audio + send_text + JS adapters).
 
 The user-audio branch at lines ~407-411 of openai_realtime.py sends
 ``response.create`` unconditionally after ``input_audio_buffer.commit``, even
@@ -39,6 +39,8 @@ from typing import Any, List
 import pytest
 
 from scenario.voice.adapters.openai_realtime import OpenAIRealtimeAgentAdapter
+from scenario.voice.audio_chunk import AudioChunk
+from scenario.voice.testing import drive_call, make_agent_input
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,9 @@ class _MockWS:
         self.sent: List[Any] = []
         # Interleaved chronological log: ("sent"|"recv", type_str)
         self.log: List[tuple[str, str]] = []
+        # Observable disconnect (mirrors the echo-safe suite's _MockWS): set True
+        # by close() so the wrapper-level test can see the real disconnect land.
+        self.closed = False
 
     async def send(self, msg: Any) -> None:
         self.sent.append(msg)
@@ -99,7 +104,7 @@ class _MockWS:
         return evt
 
     async def close(self) -> None:
-        pass
+        self.closed = True
 
     # --- helpers for assertions ---
 
@@ -467,4 +472,230 @@ async def test_deferred_path_clears_agent_turn_pending():
     # Sanity: it really was the deferral branch (flag set), not the else branch.
     assert adapter._deferred_response_create is True, (
         "expected the deferral branch (_deferred_response_create=True) to be taken"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper-level twin of AC5 — commit-then-create ordering on the REAL call path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wrapper_normal_path_full_call_flow(monkeypatch):
+    """Wrapper-level twin of AC5: the commit-then-create ordering proven on the
+    PRODUCTION path — reached through the REAL ``connect()`` + ``call()`` flow
+    rather than a direct ``recv_audio`` with an injected ``_ws``.
+
+    Fakes ONLY the network-client boundary (``websockets.connect``); connect's
+    ``session.update`` handshake, ``send_audio``'s ``input_audio_buffer.append``,
+    and ``recv_audio``'s ``commit`` → ``response.create`` preamble all run for
+    real. The transcript event keeps ``_ensure_transcript`` off the network.
+    """
+    import websockets
+
+    events = [
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": _b64_pcm(480)}),
+        json.dumps(
+            {"type": "response.output_audio_transcript.done", "transcript": "I can help you."}
+        ),
+        json.dumps({"type": "response.done"}),
+    ]
+    mock_ws = _MockWS(events)
+
+    async def _fake_connect(url, additional_headers=None, **kw):
+        return mock_ws
+
+    monkeypatch.setattr(websockets, "connect", _fake_connect)
+
+    adapter = OpenAIRealtimeAgentAdapter(api_key="test-sk-not-real")  # user-first
+
+    await adapter.connect()
+    result = await drive_call(
+        adapter, make_agent_input(user_audio=AudioChunk(data=_make_pcm(480)))
+    )
+    await adapter.disconnect()
+
+    # 1. AC5's invariant on the production path: session.update, then append,
+    #    then commit, then response.create — strictly increasing, one each.
+    sent = mock_ws.sent_types()
+    for t in (
+        "session.update",
+        "input_audio_buffer.append",
+        "input_audio_buffer.commit",
+        "response.create",
+    ):
+        assert t in sent, f"expected {t!r} in sends; got {sent}"
+    i_update = mock_ws.first_index_of("session.update")
+    i_append = mock_ws.first_index_of("input_audio_buffer.append")
+    i_commit = mock_ws.first_index_of("input_audio_buffer.commit")
+    i_create = mock_ws.first_index_of("response.create")
+    assert i_update < i_append < i_commit < i_create, (
+        f"expected session.update < append < commit < create; sent order={sent}"
+    )
+    assert mock_ws.count_of("input_audio_buffer.commit") == 1, (
+        f"expected exactly 1 input_audio_buffer.commit; sent={sent}"
+    )
+    assert mock_ws.count_of("response.create") == 1, (
+        f"expected exactly 1 response.create; sent={sent}"
+    )
+
+    # 2. The full flow resolves to an assistant message with non-empty audio.
+    content = result.get("content") if isinstance(result, dict) else None
+    assert isinstance(content, list), f"result is not an assistant audio message: {result!r}"
+    audio_parts = [
+        p for p in content if isinstance(p, dict) and p.get("type") == "input_audio"
+    ]
+    assert audio_parts and audio_parts[0]["input_audio"].get("data"), (
+        "assistant turn has no non-empty input_audio part"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #662 — send_text response.create guard (AC-PY1, AC-PY2, AC-DEFER)
+# MUST FAIL on pre-fix code (send_text sends response.create unconditionally).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ac_py1_send_text_suppressed_while_response_active():
+    """AC-PY1: send_text must NOT send response.create when _response_active=True."""
+    events = []  # send_text doesn't use recv, just WS.send
+    adapter, mock_ws = _make_adapter(events)
+    adapter._response_active = True
+
+    await adapter.send_text("hello")
+
+    # MUST NOT have fired response.create while response was active.
+    assert mock_ws.count_of("response.create") == 0, (
+        f"AC-PY1 FAIL (pre-fix): response.create was sent while _response_active=True; "
+        f"sent_types={mock_ws.sent_types()}"
+    )
+    # MUST have set the deferred flag.
+    assert adapter._deferred_response_create is True, (
+        f"AC-PY1 FAIL (pre-fix): _deferred_response_create was not set to True; "
+        f"value={adapter._deferred_response_create}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ac_py2_send_text_deferred_create_fires_after_response_done():
+    """AC-PY2: deferred response.create from send_text appears AFTER response.done in the interleaved log."""
+    chunk = _b64_pcm(480)
+    events = [
+        json.dumps({"type": "response.done"}),
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": chunk}),
+        json.dumps({"type": "response.done"}),
+    ]
+    adapter, mock_ws = _make_adapter(events, short_timeout=True)
+    adapter._response_active = True
+    adapter._response_ever_active = True
+    adapter._pending_audio_bytes = 960
+
+    await adapter.send_text("hello")
+    await adapter.recv_audio(timeout=2.0)
+
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done = mock_ws.log_index_of_first("recv", "response.done")
+
+    assert log_done >= 0, f"AC-PY2: response.done never received; log={mock_ws.log}"
+    assert log_create >= 0, f"AC-PY2: response.create never sent; log={mock_ws.log}"
+    assert log_create > log_done, (
+        f"AC-PY2 FAIL (pre-fix): response.create at log[{log_create}] appeared before "
+        f"response.done at log[{log_done}] -- send_text fired it immediately instead of "
+        f"deferring until after response.done. log={mock_ws.log}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ac_defer_send_text_deferred_create_fires_exactly_once():
+    """AC-DEFER: recv_audio consumes the deferred flag and fires response.create exactly once after response.done."""
+    chunk = _b64_pcm(480)
+    events = [
+        json.dumps({"type": "response.done"}),
+        json.dumps({"type": "response.created"}),
+        json.dumps({"type": "response.output_audio.delta", "delta": chunk}),
+        json.dumps({"type": "response.done"}),
+    ]
+    adapter, mock_ws = _make_adapter(events, short_timeout=True)
+    adapter._response_active = True
+    adapter._response_ever_active = True
+    adapter._pending_audio_bytes = 960
+
+    await adapter.send_text("hello")
+
+    count_after_send_text = mock_ws.count_of("response.create")
+    assert count_after_send_text == 0, (
+        f"AC-DEFER FAIL (pre-fix): response.create was sent immediately by send_text "
+        f"instead of being deferred; count={count_after_send_text}; "
+        f"sent_types={mock_ws.sent_types()}"
+    )
+
+    await adapter.recv_audio(timeout=2.0)
+
+    total_creates = mock_ws.count_of("response.create")
+    assert total_creates == 1, (
+        f"AC-DEFER FAIL: expected exactly 1 response.create total, got {total_creates}; "
+        f"sent_types={mock_ws.sent_types()}"
+    )
+    log_create = mock_ws.log_index_of_first("sent", "response.create")
+    log_done = mock_ws.log_index_of_first("recv", "response.done")
+    assert log_create > log_done, (
+        f"AC-DEFER FAIL: response.create at log[{log_create}] was before "
+        f"response.done at log[{log_done}]; log={mock_ws.log}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reconnect hygiene — connect()/disconnect() reset the response-lifecycle flags
+# (JS parity: openai-realtime.ts clears these in both; see PR #669 review).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_connect_disconnect_reset_response_lifecycle_flags(monkeypatch):
+    """A reused adapter must NOT carry a stale ``_response_active`` /
+    ``_deferred_response_create`` across a reconnect. Without the reset, an adapter
+    that disconnected mid-response keeps ``_response_active=True`` into the next
+    connection; the next turn's user-audio commit then takes the defer branch
+    forever (no ``response.done`` ever arrives to fire it) and ``recv_audio`` drains
+    to timeout. Mirrors the JS reconnect-hygiene guard added for the same PR."""
+    import websockets
+
+    mock_ws = _MockWS([])
+
+    async def _fake_connect(url, additional_headers=None, **kw):
+        return mock_ws
+
+    monkeypatch.setattr(websockets, "connect", _fake_connect)
+
+    adapter = OpenAIRealtimeAgentAdapter(api_key="test-sk-not-real")
+
+    # Simulate stale state left by a prior mid-response disconnect.
+    adapter._response_active = True
+    adapter._deferred_response_create = True
+
+    await adapter.connect()
+
+    # connect() must start each connection with a clean slate.
+    assert adapter._response_active is False, (
+        "connect() did not clear stale _response_active; a reconnected adapter would "
+        "defer response.create forever"
+    )
+    assert adapter._deferred_response_create is False, (
+        "connect() did not clear stale _deferred_response_create"
+    )
+
+    # Dirty the flags again, then confirm disconnect() clears them on teardown too.
+    adapter._response_active = True
+    adapter._deferred_response_create = True
+
+    await adapter.disconnect()
+
+    assert adapter._response_active is False, (
+        "disconnect() did not clear _response_active on teardown"
+    )
+    assert adapter._deferred_response_create is False, (
+        "disconnect() did not clear _deferred_response_create on teardown"
     )

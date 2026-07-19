@@ -13,8 +13,6 @@ One adapter class serves both directions a Twilio number can participate in:
 FastAPI webhook + Media Streams WS server, open a public URL (user-supplied
 or via ``CloudflareTunnel``). After ``connect()``, call either
 ``place_call()`` or ``wait_for_call()``.
-
-See source §5.3 and docs/proposals/issue-350-ralph-real-transports.md.
 """
 
 from __future__ import annotations
@@ -155,6 +153,17 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_connected: Optional[asyncio.Event] = None
         self._stream_ws: Any = None  # starlette WebSocket
         self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
+        # Set True by the media-stream loop's terminal path (stop / socket close
+        # / throw) the moment it enqueues the end-of-call sentinel. Once the call
+        # has ended, recv_audio must keep draining the queue (and hand back the
+        # sentinel) WITHOUT re-asserting transport liveness — the real
+        # production wrapper nulls _stream_ws/_stream_sid synchronously right
+        # after the loop returns, so the drain's second recv_audio would
+        # otherwise hit _assert_stream_live and crash (#695). Reset on
+        # connect(), disconnect(), and at media-stream-loop entry (per-call
+        # scope — a second session on the same connected adapter must not
+        # inherit the previous session's flag).
+        self._stream_ended: bool = False
 
 
     # ------------------------------------------------------------------ repr
@@ -200,6 +209,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_connected = asyncio.Event()
         self._inbound_queue = asyncio.Queue()
         self._server_shutdown = asyncio.Event()
+        self._stream_ended = False
         self._mode = "idle"
 
         # Webhook server is its own unit — see _twilio_server.py. The
@@ -263,6 +273,7 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_connected = None
         self._stream_ws = None
         self._inbound_queue = None
+        self._stream_ended = False
 
     # ------------------------------------------------------------------ direction
 
@@ -456,8 +467,42 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
             await asyncio.sleep(frame_secs)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
+        # Once the media-stream loop has ended (stop / socket close / throw),
+        # the production wrapper (run_stream_session in _twilio_server) nulls
+        # _stream_ws/_stream_sid synchronously right after the loop returns. The
+        # drain loop (_drain_agent_response) always makes a *second* recv_audio
+        # call after the first chunk — by then liveness has flipped. So the
+        # liveness assert only guards the genuinely-live-and-idle case; buffered
+        # audio and the end-of-call drain bypass it (#695).
+        #
+        # Two sentinel sources cooperate here, and BOTH are load-bearing: the
+        # loop's ``finally`` ENQUEUES one empty chunk — that is what wakes a
+        # consumer already blocked in ``queue.get()`` at the moment the call
+        # ends (flipping ``_stream_ended`` alone wakes nobody) — and this method
+        # SYNTHESIZES further empty chunks for every call after the queue has
+        # drained (the tail-silence probe, or any caller that keeps polling).
+        # Delete either and a hang comes back.
+        if self._inbound_queue is None:
+            # disconnect() tore the adapter down mid-drain — nothing left to
+            # read. In the current teardown order _assert_connected() raises
+            # first (_rest is nulled before _inbound_queue, synchronously), so
+            # the explicit raise below is a reordering guard, not a live path —
+            # it keeps this method's error honest if disconnect() is ever
+            # resequenced.
+            self._assert_connected()
+            raise RuntimeError(
+                "TwilioAgentAdapter: inbound queue is gone; adapter disconnected."
+            )
+
+        if not self._inbound_queue.empty():
+            # Buffered audio or the loop-enqueued terminal sentinel — drain it,
+            # live or not.
+            return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
+        if self._stream_ended:
+            # Call ended and fully drained: synthesize another empty sentinel.
+            return AudioChunk(data=b"")
+        # Live call, nothing buffered yet: assert liveness, then wait.
         self._assert_stream_live()
-        assert self._inbound_queue is not None
         return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
 
     async def send_dtmf(self, tones: str) -> None:

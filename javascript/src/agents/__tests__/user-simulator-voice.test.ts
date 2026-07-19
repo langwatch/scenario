@@ -24,6 +24,7 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, vi } from "vitest";
 
 import { AudioChunk } from "../../voice/audio-chunk";
+import { makeChunk } from "./fixtures/make-chunk";
 import { extractAudio, messageHasAudio } from "../../voice/messages";
 import { userSimulatorAgent, type UserSimulatorAgentConfig } from "../user-simulator-agent";
 import type { AgentInput } from "../../domain";
@@ -50,10 +51,6 @@ const FEATURE_PATH = resolve(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a minimal 2-sample AudioChunk (valid PCM16 — even byte count). */
-function makeChunk(transcript?: string): AudioChunk {
-  return new AudioChunk({ data: new Uint8Array(4), transcript });
-}
 
 /**
  * Build a minimal {@link AgentInput} stub sufficient for user simulator tests.

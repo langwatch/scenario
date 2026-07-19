@@ -46,7 +46,8 @@ import asyncio
 import base64
 import json
 import logging
-from typing import Any, ClassVar, Literal, Optional
+from collections import deque
+from typing import Any, ClassVar, Deque, Literal, Optional
 
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
@@ -83,6 +84,22 @@ SILENCE_TAIL_BYTES = 16000
 #:   the pure-audio path and parity with the pre-#567 transport, but unreliable
 #:   for scripted turn 2+.
 TurnCommitMode = Literal["text", "silence"]
+
+#: One continuous-mic pump frame = 20 ms of PCM. Fixed at 960 bytes to match the
+#: TS reference (``PUMP_FRAME_BYTES``, ``adapters/elevenlabs.ts:107``); the pump
+#: only ever writes fixed-size frames so EL's server VAD sees a steady cadence.
+PUMP_FRAME_BYTES = 960
+
+#: Pump cadence (seconds): one :data:`PUMP_FRAME_BYTES` frame every 20 ms — real
+#: microphone cadence. Mirrors TS ``PUMP_INTERVAL_MS = 20``
+#: (``adapters/elevenlabs.ts:117``).
+PUMP_INTERVAL_S = 0.02
+
+#: The all-zero (silence) 20 ms frame. When the outbound queue is empty AND the
+#: user turn is still closing (before the agent responds), the pump feeds this so
+#: EL's server VAD has the audio→silence transition it measures end-of-turn
+#: against. Mirrors TS ``SILENCE_FRAME`` (``adapters/elevenlabs.ts:144``).
+SILENCE_FRAME = b"\x00" * PUMP_FRAME_BYTES
 
 
 class ElevenLabsAgentAdapter(VoiceAgentAdapter):
@@ -160,6 +177,20 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         self._silence_tail_bytes = silence_tail_bytes
         self._ws: Any = None
 
+        # ---- continuous mic pump state ----
+        # The pump is the SINGLE owner of idle silence on the wire: a
+        # background task ticks every :data:`PUMP_INTERVAL_S` and feeds one
+        # 20 ms frame — queued speech while the user is talking, the closing
+        # SILENCE_FRAME while the turn is still closing, and NOTHING once the
+        # agent has responded (the post-response pause, #705). Mirrors the TS
+        # pump (``adapters/elevenlabs.ts:563-668``), adapted to Python's raw-WS
+        # send seam (there is no ``inputCallback`` SDK seam here).
+        self._pump_task: Optional[asyncio.Task[None]] = None
+        self._outbound_frames: Deque[bytes] = deque()
+        #: SET when agent audio begins (pauses the idle mic so EL's idle prompt
+        #: never trips); CLEARED when a new user turn is enqueued.
+        self.awaiting_user_turn: bool = False
+
         # Transcript observability — updated on each transcript event.
         self.last_user_transcript: Optional[str] = None
         self.last_agent_transcript: Optional[str] = None
@@ -208,8 +239,56 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             list(agent_override.keys()) or "none",
         )
 
+        # Start the continuous mic pump now that the socket is open, so the
+        # interval never outlives the socket (mirror ``onAudioStart`` →
+        # ``startPump``, ``adapters/elevenlabs.ts:497,563``).
+        self.start_pump()
+
+    def is_connected(self) -> bool:
+        """Whether the WS session is open and ready to exchange audio.
+
+        The websockets-lib equivalent of the TS
+        ``conversation?.isSessionActive()`` check
+        (``adapters/elevenlabs.ts:531-534``): open iff we hold a socket that
+        is not closed.
+
+        Liveness is read from the connection ``state`` on modern
+        ``websockets`` (>=13, the ``websockets.asyncio.client.ClientConnection``
+        that :func:`websockets.connect` returns) — that class exposes a
+        ``state`` enum, NOT a ``closed`` attribute. We fall back to ``closed``
+        for the legacy ``WebSocketClientProtocol`` and for in-memory test
+        doubles that model ``closed``. Note ``is_connected()`` is a
+        best-effort *hint* for the pre-turn guard and the pump active-check;
+        it is never the sole guard on a send — the pump's send is wrapped in a
+        raced-close swallow, and ``recv_audio`` still handles ``ConnectionClosed``
+        directly, because a socket can drop between this check and the I/O.
+        """
+        ws = self._ws
+        if ws is None:
+            return False
+        state = getattr(ws, "state", None)
+        if state is not None:
+            # Modern websockets: OPEN iff state is OPEN. CONNECTING/CLOSING/
+            # CLOSED all read as not-ready for a turn.
+            try:
+                from websockets.protocol import State
+
+                return state is State.OPEN
+            except Exception:
+                # State enum unavailable — compare by name as a last resort.
+                return getattr(state, "name", "") == "OPEN"
+        # Legacy protocol / test double exposing `closed`.
+        return not getattr(ws, "closed", False)
+
     async def disconnect(self) -> None:
-        """Close the WebSocket if open."""
+        """Close the WebSocket if open.
+
+        The pump is stopped and awaited FIRST (mirror TS ``disconnect`` stop-
+        before-close, ``adapters/elevenlabs.ts:539``) so no frame is fed once
+        teardown begins — even if disconnect() races a close/error that has
+        already nulled the socket.
+        """
+        await self.stop_pump()
         if self._ws is not None:
             try:
                 await self._ws.close()
@@ -222,6 +301,124 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             finally:
                 self._ws = None
             logger.debug("ElevenLabsAgentAdapter: disconnected")
+
+    # ------------------------------------------------------- continuous mic pump
+
+    def start_pump(self) -> None:
+        """Start the continuous mic pump. Idempotent — a double call yields
+        exactly one running task (mirror ``startPump``,
+        ``adapters/elevenlabs.ts:588-595``)."""
+        if self._pump_task is None or self._pump_task.done():
+            self._pump_task = asyncio.ensure_future(self._pump_loop())
+
+    async def stop_pump(self) -> None:
+        """Stop the pump, drop any unsent frames, and reset the post-response
+        pause so a reconnect starts in the closing-silence state.
+
+        Cancels AND awaits the task so no orphan is left pending at loop close
+        (mirror ``stopPump``, ``adapters/elevenlabs.ts:601-612``).
+        """
+        task = self._pump_task
+        self._pump_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                # Expected: awaiting a just-cancelled task re-raises the
+                # CancelledError here. Intentionally suppressed — we requested
+                # the cancel as part of an orderly pump shutdown.
+                pass
+        self._outbound_frames.clear()
+        # Reset the post-response pause so a reconnect starts in the
+        # closing-silence state — the next user turn streams its silence again.
+        self.awaiting_user_turn = False
+
+    async def _pump_loop(self) -> None:
+        """Tick every :data:`PUMP_INTERVAL_S` until cancelled."""
+        while True:
+            await asyncio.sleep(PUMP_INTERVAL_S)
+            await self._pump_tick()
+
+    async def _pump_tick(self) -> None:
+        """One pump tick — one of three outcomes, gated on the session being
+        active so a frame that races a close cannot reach a dead socket
+        (mirror ``pumpTick``, ``adapters/elevenlabs.ts:640-668``):
+
+        * QUEUED SPEECH present → feed it (the user is speaking).
+        * else AWAITING the next user turn (:attr:`awaiting_user_turn`) → feed
+          NOTHING this tick (the #705 post-response pause, so EL's idle prompt
+          never trips in the inter-turn gap).
+        * else → feed one :data:`SILENCE_FRAME`: the closing silence after the
+          user's speech, which EL's server VAD measures end-of-turn against.
+        """
+        if not self.is_connected():
+            return
+
+        if self._outbound_frames:
+            frame = self._outbound_frames.popleft()
+        elif self.awaiting_user_turn:
+            return
+        else:
+            frame = SILENCE_FRAME
+
+        import websockets  # for the ConnectionClosed close-race classes
+
+        try:
+            b64 = base64.b64encode(frame).decode()
+            await self._ws.send(json.dumps({"user_audio_chunk": b64}))
+        except (
+            websockets.exceptions.ConnectionClosed,
+            ConnectionError,
+            OSError,
+            RuntimeError,
+        ):
+            # The EXPECTED close race: the socket closed between the
+            # active-check above and this feed. Drop the frame; the
+            # disconnect/close path tears the pump down (mirror the raced-close
+            # swallow, ``adapters/elevenlabs.ts:661-663``).
+            logger.debug("ElevenLabsAgentAdapter: pump tick raced a close; frame dropped")
+        except Exception:  # noqa: BLE001 — background task must never propagate
+            # An UNEXPECTED failure (serialization/protocol bug, not a close
+            # race). Do NOT silently swallow it as a close: surface it at
+            # WARNING so the bug is visible, but still don't propagate out of
+            # the background task (that would kill the pump loop and leave an
+            # unhandled-task exception). The next tick retries.
+            logger.warning(
+                "ElevenLabsAgentAdapter: unexpected error feeding pump frame; "
+                "dropping frame and continuing",
+                exc_info=True,
+            )
+
+    def enqueue_speech(self, data: bytes) -> None:
+        """Slice a user turn's PCM into fixed 20 ms frames and enqueue them for
+        the pump; a non-empty turn also CLEARS :attr:`awaiting_user_turn` (a new
+        user turn is starting, so the closing silence must stream again once the
+        speech drains). Mirror ``enqueueSpeech``,
+        ``adapters/elevenlabs.ts:703-731``.
+        """
+        if not data:
+            # An empty chunk carries no speech: don't disturb the pause, don't
+            # enqueue a meaningless frame.
+            return
+        # A real user turn is starting → lift the post-response pause.
+        self.awaiting_user_turn = False
+        for offset in range(0, len(data), PUMP_FRAME_BYTES):
+            slice_ = data[offset : offset + PUMP_FRAME_BYTES]
+            if len(slice_) < PUMP_FRAME_BYTES:
+                # Pad the final partial frame to a full 20 ms with trailing
+                # zeros so the pump only ever feeds fixed-size frames.
+                slice_ = slice_ + b"\x00" * (PUMP_FRAME_BYTES - len(slice_))
+            self._outbound_frames.append(slice_)
+
+    def _on_agent_audio_begin(self) -> None:
+        """Agent turn audio has arrived → engage the post-response pause: the
+        pump stops streaming idle silence until the next user turn. Idempotent —
+        the first agent frame is the real transition; later frames re-assert it
+        (mirror ``onAgentAudio`` setting ``awaitingUserTurn``,
+        ``adapters/elevenlabs.ts:513-514``).
+        """
+        self.awaiting_user_turn = True
 
     # ------------------------------------------------------------------ I/O
 
@@ -266,32 +463,60 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
 
         transcript = chunk.transcript.strip() if chunk.transcript else ""
 
+        # A real user turn is starting → lift the post-response pause so the
+        # pump streams the closing silence again after this turn (mirror
+        # ``enqueueSpeech`` clearing ``awaitingUserTurn``,
+        # ``adapters/elevenlabs.ts:710``). Empty chunks carry no turn.
+        if transcript or chunk.data:
+            self.awaiting_user_turn = False
+
         if self._turn_commit_mode == "text" and transcript:
             # Deterministic commit: send ONLY the user_message text turn (no
-            # racing user_audio_chunk). See method docstring for the rationale.
+            # racing user_audio_chunk). This is a single control frame, not
+            # audio, so it does not compete with the pump's audio cadence. See
+            # method docstring for the rationale.
             await self._send_user_message(transcript)
             return
 
-        # Legacy / fallback path: stream the speech then a silence tail and let
-        # server VAD try. Used when turn_commit_mode is "silence", or in "text"
-        # mode when the chunk carries no transcript to commit.
-        b64 = base64.b64encode(chunk.data).decode()
-        await self._ws.send(json.dumps({"user_audio_chunk": b64}))
-
-        await self._send_silence_tail()
+        # Legacy / fallback path (turn_commit_mode == "silence", or "text" mode
+        # with no transcript to commit): stream the speech then a closing
+        # silence tail and let server VAD try.
+        #
+        # The pump is the SINGLE owner of WS audio writes: rather than writing
+        # `chunk.data` and the 16KB silence tail DIRECTLY to `self._ws` (which
+        # would race the always-running background pump — two concurrent writers
+        # producing interleaved/oversized non-20ms `user_audio_chunk` frames),
+        # we ENQUEUE the speech and the closing-silence tail as fixed 960-byte
+        # pump frames. The pump drains them at the same 20ms cadence as every
+        # other frame, so there is exactly one writer and a consistent frame
+        # size on the wire. Returns promptly (continuous-mic model) — it does
+        # not block until the queue drains.
+        self.enqueue_speech(chunk.data)
+        self._enqueue_silence_tail()
 
     async def _send_user_message(self, text: str) -> None:
         """Explicit turn-commit: tell EL the user is done and force an agent
         response without relying on mic-style server VAD (issue #567). Wire
         shape matches the official SDK's ``user_message`` event.
+
+        This is a single control frame (`user_message`), not streamed audio,
+        so it does not contend with the pump's `user_audio_chunk` cadence.
         """
         await self._ws.send(json.dumps({"type": "user_message", "text": text}))
 
-    async def _send_silence_tail(self) -> None:
-        """Legacy end-of-turn nudge: a fixed zero-byte tail to coax server VAD."""
-        silence = b"\x00" * self._silence_tail_bytes
-        silence_b64 = base64.b64encode(silence).decode()
-        await self._ws.send(json.dumps({"user_audio_chunk": silence_b64}))
+    def _enqueue_silence_tail(self) -> None:
+        """Queue the legacy closing-silence tail as fixed 960-byte pump frames.
+
+        The legacy path coaxed server VAD with a fixed ``_silence_tail_bytes``
+        zero-byte blob written directly to the socket. To keep the pump the
+        single WS writer, express that same total silence as
+        ``ceil(_silence_tail_bytes / PUMP_FRAME_BYTES)`` all-zero 960-byte pump
+        frames on the outbound queue, drained at the 20ms cadence. Rounds UP so
+        the emitted silence is never less than the legacy tail.
+        """
+        num_frames = -(-self._silence_tail_bytes // PUMP_FRAME_BYTES)  # ceil div
+        for _ in range(num_frames):
+            self._outbound_frames.append(SILENCE_FRAME)
 
     async def recv_audio(self, timeout: float) -> AudioChunk:
         """
@@ -369,6 +594,10 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 # Ensure even byte count (PCM16 invariant).
                 if len(pcm) % 2 == 1:
                     pcm = pcm[:-1]
+                # Agent turn audio has arrived → engage the post-response pause
+                # so the pump stops streaming idle silence into the inter-turn
+                # gap (mirror ``onAgentAudio`` setting ``awaitingUserTurn``).
+                self._on_agent_audio_begin()
                 return AudioChunk(data=pcm)
 
             elif etype == "ping":

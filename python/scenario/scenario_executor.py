@@ -85,6 +85,12 @@ import litellm
 import langwatch
 import langwatch.telemetry.context
 from langwatch.telemetry.tracing import LangWatchTrace
+from scenario._tracing.sdk_metadata import (
+    ATTR_SCENARIO_SDK_NAME,
+    ATTR_SCENARIO_SDK_VERSION,
+    SCENARIO_SDK_NAME,
+    SCENARIO_SDK_VERSION,
+)
 
 
 def _extract_text_content(content: object) -> str:
@@ -457,6 +463,8 @@ class ScenarioExecutor:
         if self._trace.root_span is not None:
             attrs = {
                 "langwatch.origin": "simulation",
+                ATTR_SCENARIO_SDK_NAME: SCENARIO_SDK_NAME,
+                ATTR_SCENARIO_SDK_VERSION: SCENARIO_SDK_VERSION,
                 "scenario.run_id": self._scenario_run_id,
             }
             for role, tier_value in getattr(self, '_modality_resolutions', {}).items():
@@ -553,7 +561,7 @@ class ScenarioExecutor:
         ]
         agent_time = sum(agent_times)
 
-        return ScenarioResult(
+        result = ScenarioResult(
             success=False,
             messages=self._state.messages,
             reasoning=error_message
@@ -561,6 +569,19 @@ class ScenarioExecutor:
             total_time=time.time() - self._total_start_time,
             agent_time=agent_time,
         )
+        # Harvest voice output so max-turns exits (both the mid-script L519
+        # route and the end-of-script-without-conclusion L687 route) carry
+        # result.audio/timeline/latency for voice runs (AC E1).
+        # Guard: if harvest itself raises, log and return the max-turns result
+        # unmodified so the caller always gets a valid ScenarioResult.
+        try:
+            result = self._attach_voice_output(result)
+        except Exception:
+            logger.warning(
+                "voice harvest failed on max-turns path; returning result without voice fields",
+                exc_info=True,
+            )
+        return result
 
     async def run(self) -> ScenarioResult:
         """
@@ -629,7 +650,13 @@ class ScenarioExecutor:
                         if result.success
                         else ScenarioRunFinishedEventStatus.FAILED
                     )
-                    result = self._attach_voice_output(result)
+                    try:
+                        result = self._attach_voice_output(result)
+                    except Exception:
+                        logger.warning(
+                            "voice harvest failed on script-result path; returning result without voice fields",
+                            exc_info=True,
+                        )
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -644,6 +671,18 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=0,
                 )
+                # Harvest voice output before emitting/raising so the
+                # check-failure (AssertionError in a script step) exit carries
+                # result.audio/timeline/latency for voice runs (AC E2b).
+                # Guard: if harvest itself raises, log and continue so the
+                # original AssertionError is not masked.
+                try:
+                    error_result = self._attach_voice_output(error_result)
+                except Exception:
+                    logger.warning(
+                        "voice harvest failed on check-failure path; preserving original error",
+                        exc_info=True,
+                    )
                 self._emit_run_finished_event(
                     scenario_run_id,
                     error_result,
@@ -674,7 +713,13 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
-                result = self._attach_voice_output(result)
+                try:
+                    result = self._attach_voice_output(result)
+                except Exception:
+                    logger.warning(
+                        "voice harvest failed on checkpoint-results path; returning result without voice fields",
+                        exc_info=True,
+                    )
 
                 status = (
                     ScenarioRunFinishedEventStatus.SUCCESS
@@ -714,6 +759,18 @@ class ScenarioExecutor:
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
+            # Harvest voice output before emitting/raising so the generic
+            # exception exit carries result.audio/timeline/latency for voice
+            # runs (AC E2).
+            # Guard: if harvest itself raises, log and continue so the
+            # original exception is not masked.
+            try:
+                error_result = self._attach_voice_output(error_result)
+            except Exception:
+                logger.warning(
+                    "voice harvest failed on except-Exception path; preserving original error",
+                    exc_info=True,
+                )
             self._emit_run_finished_event(
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
