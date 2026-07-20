@@ -161,8 +161,10 @@ export {
 // "judge requests transcript" tool (no such tool, §7.3); STT is upstream.
 export {
   prepareJudgeInput,
+  transcribeAudioMessages,
   type JudgeAudioOptions,
   type JudgePreparedInput,
+  type TranscribeAudioMessagesArgs,
 } from "./judge-stt";
 
 export {

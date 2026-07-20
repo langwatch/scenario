@@ -28,15 +28,15 @@ function format(message: string, fields?: Record<string, unknown>): string {
 
 export const twilioLogger: VoiceLogger = {
   debug(message, fields) {
-    // eslint-disable-next-line no-console
+     
     console.debug(format(message, fields));
   },
   info(message, fields) {
-    // eslint-disable-next-line no-console
+     
     console.info(format(message, fields));
   },
   warn(message, fields) {
-    // eslint-disable-next-line no-console
+     
     console.warn(format(message, fields));
   },
 };

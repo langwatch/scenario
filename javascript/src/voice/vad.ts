@@ -135,7 +135,7 @@ export class WebRTCVadFallback {
   process(chunk: AudioChunk): void {
     const data = chunk.data;
     for (let i = 0; i < data.length; i++) {
-      this.buf.push(data[i]!);
+      this.buf.push(data[i]);
     }
     while (this.buf.length >= BYTES_PER_FRAME) {
       const frame = this.buf.slice(0, BYTES_PER_FRAME);
@@ -154,8 +154,8 @@ export class WebRTCVadFallback {
     const sampleCount = frame.length / 2;
     for (let i = 0; i < frame.length; i += 2) {
       // little-endian PCM16 → signed int16
-      const lo = frame[i]!;
-      const hi = frame[i + 1]!;
+      const lo = frame[i];
+      const hi = frame[i + 1];
       let sample = (hi << 8) | lo;
       if (sample & 0x8000) {
         sample = sample - 0x10000;

@@ -19,6 +19,7 @@ import {
 import { ResponseFormatter } from "./response-formatter";
 import type { AgentInput, AgentReturnTypes, AgentRole } from "../../domain";
 import { AgentAdapter } from "../../domain/agents";
+import { Logger } from "../../utils/logger";
 
 /**
  * Configuration for RealtimeAgentAdapter
@@ -96,6 +97,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
   private messageProcessor = new MessageProcessor();
   private responseFormatter = new ResponseFormatter();
   private audioEvents = new EventEmitter();
+  private readonly logger = new Logger("RealtimeAgentAdapter");
 
   /**
    * Creates a new RealtimeAgentAdapter instance
@@ -120,8 +122,14 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     params?: Parameters<RealtimeSession["connect"]>[0] | undefined
   ): Promise<void> {
     const { apiKey, ...rest } = params ?? {};
+    const resolvedApiKey = apiKey ?? process.env.OPENAI_API_KEY;
+    if (!resolvedApiKey) {
+      throw new Error(
+        "RealtimeAgentAdapter.connect requires an API key: pass params.apiKey or set OPENAI_API_KEY.",
+      );
+    }
     await this.session.connect({
-      apiKey: apiKey ?? process.env.OPENAI_API_KEY!,
+      apiKey: resolvedApiKey,
       ...rest,
     });
   }
@@ -143,7 +151,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * @returns Agent response as audio message or text
    */
   async call(input: AgentInput): Promise<AgentReturnTypes> {
-    console.log(`🔊 [${this.name}] being called with role: ${this.role}`);
+    this.logger.debug(`[${this.name}] being called with role: ${this.role}`);
 
     const latestMessage = input.newMessages[input.newMessages.length - 1];
 
@@ -172,7 +180,7 @@ export class RealtimeAgentAdapter extends AgentAdapter {
    * Handles the initial response when no user message exists
    */
   private async handleInitialResponse(): Promise<AssistantModelMessage> {
-    console.log(`[${this.name}] First message, creating response`);
+    this.logger.debug(`[${this.name}] First message, creating response`);
 
     const sessionWithTransport = this.session as RealtimeSession & {
       transport?: {
@@ -185,9 +193,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("Realtime transport not available");
     }
 
-    transport.sendEvent({
-      type: "response.create",
-    });
+    if (!this.eventHandler.isResponseActive()) {
+      transport.sendEvent({
+        type: "response.create",
+      });
+    }
 
     const timeout = this.config.responseTimeout ?? 60000;
     const response = await this.eventHandler.waitForResponse(timeout);
@@ -226,10 +236,12 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       type: "input_audio_buffer.commit",
     });
 
-    // Trigger response generation
-    transport.sendEvent({
-      type: "response.create",
-    });
+    // Trigger response generation — guard against active-response race
+    if (!this.eventHandler.isResponseActive()) {
+      transport.sendEvent({
+        type: "response.create",
+      });
+    }
 
     // Wait for audio response
     const timeout = this.config.responseTimeout ?? 60000;

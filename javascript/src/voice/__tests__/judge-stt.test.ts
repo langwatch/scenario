@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from "vitest";
 
 import { AudioChunk } from "../audio-chunk";
 import { createAudioMessage } from "../messages";
-import { prepareJudgeInput } from "../judge-stt";
+import { prepareJudgeInput, transcribeAudioMessages } from "../judge-stt";
 import type { STTProvider } from "../stt";
 import { judgeAgent } from "../../agents/judge/judge-agent";
 import type { JudgeAgentConfig } from "../../agents/judge/judge-agent";
@@ -41,6 +41,20 @@ function sttReturning(text: string): STTProvider & { calls: number } {
     async transcribe(_audio: AudioChunk): Promise<string> {
       calls += 1;
       return text;
+    },
+    get calls() {
+      return calls;
+    },
+  } as STTProvider & { calls: number };
+}
+
+/** STT stub that always REJECTS, counting how many times it was invoked. */
+function sttThrowing(): STTProvider & { calls: number } {
+  let calls = 0;
+  return {
+    async transcribe(_audio: AudioChunk): Promise<string> {
+      calls += 1;
+      throw new Error("stt boom");
     },
     get calls() {
       return calls;
@@ -147,6 +161,83 @@ describe("prepareJudgeInput (judge STT pre-pass)", () => {
 
     expect(stt.calls).toBe(0);
     expect(messages[0]).toBe(textMsg); // same reference — untouched
+  });
+});
+
+describe("transcribeAudioMessages caches NEGATIVE STT results (#735 P2)", () => {
+  // The STT fallback re-runs over the whole history on every proceed() turn. On
+  // the degraded path this feature exists for — STT throws or returns "" for a
+  // dropped/bad/silent audio turn — the chunk must be remembered so the same
+  // dead audio is NOT re-transcribed on every later turn (O(turns) provider
+  // hits during exactly the outage the fallback is meant to tolerate). A shared
+  // per-instance Map across two calls models turns N and N+1 with that audio
+  // still sitting in history.
+  describe("when STT throws for an audio-only turn", () => {
+    it("caches a failed STT attempt so the same audio is not re-transcribed on the next call", async () => {
+      const stt = sttThrowing();
+      const cache = new Map<string, string>();
+      const audioMsg = createAudioMessage(tone(), "assistant") as ModelMessage;
+
+      const first = await transcribeAudioMessages({
+        messages: [audioMsg],
+        stt,
+        includeAudio: false,
+        transcriptCache: cache,
+        logWarn: vi.fn(),
+      });
+      const second = await transcribeAudioMessages({
+        messages: [audioMsg],
+        stt,
+        includeAudio: false,
+        transcriptCache: cache,
+        logWarn: vi.fn(),
+      });
+
+      // STT was hit ONCE across both calls — the second short-circuited on the
+      // cached negative sentinel instead of re-hitting the provider.
+      expect(stt.calls).toBe(1);
+      // Neither call fabricated text nor crashed: audio dropped (text-only),
+      // no transcript part added — the graceful-degrade path is preserved.
+      for (const messages of [first, second]) {
+        const content = (messages[0] as { content: unknown[] }).content;
+        expect(
+          content.find((p) => (p as { type?: string }).type === "file"),
+        ).toBeUndefined();
+        expect(
+          content.find((p) => (p as { type?: string }).type === "text"),
+        ).toBeUndefined();
+      }
+    });
+  });
+
+  describe("when STT returns an empty transcript for an audio-only turn", () => {
+    it("caches the empty result so the same audio is not re-transcribed on the next call", async () => {
+      const stt = sttReturning("");
+      const cache = new Map<string, string>();
+      const audioMsg = createAudioMessage(tone(), "assistant") as ModelMessage;
+
+      await transcribeAudioMessages({
+        messages: [audioMsg],
+        stt,
+        includeAudio: false,
+        transcriptCache: cache,
+      });
+      const second = await transcribeAudioMessages({
+        messages: [audioMsg],
+        stt,
+        includeAudio: false,
+        transcriptCache: cache,
+      });
+
+      // Empty is a valid STT result: cached like any other, so the provider is
+      // hit ONCE across both calls, not once per call.
+      expect(stt.calls).toBe(1);
+      // An empty transcript adds no text part (same as undefined).
+      const content = (second[0] as { content: unknown[] }).content;
+      expect(
+        content.find((p) => (p as { type?: string }).type === "text"),
+      ).toBeUndefined();
+    });
   });
 });
 

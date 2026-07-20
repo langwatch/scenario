@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.7.32](https://github.com/langwatch/scenario/compare/python/v0.7.31...python/v0.7.32) (2026-07-20)
+
+
+### Features
+
+* **#660:** expose context param on scenario.judge() public API ([#667](https://github.com/langwatch/scenario/issues/667)) ([900f3d8](https://github.com/langwatch/scenario/commit/900f3d866d5787a015780965e9de4f518b753ad7))
+* **#666:** per-role voice modality negotiation — declaration-first, two-phase validation, OTEL stamps ([#670](https://github.com/langwatch/scenario/issues/670)) ([007a69f](https://github.com/langwatch/scenario/commit/007a69faff6f33b9b5a6e9d4f811e9e2d8c81fdd))
+* **events:** support LANGWATCH_PROJECT_ID via X-Project-Id header ([#619](https://github.com/langwatch/scenario/issues/619)) ([7aec1c7](https://github.com/langwatch/scenario/commit/7aec1c7c88a08ee4d732609fa480489e100f22e5))
+* **tracing:** stamp scenario SDK name+version as trace attributes ([#744](https://github.com/langwatch/scenario/issues/744)) ([#745](https://github.com/langwatch/scenario/issues/745)) ([43dd4fa](https://github.com/langwatch/scenario/commit/43dd4fae3b439561b9ff196a9c0297968c1ae607))
+* **voice:** continuous ElevenLabs mic pump + is_connected guard ([#740](https://github.com/langwatch/scenario/issues/740) slice A) ([#741](https://github.com/langwatch/scenario/issues/741)) ([b6e7f93](https://github.com/langwatch/scenario/commit/b6e7f93c43fee650c0fe37f27153a4805f3e7eb8))
+* **voice:** harvest voice result fields on exit paths + concrete typing ([#740](https://github.com/langwatch/scenario/issues/740) slice E) ([#742](https://github.com/langwatch/scenario/issues/742)) ([439b7be](https://github.com/langwatch/scenario/commit/439b7be5bb02c9fa9ebf56ef71f76537e043ffde))
+* **voice:** instrument base + ElevenLabs adapter with LangWatch spans ([#777](https://github.com/langwatch/scenario/issues/777)) ([2b32872](https://github.com/langwatch/scenario/commit/2b32872aa57b13f80e6b063425efac38a0c7604b))
+* **voice:** instrument Gemini Live adapter with LangWatch spans ([#780](https://github.com/langwatch/scenario/issues/780)) ([8ba8687](https://github.com/langwatch/scenario/commit/8ba8687cf38849074fe97a83a0ea4733cfdec09a))
+* **voice:** instrument OpenAI Realtime adapter with LangWatch spans ([#782](https://github.com/langwatch/scenario/issues/782)) ([3152969](https://github.com/langwatch/scenario/commit/315296936f1d1465f97305431cdedba7730f9136))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#774](https://github.com/langwatch/scenario/issues/774)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#781](https://github.com/langwatch/scenario/issues/781)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Twilio adapter with LangWatch spans ([#788](https://github.com/langwatch/scenario/issues/788)) ([8747eed](https://github.com/langwatch/scenario/commit/8747eed1a8e36db0dfba3ebd08359822fa6d1e52))
+* **voice:** realtime_langwatch_session context manager for live OpenAI Realtime apps ([#673](https://github.com/langwatch/scenario/issues/673)) ([#676](https://github.com/langwatch/scenario/issues/676)) ([e89d00c](https://github.com/langwatch/scenario/commit/e89d00c344eeac18a8673eb974d905afa14014b4))
+
+
+### Bug Fixes
+
+* **#161:** re-parse criteria when LLM returns stringified JSON dict ([#552](https://github.com/langwatch/scenario/issues/552)) ([b819849](https://github.com/langwatch/scenario/commit/b8198493aa638f0c31821050d7d4502b08e5f88e))
+* **#488:** log voice adapter and ffmpeg disconnect failures at WARNING ([#556](https://github.com/langwatch/scenario/issues/556)) ([86bf466](https://github.com/langwatch/scenario/commit/86bf4662c0a5f16ec23c25a11ea78368d39bff26))
+* **#655:** replace brittle judge criteria with generic behavioral criteria in audio examples ([#679](https://github.com/langwatch/scenario/issues/679)) ([732d426](https://github.com/langwatch/scenario/commit/732d426ae4865c8027fb03182cf8211461c11514))
+* **#664:** transcribe agent turns at runtime so the voice user simulator can read them ([#665](https://github.com/langwatch/scenario/issues/665)) ([4b99682](https://github.com/langwatch/scenario/commit/4b99682bee8ca6820537a100551ec83e97bcd89f))
+* **#695:** twilio terminal sentinel on silent/tool-only stop (dead-recv-loop hang) ([#697](https://github.com/langwatch/scenario/issues/697)) ([e675224](https://github.com/langwatch/scenario/commit/e675224226974eeb69a0ddffee48d47cca35b77c))
+* **python:** derive scenario.__version__ from package metadata ([#800](https://github.com/langwatch/scenario/issues/800)) ([0d505a7](https://github.com/langwatch/scenario/commit/0d505a7cfcc9467821ed61119f291944b626cc7f))
+* **security:** bump pyjwt to 2.13.0 ([#677](https://github.com/langwatch/scenario/issues/677)) ([00807b7](https://github.com/langwatch/scenario/commit/00807b770ad997a12ca1c10418e409e6f0cdf44b))
+* **security:** bump python/uv.lock security floors (cryptography, python-multipart, starlette, python-liquid, pydantic-settings) ([#685](https://github.com/langwatch/scenario/issues/685)) ([ee9a5d5](https://github.com/langwatch/scenario/commit/ee9a5d5f2d1c55b23e122dbdb138d82d38ab861c))
+* **security:** raise esbuild, js-yaml, and dompurify override floors across JS workspaces ([#671](https://github.com/langwatch/scenario/issues/671)) ([c76bab2](https://github.com/langwatch/scenario/commit/c76bab247cd69395bcd55b85046dc4f17c783618))
+* **security:** raise vite 8.x floor to &gt;=8.0.16 across scenario workspaces ([#709](https://github.com/langwatch/scenario/issues/709)) ([42d877e](https://github.com/langwatch/scenario/commit/42d877ed4b187b3a7478f38f6efdce932cb696d9))
+* **voice/#491:** diagnose + resolve multi-turn [@e2e](https://github.com/e2e) suite-wedge + tighten VAD tests ([#694](https://github.com/langwatch/scenario/issues/694)) ([2dfc381](https://github.com/langwatch/scenario/commit/2dfc381df3c27f073706e5aed56d6852a9d8ebf0))
+* **voice/#498:** surface recv-loop termination as attributable PipecatRecvError ([#692](https://github.com/langwatch/scenario/issues/692)) ([c1f552c](https://github.com/langwatch/scenario/commit/c1f552cac4845654a57b27c5f705f61c3a3951cc))
+* **voice/#648:** terminal drain on non-audio completion (EL + WebSocket) ([#693](https://github.com/langwatch/scenario/issues/693)) ([c42320e](https://github.com/langwatch/scenario/commit/c42320e130ae3d0ea67a743ffea8195cc5f76825))
+* **voice/#662:** guard [#662](https://github.com/langwatch/scenario/issues/662)'s response.create call sites against the active-response race (JS + PY) ([#669](https://github.com/langwatch/scenario/issues/669)) ([0968374](https://github.com/langwatch/scenario/commit/0968374e2232af05cffd32b87c00e341511b2723))
+* **voice/ts:** explicit EL ConvAI turn-commit so scripted next-turn receive re-engages ([#596](https://github.com/langwatch/scenario/issues/596)) ([795ae8e](https://github.com/langwatch/scenario/commit/795ae8eb7e672e180fea6a657d472e566431883b))
+* **voice:** guard response.create on active response in recv_audio ([#659](https://github.com/langwatch/scenario/issues/659)) ([5e844ea](https://github.com/langwatch/scenario/commit/5e844ea73f39473f39fe70516c53762437263be1))
+* **voice:** hosted ElevenLabs single-exchange ceiling — docs + enriched timeout error ([#643](https://github.com/langwatch/scenario/issues/643)) ([aae16be](https://github.com/langwatch/scenario/commit/aae16beec4d5b74ee331c29ad960c43632434da0))
+* **voice:** skip Twilio e2e fixtures on absent env, not fail ([#798](https://github.com/langwatch/scenario/issues/798)) ([4c883d0](https://github.com/langwatch/scenario/commit/4c883d00a4c1155feedeb8c8638b4ece30931613))
+* **voice:** terminate wait=False test drain on end-of-turn, re-enable in CI ([#691](https://github.com/langwatch/scenario/issues/691)) ([022056d](https://github.com/langwatch/scenario/commit/022056dc3621412256904bc8ddca930baafb2033))
+
+
+### Documentation
+
+* **voice:** drop references to a docs/proposals tree that never landed ([#613](https://github.com/langwatch/scenario/issues/613)) ([#823](https://github.com/langwatch/scenario/issues/823)) ([0ef4314](https://github.com/langwatch/scenario/commit/0ef4314fef19d76013a3dbc56f7667b73a7a9dc9))
+
 ## [0.7.31](https://github.com/langwatch/scenario/compare/python/v0.7.30...python/v0.7.31) (2026-06-11)
 
 

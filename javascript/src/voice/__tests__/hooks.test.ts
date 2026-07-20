@@ -21,16 +21,11 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, it } from "vitest";
 
-import {
-  AgentRole,
-  type AgentInput,
-  type AgentReturnTypes,
-  UserSimulatorAgentAdapter,
-} from "../../domain";
 import { agent, succeed, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
 import { AudioChunk, silentChunk } from "../audio-chunk";
 import type { VoiceEvent } from "../recording.types";
+import { AudioUserSimulator } from "./fixtures/audio-user-simulator";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -57,35 +52,6 @@ function pcm16Chunk(durationSeconds: number, sample = 0x0010): AudioChunk {
     data[i + 1] = (sample >> 8) & 0xff;
   }
   return new AudioChunk({ data });
-}
-
-/**
- * User simulator that returns an audio-shaped message so the default
- * voice call() actually flows bytes through `sendAudio`. Without this,
- * the user turn arrives as text and `extractAudioFromLastMessage`
- * yields null → no user-side audio hook fires.
- */
-class AudioUserSimulator extends UserSimulatorAgentAdapter {
-  role = AgentRole.USER;
-  constructor(private readonly chunk: AudioChunk) {
-    super();
-  }
-  async call(_input: AgentInput): Promise<AgentReturnTypes> {
-    const base64 = Buffer.from(this.chunk.data).toString("base64");
-    // Cast through unknown — the audio shape is locally typed as
-    // AudioMessageParam but the executor's ModelMessage union accepts
-    // assistant arrays only. ConvertModelMessagesToAguiMessages
-    // JSON-stringifies the content, so the audio survives downstream.
-    return {
-      role: "user",
-      content: [
-        {
-          type: "input_audio",
-          input_audio: { data: base64, format: "pcm16" },
-        },
-      ],
-    } as unknown as AgentReturnTypes;
-  }
 }
 
 // -------------------------------------------------------------------------

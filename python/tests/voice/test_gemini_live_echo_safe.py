@@ -56,6 +56,8 @@ import pytest
 import scenario
 from scenario.config import ScenarioConfig
 from scenario.voice.adapters.gemini_live import GeminiLiveAgentAdapter
+from scenario.voice.audio_chunk import AudioChunk
+from scenario.voice.testing import drive_call, make_agent_input
 from scenario.user_simulator_agent import UserSimulatorAgent
 
 
@@ -530,4 +532,145 @@ async def test_gemini_transcript_surfaces_as_assistant_text_part():
     dumped = json.dumps([dict(m) for m in result.messages])
     assert "scenario_origin" not in dumped, (
         "Marker key 'scenario_origin' leaked into result.messages"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper-level smoke — REAL .connect() + .call() over a faked genai.Client
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_wrapper_real_connect_call_disconnect_smoke(monkeypatch):
+    """Wrapper-level smoke closing the 0-``.connect()`` gap.
+
+    The suite's other tests override ``connect``/``disconnect``/``send_audio``
+    wholesale (justified for the echo path, but they leave connect, disconnect,
+    and the send framing dark — gemini_live.py:167-257 had zero coverage). Here
+    we fake ONLY ``genai.Client`` and drive the REAL connect (builds the real
+    ``LiveConnectConfig``, spawns the real ``_session_lifetime`` background task
+    holding the fake CM open), the REAL ``send_audio`` (real 24k→16k resample +
+    activity framing), the REAL ``recv_audio``, and the REAL disconnect (which
+    joins the background task).
+    """
+    from google import genai
+    from google.genai import types
+
+    session = _FakeSession([_agent_turn_messages(QUESTION)])
+    captured: dict = {}
+
+    class _FakeConnectCM:
+        """Async context manager standing in for ``client.aio.live.connect(...)``."""
+
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+    class _FakeLive:
+        def connect(self, *, model, config):
+            captured["model"] = model
+            captured["config"] = config
+            return _FakeConnectCM()
+
+    class _FakeAio:
+        live = _FakeLive()
+
+    class _FakeClient:
+        def __init__(self, api_key=None):
+            captured["api_key"] = api_key
+            self.aio = _FakeAio()
+
+    monkeypatch.setattr(genai, "Client", _FakeClient)
+
+    adapter = GeminiLiveAgentAdapter(
+        api_key="test-gk-not-real",
+        system_instruction="You are an interviewer.",
+    )
+
+    await adapter.connect()               # REAL connect: real config + background task
+    session_task = adapter._session_task  # capture before disconnect joins it
+    result = await drive_call(
+        adapter, make_agent_input(user_audio=AudioChunk(data=_make_pcm(2400)))
+    )
+    await adapter.disconnect()            # REAL teardown joins the background task
+
+    # 1. Real client construction: key + model reached the SDK boundary.
+    assert captured["api_key"] == "test-gk-not-real", (
+        f"genai.Client got the wrong api_key: {captured.get('api_key')!r}"
+    )
+    assert captured["model"] == adapter.model, (
+        f"live.connect got model {captured.get('model')!r}, expected {adapter.model!r}"
+    )
+
+    # 2. The REAL LiveConnectConfig connect() built, asserted structurally.
+    config = captured["config"]
+    assert isinstance(config, types.LiveConnectConfig), (
+        f"connect() did not build a real LiveConnectConfig; got {type(config)!r}"
+    )
+    # Narrow each optional link explicitly: the SDK types every level of these
+    # chains as Optional, and a bare `a.b.c.d` both trips pyright and reports a
+    # chained AttributeError instead of naming the level connect() failed to set.
+    realtime_input = config.realtime_input_config
+    assert realtime_input is not None, "connect() did not set realtime_input_config"
+    activity_detection = realtime_input.automatic_activity_detection
+    assert activity_detection is not None, (
+        "connect() did not set automatic_activity_detection"
+    )
+    assert activity_detection.disabled is True, (
+        "automatic activity detection must be disabled (manual turn framing)"
+    )
+
+    assert config.output_audio_transcription is not None, "output transcription not enabled"
+    assert config.input_audio_transcription is not None, "input transcription not enabled"
+
+    speech_config = config.speech_config
+    assert speech_config is not None, "connect() did not set speech_config"
+    voice_config = speech_config.voice_config
+    assert voice_config is not None, "connect() did not set speech_config.voice_config"
+    prebuilt_voice = voice_config.prebuilt_voice_config
+    assert prebuilt_voice is not None, "connect() did not set prebuilt_voice_config"
+    assert prebuilt_voice.voice_name == adapter.voice, (
+        f"configured voice != adapter.voice; got {prebuilt_voice.voice_name!r}"
+    )
+    assert config.system_instruction == "You are an interviewer.", (
+        f"system_instruction not carried through; got {config.system_instruction!r}"
+    )
+
+    # 3. send_audio framing order over the REAL resample: start / blob / end.
+    assert len(session.sent) == 3, (
+        f"expected 3 send_realtime_input calls (start/blob/end); got {session.sent}"
+    )
+    assert "activity_start" in session.sent[0], f"entry 0 not activity_start: {session.sent[0]}"
+    assert "audio" in session.sent[1], f"entry 1 not an audio blob: {session.sent[1]}"
+    blob = session.sent[1]["audio"]
+    assert blob.mime_type == "audio/pcm;rate=16000", (
+        f"blob mime_type wrong; got {blob.mime_type!r}"
+    )
+    # 2400 samples @24k → 1600 samples @16k → 3200 bytes: the real resampler ran.
+    assert len(blob.data) == 3200, (
+        f"resampled blob is {len(blob.data)} bytes, expected 3200 (24k→16k did not run)"
+    )
+    assert "activity_end" in session.sent[2], f"entry 2 not activity_end: {session.sent[2]}"
+
+    # 4. The assistant turn carries non-empty audio AND the surfaced transcript.
+    content = result.get("content") if isinstance(result, dict) else None
+    assert isinstance(content, list), f"result is not an assistant audio message: {result!r}"
+    audio_parts = [
+        p for p in content if isinstance(p, dict) and p.get("type") == "input_audio"
+    ]
+    text_parts = [
+        p for p in content if isinstance(p, dict) and p.get("type") == "text"
+    ]
+    assert audio_parts and audio_parts[0]["input_audio"].get("data"), (
+        "assistant turn has no non-empty input_audio part"
+    )
+    assert any(QUESTION in (p.get("text") or "") for p in text_parts), (
+        f"transcript {QUESTION!r} not surfaced as a text part through the real recv path"
+    )
+
+    # 5. Disconnect tore the session down and joined the background task.
+    assert adapter._session is None, "disconnect() did not clear adapter._session"
+    assert session_task is not None and session_task.done(), (
+        "the _session_lifetime background task did not finish after disconnect()"
     )

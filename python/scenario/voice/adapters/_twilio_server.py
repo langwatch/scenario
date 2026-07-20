@@ -27,9 +27,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from typing import Any, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
+
+from opentelemetry.context import Context
 
 from ..audio_chunk import AudioChunk
+from .._telemetry import voice_span
 from ._twilio_shared import (
     _redact_e164,
     mulaw8k_to_pcm16_24k,
@@ -145,6 +148,14 @@ class TwilioWebhookServer:
             """
             from urllib.parse import parse_qs
 
+            # Webhook visibility counters (#775 Tier 3 note / disconnect T3):
+            # the media-stream WS loop has no direct span (frozen-ctx + flood
+            # hazard), so a misconfigured/rejected webhook shows up as a
+            # ``voice.adapter.dial`` stream_connect_timeout with no obvious
+            # cause. These counters — stamped onto ``voice.adapter.disconnect``
+            # — close that gap without a per-request span.
+            adapter._webhook_invocations += 1
+
             body = (await request.body()).decode("utf-8", errors="replace")
             fields = parse_qs(body)
             from_number = (fields.get("From") or [""])[0]
@@ -158,6 +169,7 @@ class TwilioWebhookServer:
                         "TwilioAgentAdapter: rejecting voice webhook — "
                         "missing or invalid X-Twilio-Signature"
                     )
+                    adapter._webhook_rejected += 1
                     return Response(content="forbidden", status_code=403)
 
             if adapter.allowed_callers is not None and from_number not in adapter.allowed_callers:
@@ -165,6 +177,7 @@ class TwilioWebhookServer:
                     "TwilioAgentAdapter: rejecting call from %s (not in allowed_callers)",
                     _redact_e164(from_number),
                 )
+                adapter._webhook_rejected += 1
                 return Response(
                     content="<Response><Reject/></Response>",
                     media_type="application/xml",
@@ -192,20 +205,43 @@ class TwilioWebhookServer:
         app.post("/twilio/voice")(_voice)
 
         async def _stream(ws):
-            await ws.accept()
-            logger.debug("TwilioAgentAdapter: WS connection accepted")
-            try:
-                await self.media_stream_loop(ws)
-            except WebSocketDisconnect:
-                logger.debug("TwilioAgentAdapter: WS disconnected")
-            finally:
-                adapter._stream_ws = None
-                adapter._stream_sid = None
+            await self.run_stream_session(ws)
 
         _stream.__annotations__ = {"ws": WebSocket, "return": None}
         app.websocket("/twilio/stream")(_stream)
 
         return app
+
+    async def run_stream_session(self, ws: Any) -> None:
+        """Production per-connection wrapper around :meth:`media_stream_loop`
+        (twin of the JS ``TwilioWebhookServer.runStreamSession``): accept the
+        socket, run the loop, swallow the disconnect, then — in a ``finally``
+        that fires on stop, socket close, OR a raise — null the adapter's
+        ``_stream_ws``/``_stream_sid`` transport state, exactly as the real
+        ``/twilio/stream`` route does after a call ends.
+
+        This is the seam tests must drive to reproduce the #695 teardown race:
+        the terminal sentinel is enqueued inside the loop's own ``finally``,
+        then THIS ``finally`` nulls the transport — so a ``recv_audio``
+        following the reset must still drain cleanly. Driving
+        ``media_stream_loop`` alone skips this reset and hides the bug (that
+        was the shipped tests' flaw, PR #697 P2 blocker). Internal: production
+        enters via the ``/twilio/stream`` route; not public API.
+        """
+        # Deferred import, matching this module's pattern of keeping fastapi
+        # out of import-time dependencies (see build_app).
+        from fastapi import WebSocketDisconnect
+
+        adapter = self._adapter
+        await ws.accept()
+        logger.debug("TwilioAgentAdapter: WS connection accepted")
+        try:
+            await self.media_stream_loop(ws)
+        except WebSocketDisconnect:
+            logger.debug("TwilioAgentAdapter: WS disconnected")
+        finally:
+            adapter._stream_ws = None
+            adapter._stream_sid = None
 
     async def media_stream_loop(self, ws: Any) -> None:
         """Per-call Media Streams loop: parse frames, enqueue audio, fire DTMF."""
@@ -214,55 +250,157 @@ class TwilioWebhookServer:
         assert adapter._stream_connected is not None
 
         adapter._stream_ws = ws
+        # ``_stream_ended`` AND the inbound queue are per-CALL state: re-arm and
+        # purge both alongside ``_stream_ws`` so a second media-stream session on
+        # the same connected adapter (Twilio reconnect, back-to-back call) starts
+        # clean.
+        #
+        # The flag alone is not enough. The previous call's ``finally`` ENQUEUED a
+        # terminal sentinel; if that call ended while no drain was running (the
+        # caller hung up between turns), the sentinel is still sitting in the
+        # queue. ``recv_audio`` drains a non-empty queue without checking
+        # liveness, so the new call's first ``recv_audio`` would hand that stale
+        # empty chunk to ``_drain_agent_response`` as its first chunk — and the
+        # drain breaks on an empty chunk, truncating the new call's first agent
+        # turn to silence and stranding its real audio for the turn after.
+        #
+        # No frame of THIS call has been enqueued yet, so anything present is the
+        # previous session's residue and is safe to drop. Waiters are untouched:
+        # a consumer already parked in ``get()`` stays parked for real audio.
+        adapter._stream_ended = False
+        while not adapter._inbound_queue.empty():
+            adapter._inbound_queue.get_nowait()
         # Buffer µ-law for batched decoding — send_audio/recv_audio operate at
         # the AudioChunk level, so we coalesce ~100ms of incoming µ-law per
         # chunk to avoid thousands of tiny AudioChunk objects.
         buffered_mulaw = bytearray()
         BATCH_MS = 100
 
-        while True:
-            msg = await ws.receive_text()
-            frame = parse_media_stream_frame(msg)
-            if frame is None:
-                continue
+        # Tier-3 (#775): the turn-ctx object we last emitted a background-loop
+        # ``voice.audio.receive`` delivery marker for — so the marker fires
+        # ONCE per live turn (mirrors Pipecat's ``_bg_span_turn_context``, the
+        # #774/#781 primitive). Fresh per ``media_stream_loop()`` invocation,
+        # i.e. per connected call/session — matches ``buffered_mulaw`` above.
+        last_bg_turn_ctx: Optional[Context] = None
 
-            if frame.event == "start":
-                adapter._stream_sid = frame.stream_sid
-                if frame.call_sid and adapter._call_sid is None:
-                    adapter._call_sid = frame.call_sid
-                adapter._stream_connected.set()
+        async def _enqueue(pcm: bytes) -> None:
+            """Enqueue decoded audio; at the FIRST wire delivery under a LIVE
+            turn, wrap the enqueue in a ``voice.audio.receive`` background-loop
+            delivery marker parented to that turn (#774/#781 primitive) —
+            mirrors Pipecat's ``_deliver``. Between turns
+            (``_voice_turn_context is None``) or for later deliveries within
+            the SAME turn (identity-check), no span is emitted: only the first
+            wire delivery per turn is spanned (flood guard), and a fully
+            pre-buffered turn (audio queued before any turn went live) is
+            drained by the base ``voice.audio.receive`` span with no
+            background marker at all.
 
-            elif frame.event == "media" and frame.payload_mulaw:
-                buffered_mulaw.extend(frame.payload_mulaw)
-                # 20ms per frame → flush every ~5 frames. Queue may be
-                # None if disconnect() raced ahead of the final frames;
-                # drop the chunk silently in that window.
-                if (
-                    len(buffered_mulaw) >= (BATCH_MS * 8)
-                    and adapter._inbound_queue is not None
-                ):
-                    pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
-                    buffered_mulaw.clear()
-                    await adapter._inbound_queue.put(AudioChunk(data=pcm))
-
-            elif frame.event == "dtmf" and frame.dtmf_digit:
-                logger.debug("TwilioAgentAdapter: received DTMF %s", frame.dtmf_digit)
-                if adapter.on_dtmf is not None:
-                    try:
-                        adapter.on_dtmf(frame.dtmf_digit)
-                    except Exception:
-                        logger.warning(
-                            "TwilioAgentAdapter.on_dtmf callback raised; continuing",
-                            exc_info=True,
-                        )
-
-            elif frame.event == "stop":
-                # Flush trailing audio then exit. After disconnect() has
-                # already reset state, _inbound_queue may be None — guard
-                # against a race where Twilio's final stop frame arrives
-                # after teardown started.
-                if buffered_mulaw and adapter._inbound_queue is not None:
-                    pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
-                    buffered_mulaw.clear()
-                    await adapter._inbound_queue.put(AudioChunk(data=pcm))
+            Coverage limit (by design, mirrors Pipecat): ``voice.audio.bytes``
+            is the DELIVERED coalesced-batch size, which may fold in a
+            sub-100ms µ-law tail carried over from the prior turn.
+            """
+            nonlocal last_bg_turn_ctx
+            assert adapter._inbound_queue is not None
+            parent = adapter._voice_turn_context
+            if parent is None or parent is last_bg_turn_ctx:
+                await adapter._inbound_queue.put(AudioChunk(data=pcm))
                 return
+            last_bg_turn_ctx = parent
+            with voice_span(
+                "voice.audio.receive",
+                {
+                    "voice.adapter.class": type(adapter).__name__,
+                    "voice.twilio.recv.source": "background_loop",
+                    "voice.audio.bytes": len(pcm),
+                },
+                parent=parent,
+            ):
+                await adapter._inbound_queue.put(AudioChunk(data=pcm))
+
+        # Deferred import, matching this module's ``run_stream_session``
+        # pattern of keeping fastapi out of import-time dependencies.
+        from fastapi import WebSocketDisconnect
+
+        try:
+            while True:
+                msg = await ws.receive_text()
+                frame = parse_media_stream_frame(msg)
+                if frame is None:
+                    continue
+
+                if frame.event == "start":
+                    adapter._stream_sid = frame.stream_sid
+                    if frame.call_sid and adapter._call_sid is None:
+                        adapter._call_sid = frame.call_sid
+                    adapter._stream_connected.set()
+
+                elif frame.event == "media" and frame.payload_mulaw:
+                    adapter._frames_received += 1
+                    buffered_mulaw.extend(frame.payload_mulaw)
+                    # 20ms per frame → flush every ~5 frames. Queue may be
+                    # None if disconnect() raced ahead of the final frames;
+                    # drop the chunk silently in that window.
+                    if (
+                        len(buffered_mulaw) >= (BATCH_MS * 8)
+                        and adapter._inbound_queue is not None
+                    ):
+                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        buffered_mulaw.clear()
+                        await _enqueue(pcm)
+
+                elif frame.event == "dtmf" and frame.dtmf_digit:
+                    adapter._dtmf_received += 1
+                    logger.debug("TwilioAgentAdapter: received DTMF %s", frame.dtmf_digit)
+                    if adapter.on_dtmf is not None:
+                        try:
+                            adapter.on_dtmf(frame.dtmf_digit)
+                        except Exception:
+                            logger.warning(
+                                "TwilioAgentAdapter.on_dtmf callback raised; continuing",
+                                exc_info=True,
+                            )
+
+                elif frame.event == "stop":
+                    # Flush trailing audio then exit. After disconnect() has
+                    # already reset state, _inbound_queue may be None — guard
+                    # against a race where Twilio's final stop frame arrives
+                    # after teardown started.
+                    if buffered_mulaw and adapter._inbound_queue is not None:
+                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        buffered_mulaw.clear()
+                        await _enqueue(pcm)
+                    adapter._stream_ended_reason = "stop"
+                    return
+        except WebSocketDisconnect:
+            # Socket closed mid-stream. ``run_stream_session`` swallows this
+            # type specifically (see its docstring) — tag the outcome BEFORE
+            # re-raising so that swallow's caller-visible behavior is
+            # unchanged.
+            adapter._stream_ended_reason = "close"
+            raise
+        except Exception:
+            # Any OTHER transport error (not a clean disconnect) propagates to
+            # ``run_stream_session``'s caller unchanged — tag the outcome
+            # before re-raising.
+            adapter._stream_ended_reason = "error"
+            raise
+        finally:
+            # Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the
+            # loop exits on a "stop" frame, a socket close (``receive_text``
+            # raises ``WebSocketDisconnect``), or any error, mark the call ended
+            # and enqueue an empty ``AudioChunk`` so a ``recv_audio`` blocked on
+            # the inbound queue returns cleanly instead of hanging to
+            # ``response_timeout`` on a silent / tool-only turn. All three
+            # termination paths (stop / close / throw) funnel through this
+            # ``finally``, so the sentinel is genuinely reachable on each.
+            #
+            # ``_stream_ended`` is set FIRST and unconditionally: the production
+            # ``_stream()`` wrapper nulls ``_stream_ws``/``_stream_sid``
+            # synchronously right after this loop returns, so ``recv_audio``'s
+            # follow-up call would otherwise trip ``_assert_stream_live``. The
+            # flag tells ``recv_audio`` to keep draining post-teardown rather
+            # than assert liveness. Guard the disconnect race where
+            # ``disconnect()`` already nulled the queue.
+            adapter._stream_ended = True
+            if adapter._inbound_queue is not None:
+                await adapter._inbound_queue.put(AudioChunk(data=b""))

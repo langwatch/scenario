@@ -240,43 +240,78 @@ async def test_committed_user_message_is_server_accepted_shape():
 
 @pytest.mark.asyncio
 async def test_silence_mode_preserves_legacy_pure_audio_path():
-    """``turn_commit_mode="silence"`` keeps the legacy audio + silence-tail path."""
+    """``turn_commit_mode="silence"`` keeps the legacy audio + silence-tail
+    behaviour, now expressed as pump-queued fixed 960-byte frames (the pump is
+    the single WS audio writer — no direct-write racing the background pump)."""
     adapter, socket = await _connected_adapter(turn_commit_mode="silence")
+    # Deterministic drain: manual pump control, no background racing.
+    # Take manual pump control (stop the background task, clear its queue) so
+    # the drain below is deterministic; the pump is the single WS audio writer.
+    await adapter.stop_pump()
 
     await adapter.send_audio(_user_turn("Hello again."))
 
-    # Legacy path: speech chunk + a zero-byte silence tail, NO user_message.
+    # No user_message commit on the silence path.
     assert socket.user_messages == []
-    silence_tail = base64.b64encode(b"\x00" * 16000).decode()
-    assert silence_tail in socket.audio_chunks
-    assert len(socket.audio_chunks) == 2  # speech + silence
+    # Speech (1 padded frame) + 16000-byte tail as ceil(16000/960)=17 frames.
+    expected_frames = 1 + (-(-16000 // 960))
+    assert len(adapter._outbound_frames) == expected_frames
+    socket.sent.clear()
+    while adapter._outbound_frames:
+        await adapter._pump_tick()
+    emitted = [base64.b64decode(c) for c in socket.audio_chunks]
+    # Every emitted frame is the fixed 960-byte pump size.
+    assert emitted, "expected pump to emit the enqueued frames"
+    assert all(len(f) == 960 for f in emitted)
+    # The closing silence totals at least the legacy 16000-byte tail.
+    tail_zero_bytes = sum(len(f) for f in emitted if f == b"\x00" * 960)
+    assert tail_zero_bytes >= 16000
 
 
 @pytest.mark.asyncio
 async def test_text_mode_without_transcript_falls_back_to_silence_tail():
-    """``"text"`` mode with no transcript falls back to the silence tail."""
+    """``"text"`` mode with no transcript falls back to the silence tail —
+    now queued as fixed 960-byte pump frames, not a direct blob write."""
     adapter, socket = await _connected_adapter()  # default "text"
+    # Take manual pump control (stop the background task, clear its queue) so
+    # the drain below is deterministic; the pump is the single WS audio writer.
+    await adapter.stop_pump()
 
     # No transcript on the chunk (e.g. raw audio with no STT text upstream).
     await adapter.send_audio(AudioChunk(data=b"\x00" * 8))
 
     assert socket.user_messages == []
-    silence_tail = base64.b64encode(b"\x00" * 16000).decode()
-    assert silence_tail in socket.audio_chunks
+    # Speech (1 padded frame) + the closing-silence tail frames.
+    assert len(adapter._outbound_frames) == 1 + (-(-16000 // 960))
+    socket.sent.clear()
+    while adapter._outbound_frames:
+        await adapter._pump_tick()
+    emitted = [base64.b64decode(c) for c in socket.audio_chunks]
+    assert all(len(f) == 960 for f in emitted)
+    assert sum(len(f) for f in emitted if f == b"\x00" * 960) >= 16000
 
 
 @pytest.mark.asyncio
 async def test_silence_tail_bytes_resizes_the_fallback_tail():
-    """``silence_tail_bytes`` resizes the legacy fallback tail."""
-    adapter, socket = await _connected_adapter(
+    """``silence_tail_bytes`` resizes the fallback tail — the number of queued
+    960-byte silence frames scales with it."""
+    adapter, _socket = await _connected_adapter(
         turn_commit_mode="silence", silence_tail_bytes=2400
     )
+    # Take manual pump control (stop the background task, clear its queue) so
+    # the drain below is deterministic; the pump is the single WS audio writer.
+    await adapter.stop_pump()
 
     await adapter.send_audio(_user_turn("size me"))
 
-    expected_tail = base64.b64encode(b"\x00" * 2400).decode()
-    assert expected_tail in socket.audio_chunks
-    assert base64.b64encode(b"\x00" * 16000).decode() not in socket.audio_chunks
+    # 2400-byte tail = ceil(2400/960) = 3 silence frames (vs 17 for 16000).
+    tail_frames_2400 = -(-2400 // 960)
+    tail_frames_16000 = -(-16000 // 960)
+    assert tail_frames_2400 == 3
+    # Speech frame (1) + 3 silence tail frames.
+    assert len(adapter._outbound_frames) == 1 + tail_frames_2400
+    # Materially fewer than the default 16000-byte tail would have queued.
+    assert (1 + tail_frames_2400) < (1 + tail_frames_16000)
 
 
 @pytest.mark.asyncio

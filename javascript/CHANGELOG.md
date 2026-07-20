@@ -9,6 +9,78 @@
 * **voice:** `ELEVENLABS_CONVAI_URL_TEMPLATE` constant removed from public exports — construct the URL directly or read it from the SDK.
 * **voice:** `.url` getter removed from public exports.
 
+## [0.5.5](https://github.com/langwatch/scenario/compare/javascript/v0.5.4...javascript/v0.5.5) (2026-07-20)
+
+
+### Bug Fixes
+
+* **javascript:** make published dist loadable by plain Node ([885e65c](https://github.com/langwatch/scenario/commit/885e65cb39174ba7b3e25655046c54cb880b0ef7))
+* **javascript:** make published dist loadable by plain Node (ESM + CJS) ([#830](https://github.com/langwatch/scenario/issues/830)) ([885e65c](https://github.com/langwatch/scenario/commit/885e65cb39174ba7b3e25655046c54cb880b0ef7))
+
+## [0.5.4](https://github.com/langwatch/scenario/compare/javascript/v0.5.3...javascript/v0.5.4) (2026-07-20)
+
+
+### Features
+
+* **voice:** instrument base + ElevenLabs adapter with LangWatch spans ([#777](https://github.com/langwatch/scenario/issues/777)) ([2b32872](https://github.com/langwatch/scenario/commit/2b32872aa57b13f80e6b063425efac38a0c7604b))
+* **voice:** instrument Gemini Live adapter with LangWatch spans ([#780](https://github.com/langwatch/scenario/issues/780)) ([8ba8687](https://github.com/langwatch/scenario/commit/8ba8687cf38849074fe97a83a0ea4733cfdec09a))
+* **voice:** instrument OpenAI Realtime adapter with LangWatch spans ([#782](https://github.com/langwatch/scenario/issues/782)) ([3152969](https://github.com/langwatch/scenario/commit/315296936f1d1465f97305431cdedba7730f9136))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#774](https://github.com/langwatch/scenario/issues/774)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#781](https://github.com/langwatch/scenario/issues/781)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Twilio adapter with LangWatch spans ([#788](https://github.com/langwatch/scenario/issues/788)) ([8747eed](https://github.com/langwatch/scenario/commit/8747eed1a8e36db0dfba3ebd08359822fa6d1e52))
+
+
+### Bug Fixes
+
+* **security:** bump [@opentelemetry](https://github.com/opentelemetry) sdk-node/exporter-prometheus to 0.217.0 ([87d5509](https://github.com/langwatch/scenario/commit/87d5509f8421f7b2370e9b64ab71daf4612e0a1a))
+* **security:** bump [@opentelemetry](https://github.com/opentelemetry) sdk-node/exporter-prometheus to 0.217.0 (with ReadableSpan migration) ([#702](https://github.com/langwatch/scenario/issues/702)) ([87d5509](https://github.com/langwatch/scenario/commit/87d5509f8421f7b2370e9b64ab71daf4612e0a1a))
+* **security:** raise esbuild, js-yaml, and dompurify override floors across JS workspaces ([#671](https://github.com/langwatch/scenario/issues/671)) ([c76bab2](https://github.com/langwatch/scenario/commit/c76bab247cd69395bcd55b85046dc4f17c783618))
+
+## [0.5.3](https://github.com/langwatch/scenario/compare/javascript/v0.5.2...javascript/v0.5.3) (2026-07-16)
+
+
+### Features
+
+* add Claude Code agent adapter ([#687](https://github.com/langwatch/scenario/issues/687)) ([8d642d4](https://github.com/langwatch/scenario/commit/8d642d441c883327de8c9abd8ab0364b2667e7a8))
+* **events:** support LANGWATCH_PROJECT_ID via X-Project-Id header ([#619](https://github.com/langwatch/scenario/issues/619)) ([7aec1c7](https://github.com/langwatch/scenario/commit/7aec1c7c88a08ee4d732609fa480489e100f22e5))
+
+
+### Bug Fixes
+
+* **#695:** twilio terminal sentinel on silent/tool-only stop (dead-recv-loop hang) ([#697](https://github.com/langwatch/scenario/issues/697)) ([e675224](https://github.com/langwatch/scenario/commit/e675224226974eeb69a0ddffee48d47cca35b77c))
+* **voice/#662:** guard [#662](https://github.com/langwatch/scenario/issues/662)'s response.create call sites against the active-response race (JS + PY) ([#669](https://github.com/langwatch/scenario/issues/669)) ([0968374](https://github.com/langwatch/scenario/commit/0968374e2232af05cffd32b87c00e341511b2723))
+
+
+### Miscellaneous
+
+* **lint:** forbid non-null assertions in library src and gate it in CI ([#751](https://github.com/langwatch/scenario/issues/751)) ([#755](https://github.com/langwatch/scenario/issues/755)) ([c8eeb5e](https://github.com/langwatch/scenario/commit/c8eeb5e33fc958702ba2c9778f9645964cfcb678))
+
+## [0.5.2](https://github.com/langwatch/scenario/compare/javascript/v0.5.1...javascript/v0.5.2) (2026-07-09)
+
+
+### Features
+
+* stamp scenario SDK version as trace attributes ([#733](https://github.com/langwatch/scenario/issues/733)) ([#736](https://github.com/langwatch/scenario/issues/736)) ([6612c50](https://github.com/langwatch/scenario/commit/6612c5086a462bf48a6b6a9b7e4809f09283ac6e))
+
+
+### Bug Fixes
+
+* **voice:** reconcile EL audioQueue at turn boundaries ([#747](https://github.com/langwatch/scenario/issues/747)) ([#748](https://github.com/langwatch/scenario/issues/748)) ([1b135f7](https://github.com/langwatch/scenario/commit/1b135f792b5f126a05793c0141bd5f5726412cd5))
+
+
+### Code Refactoring
+
+* **realtime:** use the injectable Logger instead of console.* ([#724](https://github.com/langwatch/scenario/issues/724)) ([#750](https://github.com/langwatch/scenario/issues/750)) ([54a89c5](https://github.com/langwatch/scenario/commit/54a89c53f8bea2c581e6d8cef361b4677811792d))
+* **voice/tests:** hoist AudioUserSimulator fixture to fixtures/ ([#524](https://github.com/langwatch/scenario/issues/524)) ([#738](https://github.com/langwatch/scenario/issues/738)) ([e1dda4b](https://github.com/langwatch/scenario/commit/e1dda4bc64549511e97c9288b5f6c8d5a44023b2))
+
+## [0.5.1](https://github.com/langwatch/scenario/compare/javascript/v0.5.0...javascript/v0.5.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **security:** raise protobufjs override floors (CRITICAL) ([#683](https://github.com/langwatch/scenario/issues/683)) ([7841995](https://github.com/langwatch/scenario/commit/784199537ba2422be64229b43aec61f069fe7a22))
+* **voice:** grace-wait + STT fallback so user-simulator reacts to real transcript ([#734](https://github.com/langwatch/scenario/issues/734)) ([#735](https://github.com/langwatch/scenario/issues/735)) ([5f4cbe9](https://github.com/langwatch/scenario/commit/5f4cbe96add2e0e9d67fe8cb5ba07886d200a897))
+
 ## [0.5.0](https://github.com/langwatch/scenario/compare/javascript/v0.4.15...javascript/v0.5.0) (2026-07-01)
 
 

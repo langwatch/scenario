@@ -53,7 +53,6 @@ import {
   AgentRole,
   type AgentInput,
   type AgentReturnTypes,
-  JudgeAgentAdapter,
   UserSimulatorAgentAdapter,
 } from "../../domain";
 import { ScenarioExecution } from "../../execution/scenario-execution";
@@ -62,6 +61,7 @@ import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage, extractTranscript } from "../messages";
+import { PassingJudge } from "./fixtures/passing-judge";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -151,26 +151,11 @@ class VoiceUserSim extends UserSimulatorAgentAdapter {
   }
 }
 
-/**
- * Judge that only resolves on an explicit judgment request (never in proceed).
- *
- * NOTE: No artificial delay here. The inline barge-in fires BEFORE _step runs
- * JUDGE, so JUDGE timing no longer affects the interrupt window. The prior
- * design needed a 100 ms JUDGE delay to model the race; the new inline design
- * does not depend on JUDGE latency at all.
- */
-class PassingJudge extends JudgeAgentAdapter {
-  criteria = ["ok"];
-  async call(input: AgentInput) {
-    if (!input.judgmentRequest) return null;
-    return {
-      success: true,
-      reasoning: "done",
-      metCriteria: ["ok"],
-      unmetCriteria: [],
-    };
-  }
-}
+// The scenarios below use PassingJudge (fixtures/passing-judge) with no
+// artificial delay: the inline barge-in fires BEFORE _step runs JUDGE, so
+// JUDGE timing no longer affects the interrupt window. The prior design
+// needed a 100 ms JUDGE delay to model the race; the new inline design does
+// not depend on JUDGE latency at all.
 
 // ---------------------------------------------------------------------------
 // Test

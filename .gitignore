@@ -195,13 +195,22 @@ docs/docs/public/reference/python/**/*
 .claude/settings.local.json
 .worktrees
 
-# Voice demo recordings — most are regenerated per local run, NOT
-# committed. But the subset listed below is checked in as PR
-# evidence: each demo's `full.wav`, `manifest.json`, and per-turn
-# `segments/` directory are the canonical "prove it" artifacts for
-# reviewers. See python/outputs/recordings/README.md.
+# Python voice demo outputs (recordings + manifests). Most are regenerated
+# per local run, NOT committed. But the subset listed below is checked in as
+# PR evidence: each demo's `full.wav`, `manifest.json`, and for the core
+# provider demos the per-turn `segments/` directory are the canonical
+# "prove it" artifacts for reviewers. See python/outputs/README.md (parent
+# index) and python/outputs/recordings/README.md (audio policy).
+#
+# Shape: outputs/ is the artifact parent (room for traces/, logs/,
+# screenshots/ later). recordings/ is the audio subdir, and only it is
+# whitelisted today; new artifact siblings will get their own block when added.
+python/outputs/*
+!python/outputs/README.md
+!python/outputs/recordings/
 python/outputs/recordings/*
 !python/outputs/recordings/README.md
+# Core provider demos: commit full.wav + manifest.json + per-turn segments/.
 !python/outputs/recordings/elevenlabs_hosted/
 !python/outputs/recordings/elevenlabs_branded/
 !python/outputs/recordings/elevenlabs_interruption/

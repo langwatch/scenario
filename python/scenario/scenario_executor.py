@@ -85,6 +85,12 @@ import litellm
 import langwatch
 import langwatch.telemetry.context
 from langwatch.telemetry.tracing import LangWatchTrace
+from scenario._tracing.sdk_metadata import (
+    ATTR_SCENARIO_SDK_NAME,
+    ATTR_SCENARIO_SDK_VERSION,
+    SCENARIO_SDK_NAME,
+    SCENARIO_SDK_VERSION,
+)
 
 
 def _extract_text_content(content: object) -> str:
@@ -457,6 +463,8 @@ class ScenarioExecutor:
         if self._trace.root_span is not None:
             attrs = {
                 "langwatch.origin": "simulation",
+                ATTR_SCENARIO_SDK_NAME: SCENARIO_SDK_NAME,
+                ATTR_SCENARIO_SDK_VERSION: SCENARIO_SDK_VERSION,
                 "scenario.run_id": self._scenario_run_id,
             }
             for role, tier_value in getattr(self, '_modality_resolutions', {}).items():
@@ -553,7 +561,7 @@ class ScenarioExecutor:
         ]
         agent_time = sum(agent_times)
 
-        return ScenarioResult(
+        result = ScenarioResult(
             success=False,
             messages=self._state.messages,
             reasoning=error_message
@@ -561,6 +569,19 @@ class ScenarioExecutor:
             total_time=time.time() - self._total_start_time,
             agent_time=agent_time,
         )
+        # Harvest voice output so max-turns exits (both the mid-script L519
+        # route and the end-of-script-without-conclusion L687 route) carry
+        # result.audio/timeline/latency for voice runs (AC E1).
+        # Guard: if harvest itself raises, log and return the max-turns result
+        # unmodified so the caller always gets a valid ScenarioResult.
+        try:
+            result = self._attach_voice_output(result)
+        except Exception:
+            logger.warning(
+                "voice harvest failed on max-turns path; returning result without voice fields",
+                exc_info=True,
+            )
+        return result
 
     async def run(self) -> ScenarioResult:
         """
@@ -629,7 +650,13 @@ class ScenarioExecutor:
                         if result.success
                         else ScenarioRunFinishedEventStatus.FAILED
                     )
-                    result = self._attach_voice_output(result)
+                    try:
+                        result = self._attach_voice_output(result)
+                    except Exception:
+                        logger.warning(
+                            "voice harvest failed on script-result path; returning result without voice fields",
+                            exc_info=True,
+                        )
                     self._emit_run_finished_event(scenario_run_id, result, status)
                     return result
 
@@ -644,6 +671,18 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=0,
                 )
+                # Harvest voice output before emitting/raising so the
+                # check-failure (AssertionError in a script step) exit carries
+                # result.audio/timeline/latency for voice runs (AC E2b).
+                # Guard: if harvest itself raises, log and continue so the
+                # original AssertionError is not masked.
+                try:
+                    error_result = self._attach_voice_output(error_result)
+                except Exception:
+                    logger.warning(
+                        "voice harvest failed on check-failure path; preserving original error",
+                        exc_info=True,
+                    )
                 self._emit_run_finished_event(
                     scenario_run_id,
                     error_result,
@@ -674,7 +713,13 @@ class ScenarioExecutor:
                     total_time=time.time() - self._total_start_time,
                     agent_time=agent_time,
                 )
-                result = self._attach_voice_output(result)
+                try:
+                    result = self._attach_voice_output(result)
+                except Exception:
+                    logger.warning(
+                        "voice harvest failed on checkpoint-results path; returning result without voice fields",
+                        exc_info=True,
+                    )
 
                 status = (
                     ScenarioRunFinishedEventStatus.SUCCESS
@@ -714,6 +759,18 @@ class ScenarioExecutor:
                 total_time=time.time() - self._total_start_time,
                 agent_time=0,
             )
+            # Harvest voice output before emitting/raising so the generic
+            # exception exit carries result.audio/timeline/latency for voice
+            # runs (AC E2).
+            # Guard: if harvest itself raises, log and continue so the
+            # original exception is not masked.
+            try:
+                error_result = self._attach_voice_output(error_result)
+            except Exception:
+                logger.warning(
+                    "voice harvest failed on except-Exception path; preserving original error",
+                    exc_info=True,
+                )
             self._emit_run_finished_event(
                 scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
             )
@@ -765,10 +822,29 @@ class ScenarioExecutor:
 
         # Phase 2: connect with live-transport failure catching
         from .voice.adapters._stub import PendingTransportError
+        from .voice._telemetry import voice_span
         for agent in self.agents:
             if isinstance(agent, VoiceAgentAdapter):
+                caps = getattr(agent, "capabilities", None)
+                role = getattr(agent, "role", None)
+                connect_attrs = {
+                    "voice.adapter.class": type(agent).__name__,
+                    "voice.adapter.role": getattr(role, "value", None),
+                    "voice.adapter.capabilities.native_vad": getattr(
+                        caps, "native_vad", None
+                    ),
+                    "voice.adapter.capabilities.streaming_transcripts": getattr(
+                        caps, "streaming_transcripts", None
+                    ),
+                    "voice.adapter.capabilities.dtmf": getattr(caps, "dtmf", None),
+                }
                 try:
-                    await agent.connect()
+                    # Wrap ``connect()`` itself so the span records the ORIGINAL
+                    # transport error before the ModalityNegotiationError re-wrap
+                    # below. Adapters stamp vendor attrs (e.g. EL agent_id) onto
+                    # this span from inside their own connect().
+                    with voice_span("voice.adapter.connect", connect_attrs):
+                        await agent.connect()
                 except PendingTransportError as e:
                     raise ModalityNegotiationError(
                         f"Live transport {type(agent).__name__!r} cannot honor "
@@ -836,12 +912,20 @@ class ScenarioExecutor:
         are logged but do not mask the primary scenario result.
         """
         from .voice.adapter import VoiceAgentAdapter
+        from .voice._telemetry import voice_span
 
         for agent in self.agents:
             if not isinstance(agent, VoiceAgentAdapter):
                 continue
             try:
-                await agent.disconnect()
+                # Wrap the disconnect() call so the span's OK/ERROR status is set
+                # BEFORE the executor's outer swallow below discards the error.
+                # Adapters stamp vendor attrs (e.g. EL pump counters) from inside.
+                with voice_span(
+                    "voice.adapter.disconnect",
+                    {"voice.adapter.class": type(agent).__name__},
+                ):
+                    await agent.disconnect()
             except Exception:
                 logger.warning(
                     "voice adapter %s disconnect failed",
@@ -1254,8 +1338,23 @@ class ScenarioExecutor:
             #    the bot's buffered outbound audio on transports that honor
             #    it (Twilio ``clear``, OpenAI Realtime ``response.cancel``).
             if adapter.capabilities.interruption:
+                from .voice._telemetry import voice_span
+
                 try:
-                    await adapter.interrupt()
+                    # ``voice.adapter.interrupt`` — the executor-owned base span
+                    # (mirrors ``_voice_connect_all`` / ``_voice_disconnect_all``).
+                    # Rule for executor-owned spans: executor-invoked + no shared
+                    # base body to instrument. connect/disconnect are abstract;
+                    # interrupt() is concrete (default raises UnsupportedCapability)
+                    # but wholesale-overridden with no super(), so the call-site is
+                    # the one seam. Adapters stamp vendor outcome attrs onto it from
+                    # inside their own interrupt(); the span's OK/ERROR status is set
+                    # BEFORE the swallow below discards a transport error.
+                    with voice_span(
+                        "voice.adapter.interrupt",
+                        {"voice.adapter.class": type(adapter).__name__},
+                    ):
+                        await adapter.interrupt()
                     native_interrupt_fired = True
                 except Exception:
                     # Best-effort native cancel — adapters' interrupt() may

@@ -32,7 +32,6 @@ import {
   AgentRole,
   type AgentInput,
   type AgentReturnTypes,
-  JudgeAgentAdapter,
   UserSimulatorAgentAdapter,
 } from "../../domain";
 import { agent, judge, user } from "../../script";
@@ -41,6 +40,7 @@ import { AudioChunk } from "../audio-chunk";
 import { createAudioMessage } from "../messages";
 import { VoiceRecordingRuntime } from "../recording.runtime";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
+import { PassingJudge } from "./fixtures/passing-judge";
 
 /** A short non-silent PCM16 chunk (mono, 24kHz) carrying a transcript. */
 function tone(durationSeconds: number, transcript: string): AudioChunk {
@@ -67,19 +67,6 @@ class AudioUserSimulator extends UserSimulatorAgentAdapter {
   }
 }
 
-/** Fake judge that concludes the run successfully on the judge() step. */
-class PassingJudge extends JudgeAgentAdapter {
-  criteria: string[] = ["Agent responds"];
-  async call(input: AgentInput) {
-    if (!input.judgmentRequest) return null;
-    return {
-      success: true,
-      reasoning: "voice turn completed",
-      metCriteria: [...this.criteria],
-      unmetCriteria: [],
-    };
-  }
-}
 
 function buildVoiceExecution(): {
   execution: ScenarioExecution;

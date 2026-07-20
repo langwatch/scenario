@@ -10,7 +10,14 @@ import { fileURLToPath } from "node:url";
 
 import { EffectFn, int16ToPcm16, linearResample, pcm16ToInt16, rate } from "./common";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+// Dual-format module location: in the ESM build `import.meta.url` is real; in
+// the CJS build tsup rewrites `import.meta` to an empty object (its shim), so
+// `fileURLToPath(undefined)` would throw at require() time and take the whole
+// package down with it. `__dirname` exists exactly in that build, so prefer it.
+const HERE =
+  typeof __dirname !== "undefined"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
 
 /**
  * Candidate locations for the bundled noise assets, in priority order. The
@@ -117,7 +124,7 @@ function wavToInt16(buf: Uint8Array): Int16Array {
     for (let i = 0; i < frameCount; i++) {
       let sum = 0;
       for (let c = 0; c < channels; c++) {
-        sum += rawSamples[i * channels + c]!;
+        sum += rawSamples[i * channels + c];
       }
       mono[i] = Math.round(sum / channels);
     }
@@ -202,7 +209,7 @@ export function backgroundNoise(presetOrPath: string, volume = 0.3): EffectFn {
     const out = new Float32Array(signal.length);
     for (let i = 0; i < signal.length; i++) {
       const noiseIdx = i % sample.length;
-      out[i] = signal[i]! + sample[noiseIdx]! * volume;
+      out[i] = signal[i] + sample[noiseIdx] * volume;
     }
     return int16ToPcm16(out);
   };
@@ -221,7 +228,7 @@ export function static_(intensity = 0.05): EffectFn {
       // Box-Muller-free approximation: (Math.random() - 0.5) * 2 gives uniform
       // [-1, 1]; close enough for noise generation.
       const noise = (Math.random() - 0.5) * 2 * 32767 * intensity;
-      out[i] = signal[i]! + noise;
+      out[i] = signal[i] + noise;
     }
     return int16ToPcm16(out);
   };
@@ -257,7 +264,7 @@ export function multipleVoices(
     const out = new Float32Array(signal.length);
     for (let i = 0; i < signal.length; i++) {
       const babbleIdx = i % sample.length;
-      out[i] = signal[i]! + sample[babbleIdx]! * volume;
+      out[i] = signal[i] + sample[babbleIdx] * volume;
     }
     return int16ToPcm16(out);
   };

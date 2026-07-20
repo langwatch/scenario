@@ -51,6 +51,65 @@ interface PrepareJudgeInputArgs {
   logWarn?: (message: string) => void;
 }
 
+/** Arguments for the shared {@link transcribeAudioMessages} STT pre-pass. */
+export interface TranscribeAudioMessagesArgs {
+  /** Conversation history to transcribe over. */
+  messages: readonly ModelMessage[];
+  /** Per-run STT provider (from the resolved `cfg.voice.stt`). */
+  stt: STTProvider;
+  /**
+   * Keep the raw audio `file` part alongside the transcribed text when true;
+   * drop it (text-only) when false. Judge passes its multimodal knob here; the
+   * user-simulator passes `true` so `stripAudioContent`'s echo-safety reframing
+   * (which keys on a message having BOTH audio and text) still triggers.
+   */
+  includeAudio: boolean;
+  /**
+   * Optional cross-call transcript cache keyed by a STABLE audio key (the raw
+   * audio payload). Prevents re-transcribing the SAME audio on every call.
+   *
+   * The judge builds a transcript once per verdict and passes no cache. The
+   * user-simulator's STT fallback, by contrast, re-runs over the WHOLE history
+   * on EVERY `proceed()` turn: without a cache, an audio-only agent turn that
+   * stays in history is transcribed on turn N, again on N+1, N+2, … turning a
+   * single dropped `agent_response` into O(turns^2) STT calls (#735 P2). The
+   * simulator passes a per-instance Map so each distinct audio chunk hits the
+   * provider at most once for the life of the simulator instance.
+   */
+  transcriptCache?: Map<string, string>;
+  /** Warning sink — defaults to {@link console.warn}. */
+  logWarn?: (message: string) => void;
+}
+
+/**
+ * Shared STT pre-pass (#734): for every message carrying audio, attach the
+ * spoken words as a `{ type: "text" }` part — reusing an existing text sibling
+ * when present, else transcribing the audio chunk via the resolved
+ * {@link STTProvider}. Optionally keeps or drops the raw audio part.
+ *
+ * This is the single implementation behind BOTH the judge's
+ * {@link prepareJudgeInput} pre-pass and the user-simulator's STT fallback: EL
+ * can fail to send `agent_response` for a turn, leaving the simulator with a
+ * bare `[audio message]`; running this before `stripAudioContent` gives the
+ * text-only simulator real words instead. Extracting it here keeps the STT
+ * plumbing in ONE place rather than duplicating it into the simulator.
+ *
+ * The input array is never mutated — a new message list is returned. STT
+ * failures degrade gracefully (audio dropped on the text-only path, a warning
+ * logged) so the caller still processes the rest of the conversation.
+ */
+export async function transcribeAudioMessages(
+  args: TranscribeAudioMessagesArgs,
+): Promise<ModelMessage[]> {
+  const { messages, stt, includeAudio, transcriptCache } = args;
+  const warn = args.logWarn ?? ((m: string) => console.warn(m));
+  return Promise.all(
+    messages.map((msg) =>
+      transcribeMessage(msg, stt, includeAudio, warn, transcriptCache),
+    ),
+  );
+}
+
 function isAudioFilePart(part: unknown): boolean {
   if (!part || typeof part !== "object") return false;
   const p = part as Record<string, unknown>;
@@ -93,14 +152,36 @@ function hasTextPart(content: readonly unknown[]): boolean {
 export async function prepareJudgeInput(
   args: PrepareJudgeInputArgs,
 ): Promise<JudgePreparedInput> {
-  const { messages, stt, options } = args;
-  const includeAudio = options?.includeAudio ?? false;
-  const warn = args.logWarn ?? ((m: string) => console.warn(m));
+  const messages = await transcribeAudioMessages({
+    messages: args.messages,
+    stt: args.stt,
+    includeAudio: args.options?.includeAudio ?? false,
+    logWarn: args.logWarn,
+  });
+  return { messages };
+}
 
-  const out = await Promise.all(
-    messages.map((msg) => transcribeMessage(msg, stt, includeAudio, warn)),
-  );
-  return { messages: out };
+/**
+ * Stable cache key for an audio message: the raw base64 payload of its first
+ * audio `file` part. The same audio chunk re-sent across `proceed()` turns
+ * carries an identical payload, so this key collapses repeat transcription of
+ * one chunk to a single STT call (#735 P2). Returns `null` for the legacy
+ * `input_audio`/`audio` shapes (no cache — those are adapter-edge and rare).
+ */
+function audioCacheKey(content: readonly unknown[]): string | null {
+  for (const p of content) {
+    if (!p || typeof p !== "object") continue;
+    const part = p as Record<string, unknown>;
+    if (
+      part["type"] === "file" &&
+      typeof part["mediaType"] === "string" &&
+      (part["mediaType"] as string).startsWith("audio/") &&
+      typeof part["data"] === "string"
+    ) {
+      return part["data"] as string;
+    }
+  }
+  return null;
 }
 
 async function transcribeMessage(
@@ -108,29 +189,52 @@ async function transcribeMessage(
   stt: STTProvider,
   includeAudio: boolean,
   warn: (message: string) => void,
+  transcriptCache?: Map<string, string>,
 ): Promise<ModelMessage> {
   const content = (msg as { content?: unknown }).content;
   if (!Array.isArray(content)) return msg;
   if (!content.some(isAudioFilePart)) return msg;
 
-  // Resolve a transcript: prefer an existing text part, else run STT.
+  // Resolve a transcript: prefer an existing text part, else the cross-call
+  // cache, else run STT (and cache the result).
   let transcript: string | undefined;
   if (hasTextPart(content)) {
     // buildTranscriptFromMessages already reads the existing text part; keep
     // the message text intact and only adjust audio passthrough below.
     transcript = undefined; // sentinel — no new text part needed
   } else {
-    const chunk = extractAudioChunk(msg);
-    if (chunk) {
-      try {
-        transcript = (await stt.transcribe(chunk)) || undefined;
-      } catch (e) {
-        warn(
-          `scenario.voice.judge-stt: STT failed for a ${String(
-            (msg as { role?: unknown }).role ?? "?",
-          )} audio message; dropping audio and continuing text-only: ` +
-            `${(e as Error).message ?? e}`,
-        );
+    const cacheKey = transcriptCache ? audioCacheKey(content) : null;
+    if (cacheKey !== null && transcriptCache && transcriptCache.has(cacheKey)) {
+      // Same audio already transcribed on an earlier call — reuse, no STT.
+      transcript = transcriptCache.get(cacheKey) || undefined;
+    } else {
+      const chunk = extractAudioChunk(msg);
+      if (chunk) {
+        try {
+          transcript = (await stt.transcribe(chunk)) || undefined;
+          // Cache whenever STT actually RAN and RETURNED — including an empty
+          // result. `""` is the negative sentinel: the reuse branch above turns
+          // a cached `""` back into `undefined` (no text part), so remembering
+          // an empty transcript is correct AND stops the same dead chunk from
+          // re-hitting STT on every later proceed() turn (#735 P2). A different
+          // (good) transcript can only come from different bytes → a different
+          // key, so the sentinel can never suppress a real transcript.
+          if (cacheKey !== null && transcriptCache) {
+            transcriptCache.set(cacheKey, transcript ?? "");
+          }
+        } catch (e) {
+          // Remember the failure too: without this, a provider outage is
+          // re-attempted for the SAME chunk on every subsequent call (#735 P2).
+          if (cacheKey !== null && transcriptCache) {
+            transcriptCache.set(cacheKey, "");
+          }
+          warn(
+            `scenario.voice.judge-stt: STT failed for a ${String(
+              (msg as { role?: unknown }).role ?? "?",
+            )} audio message; dropping audio and continuing text-only: ` +
+              `${(e as Error).message ?? e}`,
+          );
+        }
       }
     }
   }

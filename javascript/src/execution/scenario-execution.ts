@@ -8,6 +8,7 @@ import {
   ScenarioExecutionState,
   StateChangeEventType,
 } from "./scenario-execution-state";
+import { getGlobalSettings } from "../config/configure";
 import {
   type ScenarioResult,
   type ScenarioConfig,
@@ -25,6 +26,13 @@ import {
   DEFAULT_VERBOSE,
 } from "../domain";
 import {
+  isRealtimeUserAgent,
+  isVoiceUserSim,
+  USER_TURN_NO_AUDIO_FOR_VOICE_AUT,
+  type RealtimeUserAgent,
+  type VoiceUserSimulator,
+} from "../domain/agents/agent-shapes";
+import {
   ScenarioEvent,
   ScenarioEventType,
   ScenarioMessageSnapshotEvent,
@@ -33,6 +41,12 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
+import {
+  ATTR_SCENARIO_SDK_NAME,
+  ATTR_SCENARIO_SDK_VERSION,
+  SCENARIO_SDK_NAME,
+  SCENARIO_SDK_VERSION,
+} from "../tracing/sdk-metadata";
 import convertModelMessagesToAguiMessages from "../utils/convert-core-messages-to-agui-messages";
 import {
   generateScenarioId,
@@ -50,7 +64,6 @@ import {
   writeUserSegment,
 } from "../voice/adapter.runtime";
 import { AudioChunk } from "../voice/audio-chunk";
-import { getGlobalSettings } from "../config/configure";
 import {
   resolveVoiceConfig,
   type ResolvedVoiceConfig,
@@ -63,9 +76,9 @@ import {
   messageHasAudio,
 } from "../voice/messages";
 import { AudioPlaybackSink } from "../voice/playback";
-import { sleep } from "../voice/utils";
 import { computeLatencyMetrics } from "../voice/recording.runtime";
 import type {
+  AudioSegment,
   LatencyMetrics,
   VoiceEvent,
   VoiceRecording,
@@ -74,14 +87,9 @@ import {
   deriveInterruptResponseTime,
   markTruncatedAgentSegments,
 } from "../voice/segment-utils";
+import { voiceSpan } from "../voice/telemetry";
+import { sleep } from "../voice/utils";
 import type { VoiceExecutorState } from "../voice/voice-executor-state";
-import {
-  isRealtimeUserAgent,
-  isVoiceUserSim,
-  USER_TURN_NO_AUDIO_FOR_VOICE_AUT,
-  type RealtimeUserAgent,
-  type VoiceUserSimulator,
-} from "../domain/agents/agent-shapes";
 
 /**
  * Default bound (ms) on the barge-in wait for the agent to start speaking.
@@ -761,20 +769,89 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
         (s.transcriptTruncated || !s.transcript || s.transcript.trim() === ""),
     );
     if (targets.length === 0) return;
-    await Promise.all(
-      targets.map(async (seg) => {
-        try {
-          const chunk = new AudioChunk({ data: seg.audio });
-          const text = (await stt.transcribe(chunk)).trim();
-          if (text) seg.transcript = text;
-        } catch (err) {
-          this.logger.warn(
-            `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
-              `manifest transcript left unset (${(err as Error).message})`,
-          );
-        }
-      }),
+    // voice.stt.backfill — a per-RUN batch span parenting one
+    // voice.stt.transcribe child per segment (#776). TS transcribes per-run in
+    // this finally (no per-turn STT, unlike Python's _ensure_transcript), and
+    // there is no run-root span here to nest under — so the batch span groups
+    // the otherwise-orphaned per-run spans into one coherent trace and encodes
+    // "per-run, not per-turn" in the trace SHAPE. Python's mirror is per-turn
+    // under voice.turn; the shared voice.stt.transcribe span carries the same
+    // attributes at each language's position, disambiguated by voice.stt.scope.
+    //
+    // Correlation attrs mirror newTurn()'s "Scenario Turn" root (scenario.run_id
+    // / thread_id / origin) so this per-run batch — its own trace, since it has
+    // no run-root parent — is attributable to the run in the dashboard (grouped
+    // by scenario.run_id), not an anonymous orphan trace.
+    await voiceSpan(
+      "voice.stt.backfill",
+      {
+        "voice.stt.scope": "run",
+        "voice.stt.segment_count": targets.length,
+        "langwatch.origin": "simulation",
+        "scenario.run_id": this.scenarioRunId ?? "",
+        [attributes.ATTR_LANGWATCH_THREAD_ID]: this.state.threadId,
+      },
+      async () => {
+        await Promise.all(targets.map((seg) => this.transcribeSegment(seg, stt)));
+      },
     );
+  }
+
+  /**
+   * Back-fill ONE segment's transcript under a `voice.stt.transcribe` span
+   * (attribute-parity with Python's per-turn span; #776).
+   *
+   * The per-segment try/catch is LOAD-BEARING for finally-safety, not just
+   * best-effort transcripts: it keeps a provider failure from rejecting the
+   * batch's `Promise.all`, which would re-throw out of
+   * `backfillSegmentTranscripts` in `execute()`'s `finally` and MASK the
+   * scenario result / primary exception. Do not remove it.
+   */
+  private async transcribeSegment(
+    seg: AudioSegment,
+    stt: ResolvedVoiceConfig["stt"],
+  ): Promise<void> {
+    try {
+      await voiceSpan(
+        "voice.stt.transcribe",
+        {
+          "voice.stt.scope": "run",
+          "voice.stt.speaker": seg.speaker,
+          "voice.stt.audio_bytes": seg.audio.length,
+        },
+        async (span) => {
+          const chunk = new AudioChunk({ data: seg.audio });
+          let text: string;
+          try {
+            text = (await stt.transcribe(chunk)).trim();
+          } catch (err) {
+            // Sanitize BEFORE the span records it: provider SDK errors
+            // (OpenAI/ElevenLabs) can embed the raw response body — and a key
+            // fragment on a 401 — in `.message`, which `voiceSpan`'s
+            // `recordException` would EXPORT to telemetry. Log the detail
+            // locally at debug (non-exported); surface a minimal,
+            // provider-agnostic error so the span still marks ERROR without
+            // leaking (mirrors `ElevenLabsSTTProvider` in voice/stt).
+            this.logger.debug(
+              `voice: STT provider error on a ${seg.speaker} segment`,
+              err,
+            );
+            throw new Error(
+              `STT provider failed: ${(err as Error)?.constructor?.name ?? "Error"}`,
+            );
+          }
+          if (text) {
+            seg.transcript = text;
+            span.setAttribute("voice.stt.transcript_chars", text.length);
+          }
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `voice: STT back-fill failed for a ${seg.speaker} segment; ` +
+          `manifest transcript left unset (${(err as Error).message})`,
+      );
+    }
   }
 
   /**
@@ -1049,7 +1126,7 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
           if (role === AgentRole.USER && outgoing.length > 0) {
             const pendingTask = this.pendingAgentTask;
             if (pendingTask && !pendingTask.done) {
-              await this.fireUserInterrupt(outgoing[outgoing.length - 1]!);
+              await this.fireUserInterrupt(outgoing[outgoing.length - 1]);
             }
           }
         }
@@ -1979,8 +2056,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       //       queue before the interrupt fires; placing the sleep before
       //       voiceifyText causes entry.done=true for those adapters.
       // Mirrors maybeInjectInterruption (scenario-execution.ts, text-only path).
-      if ((bargeInDelayMs ?? 0) > 0) {
-        await sleep(bargeInDelayMs!);
+      if (bargeInDelayMs !== undefined && bargeInDelayMs > 0) {
+        await sleep(bargeInDelayMs);
       }
 
       // Capture the cursor at the barge-in instant. If the fast transport
@@ -1991,7 +2068,19 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       // 1. Native cancel first (Twilio clear / OpenAI Realtime response.cancel).
       if (adapter.capabilities.interruption) {
         try {
-          await adapter.interrupt();
+          // voice.adapter.interrupt — executor-owned base span (mirrors
+          // startVoiceAdapters / stopVoiceAdapters). Rule: executor-invoked + no
+          // shared base body to instrument — connect/disconnect are abstract,
+          // interrupt() is concrete but wholesale-overridden with no super(), so
+          // the call-site is the one seam. The adapter stamps vendor outcome
+          // attrs onto it from inside its own interrupt().
+          await voiceSpan(
+            "voice.adapter.interrupt",
+            { "voice.adapter.class": adapter.constructor.name },
+            async () => {
+              await adapter.interrupt();
+            },
+          );
           nativeFired = true;
         } catch {
           // Best-effort: step 2 (push audio) is the load-bearing barge-in.
@@ -2382,6 +2471,10 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     this.currentTurnSpan = this.tracer.startSpan("Scenario Turn", {
       attributes: {
         "langwatch.origin": "simulation",
+        // Identify which @langwatch/scenario build produced this run so a
+        // trace can be triaged without asking the user to re-derive it (#733).
+        [ATTR_SCENARIO_SDK_NAME]: SCENARIO_SDK_NAME,
+        [ATTR_SCENARIO_SDK_VERSION]: SCENARIO_SDK_VERSION,
         "scenario.run_id": this.scenarioRunId ?? "",
         "scenario.name": this.config.name,
         "scenario.id": this.config.id,
@@ -2581,10 +2674,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     for (let idx = 0; idx < this.agents.length; idx++) {
       if (idx === fromAgentIdx) continue;
 
-      if (!this.pendingMessages.has(idx)) {
-        this.pendingMessages.set(idx, []);
+      let bucket = this.pendingMessages.get(idx);
+      if (!bucket) {
+        bucket = [];
+        this.pendingMessages.set(idx, bucket);
       }
-      this.pendingMessages.get(idx)!.push(message);
+      bucket.push(message);
       recipients.push(idx);
     }
 

@@ -1,5 +1,6 @@
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 
+import { deepTransform } from "./deep-transform";
 import {
   hrTimeToMs,
   formatDuration,
@@ -11,7 +12,6 @@ import {
 } from "./span-utils";
 import { StringDeduplicator } from "./string-deduplicator";
 import { truncateMediaUrl, truncateMediaPart } from "./truncate-media";
-import { deepTransform } from "./deep-transform";
 import { Logger } from "../../utils/logger";
 
 /**
@@ -147,11 +147,13 @@ export class JudgeSpanDigestFormatter {
     }
 
     for (const span of spans) {
-      const node = spanMap.get(span.spanContext().spanId)!;
+      const node = spanMap.get(span.spanContext().spanId);
+      if (!node) continue; // every span was inserted above; satisfies the type
       const parentId = getParentSpanId(span);
+      const parent = parentId ? spanMap.get(parentId) : undefined;
 
-      if (parentId && spanMap.has(parentId)) {
-        spanMap.get(parentId)!.children.push(node);
+      if (parent) {
+        parent.children.push(node);
       } else {
         roots.push(node);
       }
@@ -307,16 +309,19 @@ export class JudgeSpanDigestFormatter {
 }
 
 /**
- * Extracts the parent span ID from a ReadableSpan, handling both OTel SDK v2
- * (parentSpanId: string) and v1 (parentSpanContext: SpanContext) interfaces.
- * The LangWatch SDK's internal spans still use the v1 parentSpanContext field.
+ * Extracts the parent span ID from a ReadableSpan. The OTel SDK exposes the
+ * parent as a typed SpanContext (parentSpanContext); older span implementations
+ * exposed a flat parentSpanId string, which is handled as a fallback.
  */
 function getParentSpanId(span: ReadableSpan): string | undefined {
-  if (span.parentSpanId) return span.parentSpanId;
-  const legacy = (span as unknown as Record<string, unknown>).parentSpanContext as
-    | { spanId?: string }
-    | undefined;
-  return legacy?.spanId;
+  // The span tree can contain ReadableSpan instances from different OTel SDK
+  // versions, so read both shapes via a cast rather than relying on either
+  // field being present on the statically-resolved type.
+  const s = span as unknown as {
+    parentSpanContext?: { spanId?: string };
+    parentSpanId?: string;
+  };
+  return s.parentSpanContext?.spanId ?? s.parentSpanId;
 }
 
 /**

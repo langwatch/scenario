@@ -1,6 +1,6 @@
 {
   "name": "@langwatch/scenario",
-  "version": "0.5.0",
+  "version": "0.5.5",
   "description": "A TypeScript library for testing AI agents using scenarios",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -15,9 +15,11 @@
     "clean": "rm -rf dist *.tgz",
     "build": "tsup",
     "buildpack": "pnpm run build && pnpm pack",
+    "smoke:dist": "node -e \"require('./dist/index.js'); console.log('CJS dist loads OK')\" && node -e \"import('./dist/index.mjs').then(() => console.log('ESM dist loads OK'), (e) => { console.error(e); process.exit(1); })\"",
     "watch": "pnpm run build -- --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "lint:lib": "eslint 'src/**/*.ts' --ignore-pattern '**/*.test.ts' --ignore-pattern '**/__tests__/**'",
     "format": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -56,7 +58,7 @@
     "@ag-ui/core": "^0.0.28",
     "@ai-sdk/openai": "^3.0.26",
     "@openai/agents": "^0.3.3",
-    "@opentelemetry/sdk-node": "0.212.0",
+    "@opentelemetry/sdk-node": "0.217.0",
     "ai": "^6.0.0",
     "chalk": "^5.6.2",
     "@elevenlabs/elevenlabs-js": "^2.51.0",
@@ -133,7 +135,10 @@
   },
   "overrides": {
     "protobufjs@>=8.0.0 <8.6.0": ">=8.6.0",
-    "protobufjs@<7.6.3": ">=7.6.3 <8"
+    "protobufjs@<7.6.3": ">=7.6.3 <8",
+    "esbuild@<0.28.1": ">=0.28.1",
+    "js-yaml@>=3.0.0 <3.15.0": ">=3.15.0 <4",
+    "js-yaml@>=4.0.0 <4.2.0": ">=4.2.0 <5"
   },
   "pnpm": {
     "overrides": {
@@ -162,7 +167,10 @@
       "@ungap/structured-clone@<1.3.1": ">=1.3.1",
       "shell-quote@<1.8.4": ">=1.8.4",
       "uuid@<11.1.1": ">=11.1.1 <12",
-      "ws@<8.21.0": ">=8.21.0"
+      "ws@<8.21.0": ">=8.21.0",
+      "esbuild@<0.28.1": ">=0.28.1",
+      "js-yaml@>=3.0.0 <3.15.0": ">=3.15.0 <4",
+      "js-yaml@>=4.0.0 <4.2.0": ">=4.2.0 <5"
     }
   }
 }

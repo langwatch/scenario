@@ -107,6 +107,7 @@ from .config import ScenarioConfig
 
 # Tracing public API
 from ._tracing import setup_scenario_tracing, scenario_only, with_custom_scopes
+from ._tracing.sdk_metadata import SCENARIO_SDK_VERSION as _SCENARIO_SDK_VERSION
 from ._tracing.live import RealtimeLangWatchSession as realtime_langwatch_session
 
 # Then import modules with dependencies
@@ -162,6 +163,21 @@ from .voice import (
 from .voice.script_steps import audio, dtmf, interrupt, silence, sleep
 from .voice.interruption import InterruptionConfig
 from .voice import effects  # scenario.effects.background_noise(...) etc.
+
+# ``ScenarioResult.audio/timeline/latency`` are annotated with the voice
+# recording dataclasses (VoiceRecording/VoiceEvent/LatencyMetrics), which
+# cannot be imported at ``scenario.types`` load time without a circular
+# import (types -> voice.recording -> voice.__init__ -> voice.adapter ->
+# types). They are declared as forward references there and resolved here,
+# once the voice package is fully loaded, so pydantic can finish building
+# the model with concrete isinstance-validation on those fields.
+ScenarioResult.model_rebuild(
+    _types_namespace={
+        "VoiceRecording": VoiceRecording,
+        "VoiceEvent": VoiceEvent,
+        "LatencyMetrics": LatencyMetrics,
+    }
+)
 
 configure = ScenarioConfig.configure
 
@@ -245,4 +261,14 @@ __all__ = [
     "DEFAULT_GOAT_TECHNIQUES",
     "JudgeAgent",
 ]
-__version__ = "0.1.0"
+#: The installed ``langwatch-scenario`` version, read from package metadata.
+#:
+#: Aliases the constant the tracing layer already resolves via
+#: ``importlib.metadata``, so the version has one source of truth: the
+#: ``version`` in ``pyproject.toml`` that release-please bumps. A literal here
+#: would drift, because nothing keeps it in step with a release: this constant
+#: sat at ``"0.1.0"`` from the first release through 0.7.31.
+#:
+#: Falls back to ``"unknown"`` when package metadata is unavailable, matching
+#: ``scenario.sdk.version`` on trace spans.
+__version__ = _SCENARIO_SDK_VERSION

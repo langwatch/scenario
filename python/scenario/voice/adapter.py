@@ -16,11 +16,15 @@ each adapter needing its own bookkeeping.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import time
 from abc import abstractmethod
-from typing import Any, Callable, ClassVar, List, Optional
+from typing import Any, Callable, ClassVar, Iterator, List, Optional
+
+from opentelemetry import context as otel_context
+from opentelemetry.context import Context
 
 logger = logging.getLogger("scenario.voice")
 
@@ -31,10 +35,27 @@ from .capabilities import AdapterCapabilities
 from .messages import create_audio_message, extract_audio
 from .stt import transcribe
 from .recording import AudioSegment, VoiceEvent
+from ._telemetry import voice_span
 
 
 _FIRST_CHUNK_PHASE = "first-chunk"
 """Phase marker for the first-chunk recv timeout (used in FirstChunkTimeoutError)."""
+
+
+class AgentStreamEndedError(Exception):
+    """An adapter's recv_audio raises this when the agent's audio transport has
+    TERMINATED — a background read-loop crash or a clean close by the peer — so
+    no further audio can arrive on this connection.
+
+    WHY distinct from asyncio.TimeoutError: a timeout is TRANSIENT (the agent may
+    still be mid-think; audio could still arrive), a stream-ended is TERMINAL (the
+    connection is done). _drain_agent_response treats them differently: on the
+    FIRST chunk it propagates this unchanged (it already names the real cause —
+    this is the #498 diagnostic fix), on TAIL chunks it ends the turn normally
+    (the peer closed after the agent finished speaking). Subclasses (e.g.
+    PipecatRecvError) carry a transport-specific message and chain the underlying
+    cause via __cause__.
+    """
 
 
 class FirstChunkTimeoutError(asyncio.TimeoutError):
@@ -97,6 +118,13 @@ class VoiceAgentAdapter(AgentAdapter):
     # transport never signals end-of-stream. 30s = a long sentence.
     response_max_duration: float = 30.0
 
+    # Live OTel context of the CURRENT ``voice.turn``, published by ``call()``
+    # for background-receive-loop adapters (Pipecat/Twilio) to parent their
+    # detached-task recv spans under the turn (#774). ``None`` between turns.
+    # Class-level default so it exists even for a subclass that skips
+    # ``super().__init__()`` (mirrors the ``_agent_speaking`` safety-net).
+    _voice_turn_context: Optional[Context] = None
+
     def __init__(self) -> None:
         # Per-instance event used by the interruption path to wait until
         # the agent is actually speaking before firing an interrupt — so
@@ -130,6 +158,18 @@ class VoiceAgentAdapter(AgentAdapter):
             ev = asyncio.Event()
             self._agent_speaking = ev
         return ev
+
+    def is_connected(self) -> bool:
+        """Whether the transport is open and ready to exchange audio.
+
+        Base default is ``True``: adapters without a persistent socket (or
+        that manage liveness elsewhere) are always considered ready, so the
+        pre-turn guard in :meth:`call` never blocks them. Transports with a
+        real socket override this — e.g. :class:`ElevenLabsAgentAdapter`
+        returns ``self._ws is not None and not self._ws.closed`` (parity with
+        the TS ``isConnected()`` override, ``adapters/elevenlabs.ts:531-534``).
+        """
+        return True
 
     @abstractmethod
     async def connect(self) -> None:
@@ -186,6 +226,24 @@ class VoiceAgentAdapter(AgentAdapter):
             ),
         )
 
+    @contextlib.contextmanager
+    def _voice_turn_context_scope(self) -> Iterator[None]:
+        """Publish the live ``voice.turn`` OTel context for background-loop adapters.
+
+        Pipecat/Twilio run their real receive in a background task/callback whose
+        OTel context was frozen at ``connect()`` (a now-closed span). They read
+        :attr:`_voice_turn_context` to parent those detached recv spans under the
+        CURRENT ``voice.turn`` (#774 — the reusable pattern Twilio PR5 inherits).
+        Entered INSIDE the ``voice.turn`` span so ``get_current()`` captures it;
+        cleared on exit so a late background frame BETWEEN turns finds ``None`` and
+        skips its span rather than parenting under a closed turn.
+        """
+        self._voice_turn_context = otel_context.get_current()
+        try:
+            yield
+        finally:
+            self._voice_turn_context = None
+
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         """
         Default implementation: extract audio from the latest user message,
@@ -203,26 +261,78 @@ class VoiceAgentAdapter(AgentAdapter):
         Subclasses may override this for specialised flows but will usually
         inherit it.
         """
-        # Clear the speaking-event for this turn — set in _drain on first chunk.
-        self._agent_speaking_event.clear()
-        recorder = _AdapterRecorder(input)
-        incoming = extract_audio(input.new_messages[-1]) if input.new_messages else None
-        if incoming is not None:
-            # Wrap send_audio so user.start = "we began transmitting" and
-            # user.end = "we finished transmitting" — both real flow points.
-            recorder.mark_user_start()
-            await self.send_audio(incoming)
-            recorder.record_user(incoming)
-        # Drain. Recorder grabs agent.start at first chunk via
-        # mark_agent_start, so agent.start is "first chunk on the wire,"
-        # not "now minus merged.duration."
-        merged = await self._drain_agent_response(on_first_chunk=recorder.mark_agent_start)
-        # Mark agent.end BEFORE the STT round-trip below — the agent stopped
-        # speaking when drain settled, not after transcription returned.
-        recorder.mark_agent_end()
-        merged = await self._ensure_transcript(merged)
-        recorder.record_agent(merged)
-        return create_audio_message(merged, role="assistant")
+        # Uniform pre-turn connected-state gate (mirror TS
+        # ``adapter.runtime.ts:249-254``): a call() issued before the
+        # executor's connect() — or after a dropped transport — fails once with
+        # a clear error naming the adapter, rather than a transport-specific
+        # null-deref or a silent hang. Checked ONCE, BEFORE send_audio/
+        # recv_audio. It does NOT suppress ``FirstChunkTimeoutError``: a
+        # connected adapter whose first chunk never arrives still surfaces that
+        # timeout from the drain below.
+        #
+        # We raise ``TransportNotConnectedError`` (a subclass of
+        # ``PendingTransportError``, so the TS-parity ``except
+        # PendingTransportError`` gate still catches it) whose message is
+        # actionable for a real, implemented adapter — "call connect()/reconnect"
+        # — rather than the base "implement your transport" guidance meant for
+        # unshipped stubs.
+        if not self.is_connected():
+            from .adapters._stub import TransportNotConnectedError
+
+            raise TransportNotConnectedError(type(self).__name__)
+        # One ``voice.turn`` span per call(), nesting under the executor's
+        # existing ``{cls}.call`` agent span (ambient OTel context — no parent
+        # passed). The transport spans below (send/receive) nest under it.
+        turn_index = getattr(
+            getattr(input, "scenario_state", None), "current_turn", None
+        )
+        with voice_span(
+            "voice.turn",
+            {
+                "voice.adapter.class": type(self).__name__,
+                "voice.turn.index": turn_index,
+            },
+        ) as _turn_span, self._voice_turn_context_scope():
+            _turn_started = time.monotonic()
+            # Clear the speaking-event for this turn — set in _drain on first chunk.
+            self._agent_speaking_event.clear()
+            recorder = _AdapterRecorder(input)
+            incoming = (
+                extract_audio(input.new_messages[-1]) if input.new_messages else None
+            )
+            if incoming is not None:
+                # Wrap send_audio so user.start = "we began transmitting" and
+                # user.end = "we finished transmitting" — both real flow points.
+                recorder.mark_user_start()
+                with voice_span(
+                    "voice.audio.send", {"voice.audio.bytes": len(incoming.data)}
+                ):
+                    await self.send_audio(incoming)
+                recorder.record_user(incoming)
+            # Drain. Recorder grabs agent.start at first chunk via
+            # mark_agent_start, so agent.start is "first chunk on the wire,"
+            # not "now minus merged.duration."
+            merged = await self._drain_agent_response(
+                on_first_chunk=recorder.mark_agent_start
+            )
+            # Mark agent.end BEFORE the STT round-trip below — the agent stopped
+            # speaking when drain settled, not after transcription returned.
+            recorder.mark_agent_end()
+            _turn_span.set_attribute(
+                "voice.turn.latency_ms",
+                round((time.monotonic() - _turn_started) * 1000),
+            )
+            if incoming is not None and incoming.data:
+                _turn_span.set_attribute(
+                    "voice.turn.user_audio_bytes", len(incoming.data)
+                )
+            if merged.data:
+                _turn_span.set_attribute(
+                    "voice.turn.agent_audio_bytes", len(merged.data)
+                )
+            merged = await self._ensure_transcript(merged)
+            recorder.record_agent(merged)
+            return create_audio_message(merged, role="assistant")
 
     async def _ensure_transcript(self, merged: AudioChunk) -> AudioChunk:
         """Best-effort runtime STT for adapters whose transport carries no text.
@@ -245,7 +355,45 @@ class VoiceAgentAdapter(AgentAdapter):
         if not merged.data or merged.transcript:
             return merged
         try:
-            text = await transcribe(merged)
+            # ``voice.stt.transcribe`` — one span per per-turn STT provider call,
+            # nesting under this turn's ``voice.turn`` span (#776). Python runs
+            # STT per-turn (here); the TS mirror is a per-RUN back-fill batch
+            # (``voice.stt.backfill`` → ``voice.stt.transcribe``). Shared
+            # attributes across BOTH languages: ``voice.stt.scope`` /
+            # ``.speaker`` / ``.audio_bytes`` / ``.transcript_chars``.
+            # ``voice.adapter.class`` is Python-ONLY here: the per-turn STT always
+            # transcribes THIS adapter's own agent output, whereas the TS per-run
+            # back-fill is adapter-agnostic over recorded segments. Disambiguate
+            # cross-language by ``voice.stt.scope`` (turn vs run).
+            with voice_span(
+                "voice.stt.transcribe",
+                {
+                    "voice.adapter.class": type(self).__name__,
+                    "voice.stt.scope": "turn",
+                    "voice.stt.speaker": "agent",
+                    "voice.stt.audio_bytes": len(merged.data),
+                },
+            ) as stt_span:
+                try:
+                    text = await transcribe(merged)
+                except Exception as exc:
+                    # Sanitize BEFORE the span records it: provider SDK errors
+                    # (OpenAI/ElevenLabs) can embed the raw response body — and a
+                    # key fragment on a 401 — in the message, which
+                    # ``voice_span``'s ``record_exception`` would EXPORT to
+                    # telemetry. Log the detail locally at DEBUG (non-exported);
+                    # raise a minimal, provider-agnostic error (``from None`` so
+                    # the chained original is not formatted into the recorded
+                    # traceback) so the span still marks ERROR without leaking.
+                    # Mirrors ``ElevenLabsSTTProvider`` in ``voice/stt.py``.
+                    logger.debug(
+                        "voice: STT provider error detail", exc_info=True
+                    )
+                    raise RuntimeError(
+                        f"STT provider failed: {type(exc).__name__}"
+                    ) from None
+                if text:
+                    stt_span.set_attribute("voice.stt.transcript_chars", len(text))
         except Exception:
             logger.warning(
                 "voice: agent-turn STT failed; the user simulator will see "
@@ -267,27 +415,61 @@ class VoiceAgentAdapter(AgentAdapter):
         agent.start at a real flow point rather than back-computing from
         the merged-chunk duration.
         """
-        try:
-            first = await self.recv_audio(timeout=self.response_timeout)
-        except asyncio.TimeoutError as err:
-            raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
-        # First chunk arrived → agent is now speaking. Wakes anyone awaiting
-        # _agent_speaking_event (the interruption path).
-        if first.data and on_first_chunk is not None:
-            on_first_chunk()
-        self._agent_speaking_event.set()
-        chunks: List[AudioChunk] = [first]
-        accumulated = first.duration_seconds
-        while accumulated < self.response_max_duration:
+        # ``voice.audio.receive`` — THE user-story span: a receiveAudio timeout
+        # surfaces as ERROR here, so the trace shows WHY a run failed.
+        with voice_span("voice.audio.receive") as _recv_span:
+            _recv_started = time.monotonic()
             try:
-                nxt = await self.recv_audio(timeout=self.response_tail_silence)
-            except asyncio.TimeoutError:
-                break
-            if not nxt.data:
-                break
-            chunks.append(nxt)
-            accumulated += nxt.duration_seconds
-        return _merge_chunks(chunks)
+                first = await self.recv_audio(timeout=self.response_timeout)
+            except asyncio.TimeoutError as err:
+                _recv_span.set_attribute(
+                    "voice.audio.terminated_reason", "first_chunk_timeout"
+                )
+                raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
+            # An AgentStreamEndedError is intentionally NOT caught here: it is not a
+            # TimeoutError, so it propagates past this handler unchanged. That
+            # preserves the real terminal cause (recv-loop crash or clean peer close)
+            # for the #498 diagnostic fix instead of masking it as a first-chunk
+            # timeout. Do NOT add a bare ``except Exception`` here. It exits the
+            # span as ERROR, which is exactly what the trace should show.
+            _recv_span.set_attribute(
+                "voice.audio.first_chunk_latency_ms",
+                round((time.monotonic() - _recv_started) * 1000),
+            )
+            # First chunk arrived → agent is now speaking. Wakes anyone awaiting
+            # _agent_speaking_event (the interruption path).
+            if first.data and on_first_chunk is not None:
+                on_first_chunk()
+            self._agent_speaking_event.set()
+            chunks: List[AudioChunk] = [first]
+            accumulated = first.duration_seconds
+            # Default reason: the loop condition fell through, i.e. the runaway
+            # backstop (Python-only — TS terminates on a hard ceiling instead).
+            terminated_reason = "max_duration"
+            while accumulated < self.response_max_duration:
+                try:
+                    nxt = await self.recv_audio(timeout=self.response_tail_silence)
+                except asyncio.TimeoutError:
+                    terminated_reason = "tail_silence"
+                    break
+                except AgentStreamEndedError:
+                    # The stream ended after the agent already spoke — a normal
+                    # end-of-turn (the peer closed once it finished). Return the
+                    # audio collected so far instead of surfacing the terminal cause.
+                    terminated_reason = "stream_ended"
+                    break
+                if not nxt.data:
+                    terminated_reason = "terminal_chunk"
+                    break
+                chunks.append(nxt)
+                accumulated += nxt.duration_seconds
+            merged = _merge_chunks(chunks)
+            _recv_span.set_attribute("voice.audio.terminated_reason", terminated_reason)
+            _recv_span.set_attribute("voice.audio.chunk_count", len(chunks))
+            _recv_span.set_attribute(
+                "voice.audio.bytes", len(merged.data) if merged.data else 0
+            )
+            return merged
 
 
 class _AdapterRecorder:

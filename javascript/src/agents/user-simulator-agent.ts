@@ -8,6 +8,8 @@ import { AgentInput, UserSimulatorAgentAdapter } from "../domain";
 import { modelSchema } from "../domain/core/schemas/model.schema";
 import { Logger } from "../utils/logger";
 import { AudioChunk } from "../voice/audio-chunk";
+import { resolveVoiceConfig } from "../voice/config";
+import { transcribeAudioMessages } from "../voice/judge-stt";
 import { createAudioMessage } from "../voice/messages";
 import { synthesize } from "../voice/tts";
 
@@ -104,6 +106,38 @@ ${personaBlock}`.trim();
  *
  * Port of `python/scenario/user_simulator_agent.py:_strip_audio_content`.
  */
+/**
+ * True when any message carries an audio part but NO non-empty text sibling —
+ * i.e. a turn that would reach the text-only simulator as a bare
+ * `[audio message]` (#734). Gates the STT fallback so the common case (every
+ * audio turn already has its transcript — the grace-wait won the race) pays no
+ * STT cost and constructs no provider, mirroring the judge's `hasAudio` fast
+ * path.
+ */
+function hasAudioWithoutTranscript(messages: readonly ModelMessage[]): boolean {
+  return messages.some((msg) => {
+    const content = msg.content;
+    if (!Array.isArray(content)) return false;
+    const parts = content as Array<Record<string, unknown>>;
+    const hasAudio = parts.some(
+      (p) =>
+        p?.type === "input_audio" ||
+        p?.type === "audio" ||
+        (p?.type === "file" &&
+          typeof p["mediaType"] === "string" &&
+          (p["mediaType"] as string).startsWith("audio/")),
+    );
+    if (!hasAudio) return false;
+    const hasText = parts.some(
+      (p) =>
+        p?.type === "text" &&
+        typeof p["text"] === "string" &&
+        (p["text"] as string).length > 0,
+    );
+    return !hasText;
+  });
+}
+
 function stripAudioContent(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((msg) => {
     const content = msg.content;
@@ -141,6 +175,18 @@ function stripAudioContent(messages: ModelMessage[]): ModelMessage[] {
 
 class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   private logger = new Logger(this.constructor.name);
+
+  /**
+   * Per-instance STT fallback transcript cache (#735 P2), keyed by a STABLE
+   * audio payload key. `call()` re-runs the STT pre-pass over the WHOLE history
+   * on every `proceed()` turn; without this cache an audio-only agent turn whose
+   * `agent_response` was dropped would be re-transcribed on turn N, N+1, N+2, …
+   * — O(turns^2) STT calls from a single transport hiccup, risking provider
+   * throttling later in the run. Scoped to the simulator instance so a chunk is
+   * transcribed at most once for the life of one simulator (survives across
+   * `proceed()` turns); a fresh simulator starts with an empty cache.
+   */
+  private readonly sttTranscriptCache = new Map<string, string>();
 
   /**
    * LLM invocation function. Can be overridden to customize LLM behavior.
@@ -364,9 +410,48 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     const systemPrompt =
       config?.systemPrompt ?? buildSystemPrompt(input.scenarioConfig.description, persona);
 
+    // #734 (AC2) — STT fallback safety net. Primary fix is the grace-wait in the
+    // adapter runtime (waits for EL's `agent_response` transcript before closing
+    // the turn); but if EL NEVER sends the transcript for a turn, the message
+    // still reaches here as audio-only and stripAudioContent would collapse it to
+    // a bare `[audio message]`, making the text-only LLM fabricate. Mirror the
+    // judge's STT pre-pass (the SAME shared helper, same per-run provider) to
+    // transcribe those turns to real words FIRST. `includeAudio: true` keeps the
+    // audio part so stripAudioContent's echo-safety reframing (`[the agent said:
+    // …]`, which keys on a turn having BOTH audio and text) still fires. Gated on
+    // an audio-without-transcript turn actually existing, so the common path
+    // (transcript already present) constructs no provider and pays no STT cost.
+    // The STT fallback is a safety net — it must never make things WORSE than no
+    // fix. `resolveVoiceConfig` falls back to a default OpenAI provider when
+    // `voice.stt` is unset, but a bad `voice.stt` descriptor (or a provider
+    // constructor) can still throw here. Catch it and continue with the original
+    // messages so `call()` still reaches the existing `[audio message]` path
+    // rather than aborting the whole turn on a config error.
+    let preparedMessages = input.messages;
+    if (hasAudioWithoutTranscript(input.messages)) {
+      try {
+        preparedMessages = await transcribeAudioMessages({
+          messages: input.messages,
+          stt: resolveVoiceConfig(undefined, input.scenarioConfig.voice).stt,
+          includeAudio: true,
+          // Reuse a transcript for the same audio across proceed() turns so a
+          // dropped agent_response costs at most ONE STT call, not one per turn
+          // (#735 P2 — avoids O(turns^2) re-transcription).
+          transcriptCache: this.sttTranscriptCache,
+          logWarn: (m) => this.logger.warn(m),
+        });
+      } catch (e) {
+        this.logger.warn(
+          `#734 STT fallback pre-pass failed; continuing with original messages: ${
+            (e as Error)?.message ?? e
+          }`,
+        );
+      }
+    }
+
     // Strip audio content from messages before sending to text LLM (§4.2 — the
     // LLM that generates text is always text-only; audio is synthesized separately).
-    const strippedMessages = stripAudioContent(input.messages);
+    const strippedMessages = stripAudioContent(preparedMessages);
 
     const messages: ModelMessage[] = [
       { role: "system", content: systemPrompt },

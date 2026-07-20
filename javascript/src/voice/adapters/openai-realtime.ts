@@ -32,8 +32,9 @@ import { AgentRole } from "../../domain/agents";
 import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
-import { createAudioMessage, extractAudio } from "../messages";
 import { AdapterCapabilities } from "../capabilities";
+import { createAudioMessage, extractAudio } from "../messages";
+import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
 // LOG_LEVEL-gated logger so the degraded-path debug line below doesn't bypass
@@ -101,6 +102,13 @@ export interface OpenAIRealtimeAgentAdapterInit {
    * a loopback WS server without subclassing the adapter.
    */
   url?: string;
+  /**
+   * Optional factory that creates the WebSocket instead of `new WebSocket(url,
+   * headers)`. Intended for testing — lets tests inject a fake WS without
+   * subclassing or monkey-patching. The factory receives the resolved URL and
+   * Authorization header value.
+   */
+  wsFactory?: (url: string, authHeader: string) => WebSocket;
 }
 
 /**
@@ -142,6 +150,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
   private readonly _apiKey: string;
   private readonly _urlOverride: string | null;
+  private readonly _wsFactory:
+    | ((url: string, authHeader: string) => WebSocket)
+    | null;
   private _ws: WebSocket | null = null;
   // Streaming agent transcript buffer — accumulates deltas, flushed on done.
   private _agentTranscriptBuf = "";
@@ -168,6 +179,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
   // reset). De-duplicated on call_id so each call yields exactly one entry (AC6).
   private _completedToolCalls: CompletedToolCall[] = [];
 
+  // --- Issue #662: response-lifecycle guard ---
+  // True while the server has an active response in progress (set on
+  // response.created, cleared on response.done / response.cancelled).
+  // Prevents double-firing response.create from the receiveAudio preamble
+  // or sendText while a response is already streaming.
+  private _responseActive = false;
+  // Set to true by receiveAudio preamble or sendText when a response.create
+  // was deferred due to _responseActive. Consumed (fired + cleared) by the
+  // response.done / response.cancelled branch in the receiveAudio loop.
+  private _deferredResponseCreate = false;
+
   constructor(init: OpenAIRealtimeAgentAdapterInit = {}) {
     super();
     this.model = init.model ?? OPENAI_REALTIME_MODEL;
@@ -177,6 +199,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this.role = init.role ?? AgentRole.AGENT;
     this._apiKey = init.apiKey ?? process.env.OPENAI_API_KEY ?? "";
     this._urlOverride = init.url ?? null;
+    this._wsFactory = init.wsFactory ?? null;
   }
 
   get url(): string {
@@ -201,6 +224,15 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
   /** Open the Realtime WebSocket and send the initial `session.update`. */
   async connect(): Promise<void> {
+    // Issue #662 / reconnect hygiene: a reused adapter instance must start each
+    // connection with a clean slate. Clear session-lifecycle state left over
+    // from a prior connection — the guard flags AND `_closeReason` (which
+    // `_nextEvent` rejects on immediately, so resetting the guard flags alone
+    // would leave a reconnected adapter unable to receive).
+    this._responseActive = false;
+    this._deferredResponseCreate = false;
+    this._closeReason = null;
+
     if (!this._apiKey) {
       throw new Error(
         "OpenAIRealtimeAgentAdapter: no API key. Set OPENAI_API_KEY or " +
@@ -212,11 +244,10 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     // with "The Realtime Beta API is no longer supported." (observed in
     // CI 2026-05-22). Python parity is intentionally broken here; track
     // for back-port.
-    const ws = new WebSocket(this.url, {
-      headers: {
-        Authorization: `Bearer ${this._apiKey}`,
-      },
-    });
+    const authHeader = `Bearer ${this._apiKey}`;
+    const ws = this._wsFactory
+      ? this._wsFactory(this.url, authHeader)
+      : new WebSocket(this.url, { headers: { Authorization: authHeader } });
 
     await new Promise<void>((resolve, reject) => {
       const onOpen = () => {
@@ -286,6 +317,17 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (this.tools.length > 0) sessionConfig.tools = this.tools;
 
     ws.send(JSON.stringify({ type: "session.update", session: sessionConfig }));
+
+    // Stamp realtime-specific attrs onto the active voice.adapter.connect span
+    // (opened by the executor connect loop). Base spans are name-owned; the
+    // adapter contributes attributes, never a parallel span name (mirrors
+    // ElevenLabs stamping voice.elevenlabs.agent_id).
+    setSpanAttributes(currentSpan(), {
+      "voice.realtime.model": this.model,
+      "voice.realtime.voice": this.voice,
+      "voice.realtime.session_type": "realtime",
+      "voice.realtime.tool_count": this.tools.length,
+    });
   }
 
   /** Whether the Realtime WebSocket is open (Gap #11). */
@@ -298,6 +340,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     const ws = this._ws;
     if (!ws) return;
     this._ws = null;
+    // Issue #662: clear response-lifecycle guard state on teardown so a
+    // reused adapter instance does not carry a stale active/deferred flag
+    // into its next connection.
+    this._responseActive = false;
+    this._deferredResponseCreate = false;
     // Synchronously fail any in-flight receiveAudio waiter so callers
     // unblock immediately on disconnect — don't rely on the async close
     // handler firing first. Also drain queued events: a partially-
@@ -374,7 +421,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
 
     if (this._pendingAudioBytes > 0) {
       this._ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-      this._ws.send(JSON.stringify({ type: "response.create" }));
+      if (this._responseActive) {
+        this._deferredResponseCreate = true;
+      } else {
+        this._ws.send(JSON.stringify({ type: "response.create" }));
+      }
       this._pendingAudioBytes = 0;
     }
 
@@ -461,7 +512,38 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
             this._finalizeToolCall(fc.call_id, fc.name, fc.arguments);
           }
         }
+      } else if (etype === "response.created") {
+        // R2 marker: record the response start on the active voice.audio.receive
+        // span. Two of receiveAudio's three callers run inside that span's
+        // ambient context — the AGENT base drain and the autonomous-USER
+        // voice.audio.receive wrapper in _autonomousUserTurn — so the marker
+        // lands there. The third caller, the scripted speakUserTurn/
+        // _drainSpokenTurn path, is deliberately unwrapped (scope guard):
+        // currentSpan() is root/undefined there, so the optional chain no-ops.
+        currentSpan()?.addEvent("voice.realtime.response.created");
+        this._responseActive = true;
       } else if (etype === "response.done" || etype === "response.cancelled") {
+        this._responseActive = false;
+        if (this._deferredResponseCreate) {
+          this._ws.send(JSON.stringify({ type: "response.create" }));
+          this._deferredResponseCreate = false;
+          // Eager set (unlike the preamble/sendText sites, which let the server's
+          // `response.created` echo flip the flag): this branch can `return` right
+          // below via the tool-only early-exit BEFORE the loop ever reads the echo,
+          // so without setting it here a follow-up send would see false and
+          // double-fire. Mirrors Python (openai_realtime.py response.done handler).
+          this._responseActive = true;
+        }
+        // R2 markers: record the response terminal as a span event and stamp the
+        // FINAL tool-call count onto the active voice.audio.receive span. Done
+        // BEFORE the tool-only empty-chunk return below so the count reflects THIS
+        // response — set even when 0, for every response.done/.cancelled actually
+        // observed. A drain that ends on tail-silence before a terminal event is
+        // processed won't stamp it (pre-existing drain timing, not new here).
+        currentSpan()?.addEvent(`voice.realtime.${etype}`);
+        setSpanAttributes(currentSpan(), {
+          "voice.realtime.tool_call_count": this._completedToolCalls.length,
+        });
         // Issue #646: a tool-only turn (function call, NO audio delta) would
         // otherwise loop here forever and hit the receiveAudio timeout — the
         // accumulated tool call is parsed but never returned. When the response
@@ -479,7 +561,7 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         const msg = errDetail.message ?? JSON.stringify(errDetail);
         throw new Error(`OpenAIRealtimeAgentAdapter: server error — ${msg}`);
       }
-      // Housekeeping events (session.created, response.created, ...) are
+      // Housekeeping events (session.created, ...) are
       // ignored and the loop continues.
     }
   }
@@ -694,7 +776,11 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         },
       }),
     );
-    this._ws.send(JSON.stringify({ type: "response.create" }));
+    if (this._responseActive) {
+      this._deferredResponseCreate = true;
+    } else {
+      this._ws.send(JSON.stringify({ type: "response.create" }));
+    }
   }
 
   /**
@@ -852,6 +938,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (!this._ws) {
       throw new Error("OpenAIRealtimeAgentAdapter: not connected");
     }
+    // Issue #662 carve-out (tracked: #792) — this out-of-band, parameterized
+    // `response.create` is deliberately NOT `_responseActive`-guarded like the
+    // agent-path sites (receiveAudio/sendText). It is single-flight by
+    // construction: each USER turn is fully drained (`_drainSpokenTurn`) before
+    // the next, and the executor drives turns serially. The `_responseActive`
+    // defer-and-refire machinery re-fires a BARE `{type:"response.create"}`;
+    // reusing it here would drop this send's `conversation:"none"` + `input:[]` +
+    // persona `instructions` and reintroduce the #705 persona-drift bug. Only a
+    // >15s mid-response inter-frame stall could strand `_responseActive` true
+    // into the next turn — tracked in #792 (needs a non-bare-refire fix).
     this._ws.send(
       JSON.stringify({
         type: "response.create",
@@ -897,18 +993,46 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     if (!this._ws) {
       throw new Error("OpenAIRealtimeAgentAdapter: not connected");
     }
-    // (1) HEAR the agent: feed the AUT's last-turn audio into the input buffer.
-    // `_speakGeneratedTurn` commits it so the model has it in-context for this
-    // generation. No heard audio (e.g. the very first user turn) still produces
-    // a generated turn from the persona alone.
-    const heard = this._extractHeardAudio(input);
-    if (heard) {
-      await this.sendAudio(heard);
-    }
-    // (2) GENERATE + speak the next customer line, conditioned on what was heard.
-    const chunk = await this.speakGeneratedUserTurn();
-    // (3) Return as the USER's audio turn.
-    return createAudioMessage(chunk, "user");
+    // The USER path bypasses super.call()/defaultVoiceCall (#705), so it opens
+    // NO base span on its own. Emit the base taxonomy here: one voice.turn span
+    // per autonomous user turn, with the send/receive children nesting under it
+    // (the R2 markers land on the receive span). Mirrors defaultVoiceCall's
+    // voice.turn → voice.audio.send/receive shape.
+    const turnIndex = (input as { scenarioState?: { currentTurn?: number } })
+      .scenarioState?.currentTurn;
+    return voiceSpan(
+      "voice.turn",
+      {
+        "voice.adapter.class": this.constructor.name,
+        "voice.turn.index": turnIndex,
+      },
+      async (turnSpan) => {
+        const turnStart = performance.now(); // monotonic — matches #771
+        // (1) HEAR the agent: feed the AUT's last-turn audio into the input buffer.
+        // `_speakGeneratedTurn` commits it so the model has it in-context for this
+        // generation. No heard audio (e.g. the very first user turn) still produces
+        // a generated turn from the persona alone.
+        const heard = this._extractHeardAudio(input);
+        if (heard) {
+          await voiceSpan(
+            "voice.audio.send",
+            { "voice.audio.bytes": heard.data.length },
+            async () => {
+              await this.sendAudio(heard);
+            },
+          );
+        }
+        // (2) GENERATE + speak the next customer line, conditioned on what was heard.
+        const chunk = await voiceSpan("voice.audio.receive", {}, () =>
+          this.speakGeneratedUserTurn(),
+        );
+        setSpanAttributes(turnSpan, {
+          "voice.turn.latency_ms": Math.round(performance.now() - turnStart),
+        });
+        // (3) Return as the USER's audio turn.
+        return createAudioMessage(chunk, "user");
+      },
+    );
   }
 
   /**
@@ -983,6 +1107,14 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
       this._ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       this._pendingAudioBytes = 0;
     }
+    // Issue #662 carve-out (tracked: #792) — like `_speakVerbatim`, this
+    // parameterized `response.create` is deliberately NOT `_responseActive`-
+    // guarded. It self-commits + zeroes `_pendingAudioBytes` (above) so the
+    // drain's `receiveAudio` preamble cannot fire a second bare create, and each
+    // USER turn is fully drained before the next (single-flight). The agent-path
+    // defer-and-refire fires a BARE create, which would drop the persona
+    // `instructions` below — so it must not be reused here. Residual >15s-stall
+    // window tracked in #792.
     this._ws.send(
       JSON.stringify({
         type: "response.create",

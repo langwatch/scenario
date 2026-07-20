@@ -13,6 +13,13 @@ const envSchema = z.object({
   LANGWATCH_API_KEY: z.string().optional(),
 
   /**
+   * LangWatch project ID. When set alongside LANGWATCH_API_KEY, requests are
+   * scoped to this project via the X-Project-Id header. Required for API keys
+   * that are not bound to a single project.
+   */
+  LANGWATCH_PROJECT_ID: z.string().optional(),
+
+  /**
    * LangWatch endpoint URL for event reporting.
    * Defaults to the production LangWatch endpoint.
    */

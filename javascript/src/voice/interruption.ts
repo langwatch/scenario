@@ -88,6 +88,6 @@ export class InterruptionConfig {
       this.phrases.length - 1,
       Math.floor(rng() * this.phrases.length),
     );
-    return this.phrases[idx]!;
+    return this.phrases[idx];
   }
 }

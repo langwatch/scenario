@@ -68,10 +68,10 @@ Enable debug mode from the command line:
 
 ```bash
 # Enable debug mode for all tests
-pytest tests/ --debug -s
+pytest tests/ --scenario-debug -s
 
 # Run specific test with debug mode
-pytest tests/test_my_agent.py::test_specific_scenario --debug -s
+pytest tests/test_my_agent.py::test_specific_scenario --scenario-debug -s
 ```
 
 :::tip
@@ -99,7 +99,7 @@ You have two options:
 Here's what a debug session looks like:
 
 ```bash
-$ pytest tests/test_weather_agent.py --debug -s
+$ pytest tests/test_weather_agent.py --scenario-debug -s
 
 [Scenario: weather query] [Debug Mode] Press enter to continue or type a message to send
 [Scenario: weather query] User: What's the weather like today?

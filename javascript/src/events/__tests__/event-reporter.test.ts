@@ -1,7 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { EventReporter } from "../event-reporter";
-import { ScenarioEventType, type ScenarioEvent } from "../schema";
+import {
+  ScenarioEventType,
+  type ScenarioEvent,
+  type ScenarioRunStartedEvent,
+} from "../schema";
+
+vi.mock("../event-alert-message-logger", () => ({
+  EventAlertMessageLogger: vi.fn().mockImplementation(function (this: unknown) {
+    return { handleGreeting: vi.fn() };
+  }),
+}));
 
 /**
  * Build a MESSAGE_SNAPSHOT event whose message carries ARRAY content with an
@@ -44,6 +54,29 @@ function makeAudioSnapshotEvent(): ScenarioEvent {
       },
     ],
   } as unknown as ScenarioEvent;
+}
+
+function makeEvent(): ScenarioRunStartedEvent {
+  return {
+    type: ScenarioEventType.RUN_STARTED,
+    batchRunId: "batch-1",
+    scenarioId: "scenario-1",
+    scenarioRunId: "run-1",
+    scenarioSetId: "default",
+    timestamp: Date.now(),
+    metadata: { name: "test-name", description: "test-description" },
+  };
+}
+
+function mockOkFetch() {
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ url: "https://app.langwatch.ai/scenario/run-1" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 /**
@@ -113,5 +146,88 @@ describe("EventReporter.processEventForApi", () => {
     }
 
     expect(processed.messages[0].content).toBe("just text");
+  });
+});
+
+describe("EventReporter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends Authorization: Bearer and no X-Auth-Token", async () => {
+    const fetchMock = mockOkFetch();
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await reporter.postEvent(makeEvent());
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://app.langwatch.ai/api/scenario-events");
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer test-api-key");
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-Auth-Token"]).toBeUndefined();
+    expect(headers["X-Project-Id"]).toBeUndefined();
+  });
+
+  it("sends X-Project-Id when projectId is configured", async () => {
+    const fetchMock = mockOkFetch();
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+      projectId: "project_xxx",
+    });
+
+    await reporter.postEvent(makeEvent());
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer test-api-key");
+    expect(headers["X-Project-Id"]).toBe("project_xxx");
+  });
+
+  it("omits X-Project-Id when projectId is an empty string", async () => {
+    const fetchMock = mockOkFetch();
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+      projectId: "",
+    });
+
+    await reporter.postEvent(makeEvent());
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["X-Project-Id"]).toBeUndefined();
+  });
+
+  it("skips POST when apiKey is empty (avoids 401 storm)", async () => {
+    const fetchMock = mockOkFetch();
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: undefined,
+    });
+
+    const result = await reporter.postEvent(makeEvent());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({});
+  });
+
+  it("returns setUrl from a successful response", async () => {
+    mockOkFetch();
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    const result = await reporter.postEvent(makeEvent());
+
+    expect(result.setUrl).toBe("https://app.langwatch.ai/scenario/run-1");
   });
 });

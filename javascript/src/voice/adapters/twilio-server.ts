@@ -20,9 +20,11 @@ import { Buffer } from "node:buffer";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 
+import type { Context } from "@opentelemetry/api";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
 
 import { AudioChunk } from "../audio-chunk";
+import { voiceReceiveSpanUnder } from "../telemetry";
 
 import type { TwilioAgentAdapter } from "./twilio";
 import { twilioLogger } from "./twilio-logger";
@@ -172,6 +174,13 @@ export class TwilioWebhookServer {
     url: URL,
   ): Promise<void> {
     const adapter = this._adapter;
+    // Webhook visibility counter (#775 disconnect T3): the media-stream WS
+    // loop has no direct span (frozen-ctx + flood hazard), so a
+    // misconfigured/rejected webhook shows up as a `voice.adapter.dial`
+    // stream_connect_timeout with no obvious cause. This counter — stamped
+    // onto `voice.adapter.disconnect` — closes that gap without a
+    // per-request span.
+    adapter._recordWebhookInvocation();
     let body: string;
     try {
       body = await readBody(req, MAX_BODY_BYTES);
@@ -235,9 +244,27 @@ export class TwilioWebhookServer {
   }
 
   private async _handleStreamSocket(ws: WsWebSocket): Promise<void> {
-    const adapted = adaptWsSocket(ws);
+    await this.runStreamSession(adaptWsSocket(ws));
+  }
+
+  /**
+   * Production per-connection wrapper around {@link mediaStreamLoop}: runs the
+   * loop, then — in a `finally` that fires on stop, socket close, OR a throw —
+   * nulls the adapter's `_streamWs`/`_streamSid` transport state, exactly as the
+   * real `/twilio/stream` handler does after a call ends.
+   *
+   * This is the seam tests must drive to reproduce the #695 teardown race: the
+   * terminal sentinel is enqueued inside the loop's own `finally`, then THIS
+   * `finally` nulls the transport — so a `receiveAudio` following the reset must
+   * still drain cleanly. Driving `mediaStreamLoop` alone skips this reset and
+   * hides the bug (that was the shipped tests' flaw, PR #697 P2 blocker).
+   *
+   * @internal Production entry is `_handleStreamSocket`; tests reach this via
+   * `TwilioAgentAdapter._driveStreamSession`. Not public API.
+   */
+  async runStreamSession(ws: MediaStreamWebSocket): Promise<void> {
     try {
-      await this.mediaStreamLoop(adapted);
+      await this.mediaStreamLoop(ws);
     } finally {
       this._adapter._setStreamWs(null);
       this._adapter._setStreamSid(undefined);
@@ -253,48 +280,123 @@ export class TwilioWebhookServer {
   async mediaStreamLoop(ws: MediaStreamWebSocket): Promise<void> {
     const adapter = this._adapter;
     adapter._setStreamWs(ws);
+    // The terminal flag AND the inbound queue are per-CALL state: re-arm both
+    // alongside `_streamWs` so a second media-stream session on the same
+    // connected adapter (Twilio reconnect, back-to-back call) starts clean —
+    // neither inheriting the previous call's terminal flag nor draining its
+    // leftover terminal sentinel as this call's first chunk. See
+    // `_resetCallState`.
+    adapter._resetCallState();
 
     const buffered: number[] = [];
     const flushThresholdBytes = (BATCH_MS / TWILIO_FRAME_MS) * 160; // 100ms = 800 bytes µ-law
+
+    // Tier-3 (#775): the turn-ctx object we last emitted a background-loop
+    // `voice.audio.receive` delivery marker for — so the marker fires ONCE
+    // per live turn (mirrors Pipecat's `bgSpanTurnContext`, the #774/#781
+    // primitive). Fresh per `mediaStreamLoop()` invocation, i.e. per
+    // connected call/session — matches `buffered` above.
+    let lastBgSpanTurnContext: Context | undefined;
 
     const flush = (): void => {
       if (buffered.length === 0) return;
       const mulaw = new Uint8Array(buffered);
       buffered.length = 0;
       const pcm = mulaw8kToPcm16_24k(mulaw);
-      adapter._enqueueInbound(new AudioChunk({ data: pcm }));
-    };
-
-    while (true) {
-      const text = await ws.receiveText();
-      if (text == null) return; // socket closed
-      const frame = parseMediaStreamFrame(text);
-      if (!frame) continue;
-
-      if (frame.event === "start") {
-        if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
-        if (frame.callSid) adapter._setCallSid(frame.callSid);
-        adapter._signalStreamConnected();
-      } else if (frame.event === "media" && frame.payloadMulaw) {
-        for (const byte of frame.payloadMulaw) buffered.push(byte);
-        if (buffered.length >= flushThresholdBytes) flush();
-      } else if (frame.event === "dtmf" && frame.dtmfDigit) {
-        twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
-        if (adapter.onDtmf) {
-          try {
-            adapter.onDtmf(frame.dtmfDigit);
-          } catch (err) {
-            // Callback errors are swallowed — adapter contract says they don't
-            // tear down the stream — but they ARE worth logging.
-            twilioLogger.warn("onDtmf callback raised; continuing", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      } else if (frame.event === "stop") {
-        flush();
+      // At the FIRST wire delivery under a LIVE turn, wrap the enqueue in a
+      // `voice.audio.receive` background-loop delivery marker parented to
+      // that turn (#774/#781 primitive) — mirrors Pipecat's
+      // `flushBufferedMulaw`. Between turns (`_voiceTurnContext` undefined)
+      // or for later deliveries within the SAME turn (identity-check), no
+      // span is emitted: only the first wire delivery per turn is spanned
+      // (flood guard), and a fully pre-buffered turn (audio queued before
+      // any turn went live) is drained by the base `voice.audio.receive`
+      // span with no background marker at all.
+      //
+      // Coverage limit (by design, mirrors Pipecat): `voice.audio.bytes` is
+      // the DELIVERED coalesced-batch size, which may fold in a sub-100ms
+      // µ-law tail carried over from the prior turn.
+      const parent = adapter._voiceTurnContext;
+      if (parent === undefined || parent === lastBgSpanTurnContext) {
+        adapter._enqueueInbound(new AudioChunk({ data: pcm }));
         return;
       }
+      lastBgSpanTurnContext = parent;
+      voiceReceiveSpanUnder(
+        parent,
+        {
+          "voice.adapter.class": adapter.constructor.name,
+          "voice.twilio.recv.source": "background_loop",
+          "voice.audio.bytes": pcm.length,
+        },
+        () => {
+          adapter._enqueueInbound(new AudioChunk({ data: pcm }));
+        },
+      );
+    };
+
+    try {
+      while (true) {
+        const text = await ws.receiveText();
+        if (text == null) {
+          adapter._setStreamEndedReason("close");
+          return; // socket closed
+        }
+        const frame = parseMediaStreamFrame(text);
+        if (!frame) continue;
+
+        if (frame.event === "start") {
+          if (frame.streamSid) adapter._setStreamSid(frame.streamSid);
+          if (frame.callSid) adapter._setCallSid(frame.callSid);
+          adapter._signalStreamConnected();
+        } else if (frame.event === "media" && frame.payloadMulaw) {
+          adapter._recordFrameReceived();
+          for (const byte of frame.payloadMulaw) buffered.push(byte);
+          if (buffered.length >= flushThresholdBytes) flush();
+        } else if (frame.event === "dtmf" && frame.dtmfDigit) {
+          adapter._recordDtmfReceived();
+          twilioLogger.debug("received DTMF", { digit: frame.dtmfDigit });
+          if (adapter.onDtmf) {
+            try {
+              adapter.onDtmf(frame.dtmfDigit);
+            } catch (err) {
+              // Callback errors are swallowed — adapter contract says they don't
+              // tear down the stream — but they ARE worth logging.
+              twilioLogger.warn("onDtmf callback raised; continuing", {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+        } else if (frame.event === "stop") {
+          flush();
+          adapter._setStreamEndedReason("stop");
+          return;
+        }
+      }
+    } catch (err) {
+      // Any transport error that is not a clean socket close (`text == null`
+      // above) propagates to `runStreamSession`'s caller unchanged — tag the
+      // outcome before re-throwing.
+      adapter._setStreamEndedReason("error");
+      throw err;
+    } finally {
+      // Terminal sentinel (#695; mirrors the #648 / #646 fix). Whether the loop
+      // exits on a "stop" frame, a socket close (`receiveText` resolves null),
+      // or a throw, mark the call ended and enqueue an empty AudioChunk so a
+      // `receiveAudio` blocked on the inbound queue returns cleanly instead of
+      // timing out on a silent / tool-only turn. All three termination paths
+      // (stop / close / throw) funnel through this `finally`, so the sentinel is
+      // genuinely reachable on each.
+      //
+      // `_markStreamEnded()` is called FIRST and unconditionally:
+      // `_handleStreamSocket` nulls `_streamWs`/`_streamSid` synchronously right
+      // after this loop returns, so `receiveAudio`'s follow-up call would
+      // otherwise trip `_assertStreamLive`. The flag tells `receiveAudio` to
+      // keep draining post-teardown rather than assert liveness. Unlike the
+      // Python twin, no null-guard is needed on the queue: it's never nulled —
+      // `disconnect()` only `reset()`s it.
+      adapter._markStreamEnded();
+      adapter._enqueueInbound(new AudioChunk({ data: new Uint8Array(0) }));
     }
   }
 }
@@ -325,7 +427,7 @@ function parseFormUrlEncoded(body: string): Record<string, string> {
   for (const pair of body.split("&")) {
     if (!pair) continue;
     const [rawKey, rawValue = ""] = pair.split("=");
-    const key = decodeURIComponent(rawKey!.replace(/\+/g, " "));
+    const key = decodeURIComponent(rawKey.replace(/\+/g, " "));
     const value = decodeURIComponent(rawValue.replace(/\+/g, " "));
     params[key] = value;
   }
@@ -355,7 +457,10 @@ function adaptWsSocket(ws: WsWebSocket): MediaStreamWebSocket {
   const handleEnd = (): void => {
     if (closed) return;
     closed = true;
-    while (waiters.length > 0) waiters.shift()!.resolve(null);
+    while (waiters.length > 0) {
+      const waiter = waiters.shift();
+      if (waiter) waiter.resolve(null);
+    }
   };
   ws.on("close", handleEnd);
   ws.on("error", handleEnd);

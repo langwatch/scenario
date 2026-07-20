@@ -15,7 +15,7 @@ from .elevenlabs import ElevenLabsAgentAdapter
 from .gemini_live import GeminiLiveAgentAdapter
 from .livekit import LiveKitAgentAdapter
 from .openai_realtime import OpenAIRealtimeAgentAdapter
-from .pipecat import PipecatAgentAdapter
+from .pipecat import PipecatAgentAdapter, PipecatRecvError
 from .twilio import TwilioAgentAdapter
 from .vapi import VapiAgentAdapter
 from .webrtc import WebRTCAgentAdapter
@@ -30,6 +30,7 @@ __all__ = [
     "OpenAIRealtimeAgentAdapter",
     "PendingTransportError",
     "PipecatAgentAdapter",
+    "PipecatRecvError",
     "TwilioAgentAdapter",
     "VapiAgentAdapter",
     "WebRTCAgentAdapter",

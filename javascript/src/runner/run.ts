@@ -9,7 +9,9 @@
  */
 import { AssistantContent, ToolContent, ModelMessage } from "ai";
 import { Subscription } from "rxjs";
+import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { getEnv } from "../config";
+import { getProjectConfig } from "../config/get-project-config";
 import {
   allAgentRoles,
   AgentRole,
@@ -17,14 +19,12 @@ import {
   ScenarioConfig,
   ScenarioResult,
 } from "../domain";
-import type { VoiceConfig } from "../voice/config";
 import { EventBus } from "../events/event-bus";
 import { ScenarioExecution } from "../execution";
 import { proceed } from "../script";
-import { generateThreadId, getBatchRunId } from "../utils/ids";
-import { judgeSpanCollector } from "../agents/judge/judge-span-collector";
 import { ensureTracingInitialized } from "../tracing/setup";
-import { getProjectConfig } from "../config/get-project-config";
+import { generateThreadId, getBatchRunId } from "../utils/ids";
+import type { VoiceConfig } from "../voice/config";
 /**
  * Options for running a scenario.
  */
@@ -155,7 +155,10 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
     eventBus = new EventBus({
       endpoint: options?.langwatch?.endpoint ?? cfg.langwatch?.endpoint ?? envConfig.LANGWATCH_ENDPOINT,
       apiKey: options?.langwatch?.apiKey ?? cfg.langwatch?.apiKey ?? envConfig.LANGWATCH_API_KEY,
-      projectId: options?.langwatch?.projectId ?? cfg.langwatch?.projectId,
+      projectId:
+        options?.langwatch?.projectId ??
+        cfg.langwatch?.projectId ??
+        envConfig.LANGWATCH_PROJECT_ID,
     });
     eventBus.listen();
 
@@ -190,7 +193,7 @@ export async function run(cfg: ScenarioConfig, options?: RunOptions): Promise<Sc
       }
     } catch (e) {
       // Don't let reporting failures break the scenario run.
-      // eslint-disable-next-line no-console
+       
       console.warn(`[scenario] red-team auto-save skipped: ${(e as Error).message}`);
     }
 
