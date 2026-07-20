@@ -24,6 +24,7 @@ from opentelemetry.trace import StatusCode
 from opentelemetry.util._once import Once
 
 from scenario.voice import AdapterCapabilities, AudioChunk, VoiceAgentAdapter
+from scenario.voice.adapter import AgentStreamEndedError
 from scenario.voice.messages import create_audio_message
 from scenario.voice.stt import STTProvider, get_stt_provider, set_stt_provider
 
@@ -136,6 +137,7 @@ async def test_a1_call_emits_voice_named_spans():
         ([_CHUNK, "timeout"], "tail_silence"),
         ([_CHUNK, "empty"], "terminal_chunk"),
         (["timeout"], "first_chunk_timeout"),
+        ([_CHUNK, AgentStreamEndedError("peer closed")], "stream_ended"),
     ],
 )
 async def test_a3_terminated_reason_per_exit_path(actions, expected_reason):

@@ -421,7 +421,7 @@ LANGWATCH_API_KEY="your-api-key"
 
 ## Debug mode
 
-You can enable debug mode by setting the `debug` field to `True` in the `Scenario.configure` method or in the specific scenario you are running, or by passing the `--debug` flag to pytest.
+You can enable debug mode by setting the `debug` field to `True` in the `Scenario.configure` method or in the specific scenario you are running, or by passing the `--scenario-debug` flag to pytest.
 
 Debug mode allows you to see the messages in slow motion step by step, and intervene with your own inputs to debug your agent from the middle of the conversation.
 
@@ -432,7 +432,7 @@ scenario.configure(default_model="openai/gpt-4.1-mini", debug=True)
 or
 
 ```bash
-pytest -s tests/test_vegetarian_recipe_agent.py --debug
+pytest -s tests/test_vegetarian_recipe_agent.py --scenario-debug
 ```
 
 ## Cache

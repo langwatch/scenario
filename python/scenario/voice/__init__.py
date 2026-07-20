@@ -10,6 +10,8 @@ Public surface:
     - AudioChunk — canonical internal audio (PCM16 @ 24kHz mono)
     - AdapterCapabilities / UnsupportedCapabilityError — capability matrix
     - FirstChunkTimeoutError — attributable first-chunk recv timeout
+    - AgentStreamEndedError — recv_audio's transport terminated (crash/clean close)
+    - PipecatRecvError — Pipecat recv-loop ended (attributable; subclass of above)
     - VoiceRecording / VoiceEvent / LatencyMetrics — result-side types
     - AudioSegment — per-speaker slice of the recording
     - synthesize / STTProvider / set_stt_provider / get_stt_provider —
@@ -22,7 +24,7 @@ Public surface:
 
 from __future__ import annotations
 
-from .adapter import FirstChunkTimeoutError, VoiceAgentAdapter
+from .adapter import AgentStreamEndedError, FirstChunkTimeoutError, VoiceAgentAdapter
 from .adapters import (
     ComposableVoiceAgent,
     ElevenLabsAgentAdapter,
@@ -31,6 +33,7 @@ from .adapters import (
     LiveKitAgentAdapter,
     OpenAIRealtimeAgentAdapter,
     PipecatAgentAdapter,
+    PipecatRecvError,
     TwilioAgentAdapter,
     VapiAgentAdapter,
     WebRTCAgentAdapter,
@@ -57,6 +60,7 @@ from .vad import WebRTCVadFallback
 
 __all__ = [
     "AdapterCapabilities",
+    "AgentStreamEndedError",
     "AudioChunk",
     "AudioSegment",
     "CONTEXTUAL_PROMPT",
@@ -72,6 +76,7 @@ __all__ = [
     "OpenAIRealtimeAgentAdapter",
     "OpenAISTTProvider",
     "PipecatAgentAdapter",
+    "PipecatRecvError",
     "STTProvider",
     "TwilioAgentAdapter",
     "UnsupportedCapabilityError",

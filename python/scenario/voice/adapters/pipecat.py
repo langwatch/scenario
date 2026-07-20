@@ -24,7 +24,7 @@ import logging
 import uuid
 from typing import Any, ClassVar, Literal, Optional
 
-from ..adapter import VoiceAgentAdapter
+from ..adapter import AgentStreamEndedError, VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
 from ._twilio_shared import (
@@ -40,6 +40,22 @@ from ._twilio_shared import (
 
 
 logger = logging.getLogger("scenario.voice.pipecat")
+
+
+_RECV_LOOP_DONE = object()
+"""Sentinel pushed onto the inbound queue when _recv_loop terminates, so a
+waiting recv_audio wakes immediately and surfaces the terminal cause instead of
+blocking until its caller's timeout fires on a queue nothing will fill (#498)."""
+
+
+class PipecatRecvError(AgentStreamEndedError):
+    """recv_audio could get no audio because the background _recv_loop ended.
+
+    Names the real reason — a crash in the read loop (decode/transport error,
+    chained via __cause__) or a clean WebSocket close by the bot — so the #498
+    2nd-turn hang surfaces an attributable error instead of a blind
+    response_timeout with an empty body.
+    """
 
 
 class PipecatAgentAdapter(VoiceAgentAdapter):
@@ -103,7 +119,15 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
 
         self._ws: Any = None
         self._recv_task: Optional[asyncio.Task] = None
-        self._inbound_queue: Optional[asyncio.Queue[AudioChunk]] = None
+        # Carries AudioChunks plus the _RECV_LOOP_DONE sentinel (hence Any), so a
+        # waiting recv_audio learns the loop ended instead of blocking forever.
+        self._inbound_queue: Optional[asyncio.Queue[Any]] = None
+        # Set by _recv_loop when it crashes; recv_audio reads it to name the root
+        # cause (chained via __cause__) on the PipecatRecvError it raises (#498).
+        self._recv_loop_exc: Optional[BaseException] = None
+        # Set True when _recv_loop terminates (crash or clean close). Lets
+        # recv_audio fail fast on a drained queue without re-reading it (#498).
+        self._recv_loop_done: bool = False
         # Serialises concurrent send_audio() calls — without it two paced
         # senders would interleave 20-ms mulaw frames on the wire and the
         # bot would receive corrupted audio. Used for the interruption case
@@ -135,6 +159,8 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
             self.url, ping_interval=None, ping_timeout=None
         )
         self._inbound_queue = asyncio.Queue()
+        self._recv_loop_exc = None  # reset per fresh connection
+        self._recv_loop_done = False
         self._send_lock = asyncio.Lock()
 
         # Send the synthetic `start` event that pipecat's TwilioFrameSerializer
@@ -232,7 +258,31 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     async def recv_audio(self, timeout: float) -> AudioChunk:
         self._assert_connected()
         assert self._inbound_queue is not None
-        return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
+        # The loop already terminated and its queue is drained → fail fast with
+        # the terminal cause instead of blocking for `timeout` on a queue nothing
+        # will fill. The flag + drained-queue check is the terminal state for the
+        # rest of this connection (no await, no re-pushed sentinel to leak).
+        if self._recv_loop_done and self._inbound_queue.empty():
+            raise self._recv_loop_ended_error() from self._recv_loop_exc
+        item = await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
+        if item is _RECV_LOOP_DONE:
+            raise self._recv_loop_ended_error() from self._recv_loop_exc
+        return item
+
+    def _recv_loop_ended_error(self) -> PipecatRecvError:
+        # Chaining is done at the raise site (``raise ... from self._recv_loop_exc``)
+        # so ``__suppress_context__`` is set correctly and the clean-close branch
+        # (exc is None → ``from None``) gets a true empty cause.
+        exc = self._recv_loop_exc
+        if exc is not None:
+            return PipecatRecvError(
+                "pipecat recv loop crashed; no further audio will arrive: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        return PipecatRecvError(
+            "pipecat bot closed the WebSocket; no further audio will arrive — the "
+            "bot hung up or its pipeline stopped without responding"
+        )
 
     async def interrupt(self) -> None:
         """Send a Twilio ``clear`` frame — the bot drops all buffered outbound
@@ -252,6 +302,7 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
     async def _recv_loop(self) -> None:
         """Read frames from pipecat, decode µ-law → PCM16 24k, enqueue."""
         assert self._ws is not None and self._inbound_queue is not None
+        queue = self._inbound_queue
         buffered_mulaw = bytearray()
         BATCH_MS = 100
 
@@ -264,7 +315,7 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                     if len(buffered_mulaw) >= (BATCH_MS * 8):
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await self._inbound_queue.put(AudioChunk(data=pcm))
+                        await queue.put(AudioChunk(data=pcm))
                     continue
 
                 frame = parse_media_stream_frame(raw)
@@ -275,17 +326,32 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                     if len(buffered_mulaw) >= (BATCH_MS * 8):
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await self._inbound_queue.put(AudioChunk(data=pcm))
+                        await queue.put(AudioChunk(data=pcm))
                 elif frame.event == "stop":
                     if buffered_mulaw:
                         pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await self._inbound_queue.put(AudioChunk(data=pcm))
+                        await queue.put(AudioChunk(data=pcm))
                     return
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.warning("PipecatAgentAdapter: recv loop exited with error", exc_info=True)
+        except Exception as exc:
+            # #498: do NOT swallow. A crash here (decode error, transport reset,
+            # bot pipeline failure) used to only log + fall through, leaving the
+            # inbound queue silent so recv_audio blocked the full response_timeout
+            # with no attributable cause. Record it; recv_audio raises
+            # PipecatRecvError naming this as the root cause (chained via __cause__).
+            self._recv_loop_exc = exc
+            logger.warning("PipecatAgentAdapter: recv loop crashed", exc_info=True)
+        finally:
+            # Mark terminal, then wake any pending recv_audio: no more audio will
+            # arrive on this connection. The flag lets later recv_audio calls fail
+            # fast on the drained queue; the sentinel unblocks a getter currently
+            # awaiting an empty queue. Together they turn an indefinite wait into
+            # an immediate, attributable PipecatRecvError. (No await between the
+            # two lines, so a waiter can't observe a half-set terminal state.)
+            self._recv_loop_done = True
+            queue.put_nowait(_RECV_LOOP_DONE)
 
     # ------------------------------------------------------------------ assertions
 

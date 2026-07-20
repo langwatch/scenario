@@ -13,8 +13,6 @@ One adapter class serves both directions a Twilio number can participate in:
 FastAPI webhook + Media Streams WS server, open a public URL (user-supplied
 or via ``CloudflareTunnel``). After ``connect()``, call either
 ``place_call()`` or ``wait_for_call()``.
-
-See source §5.3 and docs/proposals/issue-350-ralph-real-transports.md.
 """
 
 from __future__ import annotations

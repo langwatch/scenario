@@ -46,6 +46,7 @@ export class RealtimeEventHandler {
   private errorRejecter: ((error: Error) => void) | null = null;
   private listenersSetup = false;
   private readonly logger = new Logger("RealtimeEventHandler");
+  private _active = false;
 
   /**
    * Creates a new RealtimeEventHandler instance
@@ -110,8 +111,18 @@ export class RealtimeEventHandler {
       }
     });
 
+    // Track response lifecycle — set on response.created, clear on response.done/cancelled
+    transport.on("response.created", () => {
+      this._active = true;
+    });
+
+    transport.on("response.cancelled", () => {
+      this._active = false;
+    });
+
     // Listen for response completion
     transport.on("response.done", () => {
+      this._active = false;
       const fullAudio = this.currentAudioChunks.join("");
       const audioResponse: AudioResponseEvent = {
         transcript: this.currentResponse,
@@ -170,9 +181,18 @@ export class RealtimeEventHandler {
    * Resets the internal state for the next response
    */
   private reset(): void {
+    this._active = false;
     this.responseResolver = null;
     this.errorRejecter = null;
     this.currentResponse = "";
     this.currentAudioChunks = [];
+  }
+
+  /**
+   * Returns true while a response is in flight (between response.created
+   * and response.done). Used by RealtimeAgentAdapter to guard response.create.
+   */
+  isResponseActive(): boolean {
+    return this._active;
   }
 }

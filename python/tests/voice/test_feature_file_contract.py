@@ -3,8 +3,8 @@ Structural guard for specs/voice-agents.feature — the behavioral contract.
 
 Parses the feature file with the same Gherkin parser pytest-bdd uses and
 asserts it is well-formed. Catches regressions where a scenario gets
-dropped, a tag gets misspelled, or an AC is deleted without updating the
-prove-it report.
+dropped, a tag gets misspelled, or the tag split drifts from the counts
+this module pins.
 
 This is the minimum-viable half of "BDD wiring." Full pytest-bdd binding
 (one executable test per Scenario) is tracked as follow-up; local
@@ -102,7 +102,7 @@ def test_every_scenario_is_tagged_unit_integration_or_e2e(parsed_feature):
     )
 
 
-def test_tag_split_matches_prove_it_report(parsed_feature):
+def test_tag_split_matches_the_pinned_counts(parsed_feature):
     """
     The post-#561/#604 tag split is 79 @unit / 13 @integration / 35 @e2e.
     The end-to-end examples and pain-pattern scenarios are @e2e (happy paths

@@ -193,9 +193,11 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       throw new Error("Realtime transport not available");
     }
 
-    transport.sendEvent({
-      type: "response.create",
-    });
+    if (!this.eventHandler.isResponseActive()) {
+      transport.sendEvent({
+        type: "response.create",
+      });
+    }
 
     const timeout = this.config.responseTimeout ?? 60000;
     const response = await this.eventHandler.waitForResponse(timeout);
@@ -234,10 +236,12 @@ export class RealtimeAgentAdapter extends AgentAdapter {
       type: "input_audio_buffer.commit",
     });
 
-    // Trigger response generation
-    transport.sendEvent({
-      type: "response.create",
-    });
+    // Trigger response generation — guard against active-response race
+    if (!this.eventHandler.isResponseActive()) {
+      transport.sendEvent({
+        type: "response.create",
+      });
+    }
 
     // Wait for audio response
     const timeout = this.config.responseTimeout ?? 60000;

@@ -22,8 +22,16 @@ name: voice-integration
 #     TWILIO_PHONE_NUMBER_2 — two Twilio-owned numbers for fully automated
 #     inbound/outbound demos
 #
-# If a secret is absent the relevant tests FAIL with a clear diagnosis message.
-# The workflow stays green as long as the tests that DID run passed.
+# If a secret is absent the relevant tests FAIL with a clear diagnosis message
+# (`_require_env` -> pytest.fail, deliberately: "e2e tests fail on missing
+# infrastructure, not skip"). A failed test fails its step, and a failed step fails
+# the JOB — this workflow does NOT go green just because the tests that ran passed.
+#
+# Consequence worth knowing (issue #491): the TWILIO_* secrets are not configured on
+# this repo, so the marker-tagged step always fails. The test steps below therefore
+# carry a reachability gate (`steps.stub_bot.outcome == 'success'`) so ONE missing
+# secret family cannot silence every other test in the suite. They still report
+# honestly and the job still fails — the gate buys visibility, not a green.
 
 on:
   workflow_dispatch:
@@ -35,7 +43,13 @@ concurrency:
 jobs:
   integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90, not 45: the isolated multi-turn step caps each of its 6 demos at
+    # `timeout 600`, so that step alone has a 60-min worst case — a 45-min job cap
+    # would fire mid-loop and cancel the run, which is exactly what the per-demo
+    # cap exists to prevent ("cap one bad demo instead of letting it ride the job
+    # timeout"). 60 min for the isolated step + headroom for install and the three
+    # bulk steps.
+    timeout-minutes: 90
     env:
       CI: true
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
@@ -73,6 +87,7 @@ jobs:
       # e2e tests stop skipping.
       # ---------------------------------------------------------------
       - name: Start bundled Pipecat stub bot
+        id: stub_bot
         run: |
           uv run python examples/voice/_bot/bot.py \
             >> /tmp/voice-pipecat-bot.log 2>&1 &
@@ -115,13 +130,25 @@ jobs:
         # to tolerate "no tests matched the marker" (pytest exit 5) — but it
         # also hid real test failures. Tolerate exit 5 only; propagate every
         # other non-zero so a genuine failure fails the step and the workflow.
+        #
+        # `--timeout=540` is NOT optional (issue #491). pytest.ini sets `timeout = 60`
+        # and WINS over pyproject.toml, and `timeout_method = thread` kills the ENTIRE
+        # pytest process — not just the slow test. In THIS workflow LANGWATCH_API_KEY is
+        # set, so every scenario.run() pays a telemetry drain of ~30s PER EVENT, serial
+        # (measured: +153s on a 27.6s demo). Without an override that drain pushes tests
+        # past 60s and the step dies mid-suite. PROVEN in run 29231496466: this step's
+        # sibling ("Run @e2e voice demos") had no override and was killed twice by the
+        # cap, while the isolated step — which does override — took zero kills.
+        # `not voice_multiturn` keeps the multi-turn @e2e demos out of this
+        # single-process run — they wedge when collected together (issue #491)
+        # and are exercised one-process-each by the isolated step below.
         shell: bash
         run: |
           rc=0
           # `--reruns 1` (pytest-rerunfailures, already a dep): absorb a single
           # ambient hosted-EL flake (#708) while a genuine failure that fails
           # both attempts still propagates.
-          uv run pytest tests/voice -m integration -v --tb=short --reruns 1 || rc=$?
+          uv run pytest tests/voice -m "integration and not voice_multiturn" -v --tb=short --reruns 1 --timeout=540 || rc=$?
           if [ "$rc" -eq 5 ]; then
             echo "No integration-marked tests collected — treating as pass."
             exit 0
@@ -139,7 +166,25 @@ jobs:
           TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
 
       - name: Run example-suite voice integration tests
-        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short
+        # Reachability gate (issue #491), now belt-and-suspenders with #796. The step
+        # above collects three Twilio-gated tests (test_twilio_inbound/outbound/
+        # dtmf_ivr_e2e.py). Since #796 their fixtures SKIP when TWILIO_* env is absent
+        # (option b) instead of failing, so a missing-secret repo no longer aborts the
+        # job here — but this gate stays as defense-in-depth: any OTHER failure in the
+        # step above (an unrelated test, a live-provider blip) would still abort every
+        # step below it. Historically that abort — Twilio fixtures failing on absent
+        # env — is why voice-integration was 30/30 red with 0 runs of the isolated step.
+        # Un-skipping the demos while leaving them unreachable would just trade
+        # "@pytest.mark.skip" for "step never executes" — the same asserted-but-never-run
+        # hole in a new costume.
+        #
+        # So: run whenever the stub bot came up, regardless of an unrelated step's
+        # failure. This does NOT hide anything — a failed step still fails the JOB, so
+        # there is no hollow green; it only stops one missing secret from silencing
+        # every other test in the suite. Gated on the bot rather than always() so a
+        # bot-startup failure doesn't spawn 6 doomed 10-minute demo runs.
+        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
+        run: uv run pytest examples/test_audio_to_audio.py examples/test_audio_to_text.py -v --tb=short --timeout=300
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -148,8 +193,12 @@ jobs:
 
       # ---------------------------------------------------------------
       # Run the @e2e voice demos (fail-fast on missing infrastructure).
+      # `not voice_multiturn` excludes the demos that must run one-process-
+      # each (issue #491); those run in the dedicated isolated step below.
       # ---------------------------------------------------------------
       - name: Run @e2e voice demos
+        # Reachability gate — see the first occurrence above (issue #491).
+        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
         # CI honesty (#708): `tee` masks pytest's exit without `pipefail` (same
         # class of bug as the vitest step). Set it so a failing demo fails the
         # step instead of being swallowed by tee's exit 0.
@@ -159,7 +208,91 @@ jobs:
           # `--reruns 1` (pytest-rerunfailures): absorb a single ambient
           # hosted-EL flake (#708); a genuine failure that fails both attempts
           # still propagates through `pipefail` and fails the step.
-          uv run pytest tests/voice/ -v --tb=short -q --reruns 1 2>&1 | tee /tmp/e2e-voice-results.log
+          uv run pytest tests/voice/ -m "not voice_multiturn" -v --tb=short -q --reruns 1 --timeout=540 2>&1 | tee /tmp/e2e-voice-results.log
+        working-directory: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          TWILIO_PHONE_NUMBER_2: ${{ secrets.TWILIO_PHONE_NUMBER_2 }}
+
+      # ---------------------------------------------------------------
+      # Multi-turn @e2e demos — one pytest process EACH.
+      #
+      # These wedge when collected together in a single process (issue #491;
+      # see TESTING.md "Voice @e2e suite — isolation requirement"). Rather than
+      # paper over an unverifiable contract with @pytest.mark.skip, we run each
+      # in a fresh process so a leaked background task / socket / subprocess in
+      # one demo cannot wedge the next. The demo set is discovered by the
+      # `voice_multiturn` marker so this list never drifts from the test files.
+      # ---------------------------------------------------------------
+      - name: Run multi-turn voice @e2e demos (isolated — one process each)
+        # Reachability gate — see the first occurrence above (issue #491).
+        if: ${{ !cancelled() && steps.stub_bot.outcome == 'success' }}
+        run: |
+          set -uo pipefail
+          # Capture collection output AND exit code (stderr merged in). A NON-zero
+          # exit means collection failed — including a PARTIAL failure where one
+          # demo errors on import while others collect: pytest exits non-zero and
+          # we must fail, not silently run the subset (that would re-introduce the
+          # very "asserted-but-never-run" hole this step closes).
+          #
+          # `|| collect_rc=$?` is load-bearing: this step runs under GitHub's
+          # default `bash -e {0}`, so a bare `collect_out=$(...)` assignment would
+          # abort the step the instant pytest exits non-zero — before `$?` is read,
+          # discarding the diagnostics we just captured into the variable and
+          # failing with NO output. The `||` suppresses errexit so we can report.
+          collect_rc=0
+          collect_out=$(uv run pytest tests/voice/ -m voice_multiturn --collect-only -q 2>&1) || collect_rc=$?
+          if [ "$collect_rc" -ne 0 ]; then
+            echo "ERROR: collecting voice_multiturn demos failed (pytest exit $collect_rc):" >&2
+            printf '%s\n' "$collect_out" >&2
+            exit 1
+          fi
+          # Discover the demo set by marker so it can't drift from the test files.
+          mapfile -t files < <(printf '%s\n' "$collect_out" | grep '::' | cut -d: -f1 | sort -u)
+          echo "Isolated multi-turn demos:"; printf '  %s\n' "${files[@]:-}"
+          # Belt-and-braces, and deliberately kept though currently UNREACHABLE: pytest
+          # exits 5 when a marker collects nothing and 2 on a collection error, so the
+          # rc check above already catches every path that would leave `files` empty.
+          # Retained because "silently ran zero demos" is the exact hole this step exists
+          # to close — if a future pytest ever returns 0 with no matches, this is the net.
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "ERROR: no voice_multiturn demos discovered — marker drift or rename." >&2
+            exit 1
+          fi
+          rc=0
+          for f in "${files[@]}"; do
+            echo "::group::${f} (isolated process)"
+            # TWO nested caps, and `--timeout=540` is NOT optional:
+            #
+            # pytest.ini sets `timeout = 60` for the unit suite, and pytest.ini
+            # WINS over pyproject.toml — pytest says so out loud: "configfile:
+            # pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)".
+            # So pyproject's "@e2e voice tests can legitimately take 5+ min /
+            # per-test timeout deliberately NOT set" note is DEAD CONFIG, and
+            # without an override these demos inherit the 60s cap. They blow
+            # through it structurally — long_hold alone does a 15s wall-clock
+            # scenario.sleep(15) before 8 live LLM+TTS+STT turns — so un-skipping
+            # them under a 60s cap would just trade "asserted but never run" for
+            # "shot at 60s, red". Same idiom as python-ci's Examples step, which
+            # overrides to --timeout=300 for exactly this reason.
+            #
+            # Inner (pytest-timeout, 540s, thread method): fires FIRST and dumps
+            # every thread's stack — that thread-dump IS the #491 diagnostic (it
+            # is how the event_bus.drain() -> queue.join() wedge was root-caused),
+            # so a recurrence arrives as a readable traceback, not a silent kill.
+            # Outer (`timeout 600`): hard backstop for a hang pytest cannot
+            # interrupt at all, capping one bad demo at 10 min rather than letting
+            # it ride the job timeout.
+            timeout 600 uv run pytest -p no:cacheprovider -x "$f" -v --tb=short --timeout=540 || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
         working-directory: python
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

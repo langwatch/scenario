@@ -38,6 +38,22 @@ _FIRST_CHUNK_PHASE = "first-chunk"
 """Phase marker for the first-chunk recv timeout (used in FirstChunkTimeoutError)."""
 
 
+class AgentStreamEndedError(Exception):
+    """An adapter's recv_audio raises this when the agent's audio transport has
+    TERMINATED — a background read-loop crash or a clean close by the peer — so
+    no further audio can arrive on this connection.
+
+    WHY distinct from asyncio.TimeoutError: a timeout is TRANSIENT (the agent may
+    still be mid-think; audio could still arrive), a stream-ended is TERMINAL (the
+    connection is done). _drain_agent_response treats them differently: on the
+    FIRST chunk it propagates this unchanged (it already names the real cause —
+    this is the #498 diagnostic fix), on TAIL chunks it ends the turn normally
+    (the peer closed after the agent finished speaking). Subclasses (e.g.
+    PipecatRecvError) carry a transport-specific message and chain the underlying
+    cause via __cause__.
+    """
+
+
 class FirstChunkTimeoutError(asyncio.TimeoutError):
     """Raised when the agent fails to send its first audio chunk within ``response_timeout``.
 
@@ -381,6 +397,12 @@ class VoiceAgentAdapter(AgentAdapter):
                     "voice.audio.terminated_reason", "first_chunk_timeout"
                 )
                 raise FirstChunkTimeoutError(timeout=self.response_timeout) from err
+            # An AgentStreamEndedError is intentionally NOT caught here: it is not a
+            # TimeoutError, so it propagates past this handler unchanged. That
+            # preserves the real terminal cause (recv-loop crash or clean peer close)
+            # for the #498 diagnostic fix instead of masking it as a first-chunk
+            # timeout. Do NOT add a bare ``except Exception`` here. It exits the
+            # span as ERROR, which is exactly what the trace should show.
             _recv_span.set_attribute(
                 "voice.audio.first_chunk_latency_ms",
                 round((time.monotonic() - _recv_started) * 1000),
@@ -400,6 +422,12 @@ class VoiceAgentAdapter(AgentAdapter):
                     nxt = await self.recv_audio(timeout=self.response_tail_silence)
                 except asyncio.TimeoutError:
                     terminated_reason = "tail_silence"
+                    break
+                except AgentStreamEndedError:
+                    # The stream ended after the agent already spoke — a normal
+                    # end-of-turn (the peer closed once it finished). Return the
+                    # audio collected so far instead of surfacing the terminal cause.
+                    terminated_reason = "stream_ended"
                     break
                 if not nxt.data:
                     terminated_reason = "terminal_chunk"
