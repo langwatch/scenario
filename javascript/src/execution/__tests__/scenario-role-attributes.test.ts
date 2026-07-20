@@ -54,7 +54,14 @@ describe("scenario.role attribute", () => {
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
     provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+      // Multiple @opentelemetry/sdk-trace-base copies coexist in the tree, so
+      // SimpleSpanProcessor and NodeTracerProvider's expected SpanProcessor can
+      // resolve to different copies. Cast to the type the provider expects.
+      spanProcessors: [
+        new SimpleSpanProcessor(exporter),
+      ] as unknown as NonNullable<
+        ConstructorParameters<typeof NodeTracerProvider>[0]
+      >["spanProcessors"],
     });
     trace.setGlobalTracerProvider(provider);
   });
@@ -181,7 +188,14 @@ describe("scenario.run_id attribute", () => {
   beforeEach(() => {
     exporter = new InMemorySpanExporter();
     provider = new NodeTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+      // Multiple @opentelemetry/sdk-trace-base copies coexist in the tree, so
+      // SimpleSpanProcessor and NodeTracerProvider's expected SpanProcessor can
+      // resolve to different copies. Cast to the type the provider expects.
+      spanProcessors: [
+        new SimpleSpanProcessor(exporter),
+      ] as unknown as NonNullable<
+        ConstructorParameters<typeof NodeTracerProvider>[0]
+      >["spanProcessors"],
     });
     trace.setGlobalTracerProvider(provider);
   });
