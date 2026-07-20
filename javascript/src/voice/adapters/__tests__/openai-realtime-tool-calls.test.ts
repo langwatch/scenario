@@ -25,19 +25,8 @@
  * whole wire, not one endpoint.
  */
 
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-
 import type { ModelMessage, ToolModelMessage } from "ai";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from "vitest";
-import { WebSocketServer, type WebSocket as WsServerSocket } from "ws";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { ScenarioConfig } from "../../../domain";
 import { AgentRole } from "../../../domain/agents";
@@ -49,67 +38,28 @@ import {
   OpenAIRealtimeAgentAdapter,
   type OpenAIRealtimeAgentAdapterInit,
 } from "../openai-realtime";
+import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
 
-// ---------------------------------------------------------------------------
-// In-process WS server harness (mirrors openai-realtime.test.ts).
-// ---------------------------------------------------------------------------
-
-let http: Server;
-let wss: WebSocketServer;
-let activeSocket: WsServerSocket | null = null;
-let socketReadyResolve: (() => void) | null = null;
-let socketReady: Promise<void> = new Promise((r) => {
-  socketReadyResolve = r;
-});
+// In-process WS server harness (shared with the other openai-realtime tests). This
+// file records only the observed frame TYPES.
 let observedTypes: string[] = [];
 
-beforeAll(
-  async () =>
-    await new Promise<void>((doneStart) => {
-      http = createServer();
-      wss = new WebSocketServer({ server: http });
-      wss.on("connection", (sock) => {
-        activeSocket = sock;
-        if (socketReadyResolve) socketReadyResolve();
-        sock.on("message", (raw) => {
-          const text =
-            typeof raw === "string"
-              ? raw
-              : Buffer.isBuffer(raw)
-                ? raw.toString("utf8")
-                : Buffer.from(raw as ArrayBuffer).toString("utf8");
-          try {
-            observedTypes.push(String(JSON.parse(text).type ?? ""));
-          } catch {
-            /* ignore non-JSON */
-          }
-        });
-      });
-      http.listen(0, "127.0.0.1", doneStart);
-    }),
-);
-
-afterAll(async () => {
-  wss.close();
-  await new Promise<void>((done) => http.close(() => done()));
+const server = setupMockRealtimeServer((text) => {
+  try {
+    observedTypes.push(String((JSON.parse(text) as { type?: unknown }).type ?? ""));
+  } catch {
+    /* ignore non-JSON */
+  }
 });
 
 beforeEach(() => {
   observedTypes = [];
-  activeSocket = null;
-  socketReady = new Promise<void>((r) => {
-    socketReadyResolve = r;
-  });
+  server.arm();
 });
 
-function port(): number {
-  return (http.address() as AddressInfo).port;
-}
+const port = (): number => server.port();
 
-function push(payload: unknown): void {
-  if (!activeSocket) throw new Error("socket not yet connected");
-  activeSocket.send(JSON.stringify(payload));
-}
+const push = (payload: unknown): void => server.push(payload);
 
 async function waitForType(type: string, timeoutMs = 1000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -244,7 +194,7 @@ async function runTurn(
   feedEvents: () => void,
 ): Promise<ModelMessage[]> {
   await adapter.connect();
-  await socketReady;
+  await server.socketReady();
   await waitForType("session.update");
   const result = await feedAndCall(adapter, feedEvents);
   await adapter.disconnect();
@@ -444,7 +394,7 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     const adapter = buildAdapter({ apiKey: "test-key", role: AgentRole.AGENT });
     adapter.responseTimeout = 0.5;
     await adapter.connect();
-    await socketReady;
+    await server.socketReady();
     await waitForType("session.update");
 
     // Turn 1: no-audio tool-only — must push response.done to terminate drain.
@@ -470,7 +420,7 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     adapter.responseTimeout = 0.5;
 
     await adapter.connect();
-    await socketReady;
+    await server.socketReady();
     await waitForType("session.update");
     let caught: unknown;
     try {
@@ -627,7 +577,7 @@ describe("OpenAIRealtimeAgentAdapter — realtime tool-call surfacing (#630)", (
     // state (mirrors the Python turn-start reset). No reconnect.
     const adapter = buildAdapter({ apiKey: "test-key" });
     await adapter.connect();
-    await socketReady;
+    await server.socketReady();
     await waitForType("session.update");
 
     // Turn 1: one tool call.

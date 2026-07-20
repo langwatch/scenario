@@ -218,11 +218,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    */
   voiceConfig: ResolvedVoiceConfig | null = null;
   /**
-   * Interruption config recorded by `voiceProceed({ interruptions })`. Read
-   * at the top of each `proceed()` iteration to decide barge-ins (Gap #8).
-   */
-  voiceInterruptions?: InterruptionConfig;
-  /**
    * Background ambience recorded by `backgroundNoise(source, volume)` — read
    * by the user-simulator audio path when mixing turns (Gap #8).
    */
@@ -1344,14 +1339,9 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
    * @param role - The role the agent was called for.
    * @returns The messages to add/broadcast — voiced where applicable.
    * @throws {Error} ({@link USER_TURN_NO_AUDIO_FOR_VOICE_AUT}, the fail-closed
-   *   invariant) when the FINAL (post-voiceify) user turn for a voice agent
-   *   under test carries no audio. Adapter-AGNOSTIC and strictly stronger than
-   *   the old realtime-user type-check it replaced: it trips on the produced
-   *   ARTIFACT (a no-audio turn) regardless of producer type — catching a
-   *   realtime adapter that returns text AND a non-realtime/non-voice-sim
-   *   producer the type-check let through silently — rather than degrade the
-   *   user side to a text turn the voice agent can't hear. The autonomous
-   *   OpenAI Realtime user PASSES it (its `call()` returns audio).
+   *   invariant) when the FINAL (post-voiceify) user turn for a voice agent under
+   *   test carries no content. See {@link USER_TURN_NO_AUDIO_FOR_VOICE_AUT} for the
+   *   full rationale.
    */
   private async voiceifyGeneratedUserTurn(
     messages: ModelMessage[],
@@ -1390,20 +1380,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       outgoing = voiced;
     }
 
-    // Fail-closed invariant (adapter-AGNOSTIC): a USER turn for a voice agent
-    // under test MUST carry REAL content — audio bytes the AUT can hear, or a
-    // transcript (for a text-commit adapter) — the why is on
-    // USER_TURN_NO_AUDIO_FOR_VOICE_AUT.
+    // Fail-closed invariant: a USER turn for a voice agent under test MUST carry
+    // REAL content (audio bytes the AUT can hear, or a transcript for a text-commit
+    // adapter); the why is on USER_TURN_NO_AUDIO_FOR_VOICE_AUT.
     // LOAD-BEARING ORDER: this runs AFTER the voiceify/TTS step, on the FINAL
-    // outgoing turn — so a legitimate voice-user-sim TEXT turn (text is PRE-TTS)
-    // is allowed through ONCE voiced, while a realtime adapter that returns text,
-    // or any producer that yields a CONTENT-LESS user turn, fails loud rather
-    // than silently degrading the agent under test to a turn it can't hear.
-    // NB: test real content, not `messageHasAudio` — a ZERO-byte audio part still
+    // outgoing turn, so a legitimate voice-user-sim TEXT turn (text is PRE-TTS) is
+    // allowed through ONCE voiced, while a realtime adapter that returns text, or
+    // any producer that yields a CONTENT-LESS user turn, fails loud.
+    // NB: test real content, not `messageHasAudio`: a ZERO-byte audio part still
     // "has audio" (extractAudio is non-null), so an empty-audio #708-flake turn
     // would sail through and feed the AUT silence (a receiveAudio-timeout hang).
-    // It is the produced ARTIFACT, not the producer's TYPE, that trips it —
-    // strictly stronger than the old isRealtimeUserAgent check.
     const carriesContent = outgoing.some((message) => {
       const audio = extractAudio(message);
       return (
@@ -1639,6 +1625,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     rng?: () => number;
     waitForSpeechMs?: number;
     bargeInDelayMs?: number;
+    /** Test seam: force a specific InterruptionConfig (replaces the removed per-call interruption-injection path). */
+    config?: InterruptionConfig;
   };
 
   /**
@@ -1886,19 +1874,14 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   /**
    * Resolve the active {@link InterruptionConfig} for the run:
-   * - `voiceProceed({ interruptions })` config (on the executor state) wins.
+   * - a test-seam override config (`interruptOverrides.config`) wins;
    * - else, when a user simulator declares `interruptProbability > 0`, build
-   *   a default config from it.
+   *   a default config from it;
    * - else `null` (no interruptions).
    */
   private resolveInterruptionConfig(): InterruptionConfig | null {
-    if (this.voiceInterruptions instanceof InterruptionConfig) {
-      return this.voiceInterruptions;
-    }
-    if (this.voiceInterruptions) {
-      // A plain InterruptionConfigInit-shaped object was recorded — wrap it.
-      return new InterruptionConfig(this.voiceInterruptions);
-    }
+    const override = this.interruptOverrides?.config;
+    if (override) return override;
     const prob = this.userSimulatorInterruptProbability();
     if (prob > 0) {
       return new InterruptionConfig({ probability: prob });

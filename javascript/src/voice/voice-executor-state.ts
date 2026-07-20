@@ -14,7 +14,6 @@
 
 import type { AudioChunk } from "./audio-chunk";
 import type { ResolvedVoiceConfig } from "./config";
-import type { InterruptionConfig } from "./interruption";
 import type { AudioPlaybackSink } from "./playback";
 import type {
   LatencyMetrics,
@@ -52,12 +51,6 @@ export interface VoiceExecutorState {
    * `null` when the run has no voice config.
    */
   voiceConfig?: ResolvedVoiceConfig | null;
-  /**
-   * Interruption configuration declared by `voiceProceed({ interruptions })`.
-   * The executor reads this at the top of each turn during `proceed()` and
-   * decides whether to fire a barge-in.
-   */
-  voiceInterruptions?: InterruptionConfig;
   /**
    * Background ambience declared by `backgroundNoise(source, volume)`. The
    * audio-effects subsystem reads this when mixing user-simulator audio.

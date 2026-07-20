@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+
+### ⚠ BREAKING CHANGES
+
+* **voice:** `silenceTailBytes` removed from `ElevenLabsAgentAdapterOptions` — no longer needed after the ElevenLabs SDK migration; remove from any adapter config.
+* **voice:** `ELEVENLABS_CONVAI_URL_TEMPLATE` constant removed from public exports — construct the URL directly or read it from the SDK.
+* **voice:** `.url` getter removed from public exports.
+
 ## [0.5.5](https://github.com/langwatch/scenario/compare/javascript/v0.5.4...javascript/v0.5.5) (2026-07-20)
 
 
@@ -77,6 +86,7 @@
 
 ### ⚠ BREAKING CHANGES
 
+* **voice:** `scenario.voiceProceed()` and `VoiceProceedOptions` are removed ([#714](https://github.com/langwatch/scenario/issues/714)). Migrate: set `interruptProbability` on `userSimulatorAgent` to drive probabilistic barge-ins during `proceed()` — the parity-clean path both SDKs share.
 * **voice:** the EL adapter's SDK migration removes the public `WebSocketLike` test-seam type (superseded by the SDK's own WebSocketFactory). Niche, but note it for the version bump.
 
 ### Bug Fixes

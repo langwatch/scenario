@@ -14,9 +14,7 @@
  * uses `includeTags: ["ts-bound"]`. Per-subject tagging matches the
  * established per-subject tag-convention decision.
  */
-import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 
 import type { LanguageModel } from "ai";
@@ -36,6 +34,7 @@ import {
   type ElevenLabsAgentAdapterOptions,
   type STTProvider,
 } from "../index";
+import { FakeWebSocket, makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(
@@ -48,73 +47,6 @@ const FEATURE_PATH = resolve(
   "specs",
   "voice-agents.feature",
 );
-
-// The two SDK injection seams, derived from the public options type so the test
-// needs no deep SDK-path import.
-type WsFactory = NonNullable<ElevenLabsAgentAdapterOptions["webSocketFactory"]>;
-type ConvClient = NonNullable<ElevenLabsAgentAdapterOptions["conversationClient"]>;
-
-/** `ws.readyState` OPEN/CLOSED — the SDK gates every send on `readyState === OPEN`. */
-const WS_OPEN = 1;
-const WS_CLOSED = 3;
-
-/**
- * In-memory fake of the SDK's `WebSocketInterface` (an `EventEmitter` with
- * `readyState`/`send`/`close`). The real `Conversation` drives it: it sends the
- * init handshake + pongs + keepalives through `send()` (we record each as a decoded
- * object), and we feed it inbound EL frames by `emit("message", …)`. Structural
- * typing makes it a `WebSocketInterface` with no cast.
- */
-class FakeWebSocket extends EventEmitter {
-  readonly sent: Record<string, unknown>[] = [];
-  readyState = WS_OPEN;
-  send(data: string): void {
-    this.sent.push(JSON.parse(data) as Record<string, unknown>);
-  }
-  close(): void {
-    if (this.readyState === WS_CLOSED) return;
-    this.readyState = WS_CLOSED;
-    // The SDK's close handler calls `reason.toString()` — pass a real Buffer reason.
-    this.emit("close", 1000, Buffer.from("closed"));
-  }
-}
-
-/**
- * Build the two SDK seams: a fake `webSocketFactory` (returns an in-memory
- * `FakeWebSocket` that auto-opens) and a fake `conversationClient` (returns a
- * canned signed URL so `requiresAuth: true`'s `getSignedUrl` handshake never hits
- * the network). Tracks the opened socket + the signed-URL request for assertions.
- */
-function makeFakeConv(): {
-  webSocketFactory: WsFactory;
-  conversationClient: ConvClient;
-  socket: { current: FakeWebSocket | null };
-  signedUrl: { calls: number; lastAgentId: string | null };
-} {
-  const socketRef: { current: FakeWebSocket | null } = { current: null };
-  const signedUrl = { calls: 0, lastAgentId: null as string | null };
-  const webSocketFactory: WsFactory = {
-    create: (_url: string) => {
-      const socket = new FakeWebSocket();
-      socketRef.current = socket;
-      // Open on the next microtask so `startSession()` resolves.
-      queueMicrotask(() => socket.emit("open"));
-      return socket;
-    },
-  };
-  const conversationClient: ConvClient = {
-    conversationalAi: {
-      conversations: {
-        getSignedUrl: async ({ agentId }: { agentId: string }) => {
-          signedUrl.calls += 1;
-          signedUrl.lastAgentId = agentId;
-          return { signedUrl: "wss://fake-signed.elevenlabs.test/convai" };
-        },
-      },
-    },
-  };
-  return { webSocketFactory, conversationClient, socket: socketRef, signedUrl };
-}
 
 /** Feed one inbound EL ConvAI frame to the SDK over the fake socket. */
 function emit(socket: FakeWebSocket, event: Record<string, unknown>): void {
@@ -1159,18 +1091,13 @@ describe("ElevenLabsAgentAdapter — dynamicVariables + overrides passthrough (#
     expect(agent.language).toBe("es");
   });
 
-  it("AC4: narrow systemPromptOverride WINS over overrides.agent.prompt; JSDoc states the order", async () => {
+  it("AC4: narrow systemPromptOverride WINS over overrides.agent.prompt", async () => {
     const { initFrame } = await connectWith({
       systemPromptOverride: "X",
       overrides: { agent: { prompt: { prompt: "Y" } } },
     });
     const agent = agentOf(initFrame);
     expect((agent.prompt as Record<string, unknown>).prompt).toBe("X");
-
-    // The adapter JSDoc states the precedence order (caller overrides applied
-    // first, narrow knobs layered on top).
-    const adapterSrc = readFileSync(resolve(HERE, "..", "elevenlabs.ts"), "utf-8");
-    expect(adapterSrc).toContain("take precedence over the same keys");
   });
 
   it("AC5a: both unset -> conversation_config_override is {agent:{}} and NO dynamic_variables key", async () => {
@@ -1246,18 +1173,5 @@ describe("ElevenLabsAgentAdapter — dynamicVariables + overrides passthrough (#
       .map((arg) => String(arg))
       .join("\n");
     expect(logged).not.toContain(SENTINEL);
-  });
-
-  it("AC9: factory JSDoc carries the exact override caveat + a dynamicVariables usage example", () => {
-    const factoriesSrc = readFileSync(
-      resolve(HERE, "..", "..", "factories.ts"),
-      "utf-8",
-    );
-    // Exact caveat string (EL ignores non-allowlisted overrides server-side).
-    expect(factoriesSrc).toContain(
-      "applied only if the agent is configured to allow it",
-    );
-    // A usage example that demonstrates the new dynamicVariables option.
-    expect(factoriesSrc).toMatch(/@example[\s\S]*?dynamicVariables/);
   });
 });

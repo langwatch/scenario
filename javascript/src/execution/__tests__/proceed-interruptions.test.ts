@@ -2,10 +2,11 @@
  * proceed() interruption injection (issue #372 Tier C, Gap #8 / PRD §4.4-§4.2).
  *
  * Verifies the executor consumes an active InterruptionConfig during
- * proceed() and fires a barge-in per the configured probability/strategy —
- * both via `voiceProceed({ interruptions })` and via a user simulator's
- * `interruptProbability`. RNG is injected (`interruptRng`) for determinism;
- * no network, no real keys.
+ * proceed() and fires a barge-in per the configured probability/strategy.
+ * Interruptions are driven by a user simulator's `interruptProbability`; a
+ * test-seam config override (`interruptOverrides.config`) pins the
+ * strategy/delay for determinism. RNG is injected (`interruptRng`) for
+ * determinism; no network, no real keys.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -53,18 +54,14 @@ describe("proceed() voice interruptions (Gap #8)", () => {
         description: "rng forces an interrupt every turn",
         agents: [new MockAgent(), sim],
       },
-      [
-        // voiceProceed records the config on the executor state.
-        (_state, executor) => {
-          (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-            new InterruptionConfig({ probability: 1, strategy: "random_phrase" });
-        },
-        (_state, executor) => executor.proceed(1),
-      ],
+      [async (_state, executor) => { await executor.proceed(1); }],
       "test-batch-id",
     );
     // rng = 0 → always < probability=1 → always interrupt; and selects phrase[0].
-    exec.interruptOverrides = { rng: () => 0 };
+    exec.interruptOverrides = {
+      rng: () => 0,
+      config: new InterruptionConfig({ probability: 1, strategy: "random_phrase" }),
+    };
 
     await exec.execute();
 
@@ -89,17 +86,14 @@ describe("proceed() voice interruptions (Gap #8)", () => {
         description: "rng declines every interrupt",
         agents: [new MockAgent(), sim],
       },
-      [
-        (_state, executor) => {
-          (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-            new InterruptionConfig({ probability: 0.3, strategy: "random_phrase" });
-        },
-        (_state, executor) => executor.proceed(1),
-      ],
+      [async (_state, executor) => { await executor.proceed(1); }],
       "test-batch-id",
     );
     // rng = 0.99 → never < 0.3 → never interrupt.
-    exec.interruptOverrides = { rng: () => 0.99 };
+    exec.interruptOverrides = {
+      rng: () => 0.99,
+      config: new InterruptionConfig({ probability: 0.3, strategy: "random_phrase" }),
+    };
 
     await exec.execute();
 
@@ -110,7 +104,7 @@ describe("proceed() voice interruptions (Gap #8)", () => {
     expect(injected).toBe(false);
   });
 
-  it("a user simulator's interruptProbability drives interruptions without voiceProceed", async () => {
+  it("a user simulator's interruptProbability drives interruptions", async () => {
     const sim = new RecordingUserSim(1); // always interrupt
     const exec = new ScenarioExecution(
       {
@@ -125,9 +119,9 @@ describe("proceed() voice interruptions (Gap #8)", () => {
 
     await exec.execute();
 
-    // The per-sim probability (no voiceProceed) resolves to a default
-    // random_phrase config, so a canned interruption phrase is injected as a
-    // user message (random_phrase injects content directly, not via the sim).
+    // The per-sim probability resolves to a default random_phrase config, so a
+    // canned interruption phrase is injected as a user message (random_phrase
+    // injects content directly, not via the sim).
     const phrases = new InterruptionConfig().phrases;
     const injected = exec.messages.some(
       (m) => m.role === "user" && phrases.includes(m.content as string),
@@ -150,16 +144,10 @@ describe("proceed() voice interruptions (Gap #8)", () => {
         description: "delayRange must be sampled before injection",
         agents: [new MockAgent(), sim],
       },
-      [
-        (_state, executor) => {
-          (executor as unknown as { voiceInterruptions: InterruptionConfig }).voiceInterruptions =
-            config;
-        },
-        (_state, executor) => executor.proceed(1),
-      ],
+      [async (_state, executor) => { await executor.proceed(1); }],
       "test-batch-id",
     );
-    exec.interruptOverrides = { rng: () => 0 };
+    exec.interruptOverrides = { rng: () => 0, config };
 
     await exec.execute();
 
@@ -181,7 +169,6 @@ type ExecInternals = {
   resolveNextAgentForInlineBarge(): { idx: number; agent: unknown } | null;
   consumePendingRolesUntilAgent(agent: unknown): void;
   dispatchAgentBackground(idx: number): { promise: Promise<void>; done: boolean; error: unknown | null };
-  voiceInterruptions?: InterruptionConfig;
 };
 
 function makeExecWithAgents(agents: [MockAgent, RecordingUserSim]): ScenarioExecution & { _i: ExecInternals } {

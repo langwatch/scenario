@@ -73,7 +73,6 @@ pivot) — the judge cannot see truncation from a transcript.
 | Demo | Path | Recorded | Cut-off captured | What it proves |
 |---|---|---|---|---|
 | `interruption_recovery/` | live Pipecat bot | full.wav + manifest | ✅ truncated≥1 | §6.2. `agent({ wait: false }) + user()` and `interrupt()` fire real barge-ins (`fired_after_speech`); ≥1 agent reply truncated + recovery audio after. Judge: recovered + engaged the user's specific requests. |
-| `random_interruptions/` | live Pipecat bot | full.wav + manifest | ✅ truncated≥1 | §6.7. `interruptProbability` + `voiceProceed({ interruptions })` cut off agent turns across the run (e.g. interrupts=4, truncated=2). Judge: recovered context. |
 | `gemini_live_interruption/` | live Gemini Live | full.wav + manifest | ✅ truncated≥1 | Server-VAD barge-in on Gemini (NO client cancel). Verbose prompt → long reply cut short; the cut-off segment is flagged truncated (clock-agnostic marking, since Gemini receives faster than real-time). |
 | `elevenlabs_interruption/` | live EL ConvAI | full.wav + manifest | ✅ truncated≥1 | Un-gated after 3/3 clean live runs (#731). A successful run captures TWO truncated agent segments + a pivot to business hours. Skips when ElevenLabs or OpenAI credentials are absent. NOT faked — the code asserts a real truncated segment. Mechanism also proven non-flakily on Gemini (same server-VAD class). |
 

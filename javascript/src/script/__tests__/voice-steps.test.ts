@@ -1,11 +1,11 @@
 /**
  * Voice script-step scenario bindings — PR5 of issue #372.
  *
- * Binds 11 scenarios from `specs/voice-agents.feature` tagged
+ * Binds scenarios from `specs/voice-agents.feature` tagged
  * `@ts-script-step`. Each scenario is a focused unit test on a single
- * step factory (sleep, silence, audio, dtmf, interrupt, agent(wait=false),
- * proceed(interruptions)) using minimal stub executors and adapters —
- * the goal is to pin the orchestration contract, not exercise transports.
+ * step factory (sleep, silence, audio, dtmf, interrupt, agent(wait=false)),
+ * using minimal stub executors and adapters. The goal is to pin the
+ * orchestration contract, not exercise transports.
  */
 
 import { spawnSync } from "node:child_process";
@@ -16,13 +16,12 @@ import { fileURLToPath } from "node:url";
 
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import type { ModelMessage } from "ai";
-import { describe, it, expect } from "vitest";
+import { expect } from "vitest";
 
 import { AgentRole } from "../../domain/agents";
 import {
   AdapterCapabilities,
   AudioChunk,
-  InterruptionConfig,
   resolveFfmpegPath,
   UnsupportedCapabilityError,
   VoiceAgentAdapter,
@@ -35,7 +34,6 @@ import {
   silence,
   sleep,
   voiceAgent,
-  voiceProceed,
 } from "../index";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -521,64 +519,6 @@ describeFeature(
       },
     );
 
-    // -------------------------------------------- proceed(interruptions=cfg)
-    Scenario(
-      "proceed(interruptions=InterruptionConfig(...)) injects random interruptions",
-      ({ Given, When, Then, And }) => {
-        const adapter = new TestVoiceAdapter();
-        const ctx = makeExecutor(adapter);
-        const cfg = new InterruptionConfig({
-          probability: 0.3,
-          delayRange: [0.5, 3.0],
-          strategy: "contextual",
-        });
-        let step: ReturnType<typeof voiceProceed>;
-
-        Given(
-          "proceed(turns=5, interruptions=InterruptionConfig(probability=0.3, delay_range=(0.5,3.0), strategy=\"contextual\"))",
-          () => {
-            step = voiceProceed({ turns: 5, interruptions: cfg });
-          },
-        );
-
-        When("proceed runs", async () => {
-          await step(ctx.state, ctx.executor);
-        });
-
-        Then(
-          "~30% of agent turns are interrupted with contextual LLM-generated phrases",
-          () => {
-            // voiceProceed sets the config during proceed and restores it
-            // afterwards (save-set-restore pattern, P2 config-leak fix).
-            // The executor reads it inside the proceed loop (where it IS cfg);
-            // after proceed the field is restored to its prior value.
-            expect(
-              (ctx.executor as { voiceInterruptions?: InterruptionConfig })
-                .voiceInterruptions,
-            ).toBeUndefined();
-            // Sanity: probability check still respects the configured ratio
-            // over a large sample (binomial spread tolerated).
-            let hits = 0;
-            const seedRng = makeSeededRng(42);
-            for (let i = 0; i < 5000; i++) {
-              if (cfg.shouldInterrupt(seedRng)) hits += 1;
-            }
-            const ratio = hits / 5000;
-            expect(ratio).toBeGreaterThan(0.27);
-            expect(ratio).toBeLessThan(0.33);
-          },
-        );
-
-        And("delay before each interrupt is sampled uniformly in [0.5, 3.0]", () => {
-          const rng = makeSeededRng(7);
-          for (let i = 0; i < 1000; i++) {
-            const delay = cfg.sampleDelay(rng);
-            expect(delay).toBeGreaterThanOrEqual(0.5);
-            expect(delay).toBeLessThanOrEqual(3.0);
-          }
-        });
-      },
-    );
   },
   { includeTags: [["ts-script-step"]] },
 );
@@ -642,75 +582,3 @@ function transcodeWith(
     );
   }
 }
-
-/** Tiny seeded PRNG (mulberry32) for deterministic probability tests. */
-function makeSeededRng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// ---------------------------------------------------------------- P2 config-leak fix
-
-/**
- * Regression test for P2 (review #4382164555):
- * `voiceProceed({ interruptions })` must NOT leak its config to subsequent
- * voiceProceed calls that do not pass `interruptions`.
- *
- * Before the fix, the config was written to `executor.voiceInterruptions` and
- * never restored.  A subsequent plain `proceed()` or `voiceProceed({ turns })`
- * would find the stale config and apply interruptions unexpectedly.
- */
-describe("voiceProceed — save/restore voiceInterruptions (P2 config-leak fix)", () => {
-  it("does not leak voiceInterruptions to a subsequent voiceProceed without interruptions", async () => {
-    const cfg = new InterruptionConfig({
-      probability: 0.5,
-      strategy: "random_phrase",
-    });
-
-    // Executor stub with a mutable voiceInterruptions field so we can observe
-    // the save-set-restore lifecycle across two voiceProceed calls.
-    const capturedDuring: Array<InterruptionConfig | undefined> = [];
-    const vex: {
-      voiceInterruptions?: InterruptionConfig;
-      proceed: (turns?: number) => Promise<null>;
-    } = {
-      voiceInterruptions: undefined,
-      async proceed(_turns?: number) {
-        // Capture what voiceInterruptions looks like DURING proceed.
-        capturedDuring.push(vex.voiceInterruptions);
-        return null;
-      },
-    };
-
-    const state = {} as never;
-
-    // First voiceProceed: passes interruptions.
-    const step1 = voiceProceed({ turns: 1, interruptions: cfg });
-    await step1(state, vex as never);
-
-    // voiceInterruptions must be RESTORED after the step (not leaked).
-    expect(
-      vex.voiceInterruptions,
-      "voiceInterruptions was not restored after first voiceProceed — config leaked",
-    ).toBeUndefined();
-    // During proceed the config must have been set.
-    expect(capturedDuring[0]).toBe(cfg);
-
-    // Second voiceProceed: no interruptions.
-    const step2 = voiceProceed({ turns: 1 });
-    await step2(state, vex as never);
-
-    // Must NOT see the first call's config.
-    expect(
-      capturedDuring[1],
-      "second voiceProceed saw the first call's interruption config — leak not fixed",
-    ).toBeUndefined();
-  });
-});

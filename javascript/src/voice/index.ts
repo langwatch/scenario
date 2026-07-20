@@ -209,7 +209,6 @@ export {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,
   ElevenLabsVoiceAgent,
-  ELEVENLABS_CONVAI_URL_TEMPLATE,
   type ComposableVoiceAgentOptions,
   type ElevenLabsAgentAdapterOptions,
   type ElevenLabsVoiceAgentOptions,

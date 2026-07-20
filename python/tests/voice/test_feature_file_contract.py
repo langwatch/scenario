@@ -45,7 +45,7 @@ def test_feature_file_parses_cleanly(parsed_feature):
 
 def test_feature_file_declares_expected_scenario_count(parsed_feature):
     """
-    The issue-350 contract is 127 scenarios:
+    The issue-350 contract is 125 scenarios:
       - 83 original
       - +4 for locked decision #9 (composable + branded voice agents)
       - +12 for @e2e demo parity (TESTING.md: every user-facing feature has
@@ -58,8 +58,8 @@ def test_feature_file_declares_expected_scenario_count(parsed_feature):
     Any change to this count must be a deliberate contract update.
     """
     scenarios = _collect_scenarios(parsed_feature)
-    assert len(scenarios) == 127, (
-        f"Expected 127 scenarios; found {len(scenarios)}. "
+    assert len(scenarios) == 125, (
+        f"Expected 125 scenarios; found {len(scenarios)}. "
         "If this is an intentional contract change, update the count here."
     )
 
@@ -117,8 +117,8 @@ def test_tag_split_matches_the_pinned_counts(parsed_feature):
         1 for s in scenarios if "@integration" in {t.name for t in s.tags}
     )
     e2e = sum(1 for s in scenarios if "@e2e" in {t.name for t in s.tags})
-    assert (unit, integration, e2e) == (79, 13, 35), (
-        f"Expected 79 @unit / 13 @integration / 35 @e2e; found "
+    assert (unit, integration, e2e) == (79, 12, 34), (
+        f"Expected 79 @unit / 12 @integration / 34 @e2e; found "
         f"{unit} / {integration} / {e2e}. "
         "If this is an intentional contract change, update the counts here."
     )

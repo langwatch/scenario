@@ -470,18 +470,13 @@ Feature: Voice agent testing in Scenario SDK
     Then a clear UnsupportedCapabilityError is raised naming the adapter and the missing capability
     And the error message points to the capability matrix in the docs
 
-  @integration @ts-bound @ts-script-step
-  Scenario: proceed(interruptions=InterruptionConfig(...)) injects random interruptions
-    # Source §4.4, L478-492
-    Given proceed(turns=5, interruptions=InterruptionConfig(probability=0.3, delay_range=(0.5,3.0), strategy="contextual"))
-    When proceed runs
-    Then ~30% of agent turns are interrupted with contextual LLM-generated phrases
-    And delay before each interrupt is sampled uniformly in [0.5, 3.0]
-
   @integration @ts-bound @ts-interruption-cfg
   Scenario: InterruptionConfig strategy="random_phrase" picks from a canned phrase list
-    # Source §4.4, L491
-    Given proceed(interruptions=InterruptionConfig(strategy="random_phrase"))
+    # Source §4.4, L491. InterruptionConfig is the internal interruption-policy
+    # object: probabilistic barge-ins are driven by the user simulator's
+    # interruptProbability during a plain proceed(), with the policy injected via
+    # the interruptOverrides.config test seam. There is no proceed(interruptions=...) API.
+    Given an InterruptionConfig(strategy="random_phrase") interruption policy
     When proceed runs and interrupts
     Then the interruption content is drawn from the canned phrase list
 
@@ -839,27 +834,6 @@ Feature: Voice agent testing in Scenario SDK
     When the demo script interrupts the agent mid-utterance and the agent recovers
     Then the agent recovered and the conversation is multi-turn
     And the agent reply was actually cut off and then recovered
-
-  @e2e @ts-random-interruptions-demo
-  Scenario: Demo — random interruptions via interruptProbability + voiceProceed
-    # Covers §6.7: UserSimulatorAgent({interruptProbability}) + voiceProceed({turns,
-    # interruptions: InterruptionConfig({...})}) injects barge-ins across the run.
-    #
-    # What this proves: probabilistic barge-in fires (user_interrupt event) with a
-    # fired_after_speech outcome (timing correct), canned-phrase strategy ran (user
-    # segment carries a phrase from the pool), cut-off-boundary LABEL fires
-    # (transcriptTruncated on at least one agent seg), and the bot recovers.
-    #
-    # What this does NOT prove: real audio-level mid-stream cut-off. The bundled
-    # Pipecat stub bot generates TTS in a burst and streams faster than realtime —
-    # by the time adapter.interrupt() runs all frames are already sent. The segment
-    # plays in full but is correctly LABELED at the interrupt boundary. For REAL
-    # audio truncation see the gemini-live-interruption scenario (server-side cancel).
-    Given a user simulator with interruptProbability and voiceProceed({ interruptions })
-    When the multi-turn demo script runs via scenario.run()
-    Then at least one barge-in fired mid-utterance and the canned-phrase strategy ran
-    And the agent recovered with non-empty audio after the last interrupt
-    And the conversation involved multiple turns
 
   @e2e @ts-elevenlabs-interruption-demo
   Scenario: Demo — ElevenLabs interruption (server VAD barge-in)

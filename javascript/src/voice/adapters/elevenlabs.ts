@@ -94,15 +94,6 @@ import {
 } from "./composable";
 
 /**
- * Canonical hosted-ConvAI endpoint for an agent. Informational: the SDK opens the
- * socket itself (and, with `requiresAuth`, derives a short-lived *signed* URL from
- * this base and appends `&source`/`&version`), so this template is no longer used
- * to dial — it documents where a hosted ConvAI agent lives.
- */
-export const ELEVENLABS_CONVAI_URL_TEMPLATE =
-  "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}";
-
-/**
  * One 20 ms PCM16/24 kHz mono frame: 24000 Hz × 2 bytes/sample × 0.020 s = 960
  * bytes. The continuous mic pump feeds exactly one such frame per tick to the SDK's
  * `inputCallback` so user audio reaches EL at real-microphone cadence instead of
@@ -282,14 +273,6 @@ export interface ElevenLabsAgentAdapterOptions {
    */
   overrides?: Record<string, unknown>;
   /**
-   * @deprecated No-op, retained only for back-compat of the options type. The
-   * adapter no longer appends a bounded silence tail to close a turn: the
-   * continuous mic pump (Strategy B′) streams silence on every idle tick, and EL's
-   * server VAD closes the turn off that continuous audio→silence transition. Any
-   * value passed here is accepted and ignored.
-   */
-  silenceTailBytes?: number;
-  /**
    * SDK WebSocket factory — injected for unit tests so the real `Conversation`
    * runs against an in-memory socket (no network). Production callers leave this
    * unset; the SDK's `DefaultWebSocketFactory` (the `ws` package) is used.
@@ -376,10 +359,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    * so EL's server VAD can measure end-of-turn. Flipped TRUE the moment the agent's
    * turn audio arrives ({@link onAgentAudio}) so {@link pumpTick} stops streaming
    * idle silence into the inter-turn gap, and cleared FALSE again when the next user
-   * turn starts ({@link enqueueSpeech}). Streaming silence straight through the gap
-   * made EL read the user as having LEFT and fire its "are you still there?" idle
-   * prompt on the slow/judged path (the #705 idle-prompt storm). Reset in {@link
-   * stopPump} so a reconnect starts clean.
+   * turn starts ({@link enqueueSpeech}). Reset in {@link stopPump} so a reconnect
+   * starts clean. (See the class header for why streaming idle silence into the
+   * inter-turn gap trips EL's idle prompt.)
    */
   private awaitingUserTurn = false;
 
@@ -418,19 +400,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     this.firstMessageOverride = options.firstMessageOverride;
     this.dynamicVariables = options.dynamicVariables;
     this.overrides = options.overrides;
-    // `silenceTailBytes` is a deprecated no-op (see the option's JSDoc): the
-    // continuous mic pump replaced the bounded silence tail, so the value is
-    // neither stored nor read.
     this.webSocketFactory = options.webSocketFactory;
     this.conversationClient = options.conversationClient;
-  }
-
-  /**
-   * Canonical base endpoint for this adapter's agent. Informational only — the SDK
-   * dials the (signed) socket itself; see {@link ELEVENLABS_CONVAI_URL_TEMPLATE}.
-   */
-  get url(): string {
-    return ELEVENLABS_CONVAI_URL_TEMPLATE.replace("{agent_id}", this.agentId);
   }
 
   /** Hides the API key. */
@@ -688,15 +659,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    *    against (the agent's `turn_timeout` ≈7 s, provisioned on the agent, is the
    *    server-side bound).
    *
-   * POST-RESPONSE PAUSE (#705): the previous "continuous silence forever when idle"
-   * design left an accepted, un-engineered risk that the inter-turn gap (the
-   * user-sim/judge needs several seconds to produce the next turn) could exceed EL's
-   * `turn_timeout`. That risk MATERIALIZED in a live judged run: EL read the unbroken
-   * run of committed-nothing silence as the user having LEFT and fired its idle
-   * prompt ("I didn't quite catch that… are you still there?") repeatedly (14× in one
-   * failing run), desyncing the conversation. It is now MITIGATED — the {@link
-   * awaitingUserTurn} flag pauses the idle silence once the agent's turn audio has
-   * arrived and resumes the closing silence on the next user turn. The pause cannot
+   * POST-RESPONSE PAUSE (#705): the {@link awaitingUserTurn} flag pauses the idle
+   * silence once the agent's turn audio has arrived and resumes the closing silence
+   * on the next user turn (see the class header for why the idle silence is paused).
+   * The pause cannot
    * starve a {@link receiveAudio}: that call's idle deadline is re-armed only by
    * INBOUND EL frames (via {@link onMessage}), never by this OUTBOUND pump. WS
    * liveness across the silent gap is the SDK's ping/pong keepalive, not the audio
@@ -714,10 +680,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       frame = speechFrame;
       this.pumpStats.speechFramesSent++;
     } else if (this.awaitingUserTurn) {
-      // Agent has responded since the last user turn: PAUSE the idle mic. Streaming
-      // silence into the inter-turn gap makes EL read it as the user having left and
-      // fire its "are you still there?" idle prompt (#705). Feed nothing until the
-      // next enqueueSpeech (a new user turn) clears the flag.
+      // Agent has responded since the last user turn: PAUSE the idle mic (see the
+      // class header for why streaming idle silence into the gap trips EL's idle
+      // prompt). Feed nothing until the next enqueueSpeech (a new user turn) clears
+      // the flag.
       return;
     } else {
       // Closing silence after the user's speech, before the agent responds: EL's

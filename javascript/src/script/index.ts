@@ -23,10 +23,8 @@ export {
   dtmf,
   interrupt,
   backgroundNoise,
-  proceed as voiceProceed,
   type InterruptOptions,
   type VoiceAgentOptions,
-  type VoiceProceedOptions,
   type VoiceUserOptions,
 } from "./voice-steps";
 
