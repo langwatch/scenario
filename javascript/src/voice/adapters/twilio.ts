@@ -22,6 +22,7 @@ import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { sleep } from "../utils";
 
 import { TwilioWebhookServer, type MediaStreamWebSocket } from "./twilio-server";
@@ -32,10 +33,17 @@ import {
   buildMediaFrame,
   iterMulawFrames,
   pcm16_24kToMulaw8k,
+  redactE164,
   validateE164,
 } from "./twilio-shared";
 
 export type TwilioAdapterMode = "idle" | "answer" | "call";
+
+/** How the media-stream session most recently ended. "none" until a session
+ * has ever run (the disconnect-counters T3 enum, #775). Set by
+ * {@link TwilioWebhookServer.mediaStreamLoop} at each of its three
+ * termination paths. */
+export type TwilioStreamEndedReason = "stop" | "close" | "error" | "none";
 
 const PLACE_CALL_A_LEG_SAY_TEXT =
   "Thank you for calling. " +
@@ -121,6 +129,16 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   // and at media-stream-loop entry (per-call scope — a second session on the
   // same connected adapter must not inherit the previous session's flag).
   private _streamEnded = false;
+  // Call-lifetime counters stamped onto `voice.adapter.disconnect` from inside
+  // disconnect() (#775 Tier 2b — mirrors ElevenLabs' pump-counter seam).
+  // Accumulated by the media loop (twilio-server.ts) and the `/twilio/voice`
+  // webhook handler; reset on connect()/disconnect() like `_streamEnded`
+  // above. `webhook_rejected` reuses the pre-existing `rejectedCount` field
+  // (below) rather than duplicating it.
+  private _framesReceived = 0;
+  private _dtmfReceived = 0;
+  private _streamEndedReason: TwilioStreamEndedReason = "none";
+  private _webhookInvocations = 0;
 
   constructor(options: TwilioAgentAdapterOptions) {
     super();
@@ -158,10 +176,33 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
       this._rest = new TwilioRESTHelper(this.accountSid, this.authToken, this.fetchImpl);
     }
     this._phoneNumberSid = await this._rest.resolvePhoneNumberSid(this.phoneNumber);
+
+    // Stamp Twilio-specific attrs onto the active `voice.adapter.connect` span
+    // (opened by `startVoiceAdapters`). Base spans are name-owned; the adapter
+    // contributes attributes, never a parallel span name — mirror ElevenLabs'
+    // `voice.elevenlabs.agent_id` seam (`adapters/elevenlabs.ts`).
+    // NOTE: no `voice.twilio.direction` here — connect() is direction-agnostic
+    // (`_mode` stays "idle" until placeCall()/waitForCall(), after this span
+    // has already closed); direction is stamped on the NEW
+    // `voice.adapter.dial` span instead (see placeCall/waitForCall).
+    setSpanAttributes(currentSpan(), {
+      "voice.twilio.phone_number_sid": this._phoneNumberSid,
+      "voice.twilio.validate_signature": this.validateSignature,
+      "voice.twilio.webhook_port": this.httpPort,
+    });
+
     this._mode = "idle";
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
+    this._framesReceived = 0;
+    this._dtmfReceived = 0;
+    this._streamEndedReason = "none";
+    this._webhookInvocations = 0;
+    // MUST-FIX (#775 review): reset alongside the other Tier-2b counters so a
+    // reconnect on the same instance doesn't leak the previous session's
+    // rejected count (see the matching reset in disconnect()).
+    this.rejectedCount = 0;
 
     this._webhookServer = new TwilioWebhookServer(this);
     await this._webhookServer.start();
@@ -176,12 +217,17 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   async disconnect(): Promise<void> {
     if (!this._connected) return;
 
-    // Restore prior voice_url (answer mode only).
+    // Restore prior voice_url (answer mode only). `restRestoreFailed` tracks
+    // whether either restore below threw — previously fully swallowed; now
+    // surfaced onto the disconnect span (#775 Tier 2b) so a Twilio REST
+    // outage during teardown is no longer invisible. The swallow behavior
+    // itself (a failed restore must never block disconnect()) is unchanged.
+    let restRestoreFailed = false;
     if (this._mode === "answer" && this._phoneNumberSid && this._rest) {
       try {
         await this._rest.writeVoiceUrl(this._phoneNumberSid, this._priorVoiceUrl ?? "");
       } catch {
-        // Best-effort.
+        restRestoreFailed = true;
       }
     }
     if (this._mode === "call" && this._calleePhoneNumberSid && this._rest) {
@@ -191,13 +237,40 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
           this._priorCalleeVoiceUrl ?? "",
         );
       } catch {
-        // Best-effort.
+        restRestoreFailed = true;
       }
     }
 
+    // Tear the server down FIRST. This is what ACTUALLY closes a still-live
+    // media stream (`stop()` closes every open `wss` client), which is what
+    // lets `mediaStreamLoop`'s catch/terminal branches (twilio-server.ts)
+    // make their FINAL writes to `_framesReceived` / `_streamEndedReason` /
+    // etc. The counter stamp below MUST run after this await, not before —
+    // stamping first (the #775 review-caught bug) reads the pre-teardown
+    // snapshot and reports `stream_ended_reason=="none"` / undercounted
+    // frames for a call that was still live when disconnect() was invoked,
+    // even though the call did in fact end (via this very shutdown) moments
+    // later.
     if (this._webhookServer) {
       await this._webhookServer.stop();
     }
+
+    // Stamp call-lifetime counters onto the active `voice.adapter.disconnect`
+    // span (opened by `stopVoiceAdapters`) — mirrors ElevenLabs' pump-counter
+    // stamp (`adapters/elevenlabs.ts`). Sampled AFTER the shutdown-await above
+    // (not before) so a still-live call's FINAL counts/reason are captured,
+    // not a mid-call snapshot. The disconnect span stays the active span
+    // across the await (AsyncLocalStorage context survives awaits), so
+    // `currentSpan()` here still targets it.
+    setSpanAttributes(currentSpan(), {
+      "voice.twilio.frames_received": this._framesReceived,
+      "voice.twilio.dtmf_received": this._dtmfReceived,
+      "voice.twilio.stream_ended_reason": this._streamEndedReason,
+      "voice.twilio.webhook_invocations": this._webhookInvocations,
+      "voice.twilio.webhook_rejected": this.rejectedCount,
+      "voice.twilio.rest_restore_failed": restRestoreFailed,
+    });
+
     this._connected = false;
     this._webhookServer = null;
     this._rest = null;
@@ -212,6 +285,15 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     this._streamConnected = makeDeferred<void>();
     this._inboundQueue.reset();
     this._streamEnded = false;
+    this._framesReceived = 0;
+    this._dtmfReceived = 0;
+    this._streamEndedReason = "none";
+    this._webhookInvocations = 0;
+    // MUST-FIX (#775 review): every other Tier-2b counter resets on both
+    // connect() and disconnect() — this pre-existing field didn't, so a
+    // reconnect on the same instance leaked the previous session's rejected
+    // count into the new session's disconnect span.
+    this.rejectedCount = 0;
   }
 
   // ------------------------------------------------------------------ direction
@@ -233,29 +315,66 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     const attachStreamToSelf = args.attachStreamToSelf ?? true;
     const timeoutMs = args.timeoutMs ?? 120_000;
 
-    if (attachStreamToSelf) {
-      this._calleePhoneNumberSid = await rest.resolvePhoneNumberSid(args.to);
-      this._priorCalleeVoiceUrl =
-        (await rest.readVoiceUrl(this._calleePhoneNumberSid)) ?? undefined;
-      const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
-      await rest.writeVoiceUrl(this._calleePhoneNumberSid, webhookUrl);
-    }
+    // NEW `voice.adapter.dial` span (#775 Tier 2a): self-instrumented, since
+    // no executor span is active by the time placeCall()/waitForCall() run
+    // (the `voice.adapter.connect` span already closed). Wraps the REST dial
+    // + the stream-connected wait — the "I placed the call but no media ever
+    // streamed" failure surface.
+    await voiceSpan(
+      "voice.adapter.dial",
+      {
+        "voice.adapter.class": this.constructor.name,
+        "voice.twilio.direction": "outbound",
+        "voice.twilio.to": redactE164(args.to),
+        "voice.twilio.from": redactE164(this.phoneNumber),
+      },
+      async (span) => {
+        if (attachStreamToSelf) {
+          this._calleePhoneNumberSid = await rest.resolvePhoneNumberSid(args.to);
+          this._priorCalleeVoiceUrl =
+            (await rest.readVoiceUrl(this._calleePhoneNumberSid)) ?? undefined;
+          const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
+          await rest.writeVoiceUrl(this._calleePhoneNumberSid, webhookUrl);
+        }
 
-    const inlineALegTwiml =
-      `<?xml version="1.0" encoding="UTF-8"?>` +
-      `<Response>` +
-      `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
-      `<Pause length="120"/>` +
-      `</Response>`;
-    this._callSid = await rest.placeCall({
-      to: args.to,
-      from: this.phoneNumber,
-      twiml: inlineALegTwiml,
-    });
+        const inlineALegTwiml =
+          `<?xml version="1.0" encoding="UTF-8"?>` +
+          `<Response>` +
+          `<Say voice="Polly.Joanna">${PLACE_CALL_A_LEG_SAY_TEXT}</Say>` +
+          `<Pause length="120"/>` +
+          `</Response>`;
+        this._callSid = await rest.placeCall({
+          to: args.to,
+          from: this.phoneNumber,
+          twiml: inlineALegTwiml,
+        });
+        setSpanAttributes(span, { "voice.twilio.call_sid": this._callSid });
 
-    if (attachStreamToSelf) {
-      await this._streamConnected.promiseWithTimeout(timeoutMs);
-    }
+        if (attachStreamToSelf) {
+          const dialWaitStarted = performance.now(); // monotonic
+          try {
+            await this._streamConnected.promiseWithTimeout(timeoutMs);
+          } catch (err) {
+            // The media stream never connected — the marquee "I placed the
+            // call but no media ever streamed" failure. Tag the outcome
+            // BEFORE re-throwing ONLY when it's genuinely the timeout
+            // (matches Python's `except asyncio.TimeoutError` scoping — a
+            // non-timeout rejection of the deferred must not be mislabeled).
+            // The re-thrown error still marks the span ERROR either way
+            // (voiceSpan's own exception handling).
+            if (err instanceof DeferredTimeoutError) {
+              span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+            }
+            throw err;
+          }
+          setSpanAttributes(span, {
+            "voice.twilio.stream_connect_latency_ms": Math.round(
+              performance.now() - dialWaitStarted,
+            ),
+          });
+        }
+      },
+    );
   }
 
   async waitForCall(timeoutMs = 120_000): Promise<void> {
@@ -268,11 +387,44 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
     }
     this._enterMode("answer");
 
-    this._priorVoiceUrl =
-      (await rest.readVoiceUrl(phoneNumberSid)) ?? undefined;
-    const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
-    await rest.writeVoiceUrl(phoneNumberSid, webhookUrl);
-    await this._streamConnected.promiseWithTimeout(timeoutMs);
+    // NEW `voice.adapter.dial` span (#775 Tier 2a) — see placeCall()'s
+    // comment for the rationale (self-instrumented, no executor span active
+    // here).
+    await voiceSpan(
+      "voice.adapter.dial",
+      {
+        "voice.adapter.class": this.constructor.name,
+        "voice.twilio.direction": "inbound",
+        "voice.twilio.to": redactE164(this.phoneNumber),
+      },
+      async (span) => {
+        this._priorVoiceUrl =
+          (await rest.readVoiceUrl(phoneNumberSid)) ?? undefined;
+        const webhookUrl = `${publicBaseUrl.replace(/\/$/, "")}/twilio/voice`;
+        await rest.writeVoiceUrl(phoneNumberSid, webhookUrl);
+
+        const dialWaitStarted = performance.now(); // monotonic
+        try {
+          await this._streamConnected.promiseWithTimeout(timeoutMs);
+        } catch (err) {
+          // Nobody dialed in — tag the outcome BEFORE re-throwing ONLY when
+          // it's genuinely the timeout (matches Python's
+          // `except asyncio.TimeoutError` scoping). The re-thrown error
+          // still marks the span ERROR either way (voiceSpan's own
+          // exception handling).
+          if (err instanceof DeferredTimeoutError) {
+            span.setAttribute("voice.twilio.dial_outcome", "stream_connect_timeout");
+          }
+          throw err;
+        }
+        setSpanAttributes(span, {
+          "voice.twilio.call_sid": this._callSid,
+          "voice.twilio.stream_connect_latency_ms": Math.round(
+            performance.now() - dialWaitStarted,
+          ),
+        });
+      },
+    );
   }
 
   private _enterMode(mode: TwilioAdapterMode): void {
@@ -451,11 +603,33 @@ export class TwilioAgentAdapter extends VoiceAgentAdapter {
   get _streamSidForTest(): string | undefined {
     return this._streamSid;
   }
+  /** @internal Test-only view of the disconnect-counter (#775 review): lets a
+   * test poll for a REAL wire delivery to have landed before proceeding,
+   * instead of a blind sleep. */
+  get _framesReceivedForTest(): number {
+    return this._framesReceived;
+  }
   /** @internal */ _onWebhookRejected(): void {
     this.rejectedCount += 1;
   }
   /** @internal */ get _modeForServer(): TwilioAdapterMode {
     return this._mode;
+  }
+  /** @internal Disconnect-counter (#775 Tier 2b): one `media` frame received. */
+  _recordFrameReceived(): void {
+    this._framesReceived += 1;
+  }
+  /** @internal Disconnect-counter (#775 Tier 2b): one `dtmf` frame received. */
+  _recordDtmfReceived(): void {
+    this._dtmfReceived += 1;
+  }
+  /** @internal Disconnect-counter (#775 Tier 2b): how the media session ended. */
+  _setStreamEndedReason(reason: TwilioStreamEndedReason): void {
+    this._streamEndedReason = reason;
+  }
+  /** @internal Disconnect-counter (#775 Tier 2b): one `/twilio/voice` POST. */
+  _recordWebhookInvocation(): void {
+    this._webhookInvocations += 1;
   }
 
   // ------------------------------------------------------------------ assertions
@@ -486,6 +660,22 @@ interface Deferred<T> {
   promiseWithTimeout(timeoutMs: number): Promise<T>;
 }
 
+/**
+ * Thrown by {@link Deferred.promiseWithTimeout} specifically when the
+ * timeout elapses — a distinct type (not a plain `Error`) so callers
+ * (placeCall/waitForCall's `dial_outcome` tagging) can precisely distinguish
+ * "the wait timed out" from any OTHER rejection of the underlying deferred
+ * (e.g. a future `.reject(...)` caller), matching Python's
+ * `except asyncio.TimeoutError` scoping (#775 review fix — the original code
+ * tagged ANY rejection as a timeout).
+ */
+class DeferredTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`TwilioAgentAdapter: timed out after ${timeoutMs}ms`);
+    this.name = "DeferredTimeoutError";
+  }
+}
+
 function makeDeferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -504,7 +694,7 @@ function makeDeferred<T>(): Deferred<T> {
           promise,
           new Promise<T>((_, rej) => {
             timer = setTimeout(
-              () => rej(new Error(`TwilioAgentAdapter: timed out after ${timeoutMs}ms`)),
+              () => rej(new DeferredTimeoutError(timeoutMs)),
               timeoutMs,
             );
           }),
