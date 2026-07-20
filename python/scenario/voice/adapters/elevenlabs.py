@@ -223,6 +223,17 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         )
         logger.debug("ElevenLabsAgentAdapter: connected to %s", self.url)
 
+        # Stamp EL-specific attrs onto the active ``voice.adapter.connect`` span
+        # (opened by the executor connect loop). Base spans are name-owned; the
+        # adapter contributes attributes, never a parallel span name.
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {"voice.elevenlabs.agent_id": self.agent_id},
+        )
+
         agent_override: dict[str, Any] = {}
         if self._system_prompt_override:
             agent_override["prompt"] = {"prompt": self._system_prompt_override}
@@ -289,6 +300,28 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         already nulled the socket.
         """
         await self.stop_pump()
+        # Stamp pump counters onto the active ``voice.adapter.disconnect`` span
+        # (the pump has no per-tick span — H1). Read before the socket teardown.
+        _stats = getattr(self, "_pump_stats", None)
+        if _stats is not None:
+            from opentelemetry import trace as _otel_trace
+            from .._telemetry import set_span_attributes
+
+            set_span_attributes(
+                _otel_trace.get_current_span(),
+                {
+                    "voice.elevenlabs.pump.ticks_total": _stats.get("ticks_total", 0),
+                    "voice.elevenlabs.pump.speech_frames_sent": _stats.get(
+                        "speech_frames_sent", 0
+                    ),
+                    "voice.elevenlabs.pump.silence_frames_sent": _stats.get(
+                        "silence_frames_sent", 0
+                    ),
+                    "voice.elevenlabs.pump.unexpected_errors": _stats.get(
+                        "unexpected_errors", 0
+                    ),
+                },
+            )
         if self._ws is not None:
             try:
                 await self._ws.close()
@@ -309,6 +342,15 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         exactly one running task (mirror ``startPump``,
         ``adapters/elevenlabs.ts:588-595``)."""
         if self._pump_task is None or self._pump_task.done():
+            # Fresh per-pump-lifetime counters (surfaced on voice.adapter.disconnect;
+            # the 20 ms pump gets NO per-tick span — its OTel context is frozen at
+            # task creation, so a per-tick span would misparent + flood).
+            self._pump_stats = {
+                "ticks_total": 0,
+                "speech_frames_sent": 0,
+                "silence_frames_sent": 0,
+                "unexpected_errors": 0,
+            }
             self._pump_task = asyncio.ensure_future(self._pump_loop())
 
     async def stop_pump(self) -> None:
@@ -355,12 +397,20 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         if not self.is_connected():
             return
 
+        _stats = getattr(self, "_pump_stats", None)
+        if _stats is not None:
+            _stats["ticks_total"] += 1
+
         if self._outbound_frames:
             frame = self._outbound_frames.popleft()
+            if _stats is not None:
+                _stats["speech_frames_sent"] += 1
         elif self.awaiting_user_turn:
             return
         else:
             frame = SILENCE_FRAME
+            if _stats is not None:
+                _stats["silence_frames_sent"] += 1
 
         import websockets  # for the ConnectionClosed close-race classes
 
@@ -384,6 +434,8 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             # WARNING so the bug is visible, but still don't propagate out of
             # the background task (that would kill the pump loop and leave an
             # unhandled-task exception). The next tick retries.
+            if _stats is not None:
+                _stats["unexpected_errors"] += 1
             logger.warning(
                 "ElevenLabsAgentAdapter: unexpected error feeding pump frame; "
                 "dropping frame and continuing",

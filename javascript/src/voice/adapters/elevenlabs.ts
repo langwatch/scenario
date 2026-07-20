@@ -77,6 +77,7 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
   ELEVENLABS_DEFAULT_VOICE_ID,
@@ -355,6 +356,15 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private readonly outboundFrames: Buffer[] = [];
   /** Interval handle for the continuous mic pump; null whenever the pump is stopped. */
   private pumpTimer: ReturnType<typeof setInterval> | null = null;
+  /** Continuous-mic-pump counters, surfaced on voice.adapter.disconnect. The
+   * 20 ms pump gets NO per-tick span (its OTel context is frozen at creation —
+   * H1); its activity is these counters instead. */
+  private pumpStats = {
+    ticksTotal: 0,
+    speechFramesSent: 0,
+    silenceFramesSent: 0,
+    unexpectedErrors: 0,
+  };
 
   /**
    * Post-response pause flag (#705). FALSE while the user's turn is in flight or
@@ -429,6 +439,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
   // ---------------------------------------------------------------- lifecycle
   async connect(): Promise<void> {
+    // Stamp EL-specific attrs onto the active voice.adapter.connect span (opened
+    // by the executor connect loop). Base spans are name-owned; adapters add attrs.
+    setSpanAttributes(currentSpan(), {
+      "voice.elevenlabs.agent_id": this.agentId,
+    });
     const client = new ElevenLabsClient({ apiKey: this.apiKey });
 
     // The adapter's NARROW prompt/first-message knobs build an `agent` override
@@ -598,6 +613,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // Stop the pump first so no frame is fed once teardown begins, even if
     // disconnect() races a close/error that already nulled the session.
     this.stopPump();
+    // Stamp pump counters onto the active voice.adapter.disconnect span (H1: no
+    // per-tick span). Read after stopPump so the counts are final.
+    setSpanAttributes(currentSpan(), {
+      "voice.elevenlabs.pump.ticks_total": this.pumpStats.ticksTotal,
+      "voice.elevenlabs.pump.speech_frames_sent": this.pumpStats.speechFramesSent,
+      "voice.elevenlabs.pump.silence_frames_sent": this.pumpStats.silenceFramesSent,
+      "voice.elevenlabs.pump.unexpected_errors": this.pumpStats.unexpectedErrors,
+    });
     const conversation = this.conversation;
     this.conversation = null;
     this.inputCallback = null;
@@ -623,6 +646,12 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
    */
   private startPump(): void {
     if (this.pumpTimer === null) {
+      this.pumpStats = {
+        ticksTotal: 0,
+        speechFramesSent: 0,
+        silenceFramesSent: 0,
+        unexpectedErrors: 0,
+      };
       this.pumpTimer = setInterval(() => this.pumpTick(), PUMP_INTERVAL_MS);
     }
   }
@@ -672,12 +701,14 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
   private pumpTick(): void {
     const callback = this.inputCallback;
     if (!callback || !this.isConnected()) return;
+    this.pumpStats.ticksTotal++;
 
     const speechFrame = this.outboundFrames.shift();
     let frame: Buffer;
     if (speechFrame) {
       // The user is speaking — always feed the queued speech frame.
       frame = speechFrame;
+      this.pumpStats.speechFramesSent++;
     } else if (this.awaitingUserTurn) {
       // Agent has responded since the last user turn: PAUSE the idle mic. Streaming
       // silence into the inter-turn gap makes EL read it as the user having left and
@@ -689,13 +720,17 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // server VAD measures end-of-turn off this audio→silence transition (also what
       // preserves the receiveAudio-timeout fix).
       frame = SILENCE_FRAME;
+      this.pumpStats.silenceFramesSent++;
     }
 
     try {
       callback(frame);
     } catch {
       // Raced a close between the active-check and the feed — drop the frame; the
-      // session close/error handler tears the pump down.
+      // session close/error handler tears the pump down. (TS cannot distinguish a
+      // raced close from a genuine bug here — Python's two-tier split has no TS
+      // analogue — so this counter conservatively counts both; ~always 0.)
+      this.pumpStats.unexpectedErrors++;
     }
   }
 
