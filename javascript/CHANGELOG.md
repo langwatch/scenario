@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.4](https://github.com/langwatch/scenario/compare/javascript/v0.5.3...javascript/v0.5.4) (2026-07-20)
+
+
+### Features
+
+* **voice:** instrument base + ElevenLabs adapter with LangWatch spans ([#777](https://github.com/langwatch/scenario/issues/777)) ([2b32872](https://github.com/langwatch/scenario/commit/2b32872aa57b13f80e6b063425efac38a0c7604b))
+* **voice:** instrument Gemini Live adapter with LangWatch spans ([#780](https://github.com/langwatch/scenario/issues/780)) ([8ba8687](https://github.com/langwatch/scenario/commit/8ba8687cf38849074fe97a83a0ea4733cfdec09a))
+* **voice:** instrument OpenAI Realtime adapter with LangWatch spans ([#782](https://github.com/langwatch/scenario/issues/782)) ([3152969](https://github.com/langwatch/scenario/commit/315296936f1d1465f97305431cdedba7730f9136))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#774](https://github.com/langwatch/scenario/issues/774)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Pipecat adapter + background-loop spans ([#781](https://github.com/langwatch/scenario/issues/781)) ([67f71b1](https://github.com/langwatch/scenario/commit/67f71b1d30610e2da96396dea1e4c7f1a1355831))
+* **voice:** instrument Twilio adapter with LangWatch spans ([#788](https://github.com/langwatch/scenario/issues/788)) ([8747eed](https://github.com/langwatch/scenario/commit/8747eed1a8e36db0dfba3ebd08359822fa6d1e52))
+
+
+### Bug Fixes
+
+* **security:** bump [@opentelemetry](https://github.com/opentelemetry) sdk-node/exporter-prometheus to 0.217.0 ([87d5509](https://github.com/langwatch/scenario/commit/87d5509f8421f7b2370e9b64ab71daf4612e0a1a))
+* **security:** bump [@opentelemetry](https://github.com/opentelemetry) sdk-node/exporter-prometheus to 0.217.0 (with ReadableSpan migration) ([#702](https://github.com/langwatch/scenario/issues/702)) ([87d5509](https://github.com/langwatch/scenario/commit/87d5509f8421f7b2370e9b64ab71daf4612e0a1a))
+* **security:** raise esbuild, js-yaml, and dompurify override floors across JS workspaces ([#671](https://github.com/langwatch/scenario/issues/671)) ([c76bab2](https://github.com/langwatch/scenario/commit/c76bab247cd69395bcd55b85046dc4f17c783618))
+
 ## [0.5.3](https://github.com/langwatch/scenario/compare/javascript/v0.5.2...javascript/v0.5.3) (2026-07-16)
 
 
