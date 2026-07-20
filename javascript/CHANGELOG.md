@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.5](https://github.com/langwatch/scenario/compare/javascript/v0.5.4...javascript/v0.5.5) (2026-07-20)
+
+
+### Bug Fixes
+
+* **javascript:** make published dist loadable by plain Node ([885e65c](https://github.com/langwatch/scenario/commit/885e65cb39174ba7b3e25655046c54cb880b0ef7))
+* **javascript:** make published dist loadable by plain Node (ESM + CJS) ([#830](https://github.com/langwatch/scenario/issues/830)) ([885e65c](https://github.com/langwatch/scenario/commit/885e65cb39174ba7b3e25655046c54cb880b0ef7))
+
 ## [0.5.4](https://github.com/langwatch/scenario/compare/javascript/v0.5.3...javascript/v0.5.4) (2026-07-20)
 
 
