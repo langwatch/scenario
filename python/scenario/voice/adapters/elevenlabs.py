@@ -47,7 +47,7 @@ import base64
 import json
 import logging
 from collections import deque
-from typing import Any, ClassVar, Deque, Literal, Optional
+from typing import Any, ClassVar, Deque, Final, Literal, Optional
 
 from ..adapter import VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
@@ -69,6 +69,16 @@ CONVAI_URL_TEMPLATE = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={
 #: non-mic stream. The default commit mode is therefore ``"text"``; the silence
 #: tail survives as an opt-in for callers who want the pure server-VAD audio path.
 SILENCE_TAIL_BYTES = 16000
+
+#: Absolute wall-clock ceiling (seconds) for a single :meth:`recv_audio` call
+#: that keepalive pings do NOT reset. The idle deadline is re-armed on every
+#: inbound frame, pings included (#649), so a slow-but-pinging server is not
+#: aborted mid-think — but EL ConvAI pings *indefinitely* on a turn it will
+#: never answer with audio (e.g. after it ends/transfers its turn), which would
+#: otherwise wedge the whole multi-turn run (issue #829; the absolute backstop
+#: explicitly deferred in #493). 45s is generous enough for a genuinely slow
+#: agent to respond, but finite so a non-responding turn times out cleanly.
+KEEPALIVE_HARD_CEILING_S: Final[float] = 45.0
 
 #: How :meth:`ElevenLabsAgentAdapter.send_audio` signals end-of-turn to EL ConvAI.
 #:
@@ -592,22 +602,35 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         Design decision (issue #493 — intentional, not an oversight): because
         a received ping is treated as proof of liveness, a hosted agent that
         keeps pinging but never sends audio (e.g. a wedged tool/RAG call) will
-        make this method wait **indefinitely**. There is deliberately **no
-        total-duration ceiling** here — a legitimate 30s+ silent-but-pinging
-        stretch must not abort the turn, which a cumulative budget would do.
+        make this method wait past ``timeout``. A legitimate 30s+
+        silent-but-pinging stretch must not abort the turn, which a cumulative
+        budget would do — so pings keep re-arming the idle deadline below.
+        But EL ConvAI can also ping *indefinitely* on a turn it will never
+        answer with audio (e.g. after it ends/transfers its turn), which would
+        otherwise wedge the whole multi-turn run forever. To bound that case
+        without punishing a merely slow agent, :data:`KEEPALIVE_HARD_CEILING_S`
+        sets an absolute wall-clock ceiling, computed ONCE per call and NOT
+        reset by pings (issue #829; the backstop explicitly deferred in #493).
         The caller's ``response_max_duration`` is checked *between*
         ``recv_audio`` calls and does **not** bound a single in-progress recv.
-        (An absolute caller-side backstop for the wedged-agent case is tracked
-        as a separate follow-up; it is intentionally not implemented here.)
         """
         import websockets  # for the ConnectionClosed terminal (issue #648)
 
         if self._ws is None:
             raise RuntimeError("ElevenLabsAgentAdapter: not connected")
 
-        deadline = asyncio.get_running_loop().time() + timeout
+        start = asyncio.get_running_loop().time()
+        deadline = start + timeout
+        # Absolute wall-clock ceiling that keepalive pings do NOT reset (#829 /
+        # the deferred #493 backstop). EL ConvAI pings indefinitely on a turn it
+        # will never answer with audio (e.g. after it ends or transfers its
+        # turn); with only the ping-resettable idle ``deadline`` this loop would
+        # wedge forever. The ceiling bounds that pings-but-no-audio case. At
+        # least ``timeout`` so it never pre-empts the idle deadline.
+        hard_deadline = start + max(timeout, KEEPALIVE_HARD_CEILING_S)
         while True:
-            remaining = deadline - asyncio.get_running_loop().time()
+            now = asyncio.get_running_loop().time()
+            remaining = min(deadline, hard_deadline) - now
             if remaining <= 0:
                 raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
 
