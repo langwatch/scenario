@@ -10,7 +10,14 @@ import { fileURLToPath } from "node:url";
 
 import { EffectFn, int16ToPcm16, linearResample, pcm16ToInt16, rate } from "./common";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+// Dual-format module location: in the ESM build `import.meta.url` is real; in
+// the CJS build tsup rewrites `import.meta` to an empty object (its shim), so
+// `fileURLToPath(undefined)` would throw at require() time and take the whole
+// package down with it. `__dirname` exists exactly in that build, so prefer it.
+const HERE =
+  typeof __dirname !== "undefined"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
 
 /**
  * Candidate locations for the bundled noise assets, in priority order. The

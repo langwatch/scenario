@@ -64,12 +64,16 @@ import { openai } from "@ai-sdk/openai";
 // constructs the base client directly. (STT/TTS keep using the root wrapper.)
 // EXPLICIT-FILE imports: a directory/package import of `.../conversation` resolves
 // to its `index.js` barrel, which fails under our ESM (`moduleResolution: bundler`)
-// build — import the concrete files instead.
-import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface";
-import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation";
+// build — import the concrete files instead. The runtime (non-type) imports also
+// need the explicit `.js` extension: @elevenlabs/elevenlabs-js ships no exports
+// map, so Node resolves these deep paths as literal files. Extensionless they
+// only resolve under bundler semantics (vitest/tsx/webpack) and crash plain
+// `node` consumers of the published dist/index.mjs with ERR_MODULE_NOT_FOUND.
+import { AudioInterface } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/AudioInterface.js";
+import { Conversation } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/Conversation.js";
 import type { ConversationClient } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/ConversationClient";
 import type { WebSocketFactory } from "@elevenlabs/elevenlabs-js/api/resources/conversationalAi/conversation/interfaces/WebSocketInterface";
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js/Client.js";
 import type { LanguageModel } from "ai";
 
 import { AgentRole } from "../../domain/agents";

@@ -15,6 +15,7 @@
     "clean": "rm -rf dist *.tgz",
     "build": "tsup",
     "buildpack": "pnpm run build && pnpm pack",
+    "smoke:dist": "node -e \"require('./dist/index.js'); console.log('CJS dist loads OK')\" && node -e \"import('./dist/index.mjs').then(() => console.log('ESM dist loads OK'), (e) => { console.error(e); process.exit(1); })\"",
     "watch": "pnpm run build -- --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

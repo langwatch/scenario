@@ -68,6 +68,14 @@ jobs:
         run: pnpm build:all
         working-directory: javascript
 
+      # Loads both built entrypoints with plain Node (no bundler resolution).
+      # Catches publish-breaking output bugs the vitest suite cannot see:
+      # extensionless deep imports that only bundlers resolve, and CJS-shim
+      # import.meta crashes — both shipped in releases up to 0.5.4.
+      - name: Smoke-load dist (ESM + CJS)
+        run: pnpm smoke:dist
+        working-directory: javascript
+
       - name: Lint
         run: pnpm lint:all
         working-directory: javascript
