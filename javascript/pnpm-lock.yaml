@@ -51,6 +51,9 @@ importers:
       '@openai/agents':
         specifier: ^0.3.3
         version: 0.3.9(@cfworker/json-schema@4.1.1)(ws@8.21.0)(zod@3.25.76)
+      '@opencode-ai/sdk':
+        specifier: 1.17.9
+        version: 1.17.9
       '@opentelemetry/sdk-node':
         specifier: 0.212.0
         version: 0.212.0(@opentelemetry/api@1.9.1)
@@ -1068,6 +1071,9 @@ packages:
     resolution: {integrity: sha512-YaKnqv0M6bCVvn47pThkFfyHz8xWJ+0Ll9ZnhvwJZ5gyPX0UxHIUeUs9SMG9BSvNuJNJHlc5uvfUDGYAmKJClw==}
     peerDependencies:
       zod: ^3.25.40 || ^4.0
+
+  '@opencode-ai/sdk@1.17.9':
+    resolution: {integrity: sha512-MHmXEpGPHkg14v1p+cUlIOUxd6DQdSElfau9nqY7tcDI0x5r4Y8D0dKXcyAh0Gc73ptaGW67Vg84nkcV6O27Pw==}
 
   '@opentelemetry/api-logs@0.205.0':
     resolution: {integrity: sha512-wBlPk1nFB37Hsm+3Qy73yQSobVn28F4isnWIBvKpd5IUH/eat8bwcL02H9yzmHyyPmukeccSl2mbN5sDQZYnPg==}
@@ -6250,6 +6256,10 @@ snapshots:
       - supports-color
       - utf-8-validate
       - ws
+
+  '@opencode-ai/sdk@1.17.9':
+    dependencies:
+      cross-spawn: 7.0.6
 
   '@opentelemetry/api-logs@0.205.0':
     dependencies:
