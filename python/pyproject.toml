@@ -42,7 +42,7 @@ dependencies = [
     # Pin <0.3 — 0.22.0 imports pandas at module load (via langwatch.evaluation),
     # which breaks `test (3.12)` CI since pandas is in the [report] extra not
     # installed by default. Reverting an unbounded floor that surfaced on rebase.
-    "langwatch>=0.2.19,<0.3",
+    "langwatch>=0.2.19,<0.27",
     "opentelemetry-sdk>=1.20.0",
     # Voice agent support (issue #350). Hard deps: voice is first-class.
     # imageio-ffmpeg bundles the ffmpeg binary (not ffplay) for audio
