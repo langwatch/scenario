@@ -13,6 +13,8 @@
  * OpenAI Realtime, Gemini Live, ElevenLabs).
  */
 
+import type { Context } from "@opentelemetry/api";
+
 import { defaultVoiceCall } from "./adapter.runtime";
 import { AudioChunk } from "./audio-chunk";
 import { AdapterCapabilities, UnsupportedCapabilityError } from "./capabilities";
@@ -145,6 +147,16 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
    * by {@link scenario.interrupt} when `afterWords: N` is set.
    */
   streamingTranscript?: string;
+
+  /**
+   * Live OTel context of the CURRENT `voice.turn`, published by
+   * {@link defaultVoiceCall} for background-receive-loop adapters
+   * (Pipecat/Twilio) to parent their detached-callback recv spans under the
+   * turn (#774 — the reusable pattern Twilio PR5 inherits). `undefined` between
+   * turns, so a callback firing outside a turn skips its span rather than
+   * parenting under a closed turn. Internal (underscore) — not a public API.
+   */
+  _voiceTurnContext?: Context;
 
   /**
    * Transmit DTMF tones to the telephony peer. Adapters that advertise

@@ -51,24 +51,32 @@ def _tracer():
 
 @contextlib.contextmanager
 def voice_span(
-    name: str, attributes: Optional[Dict[str, Any]] = None
+    name: str,
+    attributes: Optional[Dict[str, Any]] = None,
+    *,
+    parent: Optional[context.Context] = None,
 ) -> Iterator[Span]:
     """Open a guarded ``scenario.voice`` span.
 
     - Sets ``langwatch.span.type=span`` plus any non-``None`` ``attributes``.
     - Becomes the current span so nested ``voice_span``/framework spans parent
-      under it automatically (ambient OTel context — no parent is passed).
+      under it automatically (ambient OTel context when ``parent`` is ``None``).
+    - ``parent`` pins the span under an EXPLICIT OTel context instead of the
+      ambient one — the seam a background-receive-loop adapter (Pipecat, Twilio)
+      uses to parent detached-task recv spans under the live ``voice.turn`` the
+      base ``call()`` published, rather than the loop's frozen connect-time
+      context (#774). ``None`` preserves the original ambient-nesting behaviour.
     - A body exception is recorded, sets the span ERROR, and is **re-raised**
       (a transport error must surface).
     - ``span.end()`` is wrapped: a processor/exporter failure is swallowed and
       logged WARNING, never propagated into the audio path.
     """
-    span = _tracer().start_span(name)
+    span = _tracer().start_span(name, context=parent)
     span.set_attribute("langwatch.span.type", "span")
     for key, value in (attributes or {}).items():
         if value is not None:
             span.set_attribute(key, value)
-    token = context.attach(trace.set_span_in_context(span))
+    token = context.attach(trace.set_span_in_context(span, parent))
     try:
         yield span
     except BaseException as exc:  # noqa: BLE001 - mark + re-raise, never swallow the body

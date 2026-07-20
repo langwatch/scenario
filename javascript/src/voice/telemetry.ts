@@ -19,6 +19,7 @@ import {
   context,
   trace,
   SpanStatusCode,
+  type Context,
   type Span,
 } from "@opentelemetry/api";
 import { Logger } from "../utils/logger";
@@ -67,20 +68,65 @@ export async function voiceSpan<T>(
     span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
     throw err;
   } finally {
-    try {
-      span.end();
-    } catch (exportErr) {
-      logger.warn(
-        `voice: span '${name}' failed to export; dropping it (run continues)`,
-        exportErr,
-      );
-    }
+    endGuarded(span, name);
+  }
+}
+
+/**
+ * End a span, swallowing a processor/exporter failure (a bad `SpanProcessor.onEnd`
+ * throws from `end()`, which would otherwise propagate into the audio path). The
+ * single guarded-end shared by {@link voiceSpan} and {@link voiceReceiveSpanUnder}
+ * so a fix to the guard can't be applied to one and missed on the other.
+ */
+function endGuarded(span: Span, name: string): void {
+  try {
+    span.end();
+  } catch (exportErr) {
+    logger.warn(
+      `voice: span '${name}' failed to export; dropping it (run continues)`,
+      exportErr,
+    );
   }
 }
 
 /** The currently-active span, for adapters stamping attributes onto a span they did not open. */
 export function currentSpan(): Span | undefined {
   return trace.getSpan(context.active());
+}
+
+/**
+ * Run `fn` inside a guarded `voice.audio.receive` span pinned under an EXPLICIT
+ * parent context, synchronously.
+ *
+ * The seam for background-receive-loop adapters (Pipecat/Twilio) whose real
+ * receive runs in a NON-async ws callback: they parent this span under the live
+ * `voice.turn` context the base `call()` published on the adapter, not the
+ * callback's detached/root context (#774). Synchronous; the span becomes the
+ * active span for the body (via `context.with`, matching Python's
+ * `voice_span(parent=)`) so a nested span added later parents correctly in both
+ * runtimes. `end()` is guarded exactly like `voiceSpan` (shared {@link endGuarded}).
+ */
+export function voiceReceiveSpanUnder<T>(
+  parent: Context,
+  attributes: Record<string, unknown>,
+  fn: (span: Span) => T,
+): T {
+  const span = trace
+    .getTracer(TRACER_NAME)
+    .startSpan("voice.audio.receive", undefined, parent);
+  span.setAttribute("langwatch.span.type", "span");
+  applyAttributes(span, attributes);
+  try {
+    const result = context.with(trace.setSpan(parent, span), () => fn(span));
+    span.setStatus({ code: SpanStatusCode.OK });
+    return result;
+  } catch (err) {
+    span.recordException(err as Error);
+    span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+    throw err;
+  } finally {
+    endGuarded(span, "voice.audio.receive");
+  }
 }
 
 /** Set non-nullish attributes on `span` if it is recording. Never throws. */

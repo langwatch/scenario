@@ -24,9 +24,12 @@ import logging
 import uuid
 from typing import Any, ClassVar, Literal, Optional
 
+from opentelemetry.context import Context
+
 from ..adapter import AgentStreamEndedError, VoiceAgentAdapter
 from ..audio_chunk import AudioChunk
 from ..capabilities import AdapterCapabilities
+from .._telemetry import voice_span
 from ._twilio_shared import (
     TWILIO_FRAME_MS,
     build_clear_frame,
@@ -128,6 +131,11 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
         # Set True when _recv_loop terminates (crash or clean close). Lets
         # recv_audio fail fast on a drained queue without re-reading it (#498).
         self._recv_loop_done: bool = False
+        # The turn context we last emitted a background ``voice.audio.receive``
+        # span for — so ``_deliver`` spans only the FIRST wire delivery of each
+        # turn (one span/turn, no per-100ms-chunk flood). Reset implicitly: the
+        # next turn publishes a distinct ``_voice_turn_context`` object (#774).
+        self._bg_span_turn_context: Optional[Context] = None
         # Serialises concurrent send_audio() calls — without it two paced
         # senders would interleave 20-ms mulaw frames on the wire and the
         # bot would receive corrupted audio. Used for the interruption case
@@ -188,6 +196,21 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                     },
                 }
             )
+        )
+
+        # Stamp Pipecat transport attrs onto the active ``voice.adapter.connect``
+        # span (opened by the executor connect loop). Base spans are name-owned;
+        # the adapter contributes attributes, never a parallel span name — mirror
+        # ElevenLabs' ``voice.elevenlabs.agent_id`` seam (``adapters/elevenlabs.py``).
+        from opentelemetry import trace as _otel_trace
+        from .._telemetry import set_span_attributes
+
+        set_span_attributes(
+            _otel_trace.get_current_span(),
+            {
+                "voice.pipecat.transport": self.transport,
+                "voice.pipecat.transport_format": self.transport_format,
+            },
         )
 
         self._recv_task = asyncio.create_task(self._recv_loop())
@@ -313,9 +336,8 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                     # as raw µ-law payload if we see one.
                     buffered_mulaw.extend(raw)
                     if len(buffered_mulaw) >= (BATCH_MS * 8):
-                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        self._deliver(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await queue.put(AudioChunk(data=pcm))
                     continue
 
                 frame = parse_media_stream_frame(raw)
@@ -324,14 +346,12 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
                 if frame.event == "media" and frame.payload_mulaw:
                     buffered_mulaw.extend(frame.payload_mulaw)
                     if len(buffered_mulaw) >= (BATCH_MS * 8):
-                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        self._deliver(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await queue.put(AudioChunk(data=pcm))
                 elif frame.event == "stop":
                     if buffered_mulaw:
-                        pcm = mulaw8k_to_pcm16_24k(bytes(buffered_mulaw))
+                        self._deliver(bytes(buffered_mulaw))
                         buffered_mulaw.clear()
-                        await queue.put(AudioChunk(data=pcm))
                     return
         except asyncio.CancelledError:
             raise
@@ -352,6 +372,62 @@ class PipecatAgentAdapter(VoiceAgentAdapter):
             # two lines, so a waiter can't observe a half-set terminal state.)
             self._recv_loop_done = True
             queue.put_nowait(_RECV_LOOP_DONE)
+
+    def _deliver(self, mulaw: bytes) -> None:
+        """Decode a coalesced µ-law batch to PCM16/24k and enqueue it.
+
+        On the FIRST wire delivery of a turn — the base ``call()`` published its
+        OTel context via :attr:`VoiceAgentAdapter._voice_turn_context` — wrap the
+        decode+enqueue in a ``voice.audio.receive`` span parented to THAT turn
+        (#774), so the background ``_recv_loop`` task's receive work is attributed
+        to the turn instead of the task's frozen connect-time context (a
+        now-closed span).
+
+        This is a producer-side **delivery marker** (it carries the delivered
+        byte count); the consumer-side wait and the timeout/ERROR semantics (P3)
+        live on the base ``voice.audio.receive`` span that wraps ``recv_audio``.
+        The span is disambiguated from that base span by
+        ``voice.pipecat.recv.source=background_loop``.
+
+        Emitted at most ONCE per turn (only the first delivery under a given turn
+        context) — matching the base's one-receive-span-per-turn granularity and
+        the epic's no-per-tick-flood rule (the EL pump H1), so a multi-second turn
+        of 100 ms chunks is not exploded into dozens of sibling spans. Between
+        turns the context is ``None`` and we enqueue WITHOUT a span, so no
+        detached/closed-parent span can leak from the background task. The body is
+        synchronous (``put_nowait`` on the unbounded queue), so a ``disconnect()``
+        cancel can never land mid-span.
+
+        Coverage limits (by design — this is a marker, not exhaustive accounting):
+        - ``voice.audio.bytes`` is the DELIVERED coalesced-chunk size, which may
+          fold in a sub-100 ms µ-law tail carried over from the prior turn (the
+          recv-loop coalesces to 800-byte batches across the turn boundary — a
+          pre-existing property the base drain chunks share; not corrected here
+          because flushing a partial batch at the boundary would drop that audio).
+        - A turn whose agent audio was ALREADY buffered before ``call()`` published
+          the turn context (an opening greeting delivered during ``connect``) is
+          drained from the queue without a fresh wire delivery, so it gets no
+          background marker — the base ``voice.audio.receive`` span still covers
+          its consumption. The marker records in-turn wire deliveries, not every
+          turn that consumes audio (the deterministic turn-liveness gate).
+        """
+        assert self._inbound_queue is not None
+        parent = self._voice_turn_context
+        if parent is None or parent is self._bg_span_turn_context:
+            self._inbound_queue.put_nowait(AudioChunk(data=mulaw8k_to_pcm16_24k(mulaw)))
+            return
+        self._bg_span_turn_context = parent
+        with voice_span(
+            "voice.audio.receive",
+            {
+                "voice.adapter.class": type(self).__name__,
+                "voice.pipecat.recv.source": "background_loop",
+            },
+            parent=parent,
+        ) as span:
+            pcm = mulaw8k_to_pcm16_24k(mulaw)
+            span.set_attribute("voice.audio.bytes", len(pcm))
+            self._inbound_queue.put_nowait(AudioChunk(data=pcm))
 
     # ------------------------------------------------------------------ assertions
 
