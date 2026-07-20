@@ -1338,8 +1338,23 @@ class ScenarioExecutor:
             #    the bot's buffered outbound audio on transports that honor
             #    it (Twilio ``clear``, OpenAI Realtime ``response.cancel``).
             if adapter.capabilities.interruption:
+                from .voice._telemetry import voice_span
+
                 try:
-                    await adapter.interrupt()
+                    # ``voice.adapter.interrupt`` — the executor-owned base span
+                    # (mirrors ``_voice_connect_all`` / ``_voice_disconnect_all``).
+                    # Rule for executor-owned spans: executor-invoked + no shared
+                    # base body to instrument. connect/disconnect are abstract;
+                    # interrupt() is concrete (default raises UnsupportedCapability)
+                    # but wholesale-overridden with no super(), so the call-site is
+                    # the one seam. Adapters stamp vendor outcome attrs onto it from
+                    # inside their own interrupt(); the span's OK/ERROR status is set
+                    # BEFORE the swallow below discards a transport error.
+                    with voice_span(
+                        "voice.adapter.interrupt",
+                        {"voice.adapter.class": type(adapter).__name__},
+                    ):
+                        await adapter.interrupt()
                     native_interrupt_fired = True
                 except Exception:
                     # Best-effort native cancel — adapters' interrupt() may
