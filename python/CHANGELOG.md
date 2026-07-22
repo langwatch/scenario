@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.33](https://github.com/langwatch/scenario/compare/python/v0.7.32...python/v0.7.33) (2026-07-22)
+
+
+### Bug Fixes
+
+* **judge:** protect unbounded judge transcript for non-litellm agents ([#837](https://github.com/langwatch/scenario/issues/837)) ([6604334](https://github.com/langwatch/scenario/commit/660433415b8bf2a6fbe9e4dba803cc8444e1072b))
+* **voice/#829:** bring recv_audio's keepalive hard-ceiling to Python (JS parity) ([#832](https://github.com/langwatch/scenario/issues/832)) ([d61027c](https://github.com/langwatch/scenario/commit/d61027c0f7a31d52df610be0aeecd1702e8abe95))
+
 ## [0.7.32](https://github.com/langwatch/scenario/compare/python/v0.7.31...python/v0.7.32) (2026-07-20)
 
 
