@@ -60,13 +60,17 @@ class NonLitellmSalesAgent(scenario.AgentAdapter):
                 f"row_{i}_{j}=value_{j}" for j in range(100)
             )
             messages.append({"role": "tool", "tool_call_id": call_id, "content": f"[{row}]"})
+        # Deliberately generic -- NEEDLE_FACT must not be restated here. If it
+        # were, the judge could pass by reading this summary alone (e.g. via
+        # a cheap expand_transcript on just the last message), without ever
+        # searching the buried tool result, which would defeat the point of
+        # this test: proving the judge can dig a fact out of a large,
+        # non-litellm tool-call history rather than relying on it being
+        # conveniently restated in the final assistant turn.
         messages.append(
             {
                 "role": "assistant",
-                "content": (
-                    "I checked 27 sales records. Order ORD-88421 was refunded "
-                    "for $204.50."
-                ),
+                "content": "I checked 27 sales records.",
             }
         )
         return messages
