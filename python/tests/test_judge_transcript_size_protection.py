@@ -17,10 +17,11 @@ agent adapter.
 """
 
 import json
-from typing import Any, cast
+from typing import Any, Dict, Generator, List, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from openai.types.chat import ChatCompletionMessageParam
 
 from scenario import JudgeAgent
 from scenario._judge.estimate_tokens import DEFAULT_TOKEN_THRESHOLD, estimate_tokens
@@ -35,18 +36,18 @@ from scenario.config import ScenarioConfig
 from scenario.types import AgentInput
 
 
-def create_mock_collector(spans: list) -> JudgeSpanCollector:
+def create_mock_collector(spans: List[Any]) -> JudgeSpanCollector:
     collector = MagicMock(spec=JudgeSpanCollector)
     collector.get_spans_for_thread.return_value = spans
     return collector
 
 
-def create_large_non_litellm_transcript() -> list:
+def create_large_non_litellm_transcript() -> List[ChatCompletionMessageParam]:
     """Simulates a non-litellm agent: 27 tool calls with large SQL-like
     result payloads, mirroring the reporter's real repro. None of this
     ever became a span, since the agent doesn't route through litellm.
     """
-    messages: list = [
+    messages: List[ChatCompletionMessageParam] = [
         {"role": "user", "content": "Please pull the Q3 sales report."},
     ]
     for i in range(27):
@@ -80,7 +81,7 @@ def create_large_non_litellm_transcript() -> list:
     return messages
 
 
-def create_base_input(messages: list) -> AgentInput:
+def create_base_input(messages: List[ChatCompletionMessageParam]) -> AgentInput:
     mock_scenario_state = MagicMock()
     mock_scenario_state.description = "Test scenario"
     mock_scenario_state.current_turn = 1
@@ -95,7 +96,7 @@ def create_base_input(messages: list) -> AgentInput:
     )
 
 
-def mock_litellm_response(tool_name: str, args: dict):
+def mock_litellm_response(tool_name: str, args: Dict[str, Any]) -> MagicMock:
     response = MagicMock()
     response.choices = [MagicMock()]
     tool_call = MagicMock()
@@ -107,7 +108,8 @@ def mock_litellm_response(tool_name: str, args: dict):
 
 
 @pytest.fixture(autouse=True)
-def setup_config():
+def setup_config() -> Generator[None, None, None]:
+    previous_default_config = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
     mock_executor = MagicMock()
     mock_executor.config = MagicMock()
@@ -115,7 +117,7 @@ def setup_config():
     token = context_scenario.set(mock_executor)
     yield
     context_scenario.reset(token)
-    ScenarioConfig.default_config = None
+    ScenarioConfig.default_config = previous_default_config
 
 
 class TestNonLitellmAgentGetsTranscriptProtection:
@@ -225,7 +227,7 @@ class TestNonLitellmAgentGetsTranscriptProtection:
         """A normal, small transcript should render in full with no
         discovery tools -- unchanged behavior for the common case.
         """
-        messages = [
+        messages: List[ChatCompletionMessageParam] = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there!"},
         ]
@@ -303,7 +305,7 @@ class TestExpandTranscriptMalformedIndices:
         # Should not raise TypeError from sorting a mixed-type set. Args are
         # deliberately malformed (as if a lax provider ignored the schema),
         # hence the cast past expand_transcript's List[int] signature.
-        result = expand_transcript(cast(Any, messages), indices=cast(Any, ["1", 5]))
+        result = expand_transcript(cast(List[ChatCompletionMessageParam], messages), indices=cast(Any, ["1", 5]))
         assert "[1] assistant" in result
         assert "Ignored out-of-range indices: [5]" in result
 
@@ -313,7 +315,7 @@ class TestExpandTranscriptMalformedIndices:
             {"role": "assistant", "content": "hello"},
         ]
         result = expand_transcript(
-            cast(Any, messages), indices=cast(Any, [None, {}, "1"])
+            cast(List[ChatCompletionMessageParam], messages), indices=cast(Any, [None, {}, "1"])
         )
         assert "[1] assistant" in result
         assert "Ignored non-integer indices" in result
@@ -332,7 +334,7 @@ class TestSkeletonItselfIsBounded:
             {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
             for i in range(5000)
         ]
-        skeleton = build_transcript_skeleton(cast(Any, messages))
+        skeleton = build_transcript_skeleton(cast(List[ChatCompletionMessageParam], messages))
         assert estimate_tokens(skeleton) <= DEFAULT_TOKEN_THRESHOLD
 
     def test_bounded_skeleton_keeps_head_and_tail(self) -> None:
@@ -340,7 +342,7 @@ class TestSkeletonItselfIsBounded:
             {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
             for i in range(5000)
         ]
-        skeleton = build_transcript_skeleton(cast(Any, messages))
+        skeleton = build_transcript_skeleton(cast(List[ChatCompletionMessageParam], messages))
         assert "[0] user" in skeleton
         assert "[4999] assistant" in skeleton
         assert "omitted" in skeleton
@@ -350,7 +352,7 @@ class TestSkeletonItselfIsBounded:
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hello"},
         ]
-        skeleton = build_transcript_skeleton(cast(Any, messages))
+        skeleton = build_transcript_skeleton(cast(List[ChatCompletionMessageParam], messages))
         assert "omitted" not in skeleton
         assert "[0] user" in skeleton
         assert "[1] assistant" in skeleton
@@ -363,25 +365,25 @@ class TestTranscriptToolsEmptyAndErrorPaths:
     """
 
     def test_skeleton_on_empty_messages(self) -> None:
-        assert build_transcript_skeleton(cast(Any, [])) == "No messages recorded."
+        assert build_transcript_skeleton(cast(List[ChatCompletionMessageParam], [])) == "No messages recorded."
 
     def test_expand_on_empty_messages(self) -> None:
-        result = expand_transcript(cast(Any, []), indices=[0])
+        result = expand_transcript(cast(List[ChatCompletionMessageParam], []), indices=[0])
         assert result == "No messages recorded."
 
     def test_expand_with_no_indices_requested(self) -> None:
         messages = [{"role": "user", "content": "hi"}]
-        result = expand_transcript(cast(Any, messages), indices=[])
+        result = expand_transcript(cast(List[ChatCompletionMessageParam], messages), indices=[])
         assert result == "Error: provide at least one message index."
 
     def test_expand_with_only_out_of_range_indices(self) -> None:
         messages = [{"role": "user", "content": "hi"}]
-        result = expand_transcript(cast(Any, messages), indices=[7, 8])
+        result = expand_transcript(cast(List[ChatCompletionMessageParam], messages), indices=[7, 8])
         assert "Error: no messages matched the given indices" in result
         assert "Valid range: 0-0" in result
 
     def test_grep_on_empty_messages(self) -> None:
-        result = grep_transcript(cast(Any, []), "x")
+        result = grep_transcript(cast(List[ChatCompletionMessageParam], []), "x")
         assert result == "No messages recorded."
 
     def test_grep_with_no_matches_lists_roles(self) -> None:
@@ -389,7 +391,7 @@ class TestTranscriptToolsEmptyAndErrorPaths:
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "hi there"},
         ]
-        result = grep_transcript(cast(Any, messages), "nonexistent_pattern_xyz")
+        result = grep_transcript(cast(List[ChatCompletionMessageParam], messages), "nonexistent_pattern_xyz")
         assert "No matches found" in result
         assert "user" in result
         assert "assistant" in result
@@ -399,13 +401,13 @@ class TestTranscriptToolsEmptyAndErrorPaths:
         messages = [
             {"role": "user", "content": f"needle occurrence {i}"} for i in range(25)
         ]
-        result = grep_transcript(cast(Any, messages), "needle")
+        result = grep_transcript(cast(List[ChatCompletionMessageParam], messages), "needle")
         assert "5 more matches omitted" in result
 
     def test_expand_truncates_oversized_result(self) -> None:
         # A single message far larger than the ~16KB tool-result char budget.
         messages = [{"role": "user", "content": "x" * 20000}]
-        result = expand_transcript(cast(Any, messages), indices=[0])
+        result = expand_transcript(cast(List[ChatCompletionMessageParam], messages), indices=[0])
         assert "[TRUNCATED]" in result
         assert "grep_transcript(pattern)" in result
 

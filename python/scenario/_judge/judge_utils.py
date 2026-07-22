@@ -177,7 +177,9 @@ def _render_tool_call(call: Any) -> Optional[str]:
     return f"{name}({rendered_args})"
 
 
-def _render_message_line(msg: Any, id_to_name: Dict[str, str]) -> str:
+def _render_message_line(
+    msg: ChatCompletionMessageParam, id_to_name: Dict[str, str]
+) -> str:
     """
     Renders a single message as one transcript line. Shared by
     ``build_transcript_from_messages`` (the full transcript) and the

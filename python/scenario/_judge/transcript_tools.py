@@ -17,7 +17,7 @@ keyed on the transcript's own estimated token count rather than on spans.
 
 import re
 from dataclasses import dataclass
-from typing import Any, List, Sequence
+from typing import Any, Final, List, Sequence
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -26,13 +26,13 @@ from .judge_utils import JudgeUtils
 
 # Budget constants (mirrors trace_tools.py's budgets so discovery results
 # stay comparably sized regardless of which discovery path produced them).
-TOOL_RESULT_TOKEN_BUDGET = 4096
+TOOL_RESULT_TOKEN_BUDGET: Final[int] = 4096
 """Maximum estimated tokens for a single tool result."""
 
-TOOL_RESULT_CHAR_BUDGET = TOOL_RESULT_TOKEN_BUDGET * 4
+TOOL_RESULT_CHAR_BUDGET: Final[int] = TOOL_RESULT_TOKEN_BUDGET * 4
 """Maximum characters for a single tool result (~4000 tokens * 4 chars)."""
 
-MAX_GREP_MATCHES = 20
+MAX_GREP_MATCHES: Final[int] = 20
 """Maximum number of grep matches returned."""
 
 
@@ -41,7 +41,7 @@ class _IndexedMessage:
     """A message paired with its rendered transcript line and 0-based index."""
 
     index: int
-    message: Any
+    message: ChatCompletionMessageParam
     line: str
 
 

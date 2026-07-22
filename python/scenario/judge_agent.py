@@ -15,6 +15,7 @@ from typing import Any, List, Optional, Sequence, cast
 import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
+from openai.types.chat import ChatCompletionMessageParam
 
 from scenario.cache import scenario_cache
 from scenario.agent_adapter import AgentAdapter
@@ -856,7 +857,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         tools: List[dict],
         tool_choice: Any,
         spans: Sequence[Any],
-        working_messages: Sequence[Any],
+        working_messages: Sequence[ChatCompletionMessageParam],
         effective_criteria: List[str],
         input_messages: Sequence[Any],
     ) -> AgentReturnTypes:
@@ -1018,7 +1019,10 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         )
 
     def _execute_discovery_tool(
-        self, tool_call: Any, spans: Sequence[Any], working_messages: Sequence[Any]
+        self,
+        tool_call: Any,
+        spans: Sequence[Any],
+        working_messages: Sequence[ChatCompletionMessageParam],
     ) -> str:
         """
         Executes an expand_trace, grep_trace, expand_transcript, or
