@@ -177,8 +177,69 @@ def _render_tool_call(call: Any) -> Optional[str]:
     return f"{name}({rendered_args})"
 
 
+def _render_message_line(msg: Any, id_to_name: Dict[str, str]) -> str:
+    """
+    Renders a single message as one transcript line. Shared by
+    ``build_transcript_from_messages`` (the full transcript) and the
+    transcript discovery tools (``expand_transcript``/``grep_transcript``),
+    which need the exact same per-message rendering to index into.
+    """
+    role = msg.get("role", "unknown")
+    content = msg.get("content", "")
+    truncated_content = _truncate_base64_media(content)
+
+    tool_calls = msg.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        # Assistant turn with tool calls. Render one [tool_call: ...]
+        # segment per call, in emission order, alongside any text content.
+        # When content is None/empty (the common pure-tool-call shape),
+        # omit the bare `null`/`""` so the line never reads `assistant: null`.
+        rendered_calls = [
+            f"[tool_call: {rendered}]"
+            for call in tool_calls
+            if (rendered := _render_tool_call(call)) is not None
+        ]
+        segments: List[str] = []
+        if content not in (None, ""):
+            segments.append(json.dumps(truncated_content))
+        segments.extend(rendered_calls)
+        return f"{role}: {' '.join(segments)}"
+
+    if role == "tool":
+        # Tool result. Resolve the originating function name from the
+        # id->name map built in the first pass.
+        tool_call_id = msg.get("tool_call_id")
+        name = (
+            id_to_name.get(tool_call_id) if isinstance(tool_call_id, str) else None
+        ) or "unknown"
+        return f"tool ({name}): {json.dumps(truncated_content)}"
+
+    return f"{role}: {json.dumps(truncated_content)}"
+
+
 class JudgeUtils:
     """Utilities for the Judge agent."""
+
+    @staticmethod
+    def render_transcript_lines(
+        messages: List[ChatCompletionMessageParam],
+    ) -> List[str]:
+        """
+        Renders each message to its own transcript line, in order.
+
+        This is the same rendering ``build_transcript_from_messages`` joins
+        into a single string, exposed separately so callers (e.g. the
+        transcript discovery tools) can index individual messages by
+        position without re-implementing the rendering rules.
+
+        Args:
+            messages: Array of ChatCompletionMessageParam from conversation
+
+        Returns:
+            One rendered line per message, same order as ``messages``.
+        """
+        id_to_name = _build_tool_call_id_to_name(messages)
+        return [_render_message_line(msg, id_to_name) for msg in messages]
 
     @staticmethod
     def build_transcript_from_messages(
@@ -199,43 +260,4 @@ class JudgeUtils:
         Returns:
             Plain text transcript with one message per line
         """
-        id_to_name = _build_tool_call_id_to_name(messages)
-
-        lines = []
-        for msg in messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            truncated_content = _truncate_base64_media(content)
-
-            tool_calls = msg.get("tool_calls")
-            if isinstance(tool_calls, list) and tool_calls:
-                # Assistant turn with tool calls. Render one [tool_call: ...]
-                # segment per call, in emission order, alongside any text content.
-                # When content is None/empty (the common pure-tool-call shape),
-                # omit the bare `null`/`""` so the line never reads `assistant: null`.
-                rendered_calls = [
-                    f"[tool_call: {rendered}]"
-                    for call in tool_calls
-                    if (rendered := _render_tool_call(call)) is not None
-                ]
-                segments: List[str] = []
-                if content not in (None, ""):
-                    segments.append(json.dumps(truncated_content))
-                segments.extend(rendered_calls)
-                lines.append(f"{role}: {' '.join(segments)}")
-                continue
-
-            if role == "tool":
-                # Tool result. Resolve the originating function name from the
-                # id->name map built in the first pass.
-                tool_call_id = msg.get("tool_call_id")
-                name = (
-                    id_to_name.get(tool_call_id)
-                    if isinstance(tool_call_id, str)
-                    else None
-                ) or "unknown"
-                lines.append(f"tool ({name}): {json.dumps(truncated_content)}")
-                continue
-
-            lines.append(f"{role}: {json.dumps(truncated_content)}")
-        return "\n".join(lines)
+        return "\n".join(JudgeUtils.render_transcript_lines(messages))
