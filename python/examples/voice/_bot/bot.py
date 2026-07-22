@@ -54,6 +54,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import FrameType
 from typing import Callable, Optional
 
 
@@ -792,7 +793,7 @@ async def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
         if not stop.done():
             stop.set_result(None)
 
-    def _handle_signal(signum, frame):  # type: ignore[no-untyped-def]
+    def _handle_signal(signum: int, frame: FrameType | None) -> None:
         # Wake the selector-backed event loop before completing the Future.
         # Directly mutating it here can leave the loop blocked in epoll_wait.
         loop.call_soon_threadsafe(_request_stop, signum)
