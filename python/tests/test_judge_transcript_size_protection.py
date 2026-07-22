@@ -24,7 +24,11 @@ import pytest
 
 from scenario import JudgeAgent
 from scenario._judge.estimate_tokens import DEFAULT_TOKEN_THRESHOLD, estimate_tokens
-from scenario._judge.transcript_tools import build_transcript_skeleton, expand_transcript
+from scenario._judge.transcript_tools import (
+    build_transcript_skeleton,
+    expand_transcript,
+    grep_transcript,
+)
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
@@ -350,3 +354,147 @@ class TestSkeletonItselfIsBounded:
         assert "omitted" not in skeleton
         assert "[0] user" in skeleton
         assert "[1] assistant" in skeleton
+
+
+class TestTranscriptToolsEmptyAndErrorPaths:
+    """Direct unit coverage for the discovery tools' guard clauses --
+    empty-transcript short-circuits, empty/out-of-range index requests,
+    and the no-match/too-many-match grep branches.
+    """
+
+    def test_skeleton_on_empty_messages(self) -> None:
+        assert build_transcript_skeleton(cast(Any, [])) == "No messages recorded."
+
+    def test_expand_on_empty_messages(self) -> None:
+        result = expand_transcript(cast(Any, []), indices=[0])
+        assert result == "No messages recorded."
+
+    def test_expand_with_no_indices_requested(self) -> None:
+        messages = [{"role": "user", "content": "hi"}]
+        result = expand_transcript(cast(Any, messages), indices=[])
+        assert result == "Error: provide at least one message index."
+
+    def test_expand_with_only_out_of_range_indices(self) -> None:
+        messages = [{"role": "user", "content": "hi"}]
+        result = expand_transcript(cast(Any, messages), indices=[7, 8])
+        assert "Error: no messages matched the given indices" in result
+        assert "Valid range: 0-0" in result
+
+    def test_grep_on_empty_messages(self) -> None:
+        result = grep_transcript(cast(Any, []), "x")
+        assert result == "No messages recorded."
+
+    def test_grep_with_no_matches_lists_roles(self) -> None:
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ]
+        result = grep_transcript(cast(Any, messages), "nonexistent_pattern_xyz")
+        assert "No matches found" in result
+        assert "user" in result
+        assert "assistant" in result
+
+    def test_grep_truncates_past_max_matches(self) -> None:
+        # 25 matching messages, MAX_GREP_MATCHES caps display at 20.
+        messages = [
+            {"role": "user", "content": f"needle occurrence {i}"} for i in range(25)
+        ]
+        result = grep_transcript(cast(Any, messages), "needle")
+        assert "5 more matches omitted" in result
+
+    def test_expand_truncates_oversized_result(self) -> None:
+        # A single message far larger than the ~16KB tool-result char budget.
+        messages = [{"role": "user", "content": "x" * 20000}]
+        result = expand_transcript(cast(Any, messages), indices=[0])
+        assert "[TRUNCATED]" in result
+        assert "grep_transcript(pattern)" in result
+
+
+class TestExecuteDiscoveryToolDispatchEdgeCases:
+    """JudgeAgent._execute_discovery_tool dispatches expand_transcript/
+    grep_transcript alongside the pre-existing expand_trace/grep_trace and
+    unknown-tool fallback. These exercise that dispatcher's guard branches
+    through the real discovery loop rather than calling it directly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_malformed_tool_call_arguments_do_not_crash_the_loop(self) -> None:
+        messages = create_large_non_litellm_transcript()
+        collector = create_mock_collector([])
+        judge = JudgeAgent(criteria=["Agent verified the sales data"], span_collector=collector)
+
+        bad_args_response = MagicMock()
+        bad_args_response.choices = [MagicMock()]
+        bad_tool_call = MagicMock()
+        bad_tool_call.id = "call_bad"
+        bad_tool_call.function.name = "expand_transcript"
+        bad_tool_call.function.arguments = "{not valid json"
+        bad_args_response.choices[0].message.tool_calls = [bad_tool_call]
+        bad_args_response.choices[0].message.content = None
+        bad_args_response.choices[0].message.role = "assistant"
+
+        continue_response = mock_litellm_response("continue_test", {})
+
+        call_count = 0
+        captured = {}
+
+        def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return bad_args_response
+            for m in kwargs["messages"]:
+                if m.get("tool_call_id") == "call_bad":
+                    captured["content"] = m["content"]
+            return continue_response
+
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=mock_completion,
+        ):
+            result = await judge.call(create_base_input(messages))
+
+            assert call_count == 2
+            assert "could not parse arguments" in captured["content"]
+            assert result == []
+
+    @pytest.mark.asyncio
+    async def test_hallucinated_tool_name_reports_unknown_tool(self) -> None:
+        messages = create_large_non_litellm_transcript()
+        collector = create_mock_collector([])
+        judge = JudgeAgent(criteria=["Agent verified the sales data"], span_collector=collector)
+
+        hallucinated_response = MagicMock()
+        hallucinated_response.choices = [MagicMock()]
+        hallucinated_tool_call = MagicMock()
+        hallucinated_tool_call.id = "call_hallucinated"
+        hallucinated_tool_call.function.name = "search_the_web"
+        hallucinated_tool_call.function.arguments = "{}"
+        hallucinated_response.choices[0].message.tool_calls = [hallucinated_tool_call]
+        hallucinated_response.choices[0].message.content = None
+        hallucinated_response.choices[0].message.role = "assistant"
+
+        continue_response = mock_litellm_response("continue_test", {})
+
+        call_count = 0
+        captured = {}
+
+        def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return hallucinated_response
+            for m in kwargs["messages"]:
+                if m.get("tool_call_id") == "call_hallucinated":
+                    captured["content"] = m["content"]
+            return continue_response
+
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=mock_completion,
+        ):
+            result = await judge.call(create_base_input(messages))
+
+            assert call_count == 2
+            assert captured["content"] == "Unknown tool: search_the_web"
+            assert result == []
