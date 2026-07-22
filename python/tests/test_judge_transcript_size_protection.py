@@ -23,7 +23,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scenario import JudgeAgent
-from scenario._judge.transcript_tools import expand_transcript
+from scenario._judge.estimate_tokens import DEFAULT_TOKEN_THRESHOLD, estimate_tokens
+from scenario._judge.transcript_tools import build_transcript_skeleton, expand_transcript
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
@@ -312,3 +313,40 @@ class TestExpandTranscriptMalformedIndices:
         )
         assert "[1] assistant" in result
         assert "Ignored non-integer indices" in result
+
+
+class TestSkeletonItselfIsBounded:
+    """The skeleton exists to keep the judge prompt bounded, so it must
+    bound itself: a transcript with thousands of tiny messages (e.g. a
+    streaming/high-frequency tool-call agent) has a tiny per-message cost
+    but can still produce a skeleton that blows past the same threshold
+    that triggered structure-only rendering in the first place.
+    """
+
+    def test_many_tiny_messages_still_produce_a_bounded_skeleton(self) -> None:
+        messages = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
+            for i in range(5000)
+        ]
+        skeleton = build_transcript_skeleton(cast(Any, messages))
+        assert estimate_tokens(skeleton) <= DEFAULT_TOKEN_THRESHOLD
+
+    def test_bounded_skeleton_keeps_head_and_tail(self) -> None:
+        messages = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
+            for i in range(5000)
+        ]
+        skeleton = build_transcript_skeleton(cast(Any, messages))
+        assert "[0] user" in skeleton
+        assert "[4999] assistant" in skeleton
+        assert "omitted" in skeleton
+
+    def test_small_message_count_is_unaffected(self) -> None:
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        skeleton = build_transcript_skeleton(cast(Any, messages))
+        assert "omitted" not in skeleton
+        assert "[0] user" in skeleton
+        assert "[1] assistant" in skeleton

@@ -74,6 +74,31 @@ def _truncate_to_char_budget(text: str) -> str:
     )
 
 
+def _skeleton_line(entry: _IndexedMessage) -> str:
+    """Renders one message's structure-only skeleton line: index, role,
+    tool-call name(s) if any, and estimated size — but not its content."""
+    msg = entry.message
+    role = msg.get("role", "unknown") if isinstance(msg, dict) else "unknown"
+    tokens = estimate_tokens(entry.line)
+
+    note = ""
+    tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+    if isinstance(tool_calls, list) and tool_calls:
+        names = [
+            call.get("function", {}).get("name", "unknown")
+            for call in tool_calls
+            if isinstance(call, dict)
+        ]
+        note = f" [tool_calls: {', '.join(names)}]"
+    elif role == "tool":
+        # Reuse the same "tool (name): ..." prefix the full line already
+        # carries instead of re-deriving the id->name mapping here.
+        prefix = entry.line.split(":", 1)[0]
+        note = f" [{prefix}]"
+
+    return f"[{entry.index}] {role}{note} (~{tokens} tokens)"
+
+
 def build_transcript_skeleton(
     messages: Sequence[ChatCompletionMessageParam],
 ) -> str:
@@ -84,40 +109,62 @@ def build_transcript_skeleton(
     mirroring format_structure_only()'s relationship to expand_trace/grep_trace
     for spans.
 
+    Bounded to ~TOOL_RESULT_TOKEN_BUDGET tokens even though each line is
+    tiny: a transcript of thousands of short messages (e.g. a
+    streaming/high-frequency tool-call agent) can still produce a skeleton
+    that blows past the threshold it exists to enforce. When that happens,
+    a head+tail window is kept — the start frames the scenario, the end is
+    what the judge is actually deciding on — and the elided middle is still
+    reachable via expand_transcript/grep_transcript.
+
     Args:
         messages: The conversation messages.
 
     Returns:
-        Plain text skeleton, one line per message.
+        Plain text skeleton, one line per message (or a head+tail window).
     """
     indexed = _index_messages(messages)
     if not indexed:
         return "No messages recorded."
 
-    lines: List[str] = [f"Messages: {len(indexed)}", ""]
-    for entry in indexed:
-        msg = entry.message
-        role = msg.get("role", "unknown") if isinstance(msg, dict) else "unknown"
-        tokens = estimate_tokens(entry.line)
+    entry_lines = [_skeleton_line(entry) for entry in indexed]
+    header = f"Messages: {len(indexed)}"
+    full_body = "\n".join(entry_lines)
 
-        note = ""
-        tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
-        if isinstance(tool_calls, list) and tool_calls:
-            names = [
-                call.get("function", {}).get("name", "unknown")
-                for call in tool_calls
-                if isinstance(call, dict)
-            ]
-            note = f" [tool_calls: {', '.join(names)}]"
-        elif role == "tool":
-            # Reuse the same "tool (name): ..." prefix the full line already
-            # carries instead of re-deriving the id->name mapping here.
-            prefix = entry.line.split(":", 1)[0]
-            note = f" [{prefix}]"
+    if estimate_tokens(full_body) <= TOOL_RESULT_TOKEN_BUDGET:
+        return f"{header}\n\n{full_body}"
 
-        lines.append(f"[{entry.index}] {role}{note} (~{tokens} tokens)")
+    half_budget = TOOL_RESULT_TOKEN_BUDGET // 2
+    head: List[str] = []
+    head_tokens = 0
+    for line in entry_lines:
+        line_tokens = estimate_tokens(line)
+        if head and head_tokens + line_tokens > half_budget:
+            break
+        head.append(line)
+        head_tokens += line_tokens
 
-    return "\n".join(lines)
+    tail: List[str] = []
+    tail_tokens = 0
+    for line in reversed(entry_lines[len(head):]):
+        line_tokens = estimate_tokens(line)
+        if tail and tail_tokens + line_tokens > half_budget:
+            break
+        tail.append(line)
+        tail_tokens += line_tokens
+    tail.reverse()
+
+    omitted = len(entry_lines) - len(head) - len(tail)
+    middle = (
+        [
+            f"... [{omitted} messages omitted — use grep_transcript(pattern) "
+            "or expand_transcript(indices) to reach them] ..."
+        ]
+        if omitted > 0
+        else []
+    )
+    body = "\n".join(head + middle + tail)
+    return f"{header}\n\n{body}"
 
 
 def expand_transcript(
@@ -157,9 +204,10 @@ def expand_transcript(
         except (TypeError, ValueError):
             malformed.append(raw)
 
+    parsed_index_set = set(parsed_indices)
     valid_range = range(len(indexed))
-    selected = [entry for entry in indexed if entry.index in parsed_indices]
-    out_of_range = sorted(set(parsed_indices) - set(valid_range))
+    selected = [entry for entry in indexed if entry.index in parsed_index_set]
+    out_of_range = sorted(parsed_index_set - set(valid_range))
 
     if not selected:
         return (
