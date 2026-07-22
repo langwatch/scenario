@@ -17,11 +17,13 @@ agent adapter.
 """
 
 import json
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scenario import JudgeAgent
+from scenario._judge.transcript_tools import expand_transcript
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
@@ -279,3 +281,34 @@ class TestGrepTranscriptTool:
 
             assert call_count == 2
             assert "sales_13" in captured["content"]
+
+
+class TestExpandTranscriptMalformedIndices:
+    """expand_transcript is reachable from an LLM tool call, so a
+    misbehaving/lax provider (not every litellm-routed model enforces
+    function-call argument types as strictly as OpenAI) sending non-integer
+    array entries must not crash the discovery loop.
+    """
+
+    def test_non_integer_indices_do_not_raise(self) -> None:
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        # Should not raise TypeError from sorting a mixed-type set. Args are
+        # deliberately malformed (as if a lax provider ignored the schema),
+        # hence the cast past expand_transcript's List[int] signature.
+        result = expand_transcript(cast(Any, messages), indices=cast(Any, ["1", 5]))
+        assert "[1] assistant" in result
+        assert "Ignored out-of-range indices: [5]" in result
+
+    def test_unparseable_indices_are_reported_not_raised(self) -> None:
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        result = expand_transcript(
+            cast(Any, messages), indices=cast(Any, [None, {}, "1"])
+        )
+        assert "[1] assistant" in result
+        assert "Ignored non-integer indices" in result

@@ -143,9 +143,23 @@ def expand_transcript(
     if len(indices) == 0:
         return "Error: provide at least one message index."
 
+    # Defensive: the tool schema declares `indices` as integers, but not
+    # every litellm-routed provider enforces function-call argument types as
+    # strictly as OpenAI does. A non-integer entry (e.g. a stringified "2")
+    # must not crash the discovery loop -- coerce what's coercible and drop
+    # the rest instead of raising (sorting a mixed-type set below would
+    # otherwise TypeError).
+    parsed_indices: List[int] = []
+    malformed: List[Any] = []
+    for raw in indices:
+        try:
+            parsed_indices.append(int(raw))
+        except (TypeError, ValueError):
+            malformed.append(raw)
+
     valid_range = range(len(indexed))
-    selected = [entry for entry in indexed if entry.index in indices]
-    invalid = sorted(set(indices) - set(valid_range))
+    selected = [entry for entry in indexed if entry.index in parsed_indices]
+    out_of_range = sorted(set(parsed_indices) - set(valid_range))
 
     if not selected:
         return (
@@ -156,8 +170,10 @@ def expand_transcript(
     lines: List[str] = []
     for entry in selected:
         lines.append(f"[{entry.index}] {entry.line}")
-    if invalid:
-        lines.append(f"\n[Ignored out-of-range indices: {invalid}]")
+    if out_of_range:
+        lines.append(f"\n[Ignored out-of-range indices: {out_of_range}]")
+    if malformed:
+        lines.append(f"\n[Ignored non-integer indices: {malformed}]")
 
     return _truncate_to_char_budget("\n".join(lines).rstrip())
 
