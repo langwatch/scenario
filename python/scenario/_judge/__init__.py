@@ -13,6 +13,7 @@ from .judge_span_digest_formatter import (
 )
 from .judge_utils import JudgeUtils
 from .trace_tools import expand_trace, grep_trace
+from .transcript_tools import expand_transcript, grep_transcript
 
 __all__ = [
     "DEFAULT_TOKEN_THRESHOLD",
@@ -20,6 +21,8 @@ __all__ = [
     "JudgeUtils",
     "estimate_tokens",
     "expand_trace",
+    "expand_transcript",
     "grep_trace",
+    "grep_transcript",
     "judge_span_digest_formatter",
 ]

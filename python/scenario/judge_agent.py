@@ -15,6 +15,7 @@ from typing import Any, List, Optional, Sequence, cast
 import litellm
 from litellm import Choices
 from litellm.files.main import ModelResponse
+from openai.types.chat import ChatCompletionMessageParam
 
 from scenario.cache import scenario_cache
 from scenario.agent_adapter import AgentAdapter
@@ -24,6 +25,11 @@ from ._error_messages import agent_not_configured_error_message
 from ._judge import JudgeUtils, judge_span_digest_formatter
 from ._judge.estimate_tokens import estimate_tokens, DEFAULT_TOKEN_THRESHOLD
 from ._judge.trace_tools import expand_trace, grep_trace
+from ._judge.transcript_tools import (
+    build_transcript_skeleton,
+    expand_transcript,
+    grep_transcript,
+)
 from ._tracing import judge_span_collector, JudgeSpanCollector
 from .types import AgentInput, AgentReturnTypes, AgentRole, ScenarioResult
 from .voice._transcribe import transcribe_segments
@@ -33,7 +39,9 @@ from .voice.modality_resolver import ModalityTier, resolve_modality
 logger = logging.getLogger("scenario")
 
 
-_DISCOVERY_TOOL_NAMES = frozenset({"expand_trace", "grep_trace"})
+_DISCOVERY_TOOL_NAMES = frozenset(
+    {"expand_trace", "grep_trace", "expand_transcript", "grep_transcript"}
+)
 
 
 def _stringify_tool_output(output: Any) -> str:
@@ -491,7 +499,26 @@ class JudgeAgent(AgentAdapter):
                 )
         transcript = JudgeUtils.build_transcript_from_messages(working_messages)
         spans = self._span_collector.get_spans_for_thread(input.thread_id)
-        digest, is_large_trace = self._build_trace_digest(spans)
+        digest, is_large_span_trace = self._build_trace_digest(spans)
+
+        # The transcript is built from input.messages regardless of whether
+        # the agent under test routed its calls through litellm, so it can be
+        # arbitrarily large even when `spans` (litellm-only) stays small and
+        # `is_large_span_trace` never trips (issue #836). Gate the transcript
+        # itself on its own estimated size, independent of the span digest,
+        # so an agent whose tool calls never became spans still gets bounded
+        # transcript rendering + discovery tools instead of an unbounded
+        # block silently flowing into the judge prompt.
+        is_large_transcript = estimate_tokens(transcript) > self._token_threshold
+        is_large_trace = is_large_span_trace or is_large_transcript
+
+        if is_large_transcript:
+            transcript_for_prompt = (
+                build_transcript_skeleton(working_messages)
+                + "\n\nUse expand_transcript(indices) to see full message content or grep_transcript(pattern) to search across messages. Reference messages by the index shown in brackets."
+            )
+        else:
+            transcript_for_prompt = transcript
 
         logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
@@ -508,7 +535,7 @@ class JudgeAgent(AgentAdapter):
 
         content_for_judge = f"""
 <transcript>
-{transcript}
+{transcript_for_prompt}
 </transcript>
 <opentelemetry_traces>
 {digest}
@@ -627,8 +654,10 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             },
         ]
 
-        if is_large_trace:
+        if is_large_span_trace:
             tools = self._build_progressive_discovery_tools() + tools
+        if is_large_transcript:
+            tools = self._build_transcript_discovery_tools() + tools
 
         enforce_judgment = input.judgment_request is not None
         has_criteria = len(effective_criteria) > 0
@@ -653,6 +682,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 tools=tools,
                 tool_choice=tool_choice,
                 spans=spans,
+                working_messages=working_messages,
                 effective_criteria=effective_criteria,
                 input_messages=input.messages,
             )
@@ -763,6 +793,63 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             },
         ]
 
+    def _build_transcript_discovery_tools(self) -> List[dict]:
+        """
+        Builds the expand_transcript and grep_transcript tool definitions for
+        litellm. Parallel to ``_build_progressive_discovery_tools``, but for
+        message-transcript discovery instead of span discovery (see
+        ``transcript_tools.py`` for why the two need to be independent).
+
+        Returns:
+            List of tool definition dicts for litellm function calling.
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "expand_transcript",
+                    "description": (
+                        "Expand one or more messages to see their full content. "
+                        "Use the message index shown in brackets in the transcript "
+                        "skeleton."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "indices": {
+                                "type": "array",
+                                "items": {"type": "integer"},
+                                "description": "0-based message indices to expand",
+                            },
+                        },
+                        "required": ["indices"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "grep_transcript",
+                    "description": (
+                        "Search across all message content for a pattern "
+                        "(case-insensitive). Returns matching messages with context."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {
+                                "type": "string",
+                                "description": "Search pattern (case-insensitive)",
+                            },
+                        },
+                        "required": ["pattern"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ]
+
     def _run_discovery_loop(
         self,
         *,
@@ -770,25 +857,29 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         tools: List[dict],
         tool_choice: Any,
         spans: Sequence[Any],
+        working_messages: Sequence[ChatCompletionMessageParam],
         effective_criteria: List[str],
         input_messages: Sequence[Any],
     ) -> AgentReturnTypes:
         """
         Runs the multi-step discovery loop for large traces.
 
-        The judge can call expand_trace/grep_trace tools multiple times before
-        reaching a terminal tool (finish_test/continue_test) or hitting the
-        max discovery steps limit.
+        The judge can call expand_trace/grep_trace (spans) and/or
+        expand_transcript/grep_transcript (messages) tools multiple times
+        before reaching a terminal tool (finish_test/continue_test) or
+        hitting the max discovery steps limit.
 
         On intermediate steps, tool_choice is "required" so the judge can freely
-        pick expand_trace/grep_trace. On the final step, the original tool_choice
+        pick a discovery tool. On the final step, the original tool_choice
         (which may force finish_test) is applied.
 
         Args:
             messages: The conversation messages so far.
             tools: The tool definitions.
             tool_choice: The tool choice constraint for the final step.
-            spans: The spans for executing expand/grep tools.
+            spans: The spans for executing expand_trace/grep_trace.
+            working_messages: The conversation messages for executing
+                expand_transcript/grep_transcript.
             effective_criteria: The criteria to judge against.
 
         Returns:
@@ -855,7 +946,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             })
 
             for tc in message.tool_calls:
-                tool_result = self._execute_discovery_tool(tc, spans)
+                tool_result = self._execute_discovery_tool(tc, spans, working_messages)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -927,13 +1018,21 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             forced_response, effective_criteria, rewritten_messages, input_messages=input_messages
         )
 
-    def _execute_discovery_tool(self, tool_call: Any, spans: Sequence[Any]) -> str:
+    def _execute_discovery_tool(
+        self,
+        tool_call: Any,
+        spans: Sequence[Any],
+        working_messages: Sequence[ChatCompletionMessageParam],
+    ) -> str:
         """
-        Executes an expand_trace or grep_trace tool call.
+        Executes an expand_trace, grep_trace, expand_transcript, or
+        grep_transcript tool call.
 
         Args:
             tool_call: The tool call from the LLM response.
-            spans: The spans to operate on.
+            spans: The spans to operate on for expand_trace/grep_trace.
+            working_messages: The conversation messages to operate on for
+                expand_transcript/grep_transcript.
 
         Returns:
             The tool result string.
@@ -950,6 +1049,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )
         elif tool_call.function.name == "grep_trace":
             return grep_trace(spans, args.get("pattern", ""))
+        elif tool_call.function.name == "expand_transcript":
+            return expand_transcript(
+                working_messages,
+                indices=args.get("indices", []),
+            )
+        elif tool_call.function.name == "grep_transcript":
+            return grep_transcript(working_messages, args.get("pattern", ""))
         else:
             return f"Unknown tool: {tool_call.function.name}"
 
