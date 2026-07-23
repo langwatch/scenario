@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import scenario
+from scenario.config import ScenarioConfig
 from scenario.voice import (
     AudioChunk,
     ElevenLabsSTTProvider,
@@ -25,6 +27,20 @@ class FakeSTT(STTProvider):
     async def transcribe(self, audio: AudioChunk) -> str:
         self.calls.append(audio)
         return self.canned
+
+
+def test_configure_sets_stt_provider():
+    previous_config = ScenarioConfig.default_config
+    previous_provider = get_stt_provider()
+    fake = FakeSTT()
+    try:
+        scenario.configure(stt=fake)
+        assert get_stt_provider() is fake
+        scenario.configure(default_model="none")
+        assert get_stt_provider() is fake
+    finally:
+        ScenarioConfig.default_config = previous_config
+        set_stt_provider(previous_provider)
 
 
 @pytest.mark.asyncio
@@ -61,6 +77,7 @@ def test_stt_provider_is_abstract():
 
 
 # ---------------------------------------------------------------- ElevenLabsSTTProvider
+
 
 def test_elevenlabs_stt_provider_implements_interface():
     """ElevenLabsSTTProvider must be an STTProvider with no ElevenLabs types leaking."""

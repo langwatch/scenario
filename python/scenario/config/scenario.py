@@ -6,10 +6,14 @@ of the Scenario testing framework, including execution parameters and debugging 
 """
 
 import os
-from typing import Any, Dict, Optional, Union, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Union
+
 from pydantic import BaseModel, ConfigDict
 
 from .model import ModelConfig
+
+if TYPE_CHECKING:
+    from ..voice.stt import STTProvider
 
 
 class ScenarioConfig(BaseModel):
@@ -71,6 +75,7 @@ class ScenarioConfig(BaseModel):
         debug: Optional[bool] = None,
         headless: Optional[bool] = None,
         observability: Optional[Dict[str, Any]] = None,
+        stt: Optional["STTProvider"] = None,
     ) -> None:
         """
         Set global configuration settings for all scenario executions.
@@ -84,6 +89,7 @@ class ScenarioConfig(BaseModel):
             verbose: Enable verbose output during scenario execution
             cache_key: Cache key for deterministic scenario behavior across runs
             debug: Enable debug mode for step-by-step execution with user intervention
+            stt: Speech-to-text provider used by voice scenarios
             observability: OpenTelemetry tracing configuration. Accepts:
                 - span_filter: Callable filter (use scenario_only or with_custom_scopes())
                 - span_processors: List of additional SpanProcessors
@@ -124,6 +130,11 @@ class ScenarioConfig(BaseModel):
                 observability=observability,
             )
         )
+
+        if stt is not None:
+            from ..voice.stt import set_stt_provider
+
+            set_stt_provider(stt)
 
     def merge(self, other: "ScenarioConfig") -> "ScenarioConfig":
         """
