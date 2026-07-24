@@ -137,7 +137,7 @@ describe("voice.stt.* back-fill spans (#776)", () => {
     );
     expect(t.attributes["langwatch.span.type"]).toBe("span");
     // The per-run position: nested under the batch span, NOT under a turn span.
-    expect(t.parentSpanId).toBe(
+    expect(t.parentSpanContext?.spanId).toBe(
       spans["voice.stt.backfill"].spanContext().spanId,
     );
 
@@ -168,7 +168,7 @@ describe("voice.stt.* back-fill spans (#776)", () => {
     expect(speakers).toEqual(["agent", "user"]);
     // both children parent under the single batch span
     for (const t of transcribes) {
-      expect(t.parentSpanId).toBe(backfill.spanContext().spanId);
+      expect(t.parentSpanContext?.spanId).toBe(backfill.spanContext().spanId);
     }
     expect(stt.calls).toBe(2);
   });

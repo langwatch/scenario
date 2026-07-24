@@ -64,8 +64,10 @@ export function wrapJudgeForAudioExtraction(judge: AgentAdapter): AgentAdapter {
  */
 function extractTranscriptsFromMessages(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((msg) => {
-    // Check if message has array content (may contain audio + transcripts)
-    if (Array.isArray(msg.content)) {
+    // Check if message has array content (may contain audio + transcripts).
+    // Tool messages are excluded: their content must stay structured tool
+    // results, and audio never arrives on them.
+    if (msg.role !== "tool" && Array.isArray(msg.content)) {
       // Find text part (transcript)
       const textPart = msg.content.find((part) => part.type === "text");
 

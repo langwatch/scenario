@@ -51,7 +51,7 @@ describe("LLM Provider Mocking", () => {
     // No actual LLM call will be made
     mockGenerateText.mockResolvedValue({
       text: "I can help you with that request.",
-    } as GenerateTextResult<ToolSet, unknown>);
+    } as GenerateTextResult<ToolSet, never>);
 
     const result = await scenario.run({
       name: "llm mock test",

@@ -1593,7 +1593,7 @@ wheels = [
 
 [[package]]
 name = "langwatch"
-version = "0.2.19"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -1612,17 +1612,20 @@ dependencies = [
     { name = "pksuid" },
     { name = "pydantic" },
     { name = "python-liquid" },
+    { name = "pyyaml" },
     { name = "retry" },
+    { name = "tenacity" },
     { name = "termcolor" },
+    { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f5/8c/2bb59cfa693f6c5778e97207627bd4edc21124ae6dd3e15e3e588219e6f6/langwatch-0.2.19.tar.gz", hash = "sha256:3e0861a92a1e13b7362fc91c3c27cda8eec554b92cdf7be00c96805b6ec009a4", size = 1265063, upload-time = "2025-09-05T13:34:30.161Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/32/27a3e378957e88d13c191069e43284f3b81ec036955639d305d210ef61af/langwatch-1.0.0.tar.gz", hash = "sha256:99e7231c2c52106df3623f3a1c48f2480baca151b8652b421637f57055838b90", size = 1695367, upload-time = "2026-07-24T18:45:20.925Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/af/5012ff10a2517db17450b17b27f820c08d7fbfe0c561dc6fc20163d81ea8/langwatch-0.2.19-py3-none-any.whl", hash = "sha256:1ba948d0e10eb83c9033c10b4d56737c035bcb14f2b4c162ba8ea8eb13131a5a", size = 456561, upload-time = "2025-09-05T13:34:28.454Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/1a/fe86a35ead4eeb79482b2334036eab201427095adbbca7a00062017fc738/langwatch-1.0.0-py3-none-any.whl", hash = "sha256:2f31ff2dcc4c4561c1f105819e958f60fe94a2c9be8edfb92a0286b6911aa7ca", size = 1308425, upload-time = "2026-07-24T18:45:18.734Z" },
 ]
 
 [[package]]
 name = "langwatch-scenario"
-version = "0.7.31"
+version = "0.7.32"
 source = { editable = "." }
 dependencies = [
     { name = "audioop-lts", marker = "python_full_version >= '3.13'" },
@@ -1700,7 +1703,7 @@ requires-dist = [
     { name = "imageio-ffmpeg", specifier = ">=0.5.0" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "joblib", specifier = ">=1.4.2" },
-    { name = "langwatch", specifier = ">=0.2.19,<0.3" },
+    { name = "langwatch", specifier = ">=1.0.0,<2" },
     { name = "litellm", specifier = ">=1.83.14" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.88.0" },

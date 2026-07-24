@@ -100,8 +100,10 @@ describeFeature(
             const wavPath = resolve(dir, "demo.wav");
             const mp3Path = resolve(dir, "demo.mp3");
             // WAV is written natively; MP3 transcodes via the system ffmpeg.
-            result.audio!.save(wavPath);
-            result.audio!.save(mp3Path);
+            // save() exists at runtime but is not part of the published d.ts.
+            const rec = result.audio! as unknown as { save(path: string): void };
+            rec.save(wavPath);
+            rec.save(mp3Path);
             wavBytes = statSync(wavPath).size;
             mp3Bytes = statSync(mp3Path).size;
 
