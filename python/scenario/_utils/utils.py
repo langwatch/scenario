@@ -507,7 +507,7 @@ def reverse_roles(
             continue
 
         role = safe_attr_or_key(message, "role")
-        new_role = role_map.get(role)  # type: ignore
+        new_role = role_map.get(role)
         if not new_role:
             # Preserve system and other messages unchanged
             reversed_messages.append(message)
@@ -538,9 +538,9 @@ def reverse_roles(
             continue
 
         if isinstance(message, dict):
-            message["role"] = new_role  # type: ignore[typeddict-item]
+            message["role"] = new_role  # type: ignore[reportGeneralTypeIssues]  # new_role is always "user" or "assistant" from role_map, but pyright can't narrow a TypedDict's literal "role" field from a runtime str
         else:
-            message.role = new_role  # type: ignore
+            message.role = new_role
 
         reversed_messages.append(message)
 

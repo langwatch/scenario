@@ -3,6 +3,8 @@ Unit tests for reverse_roles (message role reversal).
 Mirrors the JS messageRoleReversal tests in utils.test.ts.
 """
 
+from types import SimpleNamespace
+
 from scenario._utils.utils import (
     reverse_roles,
     _has_tool_content,
@@ -159,7 +161,7 @@ class TestReverseRoles:
             {"role": "user", "content": "Hello, how are you?"},
             {"role": "user", "content": "What's the weather like?"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "assistant", "content": "Hello, how are you?"},
             {"role": "assistant", "content": "What's the weather like?"},
@@ -170,7 +172,7 @@ class TestReverseRoles:
             {"role": "assistant", "content": "I'm doing well, thank you!"},
             {"role": "assistant", "content": "It's sunny today."},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "user", "content": "I'm doing well, thank you!"},
             {"role": "user", "content": "It's sunny today."},
@@ -182,7 +184,7 @@ class TestReverseRoles:
             {"role": "assistant", "content": "Hi there!"},
             {"role": "user", "content": "How are you?"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "assistant", "content": "Hello"},
             {"role": "user", "content": "Hi there!"},
@@ -195,7 +197,7 @@ class TestReverseRoles:
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi!"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "system", "content": "You are a helpful assistant"},
             {"role": "assistant", "content": "Hello"},
@@ -231,7 +233,7 @@ class TestReverseRoles:
             },
             {"role": "assistant", "content": "The answer is 4"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "assistant", "content": "Calculate 2+2"},
             {"role": "user", "content": '[Called tool calculator with: {"expression": "2+2"}]'},
@@ -259,7 +261,7 @@ class TestReverseRoles:
             {"role": "assistant", "content": "The result is 30"},
             {"role": "user", "content": "Thanks!"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "assistant", "content": "Hello"},
             {"role": "user", "content": "Hi there!"},
@@ -298,7 +300,7 @@ class TestReverseRoles:
                 "content": "headphones: $29.99, in stock",
             },
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "system", "content": "You are pretending to be a user"},
             {"role": "user", "content": "Hello, how can I help you today"},
@@ -329,7 +331,7 @@ class TestReverseRoles:
                 ],
             },
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert len(result) == 1
         assert result[0]["role"] == "user"
         assert '[Called tool search with: {"q": "foo"}]' in str(result[0]["content"])
@@ -351,7 +353,7 @@ class TestReverseRoles:
                 ],
             },
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert len(result) == 1
         assert result[0]["role"] == "user"
         assert "Let me check that for you" not in str(result[0]["content"])
@@ -363,7 +365,7 @@ class TestReverseRoles:
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi!"},
         ]
-        reverse_roles(messages)  # type: ignore[arg-type]
+        reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "assistant"
 
@@ -380,7 +382,7 @@ class TestReverseRoles:
             {"role": "user", "content": "test"},
             {"role": "assistant", "content": None},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [{"role": "assistant", "content": "test"}]
 
     def test_tool_result_without_name_field_resolves_via_tool_calls_map(self):
@@ -401,7 +403,7 @@ class TestReverseRoles:
             },
             {"role": "tool", "tool_call_id": "call_9", "content": "Sunny 22°C"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result[1]["role"] == "user"
         assert result[1]["content"] == "[Tool result from get_weather: Sunny 22°C]"
 
@@ -418,8 +420,23 @@ class TestReverseRoles:
             {"role": "assistant"},  # no content key — should be dropped
             {"role": "assistant", "content": "I can help"},
         ]
-        result = reverse_roles(messages)  # type: ignore[arg-type]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # test messages are plain dict literals, not the specific ChatCompletionMessageParam TypedDict variant pyright infers
         assert result == [
             {"role": "assistant", "content": "Hello"},
             {"role": "user", "content": "I can help"},
         ]
+
+    def test_object_style_message_is_reversed(self):
+        """Production messages from litellm/openai responses are objects
+        (e.g. a litellm Message), not plain dicts — reverse_roles must
+        handle both shapes identically via the object branch (message.role
+        = new_role) rather than only the dict-subscript branch."""
+        messages = [
+            SimpleNamespace(role="user", content="Hello"),
+            SimpleNamespace(role="assistant", content="Hi there!"),
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]  # SimpleNamespace stands in for litellm's object-style Message, not a ChatCompletionMessageParam TypedDict
+        assert result[0].role == "assistant"  # type: ignore[reportAttributeAccessIssue]  # result is really SimpleNamespace at runtime, not the TypedDict pyright infers
+        assert result[0].content == "Hello"  # type: ignore[reportAttributeAccessIssue]
+        assert result[1].role == "user"  # type: ignore[reportAttributeAccessIssue]
+        assert result[1].content == "Hi there!"  # type: ignore[reportAttributeAccessIssue]

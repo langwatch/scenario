@@ -78,9 +78,15 @@ TOOLS = [search_products, check_stock]
 
 
 @scenario.cache()
-def shopping_agent(messages, response_messages: list | None = None) -> scenario.AgentReturnTypes:
+def shopping_agent(
+    messages: list,
+    response_messages: list | None = None,
+    max_tool_turns: int = 5,
+) -> scenario.AgentReturnTypes:
     if response_messages is None:
         response_messages = []
+    if max_tool_turns <= 0:
+        raise RuntimeError("Exceeded max tool-call turns in shopping_agent")
     response = litellm.completion(
         model="openai/gpt-4.1-nano",
         messages=[
@@ -103,7 +109,7 @@ def shopping_agent(messages, response_messages: list | None = None) -> scenario.
         tool_choice="auto",
     )
 
-    message = response.choices[0].message  # type: ignore
+    message = response.choices[0].message  # type: ignore[union-attr]  # litellm's ModelResponse.choices is typed loosely; real completions always return this shape
 
     if message.tool_calls:
         tools_by_name = {tool.__name__: tool for tool in TOOLS}
@@ -126,9 +132,10 @@ def shopping_agent(messages, response_messages: list | None = None) -> scenario.
         return shopping_agent(
             messages,
             [*response_messages, message, *tool_responses],
+            max_tool_turns - 1,
         )
 
-    return [*response_messages, message]  # type: ignore
+    return [*response_messages, message]  # type: ignore[list-item]  # litellm's Message isn't a ChatCompletionMessageParam dict, but AgentReturnTypes accepts either shape at runtime
 
 
 # ── Test ──────────────────────────────────────────────────────────────────────
@@ -148,10 +155,10 @@ async def test_multiturn_shopping_with_tool_calls():
         async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
             return shopping_agent(input.messages)
 
-    def check_search_tool_used(state: scenario.ScenarioState):
+    def check_search_tool_used(state: scenario.ScenarioState) -> None:
         assert state.has_tool_call("search_products"), "Agent should have used search_products"
 
-    def check_stock_tool_used(state: scenario.ScenarioState):
+    def check_stock_tool_used(state: scenario.ScenarioState) -> None:
         assert state.has_tool_call("check_stock"), "Agent should have used check_stock"
 
     result = await scenario.run(
