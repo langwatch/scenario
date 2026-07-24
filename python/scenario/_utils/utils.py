@@ -411,14 +411,21 @@ def _has_tool_content(message: Any) -> bool:
     return False
 
 
-def _summarize_tool_message(message: Any) -> Optional[str]:
+def _summarize_tool_message(
+    message: Any, tool_call_names: Optional[dict[str, str]] = None
+) -> Optional[str]:
     """
     Converts a tool message into a plain-text summary so the user simulator
     understands what the agent did without receiving raw tool protocol messages.
 
     Handles OpenAI message format:
-    - Tool results: {"role": "tool", "tool_call_id": "...", "name": "...", "content": "..."}
+    - Tool results: {"role": "tool", "tool_call_id": "...", "content": "..."}
     - Tool calls: {"role": "assistant", "tool_calls": [{"function": {"name": "...", "arguments": "..."}}]}
+
+    A standard OpenAI tool-result message carries no "name" field — only
+    tool_call_id. tool_call_names maps tool_call_id -> function name, built by
+    the caller from the tool_calls messages that precede this one, so the
+    summary can name the actual tool instead of always saying "unknown tool".
 
     Note: when an assistant message has both text content and tool_calls, the text
     content is intentionally dropped and only the tool calls are summarized. This
@@ -430,7 +437,8 @@ def _summarize_tool_message(message: Any) -> Optional[str]:
     # Handle tool result messages (role == "tool")
     if role == "tool":
         content = safe_attr_or_key(message, "content")
-        name = safe_attr_or_key(message, "name", "unknown tool")
+        tool_call_id = safe_attr_or_key(message, "tool_call_id")
+        name = (tool_call_names or {}).get(tool_call_id, "unknown tool")
         return f"[Tool result from {name}: {_stringify_value(content)}]"
 
     # Handle assistant messages with tool_calls
@@ -476,12 +484,23 @@ def reverse_roles(
         "assistant": "user",
     }
 
+    # Tool-result messages only carry a tool_call_id, not the tool's name — so
+    # resolve it from the tool_calls entries that precede it, matched by id.
+    tool_call_names: dict[str, str] = {}
+    for message in messages:
+        for tool_call in safe_attr_or_key(message, "tool_calls") or []:
+            call_id = safe_attr_or_key(tool_call, "id")
+            function = safe_attr_or_key(tool_call, "function")
+            name = safe_attr_or_key(function, "name") if function else None
+            if call_id and name:
+                tool_call_names[call_id] = name
+
     reversed_messages: list[ChatCompletionMessageParam] = []
     for message in messages:
         message = copy.deepcopy(message)
 
         if _has_tool_content(message):
-            summary = _summarize_tool_message(message)
+            summary = _summarize_tool_message(message, tool_call_names)
             if summary is None:
                 continue
             reversed_messages.append({"role": "user", "content": summary})
@@ -494,18 +513,28 @@ def reverse_roles(
             reversed_messages.append(message)
             continue
 
-        # Skip bare role-only messages that have no content key at all.
-        # Some models (notably Anthropic) occasionally emit {"role": "assistant"}
-        # with no content field; passing that on as {"role": "user"} would cause
-        # an API validation error on the user simulator's next request.
-        # Note: explicit content=None is kept — that is valid in the OpenAI format
-        # for assistant messages that accompany tool_calls.
+        # Skip messages with nothing to say: either the content key is absent
+        # entirely, or present but explicitly None. Some models (notably
+        # Anthropic) occasionally emit {"role": "assistant"} with no content
+        # field, or with content=None and no tool_calls (tool_calls-bearing
+        # messages are already diverted above, so None here is never "valid
+        # because tool_calls is present"). Passing either through would flip
+        # to {"role": "user", "content": None}, which OpenAI and Anthropic
+        # both reject — user messages require non-null content.
         has_content_key = (
             "content" in message
             if isinstance(message, dict)
             else hasattr(message, "content")
         )
         if not has_content_key:
+            continue
+
+        content_value = (
+            message.get("content")
+            if isinstance(message, dict)
+            else getattr(message, "content", None)
+        )
+        if content_value is None:
             continue
 
         if isinstance(message, dict):

@@ -64,23 +64,39 @@ class TestSummarizeToolMessage:
         msg = {
             "role": "tool",
             "tool_call_id": "call_1",
-            "name": "get_weather",
             "content": "Sunny 22°C",
         }
-        assert _summarize_tool_message(msg) == "[Tool result from get_weather: Sunny 22°C]"
+        result = _summarize_tool_message(msg, tool_call_names={"call_1": "get_weather"})
+        assert result == "[Tool result from get_weather: Sunny 22°C]"
 
     def test_tool_result_with_json_content(self):
         msg = {
             "role": "tool",
             "tool_call_id": "call_1",
-            "name": "search",
             "content": '{"results": [1, 2, 3]}',
         }
-        assert _summarize_tool_message(msg) == '[Tool result from search: {"results": [1, 2, 3]}]'
+        result = _summarize_tool_message(msg, tool_call_names={"call_1": "search"})
+        assert result == '[Tool result from search: {"results": [1, 2, 3]}]'
 
-    def test_tool_result_missing_name(self):
+    def test_tool_result_unresolved_tool_call_id(self):
+        """When tool_call_id has no matching entry in tool_call_names (e.g. the
+        history was truncated and the tool_calls message fell out of view),
+        fall back to a generic label rather than erroring."""
         msg = {"role": "tool", "tool_call_id": "call_1", "content": "data"}
         assert _summarize_tool_message(msg) == "[Tool result from unknown tool: data]"
+
+    def test_tool_result_name_resolved_via_map_not_message_field(self):
+        """Standard OpenAI tool-result messages carry no 'name' field — a
+        'name' key on the raw message is ignored; the real tool name always
+        comes from tool_call_names, resolved via tool_call_id."""
+        msg = {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "name": "wrong_name",
+            "content": "data",
+        }
+        result = _summarize_tool_message(msg, tool_call_names={"call_1": "real_name"})
+        assert result == "[Tool result from real_name: data]"
 
     def test_assistant_with_single_tool_call(self):
         msg = {
@@ -351,21 +367,43 @@ class TestReverseRoles:
         assert messages[0]["role"] == "user"
         assert messages[1]["role"] == "assistant"
 
-    def test_explicit_none_content_is_reversed(self):
-        """An assistant message with explicit content=None is kept and reversed.
-
-        This is valid in OpenAI format (e.g. an assistant turn that preceded
-        a tool_call but whose tool_calls were already stripped upstream).
-        It is distinct from a message with no 'content' key at all.
+    def test_explicit_none_content_without_tool_calls_is_dropped(self):
+        """An assistant message with content=None and no tool_calls has
+        nothing to say once reversed. Flipping it to
+        {"role": "user", "content": None} would violate the OpenAI/Anthropic
+        user-message schema (content is required on a user message), so it
+        is dropped rather than kept — distinct from a message whose
+        content=None accompanies tool_calls, which is diverted to the
+        tool-summary branch before this guard ever runs.
         """
         messages = [
             {"role": "user", "content": "test"},
             {"role": "assistant", "content": None},
         ]
         result = reverse_roles(messages)  # type: ignore[arg-type]
-        assert result[0]["role"] == "assistant"
+        assert result == [{"role": "assistant", "content": "test"}]
+
+    def test_tool_result_without_name_field_resolves_via_tool_calls_map(self):
+        """Standard OpenAI tool-result messages have no 'name' field — only
+        tool_call_id. reverse_roles must resolve the real tool name from the
+        preceding tool_calls message rather than printing 'unknown tool'."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_9",
+                        "type": "function",
+                        "function": {"name": "get_weather", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_9", "content": "Sunny 22°C"},
+        ]
+        result = reverse_roles(messages)  # type: ignore[arg-type]
         assert result[1]["role"] == "user"
-        assert result[1]["content"] is None
+        assert result[1]["content"] == "[Tool result from get_weather: Sunny 22°C]"
 
     def test_bare_role_only_message_is_dropped(self):
         """Messages with no 'content' key at all are silently dropped.
