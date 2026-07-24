@@ -95,7 +95,7 @@ describe.skipIf(skipInCi)("OpenAiVoiceAgent", () => {
 
     // Verify response contains audio data
     const hasAudio = content.some(
-      (part: FilePart) => part.type === "file" && part.mediaType === "audio/wav"
+      (part) => part.type === "file" && part.mediaType === "audio/wav"
     );
     expect(hasAudio).toBe(true);
 
@@ -106,7 +106,7 @@ describe.skipIf(skipInCi)("OpenAiVoiceAgent", () => {
     }
 
     const audioPart = content.find(
-      (part: FilePart) => part.type === "file" && part.mediaType === "audio/wav"
+      (part) => part.type === "file" && part.mediaType === "audio/wav"
     ) as FilePart;
 
     if (audioPart) {
@@ -197,10 +197,10 @@ describe.skipIf(skipInCi)("OpenAiVoiceAgent", () => {
 
     // Verify both responses contain audio data
     const firstHasAudio = firstResponseContent.some(
-      (part: FilePart) => part.type === "file" && part.mediaType === "audio/wav"
+      (part) => part.type === "file" && part.mediaType === "audio/wav"
     );
     const secondHasAudio = secondResponseContent.some(
-      (part: FilePart) => part.type === "file" && part.mediaType === "audio/wav"
+      (part) => part.type === "file" && part.mediaType === "audio/wav"
     );
 
     expect(firstHasAudio).toBe(true);
@@ -222,7 +222,7 @@ describe.skipIf(skipInCi)("OpenAiVoiceAgent", () => {
       filename: string
     ) => {
       const audioPart = responseContent.find(
-        (part: FilePart) =>
+        (part) =>
           part.type === "file" && part.mediaType === "audio/wav"
       ) as FilePart;
 
