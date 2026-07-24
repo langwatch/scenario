@@ -277,8 +277,8 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
     const spans = byName(exporter.getFinishedSpans());
     const turn = spans["voice.turn"];
     expect(turn.attributes["voice.adapter.class"]).toBe("TwilioAgentAdapter");
-    expect(spans["voice.audio.send"].parentSpanId).toBe(turn.spanContext().spanId);
-    expect(spans["voice.audio.receive"].parentSpanId).toBe(turn.spanContext().spanId);
+    expect(spans["voice.audio.send"].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
+    expect(spans["voice.audio.receive"].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
   });
 
   // --- T2 (connect attrs) ---------------------------------------------------
@@ -784,7 +784,7 @@ describe("voice.twilio.* span instrumentation (#775)", () => {
       expect(bg.length).toBeGreaterThanOrEqual(1);
       // Core assertion: parented directly under the turn, NOT a detached/closed
       // span (the loop's frozen scheduling-time context).
-      expect(bg[0].parentSpanId).toBe(turn.spanContext().spanId);
+      expect(bg[0].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
       expect(bg[0].attributes["voice.audio.bytes"]).toBeGreaterThan(0);
     });
 

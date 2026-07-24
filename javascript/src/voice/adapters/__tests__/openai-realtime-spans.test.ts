@@ -250,7 +250,7 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
     expect(spans["voice.turn"].attributes["voice.adapter.class"]).toBe(
       "OpenAIRealtimeAgentAdapter",
     );
-    expect(spans["voice.audio.receive"].parentSpanId).toBe(
+    expect(spans["voice.audio.receive"].parentSpanContext?.spanId).toBe(
       spans["voice.turn"].spanContext().spanId,
     );
 
@@ -407,10 +407,10 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
     // input's agentAudioMsg carries a real 2400-byte silentChunk(0.05), so
     // _extractHeardAudio returns truthy and this span actually emits.
     expect(spans["voice.audio.send"]).toBeDefined();
-    expect(spans["voice.audio.send"].parentSpanId).toBe(turn.spanContext().spanId);
+    expect(spans["voice.audio.send"].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
     const recv = spans["voice.audio.receive"];
     expect(recv).toBeDefined();
-    expect(recv.parentSpanId).toBe(turn.spanContext().spanId);
+    expect(recv.parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
     expect(eventNames(recv)).toEqual(
       expect.arrayContaining(["voice.realtime.response.created", "voice.realtime.response.done"]),
     );

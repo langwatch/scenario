@@ -211,7 +211,7 @@ describe("Pipecat voice.* span instrumentation (#774)", () => {
     );
     expect(bg.length).toBeGreaterThanOrEqual(1);
     // Core AC: parented directly under the turn, not a detached/root span.
-    expect(bg[0].parentSpanId).toBe(turn.spanContext().spanId);
+    expect(bg[0].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
     expect(bg[0].attributes["voice.audio.bytes"]).toBeGreaterThan(0);
   });
 

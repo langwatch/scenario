@@ -57,14 +57,14 @@
   "dependencies": {
     "@ag-ui/core": "^0.0.28",
     "@ai-sdk/openai": "^3.0.26",
+    "@elevenlabs/elevenlabs-js": "^2.51.0",
     "@openai/agents": "^0.3.3",
     "@opentelemetry/sdk-node": "0.217.0",
     "ai": "^6.0.0",
     "chalk": "^5.6.2",
-    "@elevenlabs/elevenlabs-js": "^2.51.0",
     "ffmpeg-static": "5.3.0",
     "fft.js": "4.0.4",
-    "langwatch": "0.16.1",
+    "langwatch": "0.37.0",
     "open": "11.0.0",
     "openai": "^6.9.1",
     "rxjs": "^7.8.2",
@@ -74,11 +74,11 @@
   },
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^6.5.0",
-    "@types/ws": "^8.18.1",
     "@eslint/js": "^9.39.1",
     "@google/genai": "^2.5.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/parser": "^8.48.0",
     "@typescript/native-preview": "7.0.0-dev.20251128.1",
     "@vitest/coverage-v8": "4.0.14",
@@ -124,9 +124,9 @@
     }
   },
   "peerDependencies": {
+    "@google/genai": ">=2.0.0",
     "ai": ">=6.0.0",
-    "vitest": ">=3.2.4",
-    "@google/genai": ">=2.0.0"
+    "vitest": ">=3.2.4"
   },
   "peerDependenciesMeta": {
     "@google/genai": {

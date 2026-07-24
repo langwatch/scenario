@@ -38,6 +38,6 @@
   },
   "dependencies": {
     "@opentelemetry/sdk-node": "^0.212.0",
-    "langwatch": "^0.16.1"
+    "langwatch": ">=0.16.1 <2.0.0"
   }
 }

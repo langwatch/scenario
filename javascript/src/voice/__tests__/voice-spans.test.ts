@@ -164,8 +164,8 @@ describe("voice.* span instrumentation (base runtime)", () => {
     const turn = spans["voice.turn"];
     expect(turn.attributes["voice.adapter.class"]).toBe("ScriptedAdapter");
     expect(turn.attributes["voice.turn.latency_ms"]).toBeTypeOf("number");
-    expect(spans["voice.audio.send"].parentSpanId).toBe(turn.spanContext().spanId);
-    expect(spans["voice.audio.receive"].parentSpanId).toBe(turn.spanContext().spanId);
+    expect(spans["voice.audio.send"].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
+    expect(spans["voice.audio.receive"].parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
   });
 
   // A6
