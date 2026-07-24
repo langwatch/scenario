@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0](https://github.com/langwatch/scenario/compare/javascript/v0.5.5...javascript/v1.0.0) (2026-07-24)
+
+Stable release. The package surface has been stable for a long time; 1.0.0 makes that explicit.
 
 
 ### ⚠ BREAKING CHANGES
@@ -8,6 +10,17 @@
 * **voice:** `silenceTailBytes` removed from `ElevenLabsAgentAdapterOptions` — no longer needed after the ElevenLabs SDK migration; remove from any adapter config.
 * **voice:** `ELEVENLABS_CONVAI_URL_TEMPLATE` constant removed from public exports — construct the URL directly or read it from the SDK.
 * **voice:** `.url` getter removed from public exports.
+
+
+### Features
+
+* graduate to 1.0.0 ([6379130](https://github.com/langwatch/scenario/commit/6379130a)) 
+* 1.0 release prep, stable classifiers and unstuck langwatch pins ([#842](https://github.com/langwatch/scenario/issues/842)) ([616c506](https://github.com/langwatch/scenario/commit/616c506a))
+
+
+### Code Refactoring
+
+* **voice:** [#707](https://github.com/langwatch/scenario/issues/707) follow-up cleanup bundle ([#716](https://github.com/langwatch/scenario/issues/716)) ([e018d76](https://github.com/langwatch/scenario/commit/e018d769))
 
 ## [0.5.5](https://github.com/langwatch/scenario/compare/javascript/v0.5.4...javascript/v0.5.5) (2026-07-20)
 
