@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.0.0](https://github.com/langwatch/scenario/compare/python/v0.7.32...python/v1.0.0) (2026-07-24)
+
+Stable release. The package surface has been stable for a long time; 1.0.0 makes that explicit. The langwatch dependency floor moves to `>=1.0.0,<2` (older caps resolved a June 2025 langwatch on every install).
+
+
+### Features
+
+* graduate to 1.0.0 ([24feea2](https://github.com/langwatch/scenario/commit/24feea27))
+* 1.0 release prep, stable classifiers and unstuck langwatch pins ([#842](https://github.com/langwatch/scenario/issues/842)) ([616c506](https://github.com/langwatch/scenario/commit/616c506a))
+
+
+### Bug Fixes
+
+* **judge:** protect unbounded judge transcript for non-litellm agents ([#837](https://github.com/langwatch/scenario/issues/837)) ([6604334](https://github.com/langwatch/scenario/commit/66043341))
+* **voice:** bring recv_audio's keepalive hard-ceiling to Python (JS parity) ([#832](https://github.com/langwatch/scenario/issues/832)) ([d61027c](https://github.com/langwatch/scenario/commit/d61027c0))
+
+
+### Code Refactoring
+
+* **voice:** [#707](https://github.com/langwatch/scenario/issues/707) follow-up cleanup bundle ([#716](https://github.com/langwatch/scenario/issues/716)) ([e018d76](https://github.com/langwatch/scenario/commit/e018d769))
+
 ## [0.7.32](https://github.com/langwatch/scenario/compare/python/v0.7.31...python/v0.7.32) (2026-07-20)
 
 
