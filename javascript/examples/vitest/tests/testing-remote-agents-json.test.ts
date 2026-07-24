@@ -104,6 +104,10 @@ describe("Testing Remote Agents - JSON Response", () => {
           body: JSON.stringify({ message: content }),
         });
 
+        if (!response.ok) {
+          throw new Error(`Remote agent returned HTTP ${response.status}`);
+        }
+
         // Parse JSON response and return the agent's message
         const result = (await response.json()) as { response: string };
         return result.response; // Adjust field name to match your API
