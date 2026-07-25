@@ -646,7 +646,7 @@ def write_user_segment(executor, chunk: AudioChunk, start: float, end: float) ->
 
 
 async def reconcile_prior_agent_audio(
-    adapter: "VoiceAgentAdapter", executor: Any, now: float
+    adapter: Any, executor: Any, now: float
 ) -> None:
     """Sweep up agent audio stranded by an early turn close and give it back to
     the utterance that produced it (issue #749; TypeScript parity with #748).
@@ -674,6 +674,13 @@ async def reconcile_prior_agent_audio(
       warning rather than corrupting the append-only cursor.
 
     Adapters that expose no ``reconcile_pending_audio`` are untouched.
+
+    ``adapter`` and ``executor`` are deliberately ``Any``: this helper is
+    duck-typed on both sides — it feature-detects ``reconcile_pending_audio``
+    rather than requiring :class:`VoiceAgentAdapter`, and reads the recording off
+    the executor with ``getattr`` so the lightweight test doubles the recorder
+    already tolerates work here too. Narrowing either to a concrete class would
+    describe a contract this function does not actually enforce.
     """
     reconcile = getattr(adapter, "reconcile_pending_audio", None)
     if reconcile is None:
