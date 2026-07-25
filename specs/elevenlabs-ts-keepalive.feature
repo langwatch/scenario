@@ -79,9 +79,9 @@ Feature: TypeScript ElevenLabsAgentAdapter receiveAudio — keepalive-aware slid
   # ============================================================
 
   @e2e @ts-elevenlabs
-  Scenario: Live single-exchange happy path no longer times out intermittently (AC-KA4)
+  Scenario: The live hosted happy path no longer times out intermittently (AC-KA4)
     Given ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, and OPENAI_API_KEY are all set
-    When the greeting-led agent()→user→agent→judge test in
+    When the greeting-led hosted test in
       javascript/tests/voice/elevenlabs-hosted.test.ts runs twice consecutively
     Then both runs complete without a receiveAudio timed out error
     And the vitest summary shows PASSED (not skipped) for both runs
@@ -101,8 +101,8 @@ Feature: TypeScript ElevenLabsAgentAdapter receiveAudio — keepalive-aware slid
   # AC-KA3 (npm test exits 0, 0 failures, scope includes elevenlabs.test.ts 35 it-blocks)
   #        -> Scenario: All existing adapter unit tests pass after the timerResetters change (AC-KA3)
   #
-  # AC-KA4 (live single-exchange passes twice consecutively, or explicitly waived with AC-KA1 as merge gate)
-  #        -> Scenario: Live single-exchange happy path no longer times out intermittently (AC-KA4)
+  # AC-KA4 (the live hosted happy path passes twice consecutively, or explicitly waived with AC-KA1 as merge gate)
+  #        -> Scenario: The live hosted happy path no longer times out intermittently (AC-KA4)
   #
   # AC-KA5 (socket close drains cleanly; timerResetters cleared; no surviving timer)
   #        -> Scenario: A pending receiveAudio on socket close drains cleanly with no surviving timer (AC-KA5)
