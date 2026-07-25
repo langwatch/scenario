@@ -18,6 +18,8 @@ description: Step-by-step guide to test an OpenAI Realtime voice model with Scen
 
 > **All-in-one key**: unlike the ElevenLabs path, everything here runs on OpenAI: the Realtime model itself, the user simulator TTS, the judge LLM, and the default STT. One key, one provider.
 
+> **Routing through an OpenAI-compatible gateway?** TTS, STT, and the judge LLM follow `OPENAI_BASE_URL` (and `OPENAI_API_BASE` for litellm), so they work with a gateway virtual key. The Realtime websocket always connects directly to OpenAI; set `OPENAI_REALTIME_API_KEY` to a real provider key for it, and the adapter prefers that variable over `OPENAI_API_KEY`.
+
 ---
 
 ## Step 1 — Install

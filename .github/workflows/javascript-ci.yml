@@ -8,6 +8,13 @@
 # that branch protection requires.
 name: javascript-ci
 
+# All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
+# AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
+# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
+env:
+  OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
+  OPENAI_API_BASE: https://gateway.langwatch.ai/v1
+
 on:
   push:
     branches:

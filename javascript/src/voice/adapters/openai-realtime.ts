@@ -88,7 +88,12 @@ export interface OpenAIRealtimeAgentAdapterInit {
   instructions?: string;
   /** Tool definitions passed straight through to the Realtime session. */
   tools?: RealtimeToolDef[];
-  /** Explicit API key; falls back to `process.env.OPENAI_API_KEY`. */
+  /**
+   * Explicit API key; falls back to `process.env.OPENAI_REALTIME_API_KEY`,
+   * then `process.env.OPENAI_API_KEY`. Realtime always connects directly to
+   * OpenAI, so keep a real provider key here when `OPENAI_API_KEY` holds a
+   * gateway virtual key.
+   */
   apiKey?: string;
   /**
    * `AGENT` (default) makes the model the agent under test. `USER` turns
@@ -197,7 +202,16 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
     this.instructions = init.instructions ?? "";
     this.tools = init.tools ?? [];
     this.role = init.role ?? AgentRole.AGENT;
-    this._apiKey = init.apiKey ?? process.env.OPENAI_API_KEY ?? "";
+    // Explicit param, then OPENAI_REALTIME_API_KEY, then OPENAI_API_KEY.
+    // Realtime connects DIRECTLY to OpenAI's websocket (gateways that proxy
+    // the HTTP audio endpoints do not proxy realtime), so when
+    // OPENAI_API_KEY holds a gateway virtual key, OPENAI_REALTIME_API_KEY
+    // carries the real provider key.
+    this._apiKey =
+      init.apiKey ??
+      process.env.OPENAI_REALTIME_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      "";
     this._urlOverride = init.url ?? null;
     this._wsFactory = init.wsFactory ?? null;
   }
