@@ -269,7 +269,11 @@ describe("browser tab handoff", () => {
   });
 
   it("only disables reuse when the state directory is unusable", async () => {
-    process.env.LANGWATCH_STATE_DIR = "/proc/nonexistent/cannot-write";
+    // A regular file where a directory has to go: unusable on every platform,
+    // unlike a hardcoded /proc path that only fails on Linux.
+    const blocker = path.join(stateDir, "not-a-directory");
+    fs.writeFileSync(blocker, "");
+    process.env.LANGWATCH_STATE_DIR = path.join(blocker, "state");
 
     const server = await FakeLangWatch.start({ delivered: true });
     try {

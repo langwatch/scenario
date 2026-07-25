@@ -126,6 +126,8 @@ def scenario_tab_key() -> Optional[str]:
         if existing:
             return existing
     except (OSError, ValueError):
+        # No key yet, or one we cannot read. Either way the answer is the same:
+        # mint a fresh one below.
         pass
 
     key = uuid.uuid4().hex
@@ -167,11 +169,22 @@ def _throttle_path() -> Path:
 def _read_throttle() -> Dict[str, float]:
     try:
         raw = json.loads(_throttle_path().read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            return {str(k): float(v) for k, v in raw.items()}
-    except (OSError, ValueError, TypeError):
-        pass
-    return {}
+    except (OSError, ValueError):
+        # No record yet, or an unreadable one — either way, nothing to honour.
+        return {}
+
+    if not isinstance(raw, dict):
+        return {}
+
+    # One malformed entry must not throw away the rest: the file is a
+    # best-effort guard, and dropping it wholesale would reopen every set.
+    entries: Dict[str, float] = {}
+    for key, value in raw.items():
+        try:
+            entries[str(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return entries
 
 
 def _opened_recently(set_key: str, now: float) -> bool:

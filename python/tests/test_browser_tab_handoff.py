@@ -306,8 +306,14 @@ def test_the_tab_key_is_shared_with_the_typescript_sdk(isolated_state):
     assert key_file.read_text(encoding="utf-8").strip() == key
 
 
-def test_a_missing_state_directory_only_disables_reuse(monkeypatch, opener):
-    monkeypatch.setenv("LANGWATCH_STATE_DIR", "/proc/nonexistent/cannot-write")
+def test_a_missing_state_directory_only_disables_reuse(
+    monkeypatch, opener, tmp_path
+):
+    # A regular file where a directory has to go: unusable on every platform,
+    # unlike a hardcoded /proc path that only fails on Linux.
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LANGWATCH_STATE_DIR", str(blocker / "state"))
 
     server = FakeLangWatch(delivered=True)
     try:
