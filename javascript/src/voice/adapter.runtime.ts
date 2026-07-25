@@ -721,8 +721,8 @@ async function drainInner(
   );
   if (first.data.length > 0) {
     onFirstChunk();
+    speakingEvent.set();
   }
-  speakingEvent.set();
 
   const chunks: AudioChunk[] = [first];
   let accumulated = first.durationSeconds;
