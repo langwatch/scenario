@@ -84,6 +84,32 @@ adapter = scenario.ElevenLabsAgentAdapter(
 )
 ```
 
+## Turn boundaries
+
+ElevenLabs delivers agent audio in bursts. A delivery gap longer than
+`response_tail_silence` (0.6s by default) closes the turn while the agent is
+still speaking, which would otherwise leave the rest of the utterance to surface
+as the *next* turn's opening audio — making reply N+1 look like an answer to
+question N.
+
+At each user-turn boundary the adapter sweeps up any agent audio still in flight
+and attributes it to the turn that produced it. When that happens you'll see:
+
+```
+ElevenLabsAgentAdapter: recovered 41280 bytes of agent audio stranded by an
+early turn close and attributed them to the preceding agent turn. Raise
+response_tail_silence if this recurs.
+```
+
+That warning is informational, not a failure. If it fires on most turns your
+agent's delivery is gappier than the default tolerates, so raise
+`response_tail_silence`:
+
+```python [python]
+adapter = scenario.ElevenLabsAgentAdapter(agent_id=..., api_key=...)
+adapter.response_tail_silence = 1.2
+```
+
 ## Agent-initiated hangup
 
 Hosted agents commonly end a call themselves by invoking the `end_call` system

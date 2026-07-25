@@ -117,6 +117,15 @@ PUMP_INTERVAL_S = 0.02
 #: against. Mirrors TS ``SILENCE_FRAME`` (``adapters/elevenlabs.ts:144``).
 SILENCE_FRAME = b"\x00" * PUMP_FRAME_BYTES
 
+#: Wall-clock budget for one turn-boundary reconcile sweep. Long enough to
+#: recover a burst already in flight, short enough that a turn boundary never
+#: visibly stalls. See ``reconcile_pending_audio``.
+RECONCILE_BUDGET_S: Final[float] = 0.4
+
+#: Per-poll idle timeout inside a reconcile sweep. Once this much time passes
+#: with nothing arriving, the prior turn really is finished.
+RECONCILE_POLL_S: Final[float] = 0.12
+
 #: EL system tools whose successful invocation means the AGENT ended the call,
 #: so the socket close that follows is deliberate rather than a dropped
 #: transport (issue #839). ``transfer_to_*`` also hands the caller off and ends
@@ -565,6 +574,61 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 # zeros so the pump only ever feeds fixed-size frames.
                 slice_ = slice_ + b"\x00" * (PUMP_FRAME_BYTES - len(slice_))
             self._outbound_frames.append(slice_)
+
+    async def reconcile_pending_audio(self) -> Optional[AudioChunk]:
+        """Collect agent audio still in flight at a user-turn boundary.
+
+        The drain closes a turn on ``response_tail_silence``. EL delivers audio
+        in bursts, so a mid-utterance delivery gap longer than that silence ends
+        the turn while the agent is still speaking. Left alone, the remainder is
+        read by the NEXT drain and surfaces as the next agent turn's opening
+        audio — an answer to the previous question attributed to the current one
+        (the split-utterance bleed, issue #749; fixed for TypeScript in #748).
+
+        Called at the pre-user-``send_audio`` boundary and never while a drain is
+        in flight. At that instant the agent cannot have begun its next reply —
+        the user has not spoken yet — so anything still arriving is unambiguously
+        leftover from the PRIOR agent turn. That is what makes attributing it
+        backwards safe.
+
+        Bounded by :data:`RECONCILE_BUDGET_S` of wall clock so a turn boundary
+        never stalls: this recovers the burst already on the wire, it does not
+        wait out a slow agent.
+
+        Duck-typed convention (symmetric with ``last_agent_transcript``): the
+        shared runtime feature-detects this method, so adapters without buffered
+        audio are untouched.
+        """
+        if not self.is_connected():
+            return None
+        collected: list[bytes] = []
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + RECONCILE_BUDGET_S
+        while loop.time() < deadline:
+            try:
+                chunk = await asyncio.wait_for(
+                    self.recv_audio(timeout=RECONCILE_POLL_S),
+                    timeout=max(RECONCILE_POLL_S, deadline - loop.time()),
+                )
+            except asyncio.TimeoutError:
+                # Nothing more immediately available — the prior turn is done.
+                break
+            except Exception:  # noqa: BLE001 — best-effort sweep
+                # The socket went away mid-reconcile, or the transport raised.
+                # This is opportunistic cleanup at a turn boundary; surface it
+                # but never fail the turn over it.
+                logger.debug(
+                    "ElevenLabsAgentAdapter: reconcile sweep ended on transport "
+                    "error; keeping what was collected",
+                    exc_info=True,
+                )
+                break
+            if not chunk.data:
+                break
+            collected.append(chunk.data)
+        if not collected:
+            return None
+        return AudioChunk(data=b"".join(collected))
 
     def _on_agent_audio_begin(self) -> None:
         """Agent turn audio has arrived → engage the post-response pause: the

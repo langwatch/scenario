@@ -324,6 +324,14 @@ class VoiceAgentAdapter(AgentAdapter):
                 extract_audio(input.new_messages[-1]) if input.new_messages else None
             )
             if incoming is not None:
+                # BEFORE the user's audio goes out (and before the user segment
+                # is written, so an agent segment is still last on the cursor):
+                # sweep up any agent audio an early turn close stranded in
+                # flight, so it lands on the turn that produced it instead of
+                # bleeding out as the next turn's opening audio (#749).
+                await reconcile_prior_agent_audio(
+                    self, recorder._executor, recorder._offset()
+                )
                 # Wrap send_audio so user.start = "we began transmitting" and
                 # user.end = "we finished transmitting" — both real flow points.
                 recorder.mark_user_start()
@@ -626,6 +634,73 @@ def write_user_segment(executor, chunk: AudioChunk, start: float, end: float) ->
     _append_segment(executor, "user", start, end, chunk)
     _append_event(executor, VoiceEvent(time=start, type="user_start_speaking"))
     _append_event(executor, VoiceEvent(time=end, type="user_stop_speaking"))
+
+
+async def reconcile_prior_agent_audio(adapter, executor, now: float) -> None:
+    """Sweep up agent audio stranded by an early turn close and give it back to
+    the utterance that produced it (issue #749; TypeScript parity with #748).
+
+    The drain ends a turn on ``response_tail_silence``. A delivery gap longer
+    than that leaves the rest of the agent's utterance in flight, and the next
+    drain shifts it out as the opening audio of the NEXT agent turn — so turn
+    N+1 appears to answer question N. Run at the pre-user-``send_audio``
+    boundary, where the agent cannot yet have begun its next reply, so anything
+    still arriving is unambiguously the prior turn's tail.
+
+    Attribution is position-gated, mirroring the TypeScript reconcile:
+
+    - Cursor-safe (an AGENT segment is still last — the user segment for this
+      turn has not been written yet): grow it. Extending its ``end_time`` and
+      audio cannot overlap a later segment. The segment's transcript is cleared
+      so the finalize STT back-fill re-transcribes the now-longer audio rather
+      than leaving a transcript that covers only the head.
+    - Cursor-unsafe (no recording, the opening greeting with no prior agent
+      segment, or a barge-in where a user segment is last): the audio is already
+      off the wire, so the bleed is prevented either way; it is dropped with a
+      warning rather than corrupting the append-only cursor.
+
+    Adapters that expose no ``reconcile_pending_audio`` are untouched.
+    """
+    reconcile = getattr(adapter, "reconcile_pending_audio", None)
+    if reconcile is None:
+        return
+    try:
+        leftover = await reconcile()
+    except Exception:
+        logger.warning(
+            "%s: turn-boundary reconcile raised; continuing.",
+            type(adapter).__name__,
+            exc_info=True,
+        )
+        return
+    if leftover is None or not leftover.data:
+        return
+
+    recording = getattr(executor, "_voice_recording", None) if executor else None
+    segments = getattr(recording, "segments", None) if recording is not None else None
+    if segments and segments[-1].speaker == "agent":
+        prior = segments[-1]
+        prior.audio += leftover.data
+        prior.end_time = max(prior.end_time, now)
+        # The existing transcript describes only the head of the utterance; let
+        # the finalize back-fill re-transcribe the whole thing.
+        prior.transcript = None
+        _fire_audio_chunk(executor, leftover)
+        logger.warning(
+            "%s: recovered %d bytes of agent audio stranded by an early turn "
+            "close and attributed them to the preceding agent turn. Raise "
+            "response_tail_silence if this recurs.",
+            type(adapter).__name__,
+            len(leftover.data),
+        )
+    else:
+        logger.warning(
+            "%s: discarded %d bytes of stranded agent audio at a user-turn "
+            "boundary (no preceding agent segment to attribute them to). The "
+            "audio is off the wire, so it cannot bleed into the next turn.",
+            type(adapter).__name__,
+            len(leftover.data),
+        )
 
 
 def _append_segment(executor, speaker: str, start: float, end: float, chunk: AudioChunk) -> None:
