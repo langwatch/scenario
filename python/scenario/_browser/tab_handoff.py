@@ -7,8 +7,7 @@ fix has three layers, tried in order:
 1. **Handoff.** LangWatch knows whether a simulations tab opened by this machine
    still has a live connection. If one does, the run is pushed to that tab and
    nothing is opened locally.
-2. **Throttle.** When that question can't be answered (unreachable LangWatch,
-   a timeout, or an instance too old to support it), a small on-disk record
+2. **Throttle.** When that question can't be answered, a small on-disk record
    keeps repeat runs of the same set from opening a second tab within a
    short window.
 3. **Policy.** ``SCENARIO_BROWSER`` (and the older ``SCENARIO_HEADLESS``) decide
