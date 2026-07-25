@@ -699,9 +699,12 @@ async def reconcile_prior_agent_audio(adapter, executor, now: float) -> None:
         )
     else:
         logger.warning(
-            "%s: discarded %d bytes of stranded agent audio at a user-turn "
-            "boundary (no preceding agent segment to attribute them to). The "
-            "audio is off the wire, so it cannot bleed into the next turn.",
+            "%s: discarded %d bytes of agent audio at a user-turn boundary — "
+            "there is no preceding agent segment to attribute them to, and "
+            "growing an out-of-order segment would corrupt the recording. If "
+            "your script does not lead with agent(), this is the on-connect "
+            "greeting arriving after the first user turn was queued; lead with "
+            "agent() so the greeting is drained as its own turn.",
             type(adapter).__name__,
             len(leftover.data),
         )
