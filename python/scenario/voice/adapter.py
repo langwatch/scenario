@@ -332,6 +332,10 @@ class VoiceAgentAdapter(AgentAdapter):
                 await reconcile_prior_agent_audio(
                     self, recorder._executor, recorder._offset()
                 )
+                # The sweep is cleanup of the PREVIOUS turn, so re-stamp the
+                # start: leaving it would bill this turn for time spent draining
+                # the last one and inflate the reported turn latency.
+                _turn_started = time.monotonic()
                 # Wrap send_audio so user.start = "we began transmitting" and
                 # user.end = "we finished transmitting" — both real flow points.
                 recorder.mark_user_start()
@@ -651,9 +655,12 @@ async def reconcile_prior_agent_audio(adapter, executor, now: float) -> None:
 
     - Cursor-safe (an AGENT segment is still last — the user segment for this
       turn has not been written yet): grow it. Extending its ``end_time`` and
-      audio cannot overlap a later segment. The segment's transcript is cleared
-      so the finalize STT back-fill re-transcribes the now-longer audio rather
-      than leaving a transcript that covers only the head.
+      audio cannot overlap a later segment. The transcript is left ALONE: the
+      turn was cut short in AUDIO only — the provider's own ``agent_response``
+      text already covers the whole utterance — so appending the tail makes the
+      two consistent. Clearing it would discard a correct transcript and, for an
+      audio-capable judge (which never runs the STT back-fill), leave the
+      segment with none at all.
     - Cursor-unsafe (no recording, the opening greeting with no prior agent
       segment, or a barge-in where a user segment is last): the audio is already
       off the wire, so the bleed is prevented either way; it is dropped with a
@@ -682,9 +689,6 @@ async def reconcile_prior_agent_audio(adapter, executor, now: float) -> None:
         prior = segments[-1]
         prior.audio += leftover.data
         prior.end_time = max(prior.end_time, now)
-        # The existing transcript describes only the head of the utterance; let
-        # the finalize back-fill re-transcribe the whole thing.
-        prior.transcript = None
         _fire_audio_chunk(executor, leftover)
         logger.warning(
             "%s: recovered %d bytes of agent audio stranded by an early turn "

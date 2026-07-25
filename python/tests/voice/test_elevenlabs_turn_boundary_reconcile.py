@@ -153,9 +153,12 @@ async def test_stranded_audio_grows_the_preceding_agent_segment():
 
     assert prior.audio == b"\x01" * 100 + b"\x33" * 50
     assert prior.end_time == 4.0
-    # Cleared so the finalize STT back-fill re-transcribes the longer audio —
-    # the old transcript covered only the head.
-    assert prior.transcript is None
+    # The transcript is left alone: the turn was cut short in AUDIO only, and
+    # the provider's own agent_response text already covered the whole
+    # utterance, so appending the tail makes the two consistent. Clearing it
+    # would discard a correct transcript — and an audio-capable judge never runs
+    # the STT back-fill that would regenerate one.
+    assert prior.transcript == "head only"
     # Routed through the audio-chunk hook like every other recorded agent chunk.
     assert [c.data for c in executor.fired] == [b"\x33" * 50]
 
