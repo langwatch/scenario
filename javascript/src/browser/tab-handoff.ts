@@ -288,7 +288,7 @@ export async function showBatchRun(
     if (delivered === false) {
       // Authoritative "no tab is listening": open one and skip the throttle,
       // which only exists for servers that cannot answer.
-      return openTab(location, tabKey, opener);
+      return await openTab(location, tabKey, opener);
     }
   }
 
@@ -299,20 +299,25 @@ export async function showBatchRun(
     return "suppressed_by_throttle";
   }
 
-  return openTab(location, tabKey, opener, { setKey, nowSeconds });
+  return await openTab(location, tabKey, opener, { setKey, nowSeconds });
 }
 
-function openTab(
+/**
+ * Awaited on purpose. `open()` only spawns the launcher a few ticks in, so a
+ * fire-and-forget call loses the tab entirely when the scenario process exits
+ * promptly after its last run — and reports success while doing it.
+ */
+async function openTab(
   location: BatchRunLocation,
   tabKey: string | null,
   opener?: (url: string) => void,
   record?: { setKey: string; nowSeconds: number }
-): BrowserOutcome {
+): Promise<BrowserOutcome> {
   const url = tabKey ? withTabKey(location.batchUrl, tabKey) : location.batchUrl;
 
   try {
     if (opener) opener(url);
-    else void open(url);
+    else await open(url);
   } catch (error) {
     logger.debug("Could not open a browser", { error });
     return "failed_to_open";
