@@ -41,8 +41,10 @@ already have open.
 
 Before opening anything, the SDK asks LangWatch whether a simulations tab from this
 machine is still connected. If one is, the run is handed to that tab, which moves
-itself to the new batch and shows a toast; nothing new is opened and your focus is
-never stolen. If no tab is listening, a fresh one opens as before.
+itself to the new batch; nothing new is opened and your focus is never stolen. If
+no tab is listening, a fresh one opens as before. The reused tab carries a small
+"Connected to local run" badge in the set header, so you can tell it apart from
+tabs you opened yourself.
 
 The tab is identified by a key stored in `~/.langwatch/scenario-tab-key`, created
 the first time you run a scenario. Both SDKs read the same file, so a tab opened by
@@ -50,8 +52,9 @@ the first time you run a scenario. Both SDKs read the same file, so a tab opened
 param on the tab Scenario opens, and LangWatch scrubs it from the address bar on
 arrival, so a copied link never carries it.
 
-To stop a tab from following new runs, use **Stop following** in the toast. That
-choice is remembered in that browser.
+Only the tab Scenario opened is steered. For a view that stays put, close that
+tab and open the simulations page yourself: a tab opened by hand never follows
+runs.
 
 ### Choosing a policy
 
