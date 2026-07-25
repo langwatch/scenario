@@ -59,9 +59,10 @@ async def main() -> scenario.ScenarioResult:
     result = await scenario.run(
         name="demo_elevenlabs_hosted",
         description=(
-            "Single greeting-led exchange against a live ElevenLabs Conversational AI "
-            "agent. Greeting plays on connect (real-voice convention), user "
-            "asks a question, agent responds; judge evaluates naturalness."
+            "Greeting-led multi-turn exchange against a live ElevenLabs "
+            "Conversational AI agent. Greeting plays on connect (real-voice "
+            "convention), then two scripted user turns are streamed as real "
+            "audio; judge evaluates naturalness and cross-turn coherence."
         ),
         agents=[
             scenario.ElevenLabsAgentAdapter(
@@ -73,23 +74,25 @@ async def main() -> scenario.ScenarioResult:
                 criteria=[
                     "The agent's initial greeting (sent on connect) is natural and conversational",
                     "The agent and user exchanged real audio turns via the live WebSocket",
-                    "The conversation is a coherent single-turn example of the hosted ElevenLabs Conversational AI path",
+                    "The agent's second reply follows on from the first exchange rather than restarting the conversation",
                 ]
             ),
         ],
         script=[
-            # Real voice convention: EL sends first_message on connect.
-            # Lead with agent() so the greeting drains before user audio
-            # hits the wire. Hosted ElevenLabs ConvAI supports a SINGLE
-            # greeting-led exchange only — a 2nd scripted user() turn times
-            # out (receiveAudio timed out). For multi-turn use a composable
-            # adapter (ElevenLabsVoiceAgent / pipecatAgent).
+            # Real voice convention: EL sends first_message on connect. Lead
+            # with agent() so the greeting drains before user audio hits the
+            # wire. Each user turn is then streamed as real PCM at microphone
+            # cadence followed by closing silence, which is what EL's server
+            # VAD closes a turn on — so a scripted 2nd turn re-engages the way
+            # a real caller would. Mirrors the TS twin.
             scenario.agent(),
             scenario.user("Hello, I have a question about my account."),
             scenario.agent(),
+            scenario.user("Thanks. Can you tell me your support hours?"),
+            scenario.agent(),
             scenario.judge(),
         ],
-        max_turns=6,
+        max_turns=8,
     )
 
     print(f"success: {result.success}")

@@ -131,6 +131,13 @@ class VoiceAgentAdapter(AgentAdapter):
         # we don't fire ``clear`` at a silent SUT. Subclasses that
         # override ``__init__`` must call ``super().__init__()``.
         self._agent_speaking = asyncio.Event()
+        #: SET when the AGENT deliberately ended the call (e.g. an ElevenLabs
+        #: hosted agent invoking the ``end_call`` system tool), as opposed to
+        #: the transport dropping. A scripted turn that arrives after this
+        #: concludes the conversation instead of failing the run — the agent
+        #: behaved as designed. Assertions and judges can read it to reason
+        #: about WHO ended the call.
+        self.agent_hung_up: bool = False
 
     @property
     def _agent_speaking_event(self) -> asyncio.Event:
@@ -277,6 +284,22 @@ class VoiceAgentAdapter(AgentAdapter):
         # — rather than the base "implement your transport" guidance meant for
         # unshipped stubs.
         if not self.is_connected():
+            if self.agent_hung_up:
+                # The AGENT ended the call on purpose (issue #839) — hosted
+                # agents routinely invoke a hangup tool right after their
+                # farewell, which closes the transport. Any scripted turn left
+                # in the script has nobody to talk to, but the agent did
+                # exactly what it was designed to do, so concluding here and
+                # letting the script fall through to the judge is the correct
+                # outcome. Failing the run would punish correct behaviour.
+                # Returning no messages leaves the transcript ending on the
+                # agent's farewell, which is what the judge should assess.
+                logger.info(
+                    "%s: agent ended the call; concluding the conversation "
+                    "instead of failing the remaining scripted turn(s)",
+                    type(self).__name__,
+                )
+                return []
             from .adapters._stub import TransportNotConnectedError
 
             raise TransportNotConnectedError(type(self).__name__)

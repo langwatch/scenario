@@ -58,6 +58,15 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
   abstract readonly capabilities: AdapterCapabilities;
 
   /**
+   * SET when the AGENT deliberately ended the call (e.g. an ElevenLabs hosted
+   * agent invoking the `end_call` system tool), as opposed to the transport
+   * dropping. A scripted turn arriving after this concludes the conversation
+   * instead of failing the run — the agent behaved as designed. Assertions and
+   * judges can read it to reason about WHO ended the call.
+   */
+  agentHungUp = false;
+
+  /**
    * Default `call()` body, ported from Python `VoiceAgentAdapter.call`.
    *
    * Threads the latest user-message audio through {@link sendAudio},
