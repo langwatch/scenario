@@ -82,7 +82,7 @@ Feature: TypeScript ElevenLabsAgentAdapter receiveAudio — keepalive-aware slid
   Scenario: The live hosted happy path no longer times out intermittently (AC-KA4)
     Given ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, and OPENAI_API_KEY are all set
     When the greeting-led hosted test in
-      javascript/tests/voice/elevenlabs-hosted.test.ts runs twice consecutively
+      javascript/examples/vitest/tests/voice/elevenlabs-hosted.test.ts runs twice consecutively
     Then both runs complete without a receiveAudio timed out error
     And the vitest summary shows PASSED (not skipped) for both runs
     Note: this AC is explicitly waivable — if keys are unavailable (as documented in the

@@ -125,19 +125,24 @@ class VoiceAgentAdapter(AgentAdapter):
     # ``super().__init__()`` (mirrors the ``_agent_speaking`` safety-net).
     _voice_turn_context: Optional[Context] = None
 
+    #: SET when the AGENT deliberately ended the call (e.g. an ElevenLabs hosted
+    #: agent invoking the ``end_call`` system tool), as opposed to the transport
+    #: dropping. A scripted turn that arrives after this concludes the
+    #: conversation instead of failing the run — the agent behaved as designed.
+    #: Assertions and judges can read it to reason about WHO ended the call.
+    #:
+    #: Class-level default for the same reason as ``_voice_turn_context``: a
+    #: subclass that skips ``super().__init__()`` would otherwise raise
+    #: AttributeError from the ``call()`` gate instead of the intended
+    #: TransportNotConnectedError. Matches the TS field default (``agentHungUp``).
+    agent_hung_up: bool = False
+
     def __init__(self) -> None:
         # Per-instance event used by the interruption path to wait until
         # the agent is actually speaking before firing an interrupt — so
         # we don't fire ``clear`` at a silent SUT. Subclasses that
         # override ``__init__`` must call ``super().__init__()``.
         self._agent_speaking = asyncio.Event()
-        #: SET when the AGENT deliberately ended the call (e.g. an ElevenLabs
-        #: hosted agent invoking the ``end_call`` system tool), as opposed to
-        #: the transport dropping. A scripted turn that arrives after this
-        #: concludes the conversation instead of failing the run — the agent
-        #: behaved as designed. Assertions and judges can read it to reason
-        #: about WHO ended the call.
-        self.agent_hung_up: bool = False
 
     @property
     def _agent_speaking_event(self) -> asyncio.Event:
@@ -640,7 +645,9 @@ def write_user_segment(executor, chunk: AudioChunk, start: float, end: float) ->
     _append_event(executor, VoiceEvent(time=end, type="user_stop_speaking"))
 
 
-async def reconcile_prior_agent_audio(adapter, executor, now: float) -> None:
+async def reconcile_prior_agent_audio(
+    adapter: "VoiceAgentAdapter", executor: Any, now: float
+) -> None:
     """Sweep up agent audio stranded by an early turn close and give it back to
     the utterance that produced it (issue #749; TypeScript parity with #748).
 

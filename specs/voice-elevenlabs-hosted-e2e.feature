@@ -102,7 +102,7 @@ Feature: Voice E2E against hosted ElevenLabs — real voice-in, multi-turn, per-
     Then the agent's reply contains the supplied value
     And the reply is in the overridden language, proving both survived one handshake
 
-  @unit
+  @integration
   Scenario: Overriding the system prompt is documented as dropping the agent's tools
     Given the ElevenLabs adapter reference page
     When a reader looks up the system-prompt override

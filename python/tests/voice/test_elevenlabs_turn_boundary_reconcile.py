@@ -193,8 +193,8 @@ async def test_cursor_unsafe_drops_rather_than_corrupting_the_cursor():
 
 
 @pytest.mark.asyncio
-async def test_no_recording_is_tolerated():
-    """The opening greeting has no prior segment at all."""
+async def test_empty_recording_is_tolerated():
+    """The opening greeting has no prior segment to attribute to."""
     adapter, socket = await _connected()
     executor = FakeExecutor([])
     socket.deliver_audio(b"\x66" * 20)
@@ -202,6 +202,35 @@ async def test_no_recording_is_tolerated():
     await reconcile_prior_agent_audio(adapter, executor, now=4.0)
 
     assert executor.fired == []
+
+
+@pytest.mark.asyncio
+async def test_executor_without_a_recording_is_tolerated():
+    """Test doubles (and the no-recording path) carry no ``_voice_recording``."""
+
+    class NoRecordingExecutor:
+        def __init__(self) -> None:
+            self.fired: list[AudioChunk] = []
+
+        def _on_audio_chunk(self, chunk: AudioChunk) -> None:
+            self.fired.append(chunk)
+
+    adapter, socket = await _connected()
+    executor = NoRecordingExecutor()
+    socket.deliver_audio(b"\x77" * 20)
+
+    await reconcile_prior_agent_audio(adapter, executor, now=4.0)
+
+    assert executor.fired == []
+
+
+@pytest.mark.asyncio
+async def test_a_null_executor_is_tolerated():
+    """``_AdapterRecorder`` degrades to a no-op executor on lightweight stubs."""
+    adapter, socket = await _connected()
+    socket.deliver_audio(b"\x88" * 20)
+
+    await reconcile_prior_agent_audio(adapter, None, now=4.0)
 
 
 @pytest.mark.asyncio

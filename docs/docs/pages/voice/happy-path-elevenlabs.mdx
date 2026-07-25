@@ -29,7 +29,7 @@ pip install scenario
 ```
 
 ```bash [typescript]
-npm install @langwatch/scenario
+pnpm install @langwatch/scenario vitest
 ```
 
 :::
@@ -261,7 +261,7 @@ jobs:
       # …or TypeScript
       # - uses: actions/setup-node@v4
       #   with: { node-version: '22' }
-      # - run: npm ci && npx vitest run
+      # - run: pnpm install --frozen-lockfile && npx vitest run
         env:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_AGENT_ID: ${{ secrets.ELEVENLABS_AGENT_ID }}

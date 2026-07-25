@@ -111,7 +111,7 @@ def _agent_input() -> AgentInput:
         thread_id="t-839",
         messages=[],
         new_messages=[],
-        scenario_state=None,  # type: ignore[arg-type]
+        scenario_state=None,  # type: ignore[arg-type]  # the connected-state gate under test runs before scenario_state is read
     )
 
 
