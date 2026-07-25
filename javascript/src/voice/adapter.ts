@@ -151,7 +151,13 @@ export abstract class VoiceAgentAdapter extends AgentAdapter {
   /** Transmit an {@link AudioChunk} to the agent under test. */
   abstract sendAudio(chunk: AudioChunk): Promise<void>;
 
-  /** Receive the next {@link AudioChunk} from the agent. */
+  /**
+   * Receive the next {@link AudioChunk} from the agent.
+   *
+   * A deadline expiry must reject with an `Error` whose `name` is
+   * `"TimeoutError"`. The default response drain treats only that signal as
+   * expected tail silence and propagates every other receive failure.
+   */
   abstract receiveAudio(timeout: number): Promise<AudioChunk>;
 
   /**

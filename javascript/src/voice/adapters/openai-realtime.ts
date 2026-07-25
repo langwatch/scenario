@@ -34,6 +34,7 @@ import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
 import { createAudioMessage, extractAudio } from "../messages";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { OPENAI_REALTIME_MODEL, OPENAI_STT_MODEL } from "../voice-models";
 
@@ -1199,7 +1200,9 @@ export class OpenAIRealtimeAgentAdapter extends VoiceAgentAdapter {
         this._waitResolve = null;
         this._waitReject = null;
         reject(
-          new Error("OpenAIRealtimeAgentAdapter: receiveAudio timed out"),
+          new ReceiveTimeoutError(
+            "OpenAIRealtimeAgentAdapter: receiveAudio timed out",
+          ),
         );
       }, Math.max(0, timeoutMs));
       this._waitResolve = (evt) => {

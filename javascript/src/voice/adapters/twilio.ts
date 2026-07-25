@@ -22,6 +22,7 @@ import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes, voiceSpan } from "../telemetry";
 import { sleep } from "../utils";
 
@@ -760,7 +761,11 @@ class InboundQueue {
       const timer = setTimeout(() => {
         const idx = this._waiters.findIndex((w) => w.timer === timer);
         if (idx >= 0) this._waiters.splice(idx, 1);
-        reject(new Error(`TwilioAgentAdapter: no audio received within ${timeoutMs}ms`));
+        reject(
+          new ReceiveTimeoutError(
+            `TwilioAgentAdapter: no audio received within ${timeoutMs}ms`,
+          ),
+        );
       }, timeoutMs);
       this._waiters.push({ resolve, reject, timer });
     });

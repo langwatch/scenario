@@ -29,6 +29,7 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes, voiceReceiveSpanUnder } from "../telemetry";
 import { sleep } from "../utils";
 import { PendingTransportError } from "./pending-transport-error";
@@ -402,7 +403,11 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     return await new Promise<AudioChunk>((resolve, reject) => {
       const timer = setTimeout(() => {
         inbox.waiter = null;
-        reject(new Error(`PipecatAgentAdapter: receiveAudio timed out after ${timeout}s`));
+        reject(
+          new ReceiveTimeoutError(
+            `PipecatAgentAdapter: receiveAudio timed out after ${timeout}s`,
+          ),
+        );
       }, timeout * 1000);
       inbox.waiter = {
         resolve: (chunk) => {

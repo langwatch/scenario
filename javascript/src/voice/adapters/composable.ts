@@ -28,6 +28,7 @@ import { AgentRole } from "../../domain/agents";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import {
   ElevenLabsSTTProvider,
   type STTProvider,
@@ -229,7 +230,10 @@ function withTimeout<T>(
   message: string,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const handle = setTimeout(() => reject(new Error(message)), timeoutSeconds * 1000);
+    const handle = setTimeout(
+      () => reject(new ReceiveTimeoutError(message)),
+      timeoutSeconds * 1000,
+    );
     promise.then(
       (value) => {
         clearTimeout(handle);

@@ -27,6 +27,7 @@ import type { VoiceAgentAdapter } from "./adapter";
 import { PendingTransportError } from "./adapters/pending-transport-error";
 import { AudioChunk, silentChunk } from "./audio-chunk";
 import { createAudioMessage, extractAudio } from "./messages";
+import { isReceiveTimeoutError } from "./receive-timeout-error";
 import { VoiceRecordingRuntime } from "./recording.runtime";
 import type {
   AudioSegment,
@@ -769,7 +770,8 @@ async function drainInner(
     let next: AudioChunk;
     try {
       next = await adapter.receiveAudio(tailSilence);
-    } catch {
+    } catch (err) {
+      if (!isReceiveTimeoutError(err)) throw err;
       terminatedReason = "tail_silence";
       break;
     }

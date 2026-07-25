@@ -81,6 +81,7 @@ import { Logger } from "../../utils/logger";
 import { VoiceAgentAdapter } from "../adapter";
 import { AudioChunk } from "../audio-chunk";
 import { AdapterCapabilities } from "../capabilities";
+import { ReceiveTimeoutError } from "../receive-timeout-error";
 import { currentSpan, setSpanAttributes } from "../telemetry";
 import {
   COMPOSABLE_VOICE_LLM_MODEL,
@@ -872,7 +873,7 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
 
       const onIdleTimeout = () => {
         cleanup();
-        reject(new Error(idleTimeoutMessage(timeout)));
+        reject(new ReceiveTimeoutError(idleTimeoutMessage(timeout)));
       };
 
       const onCeilingTimeout = () => {
@@ -881,7 +882,11 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
           return;
         }
         cleanup();
-        reject(new Error(ceilingTimeoutMessage(timeout, ceilingS)));
+        reject(
+          new ReceiveTimeoutError(
+            ceilingTimeoutMessage(timeout, ceilingS),
+          ),
+        );
       };
 
       // Re-arm the IDLE deadline on every received message (pings included) so a
