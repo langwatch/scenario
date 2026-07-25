@@ -78,7 +78,7 @@ STT and turn-taking.
 | `"text"` | Sends a `user_message` text commit and **no audio**. Deterministic, but your agent's STT and VAD never run, so a green run says nothing about either. Opt in only when scripted audio cannot drive your agent's turn-taking. |
 | `"silence"` | Streams the PCM followed by a fixed silence tail. Superseded by `"audio"`; a bounded tail does not reliably close a scripted turn. |
 
-```python [python]
+```python
 adapter = scenario.ElevenLabsAgentAdapter(
     agent_id=..., api_key=..., turn_commit_mode="text",  # opt out of real voice-in
 )
@@ -105,7 +105,7 @@ That warning is informational, not a failure. If it fires on most turns your
 agent's delivery is gappier than the default tolerates, so raise
 `response_tail_silence`:
 
-```python [python]
+```python
 adapter = scenario.ElevenLabsAgentAdapter(agent_id=..., api_key=...)
 adapter.response_tail_silence = 1.2
 ```
