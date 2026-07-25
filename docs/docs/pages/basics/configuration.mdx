@@ -35,8 +35,8 @@ You can control Scenario's behavior with environment variables. Set these in you
 ## The browser tab
 
 When a run starts, Scenario prints the URL to follow it live and opens it in your
-browser. Running a suite over and over — especially from a coding agent working in
-the background — would otherwise bury you in tabs, so Scenario reuses the tab you
+browser. Running a suite over and over, especially from a coding agent working in
+the background, would otherwise bury you in tabs, so Scenario reuses the tab you
 already have open.
 
 Before opening anything, the SDK asks LangWatch whether a simulations tab from this
@@ -48,7 +48,7 @@ The tab is identified by a key stored in `~/.langwatch/scenario-tab-key`, create
 the first time you run a scenario. Both SDKs read the same file, so a tab opened by
 `pytest` is reused by `vitest`. The key never leaves your machine except as a query
 param on the tab Scenario opens, and LangWatch scrubs it from the address bar on
-arrival — so a copied link never carries it.
+arrival, so a copied link never carries it.
 
 To stop a tab from following new runs, use **Stop following** in the toast. That
 choice is remembered in that browser.

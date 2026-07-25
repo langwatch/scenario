@@ -170,7 +170,7 @@ def _read_throttle() -> Dict[str, float]:
     try:
         raw = json.loads(_throttle_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        # No record yet, or an unreadable one — either way, nothing to honour.
+        # No record yet, or an unreadable one; either way, nothing to honour.
         return {}
 
     if not isinstance(raw, dict):
@@ -235,7 +235,7 @@ def _request_handoff(
     Ask LangWatch to push this batch to an already-open tab.
 
     Returns True when a tab took it, False when none was listening, and None
-    when the instance cannot answer — an old server, a network hiccup — which
+    when the instance cannot answer (an old server, a network hiccup), which
     tells the caller to fall back to its own heuristics.
     """
     payload: Dict[str, Any] = {

@@ -45,7 +45,7 @@ Feature: Reuse a single browser tab for scenario runs
     And the SDK opens a fresh browser tab
 
   # ---------------------------------------------------------------------------
-  # Machine scoping — never touch someone else's browser
+  # Machine scoping: never touch someone else's browser
   # ---------------------------------------------------------------------------
 
   @unit
@@ -77,7 +77,7 @@ Feature: Reuse a single browser tab for scenario runs
     And the SDK opens its own tab
 
   # ---------------------------------------------------------------------------
-  # Degrading gracefully — old servers, offline, failures
+  # Degrading gracefully: old servers, offline, failures
   # ---------------------------------------------------------------------------
 
   @integration
@@ -109,7 +109,7 @@ Feature: Reuse a single browser tab for scenario runs
     Then the SDK opens a tab for "onboarding"
 
   # ---------------------------------------------------------------------------
-  # Policy — who decides whether a browser opens at all
+  # Policy: who decides whether a browser opens at all
   # ---------------------------------------------------------------------------
 
   @unit

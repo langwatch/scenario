@@ -150,7 +150,7 @@ function readThrottle(): Record<string, number> {
       return entries;
     }
   } catch {
-    // No record yet, or an unreadable one — either way, nothing to honour.
+    // No record yet, or an unreadable one; either way, nothing to honour.
   }
   return {};
 }
@@ -200,7 +200,7 @@ function withTabKey(url: string, tabKey: string): string {
  * Ask LangWatch to push this batch to an already-open tab.
  *
  * Resolves true when a tab took it, false when none was listening, and null
- * when the instance cannot answer — an old server, a network hiccup — which
+ * when the instance cannot answer (an old server, a network hiccup), which
  * tells the caller to fall back to its own heuristics.
  */
 async function requestHandoff(params: {
@@ -305,7 +305,7 @@ export async function showBatchRun(
 /**
  * Awaited on purpose. `open()` only spawns the launcher a few ticks in, so a
  * fire-and-forget call loses the tab entirely when the scenario process exits
- * promptly after its last run — and reports success while doing it.
+ * promptly after its last run, and reports success while doing it.
  */
 async function openTab(
   location: BatchRunLocation,
