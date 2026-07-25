@@ -21,11 +21,17 @@ export class EventBus {
   private events$ = new Subject<ScenarioEvent>();
   private eventReporter: EventReporter;
   private eventAlertMessageLogger: EventAlertMessageLogger;
+  private readonly config: {
+    endpoint: string;
+    apiKey: string | undefined;
+    projectId?: string;
+  };
   private processingPromise: Promise<void> | null = null;
   private logger = new Logger("scenario.events.EventBus");
   private static globalListeners: Array<(bus: EventBus) => void> = [];
 
   constructor(config: { endpoint: string; apiKey: string | undefined; projectId?: string }) {
+    this.config = config;
     this.eventReporter = new EventReporter(config);
     this.eventAlertMessageLogger = new EventAlertMessageLogger();
     EventBus.registry.add(this);
@@ -78,10 +84,15 @@ export class EventBus {
           // Handle watch messages reactively
           tap(async ({ event, result }) => {
             if (event.type === ScenarioEventType.RUN_STARTED && result.setUrl) {
+              // The browser-tab handoff talks to the same LangWatch instance
+              // the events were just reported to.
               await this.eventAlertMessageLogger.handleWatchMessage({
                 scenarioSetId: event.scenarioSetId,
                 scenarioRunId: event.scenarioRunId,
                 setUrl: result.setUrl,
+                endpoint: this.config.endpoint,
+                apiKey: this.config.apiKey,
+                projectId: this.config.projectId,
               });
             }
           }),

@@ -27,6 +27,53 @@ You can control Scenario's behavior with environment variables. Set these in you
 | `LOG_LEVEL`                               | enum   | `info`                     | Log level: `error`, `warn`, `info`, `debug`.                         | ✅         | ❌     |
 | `SCENARIO_BATCH_RUN_ID`                   | string | `batch_<random_id>`        | Unique ID for a batch of scenario runs (useful for CI).              | ✅         | ❌     |
 | `SCENARIO_HEADLESS`                       | bool   | `false`                    | Disables opening the browser window when scenario starts.            | ✅         | ✅     |
+| `SCENARIO_BROWSER`                        | enum   | `auto`                     | Browser policy: `auto`, `never`, `always`. See below.                | ✅         | ✅     |
+| `SCENARIO_BROWSER_REOPEN_SECONDS`         | int    | `300`                      | Fallback window before a set may open a second tab. See below.       | ✅         | ✅     |
+
+---
+
+## The browser tab
+
+When a run starts, Scenario prints the URL to follow it live and opens it in your
+browser. Running a suite over and over — especially from a coding agent working in
+the background — would otherwise bury you in tabs, so Scenario reuses the tab you
+already have open.
+
+Before opening anything, the SDK asks LangWatch whether a simulations tab from this
+machine is still connected. If one is, the run is handed to that tab, which moves
+itself to the new batch and shows a toast; nothing new is opened and your focus is
+never stolen. If no tab is listening, a fresh one opens as before.
+
+The tab is identified by a key stored in `~/.langwatch/scenario-tab-key`, created
+the first time you run a scenario. Both SDKs read the same file, so a tab opened by
+`pytest` is reused by `vitest`. The key never leaves your machine except as a query
+param on the tab Scenario opens, and LangWatch scrubs it from the address bar on
+arrival — so a copied link never carries it.
+
+To stop a tab from following new runs, use **Stop following** in the toast. That
+choice is remembered in that browser.
+
+### Choosing a policy
+
+`SCENARIO_BROWSER` decides whether a browser may be opened at all:
+
+| Value    | Behaviour                                                                       |
+| -------- | ------------------------------------------------------------------------------- |
+| `auto`   | Default. Reuse an open tab; open a new one only when none is listening.          |
+| `never`  | Never open a browser. Equivalent to `SCENARIO_HEADLESS=true`.                    |
+| `always` | Open a tab for every run, skipping reuse entirely. The pre-1.0 behaviour.        |
+
+`SCENARIO_BROWSER` wins over `SCENARIO_HEADLESS` and over `headless` in your config,
+so you can force a tab open from an otherwise headless setup. CI never opens a
+browser: a `CI` environment variable is treated as `never`.
+
+### Older LangWatch instances
+
+Reuse needs a LangWatch that can answer the handoff. Against an older self-hosted
+instance the SDK cannot tell whether a tab is open, so it falls back to a time
+window: a scenario set will not open a second tab within
+`SCENARIO_BROWSER_REOPEN_SECONDS` (300 by default). Set it to `0` to opt out of that
+guard and open a tab for every run.
 
 ---
 

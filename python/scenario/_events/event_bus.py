@@ -149,8 +149,14 @@ class ScenarioEventBus:
         """
         Handle watch message for scenario run started events.
         """
+        # The reporter already resolved the endpoint and credentials, and the
+        # browser-tab handoff talks to the same LangWatch instance.
         self._event_alert_message_logger.handle_watch_message(
             set_url=str(result["setUrl"]),
+            scenario_set_id=self._extract_scenario_set_id(event),
+            endpoint=self._event_reporter.endpoint,
+            api_key=self._event_reporter.api_key,
+            project_id=self._event_reporter.project_id,
         )
 
     def _extract_scenario_set_id(self, event: ScenarioEvent) -> str:
