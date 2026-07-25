@@ -680,7 +680,7 @@ async def reconcile_prior_agent_audio(
         return
     try:
         leftover = await reconcile()
-    except Exception:
+    except Exception:  # noqa: BLE001 — opportunistic cleanup must never fail a turn
         logger.warning(
             "%s: turn-boundary reconcile raised; continuing.",
             type(adapter).__name__,

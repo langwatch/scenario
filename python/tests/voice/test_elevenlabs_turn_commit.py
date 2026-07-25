@@ -136,11 +136,6 @@ def _user_turn(text: str) -> AudioChunk:
     return AudioChunk(data=b"\x7f" * 8, transcript=text)
 
 
-def _speech_frames(socket: FakeElevenLabsSocket) -> list[bytes]:
-    """Emitted ``user_audio_chunk`` frames that carry speech (any non-zero byte)."""
-    return [f for f in (base64.b64decode(c) for c in socket.audio_chunks) if any(f)]
-
-
 # --------------------------------------------------------------------------- #
 # Audio turn-commit (default) — real voice-in                                  #
 # --------------------------------------------------------------------------- #
