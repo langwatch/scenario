@@ -5,8 +5,6 @@ import {
   Subject,
   Observable,
   Subscription,
-  tap,
-  map,
 } from "rxjs";
 import { EventAlertMessageLogger } from "./event-alert-message-logger";
 import { EventReporter } from "./event-reporter";
@@ -21,11 +19,17 @@ export class EventBus {
   private events$ = new Subject<ScenarioEvent>();
   private eventReporter: EventReporter;
   private eventAlertMessageLogger: EventAlertMessageLogger;
+  private readonly config: {
+    endpoint: string;
+    apiKey: string | undefined;
+    projectId?: string;
+  };
   private processingPromise: Promise<void> | null = null;
   private logger = new Logger("scenario.events.EventBus");
   private static globalListeners: Array<(bus: EventBus) => void> = [];
 
   constructor(config: { endpoint: string; apiKey: string | undefined; projectId?: string }) {
+    this.config = config;
     this.eventReporter = new EventReporter(config);
     this.eventAlertMessageLogger = new EventAlertMessageLogger();
     EventBus.registry.add(this);
@@ -68,26 +72,33 @@ export class EventBus {
     this.processingPromise = new Promise<void>((resolve, reject) => {
       this.events$
         .pipe(
-          // Post events and get results
+          // Post events, then settle the watch message before moving on.
+          //
+          // The watch message is awaited inside this stage rather than handed
+          // to a `tap`: `tap` drops the promise, so a suite that finishes and
+          // exits promptly could kill the process while the browser handoff
+          // was still in flight — the run would be reported as opened with no
+          // tab to show for it. It runs once per batch and off the scenario's
+          // own critical path.
           concatMap(async (event: ScenarioEvent) => {
             this.logger.debug(`[${event.type}] Processing event`, { event });
             const result = await this.eventReporter.postEvent(event);
-            return { event, result };
-          }),
 
-          // Handle watch messages reactively
-          tap(async ({ event, result }) => {
             if (event.type === ScenarioEventType.RUN_STARTED && result.setUrl) {
+              // The browser-tab handoff talks to the same LangWatch instance
+              // the events were just reported to.
               await this.eventAlertMessageLogger.handleWatchMessage({
                 scenarioSetId: event.scenarioSetId,
                 scenarioRunId: event.scenarioRunId,
                 setUrl: result.setUrl,
+                endpoint: this.config.endpoint,
+                apiKey: this.config.apiKey,
+                projectId: this.config.projectId,
               });
             }
-          }),
 
-          // Extract just the event for downstream processing
-          map(({ event }) => event),
+            return event;
+          }),
 
           catchError((error: unknown) => {
             this.logger.error("Error in event stream:", error);

@@ -27,6 +27,8 @@ You can control Scenario's behavior with environment variables. Set these in you
 | `LOG_LEVEL`                               | enum   | `info`                     | Log level: `error`, `warn`, `info`, `debug`.                         | ✅         | ❌     |
 | `SCENARIO_BATCH_RUN_ID`                   | string | `batch_<random_id>`        | Unique ID for a batch of scenario runs (useful for CI).              | ✅         | ❌     |
 | `SCENARIO_HEADLESS`                       | bool   | `false`                    | Disables opening the browser window when scenario starts.            | ✅         | ✅     |
+| `SCENARIO_BROWSER`                        | enum   | `auto`                     | Controls if a browser should open when a scenario runs: `auto` reuses an already-open simulations tab and opens one only if none is open, `never` never opens one, `always` opens a new tab every run. | ✅         | ✅     |
+| `SCENARIO_BROWSER_REOPEN_SECONDS`         | int    | `300`                      | Seconds before a scenario set may open a second tab, used as a fallback whenever the SDK can't confirm whether a tab is already open. | ✅         | ✅     |
 
 ---
 
