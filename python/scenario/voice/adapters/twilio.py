@@ -354,6 +354,13 @@ class TwilioAgentAdapter(VoiceAgentAdapter):
         self._stream_sid = None
         self._stream_connected = None
         self._stream_ws = None
+        if self._inbound_queue is not None:
+            # A recv_audio() task may already be blocked in get() on this queue.
+            # Wake that in-flight consumer before dropping our reference; setting
+            # _inbound_queue to None alone leaves it parked until its receive
+            # timeout expires (#757). An empty chunk is the adapter's existing
+            # end-of-stream signal and lets the shared drain finish cleanly.
+            self._inbound_queue.put_nowait(AudioChunk(data=b""))
         self._inbound_queue = None
         self._stream_ended = False
         self._frames_received = 0
