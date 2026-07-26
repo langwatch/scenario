@@ -213,7 +213,7 @@ async def test_audio_to_text():
     # Wrap with audio handler in case the judge needs to process audio
     audio_judge = wrap_judge_for_audio(
         scenario.JudgeAgent(
-            model="openai/gpt-4o",
+            model="openai/gpt-5.6-luna",
             criteria=[
                 "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
                 "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
@@ -228,7 +228,7 @@ async def test_audio_to_text():
         description="User sends audio file, agent analyzes and responds with text",
         agents=[
             AudioToTextAgent(),
-            scenario.UserSimulatorAgent(model="openai/gpt-4o"),
+            scenario.UserSimulatorAgent(model="openai/gpt-5.6-luna"),
             audio_judge,
         ],
         script=[
