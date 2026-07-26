@@ -117,7 +117,7 @@ async def test_audio_to_audio():
     # Wrap with audio handler to transcribe audio before judging
     audio_judge = wrap_judge_for_audio(
         scenario.JudgeAgent(
-            model="openai/gpt-4o",
+            model="openai/gpt-5.6-luna",
             criteria=[
                 "The agent identifies or guesses the voice is male",
                 "The agent acknowledges the input was audio (not text)",
@@ -131,7 +131,7 @@ async def test_audio_to_audio():
         description="User sends audio file, agent analyzes and responds with audio",
         agents=[
             my_agent,
-            scenario.UserSimulatorAgent(model="openai/gpt-4o"),
+            scenario.UserSimulatorAgent(model="openai/gpt-5.6-luna"),
             audio_judge,
         ],
         script=[

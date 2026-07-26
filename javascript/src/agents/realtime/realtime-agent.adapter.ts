@@ -122,10 +122,17 @@ export class RealtimeAgentAdapter extends AgentAdapter {
     params?: Parameters<RealtimeSession["connect"]>[0] | undefined
   ): Promise<void> {
     const { apiKey, ...rest } = params ?? {};
-    const resolvedApiKey = apiKey ?? process.env.OPENAI_API_KEY;
+    // The Realtime API is a direct websocket to api.openai.com that an
+    // OpenAI-compatible gateway cannot proxy. When OPENAI_API_KEY holds a
+    // gateway credential (e.g. a LangWatch virtual key), the dedicated
+    // OPENAI_REALTIME_API_KEY must win, same as OpenAIRealtimeAdapter.
+    const resolvedApiKey =
+      apiKey ??
+      process.env.OPENAI_REALTIME_API_KEY ??
+      process.env.OPENAI_API_KEY;
     if (!resolvedApiKey) {
       throw new Error(
-        "RealtimeAgentAdapter.connect requires an API key: pass params.apiKey or set OPENAI_API_KEY.",
+        "RealtimeAgentAdapter.connect requires an API key: pass params.apiKey or set OPENAI_REALTIME_API_KEY / OPENAI_API_KEY.",
       );
     }
     await this.session.connect({

@@ -94,7 +94,7 @@ describe.skipIf(skipInCi)("Multimodal Audio to Text Tests", () => {
     } satisfies UserModelMessage;
 
     const audioJudge = wrapJudgeForAudioTranscription(
-      scenario.judgeAgent({ model: openai("gpt-5") }),
+      scenario.judgeAgent({ model: openai("gpt-5.6-luna") }),
     );
 
     const result = await scenario.run({
