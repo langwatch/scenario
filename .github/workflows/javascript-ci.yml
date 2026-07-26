@@ -108,6 +108,10 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Realtime examples open a websocket straight to api.openai.com,
+          # which the gateway cannot proxy, so they need a real OpenAI key
+          # instead of the virtual key held by OPENAI_API_KEY.
+          OPENAI_REALTIME_API_KEY: ${{ secrets.OPENAI_REALTIME_API_KEY }}
         working-directory: javascript
 
   # One required check for the whole workflow. Reports success if every
