@@ -12,6 +12,7 @@ name: javascript-ci
 # AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
 # URLs point every client family (openai SDK, litellm, ai-sdk) at it.
 env:
+  CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
   OPENAI_API_BASE: https://gateway.langwatch.ai/v1
 
@@ -21,9 +22,6 @@ on:
       - main
   pull_request:
   workflow_dispatch:
-
-env:
-  CI: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -110,6 +108,10 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Realtime examples open a websocket straight to api.openai.com,
+          # which the gateway cannot proxy, so they need a real OpenAI key
+          # instead of the virtual key held by OPENAI_API_KEY.
+          OPENAI_REALTIME_API_KEY: ${{ secrets.OPENAI_REALTIME_API_KEY }}
         working-directory: javascript
 
   # One required check for the whole workflow. Reports success if every
