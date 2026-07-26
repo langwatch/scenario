@@ -1,5 +1,15 @@
 name: voice-integration
 
+# All OpenAI-compatible HTTP traffic (judge and user-sim LLMs, TTS, STT)
+# rides the LangWatch AI Gateway: OPENAI_API_KEY holds a LangWatch virtual
+# key, and these base URLs point every client family (openai SDK, litellm,
+# ai-sdk) at the gateway. The OpenAI Realtime websocket connects directly
+# to OpenAI and uses OPENAI_REALTIME_API_KEY (a real provider key) instead.
+env:
+  OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
+  OPENAI_API_BASE: https://gateway.langwatch.ai/v1
+  OPENAI_REALTIME_API_KEY: ${{ secrets.OPENAI_REALTIME_API_KEY }}
+
 # On-demand workflow for voice tests that hit live providers (OpenAI Realtime,
 # Twilio, ElevenLabs, Gemini Live). These tests cost real API money and/or
 # provision real phone lines, so they do NOT run on every PR and do NOT run on

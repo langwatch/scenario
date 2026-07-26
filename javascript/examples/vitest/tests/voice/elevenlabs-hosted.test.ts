@@ -85,12 +85,11 @@ if (hasHostedKey || hasComposableKey) {
               // wire (mirrors the Python twin's script).
               //
               // MULTI-TURN (≥2 scripted exchanges) over the LIVE hosted ConvAI
-              // socket — un-gated by #567. The adapter now commits each user turn
-              // with an explicit `user_message` event instead of leaning on
-              // mic-style server VAD, so a scripted 2nd user turn after the agent
-              // has already replied reliably re-engages the next agent response
-              // (the old single-exchange limit + `receiveAudio timed out` are
-              // fixed). This is the load-bearing live proof for #567.
+              // socket. Each user turn is streamed as real PCM at microphone
+              // cadence followed by unbounded closing silence — the audio→silence
+              // transition EL's server VAD closes a turn on — so a scripted 2nd
+              // user turn re-engages the next agent response the way a real
+              // caller would, and EL's own STT runs on what we sent.
               script: [
                 scenario.agent(),
                 scenario.user("Hello, I have a question about my account."),

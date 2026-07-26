@@ -130,6 +130,19 @@ const PUMP_INTERVAL_MS = 20;
 const KEEPALIVE_HARD_CEILING_S = 45;
 
 /**
+ * EL system tools whose successful invocation means the AGENT ended the call, so
+ * the socket close that follows is deliberate rather than a dropped transport
+ * (#839). `transfer_to_*` also hands the caller off and ends this session, so it
+ * is a hangup from the harness's point of view.
+ */
+const HANGUP_TOOL_NAMES = new Set([
+  "end_call",
+  "transfer_to_agent",
+  "transfer_to_number",
+  "transfer_to_genesys",
+]);
+
+/**
  * One all-zero (silence) {@link PUMP_FRAME_BYTES} frame — the closing-silence frame
  * of the continuous mic pump. {@link ElevenLabsAgentAdapter.pumpTick} feeds this on
  * a tick whose outbound queue is empty AND whose user turn is still closing (before
@@ -906,6 +919,38 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // close/error drain.
       const waiter = this.waiters.shift();
       if (waiter) waiter(new AudioChunk({ data: new Uint8Array(0) }));
+      return;
+    }
+
+    if (etype === "agent_tool_response") {
+      // The agent invoked one of its own (server-side) tools. When that tool is
+      // `end_call`, the agent has deliberately hung up and EL closes the socket
+      // right after this frame with a clean 1000 (#839).
+      //
+      // Wire shape (captured live):
+      //   {"type": "agent_tool_response",
+      //    "agent_tool_response": {"tool_name": "end_call", "tool_type": "system",
+      //      "is_error": false, "is_blocked": false, "is_called": true, ...}}
+      //
+      // Recording it as a deliberate hangup — rather than letting the ensuing
+      // close look like a dropped transport — is what lets a leftover scripted
+      // turn conclude gracefully instead of failing a run in which the agent
+      // behaved exactly as designed.
+      const tool = (event.agent_tool_response ?? {}) as Record<string, unknown>;
+      const name = tool.tool_name as string | undefined;
+      if (
+        name !== undefined &&
+        HANGUP_TOOL_NAMES.has(name) &&
+        tool.is_called === true &&
+        tool.is_error !== true &&
+        tool.is_blocked !== true
+      ) {
+        this.logger.info(
+          `ElevenLabsAgentAdapter: agent invoked ${name} — treating the ` +
+            `upcoming close as a deliberate hangup`,
+        );
+        this.agentHungUp = true;
+      }
       return;
     }
 

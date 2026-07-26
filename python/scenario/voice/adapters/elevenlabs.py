@@ -6,19 +6,18 @@ Exchanges PCM16 audio chunks.
 
 Wire protocol:
 - Send:
-  - JSON ``{"user_audio_chunk": "<base64 PCM16>"}`` (legacy ``"silence"``
-    turn-commit path, and the ``"text"`` fallback when a chunk carries no
-    transcript)
-  - JSON ``{"type": "user_message", "text": "<transcript>"}`` (default
-    ``"text"`` turn-commit path) — the only documented client→server event
-    that *deterministically* commits a user turn and forces an agent
-    response without relying on mic-style server VAD. EL ConvAI exposes NO
-    audio-flush / end-of-turn client event (verified against the official
-    EL Python + JS SDKs), and ConvAI 2.0's end-of-turn is a hybrid VAD +
-    deep-learning turn-detector (prosody, rhythm, micro-pauses), not a pure
-    silence threshold — so a fixed zero-byte tail does NOT reliably commit
-    a scripted, non-mic turn 2+ (issue #567). See ``send_audio`` and
-    ``TurnCommitMode``.
+  - JSON ``{"user_audio_chunk": "<base64 PCM16>"}`` — the default
+    ``"audio"`` turn-commit path. The continuous pump feeds the user's real
+    PCM as 20 ms frames at microphone cadence, then unbounded closing
+    silence; EL's server VAD closes the turn on that audio→silence
+    transition. This is the only path on which the agent's own STT and VAD
+    run against the user's voice.
+  - JSON ``{"type": "user_message", "text": "<transcript>"}`` — the opt-in
+    ``"text"`` turn-commit path. Deterministically commits a turn without
+    server VAD, but sends NO audio, so EL's STT never runs. EL ConvAI
+    exposes no audio-flush / end-of-turn client event (verified against the
+    official EL Python + JS SDKs), which is why this escape hatch exists at
+    all. See ``send_audio`` and ``TurnCommitMode``.
 - Recv events:
   - ``conversation_initiation_metadata`` — checked for audio-format
     mismatch against advertised capability; warning logged on drift
@@ -58,16 +57,17 @@ logger = logging.getLogger("scenario.voice.elevenlabs")
 
 CONVAI_URL_TEMPLATE = "wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}"
 
-#: Default zero-byte silence-tail length for the legacy ``"silence"`` turn-commit
-#: path. 16000 zero bytes at pcm_24000 = ~333 ms of silence — the empirical
-#: middle ground that historically let the *greeting → first user turn* exchange
-#: work (see ``send_audio``).
+#: Zero-byte silence-tail length for the ``"silence"`` turn-commit path. 16000
+#: zero bytes at pcm_24000 = ~333 ms of silence — the empirical middle ground
+#: that historically let the *greeting → first user turn* exchange work.
 #:
-#: This tail is NOT reliable for scripted turn 2+ (issue #567): EL ConvAI 2.0's
-#: end-of-turn is a hybrid VAD + deep-learning turn-detector, not a pure silence
-#: threshold, so a fixed zero-byte blob does not deterministically trip it on a
-#: non-mic stream. The default commit mode is therefore ``"text"``; the silence
-#: tail survives as an opt-in for callers who want the pure server-VAD audio path.
+#: A BOUNDED tail is what made scripted turn 2+ unreliable (issue #567): EL
+#: ConvAI 2.0's end-of-turn is a hybrid VAD + deep-learning turn-detector, not a
+#: pure silence threshold, so a fixed zero-byte blob does not deterministically
+#: trip it. The default ``"audio"`` mode drops the bound entirely — the pump
+#: streams closing silence until the agent actually responds — which is what
+#: makes real voice-in work across turns. This constant only applies to the
+#: opt-in ``"silence"`` mode.
 SILENCE_TAIL_BYTES = 16000
 
 #: Absolute wall-clock ceiling (seconds) for a single :meth:`recv_audio` call
@@ -82,18 +82,24 @@ KEEPALIVE_HARD_CEILING_S: Final[float] = 45.0
 
 #: How :meth:`ElevenLabsAgentAdapter.send_audio` signals end-of-turn to EL ConvAI.
 #:
-#: - ``"text"`` (default): send an explicit
-#:   ``{"type": "user_message", "text": <transcript>}`` — the only documented
-#:   client→server event that *deterministically* commits a turn and forces an
-#:   agent response without relying on mic-style server VAD (issue #567).
-#:   Requires a transcript on the outgoing :class:`AudioChunk` (the voice
-#:   runtime threads the ``scenario.user("…")`` script text through as the chunk
-#:   transcript via TTS); when absent, falls back to the silence tail.
-#: - ``"silence"``: legacy behaviour — stream the audio then a fixed
-#:   ``silence_tail_bytes`` zero-byte tail and hope server VAD fires. Kept for
-#:   the pure-audio path and parity with the pre-#567 transport, but unreliable
-#:   for scripted turn 2+.
-TurnCommitMode = Literal["text", "silence"]
+#: - ``"audio"`` (default): stream the turn's real PCM as 20 ms
+#:   ``user_audio_chunk`` frames at microphone cadence and let the pump's
+#:   *unbounded* closing silence carry the audio→silence transition EL's server
+#:   VAD measures end-of-turn against. This is the only mode in which the
+#:   agent-under-test's own STT and VAD actually run on the user's voice, so it
+#:   is what a voice test must default to. Mirrors the TS adapter (#707).
+#: - ``"text"``: send an explicit
+#:   ``{"type": "user_message", "text": <transcript>}`` and send NO audio. This
+#:   deterministically commits a turn without relying on server VAD, but the
+#:   agent never hears the user — its STT and VAD are bypassed entirely, so a
+#:   passing run says nothing about either. Kept as an opt-in escape hatch for
+#:   agents whose turn-taking cannot be driven by scripted audio; requires a
+#:   transcript on the outgoing :class:`AudioChunk` and falls back to
+#:   ``"silence"`` when absent.
+#: - ``"silence"``: stream the audio then a fixed ``silence_tail_bytes``
+#:   zero-byte tail. The pre-pump behaviour, retained for callers pinned to a
+#:   bounded tail; ``"audio"`` supersedes it.
+TurnCommitMode = Literal["audio", "text", "silence"]
 
 #: One continuous-mic pump frame = 20 ms of PCM. Fixed at 960 bytes to match the
 #: TS reference (``PUMP_FRAME_BYTES``, ``adapters/elevenlabs.ts:107``); the pump
@@ -110,6 +116,52 @@ PUMP_INTERVAL_S = 0.02
 #: EL's server VAD has the audio→silence transition it measures end-of-turn
 #: against. Mirrors TS ``SILENCE_FRAME`` (``adapters/elevenlabs.ts:144``).
 SILENCE_FRAME = b"\x00" * PUMP_FRAME_BYTES
+
+#: Wall-clock budget for one turn-boundary reconcile sweep. Long enough to
+#: recover a burst already in flight, short enough that a turn boundary never
+#: visibly stalls. See ``reconcile_pending_audio``.
+RECONCILE_BUDGET_S: Final[float] = 0.4
+
+#: Per-poll idle timeout inside a reconcile sweep. Once this much time passes
+#: with nothing arriving, the prior turn really is finished.
+RECONCILE_POLL_S: Final[float] = 0.12
+
+#: EL system tools whose successful invocation means the AGENT ended the call,
+#: so the socket close that follows is deliberate rather than a dropped
+#: transport (issue #839). ``transfer_to_*`` also hands the caller off and ends
+#: this session, so it is a hangup from the harness's point of view.
+HANGUP_TOOL_NAMES: Final[frozenset[str]] = frozenset(
+    {"end_call", "transfer_to_agent", "transfer_to_number", "transfer_to_genesys"}
+)
+
+
+def _deep_merge(
+    base: dict[str, Any], layer: dict[str, Any]
+) -> dict[str, Any]:
+    """Recursively merge ``layer`` ON TOP OF ``base``, returning a NEW dict
+    (neither argument is mutated).
+
+    When a key holds a dict on BOTH sides the two are merged key-by-key, so a
+    shared parent like ``agent`` keeps keys from both; for every other shape —
+    scalar, list, or a key present on only one side — ``layer`` wins where it
+    supplies the key, else ``base``'s value is kept.
+
+    This is the precedence engine for ``conversation_config_override``: the
+    caller's ``overrides`` are the ``base`` and the adapter's narrow
+    ``{"agent": {"prompt", "first_message"}}`` is the ``layer``, so the narrow
+    knobs win on a shared LEAF while sibling caller keys (``agent.language``, a
+    top-level ``tts``) survive intact. A shallow ``{**base, **layer}`` would
+    instead DROP one side's nested ``agent``. Mirrors the TS ``deepMerge``
+    (``adapters/elevenlabs.ts:202``).
+    """
+    out = dict(base)
+    for key, layer_value in layer.items():
+        base_value = out.get(key)
+        if isinstance(base_value, dict) and isinstance(layer_value, dict):
+            out[key] = _deep_merge(base_value, layer_value)
+        else:
+            out[key] = layer_value
+    return out
 
 
 class ElevenLabsAgentAdapter(VoiceAgentAdapter):
@@ -157,7 +209,9 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         *,
         system_prompt_override: Optional[str] = None,
         first_message_override: Optional[str] = None,
-        turn_commit_mode: TurnCommitMode = "text",
+        dynamic_variables: Optional[dict[str, Any]] = None,
+        overrides: Optional[dict[str, Any]] = None,
+        turn_commit_mode: TurnCommitMode = "audio",
         silence_tail_bytes: int = SILENCE_TAIL_BYTES,
     ) -> None:
         super().__init__()
@@ -167,15 +221,36 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # at the start of every WS connect. Used by demos that need a
         # different prompt shape (e.g. verbose for interrupt demos) without
         # mutating the shared test agent's persistent config.
+        #
+        # WARNING (issue #838): ``system_prompt_override`` replaces the agent's
+        # ENTIRE prompt object server-side, ``tool_ids`` included. A hosted
+        # agent that relies on server tools silently loses them and then stalls
+        # waiting for tool responses that can never arrive. To personalise a
+        # deployed agent without dropping its tools, use ``dynamic_variables``
+        # (fills the deployed prompt template) plus a narrow ``overrides``
+        # entry, and leave the prompt alone.
         self._system_prompt_override = system_prompt_override
         self._first_message_override = first_message_override
-        # How a user turn is committed. Defaults to ``"text"`` (explicit
-        # ``user_message`` commit) so scripted turn 2+ reliably re-engages an
-        # agent response (issue #567). ``"silence"`` selects the legacy
-        # pure-audio server-VAD path. See ``TurnCommitMode`` / ``send_audio``.
-        if turn_commit_mode not in ("text", "silence"):
+        #: Per-call dynamic variables, forwarded natively as the init
+        #: handshake's ``dynamic_variables``. EL personalises a hosted agent per
+        #: call from these. Values keep their JSON type — str / int / float /
+        #: bool — with NO ``str()`` coercion, matching EL's typed support.
+        #: Applied only if the agent declares them (server-side allowlist).
+        #: When unset, no ``dynamic_variables`` key is sent at all (not ``{}``).
+        self._dynamic_variables = dynamic_variables
+        #: Per-call conversation-config overrides, DEEP-merged UNDER the narrow
+        #: prompt/first-message knobs above. Use for anything those do not cover
+        #: (e.g. ``{"agent": {"language": "es"}, "tts": {"stability": 0.3}}``).
+        #: Applied only if the agent allowlists the key server-side.
+        self._overrides = overrides
+        # How a user turn is committed. Defaults to ``"audio"``: the turn's real
+        # PCM goes on the wire and the pump's unbounded closing silence closes
+        # the turn, so the agent's own STT and VAD run on the user's voice.
+        # ``"text"`` and ``"silence"`` are opt-in. See ``TurnCommitMode``.
+        if turn_commit_mode not in ("audio", "text", "silence"):
             raise ValueError(
-                f'Unknown turn_commit_mode: {turn_commit_mode!r}. Expected "text" or "silence".'
+                f"Unknown turn_commit_mode: {turn_commit_mode!r}. "
+                'Expected "audio", "text" or "silence".'
             )
         if not isinstance(silence_tail_bytes, int) or silence_tail_bytes <= 0:
             raise ValueError(
@@ -204,6 +279,12 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # Transcript observability — updated on each transcript event.
         self.last_user_transcript: Optional[str] = None
         self.last_agent_transcript: Optional[str] = None
+
+        #: How many user turns were committed as REAL audio. Counted once per
+        #: non-empty :meth:`enqueue_speech`, not per 20 ms frame, so it counts
+        #: turns. Lets a test assert the agent actually heard the user rather
+        #: than merely replying (mirror TS ``audioCommitCount``).
+        self.audio_commit_count: int = 0
 
     @property
     def url(self) -> str:
@@ -244,20 +325,38 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             {"voice.elevenlabs.agent_id": self.agent_id},
         )
 
+        # The NARROW prompt/first-message knobs build an `agent` override that is
+        # always sent (an empty `agent` object is a no-op) so the handshake shape
+        # is stable; it carries the overrides when set.
         agent_override: dict[str, Any] = {}
         if self._system_prompt_override:
             agent_override["prompt"] = {"prompt": self._system_prompt_override}
         if self._first_message_override:
             agent_override["first_message"] = self._first_message_override
 
-        init = {
+        # DEEP-merge the caller's `overrides` (the base, lower precedence) UNDER
+        # the narrow `{"agent": agent_override}` (the layer, higher precedence),
+        # so a caller's `agent.language` and our `agent.prompt` BOTH survive.
+        conversation_config_override = _deep_merge(
+            self._overrides or {}, {"agent": agent_override}
+        )
+
+        init: dict[str, Any] = {
             "type": "conversation_initiation_client_data",
-            "conversation_config_override": {"agent": agent_override},
+            "conversation_config_override": conversation_config_override,
         }
+        # Omit the key entirely when unset — EL treats an empty object
+        # differently from an absent one.
+        if self._dynamic_variables is not None:
+            init["dynamic_variables"] = self._dynamic_variables
         await self._ws.send(json.dumps(init))
         logger.debug(
-            "ElevenLabsAgentAdapter: sent conversation_initiation_client_data with overrides=%s",
-            list(agent_override.keys()) or "none",
+            "ElevenLabsAgentAdapter: sent conversation_initiation_client_data "
+            "with config_override_keys=%s dynamic_variables=%s",
+            sorted(conversation_config_override.keys()) or "none",
+            sorted(self._dynamic_variables.keys())
+            if self._dynamic_variables
+            else "none",
         )
 
         # Start the continuous mic pump now that the socket is open, so the
@@ -460,11 +559,14 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         ``adapters/elevenlabs.ts:703-731``.
         """
         if not data:
-            # An empty chunk carries no speech: don't disturb the pause, don't
-            # enqueue a meaningless frame.
+            # An empty chunk carries no speech: don't count it as a real-audio
+            # turn, don't disturb the pause, don't enqueue a meaningless frame.
             return
         # A real user turn is starting → lift the post-response pause.
         self.awaiting_user_turn = False
+        # Count the turn ONCE per non-empty call (not once per 20 ms frame) so
+        # the counter still counts turns.
+        self.audio_commit_count += 1
         for offset in range(0, len(data), PUMP_FRAME_BYTES):
             slice_ = data[offset : offset + PUMP_FRAME_BYTES]
             if len(slice_) < PUMP_FRAME_BYTES:
@@ -472,6 +574,61 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
                 # zeros so the pump only ever feeds fixed-size frames.
                 slice_ = slice_ + b"\x00" * (PUMP_FRAME_BYTES - len(slice_))
             self._outbound_frames.append(slice_)
+
+    async def reconcile_pending_audio(self) -> Optional[AudioChunk]:
+        """Collect agent audio still in flight at a user-turn boundary.
+
+        The drain closes a turn on ``response_tail_silence``. EL delivers audio
+        in bursts, so a mid-utterance delivery gap longer than that silence ends
+        the turn while the agent is still speaking. Left alone, the remainder is
+        read by the NEXT drain and surfaces as the next agent turn's opening
+        audio — an answer to the previous question attributed to the current one
+        (the split-utterance bleed, issue #749; fixed for TypeScript in #748).
+
+        Called at the pre-user-``send_audio`` boundary and never while a drain is
+        in flight. At that instant the agent cannot have begun its next reply —
+        the user has not spoken yet — so anything still arriving is unambiguously
+        leftover from the PRIOR agent turn. That is what makes attributing it
+        backwards safe.
+
+        Bounded by :data:`RECONCILE_BUDGET_S` of wall clock so a turn boundary
+        never stalls: this recovers the burst already on the wire, it does not
+        wait out a slow agent.
+
+        Duck-typed convention (symmetric with ``last_agent_transcript``): the
+        shared runtime feature-detects this method, so adapters without buffered
+        audio are untouched.
+        """
+        if not self.is_connected():
+            return None
+        collected: list[bytes] = []
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + RECONCILE_BUDGET_S
+        while loop.time() < deadline:
+            try:
+                chunk = await asyncio.wait_for(
+                    self.recv_audio(timeout=RECONCILE_POLL_S),
+                    timeout=max(RECONCILE_POLL_S, deadline - loop.time()),
+                )
+            except asyncio.TimeoutError:
+                # Nothing more immediately available — the prior turn is done.
+                break
+            except Exception:  # noqa: BLE001 — best-effort sweep
+                # The socket went away mid-reconcile, or the transport raised.
+                # This is opportunistic cleanup at a turn boundary; surface it
+                # but never fail the turn over it.
+                logger.debug(
+                    "ElevenLabsAgentAdapter: reconcile sweep ended on transport "
+                    "error; keeping what was collected",
+                    exc_info=True,
+                )
+                break
+            if not chunk.data:
+                break
+            collected.append(chunk.data)
+        if not collected:
+            return None
+        return AudioChunk(data=b"".join(collected))
 
     def _on_agent_audio_begin(self) -> None:
         """Agent turn audio has arrived → engage the post-response pause: the
@@ -496,26 +653,24 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         does NOT reliably fire on a scripted, non-mic stream, so the legacy
         "stream audio + silence tail" path stalls on turn 2+ (issue #567).
 
-        Two commit modes (see ``TurnCommitMode``):
+        Three commit modes (see ``TurnCommitMode``):
 
-        - ``"text"`` (default): when the chunk carries a transcript, send ONLY
-          a ``{"type": "user_message", "text": <transcript>}`` turn — the only
-          documented client event that deterministically forces an agent
-          response without mic-style VAD. We do NOT also stream the raw audio
-          here: sending ``user_audio_chunk`` and then ``user_message`` in the
-          same turn races the server's audio ingestion against the text commit
-          and was empirically flaky (the agent receive intermittently timed
-          out). The text turn alone re-engages every time. Nothing observable
-          is lost — the voice runtime records the user audio locally
-          (independent of this send), and EL echoes the committed text back as
-          a ``user_transcript`` event, so ``last_user_transcript`` still
-          populates.
-        - Fallback / ``"silence"``: stream the speech then a fixed
-          ``silence_tail_bytes`` zero-byte tail and let server VAD try. Used
-          when ``turn_commit_mode == "silence"``, or in ``"text"`` mode when
-          the chunk carries no transcript to commit.
+        - ``"audio"`` (default): enqueue the turn's real PCM for the pump and
+          stop. The pump feeds it as 20 ms ``user_audio_chunk`` frames at
+          microphone cadence, then streams *unbounded* closing silence until
+          the agent responds — the audio→silence transition EL's server VAD
+          measures end-of-turn against. No bounded tail to tune. This is the
+          only mode that puts the user's voice on the wire, so it is the only
+          mode in which the agent's own STT and VAD are exercised.
+        - ``"text"``: send ONLY ``{"type": "user_message", "text": …}``. The
+          audio is DISCARDED — EL's STT never runs and a green run proves
+          nothing about the agent's transcription or turn-taking. Opt-in only,
+          for agents whose turn-taking cannot be driven by scripted audio.
+        - ``"silence"``: stream the speech then a fixed ``silence_tail_bytes``
+          zero-byte tail. Superseded by ``"audio"``'s unbounded closing
+          silence; retained for callers pinned to a bounded tail.
 
-        Silence-tail size rationale (legacy path): 16000 zero bytes at
+        Silence-tail size rationale (``"silence"`` path): 16000 zero bytes at
         pcm_24000 = ~333ms — empirically the sweet spot for the greeting →
         first-turn exchange. Removing it entirely, or doubling to 24000, both
         reproduced the stall pattern.
@@ -533,28 +688,26 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             self.awaiting_user_turn = False
 
         if self._turn_commit_mode == "text" and transcript:
-            # Deterministic commit: send ONLY the user_message text turn (no
-            # racing user_audio_chunk). This is a single control frame, not
-            # audio, so it does not compete with the pump's audio cadence. See
-            # method docstring for the rationale.
+            # Text-only commit: no user_audio_chunk is sent, so EL's STT never
+            # sees this turn. See ``TurnCommitMode`` for why this is opt-in.
             await self._send_user_message(transcript)
             return
 
-        # Legacy / fallback path (turn_commit_mode == "silence", or "text" mode
-        # with no transcript to commit): stream the speech then a closing
-        # silence tail and let server VAD try.
-        #
         # The pump is the SINGLE owner of WS audio writes: rather than writing
-        # `chunk.data` and the 16KB silence tail DIRECTLY to `self._ws` (which
-        # would race the always-running background pump — two concurrent writers
-        # producing interleaved/oversized non-20ms `user_audio_chunk` frames),
-        # we ENQUEUE the speech and the closing-silence tail as fixed 960-byte
-        # pump frames. The pump drains them at the same 20ms cadence as every
-        # other frame, so there is exactly one writer and a consistent frame
-        # size on the wire. Returns promptly (continuous-mic model) — it does
-        # not block until the queue drains.
+        # `chunk.data` DIRECTLY to `self._ws` (which would race the always-
+        # running background pump — two concurrent writers producing
+        # interleaved/oversized non-20ms `user_audio_chunk` frames), we ENQUEUE
+        # the speech as fixed 960-byte pump frames. The pump drains them at the
+        # same 20ms cadence as every other frame, so there is exactly one writer
+        # and a consistent frame size on the wire. Returns promptly
+        # (continuous-mic model) — it does not block until the queue drains.
         self.enqueue_speech(chunk.data)
-        self._enqueue_silence_tail()
+        if self._turn_commit_mode != "audio":
+            # "silence" (and the "text" fallback when a chunk carries no
+            # transcript): append the bounded legacy tail. On the "audio" path
+            # the pump's unbounded closing silence already provides the
+            # end-of-turn transition, so a fixed tail would only cap it.
+            self._enqueue_silence_tail()
 
     async def _send_user_message(self, text: str) -> None:
         """Explicit turn-commit: tell EL the user is done and force an agent
@@ -695,6 +848,36 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
 
             elif etype == "agent_response":
                 self.last_agent_transcript = event.get("agent_response_event", {}).get("agent_response")
+
+            elif etype == "agent_tool_response":
+                # The agent invoked one of its own (server-side) tools. When
+                # that tool is the ``end_call`` system tool, the agent has
+                # deliberately hung up and EL closes the socket right after
+                # this frame with a clean 1000 (issue #839).
+                #
+                # Wire shape (captured live):
+                #   {"type": "agent_tool_response",
+                #    "agent_tool_response": {"tool_name": "end_call",
+                #      "tool_type": "system", "is_error": false,
+                #      "is_blocked": false, "is_called": true, ...}}
+                #
+                # Recording it as a deliberate hangup — rather than letting the
+                # ensuing close look like a dropped transport — is what lets a
+                # leftover scripted turn conclude gracefully instead of failing
+                # a run in which the agent behaved exactly as designed.
+                tool = event.get("agent_tool_response", {}) or {}
+                if (
+                    tool.get("tool_name") in HANGUP_TOOL_NAMES
+                    and tool.get("is_called")
+                    and not tool.get("is_error")
+                    and not tool.get("is_blocked")
+                ):
+                    logger.info(
+                        "ElevenLabsAgentAdapter: agent invoked %r — treating the "
+                        "upcoming close as a deliberate hangup",
+                        tool.get("tool_name"),
+                    )
+                    self.agent_hung_up = True
 
             elif etype == "agent_response_correction":
                 # EL signals a corrected agent reply (post server-side

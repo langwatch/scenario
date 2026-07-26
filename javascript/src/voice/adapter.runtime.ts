@@ -323,6 +323,21 @@ export async function defaultVoiceCall(
   // PendingTransportError across every leaf, not a transport-specific
   // null-deref or silent hang.
   if (!adapter.isConnected()) {
+    if (adapter.agentHungUp) {
+      // The AGENT ended the call on purpose (#839) — hosted agents routinely
+      // invoke a hangup tool right after their farewell, which closes the
+      // transport. Any scripted turn left over has nobody to talk to, but the
+      // agent did exactly what it was designed to do, so concluding here and
+      // letting the script fall through to the judge is the correct outcome;
+      // failing would punish correct behaviour. Returning no messages leaves
+      // the transcript ending on the agent's farewell, which is what the judge
+      // should assess.
+      logger.info(
+        `${adapter.constructor.name}: agent ended the call; concluding the ` +
+          `conversation instead of failing the remaining scripted turn(s)`,
+      );
+      return [];
+    }
     throw new PendingTransportError(adapter.constructor.name);
   }
   // voice.turn — one span per call(), nesting under the executor's existing

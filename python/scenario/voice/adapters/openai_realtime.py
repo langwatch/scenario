@@ -100,8 +100,16 @@ class OpenAIRealtimeAgentAdapter(VoiceAgentAdapter):
         self.instructions = instructions
         self.tools = tools or []
         self.role = role  # type: ignore[misc]
-        # Resolve API key: explicit param takes precedence over env var.
-        self._api_key: str = api_key or os.environ.get("OPENAI_API_KEY", "")
+        # Resolve API key: explicit param, then OPENAI_REALTIME_API_KEY, then
+        # OPENAI_API_KEY. The Realtime API connects DIRECTLY to OpenAI's
+        # websocket (gateways that proxy the HTTP audio endpoints do not
+        # proxy realtime), so when OPENAI_API_KEY holds a gateway virtual
+        # key, OPENAI_REALTIME_API_KEY carries the real provider key.
+        self._api_key: str = (
+            api_key
+            or os.environ.get("OPENAI_REALTIME_API_KEY")
+            or os.environ.get("OPENAI_API_KEY", "")
+        )
         self._ws: Any = None
 
         # Transcript observability — updated on incoming transcript events.
