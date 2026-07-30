@@ -47,10 +47,6 @@ class StreamingAgentAdapter(scenario.AgentAdapter):
                 return full_response
 
 
-# OpenAI client for LLM
-client = AsyncOpenAI()
-
-
 async def stream_handler(request: web.Request) -> web.StreamResponse:
     """
     HTTP endpoint that streams LLM responses chunk by chunk.
@@ -71,6 +67,9 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
     response.headers["Content-Type"] = "text/plain"
     response.headers["Transfer-Encoding"] = "chunked"
     await response.prepare(request)
+
+    # Instantiate client lazily so import-time collection doesn't require credentials
+    client = AsyncOpenAI()
 
     # Stream response using real LLM
     stream = await client.chat.completions.create(

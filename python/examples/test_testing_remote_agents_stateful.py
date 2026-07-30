@@ -54,9 +54,6 @@ class StatefulAgentAdapter(scenario.AgentAdapter):
                 return result["response"]
 
 
-# OpenAI client for LLM
-client = AsyncOpenAI()
-
 # Server-side conversation storage (in production, use a database)
 conversations: Dict[str, List[Any]] = {}
 
@@ -80,6 +77,9 @@ async def stateful_handler(request: web.Request) -> web.Response:
 
     # Add user message to history
     history.append({"role": "user", "content": message})
+
+    # Instantiate client lazily so import-time collection doesn't require credentials
+    client = AsyncOpenAI()
 
     # Generate response with FULL history
     response = await client.chat.completions.create(
