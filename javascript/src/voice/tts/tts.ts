@@ -3,9 +3,13 @@
  *
  * Python parity: `python/scenario/voice/tts.py`. Litellm-style routing — voice
  * strings are `provider/name` (e.g. `openai/nova`, `elevenlabs/rachel`). The
- * TTS cache key is `(sha256(text), voice)` so raw user-supplied text never
- * reaches the cache payload; audio effects apply AFTER cache hit and are never
- * baked into stored audio.
+ * TTS cache key is `(sha256(text), voice, voiceStyle)` so raw user-supplied
+ * text never reaches the cache payload; audio effects apply AFTER cache hit
+ * and are never baked into stored audio.
+ *
+ * TS leads Python here: `voiceStyle` (issue #533) is a per-call synthesis
+ * option threaded from the user simulator down to the provider. Python's
+ * `synthesize(text, voice)` still has no style channel — this is NOT parity.
  *
  * Concrete providers (OpenAI, ElevenLabs) are one-file-per-provider leaves that
  * self-register via `tts/index.ts` (mirrors the `stt/` subtree, EDR §5.3). This
@@ -16,8 +20,33 @@ import { createHash } from "node:crypto";
 
 import { AudioChunk } from "../audio-chunk";
 
-/** A TTS backend: takes (text, voiceName) and returns PCM16/24kHz mono bytes. */
-export type TTSCallable = (text: string, voiceName: string) => Promise<Uint8Array>;
+/**
+ * Per-call synthesis options that are NOT part of the voice identity.
+ *
+ * Kept separate from the `provider/name` voice string because the SAME voice
+ * can speak in many styles — the style varies per utterance, the voice does
+ * not. Optional on {@link TTSCallable} so existing two-argument provider
+ * callables stay assignable.
+ */
+export interface TtsSynthesisOptions {
+  /**
+   * Named delivery style for this utterance, e.g. `"angry"`, `"whispering"`.
+   * Providers map it onto their own style channel; a provider with no style
+   * channel synthesizes unstyled.
+   */
+  voiceStyle?: string;
+}
+
+/**
+ * A TTS backend: takes (text, voiceName, options?) and returns PCM16/24kHz
+ * mono bytes. `options` carries per-call, non-identity knobs such as
+ * {@link TtsSynthesisOptions.voiceStyle}.
+ */
+export type TTSCallable = (
+  text: string,
+  voiceName: string,
+  options?: TtsSynthesisOptions,
+) => Promise<Uint8Array>;
 
 /**
  * A TTS provider registration — a litellm-style prefix and the function that
@@ -37,10 +66,10 @@ export type TtsEffectFn = (chunk: AudioChunk) => AudioChunk | Promise<AudioChunk
 const PROVIDERS = new Map<string, TTSCallable>();
 
 /**
- * In-process LRU cache keyed on (sha256(text), voice) → PCM16 bytes. Bounded to
- * prevent unbounded memory growth — a 5-minute clip is ~14 MB, so 64 entries
- * caps the cache at ~900 MB even for long utterances. (Mirrors the Python
- * tuning.)
+ * In-process LRU cache keyed on (sha256(text), voice, voiceStyle) → PCM16
+ * bytes. Bounded to prevent unbounded memory growth — a 5-minute clip is
+ * ~14 MB, so 64 entries caps the cache at ~900 MB even for long utterances.
+ * (Mirrors the Python tuning.)
  */
 const CACHE_MAX_ENTRIES = 64;
 const CACHE = new Map<string, Uint8Array>();
@@ -78,13 +107,29 @@ function hashText(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function cacheKey(textHash: string, voice: string): string {
-  // Composite key — text hash and voice are both load-bearing; "voice" is the
-  // full provider/name string so two providers can't collide.
-  return `${textHash}:${voice}`;
+function cacheKey(textHash: string, voice: string, voiceStyle?: string): string {
+  // Composite key — text hash, voice and voice style are all load-bearing.
+  // "voice" is the full provider/name string so two providers can't collide.
+  // `voiceStyle` is in the key because it changes the synthesized AUDIO, not
+  // just the request: without it, an angry turn and a neutral turn with the
+  // same (text, voice) would share one entry, so whichever ran first would
+  // silently serve its bytes to the other (issue #533). Effects stay OUT of
+  // the key — they are applied after the cache read, never baked in.
+  return `${textHash}:${voice}:${voiceStyle ?? ""}`;
 }
 
-async function synthesizeRaw(text: string, voice: string): Promise<Uint8Array> {
+/** True when `options` carries at least one set value (all fields optional). */
+function hasAnyOption(options?: TtsSynthesisOptions): boolean {
+  return (
+    options !== undefined && Object.values(options).some((v) => v !== undefined)
+  );
+}
+
+async function synthesizeRaw(
+  text: string,
+  voice: string,
+  options?: TtsSynthesisOptions,
+): Promise<Uint8Array> {
   const { provider, name } = splitVoice(voice);
   const fn = PROVIDERS.get(provider);
   if (!fn) {
@@ -92,30 +137,38 @@ async function synthesizeRaw(text: string, voice: string): Promise<Uint8Array> {
       `Unknown TTS provider ${JSON.stringify(provider)}. Known: ${listTtsProviders().join(", ") || "(none)"}`,
     );
   }
-  return fn(text, name);
+  // Providers registered before per-call options existed are two-argument
+  // callables. Only widen the call when an option is actually set, so the
+  // (dominant) unstyled path keeps its historical arity — a third `undefined`
+  // argument is observable to callables that inspect `arguments.length`.
+  return hasAnyOption(options) ? fn(text, name, options) : fn(text, name);
 }
 
 /**
  * Synthesize `text` into an {@link AudioChunk} using the voice provider.
  *
- * Cache key is `(sha256(text), voice)` — equivalent determinism to
- * `(text, voice)` without pinning raw text in the cache payload. Effects pass
- * through `effectFn` AFTER a cache hit and are never part of the key, matching
- * the locked-decision invariant from the Python port.
+ * Cache key is `(sha256(text), voice, voiceStyle)` — equivalent determinism to
+ * `(text, voice, voiceStyle)` without pinning raw text in the cache payload.
+ * Effects pass through `effectFn` AFTER a cache hit and are never part of the
+ * key, matching the locked-decision invariant from the Python port.
+ *
+ * @param options Per-call synthesis knobs (currently
+ *   {@link TtsSynthesisOptions.voiceStyle}) forwarded to the provider.
  */
 export async function synthesize(
   text: string,
   voice: string,
   effectFn?: TtsEffectFn,
+  options?: TtsSynthesisOptions,
 ): Promise<AudioChunk> {
-  const key = cacheKey(hashText(text), voice);
+  const key = cacheKey(hashText(text), voice, options?.voiceStyle);
   let pcm = CACHE.get(key);
   if (pcm !== undefined) {
     // LRU touch — delete + set re-inserts at the tail of insertion order.
     CACHE.delete(key);
     CACHE.set(key, pcm);
   } else {
-    pcm = await synthesizeRaw(text, voice);
+    pcm = await synthesizeRaw(text, voice, options);
     CACHE.set(key, pcm);
     while (CACHE.size > CACHE_MAX_ENTRIES) {
       const oldest = CACHE.keys().next().value;

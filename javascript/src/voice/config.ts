@@ -58,6 +58,14 @@ export interface SttConfig {
 export interface TtsConfig {
   /** litellm-style `"provider/voice"`, e.g. `"openai/nova"`. */
   voice: string;
+  /**
+   * Per-run default delivery style for every synthesized user turn, e.g.
+   * `"angry"`. Separate from {@link voice} because the same voice can speak in
+   * many styles. Mapping is provider-specific — see the provider leaves under
+   * `voice/tts/`. Lowest-precedence source: the simulator's own `voiceStyle`
+   * and a per-step `user("…", { voiceStyle })` override both win over it.
+   */
+  voiceStyle?: string;
   /** Output format hint. */
   format?: AudioFormat;
   /** Per-run API key override. */
