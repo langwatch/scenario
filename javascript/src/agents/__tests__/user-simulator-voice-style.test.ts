@@ -15,12 +15,12 @@
 
 import { describe, it, expect, vi } from "vitest";
 
+import type { AgentInput } from "../../domain";
 import { AudioChunk } from "../../voice/audio-chunk";
 import {
   userSimulatorAgent,
   type UserSimulatorAgentConfig,
 } from "../user-simulator-agent";
-import type { AgentInput } from "../../domain";
 
 // Mock getProjectConfig to avoid filesystem dependency in unit tests.
 vi.mock("../../config", () => ({

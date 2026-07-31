@@ -243,6 +243,16 @@ python/outputs/recordings/background_handoff/segments/
 !python/outputs/recordings/stt_swap/
 python/outputs/recordings/stt_swap/segments/
 
+# TypeScript SDK artifacts — same shape as python/outputs/ above. Generated
+# per run and NOT committed, except the whitelisted evidence directories
+# below, which are the canonical "prove it" artifacts for reviewers.
+# See javascript/outputs/README.md.
+javascript/outputs/*
+!javascript/outputs/README.md
+!javascript/outputs/recordings/
+javascript/outputs/recordings/*
+!javascript/outputs/recordings/issue533_voicestyle/
+
 # TypeScript voice demo outputs (recordings + manifests) — same policy as
 # python/outputs/recordings/ above. Regenerated per local run by the @e2e demo tests
 # under javascript/examples/vitest/tests/voice/; the committed subset below
