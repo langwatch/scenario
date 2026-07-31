@@ -251,6 +251,7 @@ javascript/outputs/*
 !javascript/outputs/README.md
 !javascript/outputs/recordings/
 javascript/outputs/recordings/*
+!javascript/outputs/recordings/README.md
 !javascript/outputs/recordings/issue533_voicestyle/
 
 # TypeScript voice demo outputs (recordings + manifests) — same policy as
