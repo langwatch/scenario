@@ -30,6 +30,7 @@ describe("synthesize(..., { voiceStyle }) (#533)", () => {
     const seen: Array<TtsSynthesisOptions | undefined> = [];
     registerTtsProvider({
       prefix: PREFIX,
+      supportsVoiceStyle: true,
       synth: async (_text, _name, options) => {
         seen.push(options);
         return new Uint8Array([1, 2, 3, 4]);
@@ -47,6 +48,7 @@ describe("synthesize(..., { voiceStyle }) (#533)", () => {
     const styles: Array<string | undefined> = [];
     registerTtsProvider({
       prefix: PREFIX,
+      supportsVoiceStyle: true,
       // Distinct payload per style so a cache collision is visible in the
       // returned BYTES, not just in the call count.
       synth: async (_text, _name, options) => {
