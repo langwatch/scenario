@@ -215,7 +215,7 @@ async def test_audio_to_text():
         scenario.JudgeAgent(
             model="openai/gpt-5.6-luna",
             criteria=[
-                "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
+                "The agent's response demonstrates it processed the SPECIFIC content of the audio — it addresses or attempts to answer the actual question that was asked in the audio. A generic acknowledgement that audio was received (e.g. 'I got your audio file', 'I heard your message') does NOT satisfy this criterion on its own",
                 "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
                 "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
             ],
