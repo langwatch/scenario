@@ -72,7 +72,10 @@ describe("audio example judge criteria — cross-language parity", () => {
       source,
       `${sibling} must pass AUDIO_JUDGE_CRITERIA to the judge, not an inline array`,
     ).toMatch(
-      /\bcriteria\s*:\s*(?:AUDIO_JUDGE_CRITERIA|\[\s*\.\.\.AUDIO_JUDGE_CRITERIA\s*\])/,
+      // \b after the direct form matters: without it, a drifted
+      // `criteria: AUDIO_JUDGE_CRITERIA_STALE` would satisfy the match. The
+      // spread form needs no such guard — the `]` already delimits it.
+      /\bcriteria\s*:\s*(?:AUDIO_JUDGE_CRITERIA\b|\[\s*\.\.\.AUDIO_JUDGE_CRITERIA\s*\])/,
     );
     expect(
       source,
