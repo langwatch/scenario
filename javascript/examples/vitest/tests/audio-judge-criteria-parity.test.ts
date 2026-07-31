@@ -19,6 +19,11 @@ const PYTHON_SIBLING = fileURLToPath(
   new URL("../../../../python/examples/test_audio_to_text.py", import.meta.url),
 );
 
+const JS_SIBLINGS = [
+  "multimodal-audio-to-audio.test.ts",
+  "multimodal-audio-to-text.test.ts",
+];
+
 /**
  * Extract the `AUDIO_JUDGE_CRITERIA = [...]` literal from the Python sibling.
  *
@@ -50,6 +55,21 @@ function readPythonCriteria(): string[] {
 describe("audio example judge criteria — cross-language parity", () => {
   it("keeps the Python sibling byte-identical to the shared JS constants", () => {
     expect(readPythonCriteria()).toEqual([...AUDIO_JUDGE_CRITERIA]);
+  });
+
+  // Sharing the constant only helps while the siblings actually USE it. Nothing
+  // stops a future edit from pasting a criteria literal back inline — which is
+  // precisely how the three copies #680 was filed for came to exist.
+  it.each(JS_SIBLINGS)("keeps %s on the shared constant, not an inline copy", (sibling) => {
+    const source = readFileSync(
+      fileURLToPath(new URL(`./${sibling}`, import.meta.url)),
+      "utf8",
+    );
+    expect(source).toContain("AUDIO_JUDGE_CRITERIA");
+    expect(
+      source,
+      `${sibling} inlines a judge criterion again — import AUDIO_JUDGE_CRITERIA instead`,
+    ).not.toContain("The agent's response demonstrates");
   });
 
   it("still carries the #680 tightenings the siblings were fixed for", () => {
