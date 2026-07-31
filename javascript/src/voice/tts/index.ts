@@ -6,8 +6,8 @@
  * re-exports the interface, router, cache, and provider leaves.
  *
  * Replaces the flat `voice/tts.ts` (one file per provider — EDR §5.3). The LRU
- * cache invariant is preserved (key = sha256(text)+voice; effects applied AFTER
- * cache read) — see `./tts`.
+ * cache invariant is preserved (key = sha256(text)+voice+voiceStyle; effects
+ * applied AFTER cache read) — see `./tts`.
  */
 
 export {
@@ -18,6 +18,7 @@ export {
   type TTSCallable,
   type TtsEffectFn,
   type TtsProvider,
+  type TtsSynthesisOptions,
 } from "./tts";
 
 export { openaiTts } from "./openai-tts";

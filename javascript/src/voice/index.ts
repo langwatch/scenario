@@ -120,7 +120,8 @@ export {
 } from "./voice-models";
 
 // TTS subtree (split from the flat tts.ts; one file per provider — EDR §5.3).
-// LRU cache invariant preserved (key = sha256(text)+voice; effects after read).
+// LRU cache invariant preserved (key = sha256(text)+voice+voiceStyle; effects
+// after read).
 export {
   clearTtsCache,
   listTtsProviders,
@@ -129,6 +130,7 @@ export {
   type TTSCallable,
   type TtsEffectFn,
   type TtsProvider,
+  type TtsSynthesisOptions,
 } from "./tts";
 
 // STT subtree (Gap #1 — split from the flat stt.ts; one file per provider).
