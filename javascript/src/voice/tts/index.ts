@@ -15,6 +15,7 @@ export {
   listTtsProviders,
   registerTtsProvider,
   synthesize,
+  __resetVoiceStyleWarnings,
   type TTSCallable,
   type TtsEffectFn,
   type TtsProvider,
@@ -36,5 +37,15 @@ import { elevenLabsTts } from "./elevenlabs-tts";
 import { openaiTts } from "./openai-tts";
 import { registerTtsProvider } from "./tts";
 
-registerTtsProvider({ prefix: "openai", synth: openaiTts });
-registerTtsProvider({ prefix: "elevenlabs", synth: elevenLabsTts });
+// Both leaves honour `voiceStyle` (#533): OpenAI via the `instructions`
+// parameter, ElevenLabs via an inline `[angry]` marker on `eleven_v3`.
+registerTtsProvider({
+  prefix: "openai",
+  synth: openaiTts,
+  supportsVoiceStyle: true,
+});
+registerTtsProvider({
+  prefix: "elevenlabs",
+  synth: elevenLabsTts,
+  supportsVoiceStyle: true,
+});

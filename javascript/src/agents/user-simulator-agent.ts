@@ -38,7 +38,11 @@ export interface UserSimulatorVoiceConfig {
    *
    * Precedence: a per-step `user("…", { voiceStyle })` override wins for its
    * one turn, then this value, then the per-run `voice.tts.voiceStyle`.
-   * Mapping is provider-specific — see the provider leaves under `voice/tts/`.
+   *
+   * Mapping is provider-specific — ElevenLabs prepends an inline `[angry]`
+   * marker (honoured by `eleven_v3`), OpenAI passes it as `instructions`. A
+   * provider that has not declared `supportsVoiceStyle` warns once and
+   * synthesizes unstyled.
    */
   voiceStyle?: string;
 

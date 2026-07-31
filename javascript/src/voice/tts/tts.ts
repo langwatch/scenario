@@ -31,8 +31,10 @@ import { AudioChunk } from "../audio-chunk";
 export interface TtsSynthesisOptions {
   /**
    * Named delivery style for this utterance, e.g. `"angry"`, `"whispering"`.
-   * Providers map it onto their own style channel; a provider with no style
-   * channel synthesizes unstyled.
+   * Providers map it onto their own style channel (ElevenLabs: an inline
+   * `[angry]` marker; OpenAI: the `instructions` parameter) and opt in via
+   * {@link TtsProvider.supportsVoiceStyle}. A provider that has not opted in
+   * gets the style stripped, and the router warns once.
    */
   voiceStyle?: string;
 }
@@ -55,6 +57,13 @@ export type TTSCallable = (
 export interface TtsProvider {
   prefix: string;
   synth: TTSCallable;
+  /**
+   * Whether `synth` honours {@link TtsSynthesisOptions.voiceStyle}. Defaults
+   * to `false` — a provider that has not opted in has the style STRIPPED and
+   * the router warns once, rather than quietly returning unstyled audio the
+   * caller believes is styled.
+   */
+  supportsVoiceStyle?: boolean;
 }
 
 /**
@@ -63,7 +72,13 @@ export interface TtsProvider {
  */
 export type TtsEffectFn = (chunk: AudioChunk) => AudioChunk | Promise<AudioChunk>;
 
-const PROVIDERS = new Map<string, TTSCallable>();
+/** Registry entry — the callable plus the capabilities it declared. */
+interface RegisteredTtsProvider {
+  synth: TTSCallable;
+  supportsVoiceStyle: boolean;
+}
+
+const PROVIDERS = new Map<string, RegisteredTtsProvider>();
 
 /**
  * In-process LRU cache keyed on (sha256(text), voice, voiceStyle) → PCM16
@@ -79,9 +94,45 @@ export function clearTtsCache(): void {
   CACHE.clear();
 }
 
+/**
+ * Prefixes already warned about an ignored `voiceStyle`. One warning per
+ * provider for the life of the process — a styled multi-turn run would
+ * otherwise repeat the same line on every turn.
+ */
+const VOICE_STYLE_WARNED = new Set<string>();
+
+/**
+ * Reset the one-shot "provider ignores voiceStyle" warning ledger.
+ *
+ * @internal Test-only seam. Deliberately NOT folded into
+ * {@link clearTtsCache}: the two have unrelated lifetimes, and a suite that
+ * clears the cache between cases must not silently re-arm the warning it is
+ * asserting fires exactly once.
+ */
+export function __resetVoiceStyleWarnings(): void {
+  VOICE_STYLE_WARNED.clear();
+}
+
+function warnVoiceStyleUnsupportedOnce(
+  provider: string,
+  voiceStyle: string,
+): void {
+  if (VOICE_STYLE_WARNED.has(provider)) return;
+  VOICE_STYLE_WARNED.add(provider);
+  console.warn(
+    `[scenario] TTS provider ${JSON.stringify(provider)} does not support ` +
+      `voiceStyle — the style ${JSON.stringify(voiceStyle)} is ignored and ` +
+      "this turn is synthesized unstyled. Providers declare support with " +
+      "registerTtsProvider({ …, supportsVoiceStyle: true }).",
+  );
+}
+
 /** Register a TTS backend under the given provider prefix. */
 export function registerTtsProvider(provider: TtsProvider): void {
-  PROVIDERS.set(provider.prefix.toLowerCase(), provider.synth);
+  PROVIDERS.set(provider.prefix.toLowerCase(), {
+    synth: provider.synth,
+    supportsVoiceStyle: provider.supportsVoiceStyle ?? false,
+  });
 }
 
 /** Test-only: enumerate registered provider prefixes. */
@@ -131,17 +182,31 @@ async function synthesizeRaw(
   options?: TtsSynthesisOptions,
 ): Promise<Uint8Array> {
   const { provider, name } = splitVoice(voice);
-  const fn = PROVIDERS.get(provider);
-  if (!fn) {
+  const registered = PROVIDERS.get(provider);
+  if (!registered) {
     throw new Error(
       `Unknown TTS provider ${JSON.stringify(provider)}. Known: ${listTtsProviders().join(", ") || "(none)"}`,
     );
   }
+
+  // A style the backend cannot honour must be loud, not silent — otherwise a
+  // scripted `user("…", { voiceStyle: "angry" })` produces cheerful audio and
+  // nothing says why. Warn once per provider, then strip ONLY the style so
+  // any other per-call option still reaches the backend.
+  let effective = options;
+  const voiceStyle = options?.voiceStyle;
+  if (voiceStyle && !registered.supportsVoiceStyle) {
+    warnVoiceStyleUnsupportedOnce(provider, voiceStyle);
+    effective = { ...options, voiceStyle: undefined };
+  }
+
   // Providers registered before per-call options existed are two-argument
   // callables. Only widen the call when an option is actually set, so the
   // (dominant) unstyled path keeps its historical arity — a third `undefined`
   // argument is observable to callables that inspect `arguments.length`.
-  return hasAnyOption(options) ? fn(text, name, options) : fn(text, name);
+  return hasAnyOption(effective)
+    ? registered.synth(text, name, effective)
+    : registered.synth(text, name);
 }
 
 /**
