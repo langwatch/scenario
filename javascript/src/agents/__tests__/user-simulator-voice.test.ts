@@ -9,12 +9,10 @@
  * over-matching PR1's voice-contract-surface.test.ts which uses
  * `includeTags: ["ts-bound"]`. See issue #523 for the tag-convention decision.
  *
- * Note: the `Per-step voice override applies to only that step` scenario in
- * specs/voice-agents.feature stays @todo for the AUDIBLE voiceStyle effect —
- * no TTS backend changes timbre by style yet (the simulator emits a one-shot
- * warning). The per-step override PLUMBING (voiceStyle/audioEffects installed
- * for one turn, then reverted) is wired and covered by
- * `script/__tests__/interrupt-after-and-user-overrides.test.ts`.
+ * Note: `Per-step voice override applies to only that step` left @todo for the
+ * AUDIBLE voiceStyle effect until #533 gave the TTS providers a real style
+ * channel (ElevenLabs inline markers, OpenAI `instructions`). It is now
+ * `@ts-simulator` and bound here alongside the rest.
  */
 
 import { dirname, resolve } from "node:path";
