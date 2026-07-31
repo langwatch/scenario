@@ -65,7 +65,15 @@ describe("audio example judge criteria — cross-language parity", () => {
       fileURLToPath(new URL(`./${sibling}`, import.meta.url)),
       "utf8",
     );
-    expect(source).toContain("AUDIO_JUDGE_CRITERIA");
+    // Assert on what is HANDED TO THE JUDGE, not merely that the import is
+    // present — a sibling can import the constant and still pass an inline
+    // array, which would satisfy a bare "contains" check while drifting.
+    expect(
+      source,
+      `${sibling} must pass AUDIO_JUDGE_CRITERIA to the judge, not an inline array`,
+    ).toMatch(
+      /\bcriteria\s*:\s*(?:AUDIO_JUDGE_CRITERIA|\[\s*\.\.\.AUDIO_JUDGE_CRITERIA\s*\])/,
+    );
     expect(
       source,
       `${sibling} inlines a judge criterion again — import AUDIO_JUDGE_CRITERIA instead`,
