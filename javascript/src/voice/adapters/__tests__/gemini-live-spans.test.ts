@@ -22,15 +22,15 @@
 
 import { Buffer } from "node:buffer";
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
   type ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Register a context manager ONCE so context.with propagates across awaits — the
 // runtime + adapter read currentSpan() after awaits. Without it context.active()
@@ -88,11 +88,11 @@ vi.mock("@google/genai", () => {
   };
 });
 
-import { GeminiLiveAgentAdapter } from "../gemini-live";
+import type { AgentInput } from "../../../domain/agents";
 import { AudioChunk } from "../../audio-chunk";
 import { createAudioMessage } from "../../messages";
 import { voiceSpan } from "../../telemetry";
-import type { AgentInput } from "../../../domain/agents";
+import { GeminiLiveAgentAdapter } from "../gemini-live";
 
 // 2400 samples @24kHz → 1600 samples @16kHz → 3200 bytes after the wire resample.
 const USER_BYTES = 4800;

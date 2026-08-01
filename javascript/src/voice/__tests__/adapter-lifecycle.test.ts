@@ -32,8 +32,8 @@ import {
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import { agent, fail, succeed, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent, fail, succeed, user } from "../../script";
 import { FakeVoiceAdapter } from "./fixtures/fake-adapter";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

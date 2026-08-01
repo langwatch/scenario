@@ -15,9 +15,9 @@ import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, vi } from "vitest";
 
 import type { AudioChunk } from "../audio-chunk";
+import type { AudioSegment, VoiceRecording } from "../recording.types";
 import { type STTProvider } from "../stt";
 import { transcribeSegments } from "../transcribe";
-import type { AudioSegment, VoiceRecording } from "../recording.types";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "specs", "voice-agents.feature");

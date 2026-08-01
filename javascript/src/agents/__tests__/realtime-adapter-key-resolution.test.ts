@@ -10,8 +10,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
 import { AgentRole } from "../../domain";
+import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
 
 type ConnectParams = { apiKey?: string };
 

@@ -7,9 +7,9 @@ import {
   AgentInput,
   AgentReturnTypes,
 } from "../../domain";
+import { UserSimulatorAgentAdapter } from "../../domain/agents";
 import { user, agent, judge, succeed } from "../../script";
 import { ScenarioExecution } from "../scenario-execution";
-import { UserSimulatorAgentAdapter } from "../../domain/agents";
 
 class MockAgent extends AgentAdapter {
   role = AgentRole.AGENT;

@@ -17,15 +17,15 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { LanguageModel } from "ai";
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
+import type { LanguageModel } from "ai";
 import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { AgentRole } from "../../../domain/agents";
-import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { VoiceAgentAdapter } from "../../adapter";
-import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
+import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { elevenLabsAgent } from "../../factories";
+import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
 import {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,

@@ -13,18 +13,18 @@
 
 import { describe, it, expect } from "vitest";
 
+import { userSimulatorAgent } from "../../agents/user-simulator-agent";
 import {
   AgentRole,
   AgentAdapter,
   type AgentInput,
   type AgentReturnTypes,
 } from "../../domain";
-import { ScenarioExecution } from "../scenario-execution";
 import { user, agent } from "../../script";
-import { userSimulatorAgent } from "../../agents/user-simulator-agent";
+import { FakeVoiceAdapter } from "../../voice/__tests__/fixtures/fake-adapter";
 import { AudioChunk } from "../../voice/audio-chunk";
 import { extractAudio } from "../../voice/messages";
-import { FakeVoiceAdapter } from "../../voice/__tests__/fixtures/fake-adapter";
+import { ScenarioExecution } from "../scenario-execution";
 
 /** Deterministic offline TTS stub: PCM16 bytes proportional to text length. */
 function stubSynthesize(text: string): Promise<AudioChunk> {

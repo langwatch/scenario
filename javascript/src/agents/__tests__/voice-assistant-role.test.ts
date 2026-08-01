@@ -23,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect } from "vitest";
 
-import { AudioChunk } from "../../voice/audio-chunk";
 import { makeChunk } from "./fixtures/make-chunk";
+import { AudioChunk } from "../../voice/audio-chunk";
 import { createAudioMessage, extractAudio, messageHasAudio } from "../../voice/messages";
 import { JudgeAgent } from "../judge/judge-agent";
 

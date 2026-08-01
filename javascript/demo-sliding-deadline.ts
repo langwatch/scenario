@@ -11,9 +11,9 @@
  *
  * Run: node_modules/.bin/tsx demo-sliding-deadline.ts
  */
-import { ElevenLabsAgentAdapter } from "./src/voice/adapters/elevenlabs.js";
 import { Buffer } from "node:buffer";
 import type { RawData } from "ws";
+import { ElevenLabsAgentAdapter } from "./src/voice/adapters/elevenlabs.js";
 
 // ── timing constants ──────────────────────────────────────────────────────────
 const TIMEOUT_S = 0.5;         // 500ms raw idle deadline
