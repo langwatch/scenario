@@ -18,24 +18,8 @@ import {
   SimpleSpanProcessor,
   InMemorySpanExporter,
 } from "@opentelemetry/sdk-trace-base";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { getScopeName } from "./scope-name";
 
-/** The two shapes OTel has used for the instrumentation scope, across SDK majors. */
-type ScopedSpan = ReadableSpan & {
-  instrumentationScope?: { name?: string };
-  instrumentationLibrary?: { name?: string };
-};
-
-/**
- * Returns the instrumentation scope name for a span, handling both
- * OTel SDK v1 (instrumentationLibrary) and v2 (instrumentationScope).
- */
-function getScopeName(span: ReadableSpan): string {
-  const s = span as ScopedSpan;
-  return (
-    s.instrumentationScope?.name ?? s.instrumentationLibrary?.name ?? "unknown"
-  );
-}
 
 // --- Step 1: Set up span collection ---
 const memoryExporter = new InMemorySpanExporter();

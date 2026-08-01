@@ -92,15 +92,4 @@ export default defineConfig([
       "@typescript-eslint/no-non-null-assertion": "error",
     },
   },
-  {
-    // `no-explicit-any` stays an ERROR on the shipped library (currently 0) and
-    // drops to a warning in tests. Test suites reach private members through
-    // `(agent as any).internalField` to drive state directly; typing those away
-    // would mean widening the production API or mirroring its privates, so the
-    // `any` is the lesser evil. See #565 and dec.2026-08-01-scenario-565-lint-ac-set.
-    files: ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
-    rules: {
-      "@typescript-eslint/no-explicit-any": "warn",
-    },
-  },
 ]);

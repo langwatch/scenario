@@ -1,0 +1,17 @@
+{
+  "src/agents/__tests__/red-team.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 102
+    }
+  },
+  "src/agents/judge/__tests__/judge-agent.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/tracing/__tests__/setup.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  }
+}

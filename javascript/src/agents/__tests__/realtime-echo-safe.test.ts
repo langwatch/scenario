@@ -198,15 +198,10 @@ describe("realtime echo-safety (AC-JS1')", () => {
     expect(exchange.some((m) => m.role === "user")).toBe(true);
 
     // Diagnostics (visible on failure).
-     
     console.log(`[POST-FIX] Q=${JSON.stringify(QUESTION)}`);
-     
     console.log(`[POST-FIX] U=${JSON.stringify(postFixAnswer)}`);
-     
     console.log(`[POST-FIX] Jaccard=${jPostFix.toFixed(3)}`);
-     
     console.log(`[NAIVE]    U=${JSON.stringify(naiveAnswer)}`);
-     
     console.log(`[NAIVE]    Jaccard=${jNaive.toFixed(3)}`);
 
     // Naive control: the echo metric IS red-capable at the JS layer.
