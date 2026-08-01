@@ -29,19 +29,8 @@ import {
 } from "@langwatch/scenario";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+import { getScopeName } from "./scope-name";
 
-/** The two shapes OTel has used for the instrumentation scope, across SDK majors. */
-type ScopedSpan = ReadableSpan & {
-  instrumentationScope?: { name?: string };
-  instrumentationLibrary?: { name?: string };
-};
-
-function getScopeName(span: ReadableSpan): string {
-  const s = span as ScopedSpan;
-  return (
-    s.instrumentationScope?.name ?? s.instrumentationLibrary?.name ?? "unknown"
-  );
-}
 
 // --- Step 1: Create agents (no LLM needed) ---
 const dummyUserAgent = {

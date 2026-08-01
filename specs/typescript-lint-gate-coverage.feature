@@ -12,13 +12,11 @@ Feature: The TypeScript lint gate covers every file it claims to, and debt canno
     And `pnpm -r run <script>` SKIPS, without erroring, any package that has no such script
     And the examples import @langwatch/scenario through its published exports map, which points at dist/
     And PR #755 added a lint:lib CI step that already gates src/ excluding tests
-    And the measured baseline at 88aec40 (post `pnpm install --frozen-lockfile` + `pnpm build`, eslint 9.39.4) is
-      | scope                                   | problems | gated before this change |
-      | src/** non-test (shipped library)       | 0        | yes, by lint:lib         |
-      | src/** tests                            | 209      | no                       |
-      | root-level files (demo, scripts/)       | 2        | no                       |
-      | examples/custom-observability           | 19       | no — it has no lint script |
-      | other examples/*                        | 0        | yes, by lint:all         |
+    And the measured baseline at 88aec40, post `pnpm install --frozen-lockfile` + `pnpm build` on eslint 9.39.4, is 0 problems in src/** non-test (already gated by lint:lib)
+    And 209 problems in src/** tests, ungated
+    And 2 problems in root-level files (demo-sliding-deadline.ts, scripts/), ungated
+    And 19 problems in examples/custom-observability, ungated because it defines no lint script
+    And 0 problems in the other examples/*, already gated by lint:all
 
   # ============================================================
   # Group: The gate reaches every root-owned file (AC1, AC7)
@@ -71,13 +69,15 @@ Feature: The TypeScript lint gate covers every file it claims to, and debt canno
     And the one violation that `--fix` could not resolve, in src/voice/__tests__/playback.test.ts,
         was fixed by moving the import rather than by suppressing the rule
 
-  @integration
+  @unit
   Scenario: the baseline was cleared by fixing code, not by disabling rules or widening ignores
     # AC11 — the escape hatch every bare "reports 0 problems" criterion leaves open
     When the diff of javascript/eslint.config.mjs against main is inspected
     Then no rule severity moved from "error" to "warn" or "off"
     And no new entry was added to the top-level ignores array
-    But the no-explicit-any warn block scoped to src/**/*.test.ts and src/**/__tests__/** is permitted, per AC3
+    And no rule was disabled for a path via a new ignores entry or --ignore-pattern
+    But recording the 106 known violations in a committed eslint-suppressions.json is permitted, per AC3,
+        because it keeps the rule at "error" and names every suppressed site
     And the count of files linted by lint:root is greater than or equal to the count on main
     And no added line in the diff introduces eslint-disable, --quiet, continue-on-error or no-error-on-unmatched-pattern
 
@@ -94,14 +94,27 @@ Feature: The TypeScript lint gate covers every file it claims to, and debt canno
     And `pnpm lint:lib` exits non-zero
 
   @integration
-  Scenario: the existing test-file any is tolerated but cannot grow
-    # AC3 — the ratchet; without it "warn" would let 106 become 300 silently
-    Given src/** tests carry exactly 106 no-explicit-any warnings
-    And lint:root runs with --max-warnings=106
+  Scenario: the existing test-file any is recorded per file and cannot grow
+    # AC3 — the ratchet. A --max-warnings integer was rejected: it is a TOTAL budget
+    # over every warn-level rule, so an unrelated unused variable consumes the same
+    # allowance as an `any`, and the two are freely interchangeable.
+    Given the 106 pre-existing no-explicit-any violations are recorded in eslint-suppressions.json
+    And that file records them per file and per rule, not as a single number
+    And no-explicit-any remains severity "error" everywhere, including tests
     When `pnpm lint:root` is run unmodified
     Then it exits 0
     But when a 107th `any` is added to src/agents/__tests__/red-team.test.ts
     Then `pnpm lint:root` exits non-zero
+    And when an unrelated warn-level violation is added elsewhere instead
+    Then it does not consume the no-explicit-any allowance
+
+  @integration
+  Scenario: the suppression baseline ratchets down and cannot silently widen
+    # AC3 — a baseline that only ever grows is a waiver, not a ratchet
+    Given a suppressed `any` is removed from a test file
+    When `eslint . --ignore-pattern 'examples/**' --prune-suppressions` is run
+    Then eslint-suppressions.json records one fewer suppression for that file
+    And the file is committed, so any change to the baseline is visible in review
 
   # ============================================================
   # Group: no package can escape the gate (AC5, AC6)
@@ -165,10 +178,11 @@ Feature: The TypeScript lint gate covers every file it claims to, and debt canno
     # AC10 — a differential, not merely "green"
     Given the autofix reordered imports across 40+ files under src/
     When `pnpm test` is run before and after the change
-    Then both runs report 92 test files passed and 1079 tests passed with 4 skipped
+    Then the two runs report identical passed, failed and skipped counts
+    And no test file present before the change is absent after it
     And `pnpm typecheck:all` exits 0
 
-  @integration
+  @e2e
   Scenario: the gate is green on a CI run that actually executed it
     # AC9 — a draft PR yields a green javascript-ci with ci-checks SKIPPED, so the
     # job's own conclusion is what counts, never the aggregate
@@ -176,4 +190,4 @@ Feature: The TypeScript lint gate covers every file it claims to, and debt canno
     When javascript-ci runs on it
     Then the ci-checks job's own conclusion is "success" and not "skipped"
     And the "Lint (root package)", "Lint (library)" and "Lint (workspace packages)" steps all pass
-    And no --max-warnings other than the AC3 ratchet, and no --quiet or continue-on-error, was added
+    And no --max-warnings, --quiet, continue-on-error or new eslint-disable was added

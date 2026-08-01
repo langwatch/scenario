@@ -97,9 +97,10 @@ jobs:
         working-directory: javascript
 
       # Everything the root package owns that lint:all does not reach: src/
-      # INCLUDING tests, root-level *.ts, and scripts/. Carries a
-      # --max-warnings ceiling equal to the measured no-explicit-any baseline in
-      # tests, so that debt cannot grow silently (#565).
+      # INCLUDING tests, root-level *.ts, and scripts/. The pre-existing
+      # no-explicit-any debt in test files is recorded per-file in
+      # eslint-suppressions.json rather than waived by severity, so a NEW one
+      # fails here while the known 106 stay green (#565).
       - name: Lint (root package)
         run: pnpm lint:root
         working-directory: javascript
