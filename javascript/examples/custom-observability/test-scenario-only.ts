@@ -4,12 +4,6 @@
  * This simulates the production use case: a server process that imports scenario
  * and only wants scenario-scoped spans, not HTTP/middleware noise.
  */
-import { trace } from "@opentelemetry/api";
-import {
-  SimpleSpanProcessor,
-  InMemorySpanExporter,
-} from "@opentelemetry/sdk-trace-base";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import {
   run,
   AgentRole,
@@ -17,19 +11,29 @@ import {
   agent,
   succeed,
   setupScenarioTracing,
-  scenarioOnly,
+  type AgentInput,
 } from "@langwatch/scenario";
+import { trace } from "@opentelemetry/api";
+import {
+  SimpleSpanProcessor,
+  InMemorySpanExporter,
+} from "@opentelemetry/sdk-trace-base";
+import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
+
+/** The two shapes OTel has used for the instrumentation scope, across SDK majors. */
+type ScopedSpan = ReadableSpan & {
+  instrumentationScope?: { name?: string };
+  instrumentationLibrary?: { name?: string };
+};
 
 /**
  * Returns the instrumentation scope name for a span, handling both
  * OTel SDK v1 (instrumentationLibrary) and v2 (instrumentationScope).
  */
 function getScopeName(span: ReadableSpan): string {
-  const s = span as any;
+  const s = span as ScopedSpan;
   return (
-    s.instrumentationScope?.name ??
-    s.instrumentationLibrary?.name ??
-    "unknown"
+    s.instrumentationScope?.name ?? s.instrumentationLibrary?.name ?? "unknown"
   );
 }
 
@@ -41,7 +45,7 @@ const collectorProcessor = new SimpleSpanProcessor(memoryExporter);
 setupScenarioTracing({
   instrumentations: [], // disable auto-instrumentation
   spanProcessors: [collectorProcessor],
-  langwatch: "disabled" as any, // don't send to LangWatch for this test
+  langwatch: "disabled", // don't send to LangWatch for this test
 });
 
 // --- Step 3: Simulate "server noise" -- create spans that should be filtered out ---
@@ -61,7 +65,7 @@ const dummyUserAgent = {
 
 const echoAgent = {
   role: AgentRole.AGENT as const,
-  call: async (input: any) => {
+  call: async (input: AgentInput) => {
     const lastMessage = input.messages.at(-1);
     const content =
       typeof lastMessage?.content === "string"

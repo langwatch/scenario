@@ -81,16 +81,27 @@ jobs:
         run: pnpm smoke:dist
         working-directory: javascript
 
-      - name: Lint
+      # Every workspace package except the root. Also asserts, before linting,
+      # that dist/ exists and that no package can escape the gate by omitting a
+      # lint script — both failures used to be silent (#565).
+      - name: Lint (workspace packages)
         run: pnpm lint:all
         working-directory: javascript
 
       # Lints the shipped library source (src/, excluding tests) with the root
       # package config, which the workspace-recursive lint:all does not cover.
       # Enforces no-non-null-assertion (#751) and the rest of the config on the
-      # library; extending the gate to tests/examples is tracked in #565.
+      # library.
       - name: Lint (library)
         run: pnpm lint:lib
+        working-directory: javascript
+
+      # Everything the root package owns that lint:all does not reach: src/
+      # INCLUDING tests, root-level *.ts, and scripts/. Carries a
+      # --max-warnings ceiling equal to the measured no-explicit-any baseline in
+      # tests, so that debt cannot grow silently (#565).
+      - name: Lint (root package)
+        run: pnpm lint:root
         working-directory: javascript
 
       - name: Type check

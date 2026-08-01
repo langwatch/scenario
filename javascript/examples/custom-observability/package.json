@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "lint": "eslint .",
     "test:no-auto-init": "tsx test-no-auto-init.ts",
     "test:scenario-only": "tsx test-scenario-only.ts",
     "test:custom-scopes": "tsx test-custom-scopes.ts",

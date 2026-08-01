@@ -10,8 +10,9 @@ import { trace } from "@opentelemetry/api";
 const providerBefore = trace.getTracerProvider();
 const providerNameBefore = providerBefore.constructor.name;
 
-// Dynamically import scenario to test the side-effect
-const scenario = await import("@langwatch/scenario");
+// Dynamically import scenario to test the side-effect. The module namespace is
+// deliberately discarded — the import itself is what this test exercises.
+await import("@langwatch/scenario");
 
 // Check the provider AFTER importing scenario
 const providerAfter = trace.getTracerProvider();
