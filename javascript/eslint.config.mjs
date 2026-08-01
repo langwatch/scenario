@@ -57,7 +57,14 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ["**/*.config.{js,mjs,cjs,ts}", "eslint.config.mjs"],
+    // Build tooling and the maintenance scripts run under Node, not a browser.
+    // Without this, `scripts/**` is linted with browser globals and reports
+    // no-undef on Buffer/process (#565).
+    files: [
+      "**/*.config.{js,mjs,cjs,ts}",
+      "eslint.config.mjs",
+      "scripts/**/*.{js,mjs,cjs,ts}",
+    ],
     languageOptions: { globals: globals.node },
   },
   tseslint.configs.recommended,
@@ -78,12 +85,22 @@ export default defineConfig([
   {
     // Forbid non-null assertions (`!`) in shipped library source. Tests and
     // examples legitimately assert known-present fixtures, so the rule is
-    // scoped to non-test `src/` only; extending the lint gate to the rest of
-    // the package is tracked in #565.
+    // scoped to non-test `src/` only.
     files: ["src/**/*.ts"],
     ignores: ["src/**/*.test.ts", "src/**/__tests__/**"],
     rules: {
       "@typescript-eslint/no-non-null-assertion": "error",
+    },
+  },
+  {
+    // `no-explicit-any` stays an ERROR on the shipped library (currently 0) and
+    // drops to a warning in tests. Test suites reach private members through
+    // `(agent as any).internalField` to drive state directly; typing those away
+    // would mean widening the production API or mirroring its privates, so the
+    // `any` is the lesser evil. See #565 and dec.2026-08-01-scenario-565-lint-ac-set.
+    files: ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
     },
   },
 ]);

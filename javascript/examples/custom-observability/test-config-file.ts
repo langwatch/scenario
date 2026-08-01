@@ -19,16 +19,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.chdir(path.join(__dirname, "with-config-file"));
 console.log(`Working directory: ${process.cwd()}`);
 
+import {
+  run,
+  AgentRole,
+  user,
+  agent,
+  succeed,
+  type AgentInput,
+} from "@langwatch/scenario";
 import { trace } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
-import { run, AgentRole, user, agent, succeed } from "@langwatch/scenario";
+
+/** The two shapes OTel has used for the instrumentation scope, across SDK majors. */
+type ScopedSpan = ReadableSpan & {
+  instrumentationScope?: { name?: string };
+  instrumentationLibrary?: { name?: string };
+};
 
 function getScopeName(span: ReadableSpan): string {
-  const s = span as any;
+  const s = span as ScopedSpan;
   return (
-    s.instrumentationScope?.name ??
-    s.instrumentationLibrary?.name ??
-    "unknown"
+    s.instrumentationScope?.name ?? s.instrumentationLibrary?.name ?? "unknown"
   );
 }
 
@@ -40,7 +51,7 @@ const dummyUserAgent = {
 
 const echoAgent = {
   role: AgentRole.AGENT as const,
-  call: async (input: any) => {
+  call: async (input: AgentInput) => {
     const lastMessage = input.messages.at(-1);
     const content =
       typeof lastMessage?.content === "string"

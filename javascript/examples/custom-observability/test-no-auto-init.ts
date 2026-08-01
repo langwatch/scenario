@@ -30,9 +30,9 @@ const delegateName = (): string => {
 // Check the provider BEFORE importing scenario
 const delegateBefore = delegateName();
 
-// Dynamically import scenario to test the side-effect
-const scenario = await import("@langwatch/scenario");
-void scenario;
+// Dynamically import scenario to test the side-effect. The module namespace is
+// deliberately discarded — the import itself is what this test exercises.
+await import("@langwatch/scenario");
 
 // Check the provider AFTER importing scenario
 const delegateAfter = delegateName();
