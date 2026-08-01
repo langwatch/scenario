@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { run, type RunOptions } from "../run";
 import { AgentRole, type AgentAdapter, type AgentInput, type ScenarioConfig } from "../../domain";
 import type { ScenarioEvent } from "../../events/schema";
+import { run, type RunOptions } from "../run";
 
 // Mock the EventBus - must use function keyword for constructor
 vi.mock("../../events/event-bus", () => ({

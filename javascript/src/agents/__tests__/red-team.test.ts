@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
+import { AgentRole, AgentAdapter, JudgeAgentAdapter } from "../../domain";
+import type { AgentInput, AgentReturnTypes } from "../../domain";
+import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
 import { CrescendoStrategy } from "../red-team/crescendo-strategy";
 import { GoatStrategy } from "../red-team/goat-strategy";
 import { renderMetapromptTemplate } from "../red-team/metaprompt-template";
 import { redTeamCrescendo, redTeamGoat, redTeamAgent } from "../red-team/red-team-agent";
 import { Base64Technique, DEFAULT_TECHNIQUES } from "../red-team/techniques";
-import { ScenarioExecutionState } from "../../execution/scenario-execution-state";
-import { AgentRole, AgentAdapter, JudgeAgentAdapter } from "../../domain";
-import type { AgentInput, AgentReturnTypes } from "../../domain";
 
 // Shared helper — minimal AgentInput-like object for unit tests
 const makeInput = (messages: any[], currentTurn = 1) => ({

@@ -11,16 +11,16 @@
 import type { ModelMessage } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
-import { AudioChunk } from "../audio-chunk";
-import { createAudioMessage } from "../messages";
-import { prepareJudgeInput, transcribeAudioMessages } from "../judge-stt";
-import type { STTProvider } from "../stt";
 import { judgeAgent } from "../../agents/judge/judge-agent";
 import type { JudgeAgentConfig } from "../../agents/judge/judge-agent";
 import {
   AgentRole,
   type AgentInput,
 } from "../../domain";
+import { AudioChunk } from "../audio-chunk";
+import { prepareJudgeInput, transcribeAudioMessages } from "../judge-stt";
+import { createAudioMessage } from "../messages";
+import type { STTProvider } from "../stt";
 
 // JudgeAgent.call() reads project config from disk; mock it so the test is
 // hermetic (matches judge-agent.test.ts).
