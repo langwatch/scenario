@@ -36,14 +36,26 @@ Feature: Gemini Live voice adapter surfaces a dead session instead of hanging
   # would contradict the pre-connect-failure scenario, and would be inapplicable
   # to the static-check scenarios entirely. Preconditions are stated per scenario.
   #
-  # ⚠ THE @integration TAGS BELOW ARE GHERKIN TAGS, NOT PYTEST MARKERS. Do NOT
-  # transcribe them into @pytest.mark.integration on the test nodes. CI runs
-  # `-m "not integration"` (.github/workflows/python-ci.yml:91), so a node marked
-  # that way is DESELECTED in CI while every local run stays green — the test
-  # would never execute on the gate it exists to satisfy. The auto-marker in
-  # tests/voice/conftest.py keys on the `_e2e.py` filename only, so
-  # test_gemini_live_stream_ended.py is not auto-gated; the only way to break
-  # this is by hand. AC10 pins it.
+  # ⚠ THE @integration TAGS BELOW ARE GHERKIN TAGS. Under CI's selector
+  # `-m "not integration"` (.github/workflows/python-ci.yml:91), anything that
+  # becomes a pytest marker of that name is DESELECTED in CI while every local
+  # run stays green — the test would never execute on the gate it exists to
+  # satisfy. TWO ways that happens, not one:
+  #
+  #   1. By hand — transcribing @integration into @pytest.mark.integration on a
+  #      test node. AC10 pins this case.
+  #   2. AUTOMATICALLY, if this file is ever bound with pytest-bdd `scenarios()`.
+  #      pytest-bdd's default `pytest_bdd_apply_tag` hook does
+  #      `mark = getattr(pytest.mark, tag)` (plugin.py:136), so EVERY Gherkin tag
+  #      here becomes a pytest marker with nobody typing one. pytest-bdd>=8.1.0 is
+  #      already a declared dependency (pyproject.toml:138), and
+  #      tests/voice/test_feature_file_contract.py's own docstring names full
+  #      pytest-bdd binding as a tracked follow-up — so this is the repo's
+  #      DOCUMENTED next step for this file, not a hypothetical.
+  #
+  # If this file is ever bound, override `pytest_bdd_apply_tag` or rename the tag
+  # first. The auto-marker in tests/voice/conftest.py keys on the `_e2e.py`
+  # filename only, so test_gemini_live_stream_ended.py is not auto-gated today.
   #
   # SCOPE. The sweep that produced #718 named five adapters; only gemini_live has
   # an unfixed gap. pipecat was fixed by #692, twilio is already guarded.
