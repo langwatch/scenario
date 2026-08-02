@@ -36,6 +36,15 @@ Feature: Gemini Live voice adapter surfaces a dead session instead of hanging
   # would contradict the pre-connect-failure scenario, and would be inapplicable
   # to the static-check scenarios entirely. Preconditions are stated per scenario.
   #
+  # ⚠ THE @integration TAGS BELOW ARE GHERKIN TAGS, NOT PYTEST MARKERS. Do NOT
+  # transcribe them into @pytest.mark.integration on the test nodes. CI runs
+  # `-m "not integration"` (.github/workflows/python-ci.yml:91), so a node marked
+  # that way is DESELECTED in CI while every local run stays green — the test
+  # would never execute on the gate it exists to satisfy. The auto-marker in
+  # tests/voice/conftest.py keys on the `_e2e.py` filename only, so
+  # test_gemini_live_stream_ended.py is not auto-gated; the only way to break
+  # this is by hand. AC10 pins it.
+  #
   # SCOPE. The sweep that produced #718 named five adapters; only gemini_live has
   # an unfixed gap. pipecat was fixed by #692, twilio is already guarded.
   # openai_realtime, elevenlabs and websocket read their transport inline.
