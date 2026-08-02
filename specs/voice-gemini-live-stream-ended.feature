@@ -44,9 +44,11 @@ Feature: Gemini Live voice adapter surfaces a dead session instead of hanging
   #
   #   1. By hand — transcribing @integration into @pytest.mark.integration on a
   #      test node. AC10 pins this case.
-  #   2. AUTOMATICALLY, if this file is ever bound with pytest-bdd `scenarios()`.
-  #      pytest-bdd's default `pytest_bdd_apply_tag` hook does
-  #      `mark = getattr(pytest.mark, tag)` (plugin.py:136), so EVERY Gherkin tag
+  #   2. AUTOMATICALLY, if this file is ever bound with pytest-bdd — via EITHER
+  #      `scenarios()` (plural) or a `@scenario(...)` decorator; both route through
+  #      `_get_scenario_decorator` (scenario.py:319), which calls the hook.
+  #      pytest-bdd's default `pytest_bdd_apply_tag` does
+  #      `mark = getattr(pytest.mark, tag)` (plugin.py:137), so EVERY Gherkin tag
   #      here becomes a pytest marker with nobody typing one. pytest-bdd>=8.1.0 is
   #      already a declared dependency (pyproject.toml:138), and
   #      tests/voice/test_feature_file_contract.py's own docstring names full
