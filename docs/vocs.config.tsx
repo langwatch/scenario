@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import nodePath from "node:path";
 import { defineConfig } from "vocs";
 import { GithubStars } from "./docs/components/GithubStars";
 import { LanguageSelectorPortal } from "./docs/components/LanguageSelectorPortal";
@@ -7,19 +9,103 @@ import sitemap from "vite-plugin-sitemap";
 const baseUrl = process.env.BASE_URL ?? "http://localhost:5173";
 const basePath = process.env.BASE_PATH ?? "";
 
+const siteTitle = "Scenario: Agent Testing with Simulation-Based Workflows";
+const siteDescription =
+  "Test AI agents with simulation-based testing. LLM-powered user simulators validate agent behavior, tool calling, and multi-turn conversations in LangGraph, CrewAI, Pydantic AI.";
+
+const absoluteLogoUrl = `${baseUrl}${basePath}/images/logo.png`;
+
+/** The stage cover art, cropped to the 1200x630 social ratio. */
+const coverOgImage = `${baseUrl}${basePath}/images/scenario-og.jpg`;
+
+/**
+ * Mintlify's OG renderer, which paints the page title and description onto the
+ * brand background. Values are encoded here rather than through the `%title`
+ * and `%description` placeholders: vocs substitutes those raw, so any title
+ * holding an `&` ends the query string and the card loses the rest of the text.
+ */
+function generatedOgImage(title: string, description: string) {
+  const params = new URLSearchParams({
+    division: "Documentation",
+    mode: "system",
+    title,
+    description,
+    logoLight: absoluteLogoUrl,
+    logoDark: absoluteLogoUrl,
+    primaryColor: "#2D1720",
+    lightColor: "#EDC790",
+    darkColor: "#EDC790",
+    w: "1200",
+    q: "100",
+  });
+  return `https://langwatch.mintlify.app/api/og?${params}`;
+}
+
+/** Route -> front matter, so each card can carry that page's own title and description. */
+function readPageMeta() {
+  const root = nodePath.resolve(process.cwd(), "docs/pages");
+  const meta = new Map<string, { title?: string; description?: string }>();
+
+  const field = (frontMatter: string, key: string) =>
+    new RegExp(`^${key}:[ \\t]*(?:"(.*)"|'(.*)'|(.*))$`, "m")
+      .exec(frontMatter)
+      ?.slice(1)
+      .find(Boolean)
+      ?.trim();
+
+  // Some pages are authored with CRLF line endings, so the front matter
+  // delimiters have to tolerate the carriage return.
+  const frontMatterOf = (source: string) =>
+    /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1] ?? "";
+
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = nodePath.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith(".mdx")) {
+        const route =
+          "/" +
+          nodePath
+            .relative(root, full)
+            .replace(/\.mdx$/, "")
+            .replace(/(^|\/)index$/, "");
+        const frontMatter = frontMatterOf(fs.readFileSync(full, "utf-8"));
+        meta.set(route.replace(/(.+)\/$/, "$1"), {
+          title: field(frontMatter, "title"),
+          description: field(frontMatter, "description"),
+        });
+      }
+    }
+  };
+
+  walk(root);
+  return meta;
+}
+
+const pageMeta = readPageMeta();
+
+function ogImageFor(path: string) {
+  const route = path.replace(/(.+)\/$/, "$1");
+  if (route === "/") return coverOgImage;
+  const meta = pageMeta.get(route);
+  return generatedOgImage(meta?.title ?? siteTitle, meta?.description ?? siteDescription);
+}
+
 export default defineConfig({
-  title: "Scenario: Agent Testing with Simulation-Based Workflows",
+  title: siteTitle,
   titleTemplate: "%s – Scenario",
-  description:
-    "Test AI agents with simulation-based testing. LLM-powered user simulators validate agent behavior, tool calling, and multi-turn conversations in LangGraph, CrewAI, Pydantic AI.",
+  description: siteDescription,
   baseUrl,
   basePath,
   logoUrl: "/images/logo.png",
   iconUrl: "/favicon.ico",
-  ogImageUrl:
-    "https://langwatch.mintlify.app/api/og?division=Documentation&mode=system&title=%title&description=%description&logoLight=https://scenario.langwatch.ai/images/logo.png&logoDark=https://scenario.langwatch.ai/images/logo.png&primaryColor=%232D1720&lightColor=%23EDC790&darkColor=%23EDC790&w=1200&q=100",
+  // `ogImageUrl` stays unset on purpose: vocs resolves a plain string to
+  // undefined (so it emits no og:image at all) and substitutes the template
+  // values unencoded. The tags are emitted from `head` below instead.
   head({ path }) {
     const canonicalUrl = `${baseUrl}${path}`;
+    const ogImage = ogImageFor(path);
 
     return (
       <>
@@ -28,6 +114,10 @@ export default defineConfig({
         <meta property="og:url" content={canonicalUrl} />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Scenario" />
+
+        {/* Social card: the cover art on the landing page, a generated one per page elsewhere */}
+        <meta property="og:image" content={ogImage} />
+        <meta name="twitter:image" content={ogImage} />
 
         {/* Twitter/Social */}
         <meta name="twitter:card" content="summary_large_image" />
