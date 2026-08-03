@@ -7,13 +7,18 @@
     "test:scenario-only": "tsx test-scenario-only.ts",
     "test:custom-scopes": "tsx test-custom-scopes.ts",
     "test:config-file": "tsx test-config-file.ts",
-    "test:all": "tsx test-no-auto-init.ts && tsx test-scenario-only.ts && tsx test-custom-scopes.ts && tsx test-config-file.ts"
+    "test:all": "tsx test-no-auto-init.ts && tsx test-scenario-only.ts && tsx test-custom-scopes.ts && tsx test-config-file.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@langwatch/scenario": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/sdk-trace-base": "^1.30.0",
-    "@opentelemetry/sdk-trace-node": "^1.30.0",
+    "@opentelemetry/sdk-trace-base": "2.7.1",
+    "@opentelemetry/sdk-trace-node": "2.7.1",
     "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
   }
 }
