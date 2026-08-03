@@ -13,6 +13,7 @@ import {
   getFixturePath,
   wrapJudgeForAudioTranscription,
 } from "./helpers";
+import { AUDIO_JUDGE_CRITERIA } from "./helpers/audio-judge-criteria";
 import { convertModelMessagesToOpenAIMessages } from "./helpers/convert-core-messages-to-openai";
 
 // Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
@@ -106,11 +107,7 @@ describe.skipIf(skipInCi)("Multimodal Audio to Text Tests", () => {
         scenario.message(audioMessage),
         scenario.agent(),
         scenario.judge({
-          criteria: [
-            "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
-            "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
-            "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
-          ],
+          criteria: [...AUDIO_JUDGE_CRITERIA],
         }),
       ],
       setId,

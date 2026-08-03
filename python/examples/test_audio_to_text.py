@@ -30,6 +30,22 @@ pytestmark = pytest.mark.skipif(
     reason="Live E2E test (real OpenAI gpt-audio-mini + LangWatch backend, cost, non-deterministic audio) — runs live/locally, not in CI.",
 )
 
+# The LLM-judge criteria shared by all three audio example siblings (#680).
+#
+# The two JavaScript siblings import the same strings from
+# `javascript/examples/vitest/tests/helpers/audio-judge-criteria.ts`, and
+# `javascript/examples/vitest/tests/audio-judge-criteria-parity.test.ts` asserts
+# this list stays byte-identical to that one — so the three copies cannot drift
+# apart the way they were about to under #655/#612.
+#
+# ⚠ Keep these as double-quoted Python string literals: the parity test parses
+# this list as JSON.
+AUDIO_JUDGE_CRITERIA = [
+    "The agent's response demonstrates it processed the SPECIFIC content of the audio — it addresses or attempts to answer the actual question that was asked in the audio. A generic acknowledgement that audio was received (e.g. 'I got your audio file', 'I heard your message') does NOT satisfy this criterion on its own",
+    "The agent provides a coherent, on-topic response — NOT an error message, NOT a refusal, NOT a polite deflection or claim that it cannot process audio / non-text input (e.g. 'I'm sorry, I can't listen to audio files'), and NOT an unrelated reply",
+    "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
+]
+
 
 # Type definitions for multimodal messages with file content
 class TextContentPart(TypedDict):
@@ -214,11 +230,7 @@ async def test_audio_to_text():
     audio_judge = wrap_judge_for_audio(
         scenario.JudgeAgent(
             model="openai/gpt-5.6-luna",
-            criteria=[
-                "The agent's response demonstrates it processed the audio content (e.g. it addresses what was in the audio, attempts to answer the audio question, or acknowledges what it heard)",
-                "The agent provides a coherent, on-topic response — not an error message, refusal, or unrelated reply",
-                "The agent's response indicates it received input in a non-text format, or that the question came via audio rather than text (exact phrasing does not matter)",
-            ],
+            criteria=list(AUDIO_JUDGE_CRITERIA),
         )
     )
 
