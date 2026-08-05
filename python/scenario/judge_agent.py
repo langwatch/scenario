@@ -39,7 +39,7 @@ from .voice.modality_resolver import ModalityTier, resolve_modality
 logger = logging.getLogger("scenario")
 
 
-# `/v1/chat/completions` refuses function tools on a reasoning model unless
+# `/v1/chat/completions` refuses function tools on some reasoning models unless
 # reasoning is explicitly switched off:
 #
 #   Function tools with reasoning_effort are not supported for <model> in
@@ -49,23 +49,23 @@ logger = logging.getLogger("scenario")
 # The judge forces a finish_test / continue_test tool call on every graded run,
 # so on such a model no run could reach a verdict (langwatch/scenario#864, and
 # the same signature on the LangWatch platform judge, langwatch/langwatch#6369).
+#
+# Reasoning is disabled by RETRY, never preemptively: whether a model accepts
+# reasoning off is not knowable up front (Gemini 2.5 Pro rejects it with
+# "Budget 0 is invalid. This model only works in thinking mode."), so the call
+# goes out untouched and is re-sent with reasoning off only when the provider's
+# rejection asks for exactly that. Models that work today are never sent
+# anything new.
 _REASONING_OFF = "none"
 
 
-def _model_accepts_reasoning_effort(model: Optional[str]) -> bool:
+def _rejection_asks_for_reasoning_off(error: Exception) -> bool:
     """
-    Whether litellm reports this model as accepting a reasoning effort.
-
-    An unknown model answers ``False``: absent metadata is not permission, and
-    sending the parameter to a model that does not take it is itself a 400.
+    Whether a provider rejection is the "set reasoning_effort to 'none' to use
+    function tools" class, as opposed to any other bad request.
     """
-    if not model:
-        return False
-    try:
-        return bool(litellm.supports_reasoning(model=model))
-    except Exception:  # noqa: BLE001 — capability lookup must never break a run
-        logger.debug("could not resolve reasoning support for %s", model)
-        return False
+    message = str(error)
+    return "reasoning_effort" in message and "'none'" in message
 
 
 _DISCOVERY_TOOL_NAMES = frozenset(
@@ -717,40 +717,43 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )
 
         # Standard single-call path for small traces
-        response = cast(
-            ModelResponse,
-            litellm.completion(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                api_key=self.api_key,
-                api_base=self.api_base,
-                max_tokens=self.max_tokens,
-                tools=tools,
-                tool_choice=tool_choice,
-                **self._extra_params,
-                **self._reasoning_kwargs(tools),
-            ),
+        response = self._completion_with_reasoning_off_retry(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            max_tokens=self.max_tokens,
+            tools=tools,
+            tool_choice=tool_choice,
+            **self._extra_params,
         )
 
         return self._parse_response(response, effective_criteria, messages, input_messages=input.messages)
 
-    def _reasoning_kwargs(self, tools: List[dict]) -> dict:
+    def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
         """
-        The reasoning parameter to add to a completion call, if any.
-
-        Returns ``{"reasoning_effort": "none"}`` only when the call actually
-        carries function tools and the model actually takes the parameter. A
-        caller that already asked for a specific effort keeps it and gets the
-        endpoint's own error, rather than having its intent silently rewritten.
+        ``litellm.completion``, retried once with reasoning declared off when —
+        and only when — the provider rejected a tool-carrying call for exactly
+        that reason. A caller that already asked for a specific effort keeps it
+        and gets the endpoint's own error, rather than having its intent
+        silently rewritten.
         """
-        if not tools:
-            return {}
-        if "reasoning_effort" in self._extra_params:
-            return {}
-        if not _model_accepts_reasoning_effort(self.model):
-            return {}
-        return {"reasoning_effort": _REASONING_OFF}
+        try:
+            return cast(ModelResponse, litellm.completion(**kwargs))
+        except Exception as error:
+            if not kwargs.get("tools") or "reasoning_effort" in kwargs:
+                raise
+            if not _rejection_asks_for_reasoning_off(error):
+                raise
+            logger.debug(
+                "provider rejected function tools without reasoning off for %s; retrying",
+                kwargs.get("model"),
+            )
+            return cast(
+                ModelResponse,
+                litellm.completion(**kwargs, reasoning_effort=_REASONING_OFF),
+            )
 
     def _build_trace_digest(self, spans: Sequence[Any]) -> tuple[str, bool]:
         """
@@ -941,20 +944,16 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             is_last_step = step == self._max_discovery_steps - 1
             step_tool_choice = tool_choice if is_last_step else "required"
 
-            response = cast(
-                ModelResponse,
-                litellm.completion(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                    max_tokens=self.max_tokens,
-                    tools=tools,
-                    tool_choice=step_tool_choice,
-                    **self._extra_params,
-                    **self._reasoning_kwargs(tools),
-                ),
+            response = self._completion_with_reasoning_off_retry(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                tool_choice=step_tool_choice,
+                **self._extra_params,
             )
 
             if not hasattr(response, "choices") or len(response.choices) == 0:
@@ -1048,20 +1047,16 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             if t.get("function", {}).get("name") not in _DISCOVERY_TOOL_NAMES
         ]
 
-        forced_response = cast(
-            ModelResponse,
-            litellm.completion(
-                model=self.model,
-                messages=rewritten_messages,
-                temperature=self.temperature,
-                api_key=self.api_key,
-                api_base=self.api_base,
-                max_tokens=self.max_tokens,
-                tools=finish_only_tools,
-                tool_choice={"type": "function", "function": {"name": "finish_test"}},
-                **self._extra_params,
-                **self._reasoning_kwargs(finish_only_tools),
-            ),
+        forced_response = self._completion_with_reasoning_off_retry(
+            model=self.model,
+            messages=rewritten_messages,
+            temperature=self.temperature,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            max_tokens=self.max_tokens,
+            tools=finish_only_tools,
+            tool_choice={"type": "function", "function": {"name": "finish_test"}},
+            **self._extra_params,
         )
         return self._parse_response(
             forced_response, effective_criteria, rewritten_messages, input_messages=input_messages
