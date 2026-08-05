@@ -19,16 +19,18 @@ from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from helpers import encode_audio_to_base64, wrap_judge_for_audio
 
-# Skipped in CI: live end-to-end test — calls OpenAI's `gpt-audio-mini` audio
-# model and the real LangWatch backend (cost, API keys, non-deterministic
-# audio), so it runs live/locally rather than in CI. (The skip historically
-# also guarded the now-deleted `gpt-4o-audio-preview`; that model was swapped
-# for `gpt-audio-mini`, so the model is no longer the blocker — the skip is
-# CI-cost/live-only now.)
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="Live E2E test (real OpenAI gpt-audio-mini + LangWatch backend, cost, non-deterministic audio) — runs live/locally, not in CI.",
-)
+# Runs in CI, like its two JavaScript siblings.
+#
+# This was skipped on `CI == "true"` for cost and audio non-determinism. The
+# cost is real, but the skip is also what let #864 sit: the judge could not
+# reach a verdict on a reasoning model at all, and `python-ci`'s Test (Examples)
+# step reported green with this file skipped while the two JavaScript siblings —
+# which run live against the same model — passed. An example that only ever runs
+# on someone's laptop reports nothing about `main`.
+#
+# The wire-shape rule itself is pinned offline and deterministically in
+# `tests/test_judge_transport_reasoning.py`; that is the gate. This example is
+# the live end-to-end check that the three siblings agree.
 
 # The LLM-judge criteria shared by all three audio example siblings (#680).
 #

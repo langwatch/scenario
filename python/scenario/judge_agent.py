@@ -39,6 +39,35 @@ from .voice.modality_resolver import ModalityTier, resolve_modality
 logger = logging.getLogger("scenario")
 
 
+# `/v1/chat/completions` refuses function tools on a reasoning model unless
+# reasoning is explicitly switched off:
+#
+#   Function tools with reasoning_effort are not supported for <model> in
+#   /v1/chat/completions. To use function tools, use /v1/responses or set
+#   reasoning_effort to 'none'.
+#
+# The judge forces a finish_test / continue_test tool call on every graded run,
+# so on such a model no run could reach a verdict (langwatch/scenario#864, and
+# the same signature on the LangWatch platform judge, langwatch/langwatch#6369).
+_REASONING_OFF = "none"
+
+
+def _model_accepts_reasoning_effort(model: Optional[str]) -> bool:
+    """
+    Whether litellm reports this model as accepting a reasoning effort.
+
+    An unknown model answers ``False``: absent metadata is not permission, and
+    sending the parameter to a model that does not take it is itself a 400.
+    """
+    if not model:
+        return False
+    try:
+        return bool(litellm.supports_reasoning(model=model))
+    except Exception:  # noqa: BLE001 — capability lookup must never break a run
+        logger.debug("could not resolve reasoning support for %s", model)
+        return False
+
+
 _DISCOVERY_TOOL_NAMES = frozenset(
     {"expand_trace", "grep_trace", "expand_transcript", "grep_transcript"}
 )
@@ -700,10 +729,28 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 tools=tools,
                 tool_choice=tool_choice,
                 **self._extra_params,
+                **self._reasoning_kwargs(tools),
             ),
         )
 
         return self._parse_response(response, effective_criteria, messages, input_messages=input.messages)
+
+    def _reasoning_kwargs(self, tools: List[dict]) -> dict:
+        """
+        The reasoning parameter to add to a completion call, if any.
+
+        Returns ``{"reasoning_effort": "none"}`` only when the call actually
+        carries function tools and the model actually takes the parameter. A
+        caller that already asked for a specific effort keeps it and gets the
+        endpoint's own error, rather than having its intent silently rewritten.
+        """
+        if not tools:
+            return {}
+        if "reasoning_effort" in self._extra_params:
+            return {}
+        if not _model_accepts_reasoning_effort(self.model):
+            return {}
+        return {"reasoning_effort": _REASONING_OFF}
 
     def _build_trace_digest(self, spans: Sequence[Any]) -> tuple[str, bool]:
         """
@@ -906,6 +953,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     tools=tools,
                     tool_choice=step_tool_choice,
                     **self._extra_params,
+                    **self._reasoning_kwargs(tools),
                 ),
             )
 
@@ -1012,6 +1060,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 tools=finish_only_tools,
                 tool_choice={"type": "function", "function": {"name": "finish_test"}},
                 **self._extra_params,
+                **self._reasoning_kwargs(finish_only_tools),
             ),
         )
         return self._parse_response(
