@@ -29,7 +29,6 @@ The sibling fix on the LangWatch platform judge is langwatch/langwatch#6369.
 from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
-import litellm
 import pytest
 from litellm.exceptions import BadRequestError
 
@@ -94,6 +93,7 @@ async def _call_judge(
     completion: Optional[Any] = None,
 ) -> Any:
     """Run the judge with litellm stubbed, returning the mock for inspection."""
+    previous_default_config = ScenarioConfig.default_config
     executor = MagicMock()
     executor.config = MagicMock()
     executor.config.cache_key = None
@@ -109,7 +109,7 @@ async def _call_judge(
             return mock
     finally:
         context_scenario.reset(token)
-        ScenarioConfig.default_config = None
+        ScenarioConfig.default_config = previous_default_config
 
 
 class TestGivenAProviderThatRejectsToolsWithoutReasoningOff:
@@ -167,6 +167,20 @@ class TestGivenAnUnrelatedRejection:
         with pytest.raises(BadRequestError):
             await _call_judge(
                 judge, _agent_input(), _rejecting_completion(unrelated)
+            )
+
+    @pytest.mark.asyncio
+    async def test_mentioning_the_tokens_without_the_directive_is_not_retried(self):
+        """Mentions "reasoning_effort" and "'none'" but does not ask us to turn
+        reasoning off — retrying would replace the provider's real error."""
+        judge = JudgeAgent(criteria=["c"], model="openai/gpt-5.6-luna")
+        invalid_value = _bad_request(
+            "reasoning_effort 'none' is invalid for this model."
+        )
+
+        with pytest.raises(BadRequestError):
+            await _call_judge(
+                judge, _agent_input(), _rejecting_completion(invalid_value)
             )
 
 

@@ -63,9 +63,13 @@ def _rejection_asks_for_reasoning_off(error: Exception) -> bool:
     """
     Whether a provider rejection is the "set reasoning_effort to 'none' to use
     function tools" class, as opposed to any other bad request.
+
+    Keyed on the remediation directive, not just the field name: an error such
+    as "reasoning_effort 'none' is invalid for this model" mentions both tokens
+    but is not asking us to turn reasoning off, and retrying it with reasoning
+    off would replace the provider's real error.
     """
-    message = str(error)
-    return "reasoning_effort" in message and "'none'" in message
+    return "set reasoning_effort to 'none'" in str(error)
 
 
 _DISCOVERY_TOOL_NAMES = frozenset(
