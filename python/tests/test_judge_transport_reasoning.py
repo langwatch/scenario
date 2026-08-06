@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, patch
 
 import litellm
 import pytest
+from litellm.exceptions import BadRequestError
 
 from scenario import JudgeAgent
 from scenario.cache import context_scenario
@@ -44,8 +45,8 @@ _REJECTION_MESSAGE = (
 )
 
 
-def _bad_request(message: str) -> litellm.BadRequestError:
-    return litellm.BadRequestError(
+def _bad_request(message: str) -> BadRequestError:
+    return BadRequestError(
         message=message, model="gpt-5.6-luna", llm_provider="openai"
     )
 
@@ -135,7 +136,7 @@ class TestGivenAProviderThatRejectsToolsWithoutReasoningOff:
             reasoning_effort="high",
         )
 
-        with pytest.raises(litellm.BadRequestError):
+        with pytest.raises(BadRequestError):
             await _call_judge(
                 judge,
                 _agent_input(),
@@ -163,7 +164,7 @@ class TestGivenAnUnrelatedRejection:
         judge = JudgeAgent(criteria=["c"], model="openai/gpt-5.6-luna")
         unrelated = _bad_request("Unsupported value for parameter 'temperature'.")
 
-        with pytest.raises(litellm.BadRequestError):
+        with pytest.raises(BadRequestError):
             await _call_judge(
                 judge, _agent_input(), _rejecting_completion(unrelated)
             )
