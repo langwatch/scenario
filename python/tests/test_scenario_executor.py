@@ -4,7 +4,7 @@ import pytest
 import scenario
 from scenario import JudgeAgent, UserSimulatorAgent
 from scenario.agent_adapter import AgentAdapter
-from scenario.types import AgentInput, AgentReturnTypes, AgentRole, JudgmentRequest, ScenarioResult
+from scenario.types import AgentInput, AgentReturnTypes, AgentRole, JudgmentRequest, ScenarioResult, ScriptStep
 from scenario.script import user, agent, judge, succeed
 
 from scenario.scenario_executor import ScenarioExecutor
@@ -465,7 +465,7 @@ async def test_accumulated_criteria_are_not_duplicated():
     """Checkpoint criteria are merged by run(); _script_call_agent must not
     merge them a second time. Membership assertions cannot see a duplicate,
     so this asserts the exact list."""
-    def build(final_step):
+    def build(final_step: ScriptStep) -> ScenarioExecutor:
         return ScenarioExecutor(
             name="test no duplicates", description="test",
             agents=[
