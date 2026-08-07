@@ -460,6 +460,53 @@ async def test_inline_criteria_fail_includes_accumulated():
     assert "this will fail" in result.failed_criteria
 
 
+@pytest.mark.asyncio
+async def test_accumulated_criteria_are_not_duplicated():
+    """Checkpoint criteria are merged by run(); _script_call_agent must not
+    merge them a second time. Membership assertions cannot see a duplicate,
+    so this asserts the exact list."""
+    def build(final_step):
+        return ScenarioExecutor(
+            name="test no duplicates", description="test",
+            agents=[
+                MockAgent(),
+                MockUserSimulatorAgent(model="none"),
+                InlineCriteriaMockJudgeAgent(model="none", criteria=["final criterion passes"]),
+            ],
+            script=[
+                user("hello"), agent(), judge(criteria=["criterion A passes"]),
+                user("more"), agent(), final_step,
+            ],
+        )
+
+    # Checkpoint-failure path.
+    result = await build(judge(criteria=["this will fail"])).run()
+    assert not result.success
+    assert result.passed_criteria == ["criterion A passes"]
+    assert result.failed_criteria == ["this will fail"]
+
+    # Checkpoint-failure path where the failing checkpoint also passed a
+    # criterion — that one is already compiled, so it must not come back twice.
+    result = await build(
+        judge(criteria=["criterion B passes", "this will fail"])
+    ).run()
+    assert not result.success
+    assert result.passed_criteria == ["criterion A passes", "criterion B passes"]
+    assert result.failed_criteria == ["this will fail"]
+
+    # Final-judge path — a *passing* result must be clean too.
+    result = await build(judge()).run()
+    assert result.success, result.reasoning
+    assert result.passed_criteria == ["criterion A passes", "final criterion passes"]
+
+    # succeed() returns to run() without passing through _script_call_agent, so
+    # run() has to stay the merge point — dropping its merge instead would lose
+    # these criteria entirely rather than duplicate them.
+    result = await build(succeed("done")).run()
+    assert result.success, result.reasoning
+    assert result.passed_criteria == ["criterion A passes"]
+
+
 # --------------------------------------------------------------------- #
 # Voice disconnect logging — issue #488                                  #
 # --------------------------------------------------------------------- #
