@@ -23,6 +23,7 @@ from typing import Optional
 from .audio_chunk import AudioChunk
 from .recording import AudioSegment, VoiceRecording
 from .stt import STTProvider, get_stt_provider
+from ._telemetry import voice_span
 
 logger = logging.getLogger("scenario.voice")
 
@@ -55,7 +56,8 @@ async def transcribe_segments(
     if p is None:
         return  # already warned
     targets = [
-        s for s in recording.segments
+        s
+        for s in recording.segments
         if s.audio and (not only_missing or s.transcript is None)
     ]
     if not targets:
@@ -78,8 +80,30 @@ def _try_get_provider() -> Optional[STTProvider]:
 
 async def _transcribe_one(provider: STTProvider, segment: AudioSegment) -> None:
     try:
-        text = await provider.transcribe(AudioChunk(data=segment.audio))
-        segment.transcript = text or None
+        with voice_span(
+            "voice.stt.transcribe",
+            {
+                "voice.stt.scope": "judge",
+                "voice.stt.speaker": segment.speaker,
+                "voice.stt.audio_bytes": len(segment.audio),
+            },
+        ) as stt_span:
+            try:
+                text = await provider.transcribe(AudioChunk(data=segment.audio))
+            except Exception as exc:
+                # Provider SDK errors can include response bodies and key fragments.
+                # Keep the raw detail local and let telemetry record only a minimal
+                # provider-agnostic exception, matching the #783 STT guard.
+                logger.debug(
+                    "scenario.voice.transcribe: STT provider error detail",
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    f"STT provider failed: {type(exc).__name__}"
+                ) from None
+            segment.transcript = text or None
+            if text:
+                stt_span.set_attribute("voice.stt.transcript_chars", len(text))
     except Exception as e:
         logger.warning(
             "scenario.voice.transcribe: STT failed for %s segment at %.2fs: %s",
