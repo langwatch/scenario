@@ -39,6 +39,39 @@ from .voice.modality_resolver import ModalityTier, resolve_modality
 logger = logging.getLogger("scenario")
 
 
+# `/v1/chat/completions` refuses function tools on some reasoning models unless
+# reasoning is explicitly switched off:
+#
+#   Function tools with reasoning_effort are not supported for <model> in
+#   /v1/chat/completions. To use function tools, use /v1/responses or set
+#   reasoning_effort to 'none'.
+#
+# The judge forces a finish_test / continue_test tool call on every graded run,
+# so on such a model no run could reach a verdict (langwatch/scenario#864, and
+# the same signature on the LangWatch platform judge, langwatch/langwatch#6369).
+#
+# Reasoning is disabled by RETRY, never preemptively: whether a model accepts
+# reasoning off is not knowable up front (Gemini 2.5 Pro rejects it with
+# "Budget 0 is invalid. This model only works in thinking mode."), so the call
+# goes out untouched and is re-sent with reasoning off only when the provider's
+# rejection asks for exactly that. Models that work today are never sent
+# anything new.
+_REASONING_OFF = "none"
+
+
+def _rejection_asks_for_reasoning_off(error: Exception) -> bool:
+    """
+    Whether a provider rejection is the "set reasoning_effort to 'none' to use
+    function tools" class, as opposed to any other bad request.
+
+    Keyed on the remediation directive, not just the field name: an error such
+    as "reasoning_effort 'none' is invalid for this model" mentions both tokens
+    but is not asking us to turn reasoning off, and retrying it with reasoning
+    off would replace the provider's real error.
+    """
+    return "set reasoning_effort to 'none'" in str(error)
+
+
 _DISCOVERY_TOOL_NAMES = frozenset(
     {"expand_trace", "grep_trace", "expand_transcript", "grep_transcript"}
 )
@@ -688,22 +721,43 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )
 
         # Standard single-call path for small traces
-        response = cast(
-            ModelResponse,
-            litellm.completion(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                api_key=self.api_key,
-                api_base=self.api_base,
-                max_tokens=self.max_tokens,
-                tools=tools,
-                tool_choice=tool_choice,
-                **self._extra_params,
-            ),
+        response = self._completion_with_reasoning_off_retry(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            max_tokens=self.max_tokens,
+            tools=tools,
+            tool_choice=tool_choice,
+            **self._extra_params,
         )
 
         return self._parse_response(response, effective_criteria, messages, input_messages=input.messages)
+
+    def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
+        """
+        ``litellm.completion``, retried once with reasoning declared off when —
+        and only when — the provider rejected a tool-carrying call for exactly
+        that reason. A caller that already asked for a specific effort keeps it
+        and gets the endpoint's own error, rather than having its intent
+        silently rewritten.
+        """
+        try:
+            return cast(ModelResponse, litellm.completion(**kwargs))
+        except Exception as error:
+            if not kwargs.get("tools") or "reasoning_effort" in kwargs:
+                raise
+            if not _rejection_asks_for_reasoning_off(error):
+                raise
+            logger.debug(
+                "provider rejected function tools without reasoning off for %s; retrying",
+                kwargs.get("model"),
+            )
+            return cast(
+                ModelResponse,
+                litellm.completion(**kwargs, reasoning_effort=_REASONING_OFF),
+            )
 
     def _build_trace_digest(self, spans: Sequence[Any]) -> tuple[str, bool]:
         """
@@ -894,19 +948,16 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             is_last_step = step == self._max_discovery_steps - 1
             step_tool_choice = tool_choice if is_last_step else "required"
 
-            response = cast(
-                ModelResponse,
-                litellm.completion(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                    max_tokens=self.max_tokens,
-                    tools=tools,
-                    tool_choice=step_tool_choice,
-                    **self._extra_params,
-                ),
+            response = self._completion_with_reasoning_off_retry(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                tool_choice=step_tool_choice,
+                **self._extra_params,
             )
 
             if not hasattr(response, "choices") or len(response.choices) == 0:
@@ -1000,19 +1051,16 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             if t.get("function", {}).get("name") not in _DISCOVERY_TOOL_NAMES
         ]
 
-        forced_response = cast(
-            ModelResponse,
-            litellm.completion(
-                model=self.model,
-                messages=rewritten_messages,
-                temperature=self.temperature,
-                api_key=self.api_key,
-                api_base=self.api_base,
-                max_tokens=self.max_tokens,
-                tools=finish_only_tools,
-                tool_choice={"type": "function", "function": {"name": "finish_test"}},
-                **self._extra_params,
-            ),
+        forced_response = self._completion_with_reasoning_off_retry(
+            model=self.model,
+            messages=rewritten_messages,
+            temperature=self.temperature,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            max_tokens=self.max_tokens,
+            tools=finish_only_tools,
+            tool_choice={"type": "function", "function": {"name": "finish_test"}},
+            **self._extra_params,
         )
         return self._parse_response(
             forced_response, effective_criteria, rewritten_messages, input_messages=input_messages
