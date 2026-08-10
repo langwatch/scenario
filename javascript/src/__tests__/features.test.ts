@@ -7,7 +7,7 @@
  * long way from "the specs directory moved".
  */
 import { existsSync, readFileSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
+import { basename, isAbsolute, sep } from "node:path";
 
 import { describe, it, expect } from "vitest";
 
@@ -31,7 +31,7 @@ describe("given the shared feature-path helper", () => {
       // The hop count is the thing that was duplicated 22 times and the thing
       // most likely to go wrong. specs/ sits at the repository root, above
       // javascript/, so a path still inside the package means one hop short.
-      expect(VOICE_AGENTS_FEATURE).not.toContain("/javascript/");
+      expect(VOICE_AGENTS_FEATURE.split(sep)).not.toContain("javascript");
     });
   });
 });
