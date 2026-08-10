@@ -8,12 +8,11 @@
  */
 
 import { Buffer } from "node:buffer";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { VOICE_AGENTS_FEATURE } from "../../../__tests__/features";
 import { AudioChunk } from "../../audio-chunk";
 import { TwilioAgentAdapter } from "../twilio";
 import type { MediaStreamWebSocket } from "../twilio-server";
@@ -28,10 +27,7 @@ import {
   verifyTwilioSignature,
 } from "../twilio-shared";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const FEATURE_PATH = resolve(HERE, "..", "..", "..", "..", "..", "specs", "voice-agents.feature");
-
-const feature = await loadFeature(FEATURE_PATH);
+const feature = await loadFeature(VOICE_AGENTS_FEATURE);
 
 /** Build an adapter wired to a stubbed REST helper so connect() can run. */
 function makeAdapter(opts?: {
