@@ -793,6 +793,10 @@ export class JudgeAgent extends JudgeAgentAdapter {
                 "JudgeAgent: trace discovery did not converge on a verdict within the step budget",
               metCriteria: [],
               unmetCriteria: criteria,
+              // Infrastructure failure, not a verdict — downstream consumers
+              // (the red-team report) file this as errored, not a break (#888).
+              error:
+                "JudgeAgent: trace discovery did not converge on a verdict within the step budget",
             };
           }
           return {
@@ -800,6 +804,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
             reasoning: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
             metCriteria: [],
             unmetCriteria: criteria,
+            // Infrastructure failure, not a verdict (#888).
+            error: `JudgeAgent: Unknown tool call: ${toolCall.toolName}`,
           };
       }
     }
@@ -809,6 +815,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
       reasoning: `JudgeAgent: No tool call found in LLM output`,
       metCriteria: [],
       unmetCriteria: criteria,
+      // Infrastructure failure, not a verdict (#888).
+      error: `JudgeAgent: No tool call found in LLM output`,
     };
   }
 }

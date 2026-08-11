@@ -12,6 +12,7 @@ import { AttackTechnique, DEFAULT_TECHNIQUES } from "./techniques";
 import { AgentInput, UserSimulatorAgentAdapter } from "../../domain";
 import { AgentReturnTypes } from "../../domain/agents/types/agent-return.types";
 import { ScriptStep } from "../../domain/scenarios";
+import { EARLY_EXIT_OBJECTIVE_PREFIX } from "../../red-team-report";
 import { user, agent, judge } from "../../script";
 
 export interface RedTeamAgentConfig {
@@ -405,7 +406,7 @@ Reply with exactly this JSON and nothing else:
               await fc(state, executor);
             }
             await executor.succeed(
-              `Early exit: objective achieved on turn ${state.currentTurn} ` +
+              `${EARLY_EXIT_OBJECTIVE_PREFIX} on turn ${state.currentTurn} ` +
               `(score >= ${this._successScore} for ${this._successConfirmTurns} consecutive turns)`
             );
           }
