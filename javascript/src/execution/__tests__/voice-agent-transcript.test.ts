@@ -23,11 +23,11 @@ import {
   type AgentInput,
   type AgentReturnTypes,
 } from "../../domain";
-import { ScenarioExecution } from "../scenario-execution";
 import { agent, proceed, user } from "../../script";
+import { FakeVoiceAdapter } from "../../voice/__tests__/fixtures/fake-adapter";
 import { AudioChunk } from "../../voice/audio-chunk";
 import { createAudioMessage, extractAudio } from "../../voice/messages";
-import { FakeVoiceAdapter } from "../../voice/__tests__/fixtures/fake-adapter";
+import { ScenarioExecution } from "../scenario-execution";
 
 /** EL-like AUT: audio-only frames on the wire (no per-chunk transcript). The
  *  turn's text lands on `lastAgentTranscript` DURING the drain — exactly the

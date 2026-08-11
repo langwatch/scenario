@@ -23,11 +23,11 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, vi } from "vitest";
 
-import { AudioChunk } from "../../voice/audio-chunk";
 import { makeChunk } from "./fixtures/make-chunk";
+import type { AgentInput } from "../../domain";
+import { AudioChunk } from "../../voice/audio-chunk";
 import { extractAudio, messageHasAudio } from "../../voice/messages";
 import { userSimulatorAgent, type UserSimulatorAgentConfig } from "../user-simulator-agent";
-import type { AgentInput } from "../../domain";
 
 // Mock getProjectConfig to avoid filesystem dependency in unit tests.
 vi.mock("../../config", () => ({

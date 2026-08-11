@@ -16,9 +16,9 @@
  */
 import { describe, expect, it } from "vitest";
 
+import type { AudioSegment, VoiceRecording } from "../recording.types";
 import { type STTProvider } from "../stt";
 import { transcribeSegments } from "../transcribe";
-import type { AudioSegment, VoiceRecording } from "../recording.types";
 
 const PCM_BYTES = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 

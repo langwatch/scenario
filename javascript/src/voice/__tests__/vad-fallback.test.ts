@@ -19,8 +19,8 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { beforeEach, expect, vi, type MockInstance } from "vitest";
 
-import { agent, succeed, user } from "../../script";
 import { ScenarioExecution } from "../../execution/scenario-execution";
+import { agent, succeed, user } from "../../script";
 import { AudioChunk } from "../audio-chunk";
 import type { VoiceEvent } from "../recording.types";
 import { WebRTCVadFallback } from "../vad";

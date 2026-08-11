@@ -57,7 +57,14 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ["**/*.config.{js,mjs,cjs,ts}", "eslint.config.mjs"],
+    // Build tooling and the maintenance scripts run under Node, not a browser.
+    // Without this, `scripts/**` is linted with browser globals and reports
+    // no-undef on Buffer/process (#565).
+    files: [
+      "**/*.config.{js,mjs,cjs,ts}",
+      "eslint.config.mjs",
+      "scripts/**/*.{js,mjs,cjs,ts}",
+    ],
     languageOptions: { globals: globals.node },
   },
   tseslint.configs.recommended,
@@ -78,8 +85,7 @@ export default defineConfig([
   {
     // Forbid non-null assertions (`!`) in shipped library source. Tests and
     // examples legitimately assert known-present fixtures, so the rule is
-    // scoped to non-test `src/` only; extending the lint gate to the rest of
-    // the package is tracked in #565.
+    // scoped to non-test `src/` only.
     files: ["src/**/*.ts"],
     ignores: ["src/**/*.test.ts", "src/**/__tests__/**"],
     rules: {

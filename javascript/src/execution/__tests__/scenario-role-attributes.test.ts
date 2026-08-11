@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { trace } from "@opentelemetry/api";
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   AgentRole,
   AgentAdapter,
@@ -12,9 +12,9 @@ import {
   AgentInput,
   AgentReturnTypes,
 } from "../../domain";
+import { UserSimulatorAgentAdapter } from "../../domain/agents";
 import { user, agent, judge } from "../../script";
 import { ScenarioExecution } from "../scenario-execution";
-import { UserSimulatorAgentAdapter } from "../../domain/agents";
 
 class MockAgent extends AgentAdapter {
   role = AgentRole.AGENT;

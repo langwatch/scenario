@@ -31,9 +31,9 @@
 import type { ModelMessage } from "ai";
 import { describe, it, expect } from "vitest";
 
-import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
 import { AgentRole } from "../../domain";
 import type { AgentInput } from "../../domain";
+import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
 
 const AGENT_TRANSCRIPT = "thanks for joining, tell me about your background";
 

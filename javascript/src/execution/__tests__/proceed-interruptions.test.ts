@@ -18,8 +18,8 @@ import {
   type AgentReturnTypes,
   UserSimulatorAgentAdapter,
 } from "../../domain";
-import { ScenarioExecution } from "../scenario-execution";
 import { InterruptionConfig } from "../../voice/interruption";
+import { ScenarioExecution } from "../scenario-execution";
 
 class MockAgent extends AgentAdapter {
   role = AgentRole.AGENT;

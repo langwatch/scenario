@@ -9,11 +9,11 @@
  *   - AC-JS4/AC-JS5: response.create is sent unconditionally → count is 1, not 0
  */
 
-import { describe, it, expect, vi } from "vitest";
-import { RealtimeEventHandler } from "../realtime/realtime-event-handler";
-import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
-import { AgentRole } from "../../domain";
 import type { RealtimeSession } from "@openai/agents/realtime";
+import { describe, it, expect, vi } from "vitest";
+import { AgentRole } from "../../domain";
+import { RealtimeAgentAdapter } from "../realtime/realtime-agent.adapter";
+import { RealtimeEventHandler } from "../realtime/realtime-event-handler";
 
 // ------- FakeTransport -------
 class FakeTransport {
