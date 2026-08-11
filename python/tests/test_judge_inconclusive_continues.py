@@ -10,14 +10,14 @@ exhaustion) keeps its terminal behavior.
 """
 
 import json
-from typing import Any, Optional
+from typing import Optional
 from unittest.mock import patch, MagicMock
 
 import pytest
 
 from scenario import JudgeAgent
 from scenario.config import ScenarioConfig
-from scenario.types import AgentInput, JudgmentRequest, ScenarioResult
+from scenario.types import AgentInput, AgentReturnTypes, JudgmentRequest, ScenarioResult
 from scenario.cache import context_scenario
 
 
@@ -27,8 +27,9 @@ async def _run_judge(
     judgment_request: Optional[JudgmentRequest],
     current_turn: int,
     max_turns: int = 10,
-) -> Any:
+) -> AgentReturnTypes:
     """Drive JudgeAgent through a finish_test tool call and return the raw result."""
+    previous_default_config = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
     criteria = ["Agent requests approval before applying the change"]
     judge = JudgeAgent(criteria=criteria)
@@ -75,7 +76,7 @@ async def _run_judge(
             return await judge.call(agent_input)
     finally:
         context_scenario.reset(token)
-        ScenarioConfig.default_config = None
+        ScenarioConfig.default_config = previous_default_config
 
 
 @pytest.mark.asyncio
