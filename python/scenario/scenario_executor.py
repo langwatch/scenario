@@ -1739,15 +1739,18 @@ class ScenarioExecutor:
                     # Checkpoint passed: continue script
                     return None
                 else:
-                    # Checkpoint failed: compile all results into the failing result.
-                    compiled_passed, compiled_failed = self._compiled_checkpoints
-                    result.passed_criteria = compiled_passed
+                    # Checkpoint failed: compile the failed criteria into the
+                    # failing result. This checkpoint's own passes are already
+                    # in _compiled_checkpoints (recorded just above), and run()
+                    # prepends those to every ScenarioResult a script step
+                    # returns — so anything left here would be reported twice.
+                    _, compiled_failed = self._compiled_checkpoints
+                    result.passed_criteria = []
                     result.failed_criteria = compiled_failed
                     return result
             else:
-                # Final judge evaluation — merge prior checkpoint criteria
-                compiled_passed, _ = self._compiled_checkpoints
-                result.passed_criteria = compiled_passed + result.passed_criteria
+                # Final judge evaluation. Prior checkpoint criteria are merged
+                # by run(), not here.
                 return result
 
     # Event handling methods
