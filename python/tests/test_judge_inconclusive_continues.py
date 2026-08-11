@@ -117,6 +117,67 @@ async def test_forced_by_judgment_request_stays_terminal():
 
 
 @pytest.mark.asyncio
+async def test_criteria_less_last_turn_judge_pins_finish_test_and_stays_terminal():
+    """A required judgment is not dodgeable via continue_test even with no
+    criteria — otherwise the run falls through to the generic max-turns
+    failure and the judge's reasoning is lost."""
+    ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+    judge = JudgeAgent(criteria=[])
+
+    mock_scenario_state = MagicMock()
+    mock_scenario_state.description = "Test scenario"
+    mock_scenario_state.current_turn = 9
+    mock_scenario_state.config.max_turns = 10
+
+    agent_input = AgentInput(
+        thread_id="test",
+        messages=[{"role": "user", "content": "Hello"}],
+        new_messages=[],
+        judgment_request=None,
+        scenario_state=mock_scenario_state,
+    )
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.tool_calls = [MagicMock()]
+    mock_response.choices[0].message.tool_calls[0].function.name = "finish_test"
+    mock_response.choices[0].message.tool_calls[0].function.arguments = json.dumps(
+        {
+            "verdict": "inconclusive",
+            "reasoning": "Nothing more to observe.",
+            "criteria": {},
+        }
+    )
+
+    mock_executor = MagicMock()
+    mock_executor.config = MagicMock()
+    mock_executor.config.cache_key = None
+    token = context_scenario.set(mock_executor)
+
+    captured_tool_choice = {}
+
+    def capture_completion(**kwargs):
+        captured_tool_choice["value"] = kwargs.get("tool_choice")
+        return mock_response
+
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=capture_completion
+        ):
+            result = await judge.call(agent_input)
+    finally:
+        context_scenario.reset(token)
+        ScenarioConfig.default_config = None
+
+    assert captured_tool_choice["value"] == {
+        "type": "function",
+        "function": {"name": "finish_test"},
+    }
+    assert isinstance(result, ScenarioResult)
+    assert result.success is False
+
+
+@pytest.mark.asyncio
 async def test_forced_by_last_turn_stays_terminal():
     """On the last turn the judge must deliver a verdict - inconclusive is terminal."""
     result = await _run_judge(

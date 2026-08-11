@@ -1110,6 +1110,39 @@ describe("JudgeAgent", () => {
       expect(result).toBeNull();
     });
 
+    it("pins finish_test and stays terminal for a criteria-less last-turn judge", async () => {
+      // A required judgment must not be dodgeable via continue_test even when
+      // the judge has no criteria — otherwise the run falls through to the
+      // generic max-turns failure and the judge's reasoning is lost.
+      const agent = judgeAgent({
+        criteria: [],
+        spanCollector: createMockSpanCollector([]),
+      });
+
+      let capturedToolChoice: unknown;
+      agent.invokeLLM = async (params) => {
+        capturedToolChoice = params.toolChoice;
+        return mockLLMResult("finish_test", {
+          criteria: {},
+          reasoning: "Nothing more to observe.",
+          verdict: "inconclusive",
+        });
+      };
+
+      const result = await agent.call(
+        createBaseInput({
+          scenarioState: { currentTurn: 4 } as never, // maxTurns 5 → last message
+        })
+      );
+
+      expect(capturedToolChoice).toEqual({
+        type: "tool",
+        toolName: "finish_test",
+      });
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+    });
+
     it("still terminates when discovery exhaustion forces an inconclusive verdict", async () => {
       const largeTrace = createLargeTrace();
       const collector = createMockSpanCollector(largeTrace);

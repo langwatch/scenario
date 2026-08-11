@@ -572,10 +572,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
     // terminal.
     const judgmentRequired = isLastMessage || enforceJudgement;
 
-    const toolChoice: ToolChoice<typeof tools> =
-      judgmentRequired && hasCriteria
-        ? { type: "tool", toolName: "finish_test" }
-        : "required";
+    // Pinned on judgmentRequired ALONE: a required judgment must not be
+    // dodgeable via continue_test, criteria or not — the criteria-less
+    // enforced case already returned above, and a criteria-less last-turn
+    // judge still owes its terminal verdict.
+    const toolChoice: ToolChoice<typeof tools> = judgmentRequired
+      ? { type: "tool", toolName: "finish_test" }
+      : "required";
 
     this.logger.debug("Calling LLM", {
       model: mergedConfig.model,
