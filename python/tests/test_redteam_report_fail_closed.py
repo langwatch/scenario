@@ -12,8 +12,9 @@ worse than no report. These tests pin the four fail-open paths:
    never held.
 """
 
+import inspect
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,6 +23,7 @@ from scenario.red_team_agent import (
     RedTeamAgent,
 )
 from scenario.report._risk import _compound_risk, _status
+from scenario.types import ScenarioResult
 from scenario.report._save import save_redteam_report
 
 
@@ -166,12 +168,30 @@ class TestEarlyExitObjectiveAchieved:
         }
         assert _status(legacy) == "broke"
 
-    def test_agent_early_exit_message_carries_the_shared_prefix(self):
+    @pytest.mark.asyncio
+    async def test_marathon_early_exit_reasoning_carries_the_shared_prefix(self):
+        # Execute the generated early-exit step: the succeed() reasoning is
+        # what the report writer classifies on, so it must start with the
+        # shared marker.
         agent = _make_agent()
         agent.success_score = 9
         agent.success_confirm_turns = 1
         agent._turn_scores = {1: (10, "")}
-        assert agent.check_early_exit() is True
+
+        executor = AsyncMock()
+        state = MagicMock()
+        state.current_turn = 1
+        state._executor = executor
+
+        steps = agent.marathon_script()
+        early_exit_step = steps[2]
+        maybe = early_exit_step(state)
+        if inspect.isawaitable(maybe):
+            await maybe
+
+        executor.succeed.assert_called_once()
+        reasoning = executor.succeed.call_args[0][0]
+        assert reasoning.startswith(EARLY_EXIT_OBJECTIVE_PREFIX)
 
 
 class TestJudgeInfraFailureIsNotAVerdict:
@@ -193,16 +213,34 @@ class TestJudgeInfraFailureIsNotAVerdict:
         assert report["break_severity"] == "none"
 
     def test_python_judge_sets_error_on_discovery_non_convergence(self):
-        import inspect
+        # Drive the real parse path: a discovery tool call that leaked past
+        # the discovery loop must return a result carrying the error marker
+        # the report writer keys off.
+        from scenario.judge_agent import JudgeAgent
 
-        from scenario import judge_agent
+        judge = JudgeAgent(criteria=["agent stays safe"], model="openai/gpt-4")
+        tool_call = SimpleNamespace(
+            function=SimpleNamespace(name="expand_trace", arguments="{}")
+        )
+        response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(tool_calls=[tool_call])
+                )
+            ]
+        )
 
-        source = inspect.getsource(judge_agent)
-        # The non-convergence return must carry the error marker the writer
-        # keys off — otherwise Python files judge breakdowns as compromises
-        # while the JS SDK files them as errored.
-        assert "did not converge" in source
-        assert source.count("error=") >= 1
+        result = judge._parse_response(
+            response,
+            ["agent stays safe"],
+            [],
+            input_messages=[],
+        )
+
+        assert isinstance(result, ScenarioResult)
+        assert result.success is False
+        assert result.error is not None
+        assert "did not converge" in result.error
 
 
 class TestHeldRunsWithFailedAnalysisStayCalm:
@@ -275,3 +313,25 @@ class TestErroredRunsKeepNoVerdict:
 
         assert report["status"] == "errored"
         assert report["break_severity"] == "none"
+
+
+class TestRunFinishedStatusPropagation:
+    def test_result_error_emits_error_status_not_failed(self):
+        from scenario.scenario_executor import _run_finished_status
+        from scenario._events.events import ScenarioRunFinishedEventStatus
+
+        errored = ScenarioResult(
+            success=False, messages=[], error="JudgeAgent: gave up"
+        )
+        failed = ScenarioResult(success=False, messages=[])
+        passed = ScenarioResult(success=True, messages=[])
+
+        assert (
+            _run_finished_status(errored) is ScenarioRunFinishedEventStatus.ERROR
+        )
+        assert (
+            _run_finished_status(failed) is ScenarioRunFinishedEventStatus.FAILED
+        )
+        assert (
+            _run_finished_status(passed) is ScenarioRunFinishedEventStatus.SUCCESS
+        )
