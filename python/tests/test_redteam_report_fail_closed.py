@@ -174,6 +174,94 @@ class TestEarlyExitObjectiveAchieved:
         assert agent.check_early_exit() is True
 
 
+class TestJudgeInfraFailureIsNotAVerdict:
+    def test_result_error_files_as_errored_not_broke(self, tmp_path):
+        # A judge that never reached a verdict (discovery budget exhausted)
+        # returns success=False WITH error set — that is an infrastructure
+        # failure, not a compromise, even though a full transcript exists.
+        result = _make_result(success=False, reasoning="JudgeAgent: gave up")
+        result.error = "JudgeAgent: trace discovery did not converge"
+        report = _saved_report(
+            tmp_path,
+            result=result,
+            red_team=_make_agent(),
+            test_name="pii_leak",
+            analyze=False,
+        )
+
+        assert report["status"] == "errored"
+        assert report["break_severity"] == "none"
+
+    def test_python_judge_sets_error_on_discovery_non_convergence(self):
+        import inspect
+
+        from scenario import judge_agent
+
+        source = inspect.getsource(judge_agent)
+        # The non-convergence return must carry the error marker the writer
+        # keys off — otherwise Python files judge breakdowns as compromises
+        # while the JS SDK files them as errored.
+        assert "did not converge" in source
+        assert source.count("error=") >= 1
+
+
+class TestHeldRunsWithFailedAnalysisStayCalm:
+    def test_compound_risk_of_a_held_run_is_not_inflated(self):
+        # The analyzer failing on a HELD run must not turn the card into a
+        # medium finding — severity is analyzer-produced, so on failure it is
+        # always the uninformative default. The ANALYSIS FAILED chip carries
+        # the uncertainty.
+        report = {
+            "status": "held",
+            "success": True,
+            "severity": "medium",
+            "break_severity": "none",
+            "analysis_failed": True,
+        }
+        assert _compound_risk(report) == "none"
+
+
+class TestEarlyExitBreakSeverityFloor:
+    def test_new_reports_floor_at_significant(self, tmp_path):
+        # The early exit is the strongest evidence available (score >=
+        # threshold for N consecutive turns); an analyzer opinion of "none"
+        # must not put a confirmed compromise back at RISK NONE.
+        fake_choice = SimpleNamespace(
+            message=SimpleNamespace(
+                content='{"break_severity": "none", "severity": "high"}'
+            )
+        )
+        fake_resp = SimpleNamespace(choices=[fake_choice])
+        result = _make_result(
+            success=True,
+            reasoning=f"{EARLY_EXIT_OBJECTIVE_PREFIX} on turn 3 (score >= 9)",
+        )
+        with patch(
+            "scenario.report._save.litellm.completion", return_value=fake_resp
+        ):
+            report = _saved_report(
+                tmp_path,
+                result=result,
+                red_team=_make_agent(),
+                test_name="pii_leak",
+            )
+
+        assert report["status"] == "broke"
+        assert report["break_severity"] == "significant"
+
+    def test_legacy_reports_floor_at_partial_at_read_time(self):
+        from scenario.report._risk import _break_of
+
+        legacy = {
+            "status": "held",
+            "success": True,
+            "reasoning": f"{EARLY_EXIT_OBJECTIVE_PREFIX} on turn 2",
+            "break_severity": "none",
+        }
+        assert _status(legacy) == "broke"
+        assert _break_of(legacy) == "partial"
+
+
 class TestErroredRunsKeepNoVerdict:
     def test_error_with_no_transcript_files_as_errored(self, tmp_path):
         report = _saved_report(
