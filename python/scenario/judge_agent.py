@@ -710,10 +710,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         # last-turn judgment is still terminal.
         judgment_required = is_last_message or enforce_judgment
 
-        # Pinned on judgment_required ALONE: a required judgment must not be
-        # dodgeable via continue_test, criteria or not — the criteria-less
-        # enforced case already returned above, and a criteria-less last-turn
-        # judge still owes its terminal verdict.
+        # Pinned on judgment_required ALONE: on the standard path a required
+        # judgment cannot be dodged via continue_test, criteria or not — the
+        # criteria-less enforced case already returned above, and a
+        # criteria-less last-turn judge still owes its terminal verdict. Known
+        # gap: the discovery loop applies this pin only on its final step and
+        # still accepts continue_test on earlier steps (inherited; tracked in
+        # #887).
         tool_choice: Any = (
             {"type": "function", "function": {"name": "finish_test"}}
             if judgment_required

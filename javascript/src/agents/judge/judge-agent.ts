@@ -572,10 +572,12 @@ export class JudgeAgent extends JudgeAgentAdapter {
     // terminal.
     const judgmentRequired = isLastMessage || enforceJudgement;
 
-    // Pinned on judgmentRequired ALONE: a required judgment must not be
-    // dodgeable via continue_test, criteria or not — the criteria-less
-    // enforced case already returned above, and a criteria-less last-turn
-    // judge still owes its terminal verdict.
+    // Pinned on judgmentRequired ALONE: on the standard path a required
+    // judgment cannot be dodged via continue_test, criteria or not — the
+    // criteria-less enforced case already returned above, and a criteria-less
+    // last-turn judge still owes its terminal verdict. Known gap: the
+    // large-trace discovery path relaxes toolChoice to "required" below and
+    // still accepts continue_test there (inherited; tracked in #887).
     const toolChoice: ToolChoice<typeof tools> = judgmentRequired
       ? { type: "tool", toolName: "finish_test" }
       : "required";
