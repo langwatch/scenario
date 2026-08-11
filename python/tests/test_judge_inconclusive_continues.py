@@ -121,6 +121,7 @@ async def test_criteria_less_last_turn_judge_pins_finish_test_and_stays_terminal
     """A required judgment is not dodgeable via continue_test even with no
     criteria — otherwise the run falls through to the generic max-turns
     failure and the judge's reasoning is lost."""
+    previous_default_config = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
     judge = JudgeAgent(criteria=[])
 
@@ -167,7 +168,7 @@ async def test_criteria_less_last_turn_judge_pins_finish_test_and_stays_terminal
             result = await judge.call(agent_input)
     finally:
         context_scenario.reset(token)
-        ScenarioConfig.default_config = None
+        ScenarioConfig.default_config = previous_default_config
 
     assert captured_tool_choice["value"] == {
         "type": "function",
