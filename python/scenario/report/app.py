@@ -19,7 +19,6 @@ import streamlit as st  # pyright: ignore[reportMissingImports]
 import plotly.graph_objects as go  # pyright: ignore[reportMissingImports]
 
 from scenario.report._risk import (
-    _BREAK_ORDER,
     _RISK_ORDER,
     _break_of,
     _compound_risk,
