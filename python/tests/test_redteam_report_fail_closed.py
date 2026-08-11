@@ -12,8 +12,8 @@ worse than no report. These tests pin the four fail-open paths:
    never held.
 """
 
-import inspect
 from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Optional, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -184,10 +184,12 @@ class TestEarlyExitObjectiveAchieved:
         state._executor = executor
 
         steps = agent.marathon_script()
-        early_exit_step = steps[2]
-        maybe = early_exit_step(state)
-        if inspect.isawaitable(maybe):
-            await maybe
+        # ScriptStep also admits sync steps, but marathon_script always
+        # generates the early-exit check as a coroutine function.
+        early_exit_step = cast(
+            Callable[[Any], Awaitable[Optional[ScenarioResult]]], steps[2]
+        )
+        await early_exit_step(state)
 
         executor.succeed.assert_called_once()
         reasoning = executor.succeed.call_args[0][0]
