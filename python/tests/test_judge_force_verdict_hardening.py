@@ -211,7 +211,11 @@ class TestParseResponseSafetyNet:
             "expand_trace", {"span_ids": ["xx"]}, call_id="tc-leak"
         )
 
-        result = agent._parse_response(leaked, ["A", "B"], messages=[], input_messages=[])
+        # The leak scenario only exists on the force-verdict path, so the
+        # judgment is by definition forced.
+        result = agent._parse_response(
+            leaked, ["A", "B"], messages=[], input_messages=[], verdict_forced=True
+        )
 
         assert isinstance(result, ScenarioResult)
         assert result.success is False

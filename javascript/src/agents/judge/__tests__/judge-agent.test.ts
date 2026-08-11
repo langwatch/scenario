@@ -1005,4 +1005,154 @@ describe("JudgeAgent", () => {
       expect(result!.metCriteria).toContain("Inline criterion");
     });
   });
+
+  describe("when the judge finishes with an inconclusive verdict mid-conversation", () => {
+    // Reproduces issue #886: an unforced judge (continue_test freely available)
+    // that calls finish_test with verdict "inconclusive" must be treated as
+    // continue_test — "I can't tell yet" is not a verdict, and ending the run
+    // as FAILED on it makes the conversation look like the user simulator
+    // stopped responding.
+    function createJudge() {
+      const collector = createMockSpanCollector([]);
+      const agent = judgeAgent({
+        criteria: ["Agent requests approval before applying the change"],
+        spanCollector: collector,
+      });
+      return agent;
+    }
+
+    function inconclusiveFinish(): InvokeLLMResult {
+      return mockLLMResult("finish_test", {
+        criteria: {
+          agent_requests_approval_before_applying_the_change: "inconclusive",
+        },
+        reasoning: "Too early to tell — the conversation should continue.",
+        verdict: "inconclusive",
+      });
+    }
+
+    it("treats the finish as continue and returns null", async () => {
+      const agent = createJudge();
+      agent.invokeLLM = async () => inconclusiveFinish();
+
+      // currentTurn 1 of maxTurns 5, no judgmentRequest — nothing forces a verdict.
+      const result = await agent.call(createBaseInput());
+
+      expect(result).toBeNull();
+    });
+
+    it("treats a finish with an omitted verdict as continue too", async () => {
+      const agent = createJudge();
+      agent.invokeLLM = async () =>
+        mockLLMResult("finish_test", {
+          criteria: {
+            agent_requests_approval_before_applying_the_change: "inconclusive",
+          },
+          reasoning: "No verdict field supplied.",
+        });
+
+      const result = await agent.call(createBaseInput());
+
+      expect(result).toBeNull();
+    });
+
+    it("still terminates with failure on the last turn", async () => {
+      const agent = createJudge();
+      agent.invokeLLM = async () => inconclusiveFinish();
+
+      const result = await agent.call(
+        createBaseInput({
+          scenarioState: { currentTurn: 4 } as never, // maxTurns 5 → last message
+        })
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(result!.unmetCriteria).toContain(
+        "Agent requests approval before applying the change"
+      );
+    });
+
+    it("still terminates with failure when judgment is requested", async () => {
+      const agent = createJudge();
+      agent.invokeLLM = async () => inconclusiveFinish();
+
+      const result = await agent.call(
+        createBaseInput({
+          judgmentRequest: {
+            criteria: ["Agent requests approval before applying the change"],
+          },
+        })
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+    });
+
+    it("continues on an unforced inconclusive finish during large-trace discovery", async () => {
+      const largeTrace = createLargeTrace();
+      const collector = createMockSpanCollector(largeTrace);
+      for (const span of largeTrace) {
+        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] =
+          "test-thread";
+      }
+
+      const agent = judgeAgent({
+        criteria: ["Agent requests approval before applying the change"],
+        spanCollector: collector,
+      });
+      agent.invokeLLM = async () => inconclusiveFinish();
+
+      // Mid-conversation, no judgmentRequest: the discovery loop leaves
+      // continue_test available, so an inconclusive finish must continue.
+      const result = await agent.call(createBaseInput());
+
+      expect(result).toBeNull();
+    });
+
+    it("still terminates when discovery exhaustion forces an inconclusive verdict", async () => {
+      const largeTrace = createLargeTrace();
+      const collector = createMockSpanCollector(largeTrace);
+      for (const span of largeTrace) {
+        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] =
+          "test-thread";
+      }
+
+      const agent = judgeAgent({
+        criteria: ["Agent requests approval before applying the change"],
+        spanCollector: collector,
+        maxDiscoverySteps: 2,
+      });
+
+      let callCount = 0;
+      agent.invokeLLM = async () => {
+        callCount++;
+        if (callCount === 1) {
+          // Discovery exhausted — only discovery tool calls, no terminal.
+          return {
+            text: "",
+            content: [],
+            toolCalls: [
+              {
+                toolName: "expand_trace",
+                input: { span_ids: ["0000000000000000"] },
+                type: "tool-call" as const,
+                toolCallId: "tc-1",
+              },
+            ],
+            toolResults: [],
+          } as unknown as InvokeLLMResult;
+        }
+        // forceVerdict call: the model has no continue escape, so its
+        // inconclusive verdict is legitimate — and terminal.
+        return inconclusiveFinish();
+      };
+
+      const result = await agent.call(createBaseInput());
+
+      expect(callCount).toBe(2);
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+    });
+  });
 });

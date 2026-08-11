@@ -218,6 +218,7 @@ class TestEveryCallSiteThatSendsTools:
                 working_messages=[],
                 effective_criteria=["c"],
                 input_messages=[],
+                verdict_forced=False,
             )
 
         assert completion.call_args.kwargs["reasoning_effort"] == "none"

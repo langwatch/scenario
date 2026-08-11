@@ -604,6 +604,7 @@ If you do have enough information, use the finish_test tool to determine if all 
 <rules>
 - Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criterias.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- If you do not yet have enough information for a definitive verdict, call the continue_test tool to let the conversation play out - do NOT call finish_test with an "inconclusive" verdict while the conversation can still continue. When a final verdict is explicitly required (the conversation cannot continue), deliver your honest verdict - "inconclusive" is acceptable there
 </rules>
 """,
             },
@@ -702,11 +703,26 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 reasoning="TestingAgent was called as a judge, but it has no criteria to judge against",
             )
 
+        # A final judgment is required when the conversation cannot continue
+        # past this call: the last turn, or an explicit judgment_request. This
+        # is about the CONTRACT, not the transport — the discovery loop applies
+        # the pinned tool_choice only on its final step, but a checkpoint/
+        # last-turn judgment is still terminal.
+        judgment_required = is_last_message or enforce_judgment
+
         tool_choice: Any = (
             {"type": "function", "function": {"name": "finish_test"}}
-            if (is_last_message or enforce_judgment) and has_criteria
+            if judgment_required and has_criteria
             else "required"
         )
+
+        # Only a forced judgment may legitimately end the run on an
+        # inconclusive verdict (#886); discovery exhaustion forces separately
+        # in _force_verdict. Deliberately independent of has_criteria: a
+        # criteria-less judge on the last turn still delivers its terminal
+        # result rather than silently continuing into the generic max-turns
+        # failure.
+        verdict_forced = judgment_required
 
         # Multi-step discovery loop for large traces
         if is_large_trace:
@@ -718,6 +734,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 working_messages=working_messages,
                 effective_criteria=effective_criteria,
                 input_messages=input.messages,
+                verdict_forced=verdict_forced,
             )
 
         # Standard single-call path for small traces
@@ -733,7 +750,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             **self._extra_params,
         )
 
-        return self._parse_response(response, effective_criteria, messages, input_messages=input.messages)
+        return self._parse_response(
+            response,
+            effective_criteria,
+            messages,
+            input_messages=input.messages,
+            verdict_forced=verdict_forced,
+        )
 
     def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
         """
@@ -914,6 +937,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         working_messages: Sequence[ChatCompletionMessageParam],
         effective_criteria: List[str],
         input_messages: Sequence[Any],
+        verdict_forced: bool,
     ) -> AgentReturnTypes:
         """
         Runs the multi-step discovery loop for large traces.
@@ -968,7 +992,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             message = cast(Choices, response.choices[0]).message
             if not message.tool_calls:
                 # No tool calls - try to parse as a response
-                return self._parse_response(response, effective_criteria, messages, input_messages=input_messages)
+                return self._parse_response(
+                    response,
+                    effective_criteria,
+                    messages,
+                    input_messages=input_messages,
+                    verdict_forced=verdict_forced,
+                )
 
             # Check for terminal tool call
             terminal_call = next(
@@ -976,7 +1006,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 None,
             )
             if terminal_call:
-                return self._parse_response(response, effective_criteria, messages, input_messages=input_messages)
+                return self._parse_response(
+                    response,
+                    effective_criteria,
+                    messages,
+                    input_messages=input_messages,
+                    verdict_forced=verdict_forced,
+                )
 
             # Execute discovery tools and add results to messages
             # Add the assistant message with tool calls
@@ -1063,7 +1099,13 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             **self._extra_params,
         )
         return self._parse_response(
-            forced_response, effective_criteria, rewritten_messages, input_messages=input_messages
+            forced_response,
+            effective_criteria,
+            rewritten_messages,
+            input_messages=input_messages,
+            # The whole point of this call is a pinned finish_test — the model
+            # has no continue escape, so an inconclusive verdict is legitimate.
+            verdict_forced=True,
         )
 
     def _execute_discovery_tool(
@@ -1114,6 +1156,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         messages: List[dict],
         *,
         input_messages: Sequence[Any],
+        verdict_forced: bool,
     ) -> AgentReturnTypes:
         """
         Parses a litellm response into the appropriate return type.
@@ -1162,6 +1205,22 @@ if you don't have enough information to make a verdict, say inconclusive with ma
 
             verdict = args.get("verdict", "inconclusive")
             reasoning = args.get("reasoning", "No reasoning provided")
+
+            # "Can't tell yet" is not a verdict (#886). When nothing forced the
+            # judge to finish — continue_test was freely available — an
+            # inconclusive finish_test used to end the run as a failure, which
+            # on a platform surface reads as the simulated user going silent
+            # mid-conversation. Treat it as continue_test and let the
+            # conversation play out; a FORCED judgment (last turn, an explicit
+            # judgment_request, discovery exhaustion) keeps its terminal
+            # behavior unchanged.
+            if not verdict_forced and verdict == "inconclusive":
+                logger.debug(
+                    "finish_test returned an inconclusive verdict without a "
+                    "forced judgment - continuing the conversation"
+                )
+                return []
+
             criteria_verdicts = args.get("criteria", {})
 
             # LLMs sometimes serialise the criteria object as a JSON *string*
