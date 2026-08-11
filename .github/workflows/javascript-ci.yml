@@ -101,6 +101,16 @@ jobs:
         run: pnpm run test:ci
         working-directory: javascript
 
+      # The custom-observability probes assert that importing @langwatch/scenario
+      # does not auto-initialize OpenTelemetry, and that scenarioOnly filtering
+      # works both from setupScenarioTracing() and from a scenario.config.mjs.
+      # They run in-process against an InMemorySpanExporter with no network and
+      # no LLM, so unlike the step below they need no secrets and carry no fork
+      # guard: a fork PR that breaks the auto-init contract should go red.
+      - name: Test (Custom observability probes)
+        run: pnpm -F custom-observability-example test:all
+        working-directory: javascript
+
       # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
       - name: Test (Examples)
         if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)

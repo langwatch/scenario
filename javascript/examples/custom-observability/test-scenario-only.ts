@@ -128,6 +128,59 @@ if (noiseSpans.length > 0) {
 // SimpleSpanProcessor, ALL spans get collected. The filtering happens when spans
 // are exported to LangWatch. This test verifies that scenario spans ARE created
 // and the noise spans are separate -- the LangWatchTraceExporter would filter them.
+
+if (!result.success) {
+  console.error(`\nFAIL: Scenario did not succeed: ${result.reasoning}`);
+  process.exit(1);
+}
+
+if (scenarioSpans.length === 0) {
+  console.error("\nFAIL: No @langwatch/scenario spans were collected");
+  process.exit(1);
+}
+
+// The two spans created at step 3 must survive to here. If they do not, the
+// collector is dropping spans and "no noise reached the exporter" would be true
+// for a reason that has nothing to do with filtering.
+if (noiseSpans.length !== 2) {
+  console.error(
+    `\nFAIL: expected the 2 http-server noise spans to be collected, found ${noiseSpans.length}`
+  );
+  process.exit(1);
+}
+
+// The exporter is not reachable from here, so the closest observable claim is
+// that the scope scenarioOnly selects on is the scope the scenario spans are
+// actually emitted under. Renaming the instrumentation scope would silently
+// turn the filter into a drop-everything rule, and only this binding catches it.
+const scenarioOnlyScopes = scenarioOnly.flatMap((filter) =>
+  "include" in filter
+    ? (filter.include.instrumentationScopeName ?? []).flatMap((match) =>
+        match.equals ? [match.equals] : []
+      )
+    : []
+);
+
+const unselected = scenarioSpans.filter(
+  (span) => !scenarioOnlyScopes.includes(getScopeName(span))
+);
+
+if (unselected.length > 0) {
+  console.error(
+    `\nFAIL: scenarioOnly selects ${JSON.stringify(scenarioOnlyScopes)}, but ` +
+      `${unselected.length} scenario span(s) are emitted under ` +
+      `${JSON.stringify([...new Set(unselected.map(getScopeName))])}`
+  );
+  process.exit(1);
+}
+
+if (scenarioOnlyScopes.some((scope) => noiseSpans.some((span) => getScopeName(span) === scope))) {
+  console.error(
+    "\nFAIL: scenarioOnly also selects the http-server noise scope, so it would not filter it out"
+  );
+  process.exit(1);
+}
+
 console.log(
   "\nPASS: Scenario runs correctly with custom observability config"
 );
