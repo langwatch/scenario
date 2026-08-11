@@ -919,8 +919,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     }
 
     const currentRole = this.pendingRolesOnTurn[0];
-    const { idx, agent: nextAgent } = this.nextAgentForRole(currentRole);
-    if (!nextAgent) {
+    const next = this.findNextAgentForRole(currentRole);
+    if (!next) {
       this.logger.debug(
         `[${this.config.id}] No agent for role ${currentRole}, removing role`
       );
@@ -928,15 +928,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       return this._step(goToNextTurn, onTurn);
     }
 
+    const { index, agent: nextAgent } = next;
     this.logger.debug(`[${this.config.id}] Calling agent`, {
       role: currentRole,
-      agentIdx: idx,
+      agentIdx: index,
       agentName: nextAgent.name ?? nextAgent.constructor.name,
     });
 
     this.removePendingAgent(nextAgent);
 
-    await this.callAgent(idx, currentRole);
+    await this.callAgent(index, currentRole);
   }
 
   /**
@@ -1748,17 +1749,16 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     // Walk pendingRolesOnTurn to find the next role that will actually run.
     let nextRole: AgentRole | null = null;
     for (const r of this.pendingRolesOnTurn) {
-      const { agent } = this.nextAgentForRole(r);
-      if (agent !== null) {
+      if (this.findNextAgentForRole(r)) {
         nextRole = r;
         break;
       }
     }
     if (nextRole !== AgentRole.AGENT) return null;
 
-    const { idx, agent } = this.nextAgentForRole(AgentRole.AGENT);
-    if (!agent) return null;
-    return { idx, agent };
+    const next = this.findNextAgentForRole(AgentRole.AGENT);
+    if (!next) return null;
+    return { idx: next.index, agent: next.agent };
   }
 
   /**
@@ -2267,12 +2267,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
     this.consumeUntilRole(role);
 
-    let nextAgent = this.getNextAgentForRole(role);
+    let nextAgent = this.findNextAgentForRole(role);
     if (!nextAgent) {
       this.newTurn();
       this.consumeUntilRole(role);
 
-      nextAgent = this.getNextAgentForRole(role);
+      nextAgent = this.findNextAgentForRole(role);
     }
 
     if (!nextAgent) {
@@ -2412,21 +2412,40 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     return { metCriteria, unmetCriteria };
   }
 
-  private nextAgentForRole(role: AgentRole): {
-    idx: number;
-    agent: AgentAdapter | null;
-  } {
-    for (const agent of this.agents) {
-      if (
-        agent.role === role &&
-        this.pendingAgentsOnTurn.has(agent) &&
-        this.pendingRolesOnTurn.includes(role)
-      ) {
-        return { idx: this.agents.indexOf(agent), agent };
+  /**
+   * Finds the next agent that may act for `role` on the current turn: the
+   * first agent of that role still pending on the turn.
+   *
+   * The two lookups this replaced differed by one extra condition,
+   * `pendingRolesOnTurn.includes(role)`, present on the automatic-loop side
+   * and absent on the scripted side. That condition cannot be false at any of
+   * the automatic call sites, so dropping it changes nothing there:
+   *
+   * - {@link _step} passes `pendingRolesOnTurn[0]`, so the condition asks
+   *   whether an array contains its own head. When the queue is empty the role
+   *   is `undefined` and no agent matches on role either way.
+   * - The inline-barge lookup iterates `for (const r of pendingRolesOnTurn)`,
+   *   and its second call asks for AGENT only after `nextRole` was assigned
+   *   from that same iteration, with no mutation of the array in between.
+   *
+   * On the scripted side the absence is load-bearing rather than incidental:
+   * {@link scriptCallAgent} has already run {@link consumeUntilRole}, which
+   * drains the queue entirely when the role is not in it, and the agent must
+   * still be reachable afterwards. Python's `_next_agent_for_role` keeps the
+   * condition and so takes a `newTurn()` there instead, a turn-count
+   * divergence pinned by `script-call-role-pending.test.ts`. See issue #210.
+   */
+  private findNextAgentForRole(
+    role: AgentRole
+  ): { index: number; agent: AgentAdapter } | null {
+    for (let index = 0; index < this.agents.length; index++) {
+      const agent = this.agents[index];
+      if (agent.role === role && this.pendingAgentsOnTurn.has(agent)) {
+        return { index, agent };
       }
     }
 
-    return { idx: -1, agent: null };
+    return null;
   }
 
   /**
@@ -2493,18 +2512,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
   private removePendingAgent(agent: AgentAdapter): void {
     this.pendingAgentsOnTurn.delete(agent);
-  }
-
-  private getNextAgentForRole(
-    role: AgentRole
-  ): { index: number; agent: AgentAdapter } | null {
-    for (let i = 0; i < this.agents.length; i++) {
-      const agent = this.agents[i];
-      if (agent.role === role && this.pendingAgentsOnTurn.has(agent)) {
-        return { index: i, agent };
-      }
-    }
-    return null;
   }
 
   private setAgents(agents: AgentAdapter[]): void {
