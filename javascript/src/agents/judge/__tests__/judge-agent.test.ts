@@ -1187,5 +1187,52 @@ describe("JudgeAgent", () => {
       expect(result).not.toBeNull();
       expect(result!.success).toBe(false);
     });
+
+    it("forces a verdict when a required large-trace judgment tries to continue", async () => {
+      // Large-trace last-turn/checkpoint escape (#886): discovery relaxes the
+      // pinned finish_test to "required"; if the judge answers continue_test on
+      // a required judgment, the run must NOT dodge into the generic max-turns
+      // failure — it must force a terminal verdict.
+      const largeTrace = createLargeTrace();
+      const collector = createMockSpanCollector(largeTrace);
+      for (const span of largeTrace) {
+        (span.attributes as Record<string, unknown>)["langwatch.thread.id"] =
+          "test-thread";
+      }
+
+      const agent = judgeAgent({
+        criteria: ["Agent requests approval before applying the change"],
+        spanCollector: collector,
+      });
+
+      let callCount = 0;
+      let forcedToolChoice: unknown;
+      agent.invokeLLM = async (params) => {
+        callCount++;
+        if (callCount === 1) {
+          // Discovery step ends on continue_test (a non-final terminal).
+          return mockLLMResult("continue_test", {});
+        }
+        // The forced follow-up call: finish_test is pinned.
+        forcedToolChoice = params.toolChoice;
+        return inconclusiveFinish();
+      };
+
+      // Last turn → judgmentRequired. Before the fix this returned null and the
+      // run continued; now it forces a terminal verdict.
+      const result = await agent.call(
+        createBaseInput({
+          scenarioState: { currentTurn: 4 } as never, // maxTurns 5 → last message
+        })
+      );
+
+      expect(callCount).toBe(2);
+      expect(forcedToolChoice).toEqual({
+        type: "tool",
+        toolName: "finish_test",
+      });
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+    });
   });
 });

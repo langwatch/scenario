@@ -576,8 +576,9 @@ export class JudgeAgent extends JudgeAgentAdapter {
     // judgment cannot be dodged via continue_test, criteria or not — the
     // criteria-less enforced case already returned above, and a criteria-less
     // last-turn judge still owes its terminal verdict. Known gap: the
-    // large-trace discovery path relaxes toolChoice to "required" below and
-    // still accepts continue_test there (inherited; tracked in #887).
+    // Standard path pins finish_test; the large-trace path relaxes it to
+    // "required" so the judge can use discovery tools, but still guarantees a
+    // finish_test outcome for a required judgment (see invokeLLMWithDiscovery).
     const toolChoice: ToolChoice<typeof tools> = judgmentRequired
       ? { type: "tool", toolName: "finish_test" }
       : "required";
@@ -598,6 +599,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       tools,
       toolChoice,
       isLargeTrace,
+      judgmentRequired,
     });
 
     // A verdict is "forced" when this judgment is required to be final: the
@@ -645,14 +647,22 @@ export class JudgeAgent extends JudgeAgentAdapter {
    *
    * When the trace is large, toolChoice is relaxed to "required" so the
    * judge can freely pick discovery tools (expand_trace/grep_trace) before
-   * being forced to a terminal decision.
+   * being forced to a terminal decision. A required judgment (last turn or an
+   * explicit judge() checkpoint) is still guaranteed a finish_test outcome:
+   * if discovery ends on continue_test — or exhausts its steps — we force a
+   * final verdict rather than let the run dodge into the generic max-turns
+   * failure (#886; the large-trace half of the same terminal contract).
    */
   private async invokeLLMWithDiscovery({
     isLargeTrace,
+    judgmentRequired,
     ...params
-  }: InvokeLLMParams & { isLargeTrace: boolean }): Promise<{
+  }: InvokeLLMParams & {
+    isLargeTrace: boolean;
+    judgmentRequired: boolean;
+  }): Promise<{
     completion: InvokeLLMResult;
-    /** True when the discovery loop exhausted and forceVerdict pinned finish_test. */
+    /** True when forceVerdict pinned finish_test (exhaustion, or a dodged required judgment). */
     verdictWasForced: boolean;
   }> {
     if (isLargeTrace) {
@@ -674,11 +684,43 @@ export class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
-    if (isLargeTrace && this.discoveryExhausted(completion)) {
-      return { completion: await this.forceVerdict(params), verdictWasForced: true };
+    if (isLargeTrace) {
+      if (this.discoveryExhausted(completion)) {
+        return { completion: await this.forceVerdict(params), verdictWasForced: true };
+      }
+      // A required judgment must not be dodged via continue_test on a large
+      // trace: discovery relaxed the pin, so if the judge continued instead of
+      // finishing, force the final verdict now.
+      if (
+        judgmentRequired &&
+        !this.completionCalledTool(completion, "finish_test")
+      ) {
+        this.logger.debug(
+          "required judgment continued during large-trace discovery - forcing verdict"
+        );
+        return { completion: await this.forceVerdict(params), verdictWasForced: true };
+      }
     }
 
     return { completion, verdictWasForced: false };
+  }
+
+  /**
+   * True when `toolName` was called anywhere in the (possibly multi-step)
+   * completion — the aggregate `steps` array when present, else the final
+   * `toolCalls`. Mirrors how {@link discoveryExhausted} inspects the loop.
+   */
+  private completionCalledTool(
+    completion: InvokeLLMResult,
+    toolName: string
+  ): boolean {
+    const steps = completion.steps;
+    if (steps && steps.length > 0) {
+      return steps.some((step) =>
+        step.toolCalls?.some((tc) => tc.toolName === toolName)
+      );
+    }
+    return Boolean(completion.toolCalls?.some((tc) => tc.toolName === toolName));
   }
 
   /**
