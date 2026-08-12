@@ -45,7 +45,7 @@ def test_feature_file_parses_cleanly(parsed_feature):
 
 def test_feature_file_declares_expected_scenario_count(parsed_feature):
     """
-    The issue-350 contract is 125 scenarios:
+    The issue-350 contract is 129 scenarios:
       - 83 original
       - +4 for locked decision #9 (composable + branded voice agents)
       - +12 for @e2e demo parity (TESTING.md: every user-facing feature has
@@ -54,12 +54,13 @@ def test_feature_file_declares_expected_scenario_count(parsed_feature):
       - +3 for auto-transcribe agent audio for non-multimodal judges.
       - +3 for audio messages rendering cleanly in the terminal.
       - +19 added by voice stack PRs #561 and #604.
+      - +4 for the Python STT configuration seam (#743).
 
     Any change to this count must be a deliberate contract update.
     """
     scenarios = _collect_scenarios(parsed_feature)
-    assert len(scenarios) == 125, (
-        f"Expected 125 scenarios; found {len(scenarios)}. "
+    assert len(scenarios) == 129, (
+        f"Expected 129 scenarios; found {len(scenarios)}. "
         "If this is an intentional contract change, update the count here."
     )
 
@@ -104,11 +105,12 @@ def test_every_scenario_is_tagged_unit_integration_or_e2e(parsed_feature):
 
 def test_tag_split_matches_the_pinned_counts(parsed_feature):
     """
-    The post-#561/#604 tag split is 79 @unit / 13 @integration / 35 @e2e.
+    The tag split is 83 @unit / 12 @integration / 34 @e2e.
     The end-to-end examples and pain-pattern scenarios are @e2e (happy paths
     via real examples, per TESTING.md). Demo recordings add 1 @unit + 2
     @integration. Auto-transcribe adds 3 @unit. Terminal rendering adds 3
     @unit. Voice stack PRs #561 and #604 added 19 scenarios across all tiers.
+    The Python STT configuration seam (#743) adds 4 @unit.
     If the split changes, update this test in the same PR.
     """
     scenarios = _collect_scenarios(parsed_feature)
@@ -117,8 +119,8 @@ def test_tag_split_matches_the_pinned_counts(parsed_feature):
         1 for s in scenarios if "@integration" in {t.name for t in s.tags}
     )
     e2e = sum(1 for s in scenarios if "@e2e" in {t.name for t in s.tags})
-    assert (unit, integration, e2e) == (79, 12, 34), (
-        f"Expected 79 @unit / 12 @integration / 34 @e2e; found "
+    assert (unit, integration, e2e) == (83, 12, 34), (
+        f"Expected 83 @unit / 12 @integration / 34 @e2e; found "
         f"{unit} / {integration} / {e2e}. "
         "If this is an intentional contract change, update the counts here."
     )

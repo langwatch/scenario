@@ -1,10 +1,12 @@
 """Unit tests for the pluggable STTProvider interface."""
 
 import inspect
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import scenario
 from scenario.voice import (
     AudioChunk,
     ElevenLabsSTTProvider,
@@ -25,6 +27,86 @@ class FakeSTT(STTProvider):
     async def transcribe(self, audio: AudioChunk) -> str:
         self.calls.append(audio)
         return self.canned
+
+
+# ---------------------------------------------------------------- the public seam
+
+
+def test_set_stt_provider_is_exported_from_the_package_root():
+    """``scenario.set_stt_provider`` is the documented way to swap STT."""
+    assert scenario.set_stt_provider is set_stt_provider
+    assert "set_stt_provider" in scenario.__all__
+
+
+def test_configure_does_not_accept_an_stt_argument():
+    """
+    ``configure()`` carries global execution settings only (ADR-002, ADR-003).
+
+    Provider injection through it is the API bug in #743: the docstrings
+    advertised it, the parameter never existed. Keeping the rejection asserted
+    stops it being reintroduced as a process-wide provider knob instead of the
+    per-run carrier ADR-002 specifies.
+    """
+    with pytest.raises(TypeError) as excinfo:
+        scenario.configure(stt=FakeSTT())  # type: ignore[call-arg]  # The runtime rejection is the contract under test.
+    assert "stt" in str(excinfo.value)
+
+
+def test_no_shipped_source_advertises_configure_stt():
+    """
+    Nothing users read may claim ``configure(stt=...)`` installs a provider.
+
+    A docstring, log line or example that says so sends the reader straight
+    into a ``TypeError``. Walking the whole shipped package and the examples,
+    rather than checking a fixed list of files, keeps a new one from slipping
+    the claim back in.
+    """
+    python_root = Path(__file__).resolve().parents[2]
+    roots = [Path(scenario.__file__).resolve().parent, python_root / "examples"]
+
+    offenders = [
+        str(path.relative_to(python_root))
+        for root in roots
+        for path in sorted(root.rglob("*.py"))
+        if "configure(stt=" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        "these files advertise the non-existent configure(stt=...) argument; "
+        f"point them at scenario.set_stt_provider(...) instead: {offenders}"
+    )
+
+
+def test_set_stt_provider_rejects_a_non_provider():
+    """A bad provider fails at the user's call, not inside a transcription pass."""
+    previous = get_stt_provider()
+    with pytest.raises(TypeError) as excinfo:
+        set_stt_provider(object())  # type: ignore[arg-type]  # Passing an invalid provider is the contract under test.
+    assert "STTProvider" in str(excinfo.value)
+    assert get_stt_provider() is previous
+
+
+@pytest.mark.asyncio
+async def test_set_stt_provider_accepts_a_structural_provider():
+    """
+    Anything with a callable ``transcribe`` is a provider, as in TypeScript.
+
+    ``isSttProvider`` in ``javascript/src/voice/config.ts`` is a duck-type
+    check, so requiring a subclass here would make the same object valid in
+    one runtime and rejected in the other.
+    """
+
+    class DuckSTT:
+        async def transcribe(self, audio: AudioChunk) -> str:
+            return "duck typed"
+
+    previous = get_stt_provider()
+    duck = DuckSTT()
+    set_stt_provider(duck)  # type: ignore[arg-type]  # Structural acceptance is the contract under test.
+    try:
+        assert get_stt_provider() is duck
+        assert await transcribe(AudioChunk(data=b"\x00\x00" * 1200)) == "duck typed"
+    finally:
+        set_stt_provider(previous)
 
 
 @pytest.mark.asyncio
@@ -61,6 +143,7 @@ def test_stt_provider_is_abstract():
 
 
 # ---------------------------------------------------------------- ElevenLabsSTTProvider
+
 
 def test_elevenlabs_stt_provider_implements_interface():
     """ElevenLabsSTTProvider must be an STTProvider with no ElevenLabs types leaking."""
