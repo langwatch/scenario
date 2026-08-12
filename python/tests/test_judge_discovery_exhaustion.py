@@ -21,7 +21,7 @@ from scenario._judge.judge_span_digest_formatter import JudgeSpanDigestFormatter
 from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
-from scenario.types import AgentInput, ScenarioResult
+from scenario.types import AgentInput, JudgmentRequest, ScenarioResult
 
 from tests.helpers.create_span import create_mock_span
 
@@ -1387,3 +1387,129 @@ class TestToolCallReachesJudgeContext:
         print("\n--- AC5 (#630) captured <transcript> slice ---")
         print(transcript)
         print("--- end <transcript> slice ---")
+
+
+class TestInconclusiveVerdictOnDiscoveryPaths:
+    """Issue #886 on the large-trace paths: an inconclusive finish continues
+    when nothing forced the judgment, and stays terminal when discovery
+    exhaustion forced it."""
+
+    @pytest.mark.asyncio
+    async def test_unforced_inconclusive_finish_in_discovery_continues(self):
+        spans = create_nance_agent_trace()
+        collector = _create_collector(spans)
+        judge = JudgeAgent(
+            criteria=["Agent creates a task plan for the workflow"],
+            span_collector=collector,
+            max_discovery_steps=3,
+            token_threshold=100,
+        )
+
+        def mock_completion(**kwargs):
+            # First step already answers finish_test with "can't tell yet" —
+            # continue_test was freely available, so this must continue.
+            return _mock_finish_response(
+                criteria_verdicts={
+                    "agent_creates_a_task_plan_for_the_workflow": "inconclusive",
+                },
+                reasoning="Too early to tell - the conversation should continue.",
+                verdict="inconclusive",
+            )
+
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            result = await judge.call(_create_input())
+
+        assert result == []  # the judge's continue contract
+
+    @pytest.mark.asyncio
+    async def test_exhaustion_forced_inconclusive_verdict_stays_terminal(self):
+        spans = create_nance_agent_trace()
+        collector = _create_collector(spans)
+        judge = JudgeAgent(
+            criteria=["Agent creates a task plan for the workflow"],
+            span_collector=collector,
+            max_discovery_steps=2,
+            token_threshold=100,
+        )
+
+        call_count = 0
+
+        def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return _mock_discovery_response(
+                    "grep_trace", {"pattern": "workflow"}, f"call_{call_count}"
+                )
+            # Forced verdict after exhaustion: no continue escape, so an
+            # inconclusive verdict is legitimate - and terminal.
+            return _mock_finish_response(
+                criteria_verdicts={
+                    "agent_creates_a_task_plan_for_the_workflow": "inconclusive",
+                },
+                reasoning="Could not determine from the explored trace.",
+                verdict="inconclusive",
+            )
+
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            result = await judge.call(_create_input())
+
+        assert call_count == 3  # 2 discovery + 1 forced verdict
+        assert isinstance(result, ScenarioResult)
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_required_large_trace_judgment_cannot_continue(self):
+        """Large-trace last-turn/checkpoint escape (#886): if a required
+        judgment answers continue_test during discovery, the run must force a
+        terminal verdict rather than fall through to the max-turns failure."""
+        spans = create_nance_agent_trace()
+        collector = _create_collector(spans)
+        judge = JudgeAgent(
+            criteria=["Agent creates a task plan for the workflow"],
+            span_collector=collector,
+            max_discovery_steps=3,
+            token_threshold=100,
+        )
+
+        tool_choices = []
+        call_count = 0
+
+        def mock_completion(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            tool_choices.append(kwargs.get("tool_choice"))
+            if call_count == 1:
+                # A required judgment tries to dodge via continue_test.
+                resp = MagicMock()
+                resp.choices = [MagicMock()]
+                tc = MagicMock()
+                tc.id = "call_1"
+                tc.function.name = "continue_test"
+                tc.function.arguments = "{}"
+                resp.choices[0].message.tool_calls = [tc]
+                resp.choices[0].message.content = None
+                return resp
+            # Forced verdict call.
+            return _mock_finish_response(
+                criteria_verdicts={
+                    "agent_creates_a_task_plan_for_the_workflow": "inconclusive",
+                },
+                reasoning="Forced final verdict.",
+                verdict="inconclusive",
+            )
+
+        # judgment_request makes the judgment required (verdict_forced).
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=mock_completion
+        ):
+            result = await judge.call(_create_input(judgment_request=JudgmentRequest()))
+
+        assert call_count == 2  # continue_test dodge + forced verdict
+        assert tool_choices[-1] == {"type": "function", "function": {"name": "finish_test"}}
+        assert isinstance(result, ScenarioResult)
+        assert result.success is False

@@ -236,6 +236,7 @@ ${criteriaList}
 <rules>
 - Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criteria.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
+- If you do not yet have enough information for a definitive verdict, call the continue_test tool to let the conversation play out - do NOT call finish_test with an "inconclusive" verdict while the conversation can still continue. When a final verdict is explicitly required (the conversation cannot continue), deliver your honest verdict - "inconclusive" is acceptable there
 </rules>
 `.trim();
 }
@@ -563,10 +564,24 @@ export class JudgeAgent extends JudgeAgentAdapter {
       };
     }
 
-    const toolChoice: ToolChoice<typeof tools> =
-      (isLastMessage || enforceJudgement) && hasCriteria
-        ? { type: "tool", toolName: "finish_test" }
-        : "required";
+    // A final judgment is required when the conversation cannot continue past
+    // this call: the last turn, or an explicit judge() step. Note this is
+    // about the CONTRACT, not the transport — on large traces
+    // invokeLLMWithDiscovery relaxes toolChoice to "required" so the model can
+    // use discovery tools, but a checkpoint/last-turn judgment is still
+    // terminal.
+    const judgmentRequired = isLastMessage || enforceJudgement;
+
+    // Pinned on judgmentRequired ALONE: on the standard path a required
+    // judgment cannot be dodged via continue_test, criteria or not — the
+    // criteria-less enforced case already returned above, and a criteria-less
+    // last-turn judge still owes its terminal verdict. Known gap: the
+    // Standard path pins finish_test; the large-trace path relaxes it to
+    // "required" so the judge can use discovery tools, but still guarantees a
+    // finish_test outcome for a required judgment (see invokeLLMWithDiscovery).
+    const toolChoice: ToolChoice<typeof tools> = judgmentRequired
+      ? { type: "tool", toolName: "finish_test" }
+      : "required";
 
     this.logger.debug("Calling LLM", {
       model: mergedConfig.model,
@@ -576,7 +591,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       isLargeTrace,
     });
 
-    const completion = await this.invokeLLMWithDiscovery({
+    const { completion, verdictWasForced } = await this.invokeLLMWithDiscovery({
       model: mergedConfig.model,
       messages,
       temperature: mergedConfig.temperature,
@@ -584,9 +599,19 @@ export class JudgeAgent extends JudgeAgentAdapter {
       tools,
       toolChoice,
       isLargeTrace,
+      judgmentRequired,
     });
 
-    return this.parseToolCalls(completion, criteria);
+    // A verdict is "forced" when this judgment is required to be final: the
+    // last turn, an explicit judge() step, or the discovery loop exhausting
+    // its steps (forceVerdict pinned finish_test). Only a forced judgment may
+    // legitimately end the run on an inconclusive verdict (#886). Deliberately
+    // independent of hasCriteria: a criteria-less judge on the last turn still
+    // delivers its terminal result rather than silently continuing into the
+    // generic max-turns failure.
+    const verdictForced = judgmentRequired || verdictWasForced;
+
+    return this.parseToolCalls(completion, criteria, { verdictForced });
   }
 
   /**
@@ -622,12 +647,24 @@ export class JudgeAgent extends JudgeAgentAdapter {
    *
    * When the trace is large, toolChoice is relaxed to "required" so the
    * judge can freely pick discovery tools (expand_trace/grep_trace) before
-   * being forced to a terminal decision.
+   * being forced to a terminal decision. A required judgment (last turn or an
+   * explicit judge() checkpoint) is still guaranteed a finish_test outcome:
+   * if discovery ends on continue_test — or exhausts its steps — we force a
+   * final verdict rather than let the run dodge into the generic max-turns
+   * failure (#886; the large-trace half of the same terminal contract).
    */
   private async invokeLLMWithDiscovery({
     isLargeTrace,
+    judgmentRequired,
     ...params
-  }: InvokeLLMParams & { isLargeTrace: boolean }): Promise<InvokeLLMResult> {
+  }: InvokeLLMParams & {
+    isLargeTrace: boolean;
+    judgmentRequired: boolean;
+  }): Promise<{
+    completion: InvokeLLMResult;
+    /** True when forceVerdict pinned finish_test (exhaustion, or a dodged required judgment). */
+    verdictWasForced: boolean;
+  }> {
     if (isLargeTrace) {
       params.toolChoice = "required";
       params.stopWhen = [
@@ -647,11 +684,43 @@ export class JudgeAgent extends JudgeAgentAdapter {
       })),
     });
 
-    if (isLargeTrace && this.discoveryExhausted(completion)) {
-      return this.forceVerdict(params);
+    if (isLargeTrace) {
+      if (this.discoveryExhausted(completion)) {
+        return { completion: await this.forceVerdict(params), verdictWasForced: true };
+      }
+      // A required judgment must not be dodged via continue_test on a large
+      // trace: discovery relaxed the pin, so if the judge continued instead of
+      // finishing, force the final verdict now.
+      if (
+        judgmentRequired &&
+        !this.completionCalledTool(completion, "finish_test")
+      ) {
+        this.logger.debug(
+          "required judgment continued during large-trace discovery - forcing verdict"
+        );
+        return { completion: await this.forceVerdict(params), verdictWasForced: true };
+      }
     }
 
-    return completion;
+    return { completion, verdictWasForced: false };
+  }
+
+  /**
+   * True when `toolName` was called anywhere in the (possibly multi-step)
+   * completion — the aggregate `steps` array when present, else the final
+   * `toolCalls`. Mirrors how {@link discoveryExhausted} inspects the loop.
+   */
+  private completionCalledTool(
+    completion: InvokeLLMResult,
+    toolName: string
+  ): boolean {
+    const steps = completion.steps;
+    if (steps && steps.length > 0) {
+      return steps.some((step) =>
+        step.toolCalls?.some((tc) => tc.toolName === toolName)
+      );
+    }
+    return Boolean(completion.toolCalls?.some((tc) => tc.toolName === toolName));
   }
 
   /**
@@ -739,7 +808,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
   private parseToolCalls(
     completion: InvokeLLMResult,
-    criteria: string[]
+    criteria: string[],
+    { verdictForced }: { verdictForced: boolean }
   ): JudgeResult | null {
     let args: FinishTestArgs | undefined;
     if (completion.toolCalls?.length) {
@@ -755,6 +825,20 @@ export class JudgeAgent extends JudgeAgentAdapter {
           args = toolCall.input as FinishTestArgs;
 
           const verdict = args.verdict || "inconclusive";
+
+          // "Can't tell yet" is not a verdict (#886). When nothing forced the
+          // judge to finish — continue_test was freely available — an
+          // inconclusive finish_test used to end the run as FAILED, which in
+          // the UI reads as the user simulator going silent mid-conversation.
+          // Treat it as continue_test and let the conversation play out; a
+          // FORCED judgment (last turn, judge() checkpoint, discovery
+          // exhaustion) keeps its terminal behavior unchanged.
+          if (!verdictForced && verdict === "inconclusive") {
+            this.logger.debug(
+              "finish_test returned an inconclusive verdict without a forced judgment - continuing the conversation"
+            );
+            return null;
+          }
           const reasoning = args.reasoning || "No reasoning provided";
           const criteriaArgs = args.criteria || {};
           const criteriaValues = Object.values(criteriaArgs);
