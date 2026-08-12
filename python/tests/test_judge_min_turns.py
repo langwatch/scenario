@@ -328,6 +328,68 @@ class TestGatedDiscoveryExhaustion:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_gated_exhaustion_through_the_real_call_path(self):
+        """Same invariant, but through judge.call() itself: proves call()
+        actually wires verdict_gated into the discovery loop. The direct-loop
+        test above would stay green even if call() dropped the kwarg."""
+        previous_default_config = ScenarioConfig.default_config
+        ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
+        # A tiny token_threshold trips is_large_transcript on any transcript,
+        # routing call() into the discovery loop.
+        judge = JudgeAgent(
+            criteria=CRITERIA, max_discovery_steps=2, token_threshold=10
+        )
+
+        mock_scenario_state = MagicMock()
+        mock_scenario_state.description = "Test scenario"
+        mock_scenario_state.current_turn = 1
+        mock_scenario_state.config.max_turns = 10
+        mock_scenario_state.config.min_turns = 4
+
+        agent_input = AgentInput(
+            thread_id="test",
+            messages=[{"role": "user", "content": "Hello " * 500}],
+            new_messages=[],
+            judgment_request=None,
+            scenario_state=mock_scenario_state,
+        )
+
+        tools_per_call: List[List[str]] = []
+
+        def fake_completion(**kwargs):
+            tools_per_call.append(
+                [tool["function"]["name"] for tool in kwargs.get("tools", [])]
+            )
+            return _tool_call_response("grep_transcript", {"pattern": "x"})
+
+        mock_executor = MagicMock()
+        mock_executor.config = MagicMock()
+        mock_executor.config.cache_key = None
+        token = context_scenario.set(mock_executor)
+        try:
+            with patch(
+                "scenario.judge_agent.litellm.completion",
+                side_effect=fake_completion,
+            ), patch.object(
+                judge, "_execute_discovery_tool", return_value="tool result"
+            ), patch.object(
+                judge,
+                "_force_verdict",
+                side_effect=AssertionError(
+                    "_force_verdict fired below the min_turns floor via call()"
+                ),
+            ):
+                result = await judge.call(agent_input)
+        finally:
+            context_scenario.reset(token)
+            ScenarioConfig.default_config = previous_default_config
+
+        assert result == []
+        assert len(tools_per_call) == 2
+        for offered in tools_per_call:
+            assert "finish_test" not in offered
+
 
 class TestStartupValidation:
     def test_min_turns_above_max_turns_raises(self):
