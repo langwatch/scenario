@@ -86,6 +86,30 @@ def test_set_stt_provider_rejects_a_non_provider():
 
 
 @pytest.mark.asyncio
+async def test_set_stt_provider_accepts_a_structural_provider():
+    """
+    Anything with a callable ``transcribe`` is a provider, as in TypeScript.
+
+    ``isSttProvider`` in ``javascript/src/voice/config.ts`` is a duck-type
+    check, so requiring a subclass here would make the same object valid in
+    one runtime and rejected in the other.
+    """
+
+    class DuckSTT:
+        async def transcribe(self, audio: AudioChunk) -> str:
+            return "duck typed"
+
+    previous = get_stt_provider()
+    duck = DuckSTT()
+    set_stt_provider(duck)  # type: ignore[arg-type]  # Structural acceptance is the contract under test.
+    try:
+        assert get_stt_provider() is duck
+        assert await transcribe(AudioChunk(data=b"\x00\x00" * 1200)) == "duck typed"
+    finally:
+        set_stt_provider(previous)
+
+
+@pytest.mark.asyncio
 async def test_set_stt_provider_is_used_by_transcribe():
     prev = get_stt_provider()
     fake = FakeSTT()

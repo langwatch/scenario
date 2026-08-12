@@ -970,10 +970,14 @@ Feature: Voice agent testing in Scenario SDK
     Then it raises TypeError naming stt as an unexpected keyword argument
 
   @unit
-  Scenario: set_stt_provider rejects an object that is not an STTProvider
-    Given an object with no transcribe() method
+  Scenario: set_stt_provider accepts any object that can transcribe
+    # Structural, matching isSttProvider in the TypeScript resolver, so the
+    # same object is not valid in one runtime and rejected in the other.
+    Given an object with a callable transcribe() that does not subclass STTProvider
     When it is passed to scenario.set_stt_provider
-    Then it raises TypeError at the call site and the installed provider is unchanged
+    Then it becomes the installed provider and transcribe() routes to it
+    And an object with no transcribe() raises TypeError at the call site
+    And the installed provider is unchanged after that rejection
 
   @unit
   Scenario: no shipped docstring or log advertises configure(stt=...)

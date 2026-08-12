@@ -153,16 +153,21 @@ def set_stt_provider(provider: STTProvider) -> None:
     Exported as ``scenario.set_stt_provider``. This is the public way to swap
     speech-to-text; ``scenario.configure()`` does not take an ``stt`` argument.
 
+    Acceptance is structural, matching ``isSttProvider`` in the TypeScript
+    resolver: anything with a callable ``transcribe`` qualifies, whether or not
+    it subclasses ``STTProvider``.
+
     Raises:
-        TypeError: if ``provider`` does not implement ``STTProvider``. Rejecting
+        TypeError: if ``provider`` has no callable ``transcribe``. Rejecting
             here keeps the failure at the call the user wrote, instead of
             surfacing as a missing-attribute error deep in a transcription pass.
     """
-    if not isinstance(provider, STTProvider):
+    if not callable(getattr(provider, "transcribe", None)):
         raise TypeError(
             "set_stt_provider() expects an STTProvider, got "
-            f"{type(provider).__name__}. Subclass scenario.voice.STTProvider "
-            "and implement 'async def transcribe(self, audio: AudioChunk) -> str'."
+            f"{type(provider).__name__}. Subclass scenario.voice.STTProvider, "
+            "or pass any object with "
+            "'async def transcribe(self, audio: AudioChunk) -> str'."
         )
     global _provider
     _provider = provider
