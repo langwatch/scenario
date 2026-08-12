@@ -94,6 +94,11 @@ class TestGivenAPipecatReceiveFailure:
         """
         assert issubclass(scenario.PipecatRecvError, scenario.AgentStreamEndedError)
 
-        with pytest.raises(scenario.AgentStreamEndedError) as caught:
+        # Nothing follows the block on purpose. `pytest.raises(Base)` passes
+        # only when the raised object is an instance of Base, which is the
+        # catchability property itself, since `except` matching in CPython is
+        # isinstance matching. A trailing assertion would add nothing and
+        # reads as unreachable to static analysis, which cannot model the
+        # context manager swallowing the exception.
+        with pytest.raises(scenario.AgentStreamEndedError, match="transport closed"):
             raise scenario.PipecatRecvError("transport closed")
-        assert isinstance(caught.value, scenario.PipecatRecvError)
