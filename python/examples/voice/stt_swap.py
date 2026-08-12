@@ -51,7 +51,11 @@ _check_env()
 import scenario  # noqa: E402
 from _bot_lifecycle import ensure_pipecat_bot  # noqa: E402
 from _recording_helper import save_demo_recording  # noqa: E402
-from scenario.voice import ElevenLabsSTTProvider, AudioChunk  # noqa: E402
+from scenario.voice import (  # noqa: E402
+    AudioChunk,
+    ElevenLabsSTTProvider,
+    get_stt_provider,
+)
 
 scenario.configure(default_model="openai/gpt-5-mini")
 
@@ -109,10 +113,16 @@ async def main() -> scenario.ScenarioResult:
             max_turns=4,
         )
 
-    # Demonstrate the swapped provider by transcribing each audio segment via
-    # the global STT provider.  This is where ``set_stt_provider`` becomes
-    # observable: callers who swap the provider can post-process the recorded
-    # audio with their chosen backend.
+    # Demonstrate the swapped provider by transcribing each audio segment
+    # through the process-wide lookup.  Going via ``get_stt_provider()`` rather
+    # than the local ``stt`` handle is what makes the swap observable: a
+    # transcribe count above zero then proves the installed provider ran, not
+    # merely that this script holds a reference to one.
+    installed = get_stt_provider()
+    assert installed is stt, (
+        "set_stt_provider did not install the demo provider; "
+        f"the process-wide provider is {type(installed).__name__}"
+    )
     if result.audio is not None:
         for segment in result.audio.segments:
             chunk = AudioChunk(data=segment.audio)
@@ -121,7 +131,7 @@ async def main() -> scenario.ScenarioResult:
             # and we still exercise it on segments long enough to transcribe.
             if chunk.duration_seconds < 0.5:
                 continue
-            transcript = await stt.transcribe(chunk)
+            transcript = await installed.transcribe(chunk)
             segment.transcript = transcript
 
     # Mechanical proof of the swap: ElevenLabsSTTProvider.transcribe() was

@@ -48,7 +48,7 @@ def test_configure_does_not_accept_an_stt_argument():
     per-run carrier ADR-002 specifies.
     """
     with pytest.raises(TypeError) as excinfo:
-        scenario.configure(stt=FakeSTT())  # type: ignore[call-arg]
+        scenario.configure(stt=FakeSTT())  # type: ignore[call-arg]  # The runtime rejection is the contract under test.
     assert "stt" in str(excinfo.value)
 
 
@@ -80,7 +80,7 @@ def test_set_stt_provider_rejects_a_non_provider():
     """A bad provider fails at the user's call, not inside a transcription pass."""
     previous = get_stt_provider()
     with pytest.raises(TypeError) as excinfo:
-        set_stt_provider(object())  # type: ignore[arg-type]
+        set_stt_provider(object())  # type: ignore[arg-type]  # Passing an invalid provider is the contract under test.
     assert "STTProvider" in str(excinfo.value)
     assert get_stt_provider() is previous
 
