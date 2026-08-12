@@ -66,11 +66,11 @@ def _tool_call_response(name: str, arguments: dict):
     )
 
 
-def _continue_response() -> MagicMock:
+def _continue_response():
     return _tool_call_response("continue_test", {})
 
 
-def _finish_response(verdict: str = "success") -> MagicMock:
+def _finish_response(verdict: str = "success"):
     return _tool_call_response(
         "finish_test",
         {
@@ -89,7 +89,7 @@ async def _call_judge(
     min_turns: Optional[int],
     max_turns: int = 10,
     judgment_request: Optional[JudgmentRequest] = None,
-    respond_with: Optional[MagicMock] = None,
+    respond_with: Optional[Any] = None,
 ) -> tuple:
     """Run one JudgeAgent.call and return (result, captured completion kwargs)."""
     previous_default_config = ScenarioConfig.default_config
