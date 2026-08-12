@@ -6,6 +6,8 @@ errors below were reachable only through the submodule, so catching them by
 type meant importing a second path and knowing which one raised.
 """
 
+import pytest
+
 import scenario
 import scenario.voice as voice
 
@@ -56,10 +58,28 @@ class TestGivenTheVoicePackageGainsANewError:
         """
         declared = [n for n in voice.__all__ if n.endswith("Error")]
         assert declared, "expected scenario.voice to declare at least one error"
-        missing = [n for n in declared if not hasattr(scenario, n)]
-        assert missing == [], (
-            f"{missing} are exported from scenario.voice but not from scenario; "
-            "add them to the root import block and __all__"
+
+        # The same three properties the named list above is held to, applied
+        # to whatever the voice package declares. Reachability alone would let
+        # a future error be rebound to a different class at the root, or be
+        # reachable but unlisted, and still pass here.
+        unreachable = [n for n in declared if not hasattr(scenario, n)]
+        assert unreachable == [], (
+            f"{unreachable} are exported from scenario.voice but not from "
+            "scenario; add them to the root import block and __all__"
+        )
+
+        rebound = [n for n in declared if getattr(scenario, n) is not getattr(voice, n)]
+        assert rebound == [], (
+            f"{rebound} resolve to a different class at the root than the one "
+            "scenario.voice raises, so catching them from the root would miss"
+        )
+
+        unlisted = [n for n in declared if n not in scenario.__all__]
+        assert unlisted == [], (
+            f"{unlisted} are reachable from the root but missing from "
+            "scenario.__all__, so they are exported by accident rather than "
+            "on purpose"
         )
 
 
@@ -74,9 +94,6 @@ class TestGivenAPipecatReceiveFailure:
         """
         assert issubclass(scenario.PipecatRecvError, scenario.AgentStreamEndedError)
 
-        try:
+        with pytest.raises(scenario.AgentStreamEndedError) as caught:
             raise scenario.PipecatRecvError("transport closed")
-        except scenario.AgentStreamEndedError as caught:
-            assert isinstance(caught, scenario.PipecatRecvError)
-        else:  # pragma: no cover - the except above always runs
-            raise AssertionError("PipecatRecvError was not caught as AgentStreamEndedError")
+        assert isinstance(caught.value, scenario.PipecatRecvError)
