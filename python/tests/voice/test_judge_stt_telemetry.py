@@ -71,7 +71,7 @@ async def test_judge_stt_emits_scoped_span_with_success_attributes():
             return "account restored"
 
     recording = VoiceRecording(segments=[_segment("agent", 1)])
-    await transcribe_segments(recording, provider=_STT())
+    await transcribe_segments(recording, provider=_STT(), telemetry_scope="judge")
 
     spans = [
         s for s in exporter.get_finished_spans() if s.name == "voice.stt.transcribe"
@@ -99,7 +99,9 @@ async def test_judge_stt_mixed_batch_isolates_failure_and_sanitizes_span(caplog)
 
     recording = VoiceRecording(segments=[_segment("user", 1), _segment("agent", 2)])
     with caplog.at_level(logging.WARNING, logger="scenario.voice"):
-        await transcribe_segments(recording, provider=_MixedSTT())
+        await transcribe_segments(
+            recording, provider=_MixedSTT(), telemetry_scope="judge"
+        )
 
     assert [segment.transcript for segment in recording.segments] == [
         None,
@@ -126,3 +128,22 @@ async def test_judge_stt_mixed_batch_isolates_failure_and_sanitizes_span(caplog)
     assert "provider response" not in recorded
     assert raw_error not in caplog.text
     assert "STT provider failed: RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_direct_transcription_is_uninstrumented_by_default():
+    exporter = _install_exporter()
+
+    class _STT(STTProvider):
+        async def transcribe(self, _audio):
+            return "public caller transcript"
+
+    recording = VoiceRecording(segments=[_segment("agent", 1)])
+    await transcribe_segments(recording, provider=_STT())
+
+    assert recording.segments[0].transcript == "public caller transcript"
+    assert not [
+        span
+        for span in exporter.get_finished_spans()
+        if span.name == "voice.stt.transcribe"
+    ]

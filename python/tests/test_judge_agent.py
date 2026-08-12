@@ -754,7 +754,7 @@ async def test_ac9_transcribe_segments_invoked_for_text_judge():
              patch("scenario.judge_agent.litellm.completion", return_value=_make_llm_mock_response()):
             await judge.call(agent_input)
 
-        mock_ts.assert_called_once_with(recording)
+        mock_ts.assert_called_once_with(recording, telemetry_scope="judge")
     finally:
         context_scenario.reset(token)
 
@@ -781,6 +781,6 @@ async def test_ac5b_stt_bridge_judge_invokes_transcribe_segments():
              patch("scenario.judge_agent.litellm.completion", return_value=_make_llm_mock_response()):
             await judge.call(agent_input)
 
-        mock_ts.assert_called_once_with(recording)
+        mock_ts.assert_called_once_with(recording, telemetry_scope="judge")
     finally:
         context_scenario.reset(token)
