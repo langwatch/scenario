@@ -22,15 +22,24 @@
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
 
+import type { LanguageModel } from "ai";
 import { describe, it, expect, vi } from "vitest";
 
 import { AgentRole } from "../../../domain/agents";
 import { makeAgentInput } from "../../__tests__/helpers/drive-production";
 import { isReceiveTimeoutError } from "../../receive-timeout-error";
+import type { STTProvider } from "../../stt";
+import { OPENAI_REALTIME_MODEL } from "../../voice-models";
+import { ComposableVoiceAgent } from "../composable";
 import { ElevenLabsAgentAdapter } from "../elevenlabs";
 import { GeminiLiveAgentAdapter } from "../gemini-live";
+import { OpenAIRealtimeAgentAdapter } from "../openai-realtime";
 import { PipecatAgentAdapter, type PipecatWebSocketLike } from "../pipecat";
+import { TwilioAgentAdapter } from "../twilio";
+import type { MediaStreamWebSocket } from "../twilio-server";
+import { TwilioRESTHelper } from "../twilio-shared";
 import { makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
+import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
 
 // Mock the Gemini SDK so connect() never opens a real WebSocket. Scoped to this
 // module, and the other adapters under test do not import it.
@@ -66,6 +75,64 @@ function silentPipecatSocket(): SilentPipecatSocket {
   queueMicrotask(() => socket.emit("open"));
   return socket;
 }
+
+/** In-process stand-in for the OpenAI Realtime endpoint. Stays silent. */
+const realtimeServer = setupMockRealtimeServer(() => {});
+
+/** Twilio REST with every network call stubbed, so connect() stays local. */
+function stubTwilioRest(): TwilioRESTHelper {
+  const stub = new TwilioRESTHelper("ACtest", "secret");
+  stub.resolvePhoneNumberSid = async () => "PNtimeoutcontract";
+  stub.readVoiceUrl = async () => null;
+  stub.writeVoiceUrl = async () => undefined;
+  stub.placeCall = async () => "CAtimeoutcontract";
+  stub.sendDtmfOnCall = async () => undefined;
+  return stub;
+}
+
+/** A media-stream socket that stays open and sends only what we hand it. */
+function twilioSocket(): MediaStreamWebSocket & { emit(text: string): void } {
+  const incoming: string[] = [];
+  let resolver: ((text: string | null) => void) | null = null;
+  return {
+    send() {},
+    close() {},
+    receiveText() {
+      const head = incoming.shift();
+      if (head !== undefined) return Promise.resolve(head);
+      return new Promise<string | null>((resolve) => {
+        resolver = resolve;
+      });
+    },
+    emit(text: string) {
+      if (resolver) {
+        const r = resolver;
+        resolver = null;
+        r(text);
+      } else {
+        incoming.push(text);
+      }
+    },
+  } as MediaStreamWebSocket & { emit(text: string): void };
+}
+
+/** An ai-sdk model whose generation never settles, so the wrapper deadline wins. */
+function hangingLlm(): LanguageModel {
+  return {
+    specificationVersion: "v3" as const,
+    provider: "fake",
+    modelId: "hanging-model",
+    supportedUrls: {},
+    doGenerate: () => new Promise(() => {}),
+    doStream: () => new Promise(() => {}),
+  } as unknown as LanguageModel;
+}
+
+const stubStt: STTProvider = {
+  async transcribe(): Promise<string> {
+    return "user said hello";
+  },
+};
 
 /**
  * Each entry parks a `receiveAudio` against a transport that stays open and
@@ -112,6 +179,73 @@ const ADAPTERS: Array<{
     name: "GeminiLiveAgentAdapter",
     parkReceive: async () => {
       const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
+      await adapter.connect();
+      return {
+        receive: adapter.receiveAudio(DEADLINE_S),
+        teardown: () => adapter.disconnect(),
+      };
+    },
+  },
+  {
+    name: "OpenAIRealtimeAgentAdapter",
+    parkReceive: async () => {
+      realtimeServer.arm();
+      const adapter = new OpenAIRealtimeAgentAdapter({
+        apiKey: "test-key",
+        url: `ws://127.0.0.1:${realtimeServer.port()}/realtime?model=${OPENAI_REALTIME_MODEL}`,
+      });
+      await adapter.connect();
+      await realtimeServer.socketReady();
+      return {
+        receive: adapter.receiveAudio(DEADLINE_S),
+        teardown: () => adapter.disconnect(),
+      };
+    },
+  },
+  {
+    name: "TwilioAgentAdapter",
+    parkReceive: async () => {
+      const adapter = new TwilioAgentAdapter({
+        accountSid: "ACtest",
+        authToken: "secret",
+        phoneNumber: "+14155551234",
+        publicBaseUrl: "https://example.test",
+        validateSignature: false,
+        rest: stubTwilioRest(),
+      });
+      await adapter.connect();
+      const socket = twilioSocket();
+      // Drive the media-stream loop and open a call, but never end it: the
+      // stream stays LIVE with an empty queue, which is the state whose only
+      // exit is the receive deadline.
+      const loop = adapter._driveMediaStream(socket);
+      socket.emit(
+        JSON.stringify({
+          event: "start",
+          start: { streamSid: "MZtimeoutcontract", callSid: "CAtimeoutcontract" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        receive: adapter.receiveAudio(DEADLINE_S),
+        teardown: async () => {
+          socket.emit(JSON.stringify({ event: "stop", streamSid: "MZtimeoutcontract" }));
+          await loop;
+          await adapter.disconnect();
+        },
+      };
+    },
+  },
+  {
+    name: "ComposableVoiceAgent",
+    parkReceive: async () => {
+      // No transport: the deadline wraps the STT/LLM/TTS work itself, and a
+      // generation that never settles is what a wedged provider looks like.
+      const adapter = new ComposableVoiceAgent({
+        stt: stubStt,
+        llm: hangingLlm(),
+        tts: "openai/nova",
+      });
       await adapter.connect();
       return {
         receive: adapter.receiveAudio(DEADLINE_S),
