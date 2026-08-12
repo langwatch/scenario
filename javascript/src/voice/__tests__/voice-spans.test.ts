@@ -6,10 +6,10 @@
  * (`receiveAudio`/`sendAudio`) is faked. Mirrors the Python
  * `test_voice_spans.py` A1/A3/A4/A5/A6/A7.
  *
- * H2 note: the first-chunk path still labels every receive failure
- * `first_chunk_timeout` best-effort; only the tail drain distinguishes
- * `TimeoutError` from hard failures (#756). The A4-negative (non-timeout first
- * error NOT labelled) remains Python-only.
+ * Both receive paths now read the typed timeout signal (#756), so the
+ * A4-negative — a non-timeout first-chunk error is NOT labelled
+ * `first_chunk_timeout` — holds in TypeScript too and is asserted below.
+ * `drain-tail-error-propagation.test.ts` covers the propagation itself.
  */
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
@@ -121,7 +121,7 @@ describe("voice.* span instrumentation (base runtime)", () => {
 
   // A3
   it.each([
-    [["throw"] as RecvAction[], "first_chunk_timeout", true],
+    [["timeout"] as RecvAction[], "first_chunk_timeout", true],
     [[tone(0.1), "timeout"] as RecvAction[], "tail_silence", false],
     [[tone(0.1), "empty"] as RecvAction[], "terminal_chunk", false],
   ])("labels terminated_reason=%s#1", async (actions, reason, throws) => {
@@ -132,10 +132,15 @@ describe("voice.* span instrumentation (base runtime)", () => {
     expect(recv.attributes["voice.audio.terminated_reason"]).toBe(reason);
   });
 
-  it("propagates hard errors from the tail-silence receive", async () => {
+  // A4-negative: a transport that dies before the first chunk is an ERROR span
+  // with no terminated_reason, never a turn the agent chose not to take.
+  it("does not label a hard first-chunk error as first_chunk_timeout", async () => {
     await expect(
-      new ScriptedAdapter([tone(0.1), "throw"]).call(audioInput(tone(0.05))),
+      new ScriptedAdapter(["throw"]).call(audioInput(tone(0.05))),
     ).rejects.toThrow("recv failed");
+    const recv = byName(exporter.getFinishedSpans())["voice.audio.receive"];
+    expect(recv.attributes["voice.audio.terminated_reason"]).toBeUndefined();
+    expect(recv.status.code).toBe(SpanStatusCode.ERROR);
   });
 
   it("labels max/hard-ceiling as hard_ceiling in TS + sets first_chunk_latency_ms", async () => {
@@ -147,10 +152,10 @@ describe("voice.* span instrumentation (base runtime)", () => {
     expect(recv.attributes["voice.audio.chunk_count"]).toBeGreaterThanOrEqual(1);
   });
 
-  // A4 (positive; H2 note above — negative is Python-only)
-  it("marks voice.audio.receive ERROR + first_chunk_timeout on a first-chunk failure", async () => {
+  // A4 (positive; the negative is the test above)
+  it("marks voice.audio.receive ERROR + first_chunk_timeout on a first-chunk timeout", async () => {
     await expect(
-      new ScriptedAdapter(["throw"]).call(audioInput(tone(0.05))),
+      new ScriptedAdapter(["timeout"]).call(audioInput(tone(0.05))),
     ).rejects.toThrow();
     const recv = byName(exporter.getFinishedSpans())["voice.audio.receive"];
     expect(recv.status.code).toBe(SpanStatusCode.ERROR);

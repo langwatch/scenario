@@ -722,14 +722,18 @@ async function drainInner(
   // The runaway backstop that replaces the old mid-utterance chop (#747).
   const hardCeiling = maxDuration * MAX_DURATION_CEILING_FACTOR;
 
-  // H2: TS has no typed timeout and this first receiveAudio was uncaught. Catch
-  // to attribute first_chunk_timeout (and let the guard set ERROR + re-throw);
-  // a NON-timeout first-chunk error is NOT labelled a timeout.
+  // Every first-chunk failure propagates — the catch only attributes it, and the
+  // span guard turns it into an ERROR span. A hard failure keeps
+  // `terminated_reason` unset rather than claiming a timeout, so a trace never
+  // reports a dead transport as an agent that stayed quiet. Mirrors Python's
+  // `_drain_agent_response`, which labels only `asyncio.TimeoutError` here.
   let first: AudioChunk;
   try {
     first = await adapter.receiveAudio(responseTimeout);
   } catch (err) {
-    span.setAttribute("voice.audio.terminated_reason", "first_chunk_timeout");
+    if (isReceiveTimeoutError(err)) {
+      span.setAttribute("voice.audio.terminated_reason", "first_chunk_timeout");
+    }
     throw err;
   }
   span.setAttribute(
@@ -771,6 +775,11 @@ async function drainInner(
     try {
       next = await adapter.receiveAudio(tailSilence);
     } catch (err) {
+      // Only a receive deadline ends the turn. A dead transport, a
+      // misconfigured adapter or a tripped assertion propagates with its
+      // original message and stack, because a swallowed hard error downgrades a
+      // loud crash into a turn that silently reports audio the agent never sent
+      // (#756).
       if (!isReceiveTimeoutError(err)) throw err;
       terminatedReason = "tail_silence";
       break;
