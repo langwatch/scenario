@@ -954,6 +954,35 @@ Feature: Voice agent testing in Scenario SDK
     When transcription is requested
     Then the audio is split into chunks under the limit and concatenated
 
+  @unit
+  Scenario: Python swaps STT providers via scenario.set_stt_provider
+    # Python's entry point for the same swap TypeScript spells
+    # run({ voice: { stt } }). configure() carries global execution settings
+    # and has no stt argument (ADR-002, ADR-003).
+    Given a custom STTProvider implementation
+    When scenario.set_stt_provider(CustomProvider()) is called
+    Then the custom provider's transcribe() is invoked instead of the default
+
+  @unit
+  Scenario: scenario.configure rejects an stt argument
+    Given the public scenario.configure entry point
+    When it is called with stt=CustomProvider()
+    Then it raises TypeError naming stt as an unexpected keyword argument
+
+  @unit
+  Scenario: set_stt_provider rejects an object that is not an STTProvider
+    Given an object with no transcribe() method
+    When it is passed to scenario.set_stt_provider
+    Then it raises TypeError at the call site and the installed provider is unchanged
+
+  @unit
+  Scenario: no shipped docstring or log advertises configure(stt=...)
+    # The claim that configure(stt=...) installs a provider was the whole of
+    # bug #743: the argument never existed, so every caller following the
+    # docs hit a TypeError.
+    Given the shipped scenario package sources and examples
+    Then none of them mention configure(stt=
+
   # ======================================================================
   # Adapter Capability Matrix — new requirement
   # ======================================================================

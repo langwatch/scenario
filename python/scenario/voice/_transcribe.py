@@ -69,8 +69,8 @@ def _try_get_provider() -> Optional[STTProvider]:
     except Exception as e:
         logger.warning(
             "scenario.voice.transcribe: no STT provider configured (%s); "
-            "agent transcripts will remain null. Configure with "
-            "scenario.configure(stt=...) to enable.",
+            "agent transcripts will remain null. Install one with "
+            "scenario.set_stt_provider(...) to enable.",
             e,
         )
         return None

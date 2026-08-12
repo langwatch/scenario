@@ -1,12 +1,12 @@
 """Unit tests for the pluggable STTProvider interface."""
 
 import inspect
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import scenario
-from scenario.config import ScenarioConfig
 from scenario.voice import (
     AudioChunk,
     ElevenLabsSTTProvider,
@@ -29,18 +29,60 @@ class FakeSTT(STTProvider):
         return self.canned
 
 
-def test_configure_sets_stt_provider():
-    previous_config = ScenarioConfig.default_config
-    previous_provider = get_stt_provider()
-    fake = FakeSTT()
-    try:
-        scenario.configure(stt=fake)
-        assert get_stt_provider() is fake
-        scenario.configure(default_model="none")
-        assert get_stt_provider() is fake
-    finally:
-        ScenarioConfig.default_config = previous_config
-        set_stt_provider(previous_provider)
+# ---------------------------------------------------------------- the public seam
+
+
+def test_set_stt_provider_is_exported_from_the_package_root():
+    """``scenario.set_stt_provider`` is the documented way to swap STT."""
+    assert scenario.set_stt_provider is set_stt_provider
+    assert "set_stt_provider" in scenario.__all__
+
+
+def test_configure_does_not_accept_an_stt_argument():
+    """
+    ``configure()`` carries global execution settings only (ADR-002, ADR-003).
+
+    Provider injection through it is the API bug in #743: the docstrings
+    advertised it, the parameter never existed. Keeping the rejection asserted
+    stops it being reintroduced as a process-wide provider knob instead of the
+    per-run carrier ADR-002 specifies.
+    """
+    with pytest.raises(TypeError) as excinfo:
+        scenario.configure(stt=FakeSTT())  # type: ignore[call-arg]
+    assert "stt" in str(excinfo.value)
+
+
+def test_no_shipped_source_advertises_configure_stt():
+    """
+    Nothing users read may claim ``configure(stt=...)`` installs a provider.
+
+    A docstring, log line or example that says so sends the reader straight
+    into a ``TypeError``. Walking the whole shipped package and the examples,
+    rather than checking a fixed list of files, keeps a new one from slipping
+    the claim back in.
+    """
+    python_root = Path(__file__).resolve().parents[2]
+    roots = [Path(scenario.__file__).resolve().parent, python_root / "examples"]
+
+    offenders = [
+        str(path.relative_to(python_root))
+        for root in roots
+        for path in sorted(root.rglob("*.py"))
+        if "configure(stt=" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        "these files advertise the non-existent configure(stt=...) argument; "
+        f"point them at scenario.set_stt_provider(...) instead: {offenders}"
+    )
+
+
+def test_set_stt_provider_rejects_a_non_provider():
+    """A bad provider fails at the user's call, not inside a transcription pass."""
+    previous = get_stt_provider()
+    with pytest.raises(TypeError) as excinfo:
+        set_stt_provider(object())  # type: ignore[arg-type]
+    assert "STTProvider" in str(excinfo.value)
+    assert get_stt_provider() is previous
 
 
 @pytest.mark.asyncio

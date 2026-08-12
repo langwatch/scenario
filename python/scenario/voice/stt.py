@@ -7,7 +7,14 @@ We ship an abstract ``STTProvider`` base class plus a default OpenAI
 implementation (``gpt-4o-transcribe``, reuses the existing ``openai`` dep).
 
 Users who prefer Deepgram, Whisper, local inference, etc. implement
-``STTProvider`` and set it via ``scenario.configure(stt=MyProvider())``.
+``STTProvider`` and install it with ``scenario.set_stt_provider(MyProvider())``.
+That is the only entry point: ``scenario.configure()`` carries global execution
+settings and takes no ``stt`` argument (ADR-002, ADR-003).
+
+The provider is process-wide, so parallel runs share whichever one was
+installed last. ADR-002 records the target design, per-run voice config on the
+carrier that reaches ``call()``, which TypeScript already implements as
+``run({ voice: { stt } })``.
 
 The OpenAI default chunks audio longer than 25 minutes per request (the API
 hard limit). Transcription happens per turn, so this is rarely triggered.
@@ -140,7 +147,23 @@ _provider: STTProvider = OpenAISTTProvider()
 
 
 def set_stt_provider(provider: STTProvider) -> None:
-    """Install a custom STT provider. Invoked by scenario.configure(stt=...)."""
+    """
+    Install the STT provider used by every voice run in this process.
+
+    Exported as ``scenario.set_stt_provider``. This is the public way to swap
+    speech-to-text; ``scenario.configure()`` does not take an ``stt`` argument.
+
+    Raises:
+        TypeError: if ``provider`` does not implement ``STTProvider``. Rejecting
+            here keeps the failure at the call the user wrote, instead of
+            surfacing as a missing-attribute error deep in a transcription pass.
+    """
+    if not isinstance(provider, STTProvider):
+        raise TypeError(
+            "set_stt_provider() expects an STTProvider, got "
+            f"{type(provider).__name__}. Subclass scenario.voice.STTProvider "
+            "and implement 'async def transcribe(self, audio: AudioChunk) -> str'."
+        )
     global _provider
     _provider = provider
 
@@ -153,4 +176,4 @@ async def transcribe(audio: AudioChunk) -> str:
     """Convenience wrapper around the globally configured provider."""
     if audio.transcript:
         return audio.transcript
-    return await _provider.transcribe(audio)
+    return await get_stt_provider().transcribe(audio)

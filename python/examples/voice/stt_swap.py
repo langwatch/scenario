@@ -1,13 +1,14 @@
 """
-Cross-cutting demo — STT provider swap via scenario.configure.
+Cross-cutting demo — STT provider swap via scenario.set_stt_provider.
 
 What this demo proves:
-    scenario.configure(stt=ElevenLabsSTTProvider(...)) replaces the default
+    scenario.set_stt_provider(ElevenLabsSTTProvider(...)) replaces the default
     OpenAI gpt-4o-transcribe with ElevenLabs STT.  When the judge transcribes
     an audio turn, ElevenLabsSTTProvider.transcribe() is called instead of the
     default path.  result.success is True.
 
-AC: specs/voice-agents.feature "Demo — STT provider swap via scenario.configure"
+AC: specs/voice-agents.feature
+    "Python swaps STT providers via scenario.set_stt_provider"
     Source §4.6 + pluggable STT design.
 
 How to run:
@@ -69,7 +70,8 @@ class _InstrumentedSTT(ElevenLabsSTTProvider):
 async def main() -> scenario.ScenarioResult:
     stt = _InstrumentedSTT(api_key=os.environ["ELEVENLABS_API_KEY"])
 
-    # Configure the global STT provider before running.
+    # Install the process-wide STT provider before running. This is the only
+    # Python entry point for swapping STT.
     scenario.set_stt_provider(stt)
 
     async with ensure_pipecat_bot():
