@@ -80,3 +80,14 @@ Feature: The voice drain ends a turn on silence, not on failure
     When defaultVoiceCall drains the agent response
     Then the turn completes successfully with agentHungUp still set
     And the voice.audio.receive span is labelled terminal_chunk
+
+  # AC7 — the rule is per DRAIN LOOP, not per adapter. The user-simulator side
+  # has its own, and #623 will add more as agent-initiated turns spread to the
+  # other adapters. Each one has to make the same distinction.
+  @unit @ts-voice-drain
+  Scenario: The spoken user-turn drain fails on a server error
+    Given the simulator is speaking a scripted user line
+    And a server error arrives after the first audio delta
+    When the spoken turn drains
+    Then the error reaches the caller
+    And no partial spoken line is returned as the user's turn

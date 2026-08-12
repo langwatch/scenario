@@ -131,4 +131,30 @@ describe("OpenAIRealtimeAgentAdapter.speakUserTurn (#705 bridge)", () => {
 
     await adapter.disconnect();
   });
+
+  it("fails the turn on a server error instead of returning the partial line", async () => {
+    // #756 on the simulator side. The drain used to absorb every rejection, so
+    // a server error mid-utterance came back as a COMPLETE spoken turn made of
+    // whatever had arrived. The simulator then said half a sentence and the run
+    // scored it as the user's real line.
+    observed = [];
+    server.arm();
+    const adapter = buildAdapter(server.port());
+    await adapter.connect();
+    await server.socketReady();
+    await waitFor(() => observed.some((e) => e.type === "session.update"));
+
+    const turnPromise = adapter.speakUserTurn("cancel my subscription", 1);
+    await waitFor(() => observed.some((e) => e.type === "response.create"));
+
+    push({
+      type: "response.output_audio.delta",
+      delta: Buffer.from(new Uint8Array([0x07, 0x00])).toString("base64"),
+    });
+    push({ type: "error", error: { message: "upstream exploded" } });
+
+    await expect(turnPromise).rejects.toThrow(/upstream exploded/);
+
+    await adapter.disconnect();
+  });
 });
