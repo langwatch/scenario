@@ -168,6 +168,7 @@ class ScenarioExecutor:
         script: Optional[List[ScriptStep]] = None,
         # Config
         max_turns: Optional[int] = None,
+        min_turns: Optional[int] = None,
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
@@ -191,6 +192,8 @@ class ScenarioExecutor:
                    If not provided, defaults to automatic proceeding.
             max_turns: Maximum number of conversation turns before timeout.
                       Overrides global configuration for this scenario.
+            min_turns: Minimum turns guaranteed before the judge may volunteer
+                      a verdict. Overrides global configuration for this scenario.
             verbose: Whether to show detailed output during execution.
                     Can be True/False or integer level (2 for extra details).
             cache_key: Cache key for deterministic behavior across runs.
@@ -214,12 +217,23 @@ class ScenarioExecutor:
 
         config = ScenarioConfig(
             max_turns=max_turns,
+            min_turns=min_turns,
             verbose=verbose,
             cache_key=cache_key,
             debug=debug,
             headless=None,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
+
+        effective_max_turns = self.config.max_turns or 10
+        if (
+            self.config.min_turns is not None
+            and self.config.min_turns > effective_max_turns
+        ):
+            raise ValueError(
+                f"min_turns ({self.config.min_turns}) cannot exceed "
+                f"max_turns ({effective_max_turns})"
+            )
 
         self.batch_run_id = get_batch_run_id()
         self.scenario_set_id = set_id or "default"
@@ -1906,6 +1920,7 @@ def _build_scenario(
     description: str,
     agents: List[AgentAdapter],
     max_turns: Optional[int],
+    min_turns: Optional[int],
     verbose: Optional[Union[bool, int]],
     cache_key: Optional[str],
     debug: Optional[bool],
@@ -1927,6 +1942,7 @@ def _build_scenario(
         description=description,
         agents=agents,
         max_turns=max_turns,
+        min_turns=min_turns,
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
@@ -1952,6 +1968,7 @@ async def arun(
     description: str,
     agents: List[AgentAdapter] = [],
     max_turns: Optional[int] = None,
+    min_turns: Optional[int] = None,
     verbose: Optional[Union[bool, int]] = None,
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
@@ -1983,6 +2000,7 @@ async def arun(
         description=description,
         agents=agents,
         max_turns=max_turns,
+        min_turns=min_turns,
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
@@ -2010,6 +2028,7 @@ async def run(
     description: str,
     agents: List[AgentAdapter] = [],
     max_turns: Optional[int] = None,
+    min_turns: Optional[int] = None,
     verbose: Optional[Union[bool, int]] = None,
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
@@ -2040,6 +2059,10 @@ async def run(
         description: Detailed description of what the scenario tests
         agents: List of agent adapters (agent under test, user simulator, judge)
         max_turns: Maximum conversation turns before timeout (default: 10)
+        min_turns: Minimum turns guaranteed before the judge may volunteer a
+                 verdict — its finish_test tool is withheld on earlier turns.
+                 Explicit judge() steps and the final turn still deliver a
+                 terminal verdict. Must not exceed max_turns (raises ValueError).
         verbose: Show detailed output during execution
         cache_key: Cache key for deterministic behavior
         debug: Enable debug mode for step-by-step execution
@@ -2098,6 +2121,7 @@ async def run(
         description=description,
         agents=agents,
         max_turns=max_turns,
+        min_turns=min_turns,
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,

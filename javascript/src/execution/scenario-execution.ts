@@ -337,6 +337,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       throw new Error("batchRunId is required");
     }
     this.batchRunId = batchRunId;
+    const maxTurns = config.maxTurns ?? DEFAULT_MAX_TURNS;
+    if (config.minTurns != null && config.minTurns > maxTurns) {
+      throw new Error(
+        `minTurns (${config.minTurns}) cannot exceed maxTurns (${maxTurns})`
+      );
+    }
     this.config = {
       id: config.id ?? generateScenarioId(),
       name: config.name,
@@ -344,7 +350,8 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       agents: config.agents,
       script: script,
       verbose: config.verbose ?? DEFAULT_VERBOSE,
-      maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
+      maxTurns,
+      minTurns: config.minTurns,
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId || "default",
       metadata: config.metadata,

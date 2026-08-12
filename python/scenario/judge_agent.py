@@ -710,6 +710,32 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         # last-turn judgment is still terminal.
         judgment_required = is_last_message or enforce_judgment
 
+        # min_turns floor (ADR-005): below the floor an UNFORCED judge call may
+        # not volunteer a verdict — finish_test is withheld from its tool set
+        # entirely. The judge observes a 0-based current_turn: reset() overrides
+        # the initial _new_turn() back to 0, so the call on turn N sees
+        # current_turn N-1 (the same base is_last_message compares against
+        # above). The floor is unmet while current_turn < min_turns — with
+        # min_turns=4, finish_test first appears on the turn-5 call. A required
+        # judgment is never gated.
+        min_turns = getattr(input.scenario_state.config, "min_turns", None)
+        verdict_gated = (
+            isinstance(min_turns, int)
+            and not judgment_required
+            and input.scenario_state.current_turn < min_turns
+        )
+        if verdict_gated:
+            tools = [
+                tool
+                for tool in tools
+                if tool.get("function", {}).get("name") != "finish_test"
+            ]
+            messages[0]["content"] += (
+                "\n\nThis scenario requires more conversation turns before a "
+                "verdict may be delivered, so ending the test is not available "
+                "on this turn. Assess progress and continue the conversation."
+            )
+
         # Pinned on judgment_required ALONE: a required judgment cannot be
         # dodged via continue_test, criteria or not — the criteria-less
         # enforced case already returned above, and a criteria-less last-turn
@@ -743,6 +769,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 effective_criteria=effective_criteria,
                 input_messages=input.messages,
                 verdict_forced=verdict_forced,
+                verdict_gated=verdict_gated,
             )
 
         # Standard single-call path for small traces
@@ -946,6 +973,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         effective_criteria: List[str],
         input_messages: Sequence[Any],
         verdict_forced: bool,
+        verdict_gated: bool = False,
     ) -> AgentReturnTypes:
         """
         Runs the multi-step discovery loop for large traces.
@@ -1066,7 +1094,18 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "content": tool_result,
                 })
 
-        # Hit max steps - force a verdict with whatever information was gathered
+        # Hit max steps - force a verdict with whatever information was gathered.
+        # Below the min_turns floor _force_verdict must not fire: it pins
+        # tool_choice to finish_test, a tool the gated call does not offer —
+        # providers reject a tool_choice naming an undefined tool (ADR-005). A
+        # gated call is never judgment_required, so no terminal contract is
+        # being dodged; the turn continues.
+        if verdict_gated:
+            logger.debug(
+                "discovery exhausted below the min_turns floor - continuing "
+                "without a verdict"
+            )
+            return []
         return self._force_verdict(
             messages=messages,
             tools=tools,

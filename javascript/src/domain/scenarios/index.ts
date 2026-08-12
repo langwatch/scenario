@@ -66,6 +66,23 @@ export interface ScenarioConfig {
   maxTurns?: number;
 
   /**
+   * The minimum number of turns that must run before the judge may
+   * volunteer a verdict. With `minTurns: 4`, turns 1–4 always run and the
+   * judge can first end the test on turn 5 — its `finish_test` tool is
+   * withheld on earlier turns (ADR-005).
+   *
+   * Forced judgments always win over the floor: an explicit
+   * `scenario.judge()` step and the final `maxTurns` turn still deliver a
+   * terminal verdict even below the floor. The floor governs the judge
+   * only — red-team early exit and explicit `succeed()`/`fail()` script
+   * steps are unaffected.
+   *
+   * Must not exceed `maxTurns`; that combination throws at startup.
+   * When unset, behavior is identical to previous releases.
+   */
+  minTurns?: number;
+
+  /**
    * Optional thread ID to use for the conversation.
    * If not provided, a new thread will be created.
    */

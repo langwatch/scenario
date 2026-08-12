@@ -529,28 +529,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
     const cfg = this.cfg;
 
-    const systemPrompt =
-      cfg.systemPrompt ??
-      buildSystemPrompt(criteria, input.scenarioConfig.description);
-    const messages: ModelMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: contentForJudge },
-    ];
-
     const maxTurns = input.scenarioConfig.maxTurns ?? DEFAULT_MAX_TURNS;
     const isLastMessage = input.scenarioState.currentTurn >= maxTurns - 1;
-
-    const projectConfig = await getProjectConfig();
-    const mergedConfig = modelSchema.parse({
-      ...projectConfig?.defaultModel,
-      ...cfg,
-    });
-
-    const tools: ToolSet = {
-      ...(isLargeTrace ? buildProgressiveDiscoveryTools(spans) : {}),
-      continue_test: buildContinueTestTool(),
-      finish_test: buildFinishTestTool(criteria),
-    };
 
     const enforceJudgement = input.judgmentRequest != null;
     const hasCriteria = criteria.length && criteria.length > 0;
@@ -572,6 +552,43 @@ export class JudgeAgent extends JudgeAgentAdapter {
     // terminal.
     const judgmentRequired = isLastMessage || enforceJudgement;
 
+    // minTurns floor (ADR-005): below the floor an UNFORCED judge call may
+    // not volunteer a verdict — finish_test is withheld from its tool set
+    // entirely. The judge observes a 0-based currentTurn: the executor's
+    // constructor overrides the initial newTurn() back to 0, so the call on
+    // turn N sees currentTurn N-1 (the same base isLastMessage compares
+    // against above). The floor is unmet while currentTurn < minTurns — with
+    // minTurns: 4, finish_test first appears on the turn-5 call. A required
+    // judgment is never gated.
+    const minTurns = input.scenarioConfig.minTurns;
+    const verdictGated =
+      minTurns != null &&
+      !judgmentRequired &&
+      input.scenarioState.currentTurn < minTurns;
+
+    const systemPrompt =
+      (cfg.systemPrompt ??
+        buildSystemPrompt(criteria, input.scenarioConfig.description)) +
+      (verdictGated
+        ? "\n\nThis scenario requires more conversation turns before a verdict may be delivered, so ending the test is not available on this turn. Assess progress and continue the conversation."
+        : "");
+    const messages: ModelMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: contentForJudge },
+    ];
+
+    const projectConfig = await getProjectConfig();
+    const mergedConfig = modelSchema.parse({
+      ...projectConfig?.defaultModel,
+      ...cfg,
+    });
+
+    const tools: ToolSet = {
+      ...(isLargeTrace ? buildProgressiveDiscoveryTools(spans) : {}),
+      continue_test: buildContinueTestTool(),
+      ...(verdictGated ? {} : { finish_test: buildFinishTestTool(criteria) }),
+    };
+
     // Pinned on judgmentRequired ALONE: on the standard path a required
     // judgment cannot be dodged via continue_test, criteria or not — the
     // criteria-less enforced case already returned above, and a criteria-less
@@ -589,18 +606,29 @@ export class JudgeAgent extends JudgeAgentAdapter {
       isLastMessage,
       enforceJudgement,
       isLargeTrace,
+      verdictGated,
     });
 
-    const { completion, verdictWasForced } = await this.invokeLLMWithDiscovery({
-      model: mergedConfig.model,
-      messages,
-      temperature: mergedConfig.temperature,
-      maxOutputTokens: mergedConfig.maxTokens,
-      tools,
-      toolChoice,
-      isLargeTrace,
-      judgmentRequired,
-    });
+    const { completion, verdictWasForced, gatedExhaustion } =
+      await this.invokeLLMWithDiscovery({
+        model: mergedConfig.model,
+        messages,
+        temperature: mergedConfig.temperature,
+        maxOutputTokens: mergedConfig.maxTokens,
+        tools,
+        toolChoice,
+        isLargeTrace,
+        judgmentRequired,
+        verdictGated,
+      });
+
+    // Discovery exhausted below the minTurns floor: no verdict may be
+    // volunteered and finish_test was never offered, so the turn resolves to
+    // continue — parseToolCalls would misread the discovery-only completion
+    // as a non-convergence failure.
+    if (gatedExhaustion) {
+      return null;
+    }
 
     // A verdict is "forced" when this judgment is required to be final: the
     // last turn, an explicit judge() step, or the discovery loop exhausting
@@ -656,14 +684,18 @@ export class JudgeAgent extends JudgeAgentAdapter {
   private async invokeLLMWithDiscovery({
     isLargeTrace,
     judgmentRequired,
+    verdictGated,
     ...params
   }: InvokeLLMParams & {
     isLargeTrace: boolean;
     judgmentRequired: boolean;
+    verdictGated: boolean;
   }): Promise<{
     completion: InvokeLLMResult;
     /** True when forceVerdict pinned finish_test (exhaustion, or a dodged required judgment). */
     verdictWasForced: boolean;
+    /** True when discovery exhausted below the minTurns floor — the caller must resolve to continue. */
+    gatedExhaustion?: boolean;
   }> {
     if (isLargeTrace) {
       params.toolChoice = "required";
@@ -686,6 +718,17 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
     if (isLargeTrace) {
       if (this.discoveryExhausted(completion)) {
+        // Below the minTurns floor forceVerdict must not fire: it pins
+        // toolChoice to finish_test, a tool the gated call does not offer —
+        // providers reject a toolChoice naming an undefined tool (ADR-005).
+        // A gated call is never judgmentRequired, so no terminal contract is
+        // being dodged; the turn continues.
+        if (verdictGated) {
+          this.logger.debug(
+            "discovery exhausted below the minTurns floor - continuing without a verdict"
+          );
+          return { completion, verdictWasForced: false, gatedExhaustion: true };
+        }
         return { completion: await this.forceVerdict(params), verdictWasForced: true };
       }
       // A required judgment must not be dodged via continue_test on a large
