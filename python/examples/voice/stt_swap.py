@@ -113,11 +113,15 @@ async def main() -> scenario.ScenarioResult:
             max_turns=4,
         )
 
+    # Snapshot before any post-run work, so the success criterion below counts
+    # only the calls the run itself made.
+    run_transcribe_count = len(_transcribe_calls)
+
     # Demonstrate the swapped provider by transcribing each audio segment
     # through the process-wide lookup.  Going via ``get_stt_provider()`` rather
-    # than the local ``stt`` handle is what makes the swap observable: a
-    # transcribe count above zero then proves the installed provider ran, not
-    # merely that this script holds a reference to one.
+    # than the local ``stt`` handle is what makes the swap observable: the
+    # identity check proves the install took effect rather than the script
+    # merely holding a reference.
     installed = get_stt_provider()
     assert installed is stt, (
         "set_stt_provider did not install the demo provider; "
@@ -134,15 +138,17 @@ async def main() -> scenario.ScenarioResult:
             transcript = await installed.transcribe(chunk)
             segment.transcript = transcript
 
-    # Mechanical proof of the swap: ElevenLabsSTTProvider.transcribe() was
-    # called. The judge cannot observe provider internals from the transcript;
-    # this assertion is what verifies the docstring claim.
-    transcribe_count = len(_transcribe_calls)
-    swap_verified = transcribe_count > 0
+    # Mechanical proof of the swap: the run itself called
+    # ElevenLabsSTTProvider.transcribe(). The judge cannot observe provider
+    # internals from the transcript, so this is what verifies the docstring
+    # claim. Only the pre-snapshot count qualifies; the post-run loop above
+    # calls the provider too and must not be able to satisfy the criterion.
+    swap_verified = run_transcribe_count > 0
 
     print(f"success: {result.success}")
-    print(f"ElevenLabsSTT.transcribe() calls: {transcribe_count}")
-    print(f"swap verified (transcribe count > 0): {swap_verified}")
+    print(f"ElevenLabsSTT.transcribe() calls during the run: {run_transcribe_count}")
+    print(f"ElevenLabsSTT.transcribe() calls in total: {len(_transcribe_calls)}")
+    print(f"swap verified (run transcribe count > 0): {swap_verified}")
     print(f"verdict: {result.reasoning}")
     save_demo_recording(getattr(result, "audio", None))
 
@@ -150,9 +156,9 @@ async def main() -> scenario.ScenarioResult:
         # If the swap didn't fire, demo failed regardless of judge verdict.
         result.success = False
         result.reasoning = (
-            "STT provider swap NOT verified: ElevenLabsSTTProvider.transcribe() "
-            "was never called. The configured provider failed to engage. "
-            f"(Original judge verdict: {result.reasoning})"
+            "STT provider swap NOT verified: the run never called "
+            "ElevenLabsSTTProvider.transcribe(). The installed provider failed "
+            f"to engage. (Original judge verdict: {result.reasoning})"
         )
 
     return result
