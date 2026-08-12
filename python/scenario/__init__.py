@@ -135,18 +135,22 @@ from .script import message, user, agent, judge, proceed, succeed, fail
 # what changes is the medium, not the paradigm.
 from .voice import (
     AdapterCapabilities,
+    AgentStreamEndedError,
     AudioChunk,
     AudioSegment,
     ComposableVoiceAgent,
     ElevenLabsAgentAdapter,
     ElevenLabsSTTProvider,
     ElevenLabsVoiceAgent,
+    FirstChunkTimeoutError,
     GeminiLiveAgentAdapter,
     LatencyMetrics,
     LiveKitAgentAdapter,
+    ModalityNegotiationError,
     OpenAIRealtimeAgentAdapter,
     OpenAISTTProvider,
     PipecatAgentAdapter,
+    PipecatRecvError,
     STTProvider,
     TwilioAgentAdapter,
     UnsupportedCapabilityError,
@@ -219,6 +223,13 @@ __all__ = [
     "OpenAISTTProvider",
     "STTProvider",
     "UnsupportedCapabilityError",
+    # Voice errors, catchable from the package root. `raise` sites live in
+    # scenario.voice, but a caller writing `except scenario.<Error>` should
+    # not have to know that.
+    "AgentStreamEndedError",
+    "FirstChunkTimeoutError",
+    "ModalityNegotiationError",
+    "PipecatRecvError",
     "VoiceAgentAdapter",
     "VoiceEvent",
     "VoiceRecording",
