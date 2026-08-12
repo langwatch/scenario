@@ -114,15 +114,16 @@ def _idle_timeout_message(timeout_s: float) -> str:
 
 
 def _ceiling_timeout_message(timeout_s: float, ceiling_s: float) -> str:
-    """Rejection text for the ABSOLUTE ceiling: the agent kept the socket alive
-    with keepalive pings, which re-arm the idle deadline, but never sent audio.
+    """Rejection text for the ABSOLUTE ceiling: the agent kept sending frames,
+    which re-arm the idle deadline, but never sent audio.
     """
     floor = _seconds(KEEPALIVE_HARD_CEILING_S)
     return (
         f"ElevenLabsAgentAdapter: recv_audio timed out. The absolute ceiling of "
-        f"{_seconds(ceiling_s)}s elapsed while the hosted agent kept the socket "
-        f"alive with keepalive pings but never sent audio. Pings re-arm the idle "
-        f"deadline, so this ceiling, max(response_timeout, {floor}s), is what "
+        f"{_seconds(ceiling_s)}s elapsed while the hosted agent kept sending frames, "
+        f"keepalive pings or transcripts, but never audio. Every inbound frame "
+        f"re-arms the idle deadline, so this ceiling, max(response_timeout, "
+        f"{floor}s), is what "
         f"bounds the wait. It usually means a wedged server tool or retrieval call, "
         f"or an agent that ended or transferred its turn. If the agent is only "
         f"slower than that, raise the adapter's response_timeout, currently "

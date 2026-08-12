@@ -10,6 +10,9 @@
  * Keyless: the real SDK `Conversation` runs against the in-memory
  * `FakeWebSocket`, and fake timers stand in for the wall clock, so a 60s budget
  * costs milliseconds.
+ *
+ * Run with `pnpm test src/voice/adapters/__tests__/elevenlabs-receive-timeout.test.ts`
+ * from `javascript/`.
  */
 import { Buffer } from "node:buffer";
 
@@ -136,7 +139,7 @@ describe("receiveAudio timeout budget and diagnosis", () => {
       const message = settled.error()?.message ?? "";
       expect(message).toContain("receiveAudio timed out");
       expect(message).toContain("The absolute ceiling of 60s elapsed");
-      expect(message).toContain("keepalive pings but never sent audio");
+      expect(message).toContain("kept sending frames, keepalive pings or transcripts, but never audio");
       expect(message).toContain("responseTimeout");
       expect(message).toContain(TROUBLESHOOTING_ANCHOR);
       expect(message).not.toContain("The idle deadline");

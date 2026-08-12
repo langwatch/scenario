@@ -197,10 +197,10 @@ and the error says which one fired:
 | Bound | Message opens with | What it means |
 |---|---|---|
 | Idle deadline | `The idle deadline of 60s elapsed with no message of any kind from the hosted agent, not even a keepalive ping.` | The socket went completely quiet. Its length is `responseTimeout` / `response_timeout`. |
-| Absolute ceiling | `The absolute ceiling of 60s elapsed while the hosted agent kept the socket alive with keepalive pings but never sent audio.` | The agent was alive the whole time and never spoke. Pings re-arm the idle deadline, so `max(responseTimeout, 45s)` is what bounds this case. |
+| Absolute ceiling | `The absolute ceiling of 60s elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, but never audio.` | The agent was alive the whole time and never spoke. Every inbound frame re-arms the idle deadline, keepalive pings and transcripts alike, so `max(responseTimeout, 45s)` is what bounds this case. |
 
-A silent agent and a pinging one are different problems, so read the bound
-before working through the causes below.
+A silent agent and a talkative-but-speechless one are different problems, so
+read the bound before working through the causes below.
 
 **Raise the timeout for a slow agent.** An agent that runs a tool call, a
 retrieval step, or a long generation before it speaks can pass the default 60

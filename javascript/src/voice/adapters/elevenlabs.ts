@@ -154,14 +154,14 @@ function idleTimeoutMessage(timeoutS: number): string {
 }
 
 /**
- * Rejection text for the ABSOLUTE ceiling: the agent kept the socket alive with
- * keepalive pings, which re-arm the idle deadline, but never sent audio.
+ * Rejection text for the ABSOLUTE ceiling: the agent kept sending frames, which
+ * re-arm the idle deadline, but never sent audio.
  */
 function ceilingTimeoutMessage(timeoutS: number, ceilingS: number): string {
   return (
     `ElevenLabsAgentAdapter: receiveAudio timed out. The absolute ceiling of ${ceilingS}s ` +
-    "elapsed while the hosted agent kept the socket alive with keepalive pings but " +
-    "never sent audio. Pings re-arm the idle deadline, so this ceiling, " +
+    "elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, " +
+    "but never audio. Every inbound frame re-arms the idle deadline, so this ceiling, " +
     `max(responseTimeout, ${KEEPALIVE_HARD_CEILING_S}s), is what bounds the wait. It usually ` +
     "means a wedged server tool or retrieval call, or an agent that ended or " +
     "transferred its turn. If the agent is only slower than that, raise the adapter's " +

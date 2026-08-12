@@ -117,11 +117,14 @@ async def test_recv_audio_tolerates_silent_but_pinging_stretch():
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
-
-        # The pings span ~0.64s; TIMEOUT is 0.30s. A keepalive-aware adapter
-        # stays alive (each gap < TIMEOUT) and returns the audio. The current
-        # adapter exhausts its one-shot budget and raises TimeoutError here.
-        result = await adapter.recv_audio(timeout=TIMEOUT)
+        try:
+            # The pings span ~0.64s; TIMEOUT is 0.30s. A keepalive-aware adapter
+            # stays alive (each gap < TIMEOUT) and returns the audio. The current
+            # adapter exhausts its one-shot budget and raises TimeoutError here.
+            result = await adapter.recv_audio(timeout=TIMEOUT)
+        finally:
+            # connect() started the mic pump; stop it before teardown.
+            await adapter.disconnect()
 
     assert isinstance(result, AudioChunk)
     assert result.data == pcm_payload
@@ -154,8 +157,12 @@ async def test_recv_audio_still_times_out_on_truly_dead_socket():
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
-        with pytest.raises(asyncio.TimeoutError):
-            await adapter.recv_audio(timeout=TIMEOUT)
+        try:
+            with pytest.raises(asyncio.TimeoutError):
+                await adapter.recv_audio(timeout=TIMEOUT)
+        finally:
+            # connect() started the mic pump; stop it before teardown.
+            await adapter.disconnect()
 
 
 # --------------------------------------------------------------------------- #
@@ -246,9 +253,12 @@ async def test_recv_audio_hard_ceiling_fires_despite_endless_pings(monkeypatch):
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
-
-        with pytest.raises(asyncio.TimeoutError):
-            await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        try:
+            with pytest.raises(asyncio.TimeoutError):
+                await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        finally:
+            # connect() started the mic pump; stop it before teardown.
+            await adapter.disconnect()
 
 
 @pytest.mark.asyncio
@@ -307,7 +317,11 @@ async def test_recv_audio_succeeds_when_slow_agent_responds_before_hard_ceiling(
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
-        result = await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        try:
+            result = await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        finally:
+            # connect() started the mic pump; stop it before teardown.
+            await adapter.disconnect()
 
     assert isinstance(result, AudioChunk)
     assert result.data == pcm_payload
@@ -340,8 +354,12 @@ async def test_recv_audio_silent_socket_reports_the_idle_deadline():
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
-        with pytest.raises(asyncio.TimeoutError) as excinfo:
-            await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        try:
+            with pytest.raises(asyncio.TimeoutError) as excinfo:
+                await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        finally:
+            # connect() started the mic pump; stop it before teardown.
+            await adapter.disconnect()
 
     message = str(excinfo.value)
     assert f"The idle deadline of {IDLE_TIMEOUT:g}s elapsed" in message
@@ -363,11 +381,15 @@ async def test_recv_audio_endless_pings_report_the_absolute_ceiling(monkeypatch)
 
     with patch("websockets.connect", new=AsyncMock(return_value=mock_ws)):
         await adapter.connect()
-        with pytest.raises(asyncio.TimeoutError) as excinfo:
-            await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        try:
+            with pytest.raises(asyncio.TimeoutError) as excinfo:
+                await adapter.recv_audio(timeout=IDLE_TIMEOUT)
+        finally:
+            # connect() started the mic pump; stop it before teardown.
+            await adapter.disconnect()
 
     message = str(excinfo.value)
     assert f"The absolute ceiling of {HARD_CEILING:g}s elapsed" in message
-    assert "keepalive pings but never sent audio" in message
+    assert "kept sending frames, keepalive pings or transcripts, but never audio" in message
     assert "response_timeout" in message
     assert "The idle deadline" not in message
