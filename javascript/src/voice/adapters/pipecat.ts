@@ -108,6 +108,13 @@ interface AudioInbox {
   queue: AudioChunk[];
   waiter: { resolve: (chunk: AudioChunk) => void; reject: (err: Error) => void } | null;
   closed: boolean;
+  /**
+   * Set when the socket ERRORED rather than ending. A stream that ends is a
+   * normal end of turn and yields the empty terminal chunk; a stream that broke
+   * has to keep failing every later receive, or the drain reads a transport
+   * fault as the agent finishing (#756).
+   */
+  failure: Error | null;
 }
 
 /**
@@ -251,7 +258,7 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     const factory = this.webSocketFactory ?? (await defaultWebSocketFactory());
     const ws = factory(this.url);
     this.ws = ws;
-    this.inbox = { queue: [], waiter: null, closed: false };
+    this.inbox = { queue: [], waiter: null, closed: false, failure: null };
     this.mulawChunks = [];
     this.mulawChunksByteLength = 0;
 
@@ -329,9 +336,10 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
 
     if (this.inbox) {
       this.inbox.closed = true;
-      this.inbox.waiter?.reject(
-        new Error("PipecatAgentAdapter: disconnected while waiting for audio"),
-      );
+      // Wake a receive already parked on this inbox before dropping it, with
+      // the empty end-of-stream chunk rather than a rejection: we are the ones
+      // tearing the call down, so the drain should finish, not fail (#849).
+      this.inbox.waiter?.resolve(new AudioChunk({ data: new Uint8Array(0) }));
       this.inbox = null;
     }
 
@@ -397,8 +405,13 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     }
     const queued = inbox.queue.shift();
     if (queued) return queued;
+    if (inbox.failure) throw inbox.failure;
     if (inbox.closed) {
-      throw new Error("PipecatAgentAdapter: socket closed, no audio available");
+      // The bot closed the stream and everything it sent has been consumed:
+      // an end of turn, not a failure. The empty chunk is this codebase's
+      // end-of-stream signal, so the shared drain exits cleanly rather than
+      // waiting out the deadline (#648/#646/#695) or aborting the run (#756).
+      return new AudioChunk({ data: new Uint8Array(0) });
     }
     return await new Promise<AudioChunk>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -558,13 +571,19 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     }
   }
 
-  private onSocketError(_err: Error): void {
+  private onSocketError(err: Error): void {
     if (!this.inbox) return;
     this.inbox.closed = true;
+    // A broken transport must reach the caller, both now and on every later
+    // receive, so the drain never mistakes it for the agent finishing (#756).
+    this.inbox.failure = new Error(
+      `PipecatAgentAdapter: socket error: ${err.message}`,
+      { cause: err },
+    );
     const waiter = this.inbox.waiter;
     if (waiter) {
       this.inbox.waiter = null;
-      waiter.reject(new Error("PipecatAgentAdapter: socket error"));
+      waiter.reject(this.inbox.failure);
     }
   }
 
@@ -575,7 +594,11 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     const waiter = this.inbox.waiter;
     if (waiter) {
       this.inbox.waiter = null;
-      waiter.reject(new Error("PipecatAgentAdapter: socket closed"));
+      // The bot closed the stream while the drain was parked. That is how a
+      // call ends, so hand over the empty end-of-stream chunk and let the turn
+      // finish; rejecting here would fail a run in which nothing went wrong.
+      // A socket that ERRORED took the branch above and still rejects.
+      waiter.resolve(new AudioChunk({ data: new Uint8Array(0) }));
     }
   }
 
