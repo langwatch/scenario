@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0](https://github.com/langwatch/scenario/compare/javascript/v1.0.0...javascript/v1.1.0) (2026-08-12)
+
+
+### Features
+
+* **sdk:** reuse the LangWatch tab instead of opening one per run ([#847](https://github.com/langwatch/scenario/issues/847)) ([ce9a014](https://github.com/langwatch/scenario/commit/ce9a014f51d11d634349f220c691a375e6054877))
+
+
+### Bug Fixes
+
+* **judge:** treat an unforced inconclusive finish_test as continue instead of failing the run ([#889](https://github.com/langwatch/scenario/issues/889)) ([457d3a2](https://github.com/langwatch/scenario/commit/457d3a29a2276ec9659b157e90ccba5c332ff2e2))
+* **realtime:** prefer OPENAI_REALTIME_API_KEY in RealtimeAgentAdapter, and move live judges to gpt-5.6-luna ([80d2b1c](https://github.com/langwatch/scenario/commit/80d2b1cdee8fc23cd53baa67293ccb324434dae5))
+* **realtime:** stop the virtual key leaking into the realtime websocket, move live judges to gpt-5.6-luna ([#856](https://github.com/langwatch/scenario/issues/856)) ([80d2b1c](https://github.com/langwatch/scenario/commit/80d2b1cdee8fc23cd53baa67293ccb324434dae5))
+* **voice:** real voice-in on Python ElevenLabs, per-call personalisation, agent hangup, and corrected docs ([#848](https://github.com/langwatch/scenario/issues/848)) ([7c2f4d1](https://github.com/langwatch/scenario/commit/7c2f4d125fc2de4cb819915181740f16f3bb1a8b))
+
+
+### Code Refactoring
+
+* **execution:** consolidate the two next-agent-for-role lookups ([#210](https://github.com/langwatch/scenario/issues/210)) ([#860](https://github.com/langwatch/scenario/issues/860)) ([240839c](https://github.com/langwatch/scenario/commit/240839c7fbbe95bd872e4fc823af7c468af0a1b6))
+
 ## [1.0.0](https://github.com/langwatch/scenario/compare/javascript/v0.5.5...javascript/v1.0.0) (2026-07-24)
 
 Stable release. The package surface has been stable for a long time; 1.0.0 makes that explicit.
