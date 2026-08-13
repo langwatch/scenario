@@ -235,9 +235,10 @@ Things to know:
   attack is confirmed successful, and `scenario.succeed()` / `scenario.fail()`
   script steps still end the run — those are deliberate decisions, not the
   premature "criteria not met yet" misread that `minTurns` prevents.
-- **`minTurns` can't exceed `maxTurns`** — that's a configuration error raised
-  when the scenario is built. Setting them equal is fine: the only verdict is
-  the final-turn one.
+- **`minTurns` must be a non-negative whole number no greater than `maxTurns`**
+  — invalid values are configuration errors raised when the scenario is built.
+  Zero is valid and behaves like an unset floor. Setting the floor and ceiling
+  equal is also valid: the only verdict is the final-turn one.
 
 ## Next Steps
 

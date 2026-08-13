@@ -338,6 +338,12 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     }
     this.batchRunId = batchRunId;
     const maxTurns = config.maxTurns ?? DEFAULT_MAX_TURNS;
+    if (
+      config.minTurns != null &&
+      (!Number.isInteger(config.minTurns) || config.minTurns < 0)
+    ) {
+      throw new Error("minTurns must be a non-negative integer");
+    }
     if (config.minTurns != null && config.minTurns > maxTurns) {
       throw new Error(
         `minTurns (${config.minTurns}) cannot exceed maxTurns (${maxTurns})`

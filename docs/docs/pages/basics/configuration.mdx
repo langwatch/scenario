@@ -96,7 +96,7 @@ result = await scenario.run(
 | --------------- | ------------------ | ------- | ------------------------------------------------------------- |
 | `default_model` | str or ModelConfig | None    | Default LLM model for user simulator and judge agents         |
 | `max_turns`     | int                | 10      | Maximum number of conversation turns before timeout           |
-| `min_turns`     | int                | None    | Minimum turns guaranteed before the judge may volunteer a verdict ([details](/basics/judge-agent#guaranteeing-a-minimum-number-of-turns)) |
+| `min_turns`     | int                | None    | Non-negative minimum turns guaranteed before the judge may volunteer a verdict; zero is valid ([details](/basics/judge-agent#guaranteeing-a-minimum-number-of-turns)) |
 | `verbose`       | bool or int        | True    | Show detailed output during execution                         |
 | `cache_key`     | str                | None    | Key for caching scenario results (for deterministic behavior) |
 | `debug`         | bool               | False   | Enable debug mode for step-by-step execution                  |

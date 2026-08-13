@@ -80,6 +80,43 @@ function finishTestCall(): InvokeLLMResult {
 }
 
 describe("given a scenario configured with minTurns", () => {
+  describe("when minTurns is outside the non-negative integer domain", () => {
+    it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+      "rejects %s at startup",
+      (minTurns) => {
+        expect(
+          () =>
+            new ScenarioExecution(
+              {
+                name: "invalid floor domain",
+                description: "minTurns must be a non-negative integer",
+                agents: [],
+                minTurns,
+              },
+              [],
+              "test-batch-id",
+            ),
+        ).toThrow("minTurns must be a non-negative integer");
+      },
+    );
+
+    it("accepts zero", () => {
+      expect(
+        () =>
+          new ScenarioExecution(
+            {
+              name: "zero floor",
+              description: "zero disables the floor without omitting it",
+              agents: [],
+              minTurns: 0,
+            },
+            [],
+            "test-batch-id",
+          ),
+      ).not.toThrow();
+    });
+  });
+
   describe("when minTurns exceeds maxTurns", () => {
     it("fails at startup with a clear error", () => {
       expect(

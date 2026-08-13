@@ -77,7 +77,8 @@ export interface ScenarioConfig {
    * only — red-team early exit and explicit `succeed()`/`fail()` script
    * steps are unaffected.
    *
-   * Must not exceed `maxTurns`; that combination throws at startup.
+   * Must be a non-negative integer and must not exceed `maxTurns`; invalid
+   * values throw at startup. Zero is valid and behaves like an unset floor.
    * When unset, behavior is identical to previous releases.
    */
   minTurns?: number;

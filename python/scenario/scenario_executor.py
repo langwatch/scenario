@@ -193,7 +193,8 @@ class ScenarioExecutor:
             max_turns: Maximum number of conversation turns before timeout.
                       Overrides global configuration for this scenario.
             min_turns: Minimum turns guaranteed before the judge may volunteer
-                      a verdict. Overrides global configuration for this scenario.
+                      a verdict. Must be a non-negative integer; zero is valid.
+                      Overrides global configuration for this scenario.
             verbose: Whether to show detailed output during execution.
                     Can be True/False or integer level (2 for extra details).
             cache_key: Cache key for deterministic behavior across runs.
@@ -2062,7 +2063,8 @@ async def run(
         min_turns: Minimum turns guaranteed before the judge may volunteer a
                  verdict — its finish_test tool is withheld on earlier turns.
                  Explicit judge() steps and the final turn still deliver a
-                 terminal verdict. Must not exceed max_turns (raises ValueError).
+                 terminal verdict. Must be a non-negative integer no greater
+                 than max_turns; zero is valid (invalid values raise ValueError).
         verbose: Show detailed output during execution
         cache_key: Cache key for deterministic behavior
         debug: Enable debug mode for step-by-step execution

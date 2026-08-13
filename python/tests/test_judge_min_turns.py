@@ -391,6 +391,24 @@ class TestGatedDiscoveryExhaustion:
 
 
 class TestStartupValidation:
+    @pytest.mark.parametrize("min_turns", [-1, 1.5, float("nan"), float("inf")])
+    def test_min_turns_rejects_values_outside_non_negative_integer_domain(
+        self, min_turns: Any
+    ):
+        with pytest.raises(ValueError, match="min_turns"):
+            ScenarioExecutor(
+                name="invalid floor domain",
+                description="min_turns must be a non-negative integer",
+                min_turns=min_turns,
+            )
+
+    def test_min_turns_zero_is_allowed(self):
+        ScenarioExecutor(
+            name="zero floor",
+            description="zero disables the floor without omitting it",
+            min_turns=0,
+        )
+
     def test_min_turns_above_max_turns_raises(self):
         with pytest.raises(
             ValueError, match=r"min_turns \(6\) cannot exceed max_turns \(5\)"
