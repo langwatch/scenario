@@ -1,6 +1,6 @@
 # ADR-005: `minTurns` — a guaranteed-turns floor the judge cannot end early (#899)
 
-**Date:** 2026-08-14
+**Date:** 2026-08-12
 
 **Status:** Accepted
 
@@ -73,6 +73,6 @@ Prior art this decision must not disturb:
 
 ## Revisions
 
-- **v1 (2026-08-14)** — Initial draft: scope, forced-wins precedence, guaranteed-turns semantics, opt-in default, build-time validation.
-- **v2 (2026-08-14)** — Challenge pass (correctness / second-order / coverage). Added Decision 5 (gated discovery exhaustion resolves to continue — the unconditional force path would otherwise emit a malformed request and error the run) and Decision 9 (judge-only jurisdiction; red-team early exit and `succeed()`/`fail()` script steps are non-goals).
-- **v3 (2026-08-14, implementation)** — Gate expression corrected, observable semantics unchanged. The v2 "1-based at judge time" conclusion missed that both executors override the constructor's initial turn increment back to 0, so the judge observes 0-based and the gate is `currentTurn < minTurns`. Caught by the executor-level floor test (`<=` gated one turn too many). Exactly the failure mode Decision 2 anticipated by pinning the observable turn sequence rather than the expression.
+- **v1 (2026-08-12)** — Initial draft: scope, forced-wins precedence, guaranteed-turns semantics, opt-in default, build-time validation.
+- **v2 (2026-08-12)** — Challenge pass (correctness / second-order / coverage). Added Decision 5 (gated discovery exhaustion resolves to continue — the unconditional force path would otherwise emit a malformed request and error the run) and Decision 9 (judge-only jurisdiction; red-team early exit and `succeed()`/`fail()` script steps are non-goals).
+- **v3 (2026-08-12, implementation)** — Gate expression corrected, observable semantics unchanged. The v2 "1-based at judge time" conclusion missed that both executors override the constructor's initial turn increment back to 0, so the judge observes 0-based and the gate is `currentTurn < minTurns`. Caught by the executor-level floor test (`<=` gated one turn too many). Exactly the failure mode Decision 2 anticipated by pinning the observable turn sequence rather than the expression.

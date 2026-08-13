@@ -169,7 +169,7 @@ describe("given a scenario configured with minTurns", () => {
 
       const result = await execution.execute();
 
-      // Turns 1 and 2 are gated (judge observes 1-based currentTurn), so the
+      // Turns 1 and 2 are gated (judge observes 0-based currentTurn), so the
       // verdict lands on the turn-3 call: two gated calls, then one terminal.
       expect(finishOfferedByCall).toEqual([false, false, true]);
       expect(sim.calls).toBe(3);

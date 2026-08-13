@@ -17,10 +17,11 @@ held open until the floor has passed.
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 from unittest.mock import patch, MagicMock
 
 import pytest
+from litellm import ModelResponse
 
 os.environ.setdefault("SCENARIO_HEADLESS", "true")
 
@@ -38,11 +39,9 @@ CRITERIA = ["Agent greets the user politely"]
 CRITERION_KEY = "agent_greets_the_user_politely"
 
 
-def _tool_call_response(name: str, arguments: dict):
+def _tool_call_response(name: str, arguments: dict[str, Any]) -> ModelResponse:
     # A real ModelResponse, not a MagicMock: full runs serialize the LLM
     # response into tracing spans, and a MagicMock hangs the JSON encoder.
-    from litellm import ModelResponse
-
     return ModelResponse(
         choices=[
             {
@@ -66,11 +65,11 @@ def _tool_call_response(name: str, arguments: dict):
     )
 
 
-def _continue_response():
+def _continue_response() -> ModelResponse:
     return _tool_call_response("continue_test", {})
 
 
-def _finish_response(verdict: str = "success"):
+def _finish_response(verdict: str = "success") -> ModelResponse:
     return _tool_call_response(
         "finish_test",
         {
@@ -89,8 +88,8 @@ async def _call_judge(
     min_turns: Optional[int],
     max_turns: int = 10,
     judgment_request: Optional[JudgmentRequest] = None,
-    respond_with: Optional[Any] = None,
-) -> tuple:
+    respond_with: Optional[ModelResponse] = None,
+) -> tuple[Any, Dict[str, Any]]:
     """Run one JudgeAgent.call and return (result, captured completion kwargs)."""
     previous_default_config = ScenarioConfig.default_config
     ScenarioConfig.default_config = ScenarioConfig(default_model="openai/gpt-4")
@@ -112,7 +111,7 @@ async def _call_judge(
 
     captured: Dict[str, Any] = {}
 
-    def fake_completion(**kwargs):
+    def fake_completion(**kwargs: Any) -> ModelResponse:
         captured.update(kwargs)
         return respond_with if respond_with is not None else _continue_response()
 
@@ -177,7 +176,7 @@ class TestGatedUnforcedCall:
 
         captured: Dict[str, Any] = {}
 
-        def fake_completion(**kwargs):
+        def fake_completion(**kwargs: Any) -> ModelResponse:
             captured.update(kwargs)
             return _continue_response()
 
@@ -355,9 +354,9 @@ class TestGatedDiscoveryExhaustion:
             scenario_state=mock_scenario_state,
         )
 
-        tools_per_call: List[List[str]] = []
+        tools_per_call: list[list[str]] = []
 
-        def fake_completion(**kwargs):
+        def fake_completion(**kwargs: Any) -> ModelResponse:
             tools_per_call.append(
                 [tool["function"]["name"] for tool in kwargs.get("tools", [])]
             )
@@ -423,23 +422,23 @@ class TestStartupValidation:
 
 
 class _EchoAgent(AgentAdapter):
-    role = AgentRole.AGENT
+    role: ClassVar[AgentRole] = AgentRole.AGENT
 
-    def __init__(self):
-        self.calls = 0
+    def __init__(self) -> None:
+        self.calls: int = 0
 
-    async def call(self, input: AgentInput) -> AgentReturnTypes:
+    async def call(self, agent_input: AgentInput) -> AgentReturnTypes:
         self.calls += 1
         return {"role": "assistant", "content": f"agent reply {self.calls}"}
 
 
 class _CountingUser(AgentAdapter):
-    role = AgentRole.USER
+    role: ClassVar[AgentRole] = AgentRole.USER
 
-    def __init__(self):
-        self.calls = 0
+    def __init__(self) -> None:
+        self.calls: int = 0
 
-    async def call(self, input: AgentInput) -> AgentReturnTypes:
+    async def call(self, agent_input: AgentInput) -> AgentReturnTypes:
         self.calls += 1
         return f"user turn {self.calls}"
 
@@ -459,7 +458,7 @@ class TestFloorHoldsEndToEnd:
 
         finish_offered_by_call: List[bool] = []
 
-        def fake_completion(**kwargs):
+        def fake_completion(**kwargs: Any) -> ModelResponse:
             offered = [tool["function"]["name"] for tool in kwargs.get("tools", [])]
             finish_offered = "finish_test" in offered
             finish_offered_by_call.append(finish_offered)
