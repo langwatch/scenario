@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/langwatch/scenario/compare/python/v1.1.0...python/v1.1.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **voice:** align the JS response timeout with Python and split the two receiveAudio timeouts ([#895](https://github.com/langwatch/scenario/issues/895)) ([cdb955f](https://github.com/langwatch/scenario/commit/cdb955faae9b04e8e8b442fec61504f352e31a70))
+* **voice:** point the Python STT seam at set_stt_provider ([#841](https://github.com/langwatch/scenario/issues/841)) ([524966d](https://github.com/langwatch/scenario/commit/524966d0ec0d9c364379959c19802e7c91f92f51)), closes [#743](https://github.com/langwatch/scenario/issues/743)
+
 ## [1.1.0](https://github.com/langwatch/scenario/compare/python/v1.0.0...python/v1.1.0) (2026-08-12)
 
 
