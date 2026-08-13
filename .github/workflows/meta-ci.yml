@@ -1,0 +1,40 @@
+name: meta-ci
+
+# The repo's two self-validating scripts, actually run.
+#
+# `validate-pr-auto-approve.sh` checks `pr-auto-approve.yml` against the
+# PR-gate AC checklist; `validate-aggregator-workflows.sh` checks that each
+# aggregator workflow's `changes` job carries the path filters its downstream
+# jobs need. Both were written as gates and neither was wired to anything, so
+# they ran only when someone remembered to run them by hand. The first spent an
+# unknown stretch exiting 1 against workflows that had been deleted, and the rot
+# surfaced only when a review happened to run it.
+#
+# Deliberately NOT path-filtered. Both scripts finish in well under a second,
+# and a filter is the failure mode this workflow exists to prevent: a gate that
+# does not fire looks exactly like a gate that passed. `validate-pr-auto-approve`
+# reads four separate files and `validate-aggregator-workflows` reads five, so a
+# correct filter would be nine entries that have to be kept in step with what
+# the scripts happen to read next. Running them always costs a few seconds and
+# cannot silently stop covering anything.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate the workflow gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate pr-auto-approve against the PR-gate checklist
+        run: bash scripts/validate-pr-auto-approve.sh
+
+      - name: Validate the aggregator workflows' path filters
+        run: bash scripts/validate-aggregator-workflows.sh
