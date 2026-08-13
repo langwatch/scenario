@@ -55,10 +55,10 @@
   },
   "packageManager": "pnpm@10.22.0",
   "dependencies": {
-    "@ag-ui/core": "^0.0.28",
+    "@ag-ui/core": "^0.0.57",
     "@ai-sdk/openai": "^3.0.26",
     "@elevenlabs/elevenlabs-js": "^2.51.0",
-    "@openai/agents": "^0.3.3",
+    "@openai/agents": "^0.14.3",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/context-async-hooks": "2.7.1",
     "@opentelemetry/sdk-node": "0.217.0",
