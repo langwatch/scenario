@@ -7,7 +7,7 @@ of the Scenario testing framework, including execution parameters and debugging 
 
 import os
 from typing import Any, Dict, Optional, Union, ClassVar
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .model import ModelConfig
 
@@ -23,6 +23,11 @@ class ScenarioConfig(BaseModel):
     Attributes:
         default_model: Default LLM model configuration for agents (can be string or ModelConfig)
         max_turns: Maximum number of conversation turns before scenario times out
+        min_turns: Minimum number of turns that must run before the judge may
+            volunteer a verdict (its finish_test tool is withheld on earlier
+            turns). Explicit judge() steps and the final turn still deliver a
+            terminal verdict. Must be a non-negative integer and must not exceed
+            max_turns. Zero is valid. Unset by default.
         verbose: Whether to show detailed output during execution (True/False or verbosity level)
         cache_key: Key for caching scenario results to ensure deterministic behavior
         debug: Whether to enable debug mode with step-by-step interaction
@@ -49,6 +54,7 @@ class ScenarioConfig(BaseModel):
 
     default_model: Optional[Union[str, ModelConfig]] = None
     max_turns: Optional[int] = 10
+    min_turns: Optional[int] = Field(default=None, strict=True, ge=0)
     verbose: Optional[Union[bool, int]] = True
     cache_key: Optional[str] = None
     debug: Optional[bool] = False
@@ -66,6 +72,7 @@ class ScenarioConfig(BaseModel):
         cls,
         default_model: Optional[Union[str, ModelConfig]] = None,
         max_turns: Optional[int] = None,
+        min_turns: Optional[int] = None,
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
@@ -81,6 +88,9 @@ class ScenarioConfig(BaseModel):
         Args:
             default_model: Default LLM model identifier for user simulator and judge agents
             max_turns: Maximum number of conversation turns before timeout (default: 10)
+            min_turns: Minimum turns guaranteed before the judge may volunteer
+                a verdict (unset by default; must be a non-negative integer no
+                greater than max_turns; zero is valid)
             verbose: Enable verbose output during scenario execution
             cache_key: Cache key for deterministic scenario behavior across runs
             debug: Enable debug mode for step-by-step execution with user intervention
@@ -117,6 +127,7 @@ class ScenarioConfig(BaseModel):
             ScenarioConfig(
                 default_model=default_model,
                 max_turns=max_turns,
+                min_turns=min_turns,
                 verbose=verbose,
                 cache_key=cache_key,
                 debug=debug,
