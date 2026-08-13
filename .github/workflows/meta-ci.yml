@@ -32,9 +32,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Neither validator runs an authenticated git command, and this job
+          # executes repository-controlled shell on `pull_request`. Without
+          # this, checkout leaves the token in `.git/config` for that shell to
+          # find.
+          persist-credentials: false
 
       - name: Validate pr-auto-approve against the PR-gate checklist
         run: bash scripts/validate-pr-auto-approve.sh
 
+      # Runs even when the step above failed, so one push surfaces both
+      # verdicts. The default `success()` condition would hide the second
+      # validator's findings behind the first one's, costing a round trip to
+      # learn something this run already knew.
       - name: Validate the aggregator workflows' path filters
+        if: ${{ !cancelled() }}
         run: bash scripts/validate-aggregator-workflows.sh
