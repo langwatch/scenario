@@ -129,6 +129,48 @@ const PUMP_INTERVAL_MS = 20;
  */
 const KEEPALIVE_HARD_CEILING_S = 45;
 
+/** Deep link to the section that expands on both receiveAudio timeouts. */
+const RECEIVE_TIMEOUT_DOCS_URL =
+  "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs";
+
+/**
+ * Rejection text for the IDLE deadline: nothing at all reached the socket, not
+ * even a keepalive ping, for `timeoutS` seconds. A fully silent agent.
+ *
+ * Distinct from {@link ceilingTimeoutMessage} on purpose: silence and
+ * pings-but-no-audio are different diagnoses with different remedies, so one
+ * shared message would send the reader to check the wrong things.
+ */
+function idleTimeoutMessage(timeoutS: number): string {
+  return (
+    `ElevenLabsAgentAdapter: receiveAudio timed out. The idle deadline of ${timeoutS}s ` +
+    "elapsed with no message of any kind from the hosted agent, not even a keepalive " +
+    "ping. For a scripted multi-turn run this usually means the agent ended or " +
+    "transferred its turn (e.g. an escalation/handoff request), or the user turn did " +
+    "not commit. If the agent is only slower than that, raise the adapter's " +
+    `responseTimeout, currently ${timeoutS}s, for example agent.responseTimeout = 180. ` +
+    `See ${RECEIVE_TIMEOUT_DOCS_URL}`
+  );
+}
+
+/**
+ * Rejection text for the ABSOLUTE ceiling: the agent kept sending frames, which
+ * re-arm the idle deadline, but never sent audio.
+ */
+function ceilingTimeoutMessage(timeoutS: number, ceilingS: number): string {
+  return (
+    `ElevenLabsAgentAdapter: receiveAudio timed out. The absolute ceiling of ${ceilingS}s ` +
+    "elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, " +
+    "but never audio. Every inbound frame re-arms the idle deadline, so this ceiling, " +
+    `max(responseTimeout, ${KEEPALIVE_HARD_CEILING_S}s), is what bounds the wait. It usually ` +
+    "means a wedged server tool or retrieval call, or an agent that ended or " +
+    "transferred its turn. If the agent is only slower than that, raise the adapter's " +
+    `responseTimeout, currently ${timeoutS}s, past ${KEEPALIVE_HARD_CEILING_S}s and the ceiling rises with it, ` +
+    "for example agent.responseTimeout = 180. " +
+    `See ${RECEIVE_TIMEOUT_DOCS_URL}`
+  );
+}
+
 /**
  * EL system tools whose successful invocation means the AGENT ended the call, so
  * the socket close that follows is deliberate rather than a dropped transport
@@ -805,13 +847,19 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // and unwedges a pings-but-no-audio receive. Sized as max(timeout, 45s): never
       // below the caller's own idle budget (so it does not pre-empt a legitimately
       // slow-but-responding agent), but at least 45s even for sub-second tail-probe
-      // calls. In the real drain `timeout` is the 30s response budget or the 0.6s
-      // tail probe, so the ceiling is 45s.
+      // calls. In the real drain `timeout` is the 60s response budget or the 0.6s
+      // tail probe, so the ceiling is 60s on the first chunk and 45s on the probes.
       // Must stay `let`: the cleanup() closure below captures hardTimer before
       // it is assigned, so declaration and assignment cannot be merged (const).
       // eslint-disable-next-line prefer-const
       let hardTimer: ReturnType<typeof setTimeout>;
-      const hardCeilingMs = Math.max(timeout, KEEPALIVE_HARD_CEILING_S) * 1000;
+      const ceilingS = Math.max(timeout, KEEPALIVE_HARD_CEILING_S);
+      // Whether ANY inbound frame reached this parked receive. It is what tells the
+      // two rejections apart when both deadlines land on the same instant, which is
+      // the default case: idle 60s, ceiling max(60, 45) = 60s. Nothing received
+      // means the socket was silent throughout, so the idle diagnosis is the true
+      // one however the two timers happen to be ordered.
+      let sawInboundFrame = false;
 
       const cleanup = () => {
         clearTimeout(timer);
@@ -822,19 +870,18 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         if (waiterIdx >= 0) this.waiters.splice(waiterIdx, 1);
       };
 
-      const onTimeout = () => {
+      const onIdleTimeout = () => {
         cleanup();
-        reject(
-          new Error(
-            "ElevenLabsAgentAdapter: receiveAudio timed out (no agent audio " +
-              "within the deadline — the hosted agent produced no audio, whether " +
-              "fully silent or only keepalive-pinging). For a scripted multi-turn " +
-              "run this usually means the agent ended or transferred its turn " +
-              "(e.g. an escalation/handoff request), or the user turn did not " +
-              "commit. See " +
-              "https://scenario.langwatch.ai/voice/troubleshooting#receiveaudio-timed-out-hosted-elevenlabs",
-          ),
-        );
+        reject(new Error(idleTimeoutMessage(timeout)));
+      };
+
+      const onCeilingTimeout = () => {
+        if (!sawInboundFrame) {
+          onIdleTimeout();
+          return;
+        }
+        cleanup();
+        reject(new Error(ceilingTimeoutMessage(timeout, ceilingS)));
       };
 
       // Re-arm the IDLE deadline on every received message (pings included) so a
@@ -842,8 +889,9 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
       // the timer. Matches the Python recv_audio sliding-idle-deadline. The hard
       // ceiling is deliberately NOT reset here.
       const resetTimer = () => {
+        sawInboundFrame = true;
         clearTimeout(timer);
-        timer = setTimeout(onTimeout, timeout * 1000);
+        timer = setTimeout(onIdleTimeout, timeout * 1000);
       };
 
       const waiter = (chunk: AudioChunk) => {
@@ -851,8 +899,8 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
         resolve(chunk);
       };
 
-      timer = setTimeout(onTimeout, timeout * 1000);
-      hardTimer = setTimeout(onTimeout, hardCeilingMs);
+      timer = setTimeout(onIdleTimeout, timeout * 1000);
+      hardTimer = setTimeout(onCeilingTimeout, ceilingS * 1000);
       this.timerResetters.push(resetTimer);
       this.waiters.push(waiter);
     });

@@ -80,6 +80,59 @@ SILENCE_TAIL_BYTES = 16000
 #: agent to respond, but finite so a non-responding turn times out cleanly.
 KEEPALIVE_HARD_CEILING_S: Final[float] = 45.0
 
+#: Deep link to the section that expands on both recv_audio timeouts.
+RECEIVE_TIMEOUT_DOCS_URL: Final[str] = (
+    "https://scenario.langwatch.ai/voice/troubleshooting"
+    "#receiveaudio-timed-out-hosted-elevenlabs"
+)
+
+
+def _seconds(value: float) -> str:
+    """Render a seconds value the way the TypeScript adapter's template literal
+    does, so both SDKs print ``60s`` and ``0.6s`` rather than ``60.0s``."""
+    return f"{value:g}"
+
+
+def _idle_timeout_message(timeout_s: float) -> str:
+    """Rejection text for the IDLE deadline: nothing at all reached the socket,
+    not even a keepalive ping, for ``timeout_s`` seconds. A fully silent agent.
+
+    Distinct from :func:`_ceiling_timeout_message` on purpose: silence and
+    pings-but-no-audio are different diagnoses with different remedies, so one
+    shared message would send the reader to check the wrong things.
+    """
+    waited = _seconds(timeout_s)
+    return (
+        f"ElevenLabsAgentAdapter: recv_audio timed out. The idle deadline of "
+        f"{waited}s elapsed with no message of any kind from the hosted agent, "
+        f"not even a keepalive ping. For a scripted multi-turn run this usually "
+        f"means the agent ended or transferred its turn (e.g. an escalation/handoff "
+        f"request), or the user turn did not commit. If the agent is only slower "
+        f"than that, raise the adapter's response_timeout, currently {waited}s, "
+        f"for example adapter.response_timeout = 180. See {RECEIVE_TIMEOUT_DOCS_URL}"
+    )
+
+
+def _ceiling_timeout_message(timeout_s: float, ceiling_s: float) -> str:
+    """Rejection text for the ABSOLUTE ceiling: the agent kept sending frames,
+    which re-arm the idle deadline, but never sent audio.
+    """
+    floor = _seconds(KEEPALIVE_HARD_CEILING_S)
+    return (
+        f"ElevenLabsAgentAdapter: recv_audio timed out. The absolute ceiling of "
+        f"{_seconds(ceiling_s)}s elapsed while the hosted agent kept sending frames, "
+        f"keepalive pings or transcripts, but never audio. Every inbound frame "
+        f"re-arms the idle deadline, so this ceiling, max(response_timeout, "
+        f"{floor}s), is what "
+        f"bounds the wait. It usually means a wedged server tool or retrieval call, "
+        f"or an agent that ended or transferred its turn. If the agent is only "
+        f"slower than that, raise the adapter's response_timeout, currently "
+        f"{_seconds(timeout_s)}s, past {floor}s and the ceiling rises with it, "
+        f"for example adapter.response_timeout = 180. "
+        f"See {RECEIVE_TIMEOUT_DOCS_URL}"
+    )
+
+
 #: How :meth:`ElevenLabsAgentAdapter.send_audio` signals end-of-turn to EL ConvAI.
 #:
 #: - ``"audio"`` (default): stream the turn's real PCM as 20 ms
@@ -780,15 +833,34 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
         # turn); with only the ping-resettable idle ``deadline`` this loop would
         # wedge forever. The ceiling bounds that pings-but-no-audio case. At
         # least ``timeout`` so it never pre-empts the idle deadline.
-        hard_deadline = start + max(timeout, KEEPALIVE_HARD_CEILING_S)
+        ceiling = max(timeout, KEEPALIVE_HARD_CEILING_S)
+        hard_deadline = start + ceiling
+        # Whether ANY inbound frame arrived. It is what tells the two rejections
+        # apart when both bounds land on the same instant, which is the default
+        # case: idle 60s, ceiling max(60, 45) = 60s. Nothing received means the
+        # socket was silent throughout, so the idle diagnosis is the true one.
+        saw_inbound_frame = False
+
+        def timeout_error() -> asyncio.TimeoutError:
+            """The rejection for whichever bound expired. A socket that went
+            completely quiet and one that pings steadily without ever speaking
+            are different problems, so they get different messages."""
+            if saw_inbound_frame and hard_deadline <= deadline:
+                return asyncio.TimeoutError(_ceiling_timeout_message(timeout, ceiling))
+            return asyncio.TimeoutError(_idle_timeout_message(timeout))
+
         while True:
             now = asyncio.get_running_loop().time()
             remaining = min(deadline, hard_deadline) - now
             if remaining <= 0:
-                raise asyncio.TimeoutError("ElevenLabsAgentAdapter: recv_audio timed out")
+                raise timeout_error()
 
             try:
                 raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            except asyncio.TimeoutError as err:
+                # ``wait_for`` raises a bare TimeoutError with an empty message,
+                # which is how both bounds used to reach the caller indistinguishable.
+                raise timeout_error() from err
             except websockets.exceptions.ConnectionClosed:
                 # Issue #648: the hosted agent finished its turn and the server
                 # closed the socket WITHOUT a trailing audio frame (a silent /
@@ -805,6 +877,7 @@ class ElevenLabsAgentAdapter(VoiceAgentAdapter):
             # A received message (ping included) proves the socket is alive, so
             # re-arm the idle deadline. Placed BEFORE json.loads so ANY frame —
             # even a non-JSON/malformed one — counts as a liveness signal.
+            saw_inbound_frame = True
             deadline = asyncio.get_running_loop().time() + timeout
             try:
                 event = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())

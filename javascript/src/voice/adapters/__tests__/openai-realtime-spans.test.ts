@@ -349,7 +349,7 @@ describe("OpenAIRealtimeAgentAdapter voice.realtime.* span instrumentation (#770
   it("marks voice.audio.receive ERROR + first_chunk_timeout on a first-chunk failure (AGENT role)", async () => {
     const handle = newHandle();
     const adapter = buildAdapter(handle.port, { apiKey: "test-key", role: AgentRole.AGENT });
-    adapter.responseTimeout = 0.3; // fast — the 30s default would hang the suite
+    adapter.responseTimeout = 0.3; // fast — the 60s default would hang the suite
     await connectAndAwaitSessionUpdate(handle, adapter);
 
     const input = {

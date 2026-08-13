@@ -191,6 +191,36 @@ never appended to the internal `VoiceRecording` buffer, so `save_segments()`
 Multi-turn on hosted ElevenLabs works — if you are hitting this on a scripted
 turn 2+, check these in order.
 
+**Read which bound expired.** `receiveAudio` / `recv_audio` arms two deadlines
+and the error says which one fired:
+
+| Bound | Message opens with | What it means |
+|---|---|---|
+| Idle deadline | `The idle deadline of 60s elapsed with no message of any kind from the hosted agent, not even a keepalive ping.` | The socket went completely quiet. Its length is `responseTimeout` / `response_timeout`. |
+| Absolute ceiling | `The absolute ceiling of 60s elapsed while the hosted agent kept sending frames, keepalive pings or transcripts, but never audio.` | The agent was alive the whole time and never spoke. Every inbound frame re-arms the idle deadline, keepalive pings and transcripts alike, so `max(responseTimeout, 45s)` is what bounds this case. |
+
+A silent agent and a talkative-but-speechless one are different problems, so
+read the bound before working through the causes below.
+
+**Raise the timeout for a slow agent.** An agent that runs a tool call, a
+retrieval step, or a long generation before it speaks can pass the default 60
+seconds with nothing wrong. Both SDKs default to 60; raising the knob moves both
+bounds, because the ceiling is `max(responseTimeout, 45s)`.
+
+:::code-group
+
+```python [python]
+adapter = scenario.ElevenLabsAgentAdapter(agent_id=..., api_key=...)
+adapter.response_timeout = 180  # wait up to 3 minutes
+```
+
+```typescript [typescript]
+const agent = scenario.elevenLabsAgent({ agentId, apiKey });
+agent.responseTimeout = 180; // wait up to 3 minutes
+```
+
+:::
+
 **Lead with `agent()`.** The on-connect greeting (`first_message`) has to drain
 before your user audio hits the wire, so the canonical shape is
 `agent() → user("…") → agent() → … → judge()`.
@@ -209,8 +239,9 @@ call. That is now reported on the adapter's `agent_hung_up` / `agentHungUp` flag
 and concludes the scenario rather than timing out.
 
 **Rule out a wedged tool call.** A hosted agent that keeps ping-ing but never
-sends audio (a stuck server tool or RAG lookup) is bounded by a 45s absolute
-ceiling and then surfaces this timeout. Check the agent's tool configuration.
+sends audio (a stuck server tool or RAG lookup) is bounded by the absolute
+ceiling above and then surfaces this timeout. Check the agent's tool
+configuration.
 
 ---
 
