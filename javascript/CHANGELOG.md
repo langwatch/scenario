@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/langwatch/scenario/compare/javascript/v1.1.0...javascript/v1.1.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **voice:** align the JS response timeout with Python and split the two receiveAudio timeouts ([#895](https://github.com/langwatch/scenario/issues/895)) ([cdb955f](https://github.com/langwatch/scenario/commit/cdb955faae9b04e8e8b442fec61504f352e31a70))
+
 ## [1.1.0](https://github.com/langwatch/scenario/compare/javascript/v1.0.0...javascript/v1.1.0) (2026-08-12)
 
 
