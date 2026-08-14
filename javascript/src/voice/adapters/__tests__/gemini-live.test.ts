@@ -39,7 +39,14 @@ interface CapturedConnect {
   onmessage?: (msg: unknown) => void;
 }
 
-const captured: { last: CapturedConnect | null } = { last: null };
+interface CapturedSession {
+  sendRealtimeInput: ReturnType<typeof vi.fn>;
+}
+
+const captured: {
+  last: CapturedConnect | null;
+  session: CapturedSession | null;
+} = { last: null, session: null };
 
 vi.mock("@google/genai", () => {
   class FakeSession {
@@ -60,7 +67,9 @@ vi.mock("@google/genai", () => {
             config: params.config,
             onmessage: params.callbacks?.onmessage,
           };
-          return new FakeSession();
+          const session = new FakeSession();
+          captured.session = session;
+          return session;
         },
       };
       constructor(_init: { apiKey?: string }) {}
@@ -191,6 +200,7 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
   // scenarios above and these standalone unit tests.
   beforeEach(() => {
     captured.last = null;
+    captured.session = null;
   });
 
   /**
@@ -380,6 +390,84 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
     // by the next turn.
     onmessage!({ serverContent: { turnComplete: true } });
 
+    await adapter.sendAudio(
+      new AudioChunk({ data: new Uint8Array([0, 0, 0, 0]) }),
+    );
+    onmessage!({
+      serverContent: {
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: "audio/pcm", data: makeAudioB64() } }],
+        },
+      },
+    });
+    onmessage!({ serverContent: { turnComplete: true } });
+
+    const recoveryChunk = await adapter.receiveAudio(5);
+    expect(recoveryChunk.data.length).toBeGreaterThan(0);
+
+    await adapter.disconnect();
+  });
+
+  it("discards an interrupted-turn boundary delivered after recovery sending starts", async () => {
+    const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
+    await adapter.connect();
+
+    const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
+    const sendRealtimeInput = captured.session?.sendRealtimeInput;
+    expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
+    expect(sendRealtimeInput, "connect() did not create a live session").toBeDefined();
+
+    const interruptedTurn = adapter.receiveAudio(5);
+    await Promise.resolve();
+    await adapter.interrupt();
+    expect((await interruptedTurn).data).toHaveLength(0);
+
+    sendRealtimeInput!.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        onmessage!({ serverContent: { turnComplete: true } });
+      });
+    });
+
+    await adapter.sendAudio(
+      new AudioChunk({ data: new Uint8Array([0, 0, 0, 0]) }),
+    );
+    onmessage!({
+      serverContent: {
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: "audio/pcm", data: makeAudioB64() } }],
+        },
+      },
+    });
+    onmessage!({ serverContent: { turnComplete: true } });
+
+    const recoveryChunk = await adapter.receiveAudio(5);
+    expect(recoveryChunk.data.length).toBeGreaterThan(0);
+
+    await adapter.disconnect();
+  });
+
+  it("keeps interrupted-turn cleanup armed when the recovery send is retried", async () => {
+    const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
+    await adapter.connect();
+
+    const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
+    const sendRealtimeInput = captured.session?.sendRealtimeInput;
+    expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
+    expect(sendRealtimeInput, "connect() did not create a live session").toBeDefined();
+
+    const interruptedTurn = adapter.receiveAudio(5);
+    await Promise.resolve();
+    await adapter.interrupt();
+    expect((await interruptedTurn).data).toHaveLength(0);
+
+    sendRealtimeInput!.mockImplementationOnce(() => {
+      throw new Error("send failed");
+    });
+    await expect(
+      adapter.sendAudio(new AudioChunk({ data: new Uint8Array([0, 0, 0, 0]) })),
+    ).rejects.toThrow("send failed");
+
+    onmessage!({ serverContent: { turnComplete: true } });
     await adapter.sendAudio(
       new AudioChunk({ data: new Uint8Array([0, 0, 0, 0]) }),
     );
