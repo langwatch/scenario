@@ -1055,7 +1055,10 @@ class ScenarioExecutor:
                         details=agent_response.reasoning,
                         score=(
                             len(agent_response.passed_criteria)
-                            / len(agent_response.failed_criteria)
+                            / (
+                                len(agent_response.passed_criteria)
+                                + len(agent_response.failed_criteria)
+                            )
                             if agent_response.failed_criteria
                             else 1.0
                         ),
