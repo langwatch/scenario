@@ -140,8 +140,8 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     // With explicit Activity markers and the default
     // START_OF_ACTIVITY_INTERRUPTS handling, the next activityStart we
     // send while the model is replying causes Gemini to cut its
-    // in-flight audio. `interrupt()` itself just drains stale chunks out
-    // of the local queue so the recovery agent turn doesn't replay them.
+    // in-flight audio. `interrupt()` marks stale chunks for discard at the
+    // next real send so the recovery agent turn doesn't replay them.
     interruption: true,
     inputFormats: ["pcm16/16000"],
     outputFormats: ["pcm16/24000"],
@@ -178,6 +178,8 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
    * resolver and causing a spurious TimeoutError.
    */
   private _interruptPending = false;
+  /** Drop buffered messages from the cut-off turn at the next send boundary. */
+  private _discardInterruptedTurnMessages = false;
 
   /** Most-recent output transcript received from the server, for observability. */
   lastAgentTranscript: string | null = null;
@@ -246,6 +248,7 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     this.resolveNext = null;
     this.iterHadAudio = false;
     this._interruptPending = false;
+    this._discardInterruptedTurnMessages = false;
 
     this.session = await client.live.connect({
       model: this.model,
@@ -322,6 +325,15 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
       // WITHOUT emitting activity markers.
       setSpanAttributes(currentSpan(), { "voice.gemini.audio.wire_bytes": 0 });
       return;
+    }
+    if (this._discardInterruptedTurnMessages) {
+      // A new user turn cannot have a server response yet, so buffered
+      // messages belong to the interrupted turn. Keep transport failures
+      // visible, but discard late audio/turnComplete events so they cannot
+      // become the recovery turn's first queue item.
+      this.queue = this.queue.filter((item) => item.closed || item.error);
+      this._discardInterruptedTurnMessages = false;
+      this._interruptPending = false;
     }
     // Stamp the resampled wire size onto the active voice.audio.send span; the
     // base owns the span name, the adapter contributes voice.gemini.* attrs.
@@ -544,7 +556,8 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
    *   1. Sets `_interruptPending = true`.
    *   2. Wakes any in-flight `dequeue()` by calling the current `resolveNext`
    *      directly with an abort sentinel (`{ interrupted: true }`).
-   *   3. `receiveAudio()`'s loop checks `_interruptPending` (and `item.interrupted`)
+   *   3. Marks buffered server messages for discard at the next real send.
+   *   4. `receiveAudio()`'s loop checks `_interruptPending` (and `item.interrupted`)
    *      and returns the cut-off sentinel immediately on seeing it.
    *
    * Best-effort: if nothing is in-flight (`resolveNext` is null), the flag
@@ -568,6 +581,7 @@ export class GeminiLiveAgentAdapter extends VoiceAgentAdapter {
     // each iteration, so even if the resolver wake-up races it, the flag
     // will be seen on the next loop pass.
     this._interruptPending = true;
+    this._discardInterruptedTurnMessages = true;
     // Wake any in-flight dequeue() so it delivers the sentinel immediately
     // rather than waiting for the next real message (which could be seconds
     // away on a long Gemini turn). Atomically take the resolver to avoid a

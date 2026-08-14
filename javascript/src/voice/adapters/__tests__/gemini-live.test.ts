@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { vi, expect, describe, it, beforeEach } from "vitest";
 
+import { AudioChunk } from "../../audio-chunk";
 import { AdapterCapabilities } from "../../capabilities";
 import { GeminiLiveAgentAdapter } from "../gemini-live";
 
@@ -361,6 +362,41 @@ describe("GeminiLiveAgentAdapter — spurious-pair handling in receiveAudio()", 
       await adapter.disconnect();
     },
   );
+
+  it("does not let a late event from an interrupted turn truncate the recovery turn", async () => {
+    const adapter = new GeminiLiveAgentAdapter({ apiKey: "test-key" });
+    await adapter.connect();
+
+    const onmessage = (captured.last as CapturedConnect | null)?.onmessage;
+    expect(onmessage, "connect() did not register an onmessage callback").toBeDefined();
+
+    const interruptedTurn = adapter.receiveAudio(5);
+    await Promise.resolve();
+    await adapter.interrupt();
+    expect((await interruptedTurn).data).toHaveLength(0);
+
+    // The old turn can finish after interrupt() has already released its
+    // receiver. This terminal event must not become the first event consumed
+    // by the next turn.
+    onmessage!({ serverContent: { turnComplete: true } });
+
+    await adapter.sendAudio(
+      new AudioChunk({ data: new Uint8Array([0, 0, 0, 0]) }),
+    );
+    onmessage!({
+      serverContent: {
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: "audio/pcm", data: makeAudioB64() } }],
+        },
+      },
+    });
+    onmessage!({ serverContent: { turnComplete: true } });
+
+    const recoveryChunk = await adapter.receiveAudio(5);
+    expect(recoveryChunk.data.length).toBeGreaterThan(0);
+
+    await adapter.disconnect();
+  });
 
   it(
     "extends the deadline after the spurious pair so delayed recovery audio " +
