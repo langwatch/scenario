@@ -8,20 +8,15 @@
 # that branch protection requires.
 name: python-ci
 
-# All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
-# AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
-# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
-env:
-  CI: true
-  OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
-  OPENAI_API_BASE: https://gateway.langwatch.ai/v1
-
 on:
   push:
     branches:
       - main
   pull_request:
   workflow_dispatch:
+
+env:
+  CI: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -100,9 +95,8 @@ jobs:
         run: uv run pyright .
         working-directory: python
 
-      # Examples — skipped for Dependabot PRs and fork PRs since they don't have access to repo secrets
+      # Examples — skipped for Dependabot PRs since they don't have access to repo secrets
       - name: Test (Examples)
-        if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         # Examples hit real LLMs over the network; they can legitimately take
         # well over the 60s per-test timeout that pytest.ini sets for the unit
         # suite. Override to 300s here so slow-but-correct runs don't get
