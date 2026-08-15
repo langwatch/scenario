@@ -141,10 +141,17 @@ jobs:
           # suite passes that way against a gateway that has a Google
           # credential.
           #
-          # What is missing is the credential: the LangWatch organization
-          # has no Gemini provider on the gateway, so a Gemini request there
-          # cannot be served. Add one and swap these two lines. Until then
-          # the direct key is the only thing that works.
+          # What is missing is the credential, and it takes two steps rather
+          # than one. Add a Gemini provider to the LangWatch organization,
+          # then add that provider to the routing policy this virtual key
+          # is pinned to: a key with a policy reaches only the providers
+          # listed in the policy's modelProviderIds, so an enabled provider
+          # left off the list never joins the chain. Confirm with
+          # `GET /v1/models` on the key, which lists what it can actually
+          # dispatch to, before swapping in these two lines:
+          #
+          #   GEMINI_API_BASE: https://gateway.langwatch.ai/v1beta
+          #   GEMINI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         working-directory: python
 
