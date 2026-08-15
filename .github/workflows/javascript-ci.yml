@@ -10,7 +10,15 @@ name: javascript-ci
 
 # All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
 # AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
-# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
+# URLs point every client family at it. Both families the examples use read
+# OPENAI_BASE_URL: the `openai` package, and `@ai-sdk/openai`, whose
+# `createOpenAI` falls back to that variable before api.openai.com.
+#
+# The same key, and how to rotate, revoke and cap it, are described at the
+# top of python-ci.yml. Kept in one place so the two do not drift.
+#
+# One exception rides direct, at the examples step below: OpenAI Realtime
+# opens a websocket to api.openai.com, and the gateway proxies HTTP only.
 env:
   CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1

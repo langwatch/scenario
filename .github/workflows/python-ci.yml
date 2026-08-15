@@ -22,12 +22,18 @@ name: python-ci
 #   - Rotate:   `langwatch virtual-keys rotate <id>` mints a new secret and
 #               keeps the old one working for 24 hours. Put the new secret in
 #               the OPENAI_API_KEY repository secret inside that window.
-#   - Revoke:   `langwatch virtual-keys revoke <id>`. Every job that uses it
-#               fails at once, which is the point of one key over several.
-#   - Cap:      the key carries its own spending budget. When the budget is
-#               reached the gateway refuses with a virtual_key budget error
-#               and this job goes red, so size the cap above a busy day's
-#               spend rather than at it.
+#   - Revoke:   `langwatch virtual-keys revoke <id>`. Allow up to a minute
+#               before the old secret stops working everywhere: each gateway
+#               pod caches a key's config for 60 seconds
+#               (LW_GATEWAY_AUTH_CACHE_CONFIG_TTL_SECONDS). Restarting the
+#               gateway deployment clears it at once.
+#   - Cap:      the key carries its own spending budget, currently $10 per
+#               day at virtual-key scope. On a hard breach the gateway
+#               answers HTTP 402 `budget_exceeded` with the scope in
+#               `error.meta.budget_scope`, and every test in this job fails
+#               until the window resets. Size the cap well above a busy
+#               day's spend: one full run costs about $0.09, and the
+#               busiest day seen so far was 31 runs.
 #   - Fall back: to call the providers directly again, clear the two base
 #               URLs below and GEMINI_API_BASE on the examples step, and put
 #               provider keys back in OPENAI_API_KEY and GEMINI_API_KEY.
