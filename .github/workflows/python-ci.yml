@@ -132,16 +132,20 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # The Gemini examples ride the same virtual key. litellm builds
-          # `{GEMINI_API_BASE}/models/{model}:generateContent`, which is the
-          # gateway's own Gemini surface once the base names /v1beta, and it
-          # sends the key as x-goog-api-key, which the gateway accepts.
-          # Set here rather than at the top of the file: this is the only
-          # step that makes live Gemini calls. voice-integration.yml keeps
-          # the direct Google key, because Gemini Live is a websocket API
-          # the gateway does not proxy.
-          GEMINI_API_BASE: https://gateway.langwatch.ai/v1beta
-          GEMINI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # The Gemini examples still call Google directly. The mechanism to
+          # route them is ready and measured: litellm builds
+          # `{GEMINI_API_BASE}/models/{model}:generateContent` and sends the
+          # key as x-goog-api-key, so setting GEMINI_API_BASE to the
+          # gateway's /v1beta surface and GEMINI_API_KEY to the same virtual
+          # key moves them over with no change to any example. The whole
+          # suite passes that way against a gateway that has a Google
+          # credential.
+          #
+          # What is missing is the credential: the LangWatch organization
+          # has no Gemini provider on the gateway, so a Gemini request there
+          # cannot be served. Add one and swap these two lines. Until then
+          # the direct key is the only thing that works.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         working-directory: python
 
   # One required check for the whole workflow. Reports success if every
