@@ -7,7 +7,7 @@ import type { ModelMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AudioChunk } from "../audio-chunk";
-import { prepareJudgeInput } from "../judge-stt";
+import { prepareJudgeInput, transcribeAudioMessages } from "../judge-stt";
 import { createAudioMessage } from "../messages";
 import type { STTProvider } from "../stt";
 
@@ -66,6 +66,23 @@ describe("judge pre-pass voice.stt.transcribe spans (#785)", () => {
       "account restored".length,
     );
     expect(spans[0]!.attributes["langwatch.span.type"]).toBe("span");
+  });
+
+  it("leaves direct transcription uninstrumented by default", async () => {
+    const stt: STTProvider = {
+      transcribe: vi.fn(async () => "direct transcript"),
+    };
+
+    await transcribeAudioMessages({
+      messages: [createAudioMessage(tone(1), "user") as ModelMessage],
+      stt,
+      includeAudio: false,
+    });
+
+    const spans = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "voice.stt.transcribe");
+    expect(spans).toHaveLength(0);
   });
 
   it("keeps a successful sibling when one message fails and exports only a sanitized error", async () => {

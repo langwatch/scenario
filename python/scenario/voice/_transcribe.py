@@ -105,12 +105,8 @@ async def _transcribe_one(
                 text = await provider.transcribe(AudioChunk(data=segment.audio))
             except Exception as exc:
                 # Provider SDK errors can include response bodies and key fragments.
-                # Keep the raw detail local and let telemetry record only a minimal
-                # provider-agnostic exception, matching the #783 STT guard.
-                logger.debug(
-                    "scenario.voice.transcribe: STT provider error detail",
-                    exc_info=True,
-                )
+                # Record only a provider-agnostic exception, matching the #783
+                # STT guard, so logs and telemetry expose the same safe detail.
                 raise RuntimeError(
                     f"STT provider failed: {type(exc).__name__}"
                 ) from None
