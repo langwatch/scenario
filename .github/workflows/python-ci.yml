@@ -8,9 +8,29 @@
 # that branch protection requires.
 name: python-ci
 
-# All OpenAI-compatible traffic (judge LLMs, TTS, STT) rides the LangWatch
-# AI Gateway: OPENAI_API_KEY holds a LangWatch virtual key, and these base
-# URLs point every client family (openai SDK, litellm, ai-sdk) at it.
+# All model traffic rides the LangWatch AI Gateway. One virtual key replaces
+# every provider key: it is metered, capped, and revocable on its own, and no
+# raw provider key sits in this repository's secrets for the examples job.
+#
+# The key lives in the OPENAI_API_KEY secret and is copied into whichever
+# variable each client family reads. The base URLs below point those clients
+# at the gateway: the openai SDK and litellm's openai lane read
+# OPENAI_BASE_URL / OPENAI_API_BASE, and litellm's gemini lane reads
+# GEMINI_API_BASE, set on the examples step.
+#
+# Operating notes:
+#   - Rotate:   `langwatch virtual-keys rotate <id>` mints a new secret and
+#               keeps the old one working for 24 hours. Put the new secret in
+#               the OPENAI_API_KEY repository secret inside that window.
+#   - Revoke:   `langwatch virtual-keys revoke <id>`. Every job that uses it
+#               fails at once, which is the point of one key over several.
+#   - Cap:      the key carries its own spending budget. When the budget is
+#               reached the gateway refuses with a virtual_key budget error
+#               and this job goes red, so size the cap above a busy day's
+#               spend rather than at it.
+#   - Fall back: to call the providers directly again, clear the two base
+#               URLs below and GEMINI_API_BASE on the examples step, and put
+#               provider keys back in OPENAI_API_KEY and GEMINI_API_KEY.
 env:
   CI: true
   OPENAI_BASE_URL: https://gateway.langwatch.ai/v1
@@ -106,7 +126,16 @@ jobs:
         env:
           LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # The Gemini examples ride the same virtual key. litellm builds
+          # `{GEMINI_API_BASE}/models/{model}:generateContent`, which is the
+          # gateway's own Gemini surface once the base names /v1beta, and it
+          # sends the key as x-goog-api-key, which the gateway accepts.
+          # Set here rather than at the top of the file: this is the only
+          # step that makes live Gemini calls. voice-integration.yml keeps
+          # the direct Google key, because Gemini Live is a websocket API
+          # the gateway does not proxy.
+          GEMINI_API_BASE: https://gateway.langwatch.ai/v1beta
+          GEMINI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         working-directory: python
 
   # One required check for the whole workflow. Reports success if every
