@@ -1,0 +1,370 @@
+---
+title: Remote Traces - Judge Agents Behind HTTP Endpoints on Real Traces
+description: Propagate trace context to an agent deployed behind an HTTP endpoint and have the judge fetch its traces from LangWatch, so criteria about tool calls, writes, and retrievals are verified against real spans instead of the response text.
+---
+
+import { Callout } from "vocs/components";
+
+# Remote Traces [Judge remote agents on what they did, not what they said]
+
+Remote trace fetching makes the judge download the traces the agent under test reported to LangWatch before delivering its verdict. The fetched spans merge into the same trace digest the judge already reads, so [progressive discovery](/advanced/how-judging-works#structure-only-mode--progressive-discovery) and the `expand_trace` / `grep_trace` tools work on them unchanged.
+
+You need this when the agent runs behind an HTTP endpoint and returns final text only, the [blackbox testing](/testing-guides/blackbox-testing) setup. The tool calls, database writes, and document lookups happen on the server, never reach the local span collector, and a criterion like "the agent queried the order system" is unverifiable from the transcript alone.
+
+It takes two pieces: forward the trace context to your agent, and enable fetching on the scenario.
+
+---
+
+## 1. Forward the trace context
+
+Every scenario turn opens one trace and stamps its id on the turn's messages. `AgentInput` exposes that turn's W3C trace context as ready-to-send headers (`traceparent`, plus `tracestate` when set). Spread them onto the outgoing request in your adapter:
+
+:::code-group
+
+```python [python]
+class RemoteAgentAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://your-agent.com/api/chat",
+                json={"message": input.last_new_user_message_str()},
+                # Forward the turn's trace context to the remote agent
+                headers=dict(input.propagation_headers),
+            ) as response:
+                result = await response.json()
+                return result["response"]
+```
+
+```typescript [typescript]
+const remoteAgentAdapter: AgentAdapter = {
+  role: AgentRole.AGENT,
+  call: async (input) => {
+    const response = await fetch("https://your-agent.com/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Forward the turn's trace context to the remote agent
+        ...input.propagationHeaders,
+      },
+      body: JSON.stringify({ messages: input.messages }),
+    });
+    return ((await response.json()) as { response: string }).response;
+  },
+};
+```
+
+:::
+
+On the server side, your agent adopts the incoming context so the spans it creates land in the same trace. With standard OpenTelemetry HTTP instrumentation this adoption is automatic and needs zero code. Without it, extract the context and start your root span under it:
+
+:::code-group
+
+```python [python]
+from opentelemetry import propagate, trace
+
+ctx = propagate.extract(dict(request.headers))
+tracer = trace.get_tracer("my-agent")
+with tracer.start_as_current_span("chat", context=ctx):
+    ...  # your agent logic, spans created here join the scenario's trace
+```
+
+```typescript [typescript]
+import { context, propagation } from "@opentelemetry/api";
+
+const extracted = propagation.extract(context.active(), req.headers);
+await context.with(extracted, async () => {
+  // your agent logic, spans created here join the scenario's trace
+});
+```
+
+:::
+
+---
+
+## 2. Enable remote fetching
+
+Turn on fetching per run, or project-wide:
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    name="order status",
+    description="A customer asks where their order is",
+    agents=[RemoteAgentAdapter(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
+    fetch_remote_traces=True,
+    trace_wait_timeout=30.0,  # seconds, default 60
+)
+
+# or as a global default:
+scenario.configure(fetch_remote_traces=True, trace_wait_timeout=30.0)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+  name: "order status",
+  description: "A customer asks where their order is",
+  agents: [remoteAgentAdapter, scenario.userSimulatorAgent(), scenario.judgeAgent({ criteria: [...] })],
+  fetchRemoteTraces: true,
+  traceWaitTimeoutMs: 30_000, // default 60000
+});
+
+// or project-wide in scenario.config.mjs:
+export default defineConfig({
+  fetchRemoteTraces: true,
+  traceWaitTimeoutMs: 30_000,
+});
+```
+
+:::
+
+At judgment time, the judge collects every distinct trace id stamped on the conversation's messages (one per turn, not only the last), fetches each from `GET {LANGWATCH_ENDPOINT}/api/trace/{id}`, filters out scenario infrastructure spans, deduplicates against locally collected spans, and feeds the rest into its trace digest.
+
+---
+
+## When the judge waits
+
+Trace ingestion takes a moment, and the fetch schedule is built so conversations never slow down for it:
+
+- **Mid-conversation judge calls never wait.** Each call does one non-blocking fetch round, merging whatever spans already arrived.
+- **Only a verdict waits.** When a judgment is required (last turn, or an explicit judge step), the judge settle-waits first: it polls each pending trace every second until the trace is complete, meaning it holds at least one span from your agent and every fetched span's parent span has arrived. All traces are polled in parallel under the single shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget.
+- **A timeout never hides what did arrive.** When the budget runs out on an incomplete trace, the judge still sees every span that was fetched, plus a synthetic error span that marks the trace as possibly incomplete. Criteria the visible spans prove can still pass; criteria that need the missing spans go inconclusive.
+- **The judge finishes on the conversation, not on the traces.** The judge's rules tell it never to continue the conversation only to wait for traces: it calls `finish_test` as soon as the conversation resolves the criteria. That call completes trace collection, and when the traces were still incomplete the runtime invokes the judge one more time with the full digest. The second verdict wins, so every verdict is trace-informed at the cost of at most one extra LLM call per run.
+
+---
+
+## When trace collection fails
+
+On timeout or fetch failure, the judge does not silently proceed. A synthetic span named `langwatch.span_collection.error` carrying the failure reason is added to the digest, and the reason decides how strict the judge is. When no agent spans arrived at all, criteria that depend on internal behavior go inconclusive, never passed from the transcript alone. When the trace arrived but is still incomplete at the deadline, the spans that are present still count: criteria they prove may pass, and only criteria whose evidence is missing stay inconclusive. See [How Judging Works](/advanced/how-judging-works#judging-on-remote-traces) for the exact rule.
+
+---
+
+## Requirements
+
+- `LANGWATCH_API_KEY` must be set (and `LANGWATCH_ENDPOINT` when not using [LangWatch Cloud](https://app.langwatch.ai)); the trace fetch authenticates with the same credentials the scenario uses for reporting.
+- The agent under test must report its traces to the **same LangWatch project** the scenario runs with. If it reports to a different project (or not at all), the fetch finds nothing and trace-dependent criteria come back inconclusive.
+
+---
+
+## Full example
+
+A test server stands in for the deployed agent: it adopts the propagated trace context, calls a tool, and answers with final text only. The judge passes the trace criterion because it sees the tool span, not because the response mentions it.
+
+:::code-group
+
+```python [python]
+import aiohttp
+import pytest
+from aiohttp import web
+from opentelemetry import propagate
+from opentelemetry import trace as otel_trace
+
+import scenario
+
+base_url = ""
+
+
+class RemoteAgentAdapter(scenario.AgentAdapter):
+    async def call(self, input: scenario.AgentInput) -> scenario.AgentReturnTypes:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/chat",
+                json={"message": input.last_new_user_message_str()},
+                headers=dict(input.propagation_headers),
+            ) as response:
+                result = await response.json()
+                return result["response"]
+
+
+async def chat_handler(request: web.Request) -> web.Response:
+    await request.json()
+
+    # Adopt the incoming trace context: spans created here join the
+    # scenario turn's trace.
+    context = propagate.extract(dict(request.headers))
+    tracer = otel_trace.get_tracer("remote-weather-agent")
+    with tracer.start_as_current_span("chat_request", context=context):
+        with tracer.start_as_current_span("get_weather") as tool_span:
+            tool_span.set_attribute("tool.name", "get_weather")
+            weather = "The weather in London is sunny, 22 degrees Celsius."
+            tool_span.set_attribute("tool.result", weather)
+
+    # Final text only: the tool call above is never mentioned to the caller.
+    return web.json_response({"response": weather})
+
+
+@pytest.mark.asyncio
+async def test_remote_trace_propagation():
+    global base_url
+    app = web.Application()
+    app.router.add_post("/chat", chat_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "localhost", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    base_url = f"http://localhost:{port}"
+
+    try:
+        result = await scenario.run(
+            name="Remote trace propagation",
+            description="User asks for the weather in London",
+            agents=[
+                RemoteAgentAdapter(),
+                scenario.UserSimulatorAgent(model="openai/gpt-5-mini"),
+                scenario.JudgeAgent(
+                    model="openai/gpt-5-mini",
+                    criteria=[
+                        "Agent tells the user the weather in London",
+                        "The traces show the agent called the get_weather tool",
+                    ],
+                ),
+            ],
+            script=[
+                scenario.user("What's the weather like in London?"),
+                scenario.agent(),
+                scenario.judge(),
+            ],
+            fetch_remote_traces=True,
+            trace_wait_timeout=20.0,
+        )
+        assert result.success
+    finally:
+        await runner.cleanup()
+```
+
+```typescript [typescript]
+import { createServer, Server } from "http";
+import { openai } from "@ai-sdk/openai";
+import scenario, { AgentRole, type AgentAdapter } from "@langwatch/scenario";
+import { context, propagation } from "@opentelemetry/api";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import { generateText, ModelMessage, stepCountIs, tool } from "ai";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { z } from "zod/v4";
+
+// Standard OTel HTTP instrumentation registers a propagator on its own;
+// this hand-rolled demo server registers the W3C propagator explicitly.
+propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+
+let server: Server;
+let serverUrl: string;
+
+const lookupOrderStatus = tool({
+  description: "Look up the current status of an order by its id",
+  inputSchema: z.object({ orderId: z.string() }),
+  execute: async ({ orderId }) => ({ orderId, status: "shipped", carrier: "DHL" }),
+});
+
+beforeAll(async () => {
+  // The "remote" agent: an HTTP endpoint that adopts the incoming trace
+  // context and answers with final text only.
+  server = createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/chat") {
+      res.writeHead(404);
+      return res.end();
+    }
+    let body = "";
+    req.on("data", (chunk) => (body += chunk.toString()));
+    req.on("end", async () => {
+      const { messages } = JSON.parse(body) as { messages: ModelMessage[] };
+
+      // Adopt the propagated trace context: every span created inside
+      // this callback joins the scenario turn's trace.
+      const extracted = propagation.extract(context.active(), req.headers);
+      const result = await context.with(extracted, () =>
+        generateText({
+          model: openai("gpt-5-mini"),
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are an order support assistant. Use the lookup_order_status tool to check orders before answering.",
+            },
+            ...messages,
+          ],
+          tools: { lookup_order_status: lookupOrderStatus },
+          stopWhen: stepCountIs(3),
+          experimental_telemetry: { isEnabled: true },
+        })
+      );
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ response: result.text }));
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, () => {
+      const address = server.address();
+      serverUrl = `http://localhost:${typeof address === "object" ? address?.port : 3000}`;
+      resolve();
+    });
+  });
+});
+
+afterAll(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+describe("Judging on remote traces", () => {
+  it("verifies the tool call through the propagated trace, not the transcript", async () => {
+    const remoteAgentAdapter: AgentAdapter = {
+      role: AgentRole.AGENT,
+      call: async (input) => {
+        const response = await fetch(`${serverUrl}/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...input.propagationHeaders,
+          },
+          body: JSON.stringify({ messages: input.messages }),
+        });
+        return ((await response.json()) as { response: string }).response;
+      },
+    };
+
+    const result = await scenario.run({
+      name: "Remote agent trace judging",
+      description:
+        "A customer asks where order ORD-1042 is. The agent must check the order system before answering.",
+      agents: [
+        scenario.userSimulatorAgent({ model: openai("gpt-5-mini") }),
+        remoteAgentAdapter,
+        scenario.judgeAgent({ model: openai("gpt-5-mini") }),
+      ],
+      script: [
+        scenario.user("Where is my order ORD-1042?"),
+        scenario.agent(),
+        scenario.judge({
+          criteria: [
+            "The agent tells the user the current status of their order",
+            "The agent looked the order up in the order system (a lookup_order_status tool span exists)",
+          ],
+        }),
+      ],
+      fetchRemoteTraces: true,
+      traceWaitTimeoutMs: 30_000,
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+:::
+
+<Callout type="tip">
+  To prove propagation is doing the work, run the example once with the
+  server's `extract` line removed: the trace criterion must stop passing. A
+  judge that still passes it is grading the transcript, not the trace.
+</Callout>
+
+---
+
+## Next Steps
+
+- [How Judging Works](/advanced/how-judging-works) - The judging loop, trace rendering, and the remote fetch stage
+- [Blackbox Testing](/testing-guides/blackbox-testing) - Testing agents through their public interfaces
+- [HTTPS Integration](/agent-integration/https) - HTTP adapter patterns
+- [Configuration](/basics/configuration) - All configuration options

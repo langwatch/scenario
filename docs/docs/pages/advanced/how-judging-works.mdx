@@ -69,6 +69,8 @@ The built-in judge formats these into two main sections for the LLM:
 1. **Transcript** -- Messages formatted as `role: content` pairs, giving the judge a clear view of the conversation flow.
 2. **OTel traces** -- A digest of all spans collected during the agent's execution, showing what happened internally (LLM calls, tool invocations, errors, timing).
 
+The trace digest is built from locally collected spans. When [remote trace fetching](/advanced/remote-traces) is enabled, spans the agent under test reported to LangWatch are fetched and merged into the same digest before it is built (see [Judging on Remote Traces](#judging-on-remote-traces) below).
+
 ---
 
 ## How Traces Are Rendered
@@ -126,6 +128,31 @@ The judge can call these tools multiple times in a loop before making its final 
 
 ---
 
+## Judging on Remote Traces
+
+With `fetch_remote_traces` / `fetchRemoteTraces` enabled (see [Remote Traces](/advanced/remote-traces) for the setup), a fetch stage runs before the trace digest is built. The judge collects every distinct trace id stamped on the conversation's messages, one per turn, fetches those traces from the LangWatch trace API, filters out scenario infrastructure spans, deduplicates against locally collected spans, and feeds the remainder into the same span collector the digest reads. Remote spans then behave exactly like local ones: full inline rendering, structure-only mode, `expand_trace` and `grep_trace`.
+
+### Settle-wait timing
+
+Remote spans take time to be ingested, so the fetch stage is scheduled to never slow the conversation down:
+
+- A **mid-conversation judge call** performs one non-blocking fetch round: a single request per pending trace, merging whatever already arrived, no waiting.
+- A **required verdict** (last turn, or an explicit judge step) settle-waits first: each pending trace is polled every second until it is complete, meaning it holds at least one remote span from the agent under test and every fetched span's parent span has arrived, all traces in parallel, under one shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget (default 60 seconds). When the budget runs out first, the judge keeps every span that did arrive and the digest gains a synthetic error span marking the trace as possibly incomplete.
+
+### Two-phase voluntary verdicts
+
+The judge never prolongs the conversation to wait for traces: its rules tell it to call `finish_test` as soon as the conversation itself resolves the criteria. A `finish_test` on a mid-conversation call completes trace collection at that moment: the runtime runs the settle-wait and invokes the judge exactly once more with the updated digest, pinning `finish_test` so the second call must answer. The second verdict is the scenario result. Every verdict is trace-informed at the cost of at most one extra LLM call per run.
+
+### The remote traces judge rule
+
+When remote fetching is enabled, this rule is appended to the judge system prompt's rules section (identical in both SDKs):
+
+> Criteria about the agent's internal behavior (tool calls, database writes, API calls, retrievals) must be verified against the &lt;opentelemetry_traces&gt; section, not against claims in the transcript. Mid-conversation, traces may not have arrived yet; that is normal. Do not continue the conversation only to wait for traces: when the conversation itself has given you what you need, call finish_test, because trace collection completes at that moment and you will be asked once more with the full traces if they were incomplete. If a span named langwatch.span_collection.error is present, read its reason: when no agent spans arrived, mark criteria that depend on internal behavior as inconclusive, never passed. When the trace is incomplete, criteria proven by the spans that are present may pass, and criteria whose evidence is missing stay inconclusive. Never mark internal-behavior criteria as passed based on the transcript alone.
+
+The `langwatch.span_collection.error` span it refers to is synthetic, added once per failed trace with the failure reason. The reason separates the two outcomes the rule handles: no agent spans arrived at all, so nothing about internal behavior may pass, or the trace arrived but is still incomplete at the deadline, so the spans that are present still count as evidence. The rule is what keeps the judge from passing a trace-dependent criterion it never saw evidence for.
+
+---
+
 ## The Decision Tools
 
 The judge uses function calling to communicate its decisions. Two tools are always available:
@@ -178,6 +205,32 @@ const judge = scenario.judgeAgent({
 
 :::
 
+Remote trace fetching is configured on the scenario, not on the judge:
+
+:::code-group
+
+```python [python]
+result = await scenario.run(
+    # ...
+    # Fetch the agent's remote traces before judging (default: False)
+    fetch_remote_traces=True,
+    # Verdict-time wait budget for remote traces, in seconds (default: 60)
+    trace_wait_timeout=30.0,
+)
+```
+
+```typescript [typescript]
+const result = await scenario.run({
+    // ...
+    // Fetch the agent's remote traces before judging (default: false)
+    fetchRemoteTraces: true,
+    // Verdict-time wait budget for remote traces, in ms (default: 60000)
+    traceWaitTimeoutMs: 30_000,
+});
+```
+
+:::
+
 <Callout type="tip">
   For most use cases, the defaults work well. Lower `token_threshold` if your judge model has a small context window. Increase `max_discovery_steps` for very complex traces where the judge needs more exploration.
 </Callout>
@@ -186,6 +239,7 @@ const judge = scenario.judgeAgent({
 
 ## Next Steps
 
+- [Remote Traces](/advanced/remote-traces) -- Propagate trace context to a remote agent and judge it on its real traces
 - [Custom Judge](/advanced/custom-judge) -- Build your own evaluation logic, including accessing traces
 - [Judge Agent](/basics/judge-agent) -- Configuration reference for the built-in judge
 - [Custom Observability](/advanced/custom-observability) -- Control OpenTelemetry tracing configuration
