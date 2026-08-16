@@ -312,7 +312,7 @@ describe("RemoteTraceFetcher", () => {
 
       await expect(
         fetcher.settleWait({ ...target(collector), timeoutMs: 50 })
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ allSettled: false });
 
       // The failing poll is retried instead of terminally failing the trace
       // on its first error, and the deadline records the last reason.
@@ -393,6 +393,95 @@ describe("RemoteTraceFetcher", () => {
       expect(calls.length).toBe(callsAfterFirst + 1);
     });
   });
+
+  describe("when the platform echoes back spans this process started", () => {
+    /** Registers a span start with the collector, as the SDK provider would. */
+    function startProcessSpan(
+      collector: JudgeSpanCollector,
+      spanId: string
+    ): void {
+      collector.onStart({
+        spanContext: () => ({ traceId: TRACE_ID, spanId }),
+      } as never);
+    }
+
+    /** @scenario Spans started by the scenario process never count as remote evidence */
+    it("reports no agent spans arrived when only process spans echoed back", async () => {
+      const collector = new JudgeSpanCollector();
+      // The still-open turn span and two descendants: a thread-tagged child
+      // and a model-call span with no thread id. None of them ever count as
+      // remote, even though the per-thread view cannot resolve them.
+      startProcessSpan(collector, "c000000000000001");
+      startProcessSpan(collector, "c000000000000002");
+      startProcessSpan(collector, "c000000000000003");
+      const { fetchFn } = fakeTraceApi([
+        [
+          apiSpan({ span_id: "c000000000000002", name: "_JudgeAgent.call", parent_id: "c000000000000001" }),
+          apiSpan({ span_id: "c000000000000003", name: "ai.generateText", parent_id: "c000000000000002" }),
+        ],
+      ]);
+      const fetcher = makeFetcher(fetchFn);
+
+      const { allSettled } = await fetcher.settleWait({
+        ...target(collector),
+        timeoutMs: 30,
+      });
+
+      expect(allSettled).toBe(false);
+      const errorSpan = collector
+        .getSpansForThread(THREAD_ID)
+        .find((s) => s.name === "langwatch.span_collection.error");
+      expect(errorSpan?.attributes["langwatch.span_collection.error.reason"]).toContain(
+        "no agent spans arrived"
+      );
+    });
+  });
+
+  describe("when the judge waits once more via extendSettle", () => {
+    /** @scenario The judge may wait once more when the traces are incomplete */
+    it("re-arms a failed trace, retracts its error span, and settles", async () => {
+      const collector = new JudgeSpanCollector();
+      const childOnly = [
+        apiSpan({ span_id: "b000000000000002", name: "db.write", parent_id: "b000000000000001" }),
+      ];
+      const complete = [
+        apiSpan({ span_id: "b000000000000001", name: "agent.root" }),
+        apiSpan({ span_id: "b000000000000002", name: "db.write", parent_id: "b000000000000001" }),
+      ];
+      // First wait: only a child with an unresolved parent, so the trace
+      // fails at the deadline. The extension wait finds the complete trace.
+      let traceIsComplete = false;
+      const fetchFn: typeof fetch = async () =>
+        jsonResponse({
+          trace_id: TRACE_ID,
+          spans: traceIsComplete ? complete : childOnly,
+        });
+      const fetcher = makeFetcher(fetchFn);
+
+      const first = await fetcher.settleWait({
+        ...target(collector),
+        timeoutMs: 10,
+      });
+      traceIsComplete = true;
+      expect(first.allSettled).toBe(false);
+      expect(
+        collector
+          .getSpansForThread(THREAD_ID)
+          .some((s) => s.name === "langwatch.span_collection.error")
+      ).toBe(true);
+
+      const second = await fetcher.extendSettle({
+        ...target(collector),
+        timeoutMs: 5_000,
+      });
+
+      expect(second.allSettled).toBe(true);
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).not.toContain("langwatch.span_collection.error");
+      expect(names).toContain("agent.root");
+      expect(fetcher.noneSettled(THREAD_ID, [TRACE_ID])).toBe(false);
+    });
+  });
 });
 
 describe("collectMessageTraceIds", () => {
@@ -451,8 +540,10 @@ describe("langwatchApiSpanToReadableSpan", () => {
         output: { type: "text", value: "written" },
       })
     );
-    expect(span.attributes["input"]).toBe('{"table":"orders","id":7}');
-    expect(span.attributes["output"]).toBe("written");
+    expect(span.attributes["langwatch.input"]).toBe(
+      '{"table":"orders","id":7}'
+    );
+    expect(span.attributes["langwatch.output"]).toBe("written");
   });
 
   it("maps chat message payloads into gen_ai attributes", () => {

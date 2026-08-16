@@ -35,6 +35,11 @@ interface TraceFetchState {
   settled: boolean;
   /** Terminally finished with a synthetic error span recorded. */
   failed: boolean;
+  /**
+   * The synthetic error span recorded for this trace, so an extension wait
+   * can retract it when the trace settles after all.
+   */
+  errorSpanId?: string;
 }
 
 interface TraceApiAuth {
@@ -144,16 +149,33 @@ export class RemoteTraceFetcher {
    *
    * A failed poll retries until the deadline; only the deadline marks the id
    * failed and feeds one synthetic `langwatch.span_collection.error` span
-   * carrying the reason to the collector. Never throws.
+   * carrying the reason to the collector. Never throws. Returns whether every
+   * given trace id is settled cleanly after the wait.
    */
   async settleWait(
     target: RemoteTraceTarget & { timeoutMs: number }
-  ): Promise<void> {
+  ): Promise<{ allSettled: boolean }> {
     const auth = this.resolveAuth(target.langwatch);
     const deadline = Date.now() + target.timeoutMs;
     const pending = target.traceIds.filter((traceId) =>
       this.isUnsettled(target.threadId, traceId)
     );
+
+    // Without an endpoint or a key every poll answers 401 and the loop burns
+    // the whole wait budget before it can say why. Fail the ids now instead.
+    if (!auth.endpoint || !auth.apiKey) {
+      for (const traceId of pending) {
+        this.recordFailure({
+          threadId: target.threadId,
+          traceId,
+          collector: target.collector,
+          reason: `Cannot fetch trace ${traceId}: remote trace fetching is on but the LangWatch ${
+            auth.endpoint ? "API key" : "endpoint"
+          } is not configured (set LANGWATCH_API_KEY and LANGWATCH_ENDPOINT, or pass them in the run's langwatch config)`,
+        });
+      }
+      return { allSettled: false };
+    }
 
     await Promise.all(
       pending.map((traceId) =>
@@ -167,6 +189,37 @@ export class RemoteTraceFetcher {
         })
       )
     );
+    return { allSettled: this.allSettled(target.threadId, target.traceIds) };
+  }
+
+  /**
+   * The judge's one extra wait: re-arms every trace that terminally failed
+   * the first settle-wait (retracting its synthetic error span from the
+   * collector) and settle-waits once more under `timeoutMs`. A trace that
+   * fails again gets a fresh error span with the new reason. Returns whether
+   * every given trace id is settled cleanly afterwards.
+   */
+  async extendSettle(
+    target: RemoteTraceTarget & { timeoutMs: number }
+  ): Promise<{ allSettled: boolean }> {
+    const threadStates = this.registry.get(target.threadId);
+    for (const traceId of target.traceIds) {
+      const state = threadStates?.get(traceId);
+      if (!state?.failed) continue;
+      state.failed = false;
+      if (state.errorSpanId) {
+        target.collector.removeSpanById(state.errorSpanId);
+        state.errorSpanId = undefined;
+      }
+    }
+    return this.settleWait(target);
+  }
+
+  private allSettled(threadId: string, traceIds: string[]): boolean {
+    const threadStates = this.registry.get(threadId);
+    return traceIds.every((traceId) =>
+      Boolean(threadStates?.get(traceId)?.settled)
+    );
   }
 
   /**
@@ -178,6 +231,29 @@ export class RemoteTraceFetcher {
     const threadStates = this.registry.get(threadId);
     if (!threadStates) return true;
     return !traceIds.some((traceId) => threadStates.get(traceId)?.settled);
+  }
+
+  /**
+   * Records the "nothing to fetch" case: remote fetching is on, but not one
+   * message of the conversation carries a trace id, so there is no id to
+   * poll. Feeds the same synthetic error span the deadline path feeds, once
+   * per thread, so the judge reads why the traces section is empty instead
+   * of returning inconclusive criteria with no stated reason.
+   */
+  recordMissingTraceIds({
+    threadId,
+    collector,
+  }: {
+    threadId: string;
+    collector: JudgeSpanCollector;
+  }): void {
+    this.recordFailure({
+      threadId,
+      traceId: INVALID_TRACE_ID,
+      collector,
+      reason:
+        "Remote trace fetching is on but no message of this conversation carries a trace id, so no trace could be fetched. The agent adapter has to return the trace id of the run (or forward input.propagationHeaders so the agent joins the scenario's trace).",
+    });
   }
 
   /**
@@ -259,12 +335,18 @@ export class RemoteTraceFetcher {
       if (remaining <= 0) {
         if (lastRemoteSpanCount >= 1) {
           // Best-effort settle: the spans that arrived stay judged, and the
-          // error span tells the judge the trace may be missing spans.
+          // error span tells the judge the trace may be missing spans. The
+          // count comes from the last poll that succeeded, so a later poll
+          // may still have failed: name that error too, or the reason reads
+          // as a pure completeness problem.
+          const fetchSuffix = lastFetchError
+            ? `; the last poll also failed: ${lastFetchError}`
+            : "";
           this.recordFailure({
             threadId,
             traceId,
             collector,
-            reason: `Trace ${traceId} was still incomplete after ${timeoutMs}ms: ${lastRemoteSpanCount} remote spans were collected but some parent spans never arrived, so spans may be missing`,
+            reason: `Trace ${traceId} was still incomplete after ${timeoutMs}ms: ${lastRemoteSpanCount} remote spans were collected but some parent spans never arrived, so spans may be missing${fetchSuffix}`,
           });
         } else if (lastFetchError) {
           this.recordFailure({
@@ -309,6 +391,7 @@ export class RemoteTraceFetcher {
     const spans = await this.fetchTrace({ traceId, auth });
     const { remoteSpanCount, parentsResolved } = this.merge({
       threadId,
+      traceId,
       state,
       collector,
       spans,
@@ -342,6 +425,7 @@ export class RemoteTraceFetcher {
 
     this.logger.warn("Remote trace collection failed", { traceId, reason });
     const errorSpan = createSyntheticErrorSpan({ traceId, reason });
+    state.errorSpanId = errorSpan.spanContext().spanId;
     collector.onEnd(this.tagWithThreadId(errorSpan, threadId));
   }
 
@@ -354,11 +438,13 @@ export class RemoteTraceFetcher {
    */
   private merge({
     threadId,
+    traceId,
     state,
     collector,
     spans,
   }: {
     threadId: string;
+    traceId: string;
     state: TraceFetchState;
     collector: JudgeSpanCollector;
     spans: LangWatchApiSpan[];
@@ -387,14 +473,22 @@ export class RemoteTraceFetcher {
         continue;
       }
       if (!apiSpan.span_id) continue;
-      const isLocalEcho = localSpanIds.has(apiSpan.span_id);
+      // A span this process started itself is a platform echo, never remote
+      // evidence. The registry check covers what the per-thread view cannot:
+      // spans whose ancestor chain crosses the still-open turn span, and
+      // spans from instrumented SDKs that never tag the thread id (the
+      // judge's and user simulator's own model calls).
+      const isLocalEcho =
+        localSpanIds.has(apiSpan.span_id) ||
+        collector.isProcessSpan(traceId, apiSpan.span_id);
       if (!isLocalEcho) {
         remoteSpanCount += 1;
         const parentId = apiSpan.parent_id;
         if (
           parentId &&
           !fetchedSpanIds.has(parentId) &&
-          !collectorSpanIds.has(parentId)
+          !collectorSpanIds.has(parentId) &&
+          !collector.isProcessSpan(traceId, parentId)
         ) {
           parentsResolved = false;
         }

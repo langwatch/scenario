@@ -1257,6 +1257,294 @@ describeFeature(
         });
       }
     );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Spans started by the scenario process never count as remote evidence",
+      ({ Given, When, Then, And }) => {
+        let collector: JudgeSpanCollector;
+        let fetcher: RemoteTraceFetcher;
+        let allSettled = true;
+
+        Given(
+          "the platform echoes back spans the scenario process itself started, including spans whose ancestor chain crosses the still-open turn span and model-call spans that carry no thread id",
+          () => {
+            collector = new JudgeSpanCollector();
+            // The still-open turn span never reaches onEnd; its descendants
+            // (a judge call and an untagged model-call span) do, but their
+            // ancestor chain is broken for the per-thread view. onStart saw
+            // all three.
+            for (const spanId of [
+              "c000000000000001",
+              "c000000000000002",
+              "c000000000000003",
+            ]) {
+              collector.onStart({
+                spanContext: () => ({ traceId: TRACE_A, spanId }),
+              } as never);
+            }
+            const api = fakeTraceApi({
+              [TRACE_A]: [
+                [
+                  {
+                    ...toolSpan(TRACE_A, "c000000000000002"),
+                    name: "_JudgeAgent.call",
+                    parent_id: "c000000000000001",
+                  },
+                  {
+                    ...toolSpan(TRACE_A, "c000000000000003"),
+                    name: "ai.generateText",
+                    parent_id: "c000000000000002",
+                  },
+                ],
+              ],
+            });
+            fetcher = new RemoteTraceFetcher({
+              fetchFn: api.fetchFn,
+              pollIntervalMs: 1,
+            });
+          }
+        );
+
+        When("the judge settle-waits for the remote trace", async () => {
+          ({ allSettled } = await fetcher.settleWait({
+            threadId: THREAD_ID,
+            traceIds: [TRACE_A],
+            collector,
+            langwatch: LANGWATCH,
+            timeoutMs: 30,
+          }));
+        });
+
+        Then("none of the echoed spans count as remote", () => {
+          expect(allSettled).toBe(false);
+          expect(fetcher.noneSettled(THREAD_ID, [TRACE_A])).toBe(true);
+        });
+
+        And("the deadline reason reports that no agent spans arrived", () => {
+          const errorSpan = collector
+            .getSpansForThread(THREAD_ID)
+            .find((s) => s.name === "langwatch.span_collection.error");
+          expect(
+            errorSpan?.attributes["langwatch.span_collection.error.reason"]
+          ).toContain("no agent spans arrived");
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    /**
+     * Stub fetcher for the wait-extension scenarios: the first settle never
+     * settles, the extension settles everything. Records the budgets.
+     */
+    class ExtensionStubFetcher {
+      settleBudgets: number[] = [];
+      extendBudgets: number[] = [];
+      private extended = false;
+      async settleWait({ timeoutMs }: { timeoutMs: number }) {
+        this.settleBudgets.push(timeoutMs);
+        return { allSettled: false };
+      }
+      async extendSettle({ timeoutMs }: { timeoutMs: number }) {
+        this.extended = true;
+        this.extendBudgets.push(timeoutMs);
+        return { allSettled: true };
+      }
+      noneSettled(): boolean {
+        return !this.extended;
+      }
+      recordMissingTraceIds(): void {}
+      clearForThread(): void {}
+    }
+
+    function waitFlowJudge(collector: JudgeSpanCollector) {
+      const stub = new ExtensionStubFetcher();
+      const judge = makeJudge({
+        collector,
+        fetcher: stub as unknown as RemoteTraceFetcher,
+      });
+      const calls: InvokeLLMParams[] = [];
+      judge.invokeLLM = async (params) => {
+        calls.push(params);
+        return calls.length === 1
+          ? mockLLMResult("wait_for_traces", {})
+          : finishTest("success");
+      };
+      return { stub, judge, calls };
+    }
+
+    Scenario(
+      "The judge may wait once more when the traces are incomplete",
+      ({ Given, When, Then, And }) => {
+        let stub: ExtensionStubFetcher;
+        let judge: ReturnType<typeof judgeAgent>;
+        let calls: InvokeLLMParams[];
+
+        Given("the settle-wait ended with an incomplete trace", () => {
+          ({ stub, judge, calls } = waitFlowJudge(new JudgeSpanCollector()));
+        });
+
+        When("the verdict call runs", async () => {
+          await judge.call(
+            judgeInput({
+              messages: [
+                tracedMessage("user", "write the order"),
+                tracedMessage("assistant", "I wrote it", TRACE_A),
+              ],
+              scenarioConfigExtra: { traceWaitExtensionMs: 7_000 },
+              judgmentRequest: {},
+            })
+          );
+        });
+
+        Then("a wait_for_traces tool is offered alongside finish_test", () => {
+          expect(Object.keys(calls[0].tools ?? {})).toEqual(
+            expect.arrayContaining(["wait_for_traces", "finish_test"])
+          );
+          expect(calls[0].toolChoice).toBe("required");
+        });
+
+        And(
+          "calling it settle-waits once more under the extension budget",
+          () => {
+            expect(stub.extendBudgets).toEqual([7_000]);
+          }
+        );
+
+        And(
+          "a trace that settles during the extra wait loses its synthetic error span",
+          async () => {
+            // The retraction itself is the real fetcher's contract: a failed
+            // first wait records the error span, the extension settles the
+            // trace and removes it.
+            const collector = new JudgeSpanCollector();
+            const childOnly = [
+              {
+                ...toolSpan(TRACE_A, "b000000000000002"),
+                parent_id: "b000000000000001",
+              },
+            ];
+            const complete = [
+              toolSpan(TRACE_A, "b000000000000001"),
+              {
+                ...toolSpan(TRACE_A, "b000000000000002"),
+                parent_id: "b000000000000001",
+              },
+            ];
+            let traceIsComplete = false;
+            const fetchFn: typeof fetch = async () =>
+              jsonResponse({
+                trace_id: TRACE_A,
+                spans: traceIsComplete ? complete : childOnly,
+              });
+            const realFetcher = new RemoteTraceFetcher({
+              fetchFn,
+              pollIntervalMs: 1,
+            });
+            const settleTarget = {
+              threadId: THREAD_ID,
+              traceIds: [TRACE_A],
+              collector,
+              langwatch: LANGWATCH,
+            };
+            await realFetcher.settleWait({ ...settleTarget, timeoutMs: 10 });
+            expect(
+              collector
+                .getSpansForThread(THREAD_ID)
+                .some((s) => s.name === "langwatch.span_collection.error")
+            ).toBe(true);
+
+            traceIsComplete = true;
+            const second = await realFetcher.extendSettle({
+              ...settleTarget,
+              timeoutMs: 5_000,
+            });
+            expect(second.allSettled).toBe(true);
+            expect(
+              collector
+                .getSpansForThread(THREAD_ID)
+                .some((s) => s.name === "langwatch.span_collection.error")
+            ).toBe(false);
+          }
+        );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "The extra wait is available once",
+      ({ Given, When, Then, And }) => {
+        let judge: ReturnType<typeof judgeAgent>;
+        let calls: InvokeLLMParams[];
+
+        Given("the judge already used its wait_for_traces extension", () => {
+          ({ judge, calls } = waitFlowJudge(new JudgeSpanCollector()));
+        });
+
+        When("the verdict re-enters after the extra wait", async () => {
+          await judge.call(
+            judgeInput({
+              messages: [
+                tracedMessage("user", "write the order"),
+                tracedMessage("assistant", "I wrote it", TRACE_A),
+              ],
+              judgmentRequest: {},
+            })
+          );
+          expect(calls).toHaveLength(2);
+        });
+
+        Then("the wait_for_traces tool is not offered", () => {
+          expect(Object.keys(calls[1].tools ?? {})).not.toContain(
+            "wait_for_traces"
+          );
+        });
+
+        And("the verdict call is pinned to finish_test", () => {
+          expect(calls[1].toolChoice).toEqual({
+            type: "tool",
+            toolName: "finish_test",
+          });
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "The trace wait budget defaults to 30 seconds",
+      ({ Given, When, Then, And }) => {
+        let stub: ExtensionStubFetcher;
+        let judge: ReturnType<typeof judgeAgent>;
+
+        Given(
+          "a scenario with fetch_remote_traces enabled and no trace_wait_timeout configured",
+          () => {
+            ({ stub, judge } = waitFlowJudge(new JudgeSpanCollector()));
+          }
+        );
+
+        When("the judge settle-waits for the remote traces", async () => {
+          await judge.call(
+            judgeInput({
+              messages: [
+                tracedMessage("user", "write the order"),
+                tracedMessage("assistant", "I wrote it", TRACE_A),
+              ],
+              scenarioConfigExtra: { traceWaitTimeoutMs: undefined },
+              judgmentRequest: {},
+            })
+          );
+        });
+
+        Then("the settle-wait budget is 30 seconds", () => {
+          expect(stub.settleBudgets).toEqual([30_000]);
+        });
+
+        And("the extension budget defaults to the resolved wait budget", () => {
+          expect(stub.extendBudgets).toEqual([30_000]);
+        });
+      }
+    );
   },
   { includeTags: [["unit"]] }
 );

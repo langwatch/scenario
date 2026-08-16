@@ -7,7 +7,7 @@ import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
 export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
-export const DEFAULT_TRACE_WAIT_TIMEOUT_MS = 60_000;
+export const DEFAULT_TRACE_WAIT_TIMEOUT_MS = 30_000;
 
 /**
  * Configuration for LangWatch event reporting.
@@ -159,9 +159,23 @@ export interface ScenarioConfig {
    * Can also be set project-wide in `scenario.config.js`; this per-run value
    * wins.
    *
-   * @default 60000
+   * @default 30000
    */
   traceWaitTimeoutMs?: number;
+
+  /**
+   * Budget in milliseconds for the judge's one extra wait. When the traces
+   * are still incomplete after the settle-wait, the verdict call offers the
+   * judge a `wait_for_traces` tool: calling it waits this budget once more,
+   * then the tool is withdrawn and the judge must decide. Only used when
+   * {@link fetchRemoteTraces} is enabled.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins.
+   *
+   * @default the resolved traceWaitTimeoutMs
+   */
+  traceWaitExtensionMs?: number;
 
   /**
    * LangWatch reporting configuration.

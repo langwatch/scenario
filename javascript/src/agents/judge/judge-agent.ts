@@ -383,6 +383,19 @@ function buildMakeVerdictTool(): Tool {
   });
 }
 
+/**
+ * The verdict phase's one-shot extension tool. Offered only when the remote
+ * traces are still incomplete after the settle-wait, and withdrawn after one
+ * use: the second verdict call must decide on the evidence it has.
+ */
+function buildWaitForTracesTool(): Tool {
+  return tool({
+    description:
+      "The remote trace evidence is still incomplete and the missing spans are essential for the verdict. Wait one more period for them to arrive. Available once: after this wait the verdict must be delivered on the evidence at hand. Only call this when a criterion genuinely depends on the missing spans; otherwise deliver the verdict now.",
+    inputSchema: z.object({}),
+  });
+}
+
 function buildFinishTestTool(criteria: string[]): Tool {
   const criteriaNames = criteria.map(criterionToParamName);
 
@@ -658,6 +671,23 @@ export class JudgeAgent extends JudgeAgentAdapter {
     // decision phase first.
     const judgmentRequired = isLastMessage || enforceJudgement;
 
+    // minTurns floor (ADR-005): below the floor the decision is predetermined
+    // (the conversation must continue), so nothing is spent on it. The check
+    // runs before the audio pre-pass, or a gated voice turn pays for a
+    // transcription it discards. The judge observes a 0-based currentTurn:
+    // the executor's constructor overrides the initial newTurn() back to 0,
+    // so the call on turn N sees currentTurn N-1. The floor is unmet while
+    // currentTurn < minTurns: with minTurns: 4, the first decision call
+    // happens on the turn-5 call. A required judgment is never gated.
+    const minTurns = input.scenarioConfig.minTurns;
+    if (
+      !judgmentRequired &&
+      minTurns != null &&
+      input.scenarioState.currentTurn < minTurns
+    ) {
+      return null;
+    }
+
     const projectConfig = await getProjectConfig();
 
     // Remote trace fetching: the per-run scenario config wins over the
@@ -670,6 +700,13 @@ export class JudgeAgent extends JudgeAgentAdapter {
       input.scenarioConfig.traceWaitTimeoutMs ??
       projectConfig?.traceWaitTimeoutMs ??
       DEFAULT_TRACE_WAIT_TIMEOUT_MS;
+    // The one extra wait the judge may request via the wait_for_traces tool.
+    // Defaults to the wait budget itself; the platform passes its upper cap
+    // here so a short measured budget still gets a meaningful extension.
+    const traceWaitExtensionMs =
+      input.scenarioConfig.traceWaitExtensionMs ??
+      projectConfig?.traceWaitExtensionMs ??
+      traceWaitTimeoutMs;
     const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
 
     // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
@@ -694,18 +731,6 @@ export class JudgeAgent extends JudgeAgentAdapter {
     if (judgmentRequired) {
       verdictForced = true;
     } else {
-      // minTurns floor (ADR-005): below the floor the decision is
-      // predetermined (the conversation must continue), so no LLM call is
-      // spent on it. The judge observes a 0-based currentTurn: the executor's
-      // constructor overrides the initial newTurn() back to 0, so the call on
-      // turn N sees currentTurn N-1. The floor is unmet while currentTurn <
-      // minTurns: with minTurns: 4, the first decision call happens on the
-      // turn-5 call. A required judgment is never gated.
-      const minTurns = input.scenarioConfig.minTurns;
-      if (minTurns != null && input.scenarioState.currentTurn < minTurns) {
-        return null;
-      }
-
       const outcome = await this.runDecisionPhase({
         input,
         criteria,
@@ -732,6 +757,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       transcript,
       fetchRemoteTraces,
       traceWaitTimeoutMs,
+      traceWaitExtensionMs,
       traceFetcher,
       mergedConfig,
       verdictForced,
@@ -831,11 +857,19 @@ export class JudgeAgent extends JudgeAgentAdapter {
       this.logger.debug(
         "decision discovery exhausted its steps without a decision - forcing the verdict"
       );
+      // generateText never writes back into params.messages, so the discovery
+      // cycles live only on the completion steps. Recombine both before
+      // collapsing, then drop the two messages the verdict phase rebuilds by
+      // itself (the system prompt and the criteria block).
+      const discoveryHistory: ModelMessage[] = [
+        ...(params.messages ?? []),
+        ...(completion.steps ?? []).flatMap((step) => [
+          ...step.response.messages,
+        ]),
+      ];
       return {
         decision: "exhausted",
-        discoveryRecap: collapseDiscoveryHistory(params.messages ?? []).slice(
-          2
-        ),
+        discoveryRecap: collapseDiscoveryHistory(discoveryHistory).slice(2),
       };
     }
     return {
@@ -854,7 +888,11 @@ export class JudgeAgent extends JudgeAgentAdapter {
    *
    * Settle-waits for the remote traces first when fetching is on (the only
    * fetch site), so the digest always holds the full evidence, then makes a
-   * finish_test-pinned evaluation. `verdictForced` reflects the entry mode:
+   * finish_test-pinned evaluation. When the traces are still incomplete
+   * after the settle-wait, the call also offers a one-shot `wait_for_traces`
+   * tool: calling it settle-waits once more under the extension budget and
+   * re-enters the verdict with the tool withdrawn, so the second call must
+   * decide. `verdictForced` reflects the entry mode:
    * a required judgment (last turn, explicit judge() step) or
    * decision-discovery exhaustion makes an inconclusive verdict terminal; a
    * voluntary make_verdict entry lets an inconclusive verdict continue the
@@ -870,6 +908,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     transcript,
     fetchRemoteTraces,
     traceWaitTimeoutMs,
+    traceWaitExtensionMs,
     traceFetcher,
     mergedConfig,
     verdictForced,
@@ -881,6 +920,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     transcript: string;
     fetchRemoteTraces: boolean;
     traceWaitTimeoutMs: number;
+    traceWaitExtensionMs: number;
     traceFetcher: RemoteTraceFetcher;
     mergedConfig: ReturnType<typeof modelSchema.parse>;
     verdictForced: boolean;
@@ -890,118 +930,185 @@ export class JudgeAgent extends JudgeAgentAdapter {
     const remoteTraceIds = fetchRemoteTraces
       ? collectMessageTraceIds(input.messages)
       : [];
+    const settleTarget = {
+      threadId: input.threadId,
+      traceIds: remoteTraceIds,
+      collector: this.spanCollector,
+      langwatch: input.scenarioConfig.langwatch,
+    };
+    let allSettled = true;
     if (fetchRemoteTraces && remoteTraceIds.length > 0) {
-      await traceFetcher.settleWait({
-        threadId: input.threadId,
-        traceIds: remoteTraceIds,
-        collector: this.spanCollector,
-        langwatch: input.scenarioConfig.langwatch,
+      ({ allSettled } = await traceFetcher.settleWait({
+        ...settleTarget,
         timeoutMs: traceWaitTimeoutMs,
+      }));
+    } else if (fetchRemoteTraces) {
+      // Fetching is on and there is nothing to fetch. Without this the traces
+      // section is silently empty and the judge marks internal criteria
+      // inconclusive without a stated reason.
+      this.logger.warn(
+        "Remote trace fetching is on but no message carries a trace id; nothing to fetch"
+      );
+      traceFetcher.recordMissingTraceIds({
+        threadId: input.threadId,
+        collector: this.spanCollector,
       });
     }
 
-    // When not one remote trace of the run ever settled, more turns cannot
-    // produce trace evidence: a voluntary inconclusive verdict would loop
-    // (verdict, continue, settle, inconclusive again) all the way to the
-    // turn cap, paying the settle budget every turn. The verdict becomes
-    // terminal instead; with any settled trace, #886 semantics stay.
-    const evidenceExhausted =
+    // The judge's one extra wait: offered as a wait_for_traces tool while the
+    // traces are incomplete, consumed at most once, then withdrawn so the
+    // second call must decide. With no trace ids at all there is nothing a
+    // wait could produce, so the tool is never offered.
+    let waitExtensionAvailable =
       fetchRemoteTraces &&
       remoteTraceIds.length > 0 &&
-      traceFetcher.noneSettled(input.threadId, remoteTraceIds);
-    const verdictIsTerminal = verdictForced || evidenceExhausted;
+      !allSettled &&
+      traceWaitExtensionMs > 0;
+    let waitedOnce = false;
 
-    const spans = this.spanCollector.getSpansForThread(input.threadId);
-    const { digest, isLargeTrace } = this.buildTraceDigest(spans);
+    while (true) {
+      // When not one remote trace of the run ever settled, more turns cannot
+      // produce trace evidence: a voluntary inconclusive verdict would loop
+      // (verdict, continue, settle, inconclusive again) all the way to the
+      // turn cap, paying the settle budget every turn. The verdict becomes
+      // terminal instead; with any settled trace, #886 semantics stay.
+      // Recomputed after an extension wait, which can settle the traces.
+      const evidenceExhausted =
+        fetchRemoteTraces &&
+        remoteTraceIds.length > 0 &&
+        traceFetcher.noneSettled(input.threadId, remoteTraceIds);
+      const verdictIsTerminal = verdictForced || evidenceExhausted;
 
-    const extraContext =
-      input.judgmentRequest?.additionalContext ?? input.judgmentRequest?.context;
-    const additionalContextSection = extraContext
-      ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
-      : "";
+      const spans = this.spanCollector.getSpansForThread(input.threadId);
+      const { digest, isLargeTrace } = this.buildTraceDigest(spans);
 
-    const contentForJudge = buildJudgeContent({
-      transcript,
-      digest,
-      additionalContextSection,
-    });
+      const extraContext =
+        input.judgmentRequest?.additionalContext ??
+        input.judgmentRequest?.context;
+      const additionalContextSection = extraContext
+        ? `\n    <additional_context>\n    ${extraContext}\n    </additional_context>`
+        : "";
 
-    const systemPrompt = this.cfg.systemPrompt
-      ? this.cfg.systemPrompt +
-        (fetchRemoteTraces ? `\n\n${REMOTE_TRACE_JUDGING_RULE}` : "")
-      : buildVerdictSystemPrompt({
-          criteria,
-          description: input.scenarioConfig.description,
-          fetchRemoteTraces,
+      const contentForJudge = buildJudgeContent({
+        transcript,
+        digest,
+        additionalContextSection,
+      });
+
+      const systemPrompt = this.cfg.systemPrompt
+        ? this.cfg.systemPrompt +
+          (fetchRemoteTraces ? `\n\n${REMOTE_TRACE_JUDGING_RULE}` : "")
+        : buildVerdictSystemPrompt({
+            criteria,
+            description: input.scenarioConfig.description,
+            fetchRemoteTraces,
+          });
+
+      const messages: ModelMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: contentForJudge },
+      ];
+
+      if (exhaustedEntry) {
+        // The decision loop already spent the discovery budget; its collapsed
+        // cycles are replayed as context and the verdict is one pinned call.
+        messages.push(...discoveryRecap);
+        messages.push({
+          role: "user",
+          content:
+            "You have reached the maximum number of trace exploration steps. " +
+            "Based on the information you have gathered so far, give your final verdict now.",
         });
+      }
 
-    const messages: ModelMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: contentForJudge },
-    ];
+      if (waitedOnce) {
+        messages.push({
+          role: "user",
+          content:
+            "You already waited once more for the remote traces. The trace evidence above is final: deliver your verdict now.",
+        });
+      }
 
-    if (exhaustedEntry) {
-      // The decision loop already spent the discovery budget; its collapsed
-      // cycles are replayed as context and the verdict is one pinned call.
-      messages.push(...discoveryRecap);
-      messages.push({
-        role: "user",
-        content:
-          "You have reached the maximum number of trace exploration steps. " +
-          "Based on the information you have gathered so far, give your final verdict now.",
+      // finish_test is the only terminal tool of the verdict phase and the
+      // tool choice pins it: continuing is the decision phase's business.
+      // While the traces are incomplete and the extension is unused, the
+      // wait_for_traces tool joins the set and the pin relaxes to "required"
+      // so the judge can pick either. The large-trace path also relaxes the
+      // pin so the judge can use discovery tools, and forces the verdict on
+      // exhaustion.
+      const tools: ToolSet = {
+        ...(isLargeTrace && !exhaustedEntry
+          ? buildProgressiveDiscoveryTools(spans)
+          : {}),
+        ...(waitExtensionAvailable
+          ? { wait_for_traces: buildWaitForTracesTool() }
+          : {}),
+        finish_test: buildFinishTestTool(criteria),
+      };
+
+      const params: InvokeLLMParams = {
+        model: mergedConfig.model,
+        messages,
+        temperature: mergedConfig.temperature,
+        maxOutputTokens: mergedConfig.maxTokens,
+        tools,
+        toolChoice: waitExtensionAvailable
+          ? "required"
+          : { type: "tool", toolName: "finish_test" },
+      };
+      if (isLargeTrace && !exhaustedEntry) {
+        params.toolChoice = "required";
+        params.stopWhen = [
+          stepCountIs(this.maxDiscoverySteps),
+          hasToolCall("finish_test"),
+          ...(waitExtensionAvailable ? [hasToolCall("wait_for_traces")] : []),
+        ];
+      }
+
+      this.logger.debug("Calling LLM for the verdict", {
+        model: mergedConfig.model,
+        isLargeTrace,
+        verdictForced,
+        evidenceExhausted,
+        exhaustedEntry,
+        waitExtensionAvailable,
+        waitedOnce,
+      });
+
+      let completion = await this.invokeLLM(params);
+
+      if (
+        waitExtensionAvailable &&
+        this.completionCalledTool(completion, "wait_for_traces")
+      ) {
+        this.logger.debug(
+          "Judge requested one more wait for the remote traces",
+          { extensionMs: traceWaitExtensionMs }
+        );
+        waitExtensionAvailable = false;
+        waitedOnce = true;
+        await traceFetcher.extendSettle({
+          ...settleTarget,
+          timeoutMs: traceWaitExtensionMs,
+        });
+        continue;
+      }
+
+      let verdictWasForced = false;
+      if (
+        isLargeTrace &&
+        !exhaustedEntry &&
+        !this.completionCalledTool(completion, "finish_test")
+      ) {
+        // Discovery ran out of steps without the verdict: pin finish_test.
+        completion = await this.forceVerdict(params);
+        verdictWasForced = true;
+      }
+
+      return this.parseToolCalls(completion, criteria, {
+        verdictForced: verdictIsTerminal || verdictWasForced,
       });
     }
-
-    // finish_test is the only terminal tool of the verdict phase and the
-    // tool choice pins it: continuing is the decision phase's business. The
-    // large-trace path relaxes the pin to "required" so the judge can use
-    // discovery tools, and forces the verdict on exhaustion.
-    const tools: ToolSet = {
-      ...(isLargeTrace && !exhaustedEntry
-        ? buildProgressiveDiscoveryTools(spans)
-        : {}),
-      finish_test: buildFinishTestTool(criteria),
-    };
-
-    const params: InvokeLLMParams = {
-      model: mergedConfig.model,
-      messages,
-      temperature: mergedConfig.temperature,
-      maxOutputTokens: mergedConfig.maxTokens,
-      tools,
-      toolChoice: { type: "tool", toolName: "finish_test" },
-    };
-    if (isLargeTrace && !exhaustedEntry) {
-      params.toolChoice = "required";
-      params.stopWhen = [
-        stepCountIs(this.maxDiscoverySteps),
-        hasToolCall("finish_test"),
-      ];
-    }
-
-    this.logger.debug("Calling LLM for the verdict", {
-      model: mergedConfig.model,
-      isLargeTrace,
-      verdictForced,
-      evidenceExhausted,
-      exhaustedEntry,
-    });
-
-    let completion = await this.invokeLLM(params);
-    let verdictWasForced = false;
-    if (
-      isLargeTrace &&
-      !exhaustedEntry &&
-      !this.completionCalledTool(completion, "finish_test")
-    ) {
-      // Discovery ran out of steps without the verdict: pin finish_test.
-      completion = await this.forceVerdict(params);
-      verdictWasForced = true;
-    }
-
-    return this.parseToolCalls(completion, criteria, {
-      verdictForced: verdictIsTerminal || verdictWasForced,
-    });
   }
 
   /**

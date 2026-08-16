@@ -33,6 +33,11 @@ export const scenarioProjectConfigSchema = z
      * value on the scenario config wins over this default.
      */
     traceWaitTimeoutMs: z.number().positive().optional(),
+    /**
+     * Project-wide default for `ScenarioConfig.traceWaitExtensionMs`. A
+     * per-run value on the scenario config wins over this default.
+     */
+    traceWaitExtensionMs: z.number().positive().optional(),
   })
   .strict();
 

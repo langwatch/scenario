@@ -363,10 +363,11 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       setId: config.setId || "default",
       metadata: config.metadata,
       // Remote trace judging carriers: the judge resolves fetchRemoteTraces,
-      // traceWaitTimeoutMs and the langwatch endpoint/key override off
+      // the wait budgets and the langwatch endpoint/key override off
       // `AgentInput.scenarioConfig`, so they must survive onto `this.config`.
       fetchRemoteTraces: config.fetchRemoteTraces,
       traceWaitTimeoutMs: config.traceWaitTimeoutMs,
+      traceWaitExtensionMs: config.traceWaitExtensionMs,
       langwatch: config.langwatch,
       // Voice carriers (ADR-002): the per-run voice config + audio hooks must
       // survive onto `this.config` so they reach every `call()` via
