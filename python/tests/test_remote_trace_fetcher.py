@@ -419,6 +419,8 @@ class TestDeadlineMidPoll:
             ]
         )
         assert "no agent spans arrived" in reason
+        # The abort is ours, so it must not read as a failing fetch.
+        assert "aborted" not in reason
 
 
 class TestFetchFailure:

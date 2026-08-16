@@ -12,6 +12,7 @@ The force-verdict path must:
 
 import json
 from types import SimpleNamespace
+from typing import Any, Dict, List, cast
 from unittest.mock import patch
 
 from scenario import JudgeAgent
@@ -218,9 +219,9 @@ class TestForceVerdictHardening:
             {"type": "function", "function": {"name": "finish_test"}},
         ]
 
-        captured: dict = {}
+        captured: Dict[str, object] = {}
 
-        def fake_completion(**kwargs):
+        def fake_completion(**kwargs: object) -> SimpleNamespace:
             captured.update(kwargs)
             return _mock_llm_response(
                 "finish_test",
@@ -244,7 +245,8 @@ class TestForceVerdictHardening:
                 input_messages=[],
             )
 
-        forced_tool_names = {t["function"]["name"] for t in captured["tools"]}
+        forced_tools = cast(List[Dict[str, Any]], captured["tools"])
+        forced_tool_names = {t["function"]["name"] for t in forced_tools}
         assert forced_tool_names == {"finish_test"}
 
 
