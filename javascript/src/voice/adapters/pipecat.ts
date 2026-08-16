@@ -389,6 +389,15 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     }
   }
 
+  /**
+   * Wait for the next decoded PCM audio chunk from the Pipecat stream.
+   *
+   * @param timeout - Maximum seconds to wait for audio before the receive deadline.
+   * @returns A non-empty audio chunk, or a zero-length terminal chunk after a clean
+   *   stream close or interruption.
+   * @throws {ReceiveTimeoutError} When no audio arrives before `timeout`.
+   * @throws The original socket or transport error when the stream fails.
+   */
   override async receiveAudio(timeout: number): Promise<AudioChunk> {
     this.assertConnected();
     // Interrupt gate: `interrupt()` set this phase after clearing `inbox.queue`.
@@ -576,10 +585,9 @@ export class PipecatAgentAdapter extends VoiceAgentAdapter {
     this.inbox.closed = true;
     // A broken transport must reach the caller, both now and on every later
     // receive, so the drain never mistakes it for the agent finishing (#756).
-    this.inbox.failure = new Error(
-      `PipecatAgentAdapter: socket error: ${err.message}`,
-      { cause: err },
-    );
+    // Preserve the transport error itself so callers keep its type, identity,
+    // stack, and any provider-specific fields.
+    this.inbox.failure = err;
     const waiter = this.inbox.waiter;
     if (waiter) {
       this.inbox.waiter = null;

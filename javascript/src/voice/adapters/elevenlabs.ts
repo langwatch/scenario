@@ -637,10 +637,10 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // Reject rather than resolve: the session broke, so a parked receive must
     // surface that. Resolving with the terminal chunk would close the turn and
     // report the partial audio as a complete one.
-    this.sessionFailure = new Error(
-      `ElevenLabsAgentAdapter: session error: ${err.message}`,
-      { cause: err },
-    );
+    // Preserve the SDK error itself so callers retain its type, identity,
+    // stack, and any vendor-specific fields. The warning above supplies the
+    // adapter context without replacing the exception.
+    this.sessionFailure = err;
     this.failPendingWaiters(this.sessionFailure);
     this.inputCallback = null;
     this.conversation = null;
@@ -864,6 +864,16 @@ export class ElevenLabsAgentAdapter extends VoiceAgentAdapter {
     // VAD measures to close the turn — until the agent responds and the pump pauses.
   }
 
+  /**
+   * Wait for the next PCM audio chunk from the hosted ElevenLabs session.
+   *
+   * @param timeout - Sliding idle deadline in seconds. An absolute ceiling of
+   *   `max(timeout, 45s)` also bounds sessions that send keepalives but no audio.
+   * @returns A non-empty audio chunk, or a zero-length terminal chunk after a clean
+   *   session end.
+   * @throws {ReceiveTimeoutError} When either receive deadline expires.
+   * @throws The original session or transport error when the session fails.
+   */
   async receiveAudio(timeout: number): Promise<AudioChunk> {
     // Buffered audio first: it was produced while the session was live and is
     // owed to the caller whether or not the session has since ended.

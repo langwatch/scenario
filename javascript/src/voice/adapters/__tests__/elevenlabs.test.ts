@@ -17,15 +17,15 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { LanguageModel } from "ai";
 import { describeFeature, loadFeature } from "@amiceli/vitest-cucumber";
+import type { LanguageModel } from "ai";
 import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { AgentRole } from "../../../domain/agents";
-import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { VoiceAgentAdapter } from "../../adapter";
-import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
+import { AudioChunk, silentChunk } from "../../audio-chunk";
 import { elevenLabsAgent } from "../../factories";
+import { ELEVENLABS_DEFAULT_VOICE_ID } from "../../voice-models";
 import {
   ComposableVoiceAgent,
   ElevenLabsAgentAdapter,
@@ -660,15 +660,16 @@ describe("ElevenLabsAgentAdapter wire-protocol (SDK-routed recv path)", () => {
     const { adapter, socket } = await makeConnected();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const recv = adapter.receiveAudio(2);
-    socket.emit("error", new Error("connection lost"));
+    const transportError = new Error("connection lost");
+    socket.emit("error", transportError);
 
     // A pending waiter is REJECTED, not resolved with an empty chunk. Either
     // unwinds the executor, but the empty chunk reads as a clean end of turn,
     // so the drain would report the audio collected so far as a complete turn
     // and the broken session would never reach the run (#756).
-    await expect(recv).rejects.toThrow(/session error: connection lost/);
+    await expect(recv).rejects.toBe(transportError);
     // And it keeps failing, rather than the next probe finding a quiet socket.
-    await expect(adapter.receiveAudio(2)).rejects.toThrow(/session error/);
+    await expect(adapter.receiveAudio(2)).rejects.toBe(transportError);
     // The session is cleared so subsequent sendAudio fails fast instead of
     // writing to a dead socket.
     await expect(adapter.sendAudio(silentChunk(0.01))).rejects.toThrow(/not connected/);

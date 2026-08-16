@@ -27,6 +27,7 @@ import { describe, it, expect, vi } from "vitest";
 
 import { AgentRole } from "../../../domain/agents";
 import { makeAgentInput } from "../../__tests__/helpers/drive-production";
+import { extractAudio } from "../../messages";
 import { isReceiveTimeoutError } from "../../receive-timeout-error";
 import type { STTProvider } from "../../stt";
 import { OPENAI_REALTIME_MODEL } from "../../voice-models";
@@ -37,7 +38,7 @@ import { OpenAIRealtimeAgentAdapter } from "../openai-realtime";
 import { PipecatAgentAdapter, type PipecatWebSocketLike } from "../pipecat";
 import { TwilioAgentAdapter } from "../twilio";
 import type { MediaStreamWebSocket } from "../twilio-server";
-import { TwilioRESTHelper } from "../twilio-shared";
+import { mulaw8kToPcm16At24k, TwilioRESTHelper } from "../twilio-shared";
 import { makeFakeConv } from "./fixtures/fake-elevenlabs-conversation";
 import { setupMockRealtimeServer } from "./fixtures/mock-realtime-server";
 
@@ -326,19 +327,19 @@ describe("a stream that ends is an end of turn, not a failure (#756)", () => {
 
   it("still fails every receive after a socket error", async () => {
     const { adapter, socket } = await connectedPipecat();
-    socket.emit("error", new Error("ECONNRESET"));
+    const transportError = new Error("ECONNRESET");
+    const inFlightReceive = adapter.receiveAudio(30);
+    await Promise.resolve();
 
-    // Now, and on the drain's next probe: a broken transport is not an end of
-    // turn however many times it is asked.
-    for (const attempt of ["first", "second"]) {
-      const error = await adapter.receiveAudio(30).then(
-        () => undefined,
-        (err: unknown) => err,
-      );
-      expect(error, `${attempt} receive resolved after a socket error`).toBeInstanceOf(Error);
-      expect((error as Error).message).toContain("ECONNRESET");
-      expect(isReceiveTimeoutError(error)).toBe(false);
-    }
+    socket.emit("error", transportError);
+
+    // A broken transport rejects the currently parked receive immediately,
+    // rather than letting its deadline relabel the failure as a timeout.
+    await expect(inFlightReceive).rejects.toBe(transportError);
+    expect(isReceiveTimeoutError(transportError)).toBe(false);
+
+    // The drain's next probe must see the same transport failure too.
+    await expect(adapter.receiveAudio(30)).rejects.toBe(transportError);
   });
 
   it("completes a real call() whose stream ends mid-drain", async () => {
@@ -362,7 +363,11 @@ describe("a stream that ends is an end of turn, not a failure (#756)", () => {
     );
     setTimeout(() => socket.emit("close"), 20);
 
-    const messages = await adapter.call(makeAgentInput());
-    expect(messages).toBeTruthy();
+    const message = await adapter.call(makeAgentInput());
+    const audio = extractAudio(message);
+    expect(audio, "call() returned no assistant audio").not.toBeNull();
+    expect(audio!.data.length).toBeGreaterThan(0);
+    const expectedPcm = mulaw8kToPcm16At24k(Buffer.from(payload, "base64"));
+    expect(Array.from(audio!.data)).toEqual(Array.from(expectedPcm));
   });
 });
