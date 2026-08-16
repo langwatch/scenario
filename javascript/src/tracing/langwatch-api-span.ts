@@ -107,30 +107,48 @@ function flattenParams({
   }
 }
 
+/**
+ * Renders a span input/output payload as a readable attribute string.
+ *
+ * The API shape is `{ type, value }`. Plain text values stay raw strings;
+ * anything else (chat messages, JSON) is JSON-encoded. Mirrors the Python
+ * SDK's `_io_value_to_attribute` so both write the same string.
+ */
+function ioValueToAttribute(
+  io: { type: string; value: unknown } | null | undefined
+): string | null {
+  const value = io?.value;
+  if (value == null) return null;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildAttributes(span: LangWatchApiSpan): Attributes {
   const attrs: Attributes = {};
 
   attrs["langwatch.span.type"] = span.type ?? "span";
 
-  // Input
-  if (span.input) {
-    if (span.input.type === "chat_messages") {
-      attrs["gen_ai.input.messages"] = JSON.stringify(span.input.value);
-    } else if (span.input.type === "text" || span.input.type === "raw") {
-      attrs.input = String(span.input.value);
-    } else {
-      attrs.input = JSON.stringify(span.input.value);
+  // Input and output. Both SDKs write the same two keys with the same
+  // serialization (a string value stays raw, anything else is JSON), so a
+  // judge prompt reads the same digest whichever SDK fetched the trace. Chat
+  // messages additionally get the gen_ai semantic-convention key.
+  const inputValue = ioValueToAttribute(span.input);
+  if (inputValue != null) {
+    attrs["langwatch.input"] = inputValue;
+    if (span.input?.type === "chat_messages") {
+      attrs["gen_ai.input.messages"] = inputValue;
     }
   }
 
-  // Output
-  if (span.output) {
-    if (span.output.type === "chat_messages") {
-      attrs["gen_ai.output.messages"] = JSON.stringify(span.output.value);
-    } else if (span.output.type === "text" || span.output.type === "raw") {
-      attrs.output = String(span.output.value);
-    } else {
-      attrs.output = JSON.stringify(span.output.value);
+  const outputValue = ioValueToAttribute(span.output);
+  if (outputValue != null) {
+    attrs["langwatch.output"] = outputValue;
+    if (span.output?.type === "chat_messages") {
+      attrs["gen_ai.output.messages"] = outputValue;
     }
   }
 
@@ -186,7 +204,7 @@ function buildStatus(span: LangWatchApiSpan): SpanStatus {
  * spanContext() and the parent span context.
  *
  * Span type, input, output, error, params, and metrics are mapped into OTel
- * attributes (`langwatch.span.type`, `input`/`output` as JSON strings,
+ * attributes (`langwatch.span.type`, `langwatch.input`/`langwatch.output`,
  * `gen_ai.*`) so the judge can read tool names and payloads. API timestamps
  * are epoch milliseconds; ReadableSpan times are HrTime `[seconds, nanos]`.
  */

@@ -12,7 +12,6 @@ the response text.
 """
 
 import json
-from typing import Dict
 
 import aiohttp
 import pytest

@@ -49,6 +49,10 @@ function createInput(overrides?: Partial<AgentInput>): AgentInput {
     ],
     newMessages: [{ role: "assistant", content: "Hi there!" }],
     requestedRole: AgentRole.JUDGE,
+    // The overrides come first: the two merged keys below have to win over
+    // their whole-object replacements, or a partial scenarioConfig drops the
+    // defaults it did not name.
+    ...overrides,
     scenarioState: { currentTurn: 1, ...(overrides?.scenarioState as object) },
     scenarioConfig: {
       name: "two-phase test",
@@ -56,7 +60,6 @@ function createInput(overrides?: Partial<AgentInput>): AgentInput {
       maxTurns: 10,
       ...(overrides?.scenarioConfig as object),
     },
-    ...overrides,
   } as AgentInput;
 }
 
