@@ -1,8 +1,9 @@
 /**
  * minTurns executor behavior (ADR-005, issue #899): startup validation and the
- * end-to-end floor. The judge stub here honors the offered tool set the way a
- * real LLM must — it can only volunteer a verdict on calls where finish_test
- * is actually present — so the run's turn count observably reflects the floor.
+ * end-to-end floor. Below the floor the judge returns continue without any LLM
+ * call at all; the first call the stub sees is the post-floor decision call.
+ * The stub honors the offered tool set the way a real LLM must, so the run's
+ * turn count observably reflects the floor.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -43,15 +44,15 @@ class CountingUserSim extends UserSimulatorAgentAdapter {
   }
 }
 
-function continueTestCall(): InvokeLLMResult {
+function makeVerdictCall(): InvokeLLMResult {
   return {
     text: "",
     content: [],
     toolCalls: [
       {
-        toolName: "continue_test",
+        toolName: "make_verdict",
         type: "tool-call" as const,
-        toolCallId: "tc-continue",
+        toolCallId: "tc-make-verdict",
         input: {},
       },
     ],
@@ -178,14 +179,14 @@ describe("given a scenario configured with minTurns", () => {
         criteria: ["Agent greets the user politely"],
         spanCollector: new JudgeSpanCollector(),
       });
-      const finishOfferedByCall: boolean[] = [];
+      const offeredByCall: string[][] = [];
       judge.invokeLLM = async (params: InvokeLLMParams) => {
-        const finishOffered = Object.keys(params.tools ?? {}).includes(
-          "finish_test",
-        );
-        finishOfferedByCall.push(finishOffered);
-        // Eager judge: volunteers success the moment it is allowed to.
-        return finishOffered ? finishTestCall() : continueTestCall();
+        const offered = Object.keys(params.tools ?? {}).sort();
+        offeredByCall.push(offered);
+        // Eager judge: volunteers the verdict the moment it is allowed to.
+        return offered.includes("finish_test")
+          ? finishTestCall()
+          : makeVerdictCall();
       };
 
       const execution = new ScenarioExecution(
@@ -206,9 +207,13 @@ describe("given a scenario configured with minTurns", () => {
 
       const result = await execution.execute();
 
-      // Turns 1 and 2 are gated (judge observes 0-based currentTurn), so the
-      // verdict lands on the turn-3 call: two gated calls, then one terminal.
-      expect(finishOfferedByCall).toEqual([false, false, true]);
+      // Turns 1 and 2 are gated below the floor with no LLM call at all
+      // (judge observes 0-based currentTurn); turn 3 is the first decision
+      // call, and its make_verdict answer leads straight to the verdict call.
+      expect(offeredByCall).toEqual([
+        ["continue_test", "make_verdict"],
+        ["finish_test"],
+      ]);
       expect(sim.calls).toBe(3);
       expect(result.success).toBe(true);
     });

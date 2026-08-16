@@ -62,13 +62,13 @@ function target(collector: JudgeSpanCollector, traceIds: string[] = [TRACE_ID]) 
 }
 
 describe("RemoteTraceFetcher", () => {
-  describe("when a non-blocking fetch round finds spans", () => {
+  describe("when the settle-wait finds a complete trace on the first poll", () => {
     it("feeds converted spans into the collector tagged with the thread id", async () => {
       const collector = new JudgeSpanCollector();
       const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
       const fetcher = makeFetcher(fetchFn);
 
-      await fetcher.fetchOnce(target(collector));
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
 
       expect(calls).toHaveLength(1);
       const spans = collector.getSpansForThread(THREAD_ID);
@@ -83,7 +83,7 @@ describe("RemoteTraceFetcher", () => {
       const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
       const fetcher = makeFetcher(fetchFn);
 
-      await fetcher.fetchOnce(target(collector));
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
 
       expect(calls[0].url).toBe(
         `https://langwatch.test/api/trace/${TRACE_ID}`
@@ -93,34 +93,10 @@ describe("RemoteTraceFetcher", () => {
     });
   });
 
-  describe("when the trace has not arrived yet (404)", () => {
-    it("treats it as zero spans, not an error", async () => {
-      const collector = new JudgeSpanCollector();
-      const { calls, fetchFn } = fakeTraceApi(["404"]);
-      const fetcher = makeFetcher(fetchFn);
-
-      await fetcher.fetchOnce(target(collector));
-
-      expect(calls).toHaveLength(1);
-      expect(collector.getSpansForThread(THREAD_ID)).toHaveLength(0);
-    });
-  });
-
-  describe("when a non-blocking fetch fails", () => {
-    it("swallows the failure without a synthetic error span", async () => {
-      const collector = new JudgeSpanCollector();
-      const { fetchFn } = fakeTraceApi([new Error("connection refused")]);
-      const fetcher = makeFetcher(fetchFn);
-
-      await expect(fetcher.fetchOnce(target(collector))).resolves.toBeUndefined();
-      expect(collector.getSpansForThread(THREAD_ID)).toHaveLength(0);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(true);
-    });
-  });
-
   describe("when the settle-wait polls a trace that arrives late", () => {
     it("polls until the fetched spans form a parent-resolved trace with a remote span", async () => {
       const collector = new JudgeSpanCollector();
+      // A 404 (trace not arrived yet) counts as zero spans, not an error.
       const { calls, fetchFn } = fakeTraceApi([
         "404",
         "404",
@@ -131,22 +107,7 @@ describe("RemoteTraceFetcher", () => {
       await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
 
       expect(calls).toHaveLength(3);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
       expect(collector.getSpansForThread(THREAD_ID)).toHaveLength(1);
-    });
-
-    it("settles a complete trace during the non-blocking round so the verdict adds no polls", async () => {
-      const collector = new JudgeSpanCollector();
-      const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
-      const fetcher = makeFetcher(fetchFn);
-
-      await fetcher.fetchOnce(target(collector));
-      expect(calls).toHaveLength(1);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
-
-      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
-
-      expect(calls).toHaveLength(1);
     });
 
     it("does not settle on a repeated partial chunk while parents are unresolved", async () => {
@@ -180,7 +141,6 @@ describe("RemoteTraceFetcher", () => {
       await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
 
       expect(calls).toHaveLength(4);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
       const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
       expect(names).toContain("db.write");
       expect(names).toContain("agent.request");
@@ -195,8 +155,12 @@ describe("RemoteTraceFetcher", () => {
 
       await fetcher.settleWait({ ...target(collector), timeoutMs: 40 });
 
-      expect(calls.length).toBeGreaterThan(2);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
+      const callsAtDeadline = calls.length;
+      expect(callsAtDeadline).toBeGreaterThan(2);
+
+      // Terminally failed: a later settle adds no polls.
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 40 });
+      expect(calls).toHaveLength(callsAtDeadline);
       const spans = collector.getSpansForThread(THREAD_ID);
       const names = spans.map((s) => s.name);
       expect(names).toContain("get_weather");
@@ -207,6 +171,43 @@ describe("RemoteTraceFetcher", () => {
       expect(
         errorSpan?.attributes["langwatch.span_collection.error.reason"]
       ).toContain("still incomplete");
+    });
+
+    it("ignores local echoes with open parents when deciding completeness", async () => {
+      const collector = new JudgeSpanCollector();
+      // The scenario's own adapter span: ended and collected locally, but its
+      // parent (the turn span) is still open, so it is neither fetched nor
+      // collected. The echo of the adapter span must not block settling.
+      const localAdapter = createSpan({
+        spanId: "b000000000000002",
+        name: "adapter.call",
+        startTime: [1_700_000_000, 0],
+        endTime: [1_700_000_001, 0],
+        attributes: { "langwatch.thread.id": THREAD_ID },
+      });
+      collector.onEnd(localAdapter);
+      const { calls, fetchFn } = fakeTraceApi([
+        [
+          apiSpan({
+            span_id: "b000000000000002",
+            name: "adapter.call",
+            parent_id: "b000000000000001",
+          }),
+          apiSpan({
+            span_id: "c000000000000001",
+            name: "agent.request",
+            parent_id: "b000000000000002",
+          }),
+        ],
+      ]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
+
+      expect(calls).toHaveLength(1);
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).toContain("agent.request");
+      expect(names).not.toContain("langwatch.span_collection.error");
     });
 
     it("never settles a trace that only contains the scenario's own local spans", async () => {
@@ -226,7 +227,12 @@ describe("RemoteTraceFetcher", () => {
 
       await fetcher.settleWait({ ...target(collector), timeoutMs: 60 });
 
-      expect(calls.length).toBeGreaterThan(3);
+      const callsAtTimeout = calls.length;
+      expect(callsAtTimeout).toBeGreaterThan(3);
+
+      // Terminally failed, not left pending: a later settle adds no polls.
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 60 });
+      expect(calls).toHaveLength(callsAtTimeout);
       const spans = collector.getSpansForThread(THREAD_ID);
       const names = spans.map((s) => s.name);
       expect(names).toContain("langwatch.span_collection.error");
@@ -236,7 +242,6 @@ describe("RemoteTraceFetcher", () => {
       expect(
         errorSpan?.attributes["langwatch.span_collection.error.reason"]
       ).toContain("no agent spans arrived");
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
     });
 
     it("skips already settled ids on later rounds", async () => {
@@ -247,7 +252,6 @@ describe("RemoteTraceFetcher", () => {
       await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
       const settledCallCount = calls.length;
 
-      await fetcher.fetchOnce(target(collector));
       await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
 
       expect(calls).toHaveLength(settledCallCount);
@@ -275,9 +279,6 @@ describe("RemoteTraceFetcher", () => {
 
       expect(perTrace.get(TRACE_ID)).toBe(1);
       expect(perTrace.get(otherTraceId)).toBe(1);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID, otherTraceId])).toBe(
-        false
-      );
     });
   });
 
@@ -300,24 +301,41 @@ describe("RemoteTraceFetcher", () => {
         spans[0].attributes["langwatch.span_collection.error.reason"]
       ).toContain("Timed out after 20ms");
       expect(spans[0].attributes["langwatch.thread.id"]).toBe(THREAD_ID);
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
     });
   });
 
   describe("when the settle-wait hits a hard fetch failure", () => {
-    it("feeds a synthetic error span with the failure reason and never throws", async () => {
+    it("retries until the deadline, then feeds a synthetic error span and never throws", async () => {
       const collector = new JudgeSpanCollector();
-      const { fetchFn } = fakeTraceApi([new Error("boom from the API")]);
+      const { calls, fetchFn } = fakeTraceApi([new Error("boom from the API")]);
       const fetcher = makeFetcher(fetchFn);
 
       await expect(
-        fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 })
+        fetcher.settleWait({ ...target(collector), timeoutMs: 50 })
       ).resolves.toBeUndefined();
 
+      // The failing poll is retried instead of terminally failing the trace
+      // on its first error, and the deadline records the last reason.
+      expect(calls.length).toBeGreaterThan(1);
       const spans = collector.getSpansForThread(THREAD_ID);
       expect(spans).toHaveLength(1);
       expect(spans[0].name).toBe("langwatch.span_collection.error");
-      expect(spans[0].status.message).toBe("boom from the API");
+      expect(spans[0].status.message).toContain("kept failing until");
+      expect(spans[0].status.message).toContain("boom from the API");
+    });
+
+    it("settles when a later poll succeeds after a failed one", async () => {
+      const collector = new JudgeSpanCollector();
+      const { fetchFn } = fakeTraceApi([
+        new Error("transient blip"),
+        [apiSpan()],
+      ]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
+
+      const names = collector.getSpansForThread(THREAD_ID).map((s) => s.name);
+      expect(names).toEqual(["get_weather"]);
     });
   });
 
@@ -347,7 +365,7 @@ describe("RemoteTraceFetcher", () => {
       ]);
       const fetcher = makeFetcher(fetchFn);
 
-      await fetcher.fetchOnce(target(collector));
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
 
       const spans = collector.getSpansForThread(THREAD_ID);
       const names = spans.map((s) => s.name).sort();
@@ -362,13 +380,17 @@ describe("RemoteTraceFetcher", () => {
       const fetcher = makeFetcher(fetchFn);
 
       await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(false);
+      const callsAfterFirst = calls.length;
 
       fetcher.clearForThread(THREAD_ID);
 
-      expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_ID])).toBe(true);
-      await fetcher.fetchOnce(target(new JudgeSpanCollector()));
-      expect(calls.length).toBeGreaterThan(1);
+      // In production clearForThread runs alongside the collector's own
+      // clear, so the second settle starts from a fresh collector too.
+      await fetcher.settleWait({
+        ...target(new JudgeSpanCollector()),
+        timeoutMs: 5_000,
+      });
+      expect(calls.length).toBe(callsAfterFirst + 1);
     });
   });
 });

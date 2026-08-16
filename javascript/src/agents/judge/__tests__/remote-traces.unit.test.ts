@@ -3,9 +3,9 @@
  *
  * Binds the @unit scenarios of `specs/remote-trace-fetching.feature`:
  * propagation headers on AgentInput, the per-turn trace id fan-out, the
- * non-blocking mid-conversation fetch, the verdict-time settle-wait, the
- * two-phase voluntary verdict, failure semantics, dedupe/filtering, and the
- * off-by-default contract.
+ * no-fetch conversation turns, the verdict-time settle-wait, the
+ * make_verdict-then-settle flow, failure semantics, dedupe/filtering, and
+ * the off-by-default contract.
  *
  * Mechanics mirror `judge-agent.test.ts`: a real JudgeSpanCollector fed via
  * onEnd, `agent.invokeLLM` overridden to capture params and return canned
@@ -48,6 +48,7 @@ import { user, agent as agentStep, succeed } from "../../../script";
 import type { LangWatchApiSpan } from "../../../tracing/langwatch-api-span";
 import { RemoteTraceFetcher } from "../../../tracing/remote-trace-fetcher";
 import { InvokeLLMParams, InvokeLLMResult } from "../../types";
+import type { JudgeResult } from "../interfaces/judge-result.interface";
 import { judgeAgent, JudgeAgentConfig } from "../judge-agent";
 import { JudgeSpanCollector } from "../judge-span-collector";
 import { createSpan } from "./helpers/create-span";
@@ -85,7 +86,7 @@ const TRACE_B = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2";
 const TRACE_C = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3";
 
 const REMOTE_TRACE_RULE =
-  "Criteria about the agent's internal behavior (tool calls, database writes, API calls, retrievals) must be verified against the <opentelemetry_traces> section, not against claims in the transcript. Mid-conversation, traces may not have arrived yet; that is normal. Do not continue the conversation only to wait for traces: when the conversation itself has given you what you need, call finish_test, because trace collection completes at that moment and you will be asked once more with the full traces if they were incomplete. If a span named langwatch.span_collection.error is present, read its reason: when no agent spans arrived, mark criteria that depend on internal behavior as inconclusive, never passed. When the trace is incomplete, criteria proven by the spans that are present may pass, and criteria whose evidence is missing stay inconclusive. Never mark internal-behavior criteria as passed based on the transcript alone.";
+  "Criteria about the agent's internal behavior (tool calls, database writes, API calls, retrievals) must be verified against the <opentelemetry_traces> section, not against claims in the transcript. If a span named langwatch.span_collection.error is present, read its reason: when no agent spans arrived, mark criteria that depend on internal behavior as inconclusive, never passed. When the trace is incomplete, criteria proven by the spans that are present may pass, and criteria whose evidence is missing stay inconclusive. Criteria about the conversation itself are unaffected by missing traces: judge them from the transcript as normal. Never mark internal-behavior criteria as passed based on the transcript alone.";
 
 function toolSpan(traceId: string, spanId: string): LangWatchApiSpan {
   return {
@@ -396,8 +397,8 @@ describeFeature(
 
     // -----------------------------------------------------------------------
     Scenario(
-      "Non-verdict judge calls do not wait for trace ingestion",
-      ({ Given, When, Then, And }) => {
+      "Conversation turns never fetch remote traces",
+      ({ Given, When, Then }) => {
         let api: ReturnType<typeof fakeTraceApi>;
         let judge: ReturnType<typeof judgeAgent>;
         let result: Awaited<ReturnType<typeof judge.call>>;
@@ -416,32 +417,20 @@ describeFeature(
           }
         );
 
-        When(
-          "remote traces for the latest turn are not yet available",
-          async () => {
-            result = await judge.call(
-              judgeInput({
-                messages: [
-                  tracedMessage("user", "turn 1"),
-                  tracedMessage("assistant", "ok", TRACE_A),
-                ],
-                currentTurn: 1,
-              })
-            );
-          }
-        );
+        When("the decision call completes", async () => {
+          result = await judge.call(
+            judgeInput({
+              messages: [
+                tracedMessage("user", "turn 1"),
+                tracedMessage("assistant", "ok", TRACE_A),
+              ],
+              currentTurn: 1,
+            })
+          );
+        });
 
-        Then(
-          "the judge call performs at most one non-blocking fetch round",
-          () => {
-            expect(api.requestedTraceIds).toEqual([TRACE_A]);
-          }
-        );
-
-        And("no settle-wait is performed", () => {
-          // A settle-wait would poll the same id repeatedly; a single request
-          // proves only the non-blocking round ran.
-          expect(api.requestedTraceIds).toHaveLength(1);
+        Then("no remote trace fetch happens at all", () => {
+          expect(api.requestedTraceIds).toHaveLength(0);
           expect(result).toBeNull();
         });
       }
@@ -494,7 +483,7 @@ describeFeature(
         });
 
         Then(
-          "the fetcher polls until every fetched span's parent resolves within the fetched and locally collected spans",
+          "the fetcher polls until every fetched agent span's parent resolves within the fetched and locally collected spans",
           () => {
             // 404, 404, then the parentless root span arrives: the trace is
             // parent-resolved with a remote span, so it settles on that poll.
@@ -580,7 +569,6 @@ describeFeature(
             .map((span) => span.name);
           expect(names).toContain("agent.request");
           expect(names).toContain("db.write_orders");
-          expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_A])).toBe(false);
         });
       }
     );
@@ -629,7 +617,6 @@ describeFeature(
 
         Then("the collected spans remain available to the judge", () => {
           expect(api.requestedTraceIds.length).toBeGreaterThan(2);
-          expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_A])).toBe(false);
           const names = collector
             .getSpansForThread(THREAD_ID)
             .map((span) => span.name);
@@ -705,7 +692,6 @@ describeFeature(
               .getSpansForThread(THREAD_ID)
               .map((span) => span.name);
             expect(names).toContain("langwatch.span_collection.error");
-            expect(fetcher.hasUnsettled(THREAD_ID, [TRACE_A])).toBe(false);
           }
         );
       }
@@ -713,19 +699,88 @@ describeFeature(
 
     // -----------------------------------------------------------------------
     Scenario(
-      "A voluntary mid-run verdict is re-issued once with complete traces",
+      "The scenario's own spans echoed back do not block settling",
+      ({ Given, And, When, Then }) => {
+        let api: ReturnType<typeof fakeTraceApi>;
+        let collector: JudgeSpanCollector;
+        let fetcher: RemoteTraceFetcher;
+
+        Given(
+          "the platform echoes back one of the scenario's own spans whose parent span is still open",
+          () => {
+            collector = new JudgeSpanCollector();
+            // The adapter span ended and was collected; its parent (the turn
+            // span) is still open, so it is neither fetched nor collected.
+            collector.onEnd(
+              createSpan({
+                spanId: "b000000000000002",
+                name: "adapter.call",
+                startTime: [1_700_000_000, 0],
+                endTime: [1_700_000_001, 0],
+                attributes: { "langwatch.thread.id": THREAD_ID },
+              })
+            );
+          }
+        );
+
+        And("the agent's spans are fully ingested", () => {
+          api = fakeTraceApi({
+            [TRACE_A]: [
+              [
+                {
+                  ...toolSpan(TRACE_A, "b000000000000002"),
+                  name: "adapter.call",
+                  parent_id: "b000000000000001",
+                },
+                {
+                  ...toolSpan(TRACE_A, "c000000000000001"),
+                  name: "agent.request",
+                  parent_id: "b000000000000002",
+                },
+              ],
+            ],
+          });
+          fetcher = new RemoteTraceFetcher({
+            fetchFn: api.fetchFn,
+            pollIntervalMs: 1,
+          });
+        });
+
+        When("the judge issues its verdict", async () => {
+          await fetcher.settleWait({
+            threadId: THREAD_ID,
+            traceIds: [TRACE_A],
+            collector,
+            langwatch: LANGWATCH,
+            timeoutMs: 5_000,
+          });
+        });
+
+        Then("the trace settles on the first poll", () => {
+          expect(api.requestedTraceIds).toEqual([TRACE_A]);
+          const names = collector
+            .getSpansForThread(THREAD_ID)
+            .map((span) => span.name);
+          expect(names).toContain("agent.request");
+          expect(names).not.toContain("langwatch.span_collection.error");
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "A make_verdict decision settles the traces before the verdict",
       ({ Given, When, Then, And }) => {
         let judge: ReturnType<typeof judgeAgent>;
         let result: Awaited<ReturnType<typeof judge.call>>;
         const invocations: InvokeLLMParams[] = [];
 
         Given(
-          "the judge volunteers a finish_test verdict while remote traces are incomplete",
+          "the judge decides mid-conversation that enough information has been collected",
           () => {
             const api = fakeTraceApi({
               [TRACE_A]: [
                 "404",
-                [toolSpan(TRACE_A, "b000000000000001")],
                 [toolSpan(TRACE_A, "b000000000000001")],
               ],
             });
@@ -737,17 +792,16 @@ describeFeature(
             judge = makeJudge({ collector, fetcher });
             judge.invokeLLM = async (params) => {
               invocations.push(params);
-              // First call: volunteer a success verdict on an incomplete
-              // trace. Second call: the verdict flips once the real span is
-              // visible — proving the second response wins.
+              // First call: the decision. Second call: the verdict, made
+              // with the settled trace in the digest.
               return invocations.length === 1
-                ? finishTest("success", "trusting the transcript")
+                ? mockLLMResult("make_verdict", {})
                 : finishTest("failure", "the trace shows no order write");
             };
           }
         );
 
-        When("the runtime completes the settle-wait fetch", async () => {
+        When("the verdict call runs", async () => {
           result = await judge.call(
             judgeInput({
               messages: [
@@ -760,13 +814,10 @@ describeFeature(
         });
 
         Then(
-          "the judge is invoked exactly one more time with the complete trace digest",
+          "the settle-wait completes before the verdict prompt is built",
           () => {
             expect(invocations).toHaveLength(2);
             expect(userMessageContent(invocations[0])).not.toContain(
-              "db.write_orders"
-            );
-            expect(userMessageContent(invocations[1])).toContain(
               "db.write_orders"
             );
             expect(invocations[1].toolChoice).toEqual({
@@ -776,11 +827,17 @@ describeFeature(
           }
         );
 
-        And("the second verdict is the scenario result", () => {
-          expect(result).not.toBeNull();
-          expect(result?.success).toBe(false);
-          expect(result?.reasoning).toBe("the trace shows no order write");
-        });
+        And(
+          "the fetched spans are present in the verdict's trace digest",
+          () => {
+            expect(userMessageContent(invocations[1])).toContain(
+              "db.write_orders"
+            );
+            expect(result).not.toBeNull();
+            expect(result?.success).toBe(false);
+            expect(result?.reasoning).toBe("the trace shows no order write");
+          }
+        );
       }
     );
 
@@ -840,6 +897,232 @@ describeFeature(
 
     // -----------------------------------------------------------------------
     Scenario(
+      "A fractional wait budget does not break the fetch",
+      ({ Given, When, Then }) => {
+        let api: ReturnType<typeof fakeTraceApi>;
+        let collector: JudgeSpanCollector;
+        let fetcher: RemoteTraceFetcher;
+
+        Given(
+          "the settle-wait budget is a fractional number of milliseconds",
+          () => {
+            api = fakeTraceApi({
+              [TRACE_A]: [[toolSpan(TRACE_A, "c000000000000010")]],
+            });
+            collector = new JudgeSpanCollector();
+            fetcher = new RemoteTraceFetcher({
+              fetchFn: api.fetchFn,
+              pollIntervalMs: 1,
+            });
+          }
+        );
+
+        When("the judge settle-waits for the remote trace", async () => {
+          // A computed budget (for example 1.25 * p95 + 5s) is fractional,
+          // and AbortSignal.timeout rejects non-integer delays.
+          await fetcher.settleWait({
+            threadId: THREAD_ID,
+            traceIds: [TRACE_A],
+            collector,
+            langwatch: LANGWATCH,
+            timeoutMs: 25_242.1875,
+          });
+        });
+
+        Then(
+          "the trace settles normally without a synthetic error span",
+          () => {
+            const names = collector
+              .getSpansForThread(THREAD_ID)
+              .map((span) => span.name);
+            expect(names).toContain("db.write_orders");
+            expect(names).not.toContain("langwatch.span_collection.error");
+          }
+        );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "A poll in flight at the deadline still yields the timeout reason",
+      ({ Given, When, Then }) => {
+        let collector: JudgeSpanCollector;
+        let fetcher: RemoteTraceFetcher;
+
+        Given("a remote trace that never arrives within the budget", () => {
+          collector = new JudgeSpanCollector();
+          // A fake that honors the request abort signal and answers slower
+          // than the settle budget, so the deadline expires mid-poll. The
+          // request signal must NOT fire (it is a fixed per-request bound,
+          // not the settle budget), so the poll completes and the deadline
+          // branch records the honest timeout reason.
+          const fetchFn: typeof fetch = (_input, init) =>
+            new Promise((resolve, reject) => {
+              const timer = setTimeout(
+                () => resolve(jsonResponse({ trace_id: TRACE_A, spans: [] })),
+                30
+              );
+              init?.signal?.addEventListener("abort", () => {
+                clearTimeout(timer);
+                reject(
+                  new DOMException(
+                    "The operation was aborted due to timeout",
+                    "TimeoutError"
+                  )
+                );
+              });
+            });
+          fetcher = new RemoteTraceFetcher({ fetchFn, pollIntervalMs: 1 });
+        });
+
+        When(
+          "the settle-wait deadline expires while a poll is in flight",
+          async () => {
+            await fetcher.settleWait({
+              threadId: THREAD_ID,
+              traceIds: [TRACE_A],
+              collector,
+              langwatch: LANGWATCH,
+              timeoutMs: 10,
+            });
+          }
+        );
+
+        Then(
+          "the synthetic error span reports that no agent spans arrived rather than an aborted fetch",
+          () => {
+            const errorSpan = collector
+              .getSpansForThread(THREAD_ID)
+              .find((span) => span.name === "langwatch.span_collection.error");
+            expect(errorSpan).toBeDefined();
+            const reason = String(
+              errorSpan?.attributes["langwatch.span_collection.error.reason"]
+            );
+            expect(reason).toContain("no agent spans arrived");
+            expect(reason).not.toContain("aborted");
+          }
+        );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "A failed poll retries until the deadline instead of failing the trace",
+      ({ Given, When, Then }) => {
+        let collector: JudgeSpanCollector;
+        let fetcher: RemoteTraceFetcher;
+
+        Given(
+          "the first trace fetch fails and a later fetch returns the complete trace",
+          () => {
+            collector = new JudgeSpanCollector();
+            let callCount = 0;
+            const fetchFn: typeof fetch = async () => {
+              callCount++;
+              if (callCount === 1) throw new Error("transient blip");
+              return new Response(
+                JSON.stringify({
+                  trace_id: TRACE_A,
+                  spans: [toolSpan(TRACE_A, "c000000000000010")],
+                }),
+                { status: 200 }
+              );
+            };
+            fetcher = new RemoteTraceFetcher({ fetchFn, pollIntervalMs: 1 });
+          }
+        );
+
+        When("the judge settle-waits for the remote trace", async () => {
+          await fetcher.settleWait({
+            threadId: THREAD_ID,
+            traceIds: [TRACE_A],
+            collector,
+            langwatch: LANGWATCH,
+            timeoutMs: 5_000,
+          });
+        });
+
+        Then(
+          "the trace settles normally without a synthetic error span",
+          () => {
+            const names = collector
+              .getSpansForThread(THREAD_ID)
+              .map((span) => span.name);
+            expect(names).toContain("db.write_orders");
+            expect(names).not.toContain("langwatch.span_collection.error");
+          }
+        );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
+      "A voluntary inconclusive verdict is terminal when no remote trace ever settled",
+      ({ Given, When, Then }) => {
+        let judge: ReturnType<typeof makeJudge>;
+        let result: Awaited<ReturnType<ReturnType<typeof makeJudge>["call"]>>;
+
+        Given(
+          "remote trace fetching is enabled and every trace terminally failed to settle",
+          () => {
+            const api = fakeTraceApi({ [TRACE_A]: ["404"] });
+            const fetcher = new RemoteTraceFetcher({
+              fetchFn: api.fetchFn,
+              pollIntervalMs: 1,
+            });
+            judge = makeJudge({
+              collector: new JudgeSpanCollector(),
+              fetcher,
+            });
+            judge.invokeLLM = async (params) => {
+              // Honor the offered toolset: the decision volunteers
+              // make_verdict, the verdict answers inconclusive.
+              if (!("finish_test" in (params.tools ?? {}))) {
+                return mockLLMResult("make_verdict", {});
+              }
+              return mockLLMResult("finish_test", {
+                criteria: {
+                  the_agent_writes_the_order_to_the_database: "inconclusive",
+                },
+                reasoning: "No trace evidence arrived for the write.",
+                verdict: "inconclusive",
+              });
+            };
+          }
+        );
+
+        When(
+          "the judge volunteers a verdict and it comes back inconclusive",
+          async () => {
+            result = await judge.call(
+              judgeInput({
+                messages: [
+                  tracedMessage("user", "place the order", TRACE_A),
+                  tracedMessage("assistant", "order placed"),
+                ],
+                currentTurn: 1,
+                maxTurns: 5,
+                scenarioConfigExtra: { traceWaitTimeoutMs: 30 },
+              })
+            );
+          }
+        );
+
+        Then(
+          "the verdict is final and the conversation does not continue",
+          () => {
+            // A continuing judge returns null; a terminal verdict returns
+            // the result, and an inconclusive criterion cannot pass.
+            expect(result).not.toBeNull();
+            const judgeResult = result as JudgeResult;
+            expect(judgeResult.success).toBe(false);
+          }
+        );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    Scenario(
       "Remote spans deduplicate against locally collected spans",
       ({ Given, When, Then, And }) => {
         let collector: JudgeSpanCollector;
@@ -888,11 +1171,12 @@ describeFeature(
         When(
           "remote traces are merged into the judge span collector",
           async () => {
-            await fetcher.fetchOnce({
+            await fetcher.settleWait({
               threadId: THREAD_ID,
               traceIds: [TRACE_A],
               collector,
               langwatch: LANGWATCH,
+              timeoutMs: 5_000,
             });
           }
         );
@@ -996,12 +1280,20 @@ describe("project-wide remote trace defaults", () => {
       defaultModel: { model: "openai/gpt-5-mini", temperature: 0 },
       fetchRemoteTraces: true,
     } as never);
-    const api = fakeTraceApi({ [TRACE_A]: ["404"] });
+    const api = fakeTraceApi({
+      [TRACE_A]: [[toolSpan(TRACE_A, "b000000000000001")]],
+    });
     const judge = makeJudge({
       collector: new JudgeSpanCollector(),
       fetcher: new RemoteTraceFetcher({ fetchFn: api.fetchFn, pollIntervalMs: 1 }),
     });
-    judge.invokeLLM = async () => mockLLMResult("continue_test", {});
+    let callCount = 0;
+    judge.invokeLLM = async () => {
+      callCount += 1;
+      return callCount === 1
+        ? mockLLMResult("make_verdict", {})
+        : finishTest("success");
+    };
 
     await judge.call(
       judgeInput({
@@ -1024,7 +1316,13 @@ describe("project-wide remote trace defaults", () => {
       collector: new JudgeSpanCollector(),
       fetcher: new RemoteTraceFetcher({ fetchFn: api.fetchFn, pollIntervalMs: 1 }),
     });
-    judge.invokeLLM = async () => mockLLMResult("continue_test", {});
+    let callCount = 0;
+    judge.invokeLLM = async () => {
+      callCount += 1;
+      return callCount === 1
+        ? mockLLMResult("make_verdict", {})
+        : finishTest("success");
+    };
 
     await judge.call(
       judgeInput({
@@ -1038,8 +1336,8 @@ describe("project-wide remote trace defaults", () => {
   });
 });
 
-describe("judge system prompt remote trace rule", () => {
-  it("is present only when remote fetching is enabled", async () => {
+describe("judge system prompt remote trace rules", () => {
+  it("carries the verdict rule only when remote fetching is enabled", async () => {
     async function promptFor(scenarioConfigExtra: Record<string, unknown>) {
       const collector = new JudgeSpanCollector();
       const fetcher = new RemoteTraceFetcher({
@@ -1050,12 +1348,13 @@ describe("judge system prompt remote trace rule", () => {
       let params: InvokeLLMParams | undefined;
       judge.invokeLLM = async (p) => {
         params = p;
-        return mockLLMResult("continue_test", {});
+        return finishTest("success");
       };
       await judge.call(
         judgeInput({
           messages: [tracedMessage("user", "hello")],
           currentTurn: 1,
+          judgmentRequest: {} as AgentInput["judgmentRequest"],
           scenarioConfigExtra,
         })
       );
@@ -1067,5 +1366,32 @@ describe("judge system prompt remote trace rule", () => {
 
     expect(enabled).toContain(REMOTE_TRACE_RULE);
     expect(disabled).not.toContain(REMOTE_TRACE_RULE);
+  });
+
+  it("tells the decision call that traces are fetched at the verdict", async () => {
+    const collector = new JudgeSpanCollector();
+    const fetcher = new RemoteTraceFetcher({
+      fetchFn: fakeTraceApi({}).fetchFn,
+      pollIntervalMs: 1,
+    });
+    const judge = makeJudge({ collector, fetcher });
+    let params: InvokeLLMParams | undefined;
+    judge.invokeLLM = async (p) => {
+      params = p;
+      return mockLLMResult("continue_test", {});
+    };
+
+    await judge.call(
+      judgeInput({
+        messages: [tracedMessage("user", "hello")],
+        currentTurn: 1,
+      })
+    );
+
+    const prompt = systemMessageContent(params);
+    expect(prompt).toContain(
+      "The agent's execution traces are fetched and verified at the verdict"
+    );
+    expect(prompt).not.toContain(REMOTE_TRACE_RULE);
   });
 });

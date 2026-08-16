@@ -46,11 +46,13 @@ interface PollResult {
   /** Fetched spans that are not the scenario's own locally collected spans. */
   remoteSpanCount: number;
   /**
-   * Every fetched span's parent id resolves to another fetched span or to a
-   * locally collected span. Ancestors finish and export after their
-   * descendants, so unresolved parents mean the trace is still arriving.
-   * (Missing leaf subtrees are undetectable from the outside; the deadline
-   * bounds those.)
+   * Every fetched agent span's parent id resolves to another fetched span or
+   * to a locally collected span. Ancestors finish and export after their
+   * descendants, so unresolved parents mean the agent's trace is still
+   * arriving. The scenario's own spans echoed back by the platform are
+   * exempt: their parent is often the still-open local turn span, and their
+   * ingestion state says nothing about the agent's spans. (Missing leaf
+   * subtrees are undetectable from the outside; the deadline bounds those.)
    */
   parentsResolved: boolean;
 }
@@ -96,15 +98,13 @@ export function collectMessageTraceIds(
  * judge span collector, so the trace digest and the expand_trace/grep_trace
  * tools work on remote spans exactly as they do on local ones.
  *
- * Latency contract:
- * - Mid-conversation judge calls do one non-blocking fetch round per call
- *   ({@link fetchOnce}) — a single request per unsettled trace id, no waiting.
- * - A verdict settle-waits ({@link settleWait}): each unsettled id is polled
- *   every second, all ids in parallel under one shared deadline.
+ * Latency contract: conversation turns never fetch. The verdict settle-waits
+ * ({@link settleWait}): each unsettled id is polled every second, all ids in
+ * parallel under one shared deadline.
  *
  * A trace settles cleanly when it holds at least one remote span (a fetched
  * span that is not one of the scenario's own locally collected spans) AND
- * every fetched span's parent resolves within the fetched and locally
+ * every fetched agent span's parent resolves within the fetched and locally
  * collected spans — the trace is complete, because ancestors always finish
  * and export after their descendants. Count-stability is deliberately NOT a
  * settle signal: ingestion arrives in chunks that can be tens of seconds
@@ -138,47 +138,13 @@ export class RemoteTraceFetcher {
   }
 
   /**
-   * One non-blocking fetch round: a single request for each unsettled trace
-   * id, results merged into the collector. No polling, no sleeping. A trace
-   * that already looks complete (parent-resolved with remote spans) settles
-   * here, so the verdict has nothing left to wait for. Failures are logged
-   * and left for the verdict-time settle-wait to retry and report.
-   */
-  async fetchOnce(target: RemoteTraceTarget): Promise<void> {
-    const auth = this.resolveAuth(target.langwatch);
-    const pending = target.traceIds.filter((traceId) =>
-      this.isUnsettled(target.threadId, traceId)
-    );
-
-    await Promise.all(
-      pending.map(async (traceId) => {
-        const state = this.stateFor(target.threadId, traceId);
-        try {
-          await this.pollOnce({
-            threadId: target.threadId,
-            traceId,
-            state,
-            collector: target.collector,
-            auth,
-          });
-        } catch (error) {
-          this.logger.warn("Non-blocking remote trace fetch failed", {
-            traceId,
-            error,
-          });
-        }
-      })
-    );
-  }
-
-  /**
    * Verdict-time wait: polls every unsettled trace id until it settles (see
    * the class doc for the settle conditions), all ids in parallel, under one
    * shared deadline of `timeoutMs` total.
    *
-   * On timeout or a hard fetch failure the id is marked failed and one
-   * synthetic `langwatch.span_collection.error` span carrying the reason is
-   * fed to the collector. Never throws.
+   * A failed poll retries until the deadline; only the deadline marks the id
+   * failed and feeds one synthetic `langwatch.span_collection.error` span
+   * carrying the reason to the collector. Never throws.
    */
   async settleWait(
     target: RemoteTraceTarget & { timeoutMs: number }
@@ -204,11 +170,14 @@ export class RemoteTraceFetcher {
   }
 
   /**
-   * Whether any of the given trace ids still needs fetching: never fetched,
-   * or fetched but not yet confirmed settled (and not terminally failed).
+   * True when not one of the given trace ids ever settled cleanly for this
+   * thread. After a settle-wait this means every trace terminally failed,
+   * so the run's remote evidence cannot improve with more turns.
    */
-  hasUnsettled(threadId: string, traceIds: string[]): boolean {
-    return traceIds.some((traceId) => this.isUnsettled(threadId, traceId));
+  noneSettled(threadId: string, traceIds: string[]): boolean {
+    const threadStates = this.registry.get(threadId);
+    if (!threadStates) return true;
+    return !traceIds.some((traceId) => threadStates.get(traceId)?.settled);
   }
 
   /**
@@ -261,6 +230,7 @@ export class RemoteTraceFetcher {
   }): Promise<void> {
     const state = this.stateFor(threadId, traceId);
     let lastRemoteSpanCount = 0;
+    let lastFetchError: string | undefined;
 
     while (true) {
       try {
@@ -270,12 +240,17 @@ export class RemoteTraceFetcher {
           state,
           collector,
           auth,
-          deadline,
         });
+        lastFetchError = undefined;
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.recordFailure({ threadId, traceId, collector, reason });
-        return;
+        // A failed poll retries until the deadline: a transient error (a
+        // request timing out under load, a blip on the API) must not
+        // terminally fail the trace while the budget still has time left.
+        lastFetchError = error instanceof Error ? error.message : String(error);
+        this.logger.debug("Trace poll failed; retrying until the deadline", {
+          traceId,
+          reason: lastFetchError,
+        });
       }
 
       if (state.settled) return;
@@ -290,6 +265,13 @@ export class RemoteTraceFetcher {
             traceId,
             collector,
             reason: `Trace ${traceId} was still incomplete after ${timeoutMs}ms: ${lastRemoteSpanCount} remote spans were collected but some parent spans never arrived, so spans may be missing`,
+          });
+        } else if (lastFetchError) {
+          this.recordFailure({
+            threadId,
+            traceId,
+            collector,
+            reason: `Fetching trace ${traceId} kept failing until the ${timeoutMs}ms deadline: ${lastFetchError}`,
           });
         } else {
           this.recordFailure({
@@ -307,7 +289,7 @@ export class RemoteTraceFetcher {
 
   /**
    * One fetch + merge + settle evaluation. Marks the state settled when the
-   * trace holds at least one remote span and every fetched span's parent
+   * trace holds at least one remote span and every fetched agent span's parent
    * resolves (fetched or locally collected). Returns the remote span count
    * of this poll.
    */
@@ -317,16 +299,14 @@ export class RemoteTraceFetcher {
     state,
     collector,
     auth,
-    deadline,
   }: {
     threadId: string;
     traceId: string;
     state: TraceFetchState;
     collector: JudgeSpanCollector;
     auth: TraceApiAuth;
-    deadline?: number;
   }): Promise<number> {
-    const spans = await this.fetchTrace({ traceId, auth, deadline });
+    const spans = await this.fetchTrace({ traceId, auth });
     const { remoteSpanCount, parentsResolved } = this.merge({
       threadId,
       state,
@@ -369,7 +349,7 @@ export class RemoteTraceFetcher {
    * Filters out scenario infrastructure spans, deduplicates by span id
    * against spans already collected for the thread, tags the remainder with
    * the thread id attribute, and feeds them to the collector. Returns the
-   * remote-only span count and whether every fetched span's parent id
+   * remote-only span count and whether every fetched agent span's parent id
    * resolves within the fetched spans plus the locally collected ones.
    */
   private merge({
@@ -400,15 +380,6 @@ export class RemoteTraceFetcher {
     const existingSpanIds = new Set(collectorSpanIds);
 
     for (const apiSpan of spans) {
-      const parentId = apiSpan.parent_id;
-      if (
-        parentId &&
-        !fetchedSpanIds.has(parentId) &&
-        !collectorSpanIds.has(parentId)
-      ) {
-        parentsResolved = false;
-      }
-
       const name = apiSpan.name ?? "";
       if (
         INFRASTRUCTURE_SPAN_PREFIXES.some((prefix) => name.startsWith(prefix))
@@ -416,7 +387,18 @@ export class RemoteTraceFetcher {
         continue;
       }
       if (!apiSpan.span_id) continue;
-      if (!localSpanIds.has(apiSpan.span_id)) remoteSpanCount += 1;
+      const isLocalEcho = localSpanIds.has(apiSpan.span_id);
+      if (!isLocalEcho) {
+        remoteSpanCount += 1;
+        const parentId = apiSpan.parent_id;
+        if (
+          parentId &&
+          !fetchedSpanIds.has(parentId) &&
+          !collectorSpanIds.has(parentId)
+        ) {
+          parentsResolved = false;
+        }
+      }
       if (existingSpanIds.has(apiSpan.span_id)) continue;
       existingSpanIds.add(apiSpan.span_id);
       state.mergedSpanIds.add(apiSpan.span_id);
@@ -445,17 +427,11 @@ export class RemoteTraceFetcher {
   private async fetchTrace({
     traceId,
     auth,
-    deadline,
   }: {
     traceId: string;
     auth: TraceApiAuth;
-    deadline?: number;
   }): Promise<LangWatchApiSpan[]> {
     const url = `${auth.endpoint.replace(/\/$/, "")}/api/trace/${traceId}`;
-    const remaining =
-      deadline != null
-        ? Math.max(deadline - Date.now(), 1)
-        : REQUEST_TIMEOUT_MS;
 
     const response = await this.fetchFn(url, {
       headers: {
@@ -465,7 +441,11 @@ export class RemoteTraceFetcher {
         "X-Auth-Token": auth.apiKey,
         Authorization: `Bearer ${auth.apiKey}`,
       },
-      signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
+      // A fixed per-request bound against a hung API. The settle loop owns
+      // the shared deadline: shrinking this signal to the remaining budget
+      // aborted in-flight polls at the deadline edge, which recorded a
+      // misleading hard-failure reason instead of the timeout reason.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (response.status === 404) {
