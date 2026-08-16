@@ -4,9 +4,9 @@ Unit tests for remote trace fetching wired into the judge and the executor.
 Binds the @unit scenarios of specs/remote-trace-fetching.feature:
 "AgentInput carries W3C propagation headers for the current turn",
 "The judge fetches traces for every turn, not only the last",
-"Non-verdict judge calls do not wait for trace ingestion",
+"Conversation turns never fetch remote traces",
 "A forced verdict settle-waits until the remote trace is complete",
-"A voluntary mid-run verdict is re-issued once with complete traces",
+"A make_verdict decision settles the traces before the verdict",
 "Fetch failure produces a synthetic error span and inconclusive criteria
 guidance" (the judge prompt half), and
 "Remote fetching is off by default".
@@ -23,7 +23,10 @@ from scenario import JudgeAgent
 from scenario.agent_adapter import AgentAdapter
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
-from scenario.judge_agent import REMOTE_TRACES_JUDGE_RULE
+from scenario.judge_agent import (
+    REMOTE_TRACES_DECISION_RULE,
+    REMOTE_TRACES_JUDGE_RULE,
+)
 from scenario.scenario_executor import ScenarioExecutor
 from scenario.types import (
     AgentInput,
@@ -46,28 +49,24 @@ TRACE_C = "2cf7651916cd43dd8448eb211c80319e"
 
 
 class RecordingFetcher(RemoteTraceFetcher):
-    """Fetcher double recording how the judge drives it."""
+    """Fetcher double recording how the judge drives it.
+
+    The HTTP layer raises if reached, so any fetch outside the recorded
+    ``settle_traces`` surface fails the test loudly.
+    """
 
     def __init__(
         self,
         *,
-        unsettled: bool = True,
         spans_on_settle: Optional[List[Any]] = None,
     ) -> None:
         super().__init__(fetch_trace=self._never_called)
-        self.fetch_once_calls: List[List[str]] = []
         self.settle_calls: List[Dict[str, Any]] = []
-        self._unsettled = unsettled
         self._spans_on_settle = spans_on_settle or []
 
     @staticmethod
     async def _never_called(trace_id: str) -> Optional[Dict[str, Any]]:
         raise AssertionError("the HTTP layer must not be reached in this test")
-
-    async def fetch_traces_once(
-        self, *, thread_id: str, trace_ids: Sequence[str], collector: JudgeSpanCollector
-    ) -> None:
-        self.fetch_once_calls.append(list(trace_ids))
 
     async def settle_traces(
         self,
@@ -80,12 +79,6 @@ class RecordingFetcher(RemoteTraceFetcher):
         self.settle_calls.append({"trace_ids": list(trace_ids), "timeout": timeout})
         for span in self._spans_on_settle:
             collector.on_end(span)
-        self._unsettled = False
-
-    def has_unsettled_traces(
-        self, *, thread_id: str, trace_ids: Sequence[str]
-    ) -> bool:
-        return self._unsettled
 
 
 def _scenario_state(
@@ -158,6 +151,15 @@ def _continue_test_response() -> MagicMock:
     return response
 
 
+def _make_verdict_response() -> MagicMock:
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.tool_calls = [MagicMock()]
+    response.choices[0].message.tool_calls[0].function.name = "make_verdict"
+    response.choices[0].message.tool_calls[0].function.arguments = "{}"
+    return response
+
+
 def _cache_context():
     executor = MagicMock()
     executor.config = MagicMock()
@@ -207,8 +209,8 @@ async def test_judge_fetches_traces_for_every_turn_not_only_the_last():
 
 
 @pytest.mark.asyncio
-async def test_non_verdict_judge_calls_do_one_fetch_round_and_never_settle_wait():
-    """@scenario Non-verdict judge calls do not wait for trace ingestion"""
+async def test_conversation_turns_never_fetch_remote_traces():
+    """@scenario Conversation turns never fetch remote traces"""
     fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
@@ -228,8 +230,9 @@ async def test_non_verdict_judge_calls_do_one_fetch_round_and_never_settle_wait(
     finally:
         context_scenario.reset(token)
 
+    # A continue decision costs zero fetches: no settle-wait, and the
+    # RecordingFetcher's HTTP layer would have raised on any request.
     assert result == []
-    assert fetcher.fetch_once_calls == [[TRACE_A, TRACE_B, TRACE_C]]
     assert fetcher.settle_calls == []
 
 
@@ -286,8 +289,8 @@ async def test_forced_verdict_settle_waits_and_fetched_spans_reach_the_digest():
 
 
 @pytest.mark.asyncio
-async def test_voluntary_mid_run_verdict_is_reissued_exactly_once_with_settled_traces():
-    """@scenario A voluntary mid-run verdict is re-issued once with complete traces"""
+async def test_make_verdict_decision_settles_traces_before_the_verdict():
+    """@scenario A make_verdict decision settles the traces before the verdict"""
     remote_span = convert_api_span(
         {
             "trace_id": TRACE_A,
@@ -299,20 +302,20 @@ async def test_voluntary_mid_run_verdict_is_reissued_exactly_once_with_settled_t
         thread_id=THREAD_ID,
     )
     assert remote_span is not None
-    fetcher = RecordingFetcher(unsettled=True, spans_on_settle=[remote_span])
+    fetcher = RecordingFetcher(spans_on_settle=[remote_span])
     judge = JudgeAgent(
         criteria=["Test criterion"],
         model="openai/gpt-5-mini",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
-    first = _finish_test_response(reasoning="first verdict, incomplete traces")
-    second = _finish_test_response(reasoning="second verdict, complete traces")
+    decision = _make_verdict_response()
+    verdict = _finish_test_response(reasoning="verdict with complete traces")
     token = _cache_context()
     try:
         with patch(
             "scenario.judge_agent.litellm.completion",
-            side_effect=[first, second],
+            side_effect=[decision, verdict],
         ) as completion:
             result = await judge.call(
                 _agent_input(
@@ -325,35 +328,52 @@ async def test_voluntary_mid_run_verdict_is_reissued_exactly_once_with_settled_t
     finally:
         context_scenario.reset(token)
 
-    assert completion.call_count == 2, "the judge is invoked exactly one more time"
-    assert fetcher.settle_calls != [], "the settle-wait ran before the re-invocation"
-    second_call_kwargs = completion.call_args_list[1].kwargs
-    assert second_call_kwargs["tool_choice"] == {
+    assert completion.call_count == 2, "one decision call, one verdict call"
+    assert fetcher.settle_calls == [{"trace_ids": [TRACE_A], "timeout": 60.0}]
+    verdict_call_kwargs = completion.call_args_list[1].kwargs
+    assert verdict_call_kwargs["tool_choice"] == {
         "type": "function",
         "function": {"name": "finish_test"},
     }
-    second_user_message = next(
-        m for m in second_call_kwargs["messages"] if m["role"] == "user"
+    verdict_user_message = next(
+        m for m in verdict_call_kwargs["messages"] if m["role"] == "user"
     )
-    assert "late arriving tool span" in second_user_message["content"]
+    assert "late arriving tool span" in verdict_user_message["content"]
+
+    decision_call_kwargs = completion.call_args_list[0].kwargs
+    decision_user_message = next(
+        m for m in decision_call_kwargs["messages"] if m["role"] == "user"
+    )
+    assert "late arriving tool span" not in decision_user_message["content"], (
+        "the settle-wait ran after the decision, before the verdict prompt"
+    )
     assert isinstance(result, ScenarioResult)
-    assert result.reasoning == "second verdict, complete traces"
+    assert result.reasoning == "verdict with complete traces"
 
 
 @pytest.mark.asyncio
-async def test_voluntary_verdict_with_settled_traces_is_not_reissued():
-    fetcher = RecordingFetcher(unsettled=False)
+async def test_voluntary_inconclusive_verdict_is_terminal_when_no_trace_ever_settled():
+    """@scenario A voluntary inconclusive verdict is terminal when no remote trace ever settled"""
+    # Nothing ever settles: the settle records the call but no trace reaches
+    # the settled state, so the run's remote evidence cannot improve.
+    fetcher = RecordingFetcher(spans_on_settle=[])
     judge = JudgeAgent(
         criteria=["Test criterion"],
         model="openai/gpt-5-mini",
         remote_trace_fetcher=fetcher,
         span_collector=JudgeSpanCollector(),
     )
+    decision = _make_verdict_response()
+    verdict = _finish_test_response(
+        verdict="inconclusive",
+        reasoning="No trace evidence arrived for the write.",
+        criteria={"test_criterion": "inconclusive"},
+    )
     token = _cache_context()
     try:
         with patch(
             "scenario.judge_agent.litellm.completion",
-            return_value=_finish_test_response(reasoning="single call verdict"),
+            side_effect=[decision, verdict],
         ) as completion:
             result = await judge.call(
                 _agent_input(
@@ -366,16 +386,17 @@ async def test_voluntary_verdict_with_settled_traces_is_not_reissued():
     finally:
         context_scenario.reset(token)
 
-    assert completion.call_count == 1
-    assert fetcher.settle_calls == []
+    assert completion.call_count == 2, "one decision call, one verdict call"
+    # A continuing judge returns None; here the verdict must stand, because
+    # more turns cannot produce trace evidence for this run.
     assert isinstance(result, ScenarioResult)
-    assert result.reasoning == "single call verdict"
+    assert result.success is False
 
 
 @pytest.mark.asyncio
 async def test_judge_system_prompt_carries_the_trace_verification_rule():
     """@scenario Fetch failure produces a synthetic error span and inconclusive criteria guidance"""
-    fetcher = RecordingFetcher(unsettled=False)
+    fetcher = RecordingFetcher()
     judge = JudgeAgent(
         criteria=["Test criterion"],
         model="openai/gpt-5-mini",
@@ -436,6 +457,34 @@ async def test_judge_system_prompt_omits_the_rule_when_fetching_is_off():
 
 
 @pytest.mark.asyncio
+async def test_decision_prompt_defers_traces_to_the_verdict():
+    """The decision call tells the judge traces are fetched at the verdict,
+    so it neither stalls waiting for them nor rushes to see them."""
+    fetcher = RecordingFetcher()
+    judge = JudgeAgent(
+        criteria=["Test criterion"],
+        model="openai/gpt-5-mini",
+        remote_trace_fetcher=fetcher,
+        span_collector=JudgeSpanCollector(),
+    )
+    token = _cache_context()
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            return_value=_continue_test_response(),
+        ) as completion:
+            await judge.call(
+                _agent_input(messages=_three_turn_messages(), current_turn=1)
+            )
+    finally:
+        context_scenario.reset(token)
+
+    system_message = completion.call_args.kwargs["messages"][0]
+    assert REMOTE_TRACES_DECISION_RULE in system_message["content"]
+    assert REMOTE_TRACES_JUDGE_RULE not in system_message["content"]
+
+
+@pytest.mark.asyncio
 async def test_remote_fetching_is_off_by_default():
     """@scenario Remote fetching is off by default"""
     assert ScenarioConfig().fetch_remote_traces is None
@@ -463,7 +512,6 @@ async def test_remote_fetching_is_off_by_default():
     finally:
         context_scenario.reset(token)
 
-    assert fetcher.fetch_once_calls == []
     assert fetcher.settle_calls == []
 
 

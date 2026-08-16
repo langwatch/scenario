@@ -10,8 +10,8 @@ success/failure verdicts.
 import json
 import logging
 import re
-from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Union, cast
+from dataclasses import dataclass, field as dataclass_field
+from typing import Any, List, Optional, Sequence, cast
 
 import litellm
 from litellm import Choices
@@ -88,19 +88,39 @@ REMOTE_TRACES_JUDGE_RULE = (
     "Criteria about the agent's internal behavior (tool calls, database "
     "writes, API calls, retrievals) must be verified against the "
     "<opentelemetry_traces> section, not against claims in the transcript. "
-    "Mid-conversation, traces may not have arrived yet; that is normal. Do "
-    "not continue the conversation only to wait for traces: when the "
-    "conversation itself has given you what you need, call finish_test, "
-    "because trace collection completes at that moment and you will be asked "
-    "once more with the full traces if they were incomplete. If a span named "
-    "langwatch.span_collection.error is present, read its reason: when no "
-    "agent spans arrived, mark criteria that depend on internal behavior as "
-    "inconclusive, never passed. When the trace is incomplete, criteria "
-    "proven by the spans that are present may pass, and criteria whose "
-    "evidence is missing stay inconclusive. Never mark internal-behavior "
-    "criteria as passed based on the transcript alone."
+    "If a span named langwatch.span_collection.error is present, read its "
+    "reason: when no agent spans arrived, mark criteria that depend on "
+    "internal behavior as inconclusive, never passed. When the trace is "
+    "incomplete, criteria proven by the spans that are present may pass, and "
+    "criteria whose evidence is missing stay inconclusive. Criteria about "
+    "the conversation itself are unaffected by missing traces: judge them "
+    "from the transcript as normal. Never mark internal-behavior criteria "
+    "as passed based on the transcript alone."
 )
-"""Rule appended to the judge system prompt when fetch_remote_traces is on."""
+"""Rule appended to the verdict system prompt when fetch_remote_traces is on."""
+
+
+DECISION_PHASE_RULE = (
+    "In this step, only decide whether the conversation has collected enough "
+    "information to evaluate the criteria: call make_verdict when it has, or "
+    "continue_test to let the conversation play out. Do not decide whether "
+    "the criteria pass or fail now: that evaluation happens in a separate "
+    "step after the conversation ends."
+)
+"""Appended to a custom system prompt on decision calls, so custom judge
+personas still drive the argument-free decision tools correctly."""
+
+
+REMOTE_TRACES_DECISION_RULE = (
+    "The agent's execution traces are fetched and verified at the verdict, "
+    "after the conversation ends; they are not part of this decision. Do not "
+    "continue the conversation only to wait for trace evidence, and do not "
+    "end it early to see traces sooner."
+)
+"""Appended to the decision system prompt when fetch_remote_traces is on."""
+
+
+_DECISION_TOOL_NAMES = frozenset({"continue_test", "make_verdict"})
 
 
 def _distinct_message_trace_ids(messages: Sequence[Any]) -> List[str]:
@@ -129,36 +149,31 @@ def _render_judge_content(
 """
 
 
-def _response_calls_finish_test(response: Any) -> bool:
-    """Whether an LLM response contains a finish_test tool call."""
-    if not hasattr(response, "choices") or len(response.choices) == 0:
-        return False
-    message = cast(Choices, response.choices[0]).message
-    tool_calls = getattr(message, "tool_calls", None)
-    if not tool_calls:
-        return False
-    return any(tc.function.name == "finish_test" for tc in tool_calls)
-
-
 @dataclass
-class _RemoteTraceRetryContext:
-    """Everything needed to settle remote traces and re-invoke the judge once
-    after a voluntary finish_test arrived while traces were incomplete."""
+class _ConversationView:
+    """Transcript-side context shared by the decision and verdict phases.
 
-    thread_id: str
-    trace_ids: List[str]
-    timeout: float
+    Built once per judge call: audio transcription and transcript sizing are
+    identical in both phases, while the span digest is rebuilt per phase (the
+    verdict phase sees the settled remote spans)."""
+
+    working_messages: List[Any]
     transcript_for_prompt: str
+    is_large_transcript: bool
     extra_context_section: str
 
 
 @dataclass
-class _PendingRemoteTraceVerdict:
-    """Marker returned by the discovery loop when a voluntary finish_test
-    must be re-issued after the remote trace settle-wait. Carries the judge's
-    message history at that point so the re-invocation continues from it."""
+class _DecisionOutcome:
+    """Result of the decision phase.
 
-    messages: List[dict]
+    ``discovery_recap`` is only populated on exhaustion: the decision loop's
+    discovery cycles collapsed to plain-text assistant messages, so the forced
+    verdict call keeps the information the judge already gathered instead of
+    starting from a blank digest."""
+
+    decision: str  # "continue" | "verdict" | "exhausted"
+    discovery_recap: List[dict] = dataclass_field(default_factory=list)
 
 
 def _stringify_tool_output(output: Any) -> str:
@@ -578,9 +593,13 @@ class JudgeAgent(AgentAdapter):
         """
         Evaluate the current conversation state against the configured criteria.
 
-        This method analyzes the conversation history and determines whether the
-        scenario should continue or end with a verdict. It uses function calling
-        to make structured decisions and provides detailed reasoning.
+        The judge runs in two phases. A mid-conversation call first makes an
+        argument-free decision between continuing the conversation and moving
+        to the verdict (continue_test / make_verdict); only a make_verdict
+        decision triggers the verdict call, which settle-waits for remote
+        traces when enabled and evaluates every criterion with finish_test.
+        The last turn and an explicit judgment request skip the decision and
+        go straight to the verdict.
 
         Args:
             input: AgentInput containing conversation history and scenario context
@@ -601,7 +620,6 @@ class JudgeAgent(AgentAdapter):
             - Can end scenarios early if clear violation or success is detected
         """
 
-        scenario = input.scenario_state
         effective_criteria = (
             input.judgment_request.criteria
             if input.judgment_request and input.judgment_request.criteria is not None
@@ -623,41 +641,69 @@ class JudgeAgent(AgentAdapter):
                 reasoning="TestingAgent was called as a judge, but it has no criteria to judge against",
             )
 
-        # A final judgment is required when the conversation cannot continue
-        # past this call: the last turn, or an explicit judgment_request. This
-        # is about the CONTRACT, not the transport — the discovery loop applies
-        # the pinned tool_choice only on its final step, but a checkpoint/
-        # last-turn judgment is still terminal.
+        # A judgment is required when the conversation cannot continue past
+        # this call: the last turn, or an explicit judgment_request. Both go
+        # straight to the verdict phase; only an unforced mid-conversation
+        # call runs the decision phase first.
         judgment_required = is_last_message or enforce_judgment
-
-        # Remote trace fetching happens BEFORE the digest is built so the
-        # fetched spans land in the span collector the digest reads from.
-        # A required judgment settle-waits for traces to arrive and stabilize;
-        # any other judge call pays zero wait: one non-blocking fetch round
-        # merges whatever already arrived.
         fetch_remote_traces, trace_wait_timeout = self._remote_trace_settings(input)
-        remote_trace_ids: List[str] = []
-        remote_settle_done = False
-        if fetch_remote_traces:
-            remote_trace_ids = _distinct_message_trace_ids(input.messages)
-            if judgment_required:
-                await self._remote_trace_fetcher.settle_traces(
-                    thread_id=input.thread_id,
-                    trace_ids=remote_trace_ids,
-                    collector=self._span_collector,
-                    timeout=trace_wait_timeout,
-                )
-                remote_settle_done = True
-            else:
-                await self._remote_trace_fetcher.fetch_traces_once(
-                    thread_id=input.thread_id,
-                    trace_ids=remote_trace_ids,
-                    collector=self._span_collector,
-                )
+        view = await self._build_conversation_view(input)
 
-        # Build transcript and traces digest
-        # When the judge model can't ingest audio, transcribe agent audio and
-        # substitute text so the judge can evaluate the content.
+        discovery_recap: List[dict] = []
+        if judgment_required:
+            verdict_forced = True
+        else:
+            # min_turns floor (ADR-005): below the floor the decision is
+            # predetermined (the conversation must continue), so no LLM call
+            # is spent on it. The judge observes a 0-based current_turn:
+            # reset() overrides the initial _new_turn() back to 0, so the call
+            # on turn N sees current_turn N-1. The floor is unmet while
+            # current_turn < min_turns: with min_turns=4, the first decision
+            # call happens on the turn-5 call.
+            min_turns = getattr(input.scenario_state.config, "min_turns", None)
+            if (
+                isinstance(min_turns, int)
+                and input.scenario_state.current_turn < min_turns
+            ):
+                return []
+
+            outcome = self._run_decision_phase(
+                input=input,
+                effective_criteria=effective_criteria,
+                view=view,
+                fetch_remote_traces=fetch_remote_traces,
+            )
+            if outcome.decision == "continue":
+                return []
+            # "verdict": the judge chose to end the conversation. Its verdict
+            # stays voluntary so an inconclusive outcome continues the
+            # conversation (#886). "exhausted": the decision loop burned its
+            # discovery steps without deciding; the verdict is forced so the
+            # run cannot churn through discovery again every turn.
+            verdict_forced = outcome.decision == "exhausted"
+            discovery_recap = outcome.discovery_recap
+
+        return await self._run_judgment_phase(
+            input=input,
+            effective_criteria=effective_criteria,
+            view=view,
+            fetch_remote_traces=fetch_remote_traces,
+            trace_wait_timeout=trace_wait_timeout,
+            is_last_message=is_last_message,
+            verdict_forced=verdict_forced,
+            discovery_recap=discovery_recap,
+        )
+
+    async def _build_conversation_view(self, input: AgentInput) -> _ConversationView:
+        """Builds the transcript-side context both phases share.
+
+        When the judge model can't ingest audio, transcribes agent audio and
+        substitutes text so the judge can evaluate the content. The transcript
+        is gated on its own estimated size, independent of the span digest: it
+        is built from input.messages regardless of whether the agent under
+        test routed its calls through litellm, so it can be arbitrarily large
+        even when the span trace stays small (issue #836).
+        """
         conversation_has_audio = self._conversation_has_audio(input.messages)
         working_messages = input.messages
         if conversation_has_audio and not self.effective_include_audio(conversation_has_audio):
@@ -668,19 +714,7 @@ class JudgeAgent(AgentAdapter):
                     input.messages, recording
                 )
         transcript = JudgeUtils.build_transcript_from_messages(working_messages)
-        spans = self._span_collector.get_spans_for_thread(input.thread_id)
-        digest, is_large_span_trace = self._build_trace_digest(spans)
-
-        # The transcript is built from input.messages regardless of whether
-        # the agent under test routed its calls through litellm, so it can be
-        # arbitrarily large even when `spans` (litellm-only) stays small and
-        # `is_large_span_trace` never trips (issue #836). Gate the transcript
-        # itself on its own estimated size, independent of the span digest,
-        # so an agent whose tool calls never became spans still gets bounded
-        # transcript rendering + discovery tools instead of an unbounded
-        # block silently flowing into the judge prompt.
         is_large_transcript = estimate_tokens(transcript) > self._token_threshold
-        is_large_trace = is_large_span_trace or is_large_transcript
 
         if is_large_transcript:
             transcript_for_prompt = (
@@ -689,8 +723,6 @@ class JudgeAgent(AgentAdapter):
             )
         else:
             transcript_for_prompt = transcript
-
-        logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
 
         extra_context = (
             input.judgment_request.additional_context
@@ -703,10 +735,332 @@ class JudgeAgent(AgentAdapter):
             else ""
         )
 
-        content_for_judge = _render_judge_content(
-            transcript=transcript_for_prompt,
-            traces_digest=digest,
+        return _ConversationView(
+            working_messages=list(working_messages),
+            transcript_for_prompt=transcript_for_prompt,
+            is_large_transcript=is_large_transcript,
             extra_context_section=extra_context_section,
+        )
+
+    def _build_decision_system_prompt(
+        self,
+        *,
+        description: str,
+        criteria: Sequence[str],
+        fetch_remote_traces: bool,
+    ) -> str:
+        """System prompt for the decision phase.
+
+        The decision deliberately carries no verdict vocabulary: the judge is
+        told NOT to decide pass or fail yet, so nothing in this call can
+        pre-commit it to an outcome before the verdict phase sees the full
+        evidence.
+        """
+        if self.system_prompt:
+            content = self.system_prompt + "\n\n" + DECISION_PHASE_RULE
+            if fetch_remote_traces:
+                content += "\n\n" + REMOTE_TRACES_DECISION_RULE
+            return content
+
+        criteria_str = "\n".join(
+            [f"{idx + 1}. {criterion}" for idx, criterion in enumerate(criteria)]
+        )
+        remote_rule = (
+            f"\n- {REMOTE_TRACES_DECISION_RULE}" if fetch_remote_traces else ""
+        )
+        return f"""
+<role>
+You are an LLM as a judge watching a simulated conversation as it plays out live to decide if it has collected enough information to evaluate the agent under test.
+</role>
+
+<goal>
+Your goal is to decide if the conversation has collected enough information to evaluate the criteria, or if it should continue for longer. Do not decide whether the criteria pass or fail now: that evaluation happens in a separate step after the conversation ends. If enough information has been collected, call the make_verdict tool; if not, call the continue_test tool to let the next step play out.
+</goal>
+
+<scenario>
+{description}
+</scenario>
+
+<criteria>
+{criteria_str}
+</criteria>
+
+<rules>
+- Call make_verdict as soon as the agent has clearly broken one of the "do not" or "should not" criteria; more conversation cannot repair a violation.
+- Scenario simulations exist to exercise multi-turn conversations: while the conversation is still short, lean towards continuing, and end it only when more turns would clearly add no information for the criteria.{remote_rule}
+</rules>
+"""
+
+    def _build_decision_tools(self) -> List[dict]:
+        """Argument-free decision tools.
+
+        No reasoning field on purpose: writing reasoning here would push the
+        judge to pre-commit to pass or fail before the evidence is complete,
+        and the text itself is wasted tokens for a binary transition.
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "continue_test",
+                    "description": "Continue the test with the next step",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "make_verdict",
+                    "description": (
+                        "The conversation has collected enough information to "
+                        "evaluate the criteria. End the conversation and move "
+                        "to the verdict."
+                    ),
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ]
+
+    def _run_decision_phase(
+        self,
+        *,
+        input: AgentInput,
+        effective_criteria: List[str],
+        view: _ConversationView,
+        fetch_remote_traces: bool,
+    ) -> _DecisionOutcome:
+        """Phase 1 of the two-phase judge: continue, or move to the verdict.
+
+        Returns a ``_DecisionOutcome`` whose decision is "continue",
+        "verdict", or "exhausted" (the discovery loop ran out of steps
+        without a decision; the collapsed discovery history rides along so
+        the forced verdict keeps what was gathered). Never fetches remote
+        traces and never produces a verdict; the span digest here holds only
+        what the local collector already has.
+        """
+        spans = self._span_collector.get_spans_for_thread(input.thread_id)
+        digest, is_large_span_trace = self._build_trace_digest(spans)
+        is_large_trace = is_large_span_trace or view.is_large_transcript
+
+        messages: List[dict] = [
+            {
+                "role": "system",
+                "content": self._build_decision_system_prompt(
+                    description=input.scenario_state.description,
+                    criteria=effective_criteria,
+                    fetch_remote_traces=fetch_remote_traces,
+                ),
+            },
+            {
+                "role": "user",
+                "content": _render_judge_content(
+                    transcript=view.transcript_for_prompt,
+                    traces_digest=digest,
+                    extra_context_section="",
+                ),
+            },
+        ]
+
+        tools = self._build_decision_tools()
+        if is_large_span_trace:
+            tools = self._build_progressive_discovery_tools() + tools
+        if view.is_large_transcript:
+            tools = self._build_transcript_discovery_tools() + tools
+
+        if not is_large_trace:
+            response = self._completion_with_reasoning_off_retry(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                tool_choice="required",
+                **self._extra_params,
+            )
+            return _DecisionOutcome(decision=self._parse_decision(response))
+
+        for _ in range(self._max_discovery_steps):
+            response = self._completion_with_reasoning_off_retry(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                max_tokens=self.max_tokens,
+                tools=tools,
+                tool_choice="required",
+                **self._extra_params,
+            )
+            if not hasattr(response, "choices") or len(response.choices) == 0:
+                raise Exception(
+                    f"Unexpected response format from LLM: {response.__repr__()}"
+                )
+            message = cast(Choices, response.choices[0]).message
+            if not message.tool_calls:
+                raise Exception(
+                    f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
+                )
+            terminal_call = next(
+                (
+                    tc
+                    for tc in message.tool_calls
+                    if tc.function.name in _DECISION_TOOL_NAMES
+                ),
+                None,
+            )
+            if terminal_call:
+                return _DecisionOutcome(
+                    decision=(
+                        "continue"
+                        if terminal_call.function.name == "continue_test"
+                        else "verdict"
+                    )
+                )
+
+            messages.append({
+                "role": "assistant",
+                "content": message.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in message.tool_calls
+                ],
+            })
+            for tc in message.tool_calls:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": self._execute_discovery_tool(
+                        tc, spans, view.working_messages
+                    ),
+                })
+
+        logger.debug(
+            "decision discovery exhausted its steps without a decision - "
+            "forcing the verdict"
+        )
+        # Everything after the system and content messages is discovery
+        # cycles; collapsed to plain text they carry what the judge gathered
+        # into the forced verdict call.
+        return _DecisionOutcome(
+            decision="exhausted",
+            discovery_recap=_collapse_discovery_history(messages)[2:],
+        )
+
+    def _parse_decision(self, response: Any) -> str:
+        """Maps a decision-phase LLM response to "continue" or "verdict"."""
+        if not hasattr(response, "choices") or len(response.choices) == 0:
+            raise Exception(
+                f"Unexpected response format from LLM: {response.__repr__()}"
+            )
+        message = cast(Choices, response.choices[0]).message
+        if not message.tool_calls:
+            raise Exception(
+                f"Invalid response from judge agent, tool calls not found: {message.__repr__()}"
+            )
+        terminal_call = next(
+            (
+                tc
+                for tc in message.tool_calls
+                if tc.function.name in _DECISION_TOOL_NAMES
+            ),
+            None,
+        )
+        if terminal_call is None:
+            raise Exception(
+                f"Invalid tool call from judge agent: {message.tool_calls[0].function.name}"
+            )
+        return (
+            "continue"
+            if terminal_call.function.name == "continue_test"
+            else "verdict"
+        )
+
+    async def _run_judgment_phase(
+        self,
+        *,
+        input: AgentInput,
+        effective_criteria: List[str],
+        view: _ConversationView,
+        fetch_remote_traces: bool,
+        trace_wait_timeout: float,
+        is_last_message: bool,
+        verdict_forced: bool,
+        discovery_recap: Optional[List[dict]] = None,
+    ) -> AgentReturnTypes:
+        """Phase 2 of the two-phase judge: the verdict itself.
+
+        Settle-waits for the remote traces first when fetching is on (the
+        only fetch site), so the digest always holds the full evidence, then
+        makes one finish_test-pinned evaluation. ``verdict_forced`` reflects
+        the entry mode: a required judgment (last turn, explicit
+        judgment_request) or decision-discovery exhaustion makes an
+        inconclusive verdict terminal; a voluntary make_verdict entry lets an
+        inconclusive verdict continue the conversation (#886), unless not
+        one remote trace of the run ever settled, in which case more turns
+        cannot improve the evidence and the verdict stands.
+
+        A non-empty ``discovery_recap`` marks the exhaustion entry: the
+        decision loop already spent the discovery budget, so its collapsed
+        cycles are replayed as context and the verdict is one pinned call
+        with no further discovery.
+        """
+        remote_trace_ids: List[str] = (
+            _distinct_message_trace_ids(input.messages) if fetch_remote_traces else []
+        )
+        if fetch_remote_traces and remote_trace_ids:
+            await self._remote_trace_fetcher.settle_traces(
+                thread_id=input.thread_id,
+                trace_ids=remote_trace_ids,
+                collector=self._span_collector,
+                timeout=trace_wait_timeout,
+            )
+
+        # When not one remote trace of the run ever settled, more turns
+        # cannot produce trace evidence: a voluntary inconclusive verdict
+        # would loop (verdict, continue, settle, inconclusive again) all the
+        # way to the turn cap, paying the settle budget every turn. The
+        # verdict becomes terminal instead; with any settled trace, #886
+        # semantics stay.
+        evidence_exhausted = (
+            fetch_remote_traces
+            and bool(remote_trace_ids)
+            and self._remote_trace_fetcher.none_settled(
+                thread_id=input.thread_id, trace_ids=remote_trace_ids
+            )
+        )
+        verdict_is_terminal = verdict_forced or evidence_exhausted
+
+        spans = self._span_collector.get_spans_for_thread(input.thread_id)
+        digest, is_large_span_trace = self._build_trace_digest(spans)
+        is_large_trace = is_large_span_trace or view.is_large_transcript
+
+        logger.debug(f"OpenTelemetry traces built: {digest[:200]}...")
+
+        content_for_judge = _render_judge_content(
+            transcript=view.transcript_for_prompt,
+            traces_digest=digest,
+            extra_context_section=view.extra_context_section,
         )
 
         criteria_str = "\n".join(
@@ -719,16 +1073,15 @@ class JudgeAgent(AgentAdapter):
 
         system_content = self.system_prompt or f"""
 <role>
-You are an LLM as a judge watching a simulated conversation as it plays out live to determine if the agent under test meets the criteria or not.
+You are an LLM as a judge delivering the final verdict on a simulated conversation, determining if the agent under test meets the criteria or not.
 </role>
 
 <goal>
-Your goal is to determine if you already have enough information to make a verdict of the scenario below, or if the conversation should continue for longer.
-If you do have enough information, use the finish_test tool to determine if all the criteria have been met, if not, use the continue_test tool to let the next step play out.
+Your goal is to deliver the final verdict of the scenario below with the finish_test tool, evaluating each criterion independently against the conversation and the collected evidence.
 </goal>
 
 <scenario>
-{scenario.description}
+{input.scenario_state.description}
 </scenario>
 
 <criteria>
@@ -736,9 +1089,9 @@ If you do have enough information, use the finish_test tool to determine if all 
 </criteria>
 
 <rules>
-- Be strict, do not let the conversation continue if the agent already broke one of the "do not" or "should not" criterias.
+- Be strict: a criterion passes only when the conversation or the collected evidence clearly shows it was met.
 - DO NOT make any judgment calls that are not explicitly listed in the success or failure criteria, withhold judgement if necessary
-- If you do not yet have enough information for a definitive verdict, call the continue_test tool to let the conversation play out - do NOT call finish_test with an "inconclusive" verdict while the conversation can still continue. When a final verdict is explicitly required (the conversation cannot continue), deliver your honest verdict - "inconclusive" is acceptable there{remote_traces_rule}
+- When the evidence for a criterion is not definitive, mark that criterion inconclusive rather than guessing; an inconclusive verdict is acceptable{remote_traces_rule}
 </rules>
 """
         if self.system_prompt and fetch_remote_traces:
@@ -764,23 +1117,8 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 }
             )
 
-        # Define the tools
         criteria_names = _criteria_keys(effective_criteria)
         tools: List[dict] = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "continue_test",
-                    "description": "Continue the test with the next step",
-                    "strict": True,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                        "additionalProperties": False,
-                    },
-                },
-            },
             {
                 "type": "function",
                 "function": {
@@ -821,98 +1159,42 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             },
         ]
 
-        if is_large_span_trace:
-            tools = self._build_progressive_discovery_tools() + tools
-        if is_large_transcript:
-            tools = self._build_transcript_discovery_tools() + tools
+        exhausted_entry = bool(discovery_recap)
+        if not exhausted_entry:
+            if is_large_span_trace:
+                tools = self._build_progressive_discovery_tools() + tools
+            if view.is_large_transcript:
+                tools = self._build_transcript_discovery_tools() + tools
 
-        # A voluntary finish_test on a call that did not settle-wait must be
-        # re-issued once with complete traces (the two-phase verdict). Only
-        # possible when remote fetching is on and the settle-wait has not run.
-        remote_retry_context: Optional[_RemoteTraceRetryContext] = None
-        if fetch_remote_traces and not remote_settle_done:
-            remote_retry_context = _RemoteTraceRetryContext(
-                thread_id=input.thread_id,
-                trace_ids=remote_trace_ids,
-                timeout=trace_wait_timeout,
-                transcript_for_prompt=transcript_for_prompt,
-                extra_context_section=extra_context_section,
-            )
+        # finish_test is the only terminal tool of the verdict phase and the
+        # tool choice pins it: continuing is the decision phase's business.
+        # The large-trace discovery loop relaxes the pin to "required" on its
+        # intermediate steps so the judge can use discovery tools, and forces
+        # the verdict on exhaustion.
+        tool_choice: Any = {"type": "function", "function": {"name": "finish_test"}}
 
-        # min_turns floor (ADR-005): below the floor an UNFORCED judge call may
-        # not volunteer a verdict — finish_test is withheld from its tool set
-        # entirely. The judge observes a 0-based current_turn: reset() overrides
-        # the initial _new_turn() back to 0, so the call on turn N sees
-        # current_turn N-1 (the same base is_last_message compares against
-        # above). The floor is unmet while current_turn < min_turns — with
-        # min_turns=4, finish_test first appears on the turn-5 call. A required
-        # judgment is never gated.
-        min_turns = getattr(input.scenario_state.config, "min_turns", None)
-        verdict_gated = (
-            isinstance(min_turns, int)
-            and not judgment_required
-            and input.scenario_state.current_turn < min_turns
-        )
-        if verdict_gated:
-            tools = [
-                tool
-                for tool in tools
-                if tool.get("function", {}).get("name") != "finish_test"
-            ]
-            messages[0]["content"] += (
-                "\n\nThis scenario requires more conversation turns before a "
-                "verdict may be delivered, so ending the test is not available "
-                "on this turn. Assess progress and continue the conversation."
-            )
-
-        # Pinned on judgment_required ALONE: a required judgment cannot be
-        # dodged via continue_test, criteria or not — the criteria-less
-        # enforced case already returned above, and a criteria-less last-turn
-        # judge still owes its terminal verdict. The large-trace discovery loop
-        # relaxes this pin to "required" so the judge can use discovery tools,
-        # but _run_discovery_loop forces a final verdict if a required judgment
-        # answers continue_test there, so the terminal contract holds on both
-        # paths.
-        tool_choice: Any = (
-            {"type": "function", "function": {"name": "finish_test"}}
-            if judgment_required
-            else "required"
-        )
-
-        # Only a forced judgment may legitimately end the run on an
-        # inconclusive verdict (#886); discovery exhaustion forces separately
-        # in _force_verdict. Deliberately independent of has_criteria: a
-        # criteria-less judge on the last turn still delivers its terminal
-        # result rather than silently continuing into the generic max-turns
-        # failure.
-        verdict_forced = judgment_required
-
-        # Multi-step discovery loop for large traces
-        if is_large_trace:
-            loop_result = self._run_discovery_loop(
+        if exhausted_entry:
+            assert discovery_recap is not None
+            messages.extend(discovery_recap)
+            messages.append({
+                "role": "user",
+                "content": (
+                    "You have reached the maximum number of trace exploration steps. "
+                    "Based on the information you have gathered so far, give your final verdict now."
+                ),
+            })
+        elif is_large_trace:
+            return self._run_discovery_loop(
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
                 spans=spans,
-                working_messages=working_messages,
+                working_messages=view.working_messages,
                 effective_criteria=effective_criteria,
                 input_messages=input.messages,
-                verdict_forced=verdict_forced,
-                verdict_gated=verdict_gated,
-                remote_retry_context=remote_retry_context,
+                verdict_forced=verdict_is_terminal,
             )
-            if isinstance(loop_result, _PendingRemoteTraceVerdict):
-                assert remote_retry_context is not None
-                return await self._reissue_voluntary_verdict_with_settled_traces(
-                    retry_context=remote_retry_context,
-                    messages=loop_result.messages,
-                    tools=tools,
-                    effective_criteria=effective_criteria,
-                    input_messages=input.messages,
-                )
-            return loop_result
 
-        # Standard single-call path for small traces
         response = self._completion_with_reasoning_off_retry(
             model=self.model,
             messages=messages,
@@ -925,23 +1207,12 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             **self._extra_params,
         )
 
-        if remote_retry_context is not None and self._needs_remote_trace_reissue(
-            response=response, retry_context=remote_retry_context
-        ):
-            return await self._reissue_voluntary_verdict_with_settled_traces(
-                retry_context=remote_retry_context,
-                messages=messages,
-                tools=tools,
-                effective_criteria=effective_criteria,
-                input_messages=input.messages,
-            )
-
         return self._parse_response(
             response,
             effective_criteria,
             messages,
             input_messages=input.messages,
-            verdict_forced=verdict_forced,
+            verdict_forced=verdict_is_terminal,
         )
 
     def _remote_trace_settings(self, input: AgentInput) -> tuple[bool, float]:
@@ -961,97 +1232,6 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         ):
             timeout = DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS
         return enabled, float(timeout)
-
-    def _needs_remote_trace_reissue(
-        self,
-        *,
-        response: Any,
-        retry_context: _RemoteTraceRetryContext,
-    ) -> bool:
-        """Whether a voluntary finish_test arrived while remote traces were
-        still unsettled, requiring the two-phase re-invocation."""
-        if not _response_calls_finish_test(response):
-            return False
-        return self._remote_trace_fetcher.has_unsettled_traces(
-            thread_id=retry_context.thread_id,
-            trace_ids=retry_context.trace_ids,
-        )
-
-    async def _reissue_voluntary_verdict_with_settled_traces(
-        self,
-        *,
-        retry_context: _RemoteTraceRetryContext,
-        messages: List[dict],
-        tools: List[dict],
-        effective_criteria: List[str],
-        input_messages: Sequence[Any],
-    ) -> AgentReturnTypes:
-        """
-        Second phase of a voluntary early verdict with incomplete traces.
-
-        Settle-waits for the remaining remote traces, rebuilds the judge
-        content with the updated trace digest, and re-invokes the LLM exactly
-        once with tool_choice forced to finish_test. The second response is
-        the verdict; there is never more than one re-invocation per call.
-
-        Prior discovery tool cycles are collapsed to plain text and the
-        discovery tools stripped, the same hardening ``_force_verdict``
-        applies, so the pinned call cannot reference or emit discovery tools.
-        """
-        logger.debug(
-            "judge volunteered finish_test with unsettled remote traces - "
-            "settling and re-invoking once"
-        )
-        await self._remote_trace_fetcher.settle_traces(
-            thread_id=retry_context.thread_id,
-            trace_ids=retry_context.trace_ids,
-            collector=self._span_collector,
-            timeout=retry_context.timeout,
-        )
-
-        spans = self._span_collector.get_spans_for_thread(retry_context.thread_id)
-        digest, _ = self._build_trace_digest(spans)
-        updated_content = _render_judge_content(
-            transcript=retry_context.transcript_for_prompt,
-            traces_digest=digest,
-            extra_context_section=retry_context.extra_context_section,
-        )
-
-        rewritten_messages = _collapse_discovery_history(messages)
-        for idx, msg in enumerate(rewritten_messages):
-            if msg.get("role") == "user" and "<opentelemetry_traces>" in str(
-                msg.get("content", "")
-            ):
-                rewritten_messages[idx] = {**msg, "content": updated_content}
-                break
-
-        finish_only_tools = [
-            t
-            for t in tools
-            if t.get("function", {}).get("name") not in _DISCOVERY_TOOL_NAMES
-        ]
-
-        response = self._completion_with_reasoning_off_retry(
-            model=self.model,
-            messages=rewritten_messages,
-            temperature=self.temperature,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            max_tokens=self.max_tokens,
-            tools=finish_only_tools,
-            tool_choice={"type": "function", "function": {"name": "finish_test"}},
-            **self._extra_params,
-        )
-        return self._parse_response(
-            response,
-            effective_criteria,
-            rewritten_messages,
-            input_messages=input_messages,
-            # The judgment was volunteered, never required: an inconclusive
-            # second verdict continues the conversation (#886) instead of
-            # ending the run.
-            verdict_forced=False,
-        )
 
     def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
         """
@@ -1233,20 +1413,20 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         effective_criteria: List[str],
         input_messages: Sequence[Any],
         verdict_forced: bool,
-        verdict_gated: bool = False,
-        remote_retry_context: Optional[_RemoteTraceRetryContext] = None,
-    ) -> Union[AgentReturnTypes, "_PendingRemoteTraceVerdict"]:
+    ) -> AgentReturnTypes:
         """
-        Runs the multi-step discovery loop for large traces.
+        Runs the multi-step discovery loop of the verdict phase for large
+        traces.
 
         The judge can call expand_trace/grep_trace (spans) and/or
         expand_transcript/grep_transcript (messages) tools multiple times
-        before reaching a terminal tool (finish_test/continue_test) or
-        hitting the max discovery steps limit.
+        before calling finish_test, the only terminal tool of the verdict
+        phase, or hitting the max discovery steps limit, which forces the
+        verdict with whatever was gathered.
 
-        On intermediate steps, tool_choice is "required" so the judge can freely
-        pick a discovery tool. On the final step, the original tool_choice
-        (which may force finish_test) is applied.
+        On intermediate steps, tool_choice is "required" so the judge can
+        freely pick a discovery tool. On the final step, the pinned
+        finish_test tool_choice is applied.
 
         Args:
             messages: The conversation messages so far.
@@ -1256,17 +1436,10 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             working_messages: The conversation messages for executing
                 expand_transcript/grep_transcript.
             effective_criteria: The criteria to judge against.
-            remote_retry_context: When set, a voluntary finish_test with
-                unsettled remote traces returns a ``_PendingRemoteTraceVerdict``
-                marker instead of parsing, so the caller can settle-wait and
-                re-invoke once (the loop itself stays synchronous).
 
         Returns:
-            AgentReturnTypes from the terminal tool call, or the pending
-            marker described above.
+            AgentReturnTypes from the finish_test call.
         """
-        terminal_tool_names = {"finish_test", "continue_test"}
-
         for step in range(self._max_discovery_steps):
             # Use "required" for intermediate steps so the judge can use
             # discovery tools; only apply the forced tool_choice on the
@@ -1302,38 +1475,11 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     verdict_forced=verdict_forced,
                 )
 
-            # Check for terminal tool call
             terminal_call = next(
-                (tc for tc in message.tool_calls if tc.function.name in terminal_tool_names),
+                (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
                 None,
             )
             if terminal_call:
-                # A required judgment must not be dodged via continue_test on a
-                # large trace: discovery relaxed the pin to "required", so if
-                # the judge continued instead of finishing, force the final
-                # verdict rather than fall through to the generic max-turns
-                # failure (#886; the large-trace half of the terminal contract).
-                if (
-                    verdict_forced
-                    and terminal_call.function.name == "continue_test"
-                ):
-                    logger.debug(
-                        "required judgment continued during discovery - forcing verdict"
-                    )
-                    return self._force_verdict(
-                        messages=messages,
-                        tools=tools,
-                        effective_criteria=effective_criteria,
-                        input_messages=input_messages,
-                    )
-                if (
-                    remote_retry_context is not None
-                    and terminal_call.function.name == "finish_test"
-                    and self._needs_remote_trace_reissue(
-                        response=response, retry_context=remote_retry_context
-                    )
-                ):
-                    return _PendingRemoteTraceVerdict(messages=messages)
                 return self._parse_response(
                     response,
                     effective_criteria,
@@ -1368,18 +1514,6 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     "content": tool_result,
                 })
 
-        # Hit max steps - force a verdict with whatever information was gathered.
-        # Below the min_turns floor _force_verdict must not fire: it pins
-        # tool_choice to finish_test, a tool the gated call does not offer —
-        # providers reject a tool_choice naming an undefined tool (ADR-005). A
-        # gated call is never judgment_required, so no terminal contract is
-        # being dodged; the turn continues.
-        if verdict_gated:
-            logger.debug(
-                "discovery exhausted below the min_turns floor - continuing "
-                "without a verdict"
-            )
-            return []
         return self._force_verdict(
             messages=messages,
             tools=tools,
@@ -1524,15 +1658,11 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             )
 
         # In multi-step mode, find the terminal tool call
-        terminal_names = {"finish_test", "continue_test"}
         terminal_call = next(
-            (tc for tc in message.tool_calls if tc.function.name in terminal_names),
+            (tc for tc in message.tool_calls if tc.function.name == "finish_test"),
             None,
         )
         tool_call = terminal_call or message.tool_calls[0]
-
-        if tool_call.function.name == "continue_test":
-            return []
 
         if tool_call.function.name == "finish_test":
             try:

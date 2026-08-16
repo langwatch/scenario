@@ -324,7 +324,7 @@ class RemoteTraceFetcher:
 
     A trace settles cleanly when it holds at least one remote span (a fetched
     span that is not one of the scenario's own locally collected spans) AND
-    every fetched span's parent resolves within the fetched and locally
+    every fetched agent span's parent resolves within the fetched and locally
     collected spans: the trace is complete, because ancestors always finish
     and export after their descendants. Count-stability is deliberately NOT a
     settle signal: ingestion arrives in chunks that can be tens of seconds
@@ -374,6 +374,19 @@ class RemoteTraceFetcher:
             states[trace_id] = _TraceFetchState()
         return states[trace_id]
 
+    def none_settled(self, *, thread_id: str, trace_ids: List[str]) -> bool:
+        """True when not one of the given trace ids ever settled cleanly.
+
+        After a settle-wait this means every trace terminally failed, so the
+        run's remote evidence cannot improve with more turns.
+        """
+        with self._registry_lock:
+            states = self._registry.get(thread_id, {})
+            return not any(
+                (state := states.get(trace_id)) is not None and state.settled
+                for trace_id in trace_ids
+            )
+
     def clear_thread(self, thread_id: str) -> None:
         """Removes all fetch state for a scenario thread.
 
@@ -384,55 +397,7 @@ class RemoteTraceFetcher:
         with self._registry_lock:
             self._registry.pop(thread_id, None)
 
-    def has_unsettled_traces(
-        self, *, thread_id: str, trace_ids: Sequence[str]
-    ) -> bool:
-        """Whether any of the given trace ids has neither settled nor failed."""
-        states = self._states_for_thread(thread_id)
-        for trace_id in trace_ids:
-            state = states.get(trace_id)
-            if state is None or (not state.settled and not state.failed):
-                return True
-        return False
-
     # ------------------------------------------------------------- fetching
-
-    async def fetch_traces_once(
-        self,
-        *,
-        thread_id: str,
-        trace_ids: Sequence[str],
-        collector: JudgeSpanCollector,
-    ) -> None:
-        """One non-blocking fetch round for ids that have not settled.
-
-        A single request per trace id, all ids in parallel, no sleeping, no
-        retry. A trace that already looks complete (parent-resolved with
-        remote spans) settles here, so the verdict has nothing left to wait
-        for. A trace that has not arrived yet (404) counts as zero spans.
-        A transient failure is logged and leaves the trace eligible for the
-        settle-wait at verdict time; it never raises.
-        """
-
-        async def fetch_one(trace_id: str) -> None:
-            state = self._state(thread_id, trace_id)
-            if state.settled or state.failed:
-                return
-            try:
-                await self._poll_once(
-                    thread_id=thread_id,
-                    trace_id=trace_id,
-                    state=state,
-                    collector=collector,
-                )
-            except Exception as error:
-                logger.debug(
-                    "Non-blocking remote trace fetch failed for %s: %r",
-                    trace_id,
-                    error,
-                )
-
-        await asyncio.gather(*[fetch_one(trace_id) for trace_id in trace_ids])
 
     async def settle_traces(
         self,
@@ -484,6 +449,7 @@ class RemoteTraceFetcher:
     ) -> None:
         state = self._state(thread_id, trace_id)
         last_remote_span_count = 0
+        last_fetch_error: Optional[str] = None
         while True:
             try:
                 last_remote_span_count = await self._poll_once(
@@ -492,15 +458,18 @@ class RemoteTraceFetcher:
                     state=state,
                     collector=collector,
                 )
+                last_fetch_error = None
             except Exception as error:
-                self._mark_failed(
-                    thread_id=thread_id,
-                    trace_id=trace_id,
-                    state=state,
-                    collector=collector,
-                    reason=f"Failed to fetch remote trace {trace_id}: {error}",
+                # A failed poll retries until the deadline: a transient error
+                # (a request timing out under load, a blip on the API) must
+                # not terminally fail the trace while the budget still has
+                # time left.
+                last_fetch_error = str(error)
+                logger.debug(
+                    "Trace poll for %s failed; retrying until the deadline: %s",
+                    trace_id,
+                    last_fetch_error,
                 )
-                return
 
             if state.settled:
                 return
@@ -520,6 +489,17 @@ class RemoteTraceFetcher:
                             f"{timeout:g}s: {last_remote_span_count} remote "
                             "spans were collected but some parent spans never "
                             "arrived, so spans may be missing"
+                        ),
+                    )
+                elif last_fetch_error is not None:
+                    self._mark_failed(
+                        thread_id=thread_id,
+                        trace_id=trace_id,
+                        state=state,
+                        collector=collector,
+                        reason=(
+                            f"Fetching trace {trace_id} kept failing until "
+                            f"the {timeout:g}s deadline: {last_fetch_error}"
                         ),
                     )
                 else:
@@ -553,7 +533,7 @@ class RemoteTraceFetcher:
         """One fetch + merge + settle evaluation.
 
         Marks the state settled when the trace holds at least one remote span
-        and every fetched span's parent resolves (fetched or locally
+        and every fetched agent span's parent resolves (fetched or locally
         collected). Returns the remote span count of this poll.
         """
         trace_data = await self._fetch_trace(trace_id)
@@ -595,9 +575,12 @@ class RemoteTraceFetcher:
         scenario's own locally collected spans) and whether every fetched
         span's parent id resolves within the fetched spans plus the locally
         collected ones. Ancestors finish and export after their descendants,
-        so unresolved parents mean the trace is still arriving. (Missing leaf
-        subtrees are undetectable from the outside; the deadline bounds
-        those.)
+        so unresolved parents mean the agent's trace is still arriving. The
+        scenario's own spans echoed back by the platform are exempt from the
+        parent check: their parent is often the still-open local turn span,
+        and their ingestion state says nothing about the agent's spans.
+        (Missing leaf subtrees are undetectable from the outside; the
+        deadline bounds those.)
         """
         collector_span_ids: Set[int] = set()
         for local_span in collector.get_spans_for_thread(thread_id):
@@ -618,15 +601,6 @@ class RemoteTraceFetcher:
         parents_resolved = len(spans_data) > 0
 
         for span_data in spans_data:
-            parent_id_raw = span_data.get("parent_id")
-            if isinstance(parent_id_raw, str) and parent_id_raw:
-                parent_id = _hex_or_hashed_id(parent_id_raw, bits=64)
-                if (
-                    parent_id not in fetched_span_ids
-                    and parent_id not in collector_span_ids
-                ):
-                    parents_resolved = False
-
             name = span_data.get("name")
             if isinstance(name, str) and name.startswith(
                 INFRASTRUCTURE_SPAN_NAME_PREFIXES
@@ -639,9 +613,18 @@ class RemoteTraceFetcher:
                 continue
             converted_context = converted.get_span_context()
             span_id = converted_context.span_id if converted_context else 0
-            if span_id not in local_span_ids:
+            is_local_echo = span_id in local_span_ids
+            if not is_local_echo:
                 remote_span_count += 1
-            if span_id in local_span_ids or span_id in state.merged_span_ids:
+                parent_id_raw = span_data.get("parent_id")
+                if isinstance(parent_id_raw, str) and parent_id_raw:
+                    parent_id = _hex_or_hashed_id(parent_id_raw, bits=64)
+                    if (
+                        parent_id not in fetched_span_ids
+                        and parent_id not in collector_span_ids
+                    ):
+                        parents_resolved = False
+            if is_local_echo or span_id in state.merged_span_ids:
                 continue
             state.merged_span_ids.add(span_id)
             collector.on_end(converted)

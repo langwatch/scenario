@@ -1,14 +1,14 @@
 """
 Unit tests for the remote trace fetcher.
 
-Covers the fetch and settle-wait mechanics of
+Covers the settle-wait mechanics of
 ``scenario._tracing.remote_trace_fetcher`` against a fake HTTP layer.
 Binds the @unit scenarios of specs/remote-trace-fetching.feature:
-"Non-verdict judge calls do not wait for trace ingestion",
 "A forced verdict settle-waits until the remote trace is complete",
 "Chunked ingestion does not settle on a partial trace",
 "An incomplete trace at the deadline keeps its spans and gains an error span",
 "A trace containing only the scenario's own spans does not settle",
+"The scenario's own spans echoed back do not block settling",
 "Fetch failure produces a synthetic error span and inconclusive criteria
 guidance" (the synthetic span half), and
 "Remote spans deduplicate against locally collected spans".
@@ -103,58 +103,6 @@ def _collected_names(collector: JudgeSpanCollector, thread_id: str) -> List[str]
     return [s.name for s in collector.get_spans_for_thread(thread_id)]
 
 
-class TestFetchTracesOnce:
-    """@scenario Non-verdict judge calls do not wait for trace ingestion"""
-
-    @pytest.mark.asyncio
-    async def test_performs_a_single_request_per_trace_id_and_never_sleeps(self):
-        api = FakeTraceApi({TRACE_A: [None], TRACE_B: [None]})
-        clock = FakeClock()
-        fetcher = _make_fetcher(api, clock)
-        collector = JudgeSpanCollector()
-
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A, TRACE_B], collector=collector
-        )
-
-        assert api.calls == [TRACE_A, TRACE_B]
-        assert clock.sleeps == []
-
-    @pytest.mark.asyncio
-    async def test_merges_available_spans_and_treats_404_as_zero_spans(self):
-        api = FakeTraceApi(
-            {
-                TRACE_A: [_trace_response(TRACE_A, [_api_span("a" * 16)])],
-                TRACE_B: [None],
-            }
-        )
-        clock = FakeClock()
-        fetcher = _make_fetcher(api, clock)
-        collector = JudgeSpanCollector()
-
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A, TRACE_B], collector=collector
-        )
-
-        assert _collected_names(collector, THREAD_ID) == ["call llm"]
-
-    @pytest.mark.asyncio
-    async def test_transient_failure_does_not_raise_and_does_not_mark_failed(self):
-        api = FakeTraceApi({TRACE_A: [RuntimeError("boom")]})
-        clock = FakeClock()
-        fetcher = _make_fetcher(api, clock)
-        collector = JudgeSpanCollector()
-
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector
-        )
-
-        assert _collected_names(collector, THREAD_ID) == []
-        assert fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        ), "a transient failure leaves the trace eligible for the settle-wait"
-
-
 class TestSettleTraces:
     """@scenario A forced verdict settle-waits until the remote trace is complete"""
 
@@ -185,38 +133,7 @@ class TestSettleTraces:
             "two empty polls, then the parentless root arrives and the trace"
             " is parent-resolved with a remote span"
         )
-        assert not fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        )
         assert _collected_names(collector, THREAD_ID) == ["call llm"]
-
-    @pytest.mark.asyncio
-    async def test_a_complete_trace_settles_during_the_non_blocking_round(self):
-        span = _api_span("a" * 16)
-        api = FakeTraceApi({TRACE_A: [_trace_response(TRACE_A, [span])]})
-        clock = FakeClock()
-        fetcher = _make_fetcher(api, clock)
-        collector = JudgeSpanCollector()
-
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector
-        )
-        calls_before_settle = len(api.calls)
-        assert not fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        )
-
-        await fetcher.settle_traces(
-            thread_id=THREAD_ID,
-            trace_ids=[TRACE_A],
-            collector=collector,
-            timeout=60.0,
-        )
-
-        assert len(api.calls) == calls_before_settle, (
-            "the verdict adds no polls for a trace settled during the"
-            " non-blocking round"
-        )
 
     @pytest.mark.asyncio
     async def test_chunked_ingestion_does_not_settle_on_a_partial_trace(self):
@@ -242,9 +159,6 @@ class TestSettleTraces:
         )
 
         assert len(api.calls) == 4, "keeps polling past the partial chunks"
-        assert not fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        )
         names = _collected_names(collector, THREAD_ID)
         assert "agent request" in names
         assert "query db" in names
@@ -265,9 +179,14 @@ class TestSettleTraces:
             timeout=5.0,
         )
 
-        assert len(api.calls) > 3, "keeps polling until the deadline"
-        assert not fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
+        calls_at_deadline = len(api.calls)
+        assert calls_at_deadline > 3, "keeps polling until the deadline"
+
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+        assert len(api.calls) == calls_at_deadline, (
+            "the trace is terminally failed: a later settle adds no polls"
         )
         names = _collected_names(collector, THREAD_ID)
         assert "orphan tool" in names, "the collected spans stay with the judge"
@@ -283,6 +202,41 @@ class TestSettleTraces:
             ]
         )
         assert "still incomplete" in reason
+
+    @pytest.mark.asyncio
+    async def test_local_echoes_with_open_parents_do_not_block_settling(self):
+        """@scenario The scenario's own spans echoed back do not block settling"""
+        adapter_span = convert_api_span(
+            _api_span("b" * 16, name="adapter call"),
+            trace_id=TRACE_A,
+            thread_id=THREAD_ID,
+        )
+        assert adapter_span is not None
+        collector = JudgeSpanCollector()
+        collector.on_end(adapter_span)
+
+        # The echo of the adapter span points at the still-open turn span,
+        # which is neither fetched nor collected; the agent's own root
+        # resolves against the collected adapter span.
+        echo = _api_span("b" * 16, name="adapter call", parent_id="1" * 16)
+        agent_root = _api_span("c" * 16, name="agent request", parent_id="b" * 16)
+        api = FakeTraceApi(
+            {TRACE_A: [_trace_response(TRACE_A, [echo, agent_root])]}
+        )
+        clock = FakeClock()
+        fetcher = _make_fetcher(api, clock)
+
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID,
+            trace_ids=[TRACE_A],
+            collector=collector,
+            timeout=60.0,
+        )
+
+        assert len(api.calls) == 1, "settles on the first poll"
+        names = _collected_names(collector, THREAD_ID)
+        assert "agent request" in names
+        assert ERROR_SPAN_NAME not in names
 
     @pytest.mark.asyncio
     async def test_local_only_trace_never_settles_and_times_out(self):
@@ -316,10 +270,15 @@ class TestSettleTraces:
             timeout=5.0,
         )
 
-        assert len(api.calls) > 3, "keeps polling until the timeout"
-        assert not fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        ), "the trace is terminally failed, not left pending"
+        calls_at_timeout = len(api.calls)
+        assert calls_at_timeout > 3, "keeps polling until the timeout"
+
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+        assert len(api.calls) == calls_at_timeout, (
+            "the trace is terminally failed, not left pending"
+        )
         names = _collected_names(collector, THREAD_ID)
         assert ERROR_SPAN_NAME in names
         error_span = next(
@@ -380,6 +339,46 @@ class TestSettleTraces:
         assert len(api.calls) == calls_after_first
 
 
+class TestDeadlineMidPoll:
+    """@scenario A poll in flight at the deadline still yields the timeout reason"""
+
+    @pytest.mark.asyncio
+    async def test_slow_poll_completing_after_the_deadline_records_the_timeout_reason(
+        self,
+    ):
+        clock = FakeClock()
+        calls: List[str] = []
+
+        async def slow_empty_fetch(trace_id: str) -> Optional[Dict[str, Any]]:
+            # The response lands only after the settle deadline has passed:
+            # the loop, not the request, owns the deadline, so the poll must
+            # complete and the deadline branch must record the timeout reason.
+            calls.append(trace_id)
+            clock.now += 30.0
+            return None
+
+        fetcher = RemoteTraceFetcher(
+            fetch_trace=slow_empty_fetch, sleep=clock.sleep, monotonic=clock.monotonic
+        )
+        collector = JudgeSpanCollector()
+
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=10.0
+        )
+
+        assert calls == [TRACE_A]
+        names = _collected_names(collector, THREAD_ID)
+        assert names == [ERROR_SPAN_NAME]
+        [error_span] = collector.get_spans_for_thread(THREAD_ID)
+        reason = str(
+            dict(error_span.attributes or {})[
+                "langwatch.span_collection.error.reason"
+            ]
+        )
+        assert "no agent spans arrived" in reason
+        assert "aborted" not in reason
+
+
 class TestFetchFailure:
     """@scenario Fetch failure produces a synthetic error span and inconclusive criteria guidance"""
 
@@ -417,11 +416,39 @@ class TestFetchFailure:
             thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=60.0
         )
 
+        # A failing poll retries until the deadline instead of terminally
+        # failing the trace on its first error.
+        assert len(api.calls) > 1
         spans = collector.get_spans_for_thread(THREAD_ID)
         assert [s.name for s in spans] == [ERROR_SPAN_NAME]
-        assert "connection refused" in str(
+        reason = str(
             dict(spans[0].attributes or {})["langwatch.span_collection.error.reason"]
         )
+        assert "kept failing" in reason
+        assert "connection refused" in reason
+
+    @pytest.mark.asyncio
+    async def test_a_poll_succeeding_after_a_failed_one_settles_the_trace(self):
+        """@scenario A failed poll retries until the deadline instead of failing the trace"""
+        api = FakeTraceApi(
+            {
+                TRACE_A: [
+                    RuntimeError("transient blip"),
+                    _trace_response(TRACE_A, [_api_span("a" * 16)]),
+                ]
+            }
+        )
+        clock = FakeClock()
+        fetcher = _make_fetcher(api, clock)
+        collector = JudgeSpanCollector()
+
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=60.0
+        )
+
+        names = _collected_names(collector, THREAD_ID)
+        assert ERROR_SPAN_NAME not in names
+        assert len(names) == 1
 
     @pytest.mark.asyncio
     async def test_a_failed_trace_never_gets_a_second_synthetic_span(self):
@@ -466,8 +493,8 @@ class TestMergeFilterAndDedup:
         clock = FakeClock()
         fetcher = _make_fetcher(api, clock)
 
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=60.0
         )
 
         assert sorted(_collected_names(collector, THREAD_ID)) == [
@@ -477,20 +504,30 @@ class TestMergeFilterAndDedup:
 
     @pytest.mark.asyncio
     async def test_spans_merged_by_an_earlier_poll_are_not_added_twice(self):
-        remote = _trace_response(TRACE_A, [_api_span("a" * 16)])
-        api = FakeTraceApi({TRACE_A: [remote]})
+        root = _api_span("f" * 16, name="agent request")
+        child = _api_span("a" * 16, parent_id="f" * 16)
+        # Poll one carries only the child (unresolved parent); poll two
+        # repeats the child alongside the root. The child must merge once.
+        api = FakeTraceApi(
+            {
+                TRACE_A: [
+                    _trace_response(TRACE_A, [child]),
+                    _trace_response(TRACE_A, [root, child]),
+                ]
+            }
+        )
         clock = FakeClock()
         fetcher = _make_fetcher(api, clock)
         collector = JudgeSpanCollector()
 
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector
-        )
         await fetcher.settle_traces(
             thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=60.0
         )
 
-        assert _collected_names(collector, THREAD_ID) == ["call llm"]
+        assert sorted(_collected_names(collector, THREAD_ID)) == [
+            "agent request",
+            "call llm",
+        ]
 
     @pytest.mark.asyncio
     async def test_scenario_infrastructure_spans_are_filtered_out(self):
@@ -508,8 +545,8 @@ class TestMergeFilterAndDedup:
         fetcher = _make_fetcher(api, clock)
         collector = JudgeSpanCollector()
 
-        await fetcher.fetch_traces_once(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=60.0
         )
 
         assert _collected_names(collector, THREAD_ID) == ["agent tool call"]
@@ -527,15 +564,21 @@ class TestMergeFilterAndDedup:
             collector=collector,
             timeout=60.0,
         )
-        assert not fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        )
+        calls_after_first = len(api.calls)
 
         fetcher.clear_thread(THREAD_ID)
 
-        assert fetcher.has_unsettled_traces(
-            thread_id=THREAD_ID, trace_ids=[TRACE_A]
-        ), "cleared state means the trace id is unknown again"
+        # In production clear_thread runs alongside the collector's own
+        # clear, so the second settle starts from a fresh collector too.
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID,
+            trace_ids=[TRACE_A],
+            collector=JudgeSpanCollector(),
+            timeout=60.0,
+        )
+        assert len(api.calls) == calls_after_first + 1, (
+            "cleared state means the trace id is polled again"
+        )
 
 
 class TestSpanConversion:

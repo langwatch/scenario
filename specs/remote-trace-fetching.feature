@@ -21,18 +21,17 @@ Feature: Remote trace fetching for judge evaluation
     Then the remote fetcher is asked for all three trace ids
 
   @unit
-  Scenario: Non-verdict judge calls do not wait for trace ingestion
+  Scenario: Conversation turns never fetch remote traces
     Given the judge is called mid-conversation and decides to continue
-    When remote traces for the latest turn are not yet available
-    Then the judge call performs at most one non-blocking fetch round
-    And no settle-wait is performed
+    When the decision call completes
+    Then no remote trace fetch happens at all
 
   @unit
   Scenario: A forced verdict settle-waits until the remote trace is complete
     Given the conversation reached its final turn
     And a remote trace becomes available only after two poll rounds
     When the judge issues its verdict
-    Then the fetcher polls until every fetched span's parent resolves within the fetched and locally collected spans
+    Then the fetcher polls until every fetched agent span's parent resolves within the fetched and locally collected spans
     And the fetched spans are present in the judge's trace digest
 
   @unit
@@ -58,11 +57,18 @@ Feature: Remote trace fetching for judge evaluation
     And the trace digest contains a span named langwatch.span_collection.error
 
   @unit
-  Scenario: A voluntary mid-run verdict is re-issued once with complete traces
-    Given the judge volunteers a finish_test verdict while remote traces are incomplete
-    When the runtime completes the settle-wait fetch
-    Then the judge is invoked exactly one more time with the complete trace digest
-    And the second verdict is the scenario result
+  Scenario: The scenario's own spans echoed back do not block settling
+    Given the platform echoes back one of the scenario's own spans whose parent span is still open
+    And the agent's spans are fully ingested
+    When the judge issues its verdict
+    Then the trace settles on the first poll
+
+  @unit
+  Scenario: A make_verdict decision settles the traces before the verdict
+    Given the judge decides mid-conversation that enough information has been collected
+    When the verdict call runs
+    Then the settle-wait completes before the verdict prompt is built
+    And the fetched spans are present in the verdict's trace digest
 
   @unit
   Scenario: Fetch failure produces a synthetic error span and inconclusive criteria guidance
@@ -70,6 +76,30 @@ Feature: Remote trace fetching for judge evaluation
     When the judge issues its verdict
     Then the trace digest contains a span named langwatch.span_collection.error with the failure reason
     And the judge system prompt instructs that trace-dependent criteria must not pass on transcript claims alone
+
+  @unit
+  Scenario: A fractional wait budget does not break the fetch
+    Given the settle-wait budget is a fractional number of milliseconds
+    When the judge settle-waits for the remote trace
+    Then the trace settles normally without a synthetic error span
+
+  @unit
+  Scenario: A poll in flight at the deadline still yields the timeout reason
+    Given a remote trace that never arrives within the budget
+    When the settle-wait deadline expires while a poll is in flight
+    Then the synthetic error span reports that no agent spans arrived rather than an aborted fetch
+
+  @unit
+  Scenario: A failed poll retries until the deadline instead of failing the trace
+    Given the first trace fetch fails and a later fetch returns the complete trace
+    When the judge settle-waits for the remote trace
+    Then the trace settles normally without a synthetic error span
+
+  @unit
+  Scenario: A voluntary inconclusive verdict is terminal when no remote trace ever settled
+    Given remote trace fetching is enabled and every trace terminally failed to settle
+    When the judge volunteers a verdict and it comes back inconclusive
+    Then the verdict is final and the conversation does not continue
 
   @unit
   Scenario: Remote spans deduplicate against locally collected spans
