@@ -126,10 +126,10 @@ At judgment time, the judge collects every distinct trace id stamped on the conv
 
 Trace ingestion takes a moment, and the fetch schedule is built so conversations never slow down for it:
 
-- **Mid-conversation judge calls never wait.** Each call does one non-blocking fetch round, merging whatever spans already arrived.
-- **Only a verdict waits.** When a judgment is required (last turn, or an explicit judge step), the judge settle-waits first: it polls each pending trace every second until the trace is complete, meaning it holds at least one span from your agent and every fetched span's parent span has arrived. All traces are polled in parallel under the single shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget.
+- **Conversation turns never fetch.** While the conversation runs, the judge only decides whether to continue or move to the verdict, from the transcript and local spans. Remote traces are not fetched mid-conversation and never delay a turn.
+- **Every verdict settle-waits first.** When the judge moves to its verdict (a `make_verdict` decision, the last turn, or an explicit judge step), it polls each pending trace every second until the trace is complete, meaning it holds at least one span from your agent and every fetched span's parent span has arrived. A failed poll retries until the deadline instead of failing the trace. All traces are polled in parallel under the single shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget.
 - **A timeout never hides what did arrive.** When the budget runs out on an incomplete trace, the judge still sees every span that was fetched, plus a synthetic error span that marks the trace as possibly incomplete. Criteria the visible spans prove can still pass; criteria that need the missing spans go inconclusive.
-- **The judge finishes on the conversation, not on the traces.** The judge's rules tell it never to continue the conversation only to wait for traces: it calls `finish_test` as soon as the conversation resolves the criteria. That call completes trace collection, and when the traces were still incomplete the runtime invokes the judge one more time with the full digest. The second verdict wins, so every verdict is trace-informed at the cost of at most one extra LLM call per run.
+- **An inconclusive verdict continues the conversation, unless the evidence is dead.** A voluntary verdict that comes back inconclusive sends the conversation onward for more turns. When no trace of the run ever settled, the inconclusive verdict is terminal instead: more turns cannot produce the missing evidence, and another settle-wait would only repeat the same timeout.
 
 ---
 
