@@ -78,8 +78,14 @@ class ScenarioConfig(BaseModel):
         "",
     ]
     fetch_remote_traces: Optional[bool] = None
-    trace_wait_timeout: Optional[float] = Field(default=None, gt=0)
-    trace_wait_extension: Optional[float] = Field(default=None, gt=0)
+    # allow_inf_nan=False on both: gt=0 alone accepts positive infinity, and
+    # an infinite budget becomes a deadline the settle loop can never reach.
+    trace_wait_timeout: Optional[float] = Field(
+        default=None, gt=0, allow_inf_nan=False
+    )
+    trace_wait_extension: Optional[float] = Field(
+        default=None, gt=0, allow_inf_nan=False
+    )
     observability: Optional[Dict[str, Any]] = None
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None

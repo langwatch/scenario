@@ -203,6 +203,50 @@ class TestForceVerdictHardening:
             "function": {"name": "finish_test"},
         }
 
+    def test_strips_wait_for_traces_from_the_forced_call(self):
+        """The forced call offers finish_test and nothing else.
+
+        The verdict phase also offers wait_for_traces while the extension is
+        unused. A deny-list on the discovery names alone would leave it in,
+        and a model that ignores the pin and calls it reaches
+        _parse_response as an invalid tool call.
+        """
+        agent = JudgeAgent(criteria=["Agent works"], model="openai/gpt-5-mini")
+        tools = [
+            {"type": "function", "function": {"name": "expand_trace"}},
+            {"type": "function", "function": {"name": "wait_for_traces"}},
+            {"type": "function", "function": {"name": "finish_test"}},
+        ]
+
+        captured: dict = {}
+
+        def fake_completion(**kwargs):
+            captured.update(kwargs)
+            return _mock_llm_response(
+                "finish_test",
+                {
+                    "criteria": {"agent_works": "true"},
+                    "reasoning": "ok",
+                    "verdict": "success",
+                },
+            )
+
+        with patch(
+            "scenario.judge_agent.litellm.completion", side_effect=fake_completion
+        ):
+            agent._force_verdict(
+                messages=[
+                    {"role": "system", "content": "sys"},
+                    {"role": "user", "content": "judge"},
+                ],
+                tools=tools,
+                effective_criteria=["Agent works"],
+                input_messages=[],
+            )
+
+        forced_tool_names = {t["function"]["name"] for t in captured["tools"]}
+        assert forced_tool_names == {"finish_test"}
+
 
 class TestParseResponseSafetyNet:
     def test_leaked_discovery_tool_returns_inconclusive_not_exception(self):

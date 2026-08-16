@@ -1756,9 +1756,15 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             ),
         })
 
+        # finish_test only, not just "everything except discovery". The
+        # verdict phase also offers wait_for_traces while the extension is
+        # unused, and it would survive a deny-list. The pin below asks for
+        # finish_test, but a model that ignores the pin and calls
+        # wait_for_traces here reaches _parse_response as an invalid tool
+        # call. Leaving one tool closes that path.
         finish_only_tools = [
             t for t in tools
-            if t.get("function", {}).get("name") not in _DISCOVERY_TOOL_NAMES
+            if t.get("function", {}).get("name") == "finish_test"
         ]
 
         forced_response = self._completion_with_reasoning_off_retry(

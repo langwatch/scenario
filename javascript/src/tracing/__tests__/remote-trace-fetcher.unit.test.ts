@@ -91,6 +91,66 @@ describe("RemoteTraceFetcher", () => {
       expect(calls[0].headers["X-Auth-Token"]).toBe("key-123");
       expect(calls[0].headers["Authorization"]).toBe("Bearer key-123");
     });
+
+    it("omits X-Project-Id when the run config names no project", async () => {
+      const collector = new JudgeSpanCollector();
+      const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 5_000 });
+
+      expect(calls[0].headers["X-Project-Id"]).toBeUndefined();
+    });
+  });
+
+  describe("when the run config carries a bearer or PAT credential", () => {
+    it("scopes the fetch with X-Project-Id", async () => {
+      const collector = new JudgeSpanCollector();
+      const { calls, fetchFn } = fakeTraceApi([[apiSpan()]]);
+      const fetcher = makeFetcher(fetchFn);
+
+      await fetcher.settleWait({
+        ...target(collector),
+        langwatch: { ...LANGWATCH, projectId: "project-abc" },
+        timeoutMs: 5_000,
+      });
+
+      // The platform resolves the Bearer branch first, and that branch
+      // rejects an organization-wide key with no project scope.
+      expect(calls[0].headers["Authorization"]).toBe("Bearer key-123");
+      expect(calls[0].headers["X-Project-Id"]).toBe("project-abc");
+    });
+  });
+
+  describe("when a request stalls past the configured budget", () => {
+    it("gives up at the deadline instead of waiting for the request bound", async () => {
+      const collector = new JudgeSpanCollector();
+      // Never resolves on its own: only an abort ends it. The request bound
+      // is 30s, so a budget of 30ms only holds if the remaining budget also
+      // bounds the request.
+      const fetchFn: typeof fetch = (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("aborted"))
+          );
+        });
+      const fetcher = makeFetcher(fetchFn);
+
+      const startedAt = Date.now();
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 30 });
+      const elapsed = Date.now() - startedAt;
+
+      expect(elapsed).toBeLessThan(5_000);
+      const spans = collector.getSpansForThread(THREAD_ID);
+      expect(spans).toHaveLength(1);
+      const reason = String(
+        spans[0].attributes["langwatch.span_collection.error.reason"]
+      );
+      // The abort is ours, so the reason stays the timeout one rather than
+      // reporting a fetch that "kept failing".
+      expect(reason).toContain("no agent spans arrived");
+      expect(reason).not.toContain("aborted");
+    });
   });
 
   describe("when the settle-wait polls a trace that arrives late", () => {
@@ -434,6 +494,52 @@ describe("RemoteTraceFetcher", () => {
       expect(errorSpan?.attributes["langwatch.span_collection.error.reason"]).toContain(
         "no agent spans arrived"
       );
+    });
+  });
+
+  describe("when a scenario run completes and clears its thread", () => {
+    /** Registers a span start with the collector, as the SDK provider would. */
+    function startProcessSpan(
+      collector: JudgeSpanCollector,
+      traceId: string,
+      spanId: string
+    ): void {
+      collector.onStart({
+        spanContext: () => ({ traceId, spanId }),
+      } as never);
+    }
+
+    /** @scenario A finished scenario releases its traces from the process-span registry */
+    it("releases the traces the settle-wait claimed, even with no ended thread span", async () => {
+      const collector = new JudgeSpanCollector();
+      // A local echo whose span never ends and never carries the thread id:
+      // ended-span discovery cannot find this trace at clear time.
+      startProcessSpan(collector, TRACE_ID, "c000000000000001");
+      const { fetchFn } = fakeTraceApi([
+        [apiSpan({ span_id: "c000000000000001", name: "_JudgeAgent.call" })],
+      ]);
+      const fetcher = makeFetcher(fetchFn);
+      await fetcher.settleWait({ ...target(collector), timeoutMs: 30 });
+      expect(collector.isProcessSpan(TRACE_ID, "c000000000000001")).toBe(true);
+
+      collector.clearSpansForThread(THREAD_ID);
+
+      expect(collector.isProcessSpan(TRACE_ID, "c000000000000001")).toBe(false);
+    });
+
+    /** @scenario A finished scenario releases its traces from the process-span registry */
+    it("keeps traces claimed by other threads registered", () => {
+      const collector = new JudgeSpanCollector();
+      const otherTrace = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2";
+      startProcessSpan(collector, TRACE_ID, "c000000000000001");
+      startProcessSpan(collector, otherTrace, "c000000000000002");
+      collector.claimTraces(THREAD_ID, [TRACE_ID]);
+      collector.claimTraces("thread-2", [otherTrace]);
+
+      collector.clearSpansForThread(THREAD_ID);
+
+      expect(collector.isProcessSpan(TRACE_ID, "c000000000000001")).toBe(false);
+      expect(collector.isProcessSpan(otherTrace, "c000000000000002")).toBe(true);
     });
   });
 

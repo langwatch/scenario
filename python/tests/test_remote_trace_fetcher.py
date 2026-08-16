@@ -12,11 +12,14 @@ Binds the @unit scenarios of specs/remote-trace-fetching.feature:
 "Fetch failure produces a synthetic error span and inconclusive criteria
 guidance" (the synthetic span half),
 "Spans started by the scenario process never count as remote evidence",
+"A finished scenario releases its traces from the process-span registry",
 "The judge may wait once more when the traces are incomplete" (the
 extend_settle half), and
 "Remote spans deduplicate against locally collected spans".
 """
 
+import asyncio
+import time
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -26,6 +29,7 @@ from scenario._tracing.judge_span_collector import JudgeSpanCollector
 from scenario._tracing.remote_trace_fetcher import (
     ERROR_SPAN_NAME,
     RemoteTraceFetcher,
+    _hex_or_hashed_id,
     convert_api_span,
     create_synthetic_error_span,
 )
@@ -381,6 +385,41 @@ class TestDeadlineMidPoll:
         assert "no agent spans arrived" in reason
         assert "aborted" not in reason
 
+    @pytest.mark.asyncio
+    async def test_a_hanging_fetch_gives_up_at_the_configured_budget(self):
+        """A stalled request must not outlive a short budget.
+
+        The HTTP client's own timeout is ten seconds, so without the
+        remaining-budget bound a run configured for half a second would still
+        wait ten. The abort is ours, so the reason stays the timeout one.
+        """
+        collector = JudgeSpanCollector()
+
+        async def hanging_fetch(trace_id: str) -> Optional[Dict[str, Any]]:
+            await asyncio.sleep(30.0)
+            return None
+
+        # Real clock: the bound is enforced by asyncio, not by the fake one.
+        fetcher = RemoteTraceFetcher(fetch_trace=hanging_fetch)
+
+        started_at = time.monotonic()
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID,
+            trace_ids=[TRACE_A],
+            collector=collector,
+            timeout=0.5,
+        )
+        elapsed = time.monotonic() - started_at
+
+        assert elapsed < 5.0
+        [error_span] = collector.get_spans_for_thread(THREAD_ID)
+        reason = str(
+            dict(error_span.attributes or {})[
+                "langwatch.span_collection.error.reason"
+            ]
+        )
+        assert "no agent spans arrived" in reason
+
 
 class TestFetchFailure:
     """@scenario Fetch failure produces a synthetic error span and inconclusive criteria guidance"""
@@ -669,6 +708,62 @@ class TestProcessSpanRegistry:
             ]
         )
         assert "still incomplete" in reason
+
+
+class TestProcessSpanRegistryCleanup:
+    """@scenario A finished scenario releases its traces from the process-span registry"""
+
+    @pytest.mark.asyncio
+    async def test_clearing_the_thread_releases_the_claimed_traces(self):
+        collector = JudgeSpanCollector()
+        # A local echo whose span never ends: ended-span discovery cannot
+        # find this trace at clear time, only the settle-wait's claim can.
+        started = convert_api_span(
+            _api_span("1" * 16), trace_id=TRACE_A, thread_id=THREAD_ID
+        )
+        assert started is not None
+        collector.on_start(started)
+        api = FakeTraceApi(
+            {
+                TRACE_A: [
+                    _trace_response(
+                        TRACE_A, [_api_span("1" * 16, name="_JudgeAgent.call")]
+                    )
+                ]
+            }
+        )
+        fetcher = _make_fetcher(api, FakeClock())
+        await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+        trace_a = _hex_or_hashed_id(TRACE_A, bits=128)
+        span_one = _hex_or_hashed_id("1" * 16, bits=64)
+        assert collector.is_process_span(trace_a, span_one) is True
+
+        collector.clear_spans_for_thread(THREAD_ID)
+
+        assert collector.is_process_span(trace_a, span_one) is False
+
+    def test_clearing_one_thread_keeps_another_threads_claims(self):
+        collector = JudgeSpanCollector()
+        span_a = convert_api_span(
+            _api_span("1" * 16), trace_id=TRACE_A, thread_id=THREAD_ID
+        )
+        span_b = convert_api_span(
+            _api_span("2" * 16, trace_id=TRACE_B), trace_id=TRACE_B, thread_id="thread-2"
+        )
+        assert span_a is not None and span_b is not None
+        collector.on_start(span_a)
+        collector.on_start(span_b)
+        trace_a = _hex_or_hashed_id(TRACE_A, bits=128)
+        trace_b = _hex_or_hashed_id(TRACE_B, bits=128)
+        collector.claim_traces(THREAD_ID, [trace_a])
+        collector.claim_traces("thread-2", [trace_b])
+
+        collector.clear_spans_for_thread(THREAD_ID)
+
+        assert collector.is_process_span(trace_a, _hex_or_hashed_id("1" * 16, bits=64)) is False
+        assert collector.is_process_span(trace_b, _hex_or_hashed_id("2" * 16, bits=64)) is True
 
 
 class TestExtendSettle:

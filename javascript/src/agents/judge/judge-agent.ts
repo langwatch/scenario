@@ -696,17 +696,25 @@ export class JudgeAgent extends JudgeAgentAdapter {
       input.scenarioConfig.fetchRemoteTraces ??
       projectConfig?.fetchRemoteTraces ??
       false;
-    const traceWaitTimeoutMs =
-      input.scenarioConfig.traceWaitTimeoutMs ??
-      projectConfig?.traceWaitTimeoutMs ??
-      DEFAULT_TRACE_WAIT_TIMEOUT_MS;
+    const traceWaitTimeoutMs = this.resolveWaitBudgetMs({
+      field: "traceWaitTimeoutMs",
+      values: [
+        input.scenarioConfig.traceWaitTimeoutMs,
+        projectConfig?.traceWaitTimeoutMs,
+      ],
+      fallback: DEFAULT_TRACE_WAIT_TIMEOUT_MS,
+    });
     // The one extra wait the judge may request via the wait_for_traces tool.
     // Defaults to the wait budget itself; the platform passes its upper cap
     // here so a short measured budget still gets a meaningful extension.
-    const traceWaitExtensionMs =
-      input.scenarioConfig.traceWaitExtensionMs ??
-      projectConfig?.traceWaitExtensionMs ??
-      traceWaitTimeoutMs;
+    const traceWaitExtensionMs = this.resolveWaitBudgetMs({
+      field: "traceWaitExtensionMs",
+      values: [
+        input.scenarioConfig.traceWaitExtensionMs,
+        projectConfig?.traceWaitExtensionMs,
+      ],
+      fallback: traceWaitTimeoutMs,
+    });
     const traceFetcher = cfg.traceFetcher ?? remoteTraceFetcher;
 
     // Automatic STT pre-pass (EDR §3.3 / §7.7): when the conversation carries
@@ -764,6 +772,35 @@ export class JudgeAgent extends JudgeAgentAdapter {
       exhaustedEntry,
       discoveryRecap,
     });
+  }
+
+  /**
+   * Picks the first usable wait budget in milliseconds, in precedence order.
+   *
+   * `ScenarioConfig` is a plain TypeScript interface, so a caller can pass
+   * `Infinity` or `NaN` and nothing rejects it before it reaches the fetcher,
+   * where it becomes a non-finite deadline that polls forever. A value that
+   * is not a finite positive number is dropped with a warning and the next
+   * source is used, ending at `fallback`.
+   */
+  private resolveWaitBudgetMs({
+    field,
+    values,
+    fallback,
+  }: {
+    field: string;
+    values: (number | undefined)[];
+    fallback: number;
+  }): number {
+    for (const value of values) {
+      if (value == null) continue;
+      if (Number.isFinite(value) && value > 0) return value;
+      this.logger.warn(
+        `${field} must be a finite positive number of milliseconds; ignoring it`,
+        { value: String(value) }
+      );
+    }
+    return fallback;
   }
 
   /**
@@ -1184,11 +1221,15 @@ export class JudgeAgent extends JudgeAgentAdapter {
     } = params;
 
     const rewrittenMessages = collapseDiscoveryHistory(prevMessages ?? []);
+    // finish_test only, not just "everything except discovery". The verdict
+    // phase also offers wait_for_traces while the extension is unused, and it
+    // would survive a deny-list. The pin below asks for finish_test, but a
+    // model that ignores the pin and calls wait_for_traces here reaches
+    // parseToolCalls as an invalid tool call. Leaving one tool closes that
+    // path.
     const finishOnlyTools: ToolSet | undefined = prevTools
       ? (Object.fromEntries(
-          Object.entries(prevTools).filter(
-            ([name]) => !DISCOVERY_TOOL_NAMES.has(name)
-          )
+          Object.entries(prevTools).filter(([name]) => name === "finish_test")
         ) as ToolSet)
       : undefined;
 

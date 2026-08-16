@@ -28,6 +28,18 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** The invalid W3C trace id, stamped on messages when tracing is off. */
 const INVALID_TRACE_ID = "00000000000000000000000000000000";
 
+/**
+ * The abort the settle loop caused itself by bounding a request to what was
+ * left of the shared deadline. It is not an API failure, so the deadline
+ * branch keeps the timeout reason rather than reporting a failing fetch.
+ */
+class DeadlineAbortError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DeadlineAbortError";
+  }
+}
+
 interface TraceFetchState {
   /** Span ids this fetcher merged into the collector, i.e. the remote spans. */
   mergedSpanIds: Set<string>;
@@ -45,6 +57,12 @@ interface TraceFetchState {
 interface TraceApiAuth {
   endpoint: string;
   apiKey: string;
+  /**
+   * Scopes a bearer or PAT credential to one project. The platform resolves
+   * the `Authorization: Bearer` branch first, and that branch rejects an
+   * organization-wide key that arrives without `X-Project-Id`.
+   */
+  projectId: string | undefined;
 }
 
 interface PollResult {
@@ -157,6 +175,11 @@ export class RemoteTraceFetcher {
   ): Promise<{ allSettled: boolean }> {
     const auth = this.resolveAuth(target.langwatch);
     const deadline = Date.now() + target.timeoutMs;
+    // Every trace this wait touches is claimed for the thread, so the
+    // collector's per-thread clear can release the process-span registry
+    // entries of traces whose local echoes never end or never associate
+    // with the thread.
+    target.collector.claimTraces(target.threadId, target.traceIds);
     const pending = target.traceIds.filter((traceId) =>
       this.isUnsettled(target.threadId, traceId)
     );
@@ -316,16 +339,24 @@ export class RemoteTraceFetcher {
           state,
           collector,
           auth,
+          deadline,
         });
         lastFetchError = undefined;
       } catch (error) {
         // A failed poll retries until the deadline: a transient error (a
         // request timing out under load, a blip on the API) must not
         // terminally fail the trace while the budget still has time left.
-        lastFetchError = error instanceof Error ? error.message : String(error);
+        //
+        // Our own deadline abort is not one of those. Recording it would
+        // report "kept failing" for a run whose real story is "nothing
+        // arrived in time", so the earlier error, if any, stands instead.
+        const reason = error instanceof Error ? error.message : String(error);
+        if (!(error instanceof DeadlineAbortError)) {
+          lastFetchError = reason;
+        }
         this.logger.debug("Trace poll failed; retrying until the deadline", {
           traceId,
-          reason: lastFetchError,
+          reason,
         });
       }
 
@@ -381,14 +412,16 @@ export class RemoteTraceFetcher {
     state,
     collector,
     auth,
+    deadline,
   }: {
     threadId: string;
     traceId: string;
     state: TraceFetchState;
     collector: JudgeSpanCollector;
     auth: TraceApiAuth;
+    deadline: number;
   }): Promise<number> {
-    const spans = await this.fetchTrace({ traceId, auth });
+    const spans = await this.fetchTrace({ traceId, auth, deadline });
     const { remoteSpanCount, parentsResolved } = this.merge({
       threadId,
       traceId,
@@ -521,42 +554,88 @@ export class RemoteTraceFetcher {
   private async fetchTrace({
     traceId,
     auth,
+    deadline,
   }: {
     traceId: string;
     auth: TraceApiAuth;
+    deadline: number;
   }): Promise<LangWatchApiSpan[]> {
     const url = `${auth.endpoint.replace(/\/$/, "")}/api/trace/${traceId}`;
 
-    const response = await this.fetchFn(url, {
-      headers: {
-        // Dual-emit auth: /api/trace historically authenticates with
-        // X-Auth-Token, while newer deployments accept a Bearer token.
-        // Sending both keeps the fetch working across LangWatch versions.
-        "X-Auth-Token": auth.apiKey,
-        Authorization: `Bearer ${auth.apiKey}`,
-      },
-      // A fixed per-request bound against a hung API. The settle loop owns
-      // the shared deadline: shrinking this signal to the remaining budget
-      // aborted in-flight polls at the deadline edge, which recorded a
-      // misleading hard-failure reason instead of the timeout reason.
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-
-    if (response.status === 404) {
-      // Trace not found yet - spans may not have arrived.
-      return [];
-    }
-    if (!response.ok) {
-      throw new Error(
-        `Trace API returned ${response.status}: ${response.statusText}`
-      );
-    }
-
-    const data = (await response.json()) as {
-      trace_id?: string;
-      spans?: LangWatchApiSpan[];
+    const headers: Record<string, string> = {
+      // Dual-emit auth: /api/trace historically authenticates with
+      // X-Auth-Token, while newer deployments accept a Bearer token.
+      // Sending both keeps the fetch working across LangWatch versions.
+      "X-Auth-Token": auth.apiKey,
+      Authorization: `Bearer ${auth.apiKey}`,
     };
-    return data.spans ?? [];
+    // The Bearer branch resolves first on the platform, and it rejects a PAT
+    // or organization key that is not scoped to a project. The event reporter
+    // sends the same header for the same reason.
+    if (auth.projectId) {
+      headers["X-Project-Id"] = auth.projectId;
+    }
+
+    // Two bounds, whichever is nearer: a fixed guard against a hung API, and
+    // what is left of the settle loop's shared deadline. Without the second
+    // one a stalled request outlives a short budget, so a 10s run waits the
+    // full request timeout before the loop can see it expired.
+    //
+    // The abort runs on our own controller rather than AbortSignal.timeout
+    // so the flag below is set by us, not inferred from the clock or from
+    // whatever error shape the fetch implementation throws on abort. A
+    // computed budget is fractional (1.25 * p95 + 5s), so the delay is
+    // rounded up before it reaches a timer.
+    const budgetRemaining = deadline - Date.now();
+    const boundedByDeadline = budgetRemaining <= REQUEST_TIMEOUT_MS;
+    const boundMs = Math.max(
+      1,
+      Math.ceil(Math.min(REQUEST_TIMEOUT_MS, budgetRemaining))
+    );
+    const controller = new AbortController();
+    let abortedByDeadline = false;
+    const timer = setTimeout(() => {
+      abortedByDeadline = boundedByDeadline;
+      controller.abort();
+    }, boundMs);
+
+    // The timer stays armed through the body read: a server that answers
+    // with headers and then stalls the body would otherwise hang the settle
+    // loop with nothing left to abort it.
+    try {
+      const response = await this.fetchFn(url, {
+        headers,
+        signal: controller.signal,
+      });
+
+      if (response.status === 404) {
+        // Trace not found yet - spans may not have arrived.
+        return [];
+      }
+      if (!response.ok) {
+        throw new Error(
+          `Trace API returned ${response.status}: ${response.statusText}`
+        );
+      }
+
+      const data = (await response.json()) as {
+        trace_id?: string;
+        spans?: LangWatchApiSpan[];
+      };
+      return data.spans ?? [];
+    } catch (error) {
+      // Our own abort at the deadline is not an API failure. settleOne reads
+      // this type and keeps the timeout reason instead of reporting a fetch
+      // that "kept failing".
+      if (abortedByDeadline) {
+        throw new DeadlineAbortError(
+          `Trace fetch for ${traceId} was aborted at the settle deadline`
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -570,6 +649,7 @@ export class RemoteTraceFetcher {
     return {
       endpoint: langwatch?.endpoint ?? env.LANGWATCH_ENDPOINT,
       apiKey: langwatch?.apiKey ?? env.LANGWATCH_API_KEY ?? "",
+      projectId: langwatch?.projectId ?? env.LANGWATCH_PROJECT_ID,
     };
   }
 }

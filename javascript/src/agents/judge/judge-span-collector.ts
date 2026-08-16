@@ -17,6 +17,15 @@ export class JudgeSpanCollector implements SpanProcessor {
    * calls via instrumented SDKs).
    */
   private processSpanIds = new Map<string, Set<string>>();
+  /**
+   * Trace ids the remote trace fetcher settled, per thread. Clearing a
+   * thread by ended-span discovery cannot reach every registry entry: a
+   * fetched trace's local echoes may never end, or never associate with the
+   * thread (an instrumented SDK's model call carries no thread id). The
+   * fetcher claims the trace ids it touches, and `clearSpansForThread`
+   * releases the claims with the thread.
+   */
+  private threadTraceIds = new Map<string, Set<string>>();
 
   onStart(span: Span): void {
     const ctx = span.spanContext();
@@ -39,7 +48,24 @@ export class JudgeSpanCollector implements SpanProcessor {
   shutdown(): Promise<void> {
     this.spans = [];
     this.processSpanIds = new Map();
+    this.threadTraceIds = new Map();
     return Promise.resolve();
+  }
+
+  /**
+   * Marks the given trace ids as owned by a thread, so
+   * `clearSpansForThread` can release their process-span registry entries
+   * even when no ended span ties the trace to the thread.
+   */
+  claimTraces(threadId: string, traceIds: string[]): void {
+    let owned = this.threadTraceIds.get(threadId);
+    if (!owned) {
+      owned = new Set();
+      this.threadTraceIds.set(threadId, owned);
+    }
+    for (const traceId of traceIds) {
+      owned.add(traceId);
+    }
   }
 
   /**
@@ -73,6 +99,10 @@ export class JudgeSpanCollector implements SpanProcessor {
     for (const span of threadSpans) {
       this.processSpanIds.delete(span.spanContext().traceId);
     }
+    for (const traceId of this.threadTraceIds.get(threadId) ?? []) {
+      this.processSpanIds.delete(traceId);
+    }
+    this.threadTraceIds.delete(threadId);
     this.spans = this.spans.filter(
       (s) => !threadSpanIds.has(s.spanContext().spanId)
     );

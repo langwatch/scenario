@@ -109,6 +109,13 @@ Feature: Remote trace fetching for judge evaluation
     And the deadline reason reports that no agent spans arrived
 
   @unit
+  Scenario: A finished scenario releases its traces from the process-span registry
+    Given the judge settle-waited for a trace whose local spans never ended or never carried the thread id
+    When the scenario run completes and its thread is cleared
+    Then the process-span registry no longer holds that trace
+    And traces claimed by other threads stay registered
+
+  @unit
   Scenario: The judge may wait once more when the traces are incomplete
     Given the settle-wait ended with an incomplete trace
     When the verdict call runs

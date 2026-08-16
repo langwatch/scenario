@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from scenario import AgentRole, JudgeAgent, configure
 from scenario.agent_adapter import AgentAdapter
@@ -690,6 +691,19 @@ def test_configure_and_executor_kwargs_carry_the_new_config_fields():
         assert executor.config.trace_wait_extension == 19.0
     finally:
         ScenarioConfig.default_config = previous_default_config
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan")])
+def test_wait_budgets_reject_non_finite_values(value: float):
+    """gt=0 alone accepts positive infinity.
+
+    An infinite budget becomes a deadline the settle loop can never reach,
+    so the judge polls until the run is killed.
+    """
+    with pytest.raises(ValidationError):
+        ScenarioConfig(trace_wait_timeout=value)
+    with pytest.raises(ValidationError):
+        ScenarioConfig(trace_wait_extension=value)
 
 
 # --------------------------------------------------------------------- #

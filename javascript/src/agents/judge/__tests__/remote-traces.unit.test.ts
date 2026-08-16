@@ -1333,6 +1333,75 @@ describeFeature(
     );
 
     // -----------------------------------------------------------------------
+    Scenario(
+      "A finished scenario releases its traces from the process-span registry",
+      ({ Given, When, Then, And }) => {
+        let collector: JudgeSpanCollector;
+        const OTHER_THREAD = "scenariothread_other";
+
+        Given(
+          "the judge settle-waited for a trace whose local spans never ended or never carried the thread id",
+          async () => {
+            collector = new JudgeSpanCollector();
+            // The local echo's span never reaches onEnd, so ended-span
+            // discovery cannot find TRACE_A at clear time; the settle-wait's
+            // claim is the only route to it.
+            collector.onStart({
+              spanContext: () => ({
+                traceId: TRACE_A,
+                spanId: "c000000000000001",
+              }),
+            } as never);
+            const api = fakeTraceApi({
+              [TRACE_A]: [
+                [
+                  {
+                    ...toolSpan(TRACE_A, "c000000000000001"),
+                    name: "_JudgeAgent.call",
+                  },
+                ],
+              ],
+            });
+            const fetcher = new RemoteTraceFetcher({
+              fetchFn: api.fetchFn,
+              pollIntervalMs: 1,
+            });
+            await fetcher.settleWait({
+              threadId: THREAD_ID,
+              traceIds: [TRACE_A],
+              collector,
+              langwatch: LANGWATCH,
+              timeoutMs: 30,
+            });
+            collector.onStart({
+              spanContext: () => ({
+                traceId: TRACE_B,
+                spanId: "c000000000000002",
+              }),
+            } as never);
+            collector.claimTraces(OTHER_THREAD, [TRACE_B]);
+          }
+        );
+
+        When("the scenario run completes and its thread is cleared", () => {
+          collector.clearSpansForThread(THREAD_ID);
+        });
+
+        Then("the process-span registry no longer holds that trace", () => {
+          expect(collector.isProcessSpan(TRACE_A, "c000000000000001")).toBe(
+            false
+          );
+        });
+
+        And("traces claimed by other threads stay registered", () => {
+          expect(collector.isProcessSpan(TRACE_B, "c000000000000002")).toBe(
+            true
+          );
+        });
+      }
+    );
+
+    // -----------------------------------------------------------------------
     /**
      * Stub fetcher for the wait-extension scenarios: the first settle never
      * settles, the extension settles everything. Records the budgets.
@@ -1552,6 +1621,52 @@ describeFeature(
 // ---------------------------------------------------------------------------
 // Supplementary implementation-level coverage (not named spec scenarios)
 // ---------------------------------------------------------------------------
+
+describe("when a wait budget is not a finite positive number", () => {
+  // ScenarioConfig is a plain interface, so nothing rejects Infinity or NaN
+  // before it reaches the fetcher, where it becomes a deadline the settle
+  // loop can never reach.
+  it.each([
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["NaN", Number.NaN],
+    ["zero", 0],
+    ["a negative value", -1],
+  ])("ignores %s and falls back to the 30 second default", async (_label, bad) => {
+    const stub = new (class {
+      settleBudgets: number[] = [];
+      async settleWait({ timeoutMs }: { timeoutMs: number }) {
+        this.settleBudgets.push(timeoutMs);
+        return { allSettled: true };
+      }
+      async extendSettle() {
+        return { allSettled: true };
+      }
+      noneSettled(): boolean {
+        return false;
+      }
+      recordMissingTraceIds(): void {}
+      clearForThread(): void {}
+    })();
+    const judge = makeJudge({
+      collector: new JudgeSpanCollector(),
+      fetcher: stub as unknown as RemoteTraceFetcher,
+    });
+    judge.invokeLLM = async () => finishTest("success");
+
+    await judge.call(
+      judgeInput({
+        messages: [
+          tracedMessage("user", "write the order"),
+          tracedMessage("assistant", "I wrote it", TRACE_A),
+        ],
+        scenarioConfigExtra: { traceWaitTimeoutMs: bad },
+        judgmentRequest: {},
+      })
+    );
+
+    expect(stub.settleBudgets).toEqual([30_000]);
+  });
+});
 
 describe("project-wide remote trace defaults", () => {
   it("accepts the fields in the scenario.config.js schema", () => {

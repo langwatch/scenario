@@ -78,6 +78,15 @@ TraceFetch = Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
 as a dict, or None when the trace has not arrived yet (HTTP 404)."""
 
 
+class _DeadlineAbortError(Exception):
+    """The abort the settle loop caused itself.
+
+    Raised when a poll is cut short because the shared deadline ran out, not
+    because the API failed. The deadline branch keeps the timeout reason for
+    this case rather than reporting a failing fetch.
+    """
+
+
 class RemoteTraceAuthError(RuntimeError):
     """Raised when the credentials needed to reach the trace API are missing.
 
@@ -479,6 +488,14 @@ class RemoteTraceFetcher:
         every given trace id is settled cleanly after the wait.
         """
         deadline = self._monotonic() + timeout
+        # Every trace this wait touches is claimed for the thread, so the
+        # collector's per-thread clear can release the process-span registry
+        # entries of traces whose local echoes never end or never associate
+        # with the thread.
+        collector.claim_traces(
+            thread_id,
+            [_hex_or_hashed_id(trace_id, bits=128) for trace_id in trace_ids],
+        )
         pending = []
         for trace_id in trace_ids:
             state = self._state(thread_id, trace_id)
@@ -559,6 +576,7 @@ class RemoteTraceFetcher:
                     trace_id=trace_id,
                     state=state,
                     collector=collector,
+                    deadline=deadline,
                 )
                 last_fetch_error = None
             except RemoteTraceAuthError as error:
@@ -579,11 +597,18 @@ class RemoteTraceFetcher:
                 # (a request timing out under load, a blip on the API) must
                 # not terminally fail the trace while the budget still has
                 # time left.
-                last_fetch_error = str(error)
+                #
+                # Our own deadline abort is not one of those. Recording it
+                # would report "kept failing" for a run whose real story is
+                # "nothing arrived in time", so the earlier error, if any,
+                # stands instead.
+                reason = str(error) or type(error).__name__
+                if not isinstance(error, _DeadlineAbortError):
+                    last_fetch_error = reason
                 logger.debug(
                     "Trace poll for %s failed; retrying until the deadline: %s",
                     trace_id,
-                    last_fetch_error,
+                    reason,
                 )
 
             if state.settled:
@@ -652,14 +677,31 @@ class RemoteTraceFetcher:
         trace_id: str,
         state: _TraceFetchState,
         collector: JudgeSpanCollector,
+        deadline: float,
     ) -> int:
         """One fetch + merge + settle evaluation.
 
         Marks the state settled when the trace holds at least one remote span
         and every fetched agent span's parent resolves (fetched or locally
         collected). Returns the remote span count of this poll.
+
+        The fetch is bounded by what is left of the shared deadline, on top
+        of the HTTP client's own timeout. Without it a stalled request
+        outlives a short budget, so a 10 second run waits the full client
+        timeout before the loop can see the budget expired.
         """
-        trace_data = await self._fetch_trace(trace_id)
+        remaining = max(0.001, deadline - self._monotonic())
+        try:
+            trace_data = await asyncio.wait_for(
+                self._fetch_trace(trace_id), timeout=remaining
+            )
+        except asyncio.TimeoutError as error:
+            # Our own abort, not an API failure. _settle_one reads this type
+            # and keeps the timeout reason instead of reporting a fetch that
+            # "kept failing".
+            raise _DeadlineAbortError(
+                f"Trace fetch for {trace_id} was aborted at the settle deadline"
+            ) from error
         spans_data: List[Dict[str, Any]] = []
         if isinstance(trace_data, dict):
             raw_spans = trace_data.get("spans")
