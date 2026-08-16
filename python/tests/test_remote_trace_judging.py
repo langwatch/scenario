@@ -8,18 +8,20 @@ Binds the @unit scenarios of specs/remote-trace-fetching.feature:
 "A forced verdict settle-waits until the remote trace is complete",
 "A make_verdict decision settles the traces before the verdict",
 "Fetch failure produces a synthetic error span and inconclusive criteria
-guidance" (the judge prompt half), and
+guidance" (the judge prompt half),
+"The judge may wait once more when the traces are incomplete" (the judge
+half), "The extra wait is available once",
+"The trace wait budget defaults to 30 seconds", and
 "Remote fetching is off by default".
 """
 
 import json
-from typing import Any, Dict, List, Optional, Sequence, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import scenario
-from scenario import JudgeAgent
+from scenario import AgentRole, JudgeAgent, configure
 from scenario.agent_adapter import AgentAdapter
 from scenario.cache import context_scenario
 from scenario.config import ScenarioConfig
@@ -59,10 +61,13 @@ class RecordingFetcher(RemoteTraceFetcher):
         self,
         *,
         spans_on_settle: Optional[List[Any]] = None,
+        all_settled: bool = True,
     ) -> None:
         super().__init__(fetch_trace=self._never_called)
         self.settle_calls: List[Dict[str, Any]] = []
+        self.extend_calls: List[Dict[str, Any]] = []
         self._spans_on_settle = spans_on_settle or []
+        self._settle_result = all_settled
 
     @staticmethod
     async def _never_called(trace_id: str) -> Optional[Dict[str, Any]]:
@@ -75,10 +80,25 @@ class RecordingFetcher(RemoteTraceFetcher):
         trace_ids: Sequence[str],
         collector: JudgeSpanCollector,
         timeout: float,
-    ) -> None:
+    ) -> bool:
         self.settle_calls.append({"trace_ids": list(trace_ids), "timeout": timeout})
         for span in self._spans_on_settle:
             collector.on_end(span)
+        # all_settled=False leaves the traces incomplete, which is what
+        # offers the judge its wait_for_traces extension.
+        return self._settle_result
+
+    async def extend_settle(
+        self,
+        *,
+        thread_id: str,
+        trace_ids: Sequence[str],
+        collector: JudgeSpanCollector,
+        timeout: float,
+    ) -> bool:
+        self.extend_calls.append({"trace_ids": list(trace_ids), "timeout": timeout})
+        self._settle_result = True
+        return True
 
 
 def _scenario_state(
@@ -87,6 +107,7 @@ def _scenario_state(
     max_turns: int = 10,
     fetch_remote_traces: Optional[bool] = True,
     trace_wait_timeout: Optional[float] = None,
+    trace_wait_extension: Optional[float] = None,
 ) -> MagicMock:
     state = MagicMock()
     state.description = "Test scenario"
@@ -95,6 +116,7 @@ def _scenario_state(
         max_turns=max_turns,
         fetch_remote_traces=fetch_remote_traces,
         trace_wait_timeout=trace_wait_timeout,
+        trace_wait_extension=trace_wait_extension,
     )
     return state
 
@@ -107,6 +129,7 @@ def _agent_input(
     max_turns: int = 10,
     fetch_remote_traces: Optional[bool] = True,
     trace_wait_timeout: Optional[float] = None,
+    trace_wait_extension: Optional[float] = None,
 ) -> AgentInput:
     return AgentInput(
         thread_id=THREAD_ID,
@@ -118,6 +141,7 @@ def _agent_input(
             max_turns=max_turns,
             fetch_remote_traces=fetch_remote_traces,
             trace_wait_timeout=trace_wait_timeout,
+            trace_wait_extension=trace_wait_extension,
         ),
     )
 
@@ -158,6 +182,19 @@ def _make_verdict_response() -> MagicMock:
     response.choices[0].message.tool_calls[0].function.name = "make_verdict"
     response.choices[0].message.tool_calls[0].function.arguments = "{}"
     return response
+
+
+def _wait_for_traces_response() -> MagicMock:
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.tool_calls = [MagicMock()]
+    response.choices[0].message.tool_calls[0].function.name = "wait_for_traces"
+    response.choices[0].message.tool_calls[0].function.arguments = "{}"
+    return response
+
+
+def _tool_names(call_kwargs: Mapping[str, Any]) -> List[str]:
+    return [tool["function"]["name"] for tool in call_kwargs["tools"]]
 
 
 def _cache_context():
@@ -204,7 +241,7 @@ async def test_judge_fetches_traces_for_every_turn_not_only_the_last():
         context_scenario.reset(token)
 
     assert fetcher.settle_calls == [
-        {"trace_ids": [TRACE_A, TRACE_B, TRACE_C], "timeout": 60.0}
+        {"trace_ids": [TRACE_A, TRACE_B, TRACE_C], "timeout": 30.0}
     ]
 
 
@@ -329,7 +366,7 @@ async def test_make_verdict_decision_settles_traces_before_the_verdict():
         context_scenario.reset(token)
 
     assert completion.call_count == 2, "one decision call, one verdict call"
-    assert fetcher.settle_calls == [{"trace_ids": [TRACE_A], "timeout": 60.0}]
+    assert fetcher.settle_calls == [{"trace_ids": [TRACE_A], "timeout": 30.0}]
     verdict_call_kwargs = completion.call_args_list[1].kwargs
     assert verdict_call_kwargs["tool_choice"] == {
         "type": "function",
@@ -515,12 +552,132 @@ async def test_remote_fetching_is_off_by_default():
     assert fetcher.settle_calls == []
 
 
-def test_configure_and_executor_kwargs_carry_the_new_config_fields():
+@pytest.mark.asyncio
+async def test_incomplete_traces_offer_the_wait_tool_and_the_judge_waits_once():
+    """@scenario The judge may wait once more when the traces are incomplete"""
+    fetcher = RecordingFetcher(all_settled=False)
+    judge = JudgeAgent(
+        criteria=["Test criterion"],
+        model="openai/gpt-5-mini",
+        remote_trace_fetcher=fetcher,
+        span_collector=JudgeSpanCollector(),
+    )
+    token = _cache_context()
     try:
-        scenario.configure(fetch_remote_traces=True, trace_wait_timeout=17.0)
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=[_wait_for_traces_response(), _finish_test_response()],
+        ) as completion:
+            result = await judge.call(
+                _agent_input(
+                    messages=[
+                        {"role": "user", "content": "hello", "trace_id": TRACE_A}
+                    ],
+                    judgment_request=JudgmentRequest(),
+                    trace_wait_timeout=12.5,
+                    trace_wait_extension=7.0,
+                )
+            )
+    finally:
+        context_scenario.reset(token)
+
+    assert completion.call_count == 2, "the wait call, then the verdict call"
+    first_call = completion.call_args_list[0].kwargs
+    assert "wait_for_traces" in _tool_names(first_call)
+    assert "finish_test" in _tool_names(first_call)
+    assert first_call["tool_choice"] == "required", (
+        "with the wait tool offered the pin relaxes so the judge can pick"
+        " either tool"
+    )
+
+    assert fetcher.extend_calls == [{"trace_ids": [TRACE_A], "timeout": 7.0}]
+    assert [call["timeout"] for call in fetcher.settle_calls] == [12.5, 12.5]
+    assert isinstance(result, ScenarioResult)
+
+
+@pytest.mark.asyncio
+async def test_the_extra_wait_is_available_once():
+    """@scenario The extra wait is available once"""
+    fetcher = RecordingFetcher(all_settled=False)
+    judge = JudgeAgent(
+        criteria=["Test criterion"],
+        model="openai/gpt-5-mini",
+        remote_trace_fetcher=fetcher,
+        span_collector=JudgeSpanCollector(),
+    )
+    token = _cache_context()
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=[_wait_for_traces_response(), _finish_test_response()],
+        ) as completion:
+            await judge.call(
+                _agent_input(
+                    messages=[
+                        {"role": "user", "content": "hello", "trace_id": TRACE_A}
+                    ],
+                    judgment_request=JudgmentRequest(),
+                )
+            )
+    finally:
+        context_scenario.reset(token)
+
+    second_call = completion.call_args_list[1].kwargs
+    assert "wait_for_traces" not in _tool_names(second_call)
+    assert second_call["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "finish_test"},
+    }
+    waited_note = second_call["messages"][-1]
+    assert waited_note["role"] == "user"
+    assert "already waited once more" in waited_note["content"]
+
+
+@pytest.mark.asyncio
+async def test_the_wait_budget_and_its_extension_default_to_30_seconds():
+    """@scenario The trace wait budget defaults to 30 seconds"""
+    fetcher = RecordingFetcher(all_settled=False)
+    judge = JudgeAgent(
+        criteria=["Test criterion"],
+        model="openai/gpt-5-mini",
+        remote_trace_fetcher=fetcher,
+        span_collector=JudgeSpanCollector(),
+    )
+    token = _cache_context()
+    try:
+        with patch(
+            "scenario.judge_agent.litellm.completion",
+            side_effect=[_wait_for_traces_response(), _finish_test_response()],
+        ):
+            await judge.call(
+                _agent_input(
+                    messages=[
+                        {"role": "user", "content": "hello", "trace_id": TRACE_A}
+                    ],
+                    judgment_request=JudgmentRequest(),
+                )
+            )
+    finally:
+        context_scenario.reset(token)
+
+    assert fetcher.settle_calls[0]["timeout"] == 30.0
+    assert fetcher.extend_calls == [{"trace_ids": [TRACE_A], "timeout": 30.0}], (
+        "the extension budget defaults to the resolved wait budget"
+    )
+
+
+def test_configure_and_executor_kwargs_carry_the_new_config_fields():
+    previous_default_config = ScenarioConfig.default_config
+    try:
+        configure(
+            fetch_remote_traces=True,
+            trace_wait_timeout=17.0,
+            trace_wait_extension=19.0,
+        )
         assert ScenarioConfig.default_config is not None
         assert ScenarioConfig.default_config.fetch_remote_traces is True
         assert ScenarioConfig.default_config.trace_wait_timeout == 17.0
+        assert ScenarioConfig.default_config.trace_wait_extension == 19.0
 
         executor = ScenarioExecutor(
             name="test",
@@ -530,8 +687,9 @@ def test_configure_and_executor_kwargs_carry_the_new_config_fields():
         )
         assert executor.config.fetch_remote_traces is True
         assert executor.config.trace_wait_timeout == 23.0
+        assert executor.config.trace_wait_extension == 19.0
     finally:
-        ScenarioConfig.default_config = None
+        ScenarioConfig.default_config = previous_default_config
 
 
 # --------------------------------------------------------------------- #
@@ -562,7 +720,7 @@ class _CapturingAgent(AgentAdapter):
 
 
 class _ScriptedUser(AgentAdapter):
-    role = scenario.AgentRole.USER
+    role = AgentRole.USER
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         return "hello agent"

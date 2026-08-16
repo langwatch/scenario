@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, List, Optional, Sequence, cast
+from typing import Any, List, Optional, Sequence, Union, cast
 
 import litellm
 from litellm import Choices
@@ -121,6 +121,54 @@ REMOTE_TRACES_DECISION_RULE = (
 
 
 _DECISION_TOOL_NAMES = frozenset({"continue_test", "make_verdict"})
+
+
+class _WaitForTracesRequested:
+    """Sentinel type: the judge called wait_for_traces instead of a verdict."""
+
+
+_WAIT_FOR_TRACES_REQUESTED = _WaitForTracesRequested()
+
+
+def _build_wait_for_traces_tool() -> dict:
+    """The verdict phase's one-shot extension tool.
+
+    Offered only when the remote traces are still incomplete after the
+    settle-wait, and withdrawn after one use: the second verdict call must
+    decide on the evidence it has. Byte-identical description with the
+    TypeScript SDK.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "wait_for_traces",
+            "description": (
+                "The remote trace evidence is still incomplete and the "
+                "missing spans are essential for the verdict. Wait one more "
+                "period for them to arrive. Available once: after this wait "
+                "the verdict must be delivered on the evidence at hand. Only "
+                "call this when a criterion genuinely depends on the missing "
+                "spans; otherwise deliver the verdict now."
+            ),
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _response_called_wait_for_traces(response: ModelResponse) -> bool:
+    """True when the completion called the wait_for_traces tool."""
+    if not hasattr(response, "choices") or len(response.choices) == 0:
+        return False
+    message = cast(Choices, response.choices[0]).message
+    return any(
+        tc.function.name == "wait_for_traces" for tc in (message.tool_calls or [])
+    )
 
 
 def _distinct_message_trace_ids(messages: Sequence[Any]) -> List[str]:
@@ -646,27 +694,33 @@ class JudgeAgent(AgentAdapter):
         # straight to the verdict phase; only an unforced mid-conversation
         # call runs the decision phase first.
         judgment_required = is_last_message or enforce_judgment
-        fetch_remote_traces, trace_wait_timeout = self._remote_trace_settings(input)
+
+        # min_turns floor (ADR-005): below the floor the decision is
+        # predetermined (the conversation must continue), so nothing is spent
+        # on it. The check runs before the conversation view is built, or a
+        # gated voice turn pays for a transcription it discards. The judge
+        # observes a 0-based current_turn: reset() overrides the initial
+        # _new_turn() back to 0, so the call on turn N sees current_turn N-1.
+        # The floor is unmet while current_turn < min_turns: with min_turns=4,
+        # the first decision call happens on the turn-5 call. A required
+        # judgment is never gated.
+        min_turns = getattr(input.scenario_state.config, "min_turns", None)
+        if (
+            not judgment_required
+            and isinstance(min_turns, int)
+            and input.scenario_state.current_turn < min_turns
+        ):
+            return []
+
+        fetch_remote_traces, trace_wait_timeout, trace_wait_extension = (
+            self._remote_trace_settings(input)
+        )
         view = await self._build_conversation_view(input)
 
         discovery_recap: List[dict] = []
         if judgment_required:
             verdict_forced = True
         else:
-            # min_turns floor (ADR-005): below the floor the decision is
-            # predetermined (the conversation must continue), so no LLM call
-            # is spent on it. The judge observes a 0-based current_turn:
-            # reset() overrides the initial _new_turn() back to 0, so the call
-            # on turn N sees current_turn N-1. The floor is unmet while
-            # current_turn < min_turns: with min_turns=4, the first decision
-            # call happens on the turn-5 call.
-            min_turns = getattr(input.scenario_state.config, "min_turns", None)
-            if (
-                isinstance(min_turns, int)
-                and input.scenario_state.current_turn < min_turns
-            ):
-                return []
-
             outcome = self._run_decision_phase(
                 input=input,
                 effective_criteria=effective_criteria,
@@ -689,6 +743,7 @@ class JudgeAgent(AgentAdapter):
             view=view,
             fetch_remote_traces=fetch_remote_traces,
             trace_wait_timeout=trace_wait_timeout,
+            trace_wait_extension=trace_wait_extension,
             is_last_message=is_last_message,
             verdict_forced=verdict_forced,
             discovery_recap=discovery_recap,
@@ -1004,21 +1059,28 @@ Your goal is to decide if the conversation has collected enough information to e
         view: _ConversationView,
         fetch_remote_traces: bool,
         trace_wait_timeout: float,
+        trace_wait_extension: float,
         is_last_message: bool,
         verdict_forced: bool,
         discovery_recap: Optional[List[dict]] = None,
+        wait_extension_used: bool = False,
     ) -> AgentReturnTypes:
         """Phase 2 of the two-phase judge: the verdict itself.
 
         Settle-waits for the remote traces first when fetching is on (the
         only fetch site), so the digest always holds the full evidence, then
-        makes one finish_test-pinned evaluation. ``verdict_forced`` reflects
-        the entry mode: a required judgment (last turn, explicit
-        judgment_request) or decision-discovery exhaustion makes an
-        inconclusive verdict terminal; a voluntary make_verdict entry lets an
-        inconclusive verdict continue the conversation (#886), unless not
-        one remote trace of the run ever settled, in which case more turns
-        cannot improve the evidence and the verdict stands.
+        makes one finish_test-pinned evaluation. When the traces are still
+        incomplete after the settle-wait, the call also offers a one-shot
+        ``wait_for_traces`` tool: calling it settle-waits once more under
+        ``trace_wait_extension`` and re-enters the phase with the tool
+        withdrawn (``wait_extension_used``), so the second call must decide.
+        ``verdict_forced`` reflects the entry mode: a required judgment
+        (last turn, explicit judgment_request) or decision-discovery
+        exhaustion makes an inconclusive verdict terminal; a voluntary
+        make_verdict entry lets an inconclusive verdict continue the
+        conversation (#886), unless not one remote trace of the run ever
+        settled, in which case more turns cannot improve the evidence and
+        the verdict stands.
 
         A non-empty ``discovery_recap`` marks the exhaustion entry: the
         decision loop already spent the discovery budget, so its collapsed
@@ -1028,12 +1090,25 @@ Your goal is to decide if the conversation has collected enough information to e
         remote_trace_ids: List[str] = (
             _distinct_message_trace_ids(input.messages) if fetch_remote_traces else []
         )
+        all_settled = True
         if fetch_remote_traces and remote_trace_ids:
-            await self._remote_trace_fetcher.settle_traces(
+            all_settled = await self._remote_trace_fetcher.settle_traces(
                 thread_id=input.thread_id,
                 trace_ids=remote_trace_ids,
                 collector=self._span_collector,
                 timeout=trace_wait_timeout,
+            )
+        elif fetch_remote_traces:
+            # Fetching is on and there is nothing to fetch. Without this the
+            # traces section is silently empty and the judge marks internal
+            # criteria inconclusive without a stated reason.
+            logger.warning(
+                "Remote trace fetching is on but no message carries a trace "
+                "id; nothing to fetch"
+            )
+            self._remote_trace_fetcher.record_missing_trace_ids(
+                thread_id=input.thread_id,
+                collector=self._span_collector,
             )
 
         # When not one remote trace of the run ever settled, more turns
@@ -1050,6 +1125,18 @@ Your goal is to decide if the conversation has collected enough information to e
             )
         )
         verdict_is_terminal = verdict_forced or evidence_exhausted
+
+        # The judge's one extra wait: offered as a wait_for_traces tool while
+        # the traces are incomplete, consumed at most once, then withdrawn so
+        # the second call must decide. With no trace ids at all there is
+        # nothing a wait could produce, so the tool is never offered.
+        wait_extension_available = (
+            fetch_remote_traces
+            and bool(remote_trace_ids)
+            and not all_settled
+            and trace_wait_extension > 0
+            and not wait_extension_used
+        )
 
         spans = self._span_collector.get_spans_for_thread(input.thread_id)
         digest, is_large_span_trace = self._build_trace_digest(spans)
@@ -1117,6 +1204,18 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 }
             )
 
+        if wait_extension_used:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You already waited once more for the remote traces. "
+                        "The trace evidence above is final: deliver your "
+                        "verdict now."
+                    ),
+                }
+            )
+
         criteria_names = _criteria_keys(effective_criteria)
         tools: List[dict] = [
             {
@@ -1165,13 +1264,22 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 tools = self._build_progressive_discovery_tools() + tools
             if view.is_large_transcript:
                 tools = self._build_transcript_discovery_tools() + tools
+        if wait_extension_available:
+            tools = [_build_wait_for_traces_tool()] + tools
 
         # finish_test is the only terminal tool of the verdict phase and the
         # tool choice pins it: continuing is the decision phase's business.
-        # The large-trace discovery loop relaxes the pin to "required" on its
-        # intermediate steps so the judge can use discovery tools, and forces
-        # the verdict on exhaustion.
-        tool_choice: Any = {"type": "function", "function": {"name": "finish_test"}}
+        # While the traces are incomplete and the extension is unused, the
+        # wait_for_traces tool joins the set and the pin relaxes to
+        # "required" so the judge can pick either. The large-trace discovery
+        # loop relaxes the pin to "required" on its intermediate steps so
+        # the judge can use discovery tools, and forces the verdict on
+        # exhaustion.
+        tool_choice: Any = (
+            "required"
+            if wait_extension_available
+            else {"type": "function", "function": {"name": "finish_test"}}
+        )
 
         if exhausted_entry:
             assert discovery_recap is not None
@@ -1184,7 +1292,7 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 ),
             })
         elif is_large_trace:
-            return self._run_discovery_loop(
+            outcome = self._run_discovery_loop(
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
@@ -1193,7 +1301,22 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                 effective_criteria=effective_criteria,
                 input_messages=input.messages,
                 verdict_forced=verdict_is_terminal,
+                wait_tool_offered=wait_extension_available,
             )
+            if outcome is _WAIT_FOR_TRACES_REQUESTED:
+                return await self._extend_wait_and_rejudge(
+                    input=input,
+                    effective_criteria=effective_criteria,
+                    view=view,
+                    fetch_remote_traces=fetch_remote_traces,
+                    trace_wait_timeout=trace_wait_timeout,
+                    trace_wait_extension=trace_wait_extension,
+                    is_last_message=is_last_message,
+                    verdict_forced=verdict_forced,
+                    discovery_recap=discovery_recap,
+                    remote_trace_ids=remote_trace_ids,
+                )
+            return cast(AgentReturnTypes, outcome)
 
         response = self._completion_with_reasoning_off_retry(
             model=self.model,
@@ -1207,6 +1330,20 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             **self._extra_params,
         )
 
+        if wait_extension_available and _response_called_wait_for_traces(response):
+            return await self._extend_wait_and_rejudge(
+                input=input,
+                effective_criteria=effective_criteria,
+                view=view,
+                fetch_remote_traces=fetch_remote_traces,
+                trace_wait_timeout=trace_wait_timeout,
+                trace_wait_extension=trace_wait_extension,
+                is_last_message=is_last_message,
+                verdict_forced=verdict_forced,
+                discovery_recap=discovery_recap,
+                remote_trace_ids=remote_trace_ids,
+            )
+
         return self._parse_response(
             response,
             effective_criteria,
@@ -1215,12 +1352,56 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             verdict_forced=verdict_is_terminal,
         )
 
-    def _remote_trace_settings(self, input: AgentInput) -> tuple[bool, float]:
+    async def _extend_wait_and_rejudge(
+        self,
+        *,
+        input: AgentInput,
+        effective_criteria: List[str],
+        view: _ConversationView,
+        fetch_remote_traces: bool,
+        trace_wait_timeout: float,
+        trace_wait_extension: float,
+        is_last_message: bool,
+        verdict_forced: bool,
+        discovery_recap: Optional[List[dict]],
+        remote_trace_ids: List[str],
+    ) -> AgentReturnTypes:
+        """Runs the judge's one extra wait, then re-enters the verdict.
+
+        Re-arms the failed traces, settle-waits once more under the
+        extension budget, and re-enters the judgment phase with the
+        wait_for_traces tool withdrawn, so the second call must decide.
+        """
+        logger.debug(
+            "Judge requested one more wait for the remote traces (%.0fs)",
+            trace_wait_extension,
+        )
+        await self._remote_trace_fetcher.extend_settle(
+            thread_id=input.thread_id,
+            trace_ids=remote_trace_ids,
+            collector=self._span_collector,
+            timeout=trace_wait_extension,
+        )
+        return await self._run_judgment_phase(
+            input=input,
+            effective_criteria=effective_criteria,
+            view=view,
+            fetch_remote_traces=fetch_remote_traces,
+            trace_wait_timeout=trace_wait_timeout,
+            trace_wait_extension=trace_wait_extension,
+            is_last_message=is_last_message,
+            verdict_forced=verdict_forced,
+            discovery_recap=discovery_recap,
+            wait_extension_used=True,
+        )
+
+    def _remote_trace_settings(self, input: AgentInput) -> "tuple[bool, float, float]":
         """Resolves the remote trace fetching configuration for this call.
 
-        Reads ``fetch_remote_traces`` (effective default False) and
-        ``trace_wait_timeout`` (effective default 60 seconds) from the
-        scenario configuration.
+        Reads ``fetch_remote_traces`` (effective default False),
+        ``trace_wait_timeout`` (effective default 30 seconds) and
+        ``trace_wait_extension`` (effective default: the resolved timeout)
+        from the scenario configuration.
         """
         config = getattr(input.scenario_state, "config", None)
         enabled = getattr(config, "fetch_remote_traces", None) is True
@@ -1231,7 +1412,18 @@ if you don't have enough information to make a verdict, say inconclusive with ma
             or timeout <= 0
         ):
             timeout = DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS
-        return enabled, float(timeout)
+        # The one extra wait the judge may request via the wait_for_traces
+        # tool. Defaults to the wait budget itself; the platform passes its
+        # upper cap here so a short measured budget still gets a meaningful
+        # extension.
+        extension = getattr(config, "trace_wait_extension", None)
+        if (
+            not isinstance(extension, (int, float))
+            or isinstance(extension, bool)
+            or extension <= 0
+        ):
+            extension = timeout
+        return enabled, float(timeout), float(extension)
 
     def _completion_with_reasoning_off_retry(self, **kwargs: Any) -> ModelResponse:
         """
@@ -1413,7 +1605,8 @@ if you don't have enough information to make a verdict, say inconclusive with ma
         effective_criteria: List[str],
         input_messages: Sequence[Any],
         verdict_forced: bool,
-    ) -> AgentReturnTypes:
+        wait_tool_offered: bool = False,
+    ) -> Union[AgentReturnTypes, _WaitForTracesRequested]:
         """
         Runs the multi-step discovery loop of the verdict phase for large
         traces.
@@ -1474,6 +1667,14 @@ if you don't have enough information to make a verdict, say inconclusive with ma
                     input_messages=input_messages,
                     verdict_forced=verdict_forced,
                 )
+
+            if wait_tool_offered and any(
+                tc.function.name == "wait_for_traces" for tc in message.tool_calls
+            ):
+                # The extra wait rebuilds the whole phase: the caller
+                # settle-waits once more and re-enters with a fresh digest
+                # and the tool withdrawn.
+                return _WAIT_FOR_TRACES_REQUESTED
 
             terminal_call = next(
                 (tc for tc in message.tool_calls if tc.function.name == "finish_test"),

@@ -10,7 +10,10 @@ Binds the @unit scenarios of specs/remote-trace-fetching.feature:
 "A trace containing only the scenario's own spans does not settle",
 "The scenario's own spans echoed back do not block settling",
 "Fetch failure produces a synthetic error span and inconclusive criteria
-guidance" (the synthetic span half), and
+guidance" (the synthetic span half),
+"Spans started by the scenario process never count as remote evidence",
+"The judge may wait once more when the traces are incomplete" (the
+extend_settle half), and
 "Remote spans deduplicate against locally collected spans".
 """
 
@@ -578,6 +581,154 @@ class TestMergeFilterAndDedup:
         )
         assert len(api.calls) == calls_after_first + 1, (
             "cleared state means the trace id is polled again"
+        )
+
+
+class TestProcessSpanRegistry:
+    """@scenario Spans started by the scenario process never count as remote evidence"""
+
+    @pytest.mark.asyncio
+    async def test_echoed_process_spans_yield_the_no_agent_spans_reason(self):
+        collector = JudgeSpanCollector()
+        # The still-open turn span and two spans under it. The turn span
+        # never reaches on_end, so the per-thread ancestor walk cannot claim
+        # its descendants, and instrumented-SDK model calls carry no thread
+        # id at all: only the on_start registry knows all three.
+        for span_id in ("1" * 16, "2" * 16, "3" * 16):
+            started = convert_api_span(
+                _api_span(span_id), trace_id=TRACE_A, thread_id=THREAD_ID
+            )
+            assert started is not None
+            collector.on_start(started)
+
+        echoes = _trace_response(
+            TRACE_A,
+            [
+                _api_span("2" * 16, name="_JudgeAgent.call", parent_id="1" * 16),
+                _api_span("3" * 16, name="litellm.completion", parent_id="2" * 16),
+            ],
+        )
+        api = FakeTraceApi({TRACE_A: [echoes]})
+        clock = FakeClock()
+        fetcher = _make_fetcher(api, clock)
+
+        settled = await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+
+        assert settled is False
+        names = _collected_names(collector, THREAD_ID)
+        assert names == [ERROR_SPAN_NAME], (
+            "no echoed process span was merged as remote evidence"
+        )
+        [error_span] = collector.get_spans_for_thread(THREAD_ID)
+        reason = str(
+            dict(error_span.attributes or {})[
+                "langwatch.span_collection.error.reason"
+            ]
+        )
+        assert "no agent spans arrived" in reason
+        assert "still incomplete" not in reason, (
+            "process-span echoes must not read as a partially ingested trace"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_leaked_agent_span_still_reports_the_trace_incomplete(self):
+        collector = JudgeSpanCollector()
+        turn_span = convert_api_span(
+            _api_span("1" * 16), trace_id=TRACE_A, thread_id=THREAD_ID
+        )
+        assert turn_span is not None
+        collector.on_start(turn_span)
+
+        # A genuine agent span whose parent never arrives: the registry must
+        # not swallow it, so the deadline reason stays "still incomplete".
+        response = _trace_response(
+            TRACE_A,
+            [_api_span("2" * 16, name="agent prompt", parent_id="a" * 16)],
+        )
+        api = FakeTraceApi({TRACE_A: [response]})
+        clock = FakeClock()
+        fetcher = _make_fetcher(api, clock)
+
+        settled = await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+
+        assert settled is False
+        names = _collected_names(collector, THREAD_ID)
+        assert "agent prompt" in names
+        error_span = next(
+            s
+            for s in collector.get_spans_for_thread(THREAD_ID)
+            if s.name == ERROR_SPAN_NAME
+        )
+        reason = str(
+            dict(error_span.attributes or {})[
+                "langwatch.span_collection.error.reason"
+            ]
+        )
+        assert "still incomplete" in reason
+
+
+class TestExtendSettle:
+    """@scenario The judge may wait once more when the traces are incomplete"""
+
+    @pytest.mark.asyncio
+    async def test_extend_settle_re_arms_the_failed_trace_and_retracts_the_error_span(
+        self,
+    ):
+        root = _api_span("f" * 16, name="agent request")
+        child = _api_span("a" * 16, name="query db", parent_id="f" * 16)
+        api = FakeTraceApi({TRACE_A: [_trace_response(TRACE_A, [child])]})
+        clock = FakeClock()
+        fetcher = _make_fetcher(api, clock)
+        collector = JudgeSpanCollector()
+
+        settled = await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+        assert settled is False
+        assert ERROR_SPAN_NAME in _collected_names(collector, THREAD_ID)
+
+        # The missing root arrives during the extra wait.
+        api.queues[TRACE_A] = [_trace_response(TRACE_A, [root, child])]
+        extended = await fetcher.extend_settle(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+
+        assert extended is True
+        names = _collected_names(collector, THREAD_ID)
+        assert ERROR_SPAN_NAME not in names, (
+            "a trace that settles during the extra wait loses its synthetic"
+            " error span"
+        )
+        assert sorted(names) == ["agent request", "query db"]
+        assert (
+            fetcher.none_settled(thread_id=THREAD_ID, trace_ids=[TRACE_A]) is False
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_trace_failing_the_extension_gets_one_fresh_error_span(self):
+        child = _api_span("a" * 16, name="query db", parent_id="f" * 16)
+        api = FakeTraceApi({TRACE_A: [_trace_response(TRACE_A, [child])]})
+        clock = FakeClock()
+        fetcher = _make_fetcher(api, clock)
+        collector = JudgeSpanCollector()
+
+        settled = await fetcher.settle_traces(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+        assert settled is False
+
+        extended = await fetcher.extend_settle(
+            thread_id=THREAD_ID, trace_ids=[TRACE_A], collector=collector, timeout=5.0
+        )
+
+        assert extended is False
+        names = _collected_names(collector, THREAD_ID)
+        assert names.count(ERROR_SPAN_NAME) == 1, (
+            "the retracted span is replaced by exactly one fresh error span"
         )
 
 

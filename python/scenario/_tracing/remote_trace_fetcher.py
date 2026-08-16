@@ -53,11 +53,15 @@ logger = logging.getLogger("scenario.tracing")
 SETTLE_POLL_INTERVAL_SECONDS = 1.0
 """Seconds between polls while settle-waiting for a remote trace."""
 
-DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS = 60.0
+DEFAULT_TRACE_WAIT_TIMEOUT_SECONDS = 30.0
 """Default shared budget for the verdict-time settle-wait, in seconds."""
 
 ERROR_SPAN_NAME = "langwatch.span_collection.error"
 """Name of the synthetic span added when remote trace collection fails."""
+
+INVALID_TRACE_ID = "00000000000000000000000000000000"
+"""The invalid W3C trace id, stamped on messages when tracing is off. Used as
+the key of the synthetic span reported when nothing carries a trace id."""
 
 INFRASTRUCTURE_SPAN_NAME_PREFIXES = (
     "langwatch.scenario.",
@@ -72,6 +76,15 @@ _INSTRUMENTATION_SCOPE = InstrumentationScope("langwatch.scenario")
 TraceFetch = Callable[[str], Awaitable[Optional[Dict[str, Any]]]]
 """HTTP layer contract: given a trace id, return the trace API response body
 as a dict, or None when the trace has not arrived yet (HTTP 404)."""
+
+
+class RemoteTraceAuthError(RuntimeError):
+    """Raised when the credentials needed to reach the trace API are missing.
+
+    Terminal on purpose: polling again cannot supply a key, so the settle
+    loop fails the trace id at once instead of spending the whole wait
+    budget on requests that can only answer 401.
+    """
 
 
 def _resolve_api_key() -> str:
@@ -91,7 +104,7 @@ async def _default_fetch_trace(trace_id: str) -> Optional[Dict[str, Any]]:
     settings = LangWatchSettings()
     api_key = _resolve_api_key()
     if not api_key:
-        raise RuntimeError(
+        raise RemoteTraceAuthError(
             "No LangWatch API key configured (set LANGWATCH_API_KEY or call "
             "langwatch.setup(api_key=...)); cannot fetch remote traces"
         )
@@ -104,7 +117,10 @@ async def _default_fetch_trace(trace_id: str) -> Optional[Dict[str, Any]]:
     if settings.project_id:
         headers["X-Project-Id"] = settings.project_id
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    # No redirect following: httpx drops Authorization across hosts but keeps
+    # X-Auth-Token, so a misconfigured endpoint would forward the API key to
+    # the redirect target.
+    async with httpx.AsyncClient(follow_redirects=False) as client:
         response = await client.get(
             f"{endpoint}/api/trace/{trace_id}",
             headers=headers,
@@ -140,11 +156,21 @@ def _epoch_ms_to_ns(value: Any) -> Optional[int]:
     return None
 
 
+def _io_type(io: Any) -> Optional[str]:
+    """Reads the ``type`` discriminator of a span input/output payload."""
+    if not isinstance(io, dict):
+        return None
+    io_type = io.get("type")
+    return io_type if isinstance(io_type, str) else None
+
+
 def _io_value_to_attribute(io: Any) -> Optional[str]:
     """Renders a span input/output payload as a readable attribute string.
 
     The API shape is ``{"type": ..., "value": ...}``. Plain text values stay
-    raw strings; anything else (chat messages, JSON) is JSON-encoded.
+    raw strings; anything else (chat messages, JSON) is JSON-encoded. The
+    TypeScript SDK's ``ioValueToAttribute`` writes the same string, so both
+    SDKs put the same value on ``langwatch.input`` / ``langwatch.output``.
     """
     if not isinstance(io, dict):
         return None
@@ -214,9 +240,13 @@ def convert_api_span(
     input_value = _io_value_to_attribute(span_data.get("input"))
     if input_value is not None:
         attributes[AttributeKey.LangWatchInput] = input_value
+        if _io_type(span_data.get("input")) == "chat_messages":
+            attributes["gen_ai.input.messages"] = input_value
     output_value = _io_value_to_attribute(span_data.get("output"))
     if output_value is not None:
         attributes[AttributeKey.LangWatchOutput] = output_value
+        if _io_type(span_data.get("output")) == "chat_messages":
+            attributes["gen_ai.output.messages"] = output_value
 
     metrics = span_data.get("metrics")
     if isinstance(metrics, dict):
@@ -232,7 +262,9 @@ def convert_api_span(
         try:
             attributes["langwatch.params"] = json.dumps(params)
         except (TypeError, ValueError):
-            pass
+            logger.debug(
+                "Skipped non-serializable params on remote span", exc_info=True
+            )
 
     status = Status(StatusCode.UNSET)
     error = span_data.get("error")
@@ -315,6 +347,9 @@ class _TraceFetchState:
     failed: bool = False
     merged_span_ids: Set[int] = field(default_factory=set)
     """Span ids this fetcher merged into the collector, i.e. the remote spans."""
+    error_span_id: Optional[int] = None
+    """The synthetic error span recorded for this trace, so an extension wait
+    can retract it when the trace settles after all."""
 
 
 class RemoteTraceFetcher:
@@ -387,6 +422,31 @@ class RemoteTraceFetcher:
                 for trace_id in trace_ids
             )
 
+    def record_missing_trace_ids(
+        self, *, thread_id: str, collector: JudgeSpanCollector
+    ) -> None:
+        """Reports the "nothing to fetch" case.
+
+        Remote fetching is on, but no message of the conversation carries a
+        trace id, so there is no id to poll. Adds the same synthetic error
+        span the deadline path adds, once per thread, so the judge reads why
+        the traces section is empty instead of returning inconclusive
+        criteria with no stated reason.
+        """
+        self._mark_failed(
+            thread_id=thread_id,
+            trace_id=INVALID_TRACE_ID,
+            state=self._state(thread_id, INVALID_TRACE_ID),
+            collector=collector,
+            reason=(
+                "Remote trace fetching is on but no message of this "
+                "conversation carries a trace id, so no trace could be "
+                "fetched. The agent adapter has to return the trace id of "
+                "the run (or forward input.propagation_headers so the agent "
+                "joins the scenario's trace)."
+            ),
+        )
+
     def clear_thread(self, thread_id: str) -> None:
         """Removes all fetch state for a scenario thread.
 
@@ -406,7 +466,7 @@ class RemoteTraceFetcher:
         trace_ids: Sequence[str],
         collector: JudgeSpanCollector,
         timeout: float,
-    ) -> None:
+    ) -> bool:
         """Settle-waits for every unsettled trace id before a verdict.
 
         Polls each unsettled id every second until it settles (see the class
@@ -415,7 +475,8 @@ class RemoteTraceFetcher:
 
         On deadline expiry or a hard fetch failure the trace id is marked
         failed and one synthetic ``langwatch.span_collection.error`` span is
-        added to the collector; this method never raises.
+        added to the collector; this method never raises. Returns whether
+        every given trace id is settled cleanly after the wait.
         """
         deadline = self._monotonic() + timeout
         pending = []
@@ -423,20 +484,61 @@ class RemoteTraceFetcher:
             state = self._state(thread_id, trace_id)
             if not state.settled and not state.failed:
                 pending.append(trace_id)
-        if not pending:
-            return
-        await asyncio.gather(
-            *[
-                self._settle_one(
-                    thread_id=thread_id,
-                    trace_id=trace_id,
-                    collector=collector,
-                    deadline=deadline,
-                    timeout=timeout,
-                )
-                for trace_id in pending
-            ]
+        if pending:
+            await asyncio.gather(
+                *[
+                    self._settle_one(
+                        thread_id=thread_id,
+                        trace_id=trace_id,
+                        collector=collector,
+                        deadline=deadline,
+                        timeout=timeout,
+                    )
+                    for trace_id in pending
+                ]
+            )
+        return self._all_settled(thread_id, trace_ids)
+
+    async def extend_settle(
+        self,
+        *,
+        thread_id: str,
+        trace_ids: Sequence[str],
+        collector: JudgeSpanCollector,
+        timeout: float,
+    ) -> bool:
+        """The judge's one extra wait.
+
+        Re-arms every trace that terminally failed the first settle-wait
+        (retracting its synthetic error span from the collector) and
+        settle-waits once more under ``timeout`` seconds. A trace that fails
+        again gets a fresh error span with the new reason. Returns whether
+        every given trace id is settled cleanly afterwards.
+        """
+        with self._registry_lock:
+            states = self._registry.get(thread_id, {})
+            for trace_id in trace_ids:
+                state = states.get(trace_id)
+                if state is None or not state.failed:
+                    continue
+                state.failed = False
+                if state.error_span_id is not None:
+                    collector.remove_span_by_id(state.error_span_id)
+                    state.error_span_id = None
+        return await self.settle_traces(
+            thread_id=thread_id,
+            trace_ids=trace_ids,
+            collector=collector,
+            timeout=timeout,
         )
+
+    def _all_settled(self, thread_id: str, trace_ids: Sequence[str]) -> bool:
+        with self._registry_lock:
+            states = self._registry.get(thread_id, {})
+            return all(
+                (state := states.get(trace_id)) is not None and state.settled
+                for trace_id in trace_ids
+            )
 
     async def _settle_one(
         self,
@@ -459,6 +561,19 @@ class RemoteTraceFetcher:
                     collector=collector,
                 )
                 last_fetch_error = None
+            except RemoteTraceAuthError as error:
+                # Terminal: no key means every retry answers 401, so fail the
+                # trace id now instead of burning the whole wait budget.
+                self._mark_failed(
+                    thread_id=thread_id,
+                    trace_id=trace_id,
+                    state=state,
+                    collector=collector,
+                    reason=(
+                        f"Cannot fetch trace {trace_id}: {error}"
+                    ),
+                )
+                return
             except Exception as error:
                 # A failed poll retries until the deadline: a transient error
                 # (a request timing out under load, a blip on the API) must
@@ -478,7 +593,15 @@ class RemoteTraceFetcher:
                 if last_remote_span_count >= 1:
                     # Best-effort settle: the spans that arrived stay judged,
                     # and the error span tells the judge the trace may be
-                    # missing spans.
+                    # missing spans. The count comes from the last poll that
+                    # succeeded, so a later poll may still have failed: name
+                    # that error too, or the reason reads as a pure
+                    # completeness problem.
+                    fetch_suffix = (
+                        f"; the last poll also failed: {last_fetch_error}"
+                        if last_fetch_error is not None
+                        else ""
+                    )
                     self._mark_failed(
                         thread_id=thread_id,
                         trace_id=trace_id,
@@ -488,7 +611,7 @@ class RemoteTraceFetcher:
                             f"Trace {trace_id} was still incomplete after "
                             f"{timeout:g}s: {last_remote_span_count} remote "
                             "spans were collected but some parent spans never "
-                            "arrived, so spans may be missing"
+                            f"arrived, so spans may be missing{fetch_suffix}"
                         ),
                     )
                 elif last_fetch_error is not None:
@@ -591,6 +714,8 @@ class RemoteTraceFetcher:
         # merged by earlier polls; only the former count as local.
         local_span_ids = collector_span_ids - state.merged_span_ids
 
+        trace_id_int = _hex_or_hashed_id(trace_id, bits=128)
+
         fetched_span_ids: Set[int] = set()
         for span_data in spans_data:
             span_id_raw = span_data.get("span_id")
@@ -613,7 +738,14 @@ class RemoteTraceFetcher:
                 continue
             converted_context = converted.get_span_context()
             span_id = converted_context.span_id if converted_context else 0
-            is_local_echo = span_id in local_span_ids
+            # A span this process started itself is a platform echo, never
+            # remote evidence. The registry check covers what the per-thread
+            # view cannot: spans whose ancestor chain crosses the still-open
+            # turn span, and spans from instrumented SDKs that never tag the
+            # thread id (the judge's and user simulator's own model calls).
+            is_local_echo = span_id in local_span_ids or collector.is_process_span(
+                trace_id_int, span_id
+            )
             if not is_local_echo:
                 remote_span_count += 1
                 parent_id_raw = span_data.get("parent_id")
@@ -622,6 +754,7 @@ class RemoteTraceFetcher:
                     if (
                         parent_id not in fetched_span_ids
                         and parent_id not in collector_span_ids
+                        and not collector.is_process_span(trace_id_int, parent_id)
                     ):
                         parents_resolved = False
             if is_local_echo or span_id in state.merged_span_ids:
@@ -644,11 +777,13 @@ class RemoteTraceFetcher:
             return
         state.failed = True
         logger.warning("Remote trace collection failed: %s", reason)
-        collector.on_end(
-            create_synthetic_error_span(
-                trace_id=trace_id, thread_id=thread_id, reason=reason
-            )
+        error_span = create_synthetic_error_span(
+            trace_id=trace_id, thread_id=thread_id, reason=reason
         )
+        error_span_ctx = error_span.get_span_context()
+        if error_span_ctx:
+            state.error_span_id = error_span_ctx.span_id
+        collector.on_end(error_span)
 
 
 # Singleton instance

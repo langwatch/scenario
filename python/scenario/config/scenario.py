@@ -38,8 +38,13 @@ class ScenarioConfig(BaseModel):
             remote agent. Off by default.
         trace_wait_timeout: Maximum seconds the judge waits at verdict time
             for remote traces to arrive and stabilize, shared across all trace
-            ids. Defaults to 60 seconds. Only used when ``fetch_remote_traces``
+            ids. Defaults to 30 seconds. Only used when ``fetch_remote_traces``
             is enabled.
+        trace_wait_extension: Seconds for the judge's one extra wait. When
+            the traces are still incomplete after the settle-wait, the
+            verdict call offers a ``wait_for_traces`` tool: calling it waits
+            this budget once more, then the tool is withdrawn and the judge
+            must decide. Defaults to the resolved ``trace_wait_timeout``.
         observability: OpenTelemetry tracing configuration (span_filter, instrumentors, etc.)
 
     Example:
@@ -74,6 +79,7 @@ class ScenarioConfig(BaseModel):
     ]
     fetch_remote_traces: Optional[bool] = None
     trace_wait_timeout: Optional[float] = Field(default=None, gt=0)
+    trace_wait_extension: Optional[float] = Field(default=None, gt=0)
     observability: Optional[Dict[str, Any]] = None
 
     default_config: ClassVar[Optional["ScenarioConfig"]] = None
@@ -90,6 +96,7 @@ class ScenarioConfig(BaseModel):
         headless: Optional[bool] = None,
         fetch_remote_traces: Optional[bool] = None,
         trace_wait_timeout: Optional[float] = None,
+        trace_wait_extension: Optional[float] = None,
         observability: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -113,7 +120,10 @@ class ScenarioConfig(BaseModel):
                 Requires the agent adapter to forward
                 ``AgentInput.propagation_headers`` to the remote agent.
             trace_wait_timeout: Maximum seconds the judge waits at verdict
-                time for remote traces to arrive and stabilize (default: 60)
+                time for remote traces to arrive and stabilize (default: 30)
+            trace_wait_extension: Seconds for the judge's one extra wait via
+                the ``wait_for_traces`` tool (default: the resolved
+                ``trace_wait_timeout``)
             observability: OpenTelemetry tracing configuration. Accepts:
                 - span_filter: Callable filter (use scenario_only or with_custom_scopes())
                 - span_processors: List of additional SpanProcessors
@@ -154,6 +164,7 @@ class ScenarioConfig(BaseModel):
                 headless=headless,
                 fetch_remote_traces=fetch_remote_traces,
                 trace_wait_timeout=trace_wait_timeout,
+                trace_wait_extension=trace_wait_extension,
                 observability=observability,
             )
         )

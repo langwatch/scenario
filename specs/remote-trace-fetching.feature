@@ -102,6 +102,35 @@ Feature: Remote trace fetching for judge evaluation
     Then the verdict is final and the conversation does not continue
 
   @unit
+  Scenario: Spans started by the scenario process never count as remote evidence
+    Given the platform echoes back spans the scenario process itself started, including spans whose ancestor chain crosses the still-open turn span and model-call spans that carry no thread id
+    When the judge settle-waits for the remote trace
+    Then none of the echoed spans count as remote
+    And the deadline reason reports that no agent spans arrived
+
+  @unit
+  Scenario: The judge may wait once more when the traces are incomplete
+    Given the settle-wait ended with an incomplete trace
+    When the verdict call runs
+    Then a wait_for_traces tool is offered alongside finish_test
+    And calling it settle-waits once more under the extension budget
+    And a trace that settles during the extra wait loses its synthetic error span
+
+  @unit
+  Scenario: The extra wait is available once
+    Given the judge already used its wait_for_traces extension
+    When the verdict re-enters after the extra wait
+    Then the wait_for_traces tool is not offered
+    And the verdict call is pinned to finish_test
+
+  @unit
+  Scenario: The trace wait budget defaults to 30 seconds
+    Given a scenario with fetch_remote_traces enabled and no trace_wait_timeout configured
+    When the judge settle-waits for the remote traces
+    Then the settle-wait budget is 30 seconds
+    And the extension budget defaults to the resolved wait budget
+
+  @unit
   Scenario: Remote spans deduplicate against locally collected spans
     Given the scenario's own spans were exported to LangWatch and also collected locally
     When remote traces are merged into the judge span collector
