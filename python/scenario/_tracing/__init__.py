@@ -8,6 +8,7 @@ via setup_scenario_tracing().
 
 from .setup import setup_scenario_tracing, ensure_tracing_initialized, _reset_tracing_for_tests
 from .judge_span_collector import judge_span_collector, JudgeSpanCollector
+from .remote_trace_fetcher import remote_trace_fetcher, RemoteTraceFetcher
 from .filters import scenario_only, with_custom_scopes, SpanFilter
 from .sdk_metadata import (
     ATTR_SCENARIO_SDK_NAME,
@@ -21,6 +22,8 @@ from .sdk_metadata import (
 __all__ = [
     "judge_span_collector",
     "JudgeSpanCollector",
+    "remote_trace_fetcher",
+    "RemoteTraceFetcher",
     "setup_scenario_tracing",
     "ensure_tracing_initialized",
     "scenario_only",

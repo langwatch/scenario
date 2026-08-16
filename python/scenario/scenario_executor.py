@@ -85,6 +85,7 @@ import litellm
 import langwatch
 import langwatch.telemetry.context
 from langwatch.telemetry.tracing import LangWatchTrace
+from opentelemetry import propagate
 from scenario._tracing.sdk_metadata import (
     ATTR_SCENARIO_SDK_NAME,
     ATTR_SCENARIO_SDK_VERSION,
@@ -112,6 +113,18 @@ def _extract_text_content(content: object) -> str:
             if isinstance(part, dict) and part.get("type") == "text"
         )
     return str(content)
+
+
+def _active_propagation_headers() -> Dict[str, str]:
+    """Injects the active OpenTelemetry context into a header carrier.
+
+    Called while the per-agent-call span is active, so the resulting
+    ``traceparent`` carries the current turn's trace id, the same id stamped
+    on the turn's messages. Returns an empty dict when no span is active.
+    """
+    carrier: Dict[str, str] = {}
+    propagate.inject(carrier)
+    return carrier
 
 
 class ScenarioExecutor:
@@ -172,6 +185,8 @@ class ScenarioExecutor:
         verbose: Optional[Union[bool, int]] = None,
         cache_key: Optional[str] = None,
         debug: Optional[bool] = None,
+        fetch_remote_traces: Optional[bool] = None,
+        trace_wait_timeout: Optional[float] = None,
         event_bus: Optional[ScenarioEventBus] = None,
         set_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -201,6 +216,14 @@ class ScenarioExecutor:
                       Overrides global configuration for this scenario.
             debug: Whether to enable debug mode with step-by-step execution.
                   Overrides global configuration for this scenario.
+            fetch_remote_traces: Whether the judge fetches the traces the
+                  agent under test reported to LangWatch for this
+                  conversation's trace ids (default: False). Requires the
+                  agent adapter to forward ``AgentInput.propagation_headers``.
+                  Overrides global configuration for this scenario.
+            trace_wait_timeout: Maximum seconds the judge waits at verdict
+                  time for remote traces to arrive and stabilize (default: 60).
+                  Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
             metadata: Optional metadata to attach to the scenario run.
@@ -223,6 +246,8 @@ class ScenarioExecutor:
             cache_key=cache_key,
             debug=debug,
             headless=None,
+            fetch_remote_traces=fetch_remote_traces,
+            trace_wait_timeout=trace_wait_timeout,
         )
         self.config = (ScenarioConfig.default_config or ScenarioConfig()).merge(config)
 
@@ -1029,6 +1054,7 @@ class ScenarioExecutor:
                                 new_messages=self._pending_messages.get(idx, []),
                                 judgment_request=judgment_request,
                                 scenario_state=self._state,
+                                propagation_headers=_active_propagation_headers(),
                             )
                         )
                         if not isinstance(agent_response, Awaitable):
@@ -1925,6 +1951,8 @@ def _build_scenario(
     verbose: Optional[Union[bool, int]],
     cache_key: Optional[str],
     debug: Optional[bool],
+    fetch_remote_traces: Optional[bool],
+    trace_wait_timeout: Optional[float],
     script: Optional[List[ScriptStep]],
     set_id: Optional[str],
     metadata: Optional[Dict[str, Any]],
@@ -1947,6 +1975,8 @@ def _build_scenario(
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
+        fetch_remote_traces=fetch_remote_traces,
+        trace_wait_timeout=trace_wait_timeout,
         script=script,
         set_id=set_id,
         metadata=metadata,
@@ -1957,11 +1987,13 @@ def _build_scenario(
 
 
 def _cleanup_scenario_spans(scenario: "ScenarioExecutor") -> None:
-    """Clear judge spans for this scenario's thread_id to prevent memory buildup."""
-    from ._tracing import judge_span_collector
+    """Clear judge spans and remote trace fetch state for this scenario's
+    thread_id to prevent memory buildup."""
+    from ._tracing import judge_span_collector, remote_trace_fetcher
 
     if hasattr(scenario, "_state") and scenario._state:
         judge_span_collector.clear_spans_for_thread(scenario._state.thread_id)
+        remote_trace_fetcher.clear_thread(scenario._state.thread_id)
 
 
 async def arun(
@@ -1973,6 +2005,8 @@ async def arun(
     verbose: Optional[Union[bool, int]] = None,
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
+    fetch_remote_traces: Optional[bool] = None,
+    trace_wait_timeout: Optional[float] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -2005,6 +2039,8 @@ async def arun(
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
+        fetch_remote_traces=fetch_remote_traces,
+        trace_wait_timeout=trace_wait_timeout,
         script=script,
         set_id=set_id,
         metadata=metadata,
@@ -2033,6 +2069,8 @@ async def run(
     verbose: Optional[Union[bool, int]] = None,
     cache_key: Optional[str] = None,
     debug: Optional[bool] = None,
+    fetch_remote_traces: Optional[bool] = None,
+    trace_wait_timeout: Optional[float] = None,
     script: Optional[List[ScriptStep]] = None,
     set_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -2068,6 +2106,13 @@ async def run(
         verbose: Show detailed output during execution
         cache_key: Cache key for deterministic behavior
         debug: Enable debug mode for step-by-step execution
+        fetch_remote_traces: Have the judge fetch the traces the agent under
+                 test reported to LangWatch for this conversation and evaluate
+                 them alongside locally collected spans (default: False).
+                 Requires the agent adapter to forward
+                 ``AgentInput.propagation_headers`` to the remote agent.
+        trace_wait_timeout: Maximum seconds the judge waits at verdict time
+                 for remote traces to arrive and stabilize (default: 60)
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
         metadata: Optional metadata to attach to the scenario run.
@@ -2127,6 +2172,8 @@ async def run(
         verbose=verbose,
         cache_key=cache_key,
         debug=debug,
+        fetch_remote_traces=fetch_remote_traces,
+        trace_wait_timeout=trace_wait_timeout,
         script=script,
         set_id=set_id,
         metadata=metadata,
