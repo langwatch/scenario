@@ -7,6 +7,7 @@ import { ScenarioExecutionStateLike, ScenarioResult } from "../core/execution";
 
 export const DEFAULT_MAX_TURNS = 10;
 export const DEFAULT_VERBOSE = false;
+export const DEFAULT_TRACE_WAIT_TIMEOUT_MS = 60_000;
 
 /**
  * Configuration for LangWatch event reporting.
@@ -131,6 +132,36 @@ export interface ScenarioConfig {
    * always read off `cfg.voice`. See `voice/config.ts#resolveVoiceConfig`.
    */
   voice?: VoiceConfig;
+
+  /**
+   * Whether the judge fetches the remote traces produced by the agent under
+   * test from the LangWatch trace API and merges them into its evaluation.
+   *
+   * Enable this when the agent runs behind an HTTP endpoint that returns
+   * final text only: the adapter forwards {@link AgentInput.propagationHeaders}
+   * to the remote agent, the agent's own spans land in the same trace, and
+   * the judge reads the real tool calls, writes, and retrievals instead of
+   * claims in the transcript.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins.
+   *
+   * @default false
+   */
+  fetchRemoteTraces?: boolean;
+
+  /**
+   * Total time budget in milliseconds the judge waits at verdict time for
+   * remote traces to arrive and stabilize. Only used when
+   * {@link fetchRemoteTraces} is enabled. Mid-conversation judge calls never
+   * wait; the budget applies once, when a verdict is required.
+   *
+   * Can also be set project-wide in `scenario.config.js`; this per-run value
+   * wins.
+   *
+   * @default 60000
+   */
+  traceWaitTimeoutMs?: number;
 
   /**
    * LangWatch reporting configuration.

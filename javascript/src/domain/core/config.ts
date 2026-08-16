@@ -23,6 +23,16 @@ export const scenarioProjectConfigSchema = z
         return val === undefined || (typeof val === "object" && val !== null && !Array.isArray(val));
       })
       .optional(),
+    /**
+     * Project-wide default for `ScenarioConfig.fetchRemoteTraces`. A per-run
+     * value on the scenario config wins over this default.
+     */
+    fetchRemoteTraces: z.boolean().optional(),
+    /**
+     * Project-wide default for `ScenarioConfig.traceWaitTimeoutMs`. A per-run
+     * value on the scenario config wins over this default.
+     */
+    traceWaitTimeoutMs: z.number().positive().optional(),
   })
   .strict();
 

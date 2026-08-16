@@ -34,6 +34,10 @@ export type { ScenarioConfigureOptions } from "./config/configure";
 export { setupScenarioTracing } from "./tracing/setup";
 export { scenarioOnly, withCustomScopes } from "./tracing/filters";
 export {
+  RemoteTraceFetcher,
+  remoteTraceFetcher,
+} from "./tracing/remote-trace-fetcher";
+export {
   ATTR_SCENARIO_SDK_NAME,
   ATTR_SCENARIO_SDK_VERSION,
   SCENARIO_SDK_NAME,
