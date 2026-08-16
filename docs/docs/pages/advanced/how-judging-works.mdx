@@ -148,7 +148,8 @@ With `fetch_remote_traces` / `fetchRemoteTraces` enabled (see [Remote Traces](/a
 Remote spans take time to be ingested, so the fetch runs exactly once, right before the verdict:
 
 - **Conversation turns never fetch.** A decision call reads only the locally collected spans; remote trace arrival plays no part in whether the conversation continues.
-- **Every verdict settle-waits first.** Each pending trace is polled every second until it is complete, meaning it holds at least one remote span from the agent under test and every fetched span's parent span has arrived, all traces in parallel, under one shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget (default 60 seconds). A failed poll retries until the deadline, so a transient API error does not end the wait early. When the budget runs out first, the judge keeps every span that did arrive and the digest gains a synthetic error span marking the trace as possibly incomplete.
+- **Every verdict settle-waits first.** Each pending trace is polled every second until it is complete, meaning it holds at least one remote span from the agent under test and every fetched span's parent span has arrived, all traces in parallel, under one shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget (default 30 seconds). A failed poll retries until the deadline, so a transient API error does not end the wait early. When the budget runs out first, the judge keeps every span that did arrive and the digest gains a synthetic error span marking the trace as possibly incomplete.
+- **The judge can ask for one extra wait.** When the settle-wait ends with incomplete traces, the verdict call offers a one-shot [`wait_for_traces`](#wait_for_traces-verdict-phase-one-shot) tool. Calling it re-arms the failed traces, retracts their synthetic error spans, and settle-waits once more under the `trace_wait_extension` / `traceWaitExtensionMs` budget (default: the wait budget itself). The tool is then withdrawn, so the re-entered verdict call must decide on the evidence at hand.
 
 ### Voluntary verdicts and inconclusive outcomes
 
@@ -189,6 +190,10 @@ End the simulation with a verdict. This tool takes:
 - **`reasoning`** -- A free-text explanation of why the judge reached this verdict. Included in test output for debugging.
 
 The judge is expected to evaluate every criterion independently. A single failed criterion results in an overall `"failure"` verdict from the built-in judge.
+
+### `wait_for_traces` (verdict phase, one-shot)
+
+Offered alongside `finish_test` only when remote fetching is on and the settle-wait ended with incomplete traces. Takes no arguments. Calling it settle-waits one extra `trace_wait_extension` / `traceWaitExtensionMs` period for the missing spans, then re-enters the verdict with the tool withdrawn: the judge is told the trace evidence is now final and must deliver its verdict. The tool description instructs the judge to call it only when a criterion genuinely depends on the missing spans.
 
 ---
 
@@ -233,8 +238,10 @@ result = await scenario.run(
     # ...
     # Fetch the agent's remote traces before judging (default: False)
     fetch_remote_traces=True,
-    # Verdict-time wait budget for remote traces, in seconds (default: 60)
-    trace_wait_timeout=30.0,
+    # Verdict-time wait budget for remote traces, in seconds (default: 30)
+    trace_wait_timeout=45.0,
+    # The judge's one extra wait via wait_for_traces (default: the wait budget)
+    trace_wait_extension=45.0,
 )
 ```
 
@@ -243,8 +250,10 @@ const result = await scenario.run({
     // ...
     // Fetch the agent's remote traces before judging (default: false)
     fetchRemoteTraces: true,
-    // Verdict-time wait budget for remote traces, in ms (default: 60000)
-    traceWaitTimeoutMs: 30_000,
+    // Verdict-time wait budget for remote traces, in ms (default: 30000)
+    traceWaitTimeoutMs: 45_000,
+    // The judge's one extra wait via wait_for_traces (default: the wait budget)
+    traceWaitExtensionMs: 45_000,
 });
 ```
 

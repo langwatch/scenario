@@ -93,11 +93,11 @@ result = await scenario.run(
     description="A customer asks where their order is",
     agents=[RemoteAgentAdapter(), scenario.UserSimulatorAgent(), scenario.JudgeAgent(criteria=[...])],
     fetch_remote_traces=True,
-    trace_wait_timeout=30.0,  # seconds, default 60
+    trace_wait_timeout=45.0,  # seconds, default 30
 )
 
 # or as a global default:
-scenario.configure(fetch_remote_traces=True, trace_wait_timeout=30.0)
+scenario.configure(fetch_remote_traces=True, trace_wait_timeout=45.0)
 ```
 
 ```typescript [typescript]
@@ -106,13 +106,13 @@ const result = await scenario.run({
   description: "A customer asks where their order is",
   agents: [remoteAgentAdapter, scenario.userSimulatorAgent(), scenario.judgeAgent({ criteria: [...] })],
   fetchRemoteTraces: true,
-  traceWaitTimeoutMs: 30_000, // default 60000
+  traceWaitTimeoutMs: 45_000, // default 30000
 });
 
 // or project-wide in scenario.config.mjs:
 export default defineConfig({
   fetchRemoteTraces: true,
-  traceWaitTimeoutMs: 30_000,
+  traceWaitTimeoutMs: 45_000,
 });
 ```
 
@@ -129,6 +129,7 @@ Trace ingestion takes a moment, and the fetch schedule is built so conversations
 - **Conversation turns never fetch.** While the conversation runs, the judge only decides whether to continue or move to the verdict, from the transcript and local spans. Remote traces are not fetched mid-conversation and never delay a turn.
 - **Every verdict settle-waits first.** When the judge moves to its verdict (a `make_verdict` decision, the last turn, or an explicit judge step), it polls each pending trace every second until the trace is complete, meaning it holds at least one span from your agent and every fetched span's parent span has arrived. A failed poll retries until the deadline instead of failing the trace. All traces are polled in parallel under the single shared `trace_wait_timeout` / `traceWaitTimeoutMs` budget.
 - **A timeout never hides what did arrive.** When the budget runs out on an incomplete trace, the judge still sees every span that was fetched, plus a synthetic error span that marks the trace as possibly incomplete. Criteria the visible spans prove can still pass; criteria that need the missing spans go inconclusive.
+- **The judge can wait once more.** When the traces are still incomplete at the verdict, the judge gets a one-shot `wait_for_traces` tool. It calls the tool only when the missing spans are essential for the verdict; the wait re-arms the failed traces and settle-waits one extra period, set by `trace_wait_extension` / `traceWaitExtensionMs` (default: the wait budget itself). After that wait the tool is withdrawn and the judge must deliver its verdict on the evidence at hand.
 - **An inconclusive verdict continues the conversation, unless the evidence is dead.** A voluntary verdict that comes back inconclusive sends the conversation onward for more turns. When no trace of the run ever settled, the inconclusive verdict is terminal instead: more turns cannot produce the missing evidence, and another settle-wait would only repeat the same timeout.
 
 ---
@@ -356,8 +357,9 @@ describe("Judging on remote traces", () => {
 
 <Callout type="tip">
   To prove propagation is doing the work, run the example once with the
-  server's `extract` line removed: the trace criterion must stop passing. A
-  judge that still passes it is grading the transcript, not the trace.
+  `extract` line removed from the server: the trace criterion must stop
+  passing. A judge that still passes it is grading the transcript, not the
+  trace.
 </Callout>
 
 ---
