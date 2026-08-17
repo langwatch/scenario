@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/langwatch/scenario/compare/python/v1.1.1...python/v1.2.0) (2026-08-13)
+
+
+### Features
+
+* **judge:** minTurns — a guaranteed-turns floor the judge cannot end early ([#900](https://github.com/langwatch/scenario/issues/900)) ([c9b58bb](https://github.com/langwatch/scenario/commit/c9b58bbf730d5a90ea8a1c2c8310d5b9748565ed))
+* **python:** export the voice error types from the package root ([#723](https://github.com/langwatch/scenario/issues/723)) ([#894](https://github.com/langwatch/scenario/issues/894)) ([894cbed](https://github.com/langwatch/scenario/commit/894cbedcb2129ee88455603087ff96ca666f5acf))
+
 ## [1.1.1](https://github.com/langwatch/scenario/compare/python/v1.1.0...python/v1.1.1) (2026-08-13)
 
 
