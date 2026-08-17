@@ -222,7 +222,7 @@ class ScenarioExecutor:
                   agent adapter to forward ``AgentInput.propagation_headers``.
                   Overrides global configuration for this scenario.
             trace_wait_timeout: Maximum seconds the judge waits at verdict
-                  time for remote traces to arrive and stabilize (default: 60).
+                  time for remote traces to arrive and stabilize (default: 30).
                   Overrides global configuration for this scenario.
             event_bus: Optional event bus that will subscribe to this executor's events
             set_id: Optional set identifier for grouping related scenarios
@@ -2112,7 +2112,7 @@ async def run(
                  Requires the agent adapter to forward
                  ``AgentInput.propagation_headers`` to the remote agent.
         trace_wait_timeout: Maximum seconds the judge waits at verdict time
-                 for remote traces to arrive and stabilize (default: 60)
+                 for remote traces to arrive and stabilize (default: 30)
         script: Optional script steps to control scenario flow
         set_id: Optional set identifier for grouping related scenarios
         metadata: Optional metadata to attach to the scenario run.

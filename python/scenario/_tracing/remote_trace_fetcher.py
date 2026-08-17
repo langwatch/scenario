@@ -413,10 +413,13 @@ class RemoteTraceFetcher:
             return self._registry.setdefault(thread_id, {})
 
     def _state(self, thread_id: str, trace_id: str) -> _TraceFetchState:
-        states = self._states_for_thread(thread_id)
-        if trace_id not in states:
-            states[trace_id] = _TraceFetchState()
-        return states[trace_id]
+        # One lock over both steps. Taking it only to fetch the per-thread
+        # dict and then testing membership outside would let two callers both
+        # miss and both create, and the loser's state object would be dropped
+        # while its caller still held a reference to it.
+        with self._registry_lock:
+            states = self._registry.setdefault(thread_id, {})
+            return states.setdefault(trace_id, _TraceFetchState())
 
     def none_settled(self, *, thread_id: str, trace_ids: List[str]) -> bool:
         """True when not one of the given trace ids ever settled cleanly.
