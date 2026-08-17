@@ -37,6 +37,8 @@ const httpsAgentAdapter: AgentAdapter = {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.API_KEY}`,
+        // Forward the scenario turn's trace context (traceparent)
+        ...input.propagationHeaders,
       },
       body: JSON.stringify({
         message: content,
@@ -82,6 +84,8 @@ class HTTPSAgentAdapter(scenario.AgentAdapter):
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {os.getenv('API_KEY')}",
+                    # Forward the scenario turn's trace context (traceparent)
+                    **input.propagation_headers,
                 },
             ) as response:
                 if response.status != 200:
@@ -103,8 +107,11 @@ await scenario.run(
 
 :::
 
+Both adapters forward `input.propagationHeaders` / `input.propagation_headers`, the scenario turn's W3C trace context, so a server that adopts it writes its spans into the same trace as the scenario. That is what lets the judge [fetch and evaluate your agent's real traces](/advanced/remote-traces) when `fetchRemoteTraces` / `fetch_remote_traces` is enabled.
+
 ## Next Steps
 
+- [Remote Traces](/advanced/remote-traces) - Judge the deployed agent on its real traces, not only its responses
 - Explore [Testing Remote Agents](/examples/testing-remote-agents) for advanced HTTP patterns (streaming, SSE, authentication, error handling)
 - Learn about [Scripted Simulations](/basics/scripted-simulations) for precise control
 - Check out [Scenario Basics](/basics/concepts) for advanced testing patterns

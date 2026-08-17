@@ -73,6 +73,27 @@ export interface AgentInput {
    */
   judgmentRequest?: JudgmentRequest;
   /**
+   * W3C trace context headers for the current turn, built by injecting the
+   * active OpenTelemetry context at AgentInput construction time. Contains
+   * `traceparent` (and `tracestate` when set); the traceparent's trace id
+   * equals the trace id stamped on this turn's messages. Empty object when
+   * no span is active.
+   *
+   * Always set by the scenario runtime at call time; optional so hand-built
+   * inputs keep compiling.
+   *
+   * HTTP adapters spread these onto their outgoing request headers so the
+   * remote agent's spans join the turn's trace:
+   *
+   * ```typescript
+   * await fetch(url, {
+   *   headers: { "Content-Type": "application/json", ...input.propagationHeaders },
+   *   ...
+   * });
+   * ```
+   */
+  propagationHeaders?: Record<string, string>;
+  /**
    * The current state of the scenario execution.
    */
   scenarioState: ScenarioExecutionStateLike;

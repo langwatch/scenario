@@ -502,6 +502,10 @@ export default defineConfig({
           link: "/advanced/how-judging-works",
         },
         {
+          text: "Remote Traces",
+          link: "/advanced/remote-traces",
+        },
+        {
           text: "Custom Judge",
           link: "/advanced/custom-judge",
         },

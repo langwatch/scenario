@@ -190,6 +190,7 @@ class TestNonLitellmAgentGetsTranscriptProtection:
         expand_response.choices[0].message.content = None
         expand_response.choices[0].message.role = "assistant"
 
+        make_verdict_response = mock_litellm_response("make_verdict", {})
         finish_response = mock_litellm_response(
             "finish_test",
             {
@@ -211,6 +212,8 @@ class TestNonLitellmAgentGetsTranscriptProtection:
             for m in kwargs["messages"]:
                 if m.get("tool_call_id") == "call_x":
                     captured_tool_message["content"] = m["content"]
+            if call_count == 2:
+                return make_verdict_response
             return finish_response
 
         with patch(
@@ -219,7 +222,8 @@ class TestNonLitellmAgentGetsTranscriptProtection:
         ):
             await judge.call(create_base_input(messages))
 
-            assert call_count == 2
+            # expand + make_verdict + finish
+            assert call_count == 3
             assert "row_0_" in captured_tool_message["content"]
 
     @pytest.mark.asyncio

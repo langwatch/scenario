@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import warnings
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, SkipValidation, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation, field_validator, model_validator
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     Awaitable,
     Callable,
+    Dict,
     List,
     Optional,
     TypeAlias,
@@ -147,6 +148,13 @@ class AgentInput(BaseModel):
         judgment_request: When set, requests the judge to produce a verdict,
                          optionally with inline criteria
         scenario_state: Current state of the scenario execution
+        propagation_headers: W3C trace context headers (``traceparent``, plus
+                         ``tracestate`` when set) for the current scenario
+                         turn. HTTP adapters spread these onto their outgoing
+                         request headers so the remote agent's spans join the
+                         turn's trace; combined with the ``fetch_remote_traces``
+                         configuration, the judge then evaluates those spans.
+                         Empty when no trace context is active.
 
     Example:
         ```
@@ -171,6 +179,7 @@ class AgentInput(BaseModel):
     new_messages: Annotated[List[ChatCompletionMessageParam], SkipValidation]
     judgment_request: Optional[JudgmentRequest] = None
     scenario_state: ScenarioStateType
+    propagation_headers: Dict[str, str] = Field(default_factory=dict)
 
     def last_new_user_message(self) -> ChatCompletionUserMessageParam:
         """

@@ -1,12 +1,12 @@
-"""Regression tests for issue #886: an inconclusive finish_test mid-conversation
-must continue the conversation, not end the run as failed.
+"""Regression tests for issue #886: an inconclusive verdict on a voluntary
+judgment must continue the conversation, not end the run as failed.
 
-When nothing forces a verdict (continue_test is freely available), a judge that
-answers finish_test with verdict "inconclusive" is saying "I can't tell yet".
-Treating that as a terminal failure ends the scenario right after the agent's
-last message — which, on a platform surface, reads as the simulated user going
-silent. A FORCED judgment (last turn, an explicit judgment_request, discovery
-exhaustion) keeps its terminal behavior.
+When the verdict was volunteered (the judge chose make_verdict
+mid-conversation), answering finish_test with verdict "inconclusive" is
+saying "I can't tell yet". Treating that as a terminal failure ends the
+scenario right after the agent's last message, which, on a platform surface,
+reads as the simulated user going silent. A FORCED judgment (last turn, an
+explicit judgment_request, discovery exhaustion) keeps its terminal behavior.
 """
 
 import json
@@ -56,13 +56,29 @@ async def _run_judge(
     if verdict is not None:
         arguments["verdict"] = verdict
 
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.tool_calls = [MagicMock()]
-    mock_response.choices[0].message.tool_calls[0].function.name = "finish_test"
-    mock_response.choices[0].message.tool_calls[0].function.arguments = json.dumps(
+    finish_response = MagicMock()
+    finish_response.choices = [MagicMock()]
+    finish_response.choices[0].message.tool_calls = [MagicMock()]
+    finish_response.choices[0].message.tool_calls[0].function.name = "finish_test"
+    finish_response.choices[0].message.tool_calls[0].function.arguments = json.dumps(
         arguments
     )
+
+    make_verdict_response = MagicMock()
+    make_verdict_response.choices = [MagicMock()]
+    make_verdict_response.choices[0].message.tool_calls = [MagicMock()]
+    make_verdict_response.choices[0].message.tool_calls[
+        0
+    ].function.name = "make_verdict"
+    make_verdict_response.choices[0].message.tool_calls[0].function.arguments = "{}"
+
+    def fake_completion(**kwargs):
+        # Honor the offered tool set: an unforced call decides first
+        # (make_verdict), then the verdict call answers finish_test.
+        offered = [tool["function"]["name"] for tool in kwargs.get("tools", [])]
+        if "finish_test" in offered:
+            return finish_response
+        return make_verdict_response
 
     mock_executor = MagicMock()
     mock_executor.config = MagicMock()
@@ -71,7 +87,7 @@ async def _run_judge(
 
     try:
         with patch(
-            "scenario.judge_agent.litellm.completion", return_value=mock_response
+            "scenario.judge_agent.litellm.completion", side_effect=fake_completion
         ):
             return await judge.call(agent_input)
     finally:
@@ -81,7 +97,9 @@ async def _run_judge(
 
 @pytest.mark.asyncio
 async def test_unforced_inconclusive_finish_continues_the_conversation():
-    """Mid-conversation, no judgment_request: inconclusive means continue."""
+    """@scenario A voluntary verdict of inconclusive continues the conversation
+
+    Mid-conversation, no judgment_request: inconclusive means continue."""
     result = await _run_judge(
         verdict="inconclusive",
         judgment_request=None,
@@ -180,7 +198,9 @@ async def test_criteria_less_last_turn_judge_pins_finish_test_and_stays_terminal
 
 @pytest.mark.asyncio
 async def test_forced_by_last_turn_stays_terminal():
-    """On the last turn the judge must deliver a verdict - inconclusive is terminal."""
+    """@scenario A required verdict of inconclusive is terminal
+
+    On the last turn the judge must deliver a verdict - inconclusive is terminal."""
     result = await _run_judge(
         verdict="inconclusive",
         judgment_request=None,

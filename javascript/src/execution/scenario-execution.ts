@@ -41,6 +41,7 @@ import {
   ScenarioRunStatus,
   Verdict,
 } from "../events/schema";
+import { buildPropagationHeaders } from "../tracing/propagation";
 import {
   ATTR_SCENARIO_SDK_NAME,
   ATTR_SCENARIO_SDK_VERSION,
@@ -361,6 +362,13 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
       threadId: config.threadId ?? generateThreadId(),
       setId: config.setId || "default",
       metadata: config.metadata,
+      // Remote trace judging carriers: the judge resolves fetchRemoteTraces,
+      // the wait budgets and the langwatch endpoint/key override off
+      // `AgentInput.scenarioConfig`, so they must survive onto `this.config`.
+      fetchRemoteTraces: config.fetchRemoteTraces,
+      traceWaitTimeoutMs: config.traceWaitTimeoutMs,
+      traceWaitExtensionMs: config.traceWaitExtensionMs,
+      langwatch: config.langwatch,
       // Voice carriers (ADR-002): the per-run voice config + audio hooks must
       // survive onto `this.config` so they reach every `call()` via
       // `AgentInput.scenarioConfig`. `run({ voice })` seeds `cfg.voice`; the
@@ -995,15 +1003,6 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
     });
 
     const startTime = Date.now();
-    const agentInput: AgentInput = {
-      threadId: this.state.threadId,
-      messages: this.state.messages,
-      newMessages: this.pendingMessages.get(idx) ?? [],
-      requestedRole: role,
-      judgmentRequest: judgmentRequest,
-      scenarioState: this.state,
-      scenarioConfig: this.config,
-    };
 
     // Create agent span as child of the turn span
     // Following OpenTelemetry docs: create context with parent span right before creating child
@@ -1036,6 +1035,22 @@ export class ScenarioExecution implements ScenarioExecutionLike, VoiceExecutorSt
 
           // Set input for the span
           agentSpan.setInput("chat_messages", this.state.messages);
+
+          // Built inside the agent-call span so the injected traceparent
+          // carries this turn's trace id — the same id stamped below on the
+          // messages this call produces. HTTP adapters spread
+          // propagationHeaders onto their outgoing requests so the remote
+          // agent's spans join the turn's trace.
+          const agentInput: AgentInput = {
+            threadId: this.state.threadId,
+            messages: this.state.messages,
+            newMessages: this.pendingMessages.get(idx) ?? [],
+            requestedRole: role,
+            judgmentRequest: judgmentRequest,
+            propagationHeaders: buildPropagationHeaders(),
+            scenarioState: this.state,
+            scenarioConfig: this.config,
+          };
 
           const agentResponse = await agent.call(agentInput);
           const endTime = Date.now();
