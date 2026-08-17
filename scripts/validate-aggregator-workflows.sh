@@ -122,7 +122,11 @@ wanted = sys.argv[2:]
 changes = d.get('jobs', {}).get('changes', {})
 declared = None
 for step in changes.get('steps', []) or []:
-    if 'detect-changes' in str(step.get('uses', '')):
+    # Exact reference, not a substring: any action whose name merely contains
+    # "detect-changes" could supply a matching `filters` input and satisfy this
+    # while the job never uses the local one. That is the same shape of hole
+    # this check was written to close, one level up.
+    if step.get('uses') == './.github/actions/detect-changes':
         declared = (step.get('with') or {}).get('filters')
         break
 if declared is None:

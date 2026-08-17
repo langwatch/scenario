@@ -295,10 +295,13 @@ fi
 # file, so deleting the policy outright left every check green and the
 # workflow `cat`-ing a path that is not there: the same staleness this script
 # exists to catch, one level down.
-if [ -f "$REPO_ROOT/.github/LOW_RISK_PULL_REQUESTS.md" ]; then
-  pass "the policy document the workflow reads exists"
+# `-s`, not `-f`, to match what the workflow itself enforces: it refuses an
+# empty policy at run time (`[ ! -s ... ]`), so a check that accepted one would
+# report green over a state the workflow rejects.
+if [ -s "$REPO_ROOT/.github/LOW_RISK_PULL_REQUESTS.md" ]; then
+  pass "the policy document the workflow reads exists and is not empty"
 else
-  fail "policy document missing at .github/LOW_RISK_PULL_REQUESTS.md (the workflow cats it at run time)"
+  fail "policy document missing or empty at .github/LOW_RISK_PULL_REQUESTS.md (the workflow cats it at run time)"
 fi
 
 if grep -q 'dev/docs/' "$WF"; then
