@@ -39,6 +39,24 @@ jobs:
           # find.
           persist-credentials: false
 
+      # Both validators parse YAML with PyYAML. It is present on ubuntu-24.04
+      # today, so this is not fixing a broken run, and a missing module would
+      # not pass silently either: every parsing check reports its own FAIL and
+      # the job exits 1.
+      #
+      # It is the SHAPE of that failure that makes the dependency worth owning.
+      # Measured by making `import yaml` raise: 16 FAILs, reading
+      # "docs-ci: build does not need changes" and fifteen more like it. A run
+      # that says sixteen workflows regressed, when one module is absent, sends
+      # whoever is on it to the wrong file. Pinning also keeps the gate's
+      # verdict from moving with the runner image underneath it.
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+        with:
+          python-version: "3.12"
+
+      - name: Install the validators' one dependency
+        run: pip install "PyYAML==6.0.3"
+
       - name: Validate pr-auto-approve against the PR-gate checklist
         run: bash scripts/validate-pr-auto-approve.sh
 
