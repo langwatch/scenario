@@ -81,7 +81,7 @@
     "@eslint/js": "^9.39.1",
     "@google/genai": "^2.5.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.10.1",
+    "@types/node": "^26.2.0",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/parser": "^8.48.0",
     "@typescript/native-preview": "7.0.0-dev.20251128.1",
