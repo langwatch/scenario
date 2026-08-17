@@ -5,7 +5,7 @@
 
 ### Features
 
-* **judge:** minTurns — a guaranteed-turns floor the judge cannot end early ([#900](https://github.com/langwatch/scenario/issues/900)) ([c9b58bb](https://github.com/langwatch/scenario/commit/c9b58bbf730d5a90ea8a1c2c8310d5b9748565ed))
+* **judge:** minTurns — prevents voluntary `finish_test` before the minimum turn count; forced judgments (`scenario.judge()` checkpoints, final `maxTurns` turn) remain terminal ([#900](https://github.com/langwatch/scenario/issues/900)) ([c9b58bb](https://github.com/langwatch/scenario/commit/c9b58bbf730d5a90ea8a1c2c8310d5b9748565ed))
 
 ## [1.1.1](https://github.com/langwatch/scenario/compare/javascript/v1.1.0...javascript/v1.1.1) (2026-08-13)
 
