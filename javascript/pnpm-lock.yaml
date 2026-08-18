@@ -143,8 +143,8 @@ importers:
         specifier: ^4.3.0
         version: 4.4.1(@typescript-eslint/eslint-plugin@8.59.4(@typescript-eslint/parser@8.59.4(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))
       globals:
-        specifier: ^16.5.0
-        version: 16.5.0
+        specifier: ^17.11.0
+        version: 17.11.0
       jest:
         specifier: ^30.2.0
         version: 30.4.2(@types/node@26.2.0)
@@ -296,8 +296,8 @@ importers:
         specifier: ^0.4.24
         version: 0.4.26(eslint@9.39.4(jiti@2.7.0))
       globals:
-        specifier: ^16.5.0
-        version: 16.5.0
+        specifier: ^17.11.0
+        version: 17.11.0
       tw-animate-css:
         specifier: 1.4.0
         version: 1.4.0
@@ -3134,8 +3134,8 @@ packages:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
     engines: {node: '>=18'}
 
-  globals@16.5.0:
-    resolution: {integrity: sha512-c/c15i26VrJ4IRt5Z89DnIzCGDn9EcebibhAOjw5ibqEHsE1wLUgkPn9RDmNcUKyU87GeaL633nyJ+pplFR2ZQ==}
+  globals@17.11.0:
+    resolution: {integrity: sha512-Z2I8hM+PbJDXQDq3Icgpzv+mPdwr68iZUU9d5WW4FuXfDUQfkZaZuvjMv42/5crNyw154+9+VWXbYrUgDXbxNw==}
     engines: {node: '>=18'}
 
   globalthis@1.0.4:
@@ -8487,7 +8487,7 @@ snapshots:
 
   globals@14.0.0: {}
 
-  globals@16.5.0: {}
+  globals@17.11.0: {}
 
   globalthis@1.0.4:
     dependencies:
