@@ -101,8 +101,8 @@ importers:
         version: 3.25.76
     devDependencies:
       '@amiceli/vitest-cucumber':
-        specifier: ^6.5.0
-        version: 6.5.0(vitest@4.1.10)
+        specifier: ^7.0.0
+        version: 7.0.0(vitest@4.1.10)
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.4
@@ -345,8 +345,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@amiceli/vitest-cucumber':
-        specifier: ^6.5.0
-        version: 6.5.0(vitest@4.1.10)
+        specifier: ^7.0.0
+        version: 7.0.0(vitest@4.1.10)
       concurrently:
         specifier: ^10.0.5
         version: 10.0.5
@@ -415,8 +415,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@amiceli/vitest-cucumber@6.5.0':
-    resolution: {integrity: sha512-1883MTz+PsfTcR5C2wYlHh8rQzOEYOogdDhAikGWsx5UfTzIusP4HLH32kpcAPOBvHUpguYcA8Zmw5JxEydbzg==}
+  '@amiceli/vitest-cucumber@7.0.0':
+    resolution: {integrity: sha512-RjadvOolQ/g0uu4ntoZ4iBaTHy2NBxllxcco/apY1o42C5Y8g5OqCTstzmiX0PGa2izb/DskAwocBzsuRtLmLg==}
     hasBin: true
     peerDependencies:
       vitest: ^4.0.4
@@ -2546,6 +2546,10 @@ packages:
     resolution: {integrity: sha512-kLpxurY4Z4r9sgMsyG0Z9uzsBlgiU/EFKhj/h91/8yHu0edo7XuixOIH3VcJ8kkxs6/jPzoI6U9Vj3WqbMQ94g==}
     engines: {node: 18 || 20 || >=22}
 
+  brace-expansion@5.0.9:
+    resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
+    engines: {node: 20 || >=22}
+
   browserslist@4.28.2:
     resolution: {integrity: sha512-48xSriZYYg+8qXna9kwqjIVzuQxi+KYWp2+5nCYnYKPTr0LvD89Jqk2Or5ogxz0NUMfIjhh2lIUX/LyX9B4oIg==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
@@ -4263,6 +4267,10 @@ packages:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
 
+  minimatch@10.2.6:
+    resolution: {integrity: sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==}
+    engines: {node: 18 || 20 || >=22}
+
   minimatch@3.1.3:
     resolution: {integrity: sha512-M2GCs7Vk83NxkUyQV1bkABc4yxgz9kILhHImZiBPAZ9ybuvCb0/H7lEl5XvIg3g+9d4eNotkZA5IWwYl0tibaA==}
 
@@ -5633,7 +5641,7 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.14(zod@4.4.3)
       zod: 4.4.3
 
-  '@amiceli/vitest-cucumber@6.5.0(vitest@4.1.10)':
+  '@amiceli/vitest-cucumber@7.0.0(vitest@4.1.10)':
     dependencies:
       callsites: 4.2.0
       minimist: 1.2.8
@@ -7261,7 +7269,7 @@ snapshots:
 
   '@ts-morph/common@0.29.0':
     dependencies:
-      minimatch: 10.2.5
+      minimatch: 10.2.6
       path-browserify: 1.0.1
       tinyglobby: 0.2.17
 
@@ -7886,6 +7894,10 @@ snapshots:
       concat-map: 0.0.1
 
   brace-expansion@5.0.6:
+    dependencies:
+      balanced-match: 4.0.4
+
+  brace-expansion@5.0.9:
     dependencies:
       balanced-match: 4.0.4
 
@@ -9800,6 +9812,10 @@ snapshots:
     dependencies:
       brace-expansion: 5.0.6
 
+  minimatch@10.2.6:
+    dependencies:
+      brace-expansion: 5.0.9
+
   minimatch@3.1.3:
     dependencies:
       brace-expansion: 1.1.14
@@ -9810,7 +9826,7 @@ snapshots:
 
   minimatch@9.0.7:
     dependencies:
-      brace-expansion: 5.0.6
+      brace-expansion: 5.0.9
 
   minimist@1.2.8: {}
 
