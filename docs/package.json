@@ -34,7 +34,7 @@
     "eslint-mdx": "^3.6.2",
     "eslint-plugin-mdx": "^3.6.2",
     "eslint-plugin-react": "^7.37.5",
-    "globals": "^16.5.0",
+    "globals": "^17.11.0",
     "jiti": "^2.6.1",
     "prettier": "^3.7.1",
     "typescript": "latest",
