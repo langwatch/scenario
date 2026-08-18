@@ -106,11 +106,43 @@ EOF
   then pass "$name: cancel-in-progress: true"; else fail "$name: cancel-in-progress not set to true"; fi
 
   echo "--- path filters in changes job ---"
-  if grep -q "$filter1" "$wf" && grep -q "$filter2" "$wf"; then
-    pass "$name: path filters ($filter1, $filter2) present"
-  else
-    fail "$name: path filters missing (expected $filter1 and $filter2)"
-  fi
+  # Membership of the `relevant` list the detect-changes step actually
+  # declares, not a substring of the file. An unscoped grep passed on any line
+  # that happened to contain the needle: `docs/` is satisfied by the sibling
+  # entry '.github/workflows/docs-ci.yml' AND by the build job's
+  # cache-dependency-path, so deleting the real filter left this check saying
+  # PASS. python-ci escaped only because `python/**` happens to appear nowhere
+  # else in its file, which is luck rather than a check. This parses the YAML
+  # the way every other check in this script already does.
+  if python3 - "$wf" "$filter1" "$filter2" <<'EOF'
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+wanted = sys.argv[2:]
+changes = d.get('jobs', {}).get('changes', {})
+declared = None
+for step in changes.get('steps', []) or []:
+    # Exact reference, not a substring: any action whose name merely contains
+    # "detect-changes" could supply a matching `filters` input and satisfy this
+    # while the job never uses the local one. That is the same shape of hole
+    # this check was written to close, one level up.
+    if step.get('uses') == './.github/actions/detect-changes':
+        declared = (step.get('with') or {}).get('filters')
+        break
+if declared is None:
+    print("changes job declares no detect-changes step with filters")
+    sys.exit(1)
+# `filters` is a block scalar carrying its own YAML document.
+patterns = (yaml.safe_load(declared) or {}).get('relevant')
+if not isinstance(patterns, list):
+    print(f"the relevant filter is not a list: {patterns!r}")
+    sys.exit(1)
+missing = [w for w in wanted if w not in patterns]
+if missing:
+    print(f"missing from the relevant filter: {missing}; declared: {patterns}")
+    sys.exit(1)
+EOF
+  then pass "$name: path filters ($filter1, $filter2) present"; else fail "$name: path filters missing (expected $filter1 and $filter2)"; fi
 
   echo "--- $inner_job needs changes ---"
   if python3 - "$wf" "$inner_job" <<'EOF'
@@ -168,24 +200,24 @@ check_workflow \
   "python-ci" \
   "test" \
   "python-complete" \
-  "python/" \
-  "python-ci.yml"
+  "python/**" \
+  ".github/workflows/python-ci.yml"
 
 check_workflow \
   "$REPO_ROOT/.github/workflows/javascript-ci.yml" \
   "javascript-ci" \
   "ci-checks" \
   "javascript-complete" \
-  "javascript/" \
-  "javascript-ci.yml"
+  "javascript/**" \
+  ".github/workflows/javascript-ci.yml"
 
 check_workflow \
   "$REPO_ROOT/.github/workflows/docs-ci.yml" \
   "docs-ci" \
   "build" \
   "docs-complete" \
-  "docs/" \
-  "docs-ci.yml"
+  "docs/**" \
+  ".github/workflows/docs-ci.yml"
 
 # ---------------------------------------------------------------------------
 # Summary
