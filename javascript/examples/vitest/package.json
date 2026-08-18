@@ -15,7 +15,7 @@
   "license": "ISC",
   "devDependencies": {
     "@amiceli/vitest-cucumber": "^6.5.0",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.5",
     "dotenv": "^17.2.3",
     "dotenv-cli": "^11.0.0",
     "vitest-mock-extended": "3.1.0"
