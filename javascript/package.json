@@ -85,7 +85,7 @@
     "@types/ws": "^8.18.1",
     "@typescript-eslint/parser": "^8.48.0",
     "@typescript/native-preview": "7.0.0-dev.20251128.1",
-    "@vitest/coverage-v8": "4.0.14",
+    "@vitest/coverage-v8": "4.1.10",
     "dotenv": "^17.2.3",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",
