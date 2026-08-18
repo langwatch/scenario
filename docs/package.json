@@ -15,16 +15,16 @@
     "format": "eslint . --fix"
   },
   "dependencies": {
-    "@radix-ui/react-tabs": "^1.1.13",
-    "@tailwindcss/vite": "^4.1.17",
-    "lucide-react": "^1.25.0",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "@tailwindcss/vite": "^4.3.3",
+    "lucide-react": "^1.31.0",
     "react": "latest",
     "react-dom": "latest",
-    "react-router": "^8.2.0",
+    "react-router": "^8.3.0",
     "tailwind-merge": "^3.4.0",
-    "tailwindcss": "^4.1.17",
+    "tailwindcss": "^4.3.3",
     "vocs": "github:langwatch/vocs#build",
-    "zustand": "^5.0.8"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -36,7 +36,7 @@
     "eslint-plugin-react": "^7.37.5",
     "globals": "^16.5.0",
     "jiti": "^2.6.1",
-    "prettier": "^3.7.1",
+    "prettier": "^3.9.6",
     "typescript": "latest",
     "typescript-eslint": "^8.48.0",
     "vite-plugin-sitemap": "^0.8.2"
