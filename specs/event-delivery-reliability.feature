@@ -37,6 +37,13 @@ Feature: Event delivery reliability
     And a SCENARIO_RUN_FINISHED event is posted exactly once
 
   @integration
+  Scenario: Finished event is posted when the setup before the run fails
+    Given voice connect or modality resolution raises before the run starts
+    When the scenario runs with arun
+    Then the setup error propagates to the caller
+    And a SCENARIO_RUN_FINISHED event with status "ERROR" is posted exactly once
+
+  @integration
   Scenario: An accepted event with a body that is not JSON is never re-posted
     Given an event endpoint that answers 2xx with an empty body
     When an event is published to the event bus

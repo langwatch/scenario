@@ -108,7 +108,7 @@ class EventReporter:
         api_key: Optional[str] = None,
         project_id: Optional[str] = None,
         http_client: Optional[httpx.AsyncClient] = None,
-    ):
+    ) -> None:
         # Load settings from environment variables
         langwatch_settings = LangWatchSettings()
 

@@ -32,7 +32,7 @@ class _CountingReporter(EventReporter):
         super().__init__(endpoint="http://localhost", api_key="test")
         self.received: List[ScenarioEvent] = []
 
-    async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+    async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
         self.received.append(event)
         return {}
 
@@ -167,6 +167,39 @@ async def test_finished_emitted_when_the_run_started_emit_fails(
         f"Expected exactly one RUN_FINISHED, got {len(finished)}: "
         f"{[e.type_ for e in reporter.received]}"
     )
+    status = getattr(finished[0], "status")
+    assert getattr(status, "value", str(status)) == "ERROR"
+
+
+@pytest.mark.asyncio
+async def test_finished_emitted_when_pre_run_setup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Voice connect and modality resolution run before the script does. A
+    failure there is still a run that has to report itself as finished."""
+    reporter = _CountingReporter()
+
+    async def failing_connect(self: ScenarioExecutor) -> None:
+        raise RuntimeError("induced voice connect failure")
+
+    monkeypatch.setattr(ScenarioExecutor, "_voice_connect_all", failing_connect)
+
+    with _patched_reporter(reporter):
+        with pytest.raises(RuntimeError, match="induced voice connect failure"):
+            await scenario.arun(
+                name="pre-run-setup-fails",
+                description="finished event still posted when setup fails",
+                agents=_agents(),
+                script=[scenario.user("hi")],
+            )
+
+    finished = _finished_events(reporter)
+    assert len(finished) == 1, (
+        f"Expected exactly one RUN_FINISHED, got {len(finished)}: "
+        f"{[e.type_ for e in reporter.received]}"
+    )
+    status = getattr(finished[0], "status")
+    assert getattr(status, "value", str(status)) == "ERROR"
 
 
 @pytest.mark.asyncio

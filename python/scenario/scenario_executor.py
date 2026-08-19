@@ -639,30 +639,33 @@ class ScenarioExecutor:
         self._finished_emitted = False
         _check_failure: Optional[BaseException] = None
 
-        # Connect all voice adapters before script runs; disconnect in finally.
-        await self._voice_connect_all()
-
-        # Resolve modality per role and store for span stamping.
-        from .voice.modality_resolver import resolve_modality
-        from .user_simulator_agent import UserSimulatorAgent
-        from .judge_agent import JudgeAgent
-
-        self._modality_resolutions: dict = {}  # role -> tier value string
-        for agent in self.agents:
-            if isinstance(agent, UserSimulatorAgent):
-                decl = getattr(agent, 'modality', None)
-                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
-                for w in _mod_warnings:
-                    logger.warning(w)
-                self._modality_resolutions['simulator'] = tier.value
-            elif isinstance(agent, JudgeAgent):
-                decl = getattr(agent, 'modality', None)
-                tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
-                for w in _mod_warnings:
-                    logger.warning(w)
-                self._modality_resolutions['judge'] = tier.value
-
+        # Voice connect and modality resolution stay inside the guarded scope:
+        # a failure in either one is still a run that has to report itself as
+        # finished, and the finally below disconnects whatever was connected.
         try:
+            # Connect all voice adapters before script runs; disconnect in finally.
+            await self._voice_connect_all()
+
+            # Resolve modality per role and store for span stamping.
+            from .voice.modality_resolver import resolve_modality
+            from .user_simulator_agent import UserSimulatorAgent
+            from .judge_agent import JudgeAgent
+
+            self._modality_resolutions: dict = {}  # role -> tier value string
+            for agent in self.agents:
+                if isinstance(agent, UserSimulatorAgent):
+                    decl = getattr(agent, 'modality', None)
+                    tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                    for w in _mod_warnings:
+                        logger.warning(w)
+                    self._modality_resolutions['simulator'] = tier.value
+                elif isinstance(agent, JudgeAgent):
+                    decl = getattr(agent, 'modality', None)
+                    tier, _mod_warnings = resolve_modality(declaration=decl, model_id=getattr(agent, 'model', '') or '')
+                    for w in _mod_warnings:
+                        logger.warning(w)
+                    self._modality_resolutions['judge'] = tier.value
+
             self._emit_run_started_event(scenario_run_id)
 
             if self.config.verbose:

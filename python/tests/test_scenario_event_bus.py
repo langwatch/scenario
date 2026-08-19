@@ -22,7 +22,7 @@ class MockEventReporter(EventReporter):
         super().__init__()
         self.events: List[Any] = []
 
-    async def post_event(self, event: Any) -> Dict[str, Any]:
+    async def post_event(self, event: Any, http_client: Any = None) -> Dict[str, Any]:
         self.events.append(event)
         return {}
 
@@ -122,7 +122,7 @@ async def test_scenario_event_bus_handles_errors():
             # Use a tuple of fields that uniquely identify the event
             return (getattr(event, "scenario_run_id", None), type(event).__name__)
 
-        async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+        async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
             key = self._event_key(event)
             self.attempt_counts[key] = self.attempt_counts.get(key, 0) + 1
 
@@ -234,7 +234,7 @@ async def test_permanently_failing_endpoint_drops_event_and_never_raises(caplog)
             super().__init__()
             self.attempts = 0
 
-        async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+        async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
             self.attempts += 1
             raise Exception("endpoint is down")
 
@@ -265,7 +265,7 @@ async def test_permanent_client_error_is_not_retried():
             super().__init__()
             self.attempts = 0
 
-        async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+        async def post_event(self, event: ScenarioEvent, http_client: Any = None) -> Dict[str, Any]:
             self.attempts += 1
             request = httpx.Request("POST", "https://example.test")
             raise httpx.HTTPStatusError(

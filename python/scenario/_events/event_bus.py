@@ -109,13 +109,22 @@ class ScenarioEventBus:
         """Lazily create worker thread when first event arrives"""
         if self._worker_thread is None or not self._worker_thread.is_alive():
             self.logger.debug("Creating new worker thread")
+            # Each worker owns the event it watches. Drain signals the current
+            # one and then installs a fresh event for the next worker, so a
+            # worker that is still ending can never miss the signal it was
+            # given, and can never be un-signalled by a replacement.
+            shutdown_event = threading.Event()
+            self._shutdown_event = shutdown_event
             self._worker_thread = threading.Thread(
-                target=self._worker_loop, daemon=False, name="ScenarioEventBus-Worker"
+                target=self._worker_loop,
+                args=(shutdown_event,),
+                daemon=False,
+                name="ScenarioEventBus-Worker",
             )
             self._worker_thread.start()
             self.logger.debug("Worker thread started")
 
-    def _worker_loop(self) -> None:
+    def _worker_loop(self, shutdown_event: threading.Event) -> None:
         """Main worker thread loop - processes events from queue until shutdown"""
         self.logger.debug("Worker thread loop started")
         # One event loop and one HTTP client for the worker's lifetime, so
@@ -131,7 +140,7 @@ class ScenarioEventBus:
         try:
             while True:
                 try:
-                    if self._shutdown_event.wait(timeout=0.1):
+                    if shutdown_event.wait(timeout=0.1):
                         self.logger.debug("Worker thread received shutdown signal")
                         break
 
@@ -376,19 +385,24 @@ class ScenarioEventBus:
 
         # Signal worker to shutdown and wait for it
         self._shutdown_event.set()
+        worker_ended = True
         if self._worker_thread and self._worker_thread.is_alive():
             self.logger.debug("Waiting for worker thread to shutdown...")
-            self._worker_thread.join(timeout=5.0)
+            self._worker_thread.join(timeout=WORKER_HANDOVER_TIMEOUT_SECONDS)
             if self._worker_thread.is_alive():
+                worker_ended = False
                 self.logger.warning("Worker thread did not shutdown within timeout")
             else:
                 self.logger.debug("Worker thread shutdown complete")
 
         # Reset so a reused bus can subscribe to a fresh stream and spin up a
-        # new worker.
-        self._shutdown_event = threading.Event()
+        # new worker. The reference to a worker that has not ended is kept:
+        # dropping it would let a reused bus start a second worker on the same
+        # queue while the first one is still reading from it. The next worker
+        # installs its own shutdown event when it starts.
         self._completed = False
-        self._worker_thread = None
+        if worker_ended:
+            self._worker_thread = None
         self._subscription = None
 
         self.logger.info("Drain completed")
