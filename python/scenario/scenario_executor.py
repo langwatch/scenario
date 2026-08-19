@@ -267,7 +267,7 @@ class ScenarioExecutor:
 
         # Create executor's own event stream
         self._events = Subject()
-        self._finished_emitted = False
+        self._finished_emitted: bool = False
 
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
@@ -651,7 +651,8 @@ class ScenarioExecutor:
             from .user_simulator_agent import UserSimulatorAgent
             from .judge_agent import JudgeAgent
 
-            self._modality_resolutions: dict = {}  # role -> tier value string
+            # role -> tier value string
+            self._modality_resolutions: dict[str, str] = {}
             for agent in self.agents:
                 if isinstance(agent, UserSimulatorAgent):
                     decl = getattr(agent, 'modality', None)
@@ -2021,11 +2022,31 @@ class ScenarioExecutor:
         # event already delivered to the bus while the guard was still unset,
         # and the outer error path would then publish a second finished event.
         self._finished_emitted = True
-        self._emit_event(event)
+        try:
+            self._emit_event(event)
+        finally:
+            # The stream has to complete and the trace has to close even when
+            # publication raised: a subscriber that never sees on_completed
+            # keeps its worker waiting, and an open trace is never exported.
+            try:
+                self._events.on_completed()
+            except Exception:
+                logger.warning(
+                    "failed to complete the scenario event stream",
+                    exc_info=True,
+                )
 
-        # Signal end of event stream
-        self._events.on_completed()
-        self._trace.__exit__(None, None, None)
+            # reset() creates the trace, and it runs after the started event is
+            # emitted, so an early failure reaches here with no trace at all.
+            trace = getattr(self, "_trace", None)
+            if trace is not None:
+                try:
+                    trace.__exit__(None, None, None)
+                except Exception:
+                    logger.warning(
+                        "failed to close the scenario trace",
+                        exc_info=True,
+                    )
 
 
 def _build_scenario(

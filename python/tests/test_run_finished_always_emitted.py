@@ -189,6 +189,19 @@ async def test_finished_not_emitted_twice_when_a_subscriber_raises(
 
     monkeypatch.setattr(ScenarioExecutor, "_emit_event", emit_then_raise)
 
+    # A subscriber that never sees on_completed keeps its worker waiting, so
+    # the stream has to complete even though publication raised.
+    from rx.subject import Subject
+
+    completions = {"count": 0}
+    original_on_completed = Subject.on_completed
+
+    def counting_on_completed(self: Subject) -> None:
+        completions["count"] += 1
+        return original_on_completed(self)
+
+    monkeypatch.setattr(Subject, "on_completed", counting_on_completed)
+
     with _patched_reporter(reporter):
         # The script failure is what the caller sees: the emit failure is
         # deliberately discarded so the original assertion is not masked.
@@ -205,6 +218,7 @@ async def test_finished_not_emitted_twice_when_a_subscriber_raises(
         f"Expected exactly one RUN_FINISHED, got {len(finished)}: "
         f"{[e.type_ for e in reporter.received]}"
     )
+    assert completions["count"] >= 1, "the event stream never completed"
 
 
 @pytest.mark.asyncio
