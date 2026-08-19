@@ -37,17 +37,17 @@ When a scenario fails and the failure is real, meaning the agent misbehaved and 
 
 ## Look at the traces to find the layer
 
-A failing scenario names the broken behavior, and the trace of the failing run names the layer that broke it. The trace records the system prompt as the model received it, the tool schemas the harness injected, the retrieved context, and every tool call with its arguments and result. Open the trace before you change anything.
+When a scenario fails, open the trace of that run before you edit anything. The trace shows the full input the model received: the final system prompt, the tool list your harness injected, the context that was pulled in, and every tool call with its arguments and result.
 
-Match what you see against the five owners from the ladder:
+From there, work out which layer the problem is in:
 
-- A wrong tool choice while the right tools were available: the prompt or the knowledge.
-- A missing tool, a denied permission, or wrongly assembled context: the harness.
-- A correct answer to the input the model actually received: the scenario itself.
+- The model picked the wrong tool even though the right one was available: look at your prompt or your knowledge files.
+- A tool was missing, a permission was denied, or the context came in wrong: that is a harness problem, fix the configuration.
+- The answer was actually reasonable for the input the model received: your scenario or its criteria are the problem.
 
-Follow your harness. It injects its own tool map with schemas, so a second tool map written into the prompt competes with the injected one: the two drift apart and the model reads both copies. When the trace shows the harness already provides something, delete your copy.
+While you are in the trace, check what your harness already handles for you. For example, if you are hand-writing a map of your tools into your CLAUDE.md, you are directly competing with the autoloading tool map your harness injects: the model receives both, and the two drift apart over time. When the harness already provides something, delete your copy.
 
-Your fixes should stay within the parameters of defined levers and standards. Name the levers your setup has (the prompt, the tool surface, the model choice, the knowledge sources, the scenario criteria) and the standard each must meet, then make every change a deliberate move on one lever. Agents are non-deterministic, so prove each change with the varied re-runs from step 3, never with a single green run.
+You should get the scenarios to pass, but the modifications should be within the parameters of defined levers and standards. Decide which levers you have (the prompt, the tool list, the model, the knowledge, the scenario criteria) and the standard each one has to meet, then make every fix a deliberate change to one lever. Agents are non-deterministic, so re-run a few times with varied wording (step 3) before you trust any fix.
 
 ## What belongs in a prompt
 
