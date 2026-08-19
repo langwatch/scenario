@@ -37,7 +37,7 @@ When a scenario fails and the failure is real, meaning the agent misbehaved and 
 
 ## Look at the traces to find the layer
 
-When a scenario fails, open the trace of that run before you edit anything. The trace shows the full input the model received: the final system prompt, the tool list your harness injected, the context that was pulled in, and every tool call with its arguments and result.
+Scenarios tell you that something broke, and on their own they are weak diagnostic instruments. With a harness, a large part of what the model actually receives is assembled for you: injected tool schemas, scaffolding, retrieved context. The only real way to understand that input is to look at the actual telemetry, so when a scenario fails, open the trace of that run before you edit anything. The trace has the final system prompt, the tool list your harness injected, the context that was pulled in, and every tool call with its arguments and result.
 
 From there, work out which layer the problem is in:
 
@@ -45,9 +45,11 @@ From there, work out which layer the problem is in:
 - A tool was missing, a permission was denied, or the context came in wrong: that is a harness problem, fix the configuration.
 - The answer was actually reasonable for the input the model received: your scenario or its criteria are the problem.
 
-You should get the scenarios to pass, but the modifications should be within the parameters of defined levers and standards. Those parameters come from your environment: the harness you run on, the codebase around the agent and the model you picked determine which levers you actually have, and what a clean fix looks like on each one. The more completely you understand your own setup, the more obvious it becomes where a fix belongs.
+Even then, you cannot simply fix things and trust the green tests. An agent is non-deterministic, so a change never preserves behavior exactly, and a green run proves no equivalence. The modifications should be within the parameters of defined levers and standards, and those parameters are not something a guide hands you: they come from the environment you live in. Your harness, your codebase and your model define which levers exist and what a clean fix looks like on each. No universal playbook can say "fix X, never Y" for a setup it has never seen; the prerequisite is fully understanding your own environment.
 
-The tool map is a good example. Hand-write a map of your tools into AGENTS.md and you are directly competing with the autoloading tool map your harness already injects: the model receives both and they drift apart over time. When you know what your harness already puts into the context, you also know what your prompt can leave out, and the traces are where you see exactly that.
+Hand-writing a map of your tools into AGENTS.md when your harness already autoloads and injects one is what failing that looks like: it means you never looked at what your harness actually does, the model receives both maps, and they drift apart over time.
+
+This guide, however, is a good starting point: for a more bare-bones setup, and as overall good practice, the ladder holds. The deeper you know your own environment, the more you should let it refine these rules.
 
 ## What belongs in a prompt
 
