@@ -35,22 +35,6 @@ When a scenario fails and the failure is real, meaning the agent misbehaved and 
 
 6. **Keep the judge independent of the prompt.** Write [judge criteria](/basics/judge-agent) from user outcomes and verified side effects: "the booking exists afterward", "the reply contains the total". Criteria that restate the agent's prompt rules ("is terse", "does not narrate") make passing circular, since the suite then grades obedience to the prompt and the shortest path to green becomes more forceful prompt text.
 
-## Look at the traces to find the layer
-
-Scenarios tell you that something broke, and on their own they are weak diagnostic instruments. With a harness, a large part of what the model actually receives is assembled for you: injected tool schemas, scaffolding, retrieved context. The only real way to understand that input is to look at the actual telemetry, so when a scenario fails, open the trace of that run before you edit anything. The trace has the final system prompt, the tool list your harness injected, the context that was pulled in, and every tool call with its arguments and result.
-
-From there, work out which layer the problem is in:
-
-- The model picked the wrong tool even though the right one was available: look at your prompt or your knowledge files.
-- A tool was missing, a permission was denied, or the context came in wrong: that is a harness problem, fix the configuration.
-- The answer was actually reasonable for the input the model received: your scenario or its criteria are the problem.
-
-Even then, you cannot simply fix things and trust the green tests. An agent is non-deterministic, so a change never preserves behavior exactly, and a green run proves no equivalence. The modifications should be within the parameters of defined levers and standards, and those parameters are not something a guide hands you: they come from the environment you live in. Your harness, your codebase and your model define which levers exist and what a clean fix looks like on each. No universal playbook can say "fix X, never Y" for a setup it has never seen; the prerequisite is fully understanding your own environment.
-
-Hand-writing a map of your tools into AGENTS.md when your harness already autoloads and injects one is what failing that looks like: it means you never looked at what your harness actually does, the model receives both maps, and they drift apart over time.
-
-This guide, however, is a good starting point: for a more bare-bones setup, and as overall good practice, the ladder holds. The deeper you know your own environment, the more you should let it refine these rules.
-
 ## What belongs in a prompt
 
 Minimalism has a failure mode of its own, which is deleting the things the model genuinely cannot know. Two kinds of content live in a prompt, and only one of them should be held small.
@@ -59,12 +43,20 @@ Minimalism has a failure mode of its own, which is deleting the things the model
 
 **Behavioral corrections** are the part to hold minimal. A handful of principles the model can generalize from beats a numbered list of prohibitions that invites loophole-hunting one rule at a time, and every added prohibition spends some of the model's own judgment.
 
-## Reviewing a prompt diff
+## What to avoid in a prompt
 
 Review prompt changes the way you review code, and treat two patterns as defects:
 
 - **A quoted conversation in the prompt.** Attack transcripts, failing dialogues, and multi-turn examples pasted from a test run are patches for one instance. Extract the principle they were meant to teach and delete the transcript.
 - **A rule that carves out another rule.** "Never do X" followed weeks later by "except the X from rule 12 stays correct" means two patches are negotiating with each other; rewrite both as one rule before the exceptions breed.
+
+## Look at the traces to find the layer
+
+With a harness, a large part of what the model actually receives is assembled for you: injected tool schemas, scaffolding, retrieved context. The only real way to understand that input is to look at the actual telemetry, so when a scenario fails, open the trace of that run before you edit anything. The trace has the final system prompt, the tool list your harness injected, the context that was pulled in, and every tool call with its arguments and result.
+
+This guide is a good starting point; however, given the extensive use cases and generalization agents deliver, no universal playbook can say "for X, fix Y" for all setups. An advanced enough codebase and harness should already have the defined standards and levers you can pull for a proper fix.
+
+For example, by saying which commands and tools exist in your AGENTS.md you are directly competing with the harness's autoloading tool map that gets injected, which may be valid if additional bias is indeed proven necessary, but it may also be a smell of a harness not properly tuned.
 
 ## Your scenarios are a training set
 
