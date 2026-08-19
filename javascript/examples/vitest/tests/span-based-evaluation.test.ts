@@ -68,16 +68,12 @@ const observableAgent: AgentAdapter = {
       // LLM call with tool usage
       const response = await generateText({
         model: openai("gpt-5-mini"),
-        messages: [
-          {
-            role: "system",
-            content: `You are an order processing assistant.
+        instructions: `You are an order processing assistant.
 When asked about products, use the check_inventory tool.`,
-          },
+        messages: [
           ...input.messages,
         ],
         tools: { check_inventory: checkInventoryTool },
-        experimental_telemetry: { isEnabled: true },
         stopWhen: stepCountIs(2),
       });
 

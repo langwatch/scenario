@@ -454,7 +454,6 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
     const strippedMessages = stripAudioContent(preparedMessages);
 
     const messages: ModelMessage[] = [
-      { role: "system", content: systemPrompt },
       { role: "assistant", content: "Hello, how can I help you today" },
       ...strippedMessages,
     ];
@@ -471,6 +470,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
 
     const completion = await this.invokeLLM({
       model: mergedConfig.model,
+      instructions: systemPrompt,
       messages: reversedMessages,
       temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,

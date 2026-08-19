@@ -26,19 +26,15 @@ describe("Mocked Weather Agent Tool", () => {
       call: async (input) => {
         const response = await generateText({
           model: openai("gpt-5-mini"),
-          messages: [
-            {
-              role: "system",
-              content: `
+          instructions: `
                 You are a helpful assistant that may help the user with weather information.
                 Do not guess the city if they don't provide it.
               `,
-            },
+          messages: [
             ...input.messages,
           ],
           tools: { get_current_weather: getCurrentWeather },
           toolChoice: "auto",
-          experimental_telemetry: { isEnabled: true },
         });
 
         return response.text;

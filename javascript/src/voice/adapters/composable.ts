@@ -130,6 +130,7 @@ export class ComposableVoiceAgent extends VoiceAgentAdapter {
   readonly llm: LanguageModel;
   readonly tts: string;
   protected readonly ttsOptions: SynthesizeOptions;
+  protected readonly instructions: string;
   protected readonly history: ModelMessage[];
 
   lastUserTranscript: string | null = null;
@@ -149,12 +150,9 @@ export class ComposableVoiceAgent extends VoiceAgentAdapter {
     this.llm = options.llm;
     this.tts = options.tts;
     this.ttsOptions = options.ttsOptions ?? {};
-    this.history = [
-      {
-        role: "system",
-        content: options.systemPrompt ?? ComposableVoiceAgent.DEFAULT_SYSTEM_PROMPT,
-      },
-    ];
+    this.instructions =
+      options.systemPrompt ?? ComposableVoiceAgent.DEFAULT_SYSTEM_PROMPT;
+    this.history = [];
   }
 
   toString(): string {
@@ -193,6 +191,7 @@ export class ComposableVoiceAgent extends VoiceAgentAdapter {
     const work = (async () => {
       const result = await generateText({
         model: this.llm,
+        instructions: this.instructions,
         messages: this.history,
       });
       const responseText = result.text ?? "";

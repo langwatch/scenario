@@ -16,7 +16,7 @@ export const createLLMInvoker = (
     try {
       return await generateText({
         ...params,
-        experimental_telemetry: { isEnabled: true },
+        telemetry: { isEnabled: true },
       });
     } catch (error) {
       logger.error("Error generating text", { error });

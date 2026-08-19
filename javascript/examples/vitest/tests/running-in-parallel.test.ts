@@ -9,18 +9,14 @@ describe("Vegetarian Recipe Agent (Parallel)", () => {
     call: async (input) => {
       const response = await generateText({
         model: openai("gpt-5-mini"),
-        messages: [
-          {
-            role: "system",
-            content: `You are a vegetarian recipe agent. When a user asks for a recipe,
+        instructions: `You are a vegetarian recipe agent. When a user asks for a recipe,
             <rules>
               - You may ask ONLY ONE clarifying question if absolutely necessary (like dietary restrictions or cooking time preference), but then you MUST provide a complete vegetarian recipe.
               - Do not ask multiple follow-up questions.
             </rules>`,
-          },
+        messages: [
           ...input.messages,
         ],
-        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },

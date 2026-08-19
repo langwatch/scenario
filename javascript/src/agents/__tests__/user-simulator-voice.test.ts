@@ -285,11 +285,9 @@ describeFeature(
             // Capture system prompt via LLM spy — check persona block present.
             systemPromptCapture = "";
             (sim as unknown as {
-              invokeLLM: (p: { messages: Array<{ role: string; content: string }> }) => Promise<{ text: string; toolCalls: []; steps: [] }>;
-            }).invokeLLM = async ({ messages }) => {
-              // System message is passed unchanged through role reversal.
-              const sysMsg = messages.find((m) => m.role === "system");
-              systemPromptCapture = sysMsg?.content ?? "";
+              invokeLLM: (p: { instructions?: string }) => Promise<{ text: string; toolCalls: []; steps: [] }>;
+            }).invokeLLM = async ({ instructions }) => {
+              systemPromptCapture = instructions ?? "";
               return { text: "I need help please", toolCalls: [], steps: [] };
             };
 

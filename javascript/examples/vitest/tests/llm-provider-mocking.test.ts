@@ -39,7 +39,6 @@ const chatAgent: AgentAdapter = {
     const response = await generateText({
       model: openai("gpt-5-mini"),
       messages: input.messages,
-      experimental_telemetry: { isEnabled: true },
     });
     return response.text;
   },
@@ -51,7 +50,7 @@ describe("LLM Provider Mocking", () => {
     // No actual LLM call will be made
     mockGenerateText.mockResolvedValue({
       text: "I can help you with that request.",
-    } as GenerateTextResult<ToolSet, never>);
+    } as GenerateTextResult<ToolSet, never, never>);
 
     const result = await scenario.run({
       name: "llm mock test",

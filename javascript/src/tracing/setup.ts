@@ -1,5 +1,7 @@
+import { OpenTelemetry } from "@ai-sdk/otel";
 import { trace } from "@opentelemetry/api";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { registerTelemetry } from "ai";
 import { LangWatchTraceExporter } from "langwatch/observability";
 import { setupObservability } from "langwatch/observability/node";
 import type { SetupObservabilityOptions } from "langwatch/observability/node";
@@ -92,6 +94,11 @@ export function setupScenarioTracing(
     // No existing provider; do a full setup via the langwatch SDK.
     initializeFullSetup(options);
   }
+
+  // AI SDK 7 emits no spans until a telemetry integration is registered, so
+  // without this the judge collector and the LangWatch exporter above would
+  // both receive nothing from the model calls this library makes.
+  registerTelemetry(new OpenTelemetry());
 
   initialized = true;
 }

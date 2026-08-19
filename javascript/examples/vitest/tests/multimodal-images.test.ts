@@ -35,18 +35,14 @@ describe("Multimodal Images Tests", () => {
     call: async (input) => {
       const response = await generateText({
         model: openai("gpt-5-mini"),
-        messages: [
-          {
-            role: "system",
-            content: `
+        instructions: `
               You are a helpful assistant that can process both text and image input.
               When analyzing images, be descriptive and helpful.
               Respond naturally to user queries about images.
             `,
-          },
+        messages: [
           ...input.messages,
         ],
-        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },

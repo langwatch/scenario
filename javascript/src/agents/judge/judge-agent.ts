@@ -4,7 +4,7 @@ import {
   ToolSet,
   Tool,
   tool,
-  stepCountIs,
+  isStepCount,
   hasToolCall,
 } from "ai";
 import { z } from "zod/v4";
@@ -858,10 +858,8 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
     const params: InvokeLLMParams = {
       model: mergedConfig.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: contentForJudge },
-      ],
+      instructions: systemPrompt,
+      messages: [{ role: "user", content: contentForJudge }],
       temperature: mergedConfig.temperature,
       maxOutputTokens: mergedConfig.maxTokens,
       tools,
@@ -869,7 +867,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
     };
     if (isLargeTrace) {
       params.stopWhen = [
-        stepCountIs(this.maxDiscoverySteps),
+        isStepCount(this.maxDiscoverySteps),
         hasToolCall("continue_test"),
         hasToolCall("make_verdict"),
       ];
@@ -896,8 +894,9 @@ export class JudgeAgent extends JudgeAgentAdapter {
       );
       // generateText never writes back into params.messages, so the discovery
       // cycles live only on the completion steps. Recombine both before
-      // collapsing, then drop the two messages the verdict phase rebuilds by
-      // itself (the system prompt and the criteria block).
+      // collapsing, then drop the criteria block, which the verdict phase
+      // rebuilds by itself. The system prompt travels in `instructions` and
+      // was never part of this array.
       const discoveryHistory: ModelMessage[] = [
         ...(params.messages ?? []),
         ...(completion.steps ?? []).flatMap((step) => [
@@ -906,7 +905,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       ];
       return {
         decision: "exhausted",
-        discoveryRecap: collapseDiscoveryHistory(discoveryHistory).slice(2),
+        discoveryRecap: collapseDiscoveryHistory(discoveryHistory).slice(1),
       };
     }
     return {
@@ -1042,7 +1041,6 @@ export class JudgeAgent extends JudgeAgentAdapter {
           });
 
       const messages: ModelMessage[] = [
-        { role: "system", content: systemPrompt },
         { role: "user", content: contentForJudge },
       ];
 
@@ -1085,6 +1083,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
 
       const params: InvokeLLMParams = {
         model: mergedConfig.model,
+        instructions: systemPrompt,
         messages,
         temperature: mergedConfig.temperature,
         maxOutputTokens: mergedConfig.maxTokens,
@@ -1096,7 +1095,7 @@ export class JudgeAgent extends JudgeAgentAdapter {
       if (isLargeTrace && !exhaustedEntry) {
         params.toolChoice = "required";
         params.stopWhen = [
-          stepCountIs(this.maxDiscoverySteps),
+          isStepCount(this.maxDiscoverySteps),
           hasToolCall("finish_test"),
           ...(waitExtensionAvailable ? [hasToolCall("wait_for_traces")] : []),
         ];

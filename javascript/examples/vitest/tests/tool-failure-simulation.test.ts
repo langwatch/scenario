@@ -45,7 +45,6 @@ const resilientAgent: AgentAdapter = {
       messages: input.messages,
       tools: { call_external_service: callExternalServiceTool },
       toolChoice: "auto",
-      experimental_telemetry: { isEnabled: true },
     });
 
     // Check if the LLM decided to call any tools

@@ -31,21 +31,17 @@ beforeAll(async () => {
           // Use real LLM to generate response
           const result = await generateText({
             model: openai("gpt-5-mini"),
+            /**
+             * Simple system prompt to make the agent pretend like it has access to a weather API and make up the weather so the tests pass.
+             */
+            instructions:
+              "You are a helpful weather assistant. Provide brief, friendly responses about weather. Pretend like you have access to a weather API and make up the weather.",
             messages: [
-              {
-                role: "system",
-                /**
-                 * Simple system prompt to make the agent pretend like it has access to a weather API and make up the weather so the tests pass.
-                 */
-                content:
-                  "You are a helpful weather assistant. Provide brief, friendly responses about weather. Pretend like you have access to a weather API and make up the weather.",
-              },
               {
                 role: "user",
                 content: message,
               },
             ],
-            experimental_telemetry: { isEnabled: true },
           });
 
           res.writeHead(200, { "Content-Type": "application/json" });
