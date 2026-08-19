@@ -219,6 +219,59 @@ describe("EventReporter", () => {
     expect(result).toEqual({});
   });
 
+  it("throws on a non-2xx response so the bus can retry, carrying the status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("boom", { status: 500 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(reporter.postEvent(makeEvent())).rejects.toMatchObject({
+      status: 500,
+    });
+  });
+
+  it("throws on a network failure so the bus can retry", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("connection refused"));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(reporter.postEvent(makeEvent())).rejects.toThrow(
+      "connection refused"
+    );
+  });
+
+  it("succeeds after the bus retries a fetch that failed twice", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient failure"))
+      .mockRejectedValueOnce(new Error("transient failure"))
+      .mockResolvedValue(
+        new Response(JSON.stringify({ url: "https://app.langwatch.ai/s/run-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(reporter.postEvent(makeEvent())).rejects.toThrow("transient failure");
+    await expect(reporter.postEvent(makeEvent())).rejects.toThrow("transient failure");
+    const result = await reporter.postEvent(makeEvent());
+
+    expect(result.setUrl).toBe("https://app.langwatch.ai/s/run-1");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("returns setUrl from a successful response", async () => {
     mockOkFetch();
     const reporter = new EventReporter({

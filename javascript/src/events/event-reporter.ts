@@ -28,7 +28,11 @@ export class EventReporter {
 
   /**
    * Posts an event to the configured endpoint.
-   * Logs success/failure but doesn't throw - event posting shouldn't break scenario execution.
+   *
+   * Throws on network failures and non-2xx responses (with the HTTP status
+   * attached as `status`) so the event bus can retry delivery. A reporter
+   * that is not configured still returns `{}` silently: that is a setup
+   * state, not a delivery failure.
    */
   async postEvent(event: ScenarioEvent): Promise<{ setUrl?: string }> {
     /**
@@ -48,40 +52,47 @@ export class EventReporter {
       headers["X-Project-Id"] = this.projectId;
     }
 
+    let response: Response;
     try {
-      const response = await fetch(this.eventsEndpoint.href, {
+      response = await fetch(this.eventsEndpoint.href, {
         method: "POST",
         body: JSON.stringify(processedEvent),
         headers,
       });
-
-      this.logger.debug(
-        `[${event.type}] Event POST response status: ${response.status}`
-      );
-
-      if (response.ok) {
-        const data = (await response.json()) as { url: string };
-        this.logger.debug(`[${event.type}] Event POST response:`, data);
-        result.setUrl = data.url;
-      } else {
-        const errorText = await response.text();
-        this.logger.error(`[${event.type}] Event POST failed:`, {
-          endpoint: this.eventsEndpoint.href,
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-          event: JSON.stringify(processedEvent),
-        });
-      }
     } catch (error) {
       this.logger.error(`[${event.type}] Event POST error:`, {
         error,
         event: JSON.stringify(processedEvent),
         endpoint: this.eventsEndpoint.href,
       });
+      throw error;
     }
 
-    return result;
+    this.logger.debug(
+      `[${event.type}] Event POST response status: ${response.status}`
+    );
+
+    if (response.ok) {
+      const data = (await response.json()) as { url: string };
+      this.logger.debug(`[${event.type}] Event POST response:`, data);
+      result.setUrl = data.url;
+      return result;
+    }
+
+    const errorText = await response.text();
+    this.logger.error(`[${event.type}] Event POST failed:`, {
+      endpoint: this.eventsEndpoint.href,
+      status: response.status,
+      statusText: response.statusText,
+      error: errorText,
+      event: JSON.stringify(processedEvent),
+    });
+    throw Object.assign(
+      new Error(
+        `[${event.type}] Event POST failed with status ${response.status}`
+      ),
+      { status: response.status }
+    );
   }
 
   /**
