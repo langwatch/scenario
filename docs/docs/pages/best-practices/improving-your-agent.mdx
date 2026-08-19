@@ -21,25 +21,33 @@ The [Vibe-Eval Loop](/best-practices/the-vibe-eval-loop) covers the first half o
 
 ## The improvement ladder
 
-When a scenario fails and the failure is real, meaning the agent misbehaved and the test is right, walk down this ladder before editing anything. Two ideas run through every step: the scenario only detects the failure, with the diagnosis living in the trace, and every fix is a move on one of a few defined levers, held to standards you set in advance.
+When a scenario fails and the failure is real, meaning the agent misbehaved and the test is right, walk down this ladder before editing anything:
 
-1. **Diagnose in the trace first.** The transcript shows what the agent said, while the trace shows what it was given: the assembled system prompt, the tool schemas the harness injected, the retrieved context, and every tool call it made. Read that before deciding what to change, because a failure has five possible owners: the harness (tool surface, permissions, context assembly), the model choice, the knowledge content (skills, docs, retrieval), the prompt instructions, or the scenario itself, which can carry ambiguous criteria or a flaky judge. Work through them in that order, with the prompt as the last resort rather than the first reflex. If the fix is "the agent must never use tool X", removing tool X from its configuration is stronger than any wording about it.
+1. **Diagnose the layer first.** A failure has five possible owners: the harness (tool surface, permissions, context assembly), the model choice, the knowledge content (skills, docs, retrieval), the prompt instructions, or the scenario itself, which can carry ambiguous criteria or a flaky judge. Work through them in that order, with the prompt as the last resort rather than the first reflex. If the fix is "the agent must never use tool X", removing tool X from its configuration is stronger than any wording about it.
 
 2. **Fix the class of failure.** Resist pasting the failing conversation, or rules quoting it, into the prompt. State the one general principle that makes the whole class of failure impossible, and if you cannot name the class, the diagnosis is not finished.
 
 3. **Prove the class.** Re-run the scenario several times and with varied wording before accepting a fix. [User simulators](/basics/user-simulator) improvise, which serves you here: a fix that only survives one phrasing was a patch for that phrasing.
 
-4. **Refactor under green.** Once the suite passes, treat the prompt the way you treat code: merge overlapping rules, delete rules a newer principle covers, and re-run everything. One caveat code does not have: agents are non-deterministic, so a single green run after a refactor is a statistical signal rather than a proof of equivalence. Keep each refactor small, re-run the suite more than once before trusting it, and stay within the parameters of your defined levers and standards instead of rewriting freely on top of one green run. Track the prompt's size across changes the way you track a bundle size, because steady growth means patches are accumulating.
+4. **Refactor under green.** Once the suite passes, treat the prompt the way you treat code: merge overlapping rules, delete rules a newer principle covers, and re-run everything. Track the prompt's size across changes the way you track a bundle size, because steady growth means patches are accumulating.
 
 5. **Pair every rule with an overshoot scenario.** Each prohibition needs a scenario for the nearby legitimate case, so a fix cannot silently over-trigger. A rule that declines out-of-scope requests needs a greeting scenario that fails when the agent starts declining greetings, because without the pair, over-refusal has no test to fail.
 
 6. **Keep the judge independent of the prompt.** Write [judge criteria](/basics/judge-agent) from user outcomes and verified side effects: "the booking exists afterward", "the reply contains the total". Criteria that restate the agent's prompt rules ("is terse", "does not narrate") make passing circular, since the suite then grades obedience to the prompt and the shortest path to green becomes more forceful prompt text.
 
+## Look at the traces to find the layer
+
+A failing scenario tells you which behavior broke, and very little about which layer broke it. The place that tells you is the trace of the failing run: the system prompt as the model actually received it, the tool schemas the harness injected, the retrieved context, and every tool call with its arguments and result. Open it before deciding what to change, and match what you see against the five owners from the ladder. A wrong tool choice with the right tools available points at the prompt or the knowledge; a missing tool, a denied permission, or a context assembled wrong points at the harness; an answer that was correct against what the model was given points at the scenario.
+
+The trace also shows how much of the agent's input you never wrote. The harness ships its own scaffolding, injects the tool list with schemas, and assembles context by its own rules, and that machinery is the thing to be followed: a hand-written map of your tools in the prompt competes with the tool map the harness already injects, the two drift apart, and the model reads both copies. When the trace shows the harness already provides something, delete your copy of it.
+
+Fixes then stay within the parameters of defined levers and standards: name the levers your setup has (the prompt, the tool surface, the model choice, the knowledge sources, the scenario criteria) and the standard each must meet, and make every change a deliberate move on one of them rather than whatever edit turns the suite green. Agents are non-deterministic, so no single green run proves a change safe; the varied re-runs from step 3 are what prove it.
+
 ## What belongs in a prompt
 
 Minimalism has a failure mode of its own, which is deleting the things the model genuinely cannot know. Two kinds of content live in a prompt, and only one of them should be held small.
 
-**Interface contracts** stay: which commands and tools exist, output format specifications, error-handling contracts, routing tables. This is reference material about the agent's environment, so keep it accurate and compact, and keep it. Before writing any of it down, read one real trace to see what the harness already injects: tool definitions usually arrive as schemas the harness loads on its own, and a hand-written tool map in the prompt competes with the injected one, drifts from it over time, and makes the model read both copies.
+**Interface contracts** stay: which commands and tools exist, output format specifications, error-handling contracts, routing tables. This is reference material about the agent's environment, so keep it accurate and compact, and keep it.
 
 **Behavioral corrections** are the part to hold minimal. A handful of principles the model can generalize from beats a numbered list of prohibitions that invites loophole-hunting one rule at a time, and every added prohibition spends some of the model's own judgment.
 
