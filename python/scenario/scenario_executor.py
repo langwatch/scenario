@@ -2016,10 +2016,12 @@ class ScenarioExecutor:
             status=status,
             results=results,
         )
-        self._emit_event(event)
-        # Marked as soon as the event is on the stream, so a failure in the
-        # closing steps below can never cause a second event to be emitted.
+        # Marked before the event reaches the stream. on_next delivers to each
+        # subscriber in turn, so a later subscriber that raises would leave the
+        # event already delivered to the bus while the guard was still unset,
+        # and the outer error path would then publish a second finished event.
         self._finished_emitted = True
+        self._emit_event(event)
 
         # Signal end of event stream
         self._events.on_completed()

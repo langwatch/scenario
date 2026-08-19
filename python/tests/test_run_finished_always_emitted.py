@@ -172,6 +172,42 @@ async def test_finished_emitted_when_the_run_started_emit_fails(
 
 
 @pytest.mark.asyncio
+async def test_finished_not_emitted_twice_when_a_subscriber_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`on_next` delivers to each subscriber in turn. A subscriber that raises
+    after the bus already took the event must not cause a second one: the
+    guard is set before the event reaches the stream."""
+    reporter = _CountingReporter()
+
+    original_emit = ScenarioExecutor._emit_event
+
+    def emit_then_raise(self: ScenarioExecutor, event: ScenarioEvent) -> None:
+        original_emit(self, event)
+        if event.type_ == "SCENARIO_RUN_FINISHED":
+            raise RuntimeError("a later subscriber raised")
+
+    monkeypatch.setattr(ScenarioExecutor, "_emit_event", emit_then_raise)
+
+    with _patched_reporter(reporter):
+        # The script failure is what the caller sees: the emit failure is
+        # deliberately discarded so the original assertion is not masked.
+        with pytest.raises(AssertionError, match="intentional check failure"):
+            await scenario.arun(
+                name="subscriber-raises",
+                description="one finished event even when a subscriber raises",
+                agents=_agents(),
+                script=[scenario.user("hi"), _failing_step],
+            )
+
+    finished = _finished_events(reporter)
+    assert len(finished) == 1, (
+        f"Expected exactly one RUN_FINISHED, got {len(finished)}: "
+        f"{[e.type_ for e in reporter.received]}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_finished_emitted_when_pre_run_setup_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
