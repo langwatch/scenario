@@ -1,6 +1,6 @@
 ---
 title: Improving Your Agent - Fix Failing Tests Without Overfitting
-description: Read this guide before you change your agent to fix a failing test or scenario. It shows how to find the layer that owns a failure, fix the class of failure rather than one transcript, and keep prompts small and judge criteria independent, so the agent improves instead of overfitting to its own test suite.
+description: Read this guide before you change your agent to fix a failing test or scenario. Find which layer caused the failure, fix the whole class instead of one transcript, and keep the prompt small, so your agent improves instead of overfitting to its own tests.
 ---
 
 import { Authors } from "vocs/components";
@@ -15,7 +15,7 @@ When a scenario fails, the fix that comes to mind first is a new instruction in 
 
 Every prompt patch carries two risks. The first is that it hides a bigger underlying issue: when the real cause lives in the harness, the tools, or the knowledge the agent retrieves, a rule that suppresses the symptom leaves the cause in place and makes it harder to see. The second is that it biases the model too far in one direction, teaching it to stop generalizing, a problem known since classical machine learning as overfitting.
 
-A prompt maintained by patches ends up like a system built from vibe-coded patch on top of vibe-coded patch: a buggy, unmaintainable mess. The way out is the same too: look at it from above, think architecturally, and refactor, so everything keeps a good, solid structure moving forward.
+A prompt maintained by patches ends up like a system built from one vibe-coded patch on top of another: a buggy, unmaintainable mess. The way out is the same too: look at it from above, think architecturally, and refactor, so everything keeps a good, solid structure moving forward.
 
 The [Vibe-Eval Loop](/best-practices/the-vibe-eval-loop) covers the first half of that discipline: when you find an issue, write the scenario first and watch it fail. The rest of this guide is the second half, what to do once it fails.
 
