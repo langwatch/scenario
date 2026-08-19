@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Dict, List
+from typing import Any, ContextManager, Dict, List
 from unittest.mock import patch
 
 import pytest
@@ -43,14 +43,14 @@ class _Agent(AgentAdapter):
 
 
 class _User(AgentAdapter):
-    role = AgentRole.USER
+    role: AgentRole = AgentRole.USER
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         return "hi"
 
 
 class _Judge(AgentAdapter):
-    role = AgentRole.JUDGE
+    role: AgentRole = AgentRole.JUDGE
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
         return ScenarioResult(
@@ -70,7 +70,7 @@ def _cancelling_step(state: Any) -> None:
     raise asyncio.CancelledError()
 
 
-def _patched_reporter(reporter: _CountingReporter):
+def _patched_reporter(reporter: _CountingReporter) -> ContextManager[Any]:
     return patch(
         "scenario._events.event_bus.EventReporter",
         side_effect=lambda *args, **kwargs: reporter,
