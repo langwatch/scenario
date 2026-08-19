@@ -65,7 +65,7 @@ class _Agent(AgentAdapter):
 
 
 class _KeywordAgent(AgentAdapter):
-    def __init__(self):
+    def __init__(self) -> None:
         self.values: list[str] = []
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
@@ -77,7 +77,7 @@ class _KeywordAgent(AgentAdapter):
 
 
 class _NormalizedAgent(AgentAdapter):
-    def __init__(self):
+    def __init__(self) -> None:
         self.values: list[str] = []
 
     async def call(self, input: AgentInput) -> AgentReturnTypes:
