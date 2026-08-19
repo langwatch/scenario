@@ -431,6 +431,10 @@ Reply with exactly this JSON and nothing else:
     const result = await generateText({
       model: this.model,
       messages: this.attackerHistory as ModelMessage[],
+      // H_attacker interleaves system-role [SCORE] and [BACKTRACKED] markers
+      // with the conversation, so they cannot be hoisted to `instructions`
+      // without changing what the attacker model sees.
+      allowSystemInMessages: true,
       temperature: this.temperature,
       maxOutputTokens: this.maxTokens,
     });

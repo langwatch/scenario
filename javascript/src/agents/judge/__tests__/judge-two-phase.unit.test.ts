@@ -121,12 +121,7 @@ function schemaShapeKeys(tool: unknown): string[] {
 }
 
 function systemPromptOf(params: InvokeLLMParams | undefined): string {
-  const systemMessage = params?.messages?.find(
-    (m) => "role" in m && m.role === "system"
-  );
-  return typeof systemMessage?.content === "string"
-    ? systemMessage.content
-    : "";
+  return typeof params?.instructions === "string" ? params.instructions : "";
 }
 
 const feature = await loadFeature(FEATURE_PATH);

@@ -233,13 +233,11 @@ function userMessageContent(params: InvokeLLMParams | undefined): string {
 }
 
 function systemMessageContent(params: InvokeLLMParams | undefined): string {
-  const systemMessage = params?.messages?.find(
-    (m) => "role" in m && m.role === "system"
-  );
-  if (!systemMessage) throw new Error("Expected a system message in LLM call");
-  return typeof systemMessage.content === "string"
-    ? systemMessage.content
-    : JSON.stringify(systemMessage.content);
+  const instructions = params?.instructions;
+  if (!instructions) throw new Error("Expected instructions in LLM call");
+  return typeof instructions === "string"
+    ? instructions
+    : JSON.stringify(instructions);
 }
 
 // ---------------------------------------------------------------------------
