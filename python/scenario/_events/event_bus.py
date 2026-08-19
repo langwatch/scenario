@@ -6,8 +6,10 @@ from .event_alert_message_logger import EventAlertMessageLogger
 from ..config.scenario import ScenarioConfig
 
 import asyncio
+import inspect
 import queue
 import threading
+import time
 import logging
 
 import httpx
@@ -22,6 +24,27 @@ def _is_permanent_client_error(error: BaseException) -> bool:
         return False
     status = error.response.status_code
     return 400 <= status < 500 and status not in (408, 429)
+
+
+# How long drain waits for a worker that is ending to release the queue.
+WORKER_HANDOVER_TIMEOUT_SECONDS = 5.0
+
+# How long drain waits for every queued event to be processed.
+QUEUE_DRAIN_TIMEOUT_SECONDS = 30.0
+
+
+def _accepts_http_client(post_event: Any) -> bool:
+    """True when a reporter's post_event takes an `http_client` argument."""
+    try:
+        parameters = inspect.signature(post_event).parameters
+    except (TypeError, ValueError):
+        return False
+    if "http_client" in parameters:
+        return True
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
 
 
 class ScenarioEventBus:
@@ -65,6 +88,12 @@ class ScenarioEventBus:
         self._event_reporter: EventReporter = event_reporter or EventReporter()
         self._event_alert_message_logger = EventAlertMessageLogger()
         self._max_retries = max_retries
+        # A custom reporter may implement post_event(self, event) only. Such a
+        # reporter manages its own transport, so the worker keeps no client
+        # for it and calls it with the event alone.
+        self._reporter_takes_http_client = _accepts_http_client(
+            self._event_reporter.post_event
+        )
 
         # Custom logger for this class
         self.logger = logging.getLogger(__name__)
@@ -89,15 +118,16 @@ class ScenarioEventBus:
     def _worker_loop(self) -> None:
         """Main worker thread loop - processes events from queue until shutdown"""
         self.logger.debug("Worker thread loop started")
-        # One event loop and one shared HTTP client for the worker's lifetime,
-        # so retries and consecutive events reuse connections instead of
-        # paying a full client setup per event. The client is only lent to the
-        # reporter when it does not already carry an injected one.
+        # One event loop and one HTTP client for the worker's lifetime, so
+        # retries and consecutive events reuse connections instead of paying a
+        # full client setup per event. The client belongs to this worker and
+        # is passed to each post: a client bound to this loop must never be
+        # reachable from another worker, which could still be using it while
+        # this one closes it.
         loop = asyncio.new_event_loop()
         owned_client: Optional[httpx.AsyncClient] = None
-        if getattr(self._event_reporter, "http_client", None) is None:
+        if self._reporter_takes_http_client:
             owned_client = httpx.AsyncClient(follow_redirects=True)
-            self._event_reporter.http_client = owned_client
         try:
             while True:
                 try:
@@ -110,7 +140,7 @@ class ScenarioEventBus:
                         self.logger.debug(
                             f"Worker picked up event: {event.type_} ({event.scenario_run_id})"
                         )
-                        self._process_event_sync(event, loop)
+                        self._process_event_sync(event, loop, owned_client)
                         self._event_queue.task_done()
                     except queue.Empty:
                         # Exit if stream completed and no more events, but
@@ -118,7 +148,7 @@ class ScenarioEventBus:
                         # and the completion check would otherwise be stranded
                         # with task_done() never called, deadlocking drain().
                         if self._completed:
-                            self._sweep_remaining_events(loop)
+                            self._sweep_remaining_events(loop, owned_client)
                             self.logger.debug(
                                 "Stream completed and no more events, worker thread exiting"
                             )
@@ -129,7 +159,6 @@ class ScenarioEventBus:
                     self.logger.error(f"Worker thread error: {e}")
         finally:
             if owned_client is not None:
-                self._event_reporter.http_client = None
                 try:
                     loop.run_until_complete(owned_client.aclose())
                 except Exception as e:
@@ -138,7 +167,11 @@ class ScenarioEventBus:
 
         self.logger.debug("Worker thread loop ended")
 
-    def _sweep_remaining_events(self, loop: asyncio.AbstractEventLoop) -> None:
+    def _sweep_remaining_events(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ) -> None:
         """Process any events that landed on the queue as the worker was exiting."""
         while True:
             try:
@@ -148,11 +181,14 @@ class ScenarioEventBus:
             self.logger.debug(
                 f"Worker exit sweep picked up event: {event.type_} ({event.scenario_run_id})"
             )
-            self._process_event_sync(event, loop)
+            self._process_event_sync(event, loop, http_client)
             self._event_queue.task_done()
 
     def _process_event_sync(
-        self, event: ScenarioEvent, loop: asyncio.AbstractEventLoop
+        self,
+        event: ScenarioEvent,
+        loop: asyncio.AbstractEventLoop,
+        http_client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         """
         Process event synchronously in worker thread with retry logic.
@@ -162,18 +198,23 @@ class ScenarioEventBus:
         )
 
         try:
-            result = self._post_event_with_retry(event, loop)
+            result = self._post_event_with_retry(event, loop, http_client)
             self._handle_event_result(event, result)
         except Exception as e:
             self.logger.error(f"Error processing event {event.type_}: {e}")
 
     def _post_event_with_retry(
-        self, event: ScenarioEvent, loop: asyncio.AbstractEventLoop
+        self,
+        event: ScenarioEvent,
+        loop: asyncio.AbstractEventLoop,
+        http_client: Optional[httpx.AsyncClient] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Post event with retry logic, converting async to sync on the worker's loop.
         """
-        return loop.run_until_complete(self._process_event_with_retry(event))
+        return loop.run_until_complete(
+            self._process_event_with_retry(event, http_client=http_client)
+        )
 
     def _handle_event_result(
         self, event: ScenarioEvent, result: Optional[Dict[str, Any]]
@@ -226,13 +267,20 @@ class ScenarioEventBus:
         return str(scenario_set_id)
 
     async def _process_event_with_retry(
-        self, event: ScenarioEvent, attempt: int = 1
+        self,
+        event: ScenarioEvent,
+        attempt: int = 1,
+        http_client: Optional[httpx.AsyncClient] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Process a single event with retry logic (now runs in worker thread context).
         """
         try:
             if self._event_reporter:
+                if http_client is not None:
+                    return await self._event_reporter.post_event(
+                        event, http_client=http_client
+                    )
                 return await self._event_reporter.post_event(event)
             return {}
         except Exception as e:
@@ -242,7 +290,9 @@ class ScenarioEventBus:
                 f"Error processing event (attempt {attempt}/{self._max_retries}): {e}"
             )
             await asyncio.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
-            return await self._process_event_with_retry(event, attempt + 1)
+            return await self._process_event_with_retry(
+                event, attempt + 1, http_client=http_client
+            )
 
     def subscribe_to_events(self, event_stream: Observable) -> None:
         """
@@ -273,6 +323,22 @@ class ScenarioEventBus:
         self.logger.debug("Event stream completed")
         self._completed = True
 
+    def _join_queue(self, timeout: float) -> bool:
+        """
+        `queue.join()` with a deadline.
+
+        Returns True when every task finished, False when the deadline passed
+        with work still outstanding.
+        """
+        deadline = time.monotonic() + timeout
+        with self._event_queue.all_tasks_done:
+            while self._event_queue.unfinished_tasks:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._event_queue.all_tasks_done.wait(remaining)
+        return True
+
     def drain(self) -> None:
         """
         Waits for all queued events to complete processing.
@@ -285,12 +351,27 @@ class ScenarioEventBus:
         self.logger.debug("Drain started - waiting for queue to empty")
 
         # If the worker exited in the completion race while an event was being
-        # enqueued, join() below would block forever; revive it first.
+        # enqueued, the join below would block forever, so revive it first. A
+        # worker that has left its loop but is still inside its finally block
+        # still reports is_alive(), and would never take the event: wait for
+        # it to end before deciding, then start a replacement.
         if not self._event_queue.empty():
-            self._get_or_create_worker()
+            outgoing = self._worker_thread
+            if outgoing is not None and outgoing.is_alive():
+                outgoing.join(timeout=WORKER_HANDOVER_TIMEOUT_SECONDS)
+            if not self._event_queue.empty():
+                if outgoing is not None and not outgoing.is_alive():
+                    self._worker_thread = None
+                self._get_or_create_worker()
 
-        # Wait for all events to be processed
-        self._event_queue.join()
+        # Wait for all events to be processed. The wait is bounded: a worker
+        # that died with an event in flight would never call task_done(), and
+        # a scenario run must not hang on its own telemetry.
+        if not self._join_queue(timeout=QUEUE_DRAIN_TIMEOUT_SECONDS):
+            self.logger.warning(
+                "Event queue did not drain within "
+                f"{QUEUE_DRAIN_TIMEOUT_SECONDS}s; giving up on the events left"
+            )
         self.logger.debug("Event queue drained")
 
         # Signal worker to shutdown and wait for it

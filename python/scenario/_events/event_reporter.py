@@ -130,7 +130,11 @@ class EventReporter:
         # Show greeting message when reporter is initialized
         self.event_alert_message_logger.handle_greeting()
 
-    async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+    async def post_event(
+        self,
+        event: ScenarioEvent,
+        http_client: Optional[httpx.AsyncClient] = None,
+    ) -> Dict[str, Any]:
         """
         Posts an event to the configured endpoint.
 
@@ -140,6 +144,11 @@ class EventReporter:
 
         Args:
             event: A ScenarioEvent containing the event data
+            http_client: A client owned by the caller, for this call only. The
+                event bus passes the client of the worker thread that runs
+                this coroutine, so a client is never shared between threads or
+                event loops. Falls back to the injected `self.http_client`,
+                and then to a client created for this one call.
 
         Returns:
             Dict containing response data, including setUrl if available
@@ -182,8 +191,9 @@ class EventReporter:
             }
             if self.project_id:
                 headers["X-Project-Id"] = self.project_id
-            if self.http_client is not None:
-                response = await self.http_client.post(
+            client_for_call = http_client or self.http_client
+            if client_for_call is not None:
+                response = await client_for_call.post(
                     url,
                     json=payload,
                     headers=headers,
@@ -209,7 +219,17 @@ class EventReporter:
         )
 
         if response.is_success:
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError as parse_error:
+                # The server accepted the event. An empty or malformed body is
+                # not a delivery failure, and raising here would make the bus
+                # post the same event again.
+                self.logger.info(
+                    f"[{event_type}] POST response body was not JSON: "
+                    f"{parse_error} ({event.scenario_run_id})"
+                )
+                return result
             self.logger.info(
                 f"[{event_type}] POST response: {data} ({event.scenario_run_id})"
             )

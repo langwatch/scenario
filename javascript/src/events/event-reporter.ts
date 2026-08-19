@@ -2,6 +2,37 @@ import { EventAlertMessageLogger } from "./event-alert-message-logger";
 import { ScenarioEventType, type ScenarioEvent } from "./schema";
 import { Logger } from "../utils/logger";
 
+/** Long base64 runs in a log line are audio payloads, never useful text. */
+const B64_RUN = /[A-Za-z0-9+/]{200,}={0,2}/g;
+
+/** How much of an event body a failure log keeps. */
+const EVENT_LOG_MAX_CHARS = 2_000;
+
+/**
+ * Summary of an event for a failure log, with audio payloads stripped.
+ *
+ * A MESSAGE_SNAPSHOT carries the whole conversation, and a voice message
+ * carries inline base64 audio. Each retry logs the failure, so an endpoint
+ * that stays down would write megabytes of user content to the console.
+ * Base64 runs are replaced by a placeholder and the rest is truncated. The
+ * Python reporter does the same in `_redacted_event_repr`.
+ */
+export function redactedEventSummary(event: unknown): string {
+  let text: string;
+  try {
+    text = JSON.stringify(event) ?? String(event);
+  } catch {
+    text = String(event);
+  }
+  const redacted = text.replace(
+    B64_RUN,
+    (run) => `<audio:${run.length} b64 chars elided>`,
+  );
+  return redacted.length > EVENT_LOG_MAX_CHARS
+    ? `${redacted.slice(0, EVENT_LOG_MAX_CHARS)}... (${redacted.length} chars, truncated)`
+    : redacted;
+}
+
 /**
  * Handles HTTP posting of scenario events to external endpoints.
  *
@@ -62,7 +93,8 @@ export class EventReporter {
     } catch (error) {
       this.logger.error(`[${event.type}] Event POST error:`, {
         error,
-        event: JSON.stringify(processedEvent),
+        scenarioRunId: event.scenarioRunId,
+        event: redactedEventSummary(processedEvent),
         endpoint: this.eventsEndpoint.href,
       });
       throw error;
@@ -73,9 +105,18 @@ export class EventReporter {
     );
 
     if (response.ok) {
-      const data = (await response.json()) as { url: string };
-      this.logger.debug(`[${event.type}] Event POST response:`, data);
-      result.setUrl = data.url;
+      try {
+        const data = (await response.json()) as { url?: string };
+        this.logger.debug(`[${event.type}] Event POST response:`, data);
+        result.setUrl = data.url;
+      } catch (parseError) {
+        // The server accepted the event. A body that does not parse is not a
+        // delivery failure, and retrying it would post the event twice.
+        this.logger.debug(
+          `[${event.type}] Event POST response body was not JSON`,
+          parseError,
+        );
+      }
       return result;
     }
 
@@ -85,7 +126,8 @@ export class EventReporter {
       status: response.status,
       statusText: response.statusText,
       error: errorText,
-      event: JSON.stringify(processedEvent),
+      scenarioRunId: event.scenarioRunId,
+      event: redactedEventSummary(processedEvent),
     });
     throw Object.assign(
       new Error(

@@ -509,6 +509,10 @@ describe("run", () => {
       const fetchMock = vi.fn().mockRejectedValue(new Error("endpoint is down"));
       vi.stubGlobal("fetch", fetchMock);
 
+      // The deadline must stay under vitest's own per-test timeout, or the
+      // test reports a generic timeout instead of naming the hung drain. It
+      // is cleared either way, so a pending timer never outlives the test.
+      let deadline: ReturnType<typeof setTimeout> | undefined;
       try {
         const result = await Promise.race([
           run(createScenarioConfig(), {
@@ -517,18 +521,22 @@ describe("run", () => {
               apiKey: "test-key",
             },
           }),
-          new Promise<never>((_, reject) =>
-            setTimeout(
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(
               () => reject(new Error("run() hung on event drain")),
-              30_000
-            )
-          ),
+              3_000
+            );
+          }),
         ]);
 
         expect(result.success).toBe(true);
         expect(fetchMock).toHaveBeenCalled();
       } finally {
+        if (deadline) clearTimeout(deadline);
         vi.unstubAllGlobals();
+        // The real EventBus was installed for this test only; leaving it in
+        // place would break every later test that reads captured events.
+        vi.mocked(EventBus).mockReset();
       }
     });
   });

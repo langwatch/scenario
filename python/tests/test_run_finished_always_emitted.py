@@ -138,6 +138,38 @@ async def test_finished_emitted_once_on_plain_assertion_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_finished_emitted_when_the_run_started_emit_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The started-event emit runs before reset(), so the fallback result must
+    not read timing or state attributes that do not exist yet. A raise there
+    would leave the run with no terminal event, which is the #922 symptom."""
+    reporter = _CountingReporter()
+
+    def failing_started_emit(self: ScenarioExecutor, *args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("induced started-emit failure")
+
+    monkeypatch.setattr(
+        ScenarioExecutor, "_emit_run_started_event", failing_started_emit
+    )
+
+    with _patched_reporter(reporter):
+        with pytest.raises(RuntimeError, match="induced started-emit failure"):
+            await scenario.arun(
+                name="started-emit-fails",
+                description="finished event still posted when the started emit fails",
+                agents=_agents(),
+                script=[scenario.user("hi")],
+            )
+
+    finished = _finished_events(reporter)
+    assert len(finished) == 1, (
+        f"Expected exactly one RUN_FINISHED, got {len(finished)}: "
+        f"{[e.type_ for e in reporter.received]}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_finished_emitted_on_cancelled_error() -> None:
     """CancelledError is a BaseException: it must still propagate, and the run
     must still report a finished event with status ERROR."""

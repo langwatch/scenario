@@ -810,7 +810,7 @@ class ScenarioExecutor:
             if _check_failure is not None:
                 # The emit path raised after the check-failure branch emitted;
                 # surface the original AssertionError, not the emit failure.
-                raise _check_failure
+                raise _check_failure from None
             raise  # Re-raise the exception after cleanup
         finally:
             await self._voice_disconnect_all()
@@ -1914,12 +1914,23 @@ class ScenarioExecutor:
         self._emit_run_finished_event(scenario_run_id, result, status)
 
     def _minimal_error_result(self, error: BaseException) -> ScenarioResult:
-        """Smallest valid ERROR result, for when building the full one fails."""
+        """
+        Smallest valid ERROR result, for when building the full one fails.
+
+        Every field is read through a default. ``reset()`` runs after the run
+        started event is emitted, so a failure in that emit reaches here with
+        the timing attributes still unset; a raise here would leave the run
+        with no terminal event at all, which is the failure this path exists
+        to prevent.
+        """
+        started_at = getattr(self, "_total_start_time", None)
         return ScenarioResult(
             success=False,
             messages=[],
             reasoning=f"Scenario failed with error: {str(error)}",
-            total_time=time.time() - self._total_start_time,
+            total_time=(
+                time.time() - started_at if started_at is not None else 0.0
+            ),
             agent_time=0,
         )
 
@@ -1934,9 +1945,10 @@ class ScenarioExecutor:
             return
         try:
             try:
+                state = getattr(self, "_state", None)
                 error_result = ScenarioResult(
                     success=False,
-                    messages=self._state.messages,
+                    messages=state.messages if state is not None else [],
                     reasoning=f"Scenario failed with error: {str(error)}",
                     total_time=time.time() - self._total_start_time,
                     agent_time=0,

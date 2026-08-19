@@ -56,6 +56,19 @@ function makeAudioSnapshotEvent(): ScenarioEvent {
   } as unknown as ScenarioEvent;
 }
 
+/** A base64 run long enough to be recognised as an audio payload. */
+const LONG_BASE64_AUDIO = "QUJDRA".repeat(60);
+
+/** The same snapshot shape, with an audio payload of realistic size. */
+function makeLongAudioSnapshotEvent(): ScenarioEvent {
+  const event = makeAudioSnapshotEvent() as unknown as {
+    messages: { content: { input_audio?: { data: string } }[] }[];
+  };
+  const audioPart = event.messages[0]!.content[1]!;
+  audioPart.input_audio!.data = LONG_BASE64_AUDIO;
+  return event as unknown as ScenarioEvent;
+}
+
 function makeEvent(): ScenarioRunStartedEvent {
   return {
     type: ScenarioEventType.RUN_STARTED,
@@ -270,6 +283,43 @@ describe("EventReporter", () => {
 
     expect(result.setUrl).toBe("https://app.langwatch.ai/s/run-1");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("treats a 2xx response with a body that is not JSON as delivered", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    const result = await reporter.postEvent(makeEvent());
+
+    expect(result.setUrl).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps base64 audio out of the failure log", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const reporter = new EventReporter({
+      endpoint: "https://app.langwatch.ai",
+      apiKey: "test-api-key",
+    });
+
+    await expect(
+      reporter.postEvent(makeLongAudioSnapshotEvent()),
+    ).rejects.toMatchObject({ status: 500 });
+
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).not.toContain(LONG_BASE64_AUDIO);
+    expect(logged).toContain("b64 chars elided");
+    errorLog.mockRestore();
   });
 
   it("returns setUrl from a successful response", async () => {

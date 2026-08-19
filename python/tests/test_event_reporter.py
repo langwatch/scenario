@@ -264,6 +264,26 @@ async def test_skips_post_when_api_key_unavailable_everywhere(
 
 
 @pytest.mark.asyncio
+async def test_accepted_event_with_non_json_body_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 2xx with an empty or malformed body means the event was accepted.
+
+    Raising here would make the bus post the same event a second time.
+    """
+    monkeypatch.setenv("LANGWATCH_API_KEY", "sk-test")
+    reporter = EventReporter(endpoint="https://app.langwatch.ai")
+
+    with respx.mock as mock:
+        mock.post("https://app.langwatch.ai/api/scenario-events").respond(
+            202, text=""
+        )
+        result = await reporter.post_event(_make_event())
+
+    assert result == {}
+
+
+@pytest.mark.asyncio
 async def test_warns_only_once_when_api_key_missing(
     caplog: LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -332,7 +352,7 @@ async def test_post_event_failure_log_redacts_base64_audio(
             # post_event now raises on failure so the bus can retry; this
             # event's raw-dict messages make serialization itself fail, which
             # is the in-flight exception path the redaction must also cover.
-            with pytest.raises(Exception):
+            with pytest.raises(AttributeError, match="to_dict"):
                 await reporter.post_event(event)
 
     joined = "\n".join(r.getMessage() for r in caplog.records)

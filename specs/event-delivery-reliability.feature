@@ -30,6 +30,26 @@ Feature: Event delivery reliability
     And a SCENARIO_RUN_FINISHED event reaches the reporter before run returns
 
   @integration
+  Scenario: Finished event is posted when the run-started event fails to emit
+    Given the first attempt to emit the run started event raises an exception
+    When the scenario runs with arun and fails
+    Then the emit error propagates to the caller
+    And a SCENARIO_RUN_FINISHED event is posted exactly once
+
+  @integration
+  Scenario: An accepted event with a body that is not JSON is never re-posted
+    Given an event endpoint that answers 2xx with an empty body
+    When an event is published to the event bus
+    Then the event is reported as delivered and posted only once
+
+  @integration
+  Scenario: A failure log never carries the audio bytes of an event
+    Given an event whose message holds an inline base64 audio payload
+    And an event endpoint that fails
+    When the event is posted
+    Then the failure log holds a placeholder instead of the audio bytes
+
+  @integration
   Scenario: Transient transport failures are retried
     Given an event endpoint that fails twice and then succeeds
     When an event is published to the event bus

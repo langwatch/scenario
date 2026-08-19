@@ -19,6 +19,7 @@ from typing import List, Any, Dict
 
 class MockEventReporter(EventReporter):
     def __init__(self):
+        super().__init__()
         self.events: List[Any] = []
 
     async def post_event(self, event: Any) -> Dict[str, Any]:
@@ -230,6 +231,7 @@ async def test_permanently_failing_endpoint_drops_event_and_never_raises(caplog)
 
     class AlwaysFailingReporter(EventReporter):
         def __init__(self):
+            super().__init__()
             self.attempts = 0
 
         async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
@@ -260,6 +262,7 @@ async def test_permanent_client_error_is_not_retried():
 
     class ForbiddenReporter(EventReporter):
         def __init__(self):
+            super().__init__()
             self.attempts = 0
 
         async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
