@@ -45,9 +45,9 @@ From there, work out which layer the problem is in:
 - A tool was missing, a permission was denied, or the context came in wrong: that is a harness problem, fix the configuration.
 - The answer was actually reasonable for the input the model received: your scenario or its criteria are the problem.
 
-While you are in the trace, check what your harness already handles for you. For example, if you are hand-writing a map of your tools into your CLAUDE.md, you are directly competing with the autoloading tool map your harness injects: the model receives both, and the two drift apart over time. When the harness already provides something, delete your copy.
+You should get the scenarios to pass, but the modifications should be within the parameters of defined levers and standards. Those parameters come from your environment: the harness you run on, the codebase around the agent and the model you picked determine which levers you actually have, and what a clean fix looks like on each one. The more completely you understand your own setup, the more obvious it becomes where a fix belongs.
 
-You should get the scenarios to pass, but the modifications should be within the parameters of defined levers and standards. Decide which levers you have (the prompt, the tool list, the model, the knowledge, the scenario criteria) and the standard each one has to meet, then make every fix a deliberate change to one lever. Agents are non-deterministic, so re-run a few times with varied wording (step 3) before you trust any fix.
+The tool map is a good example. Hand-write a map of your tools into AGENTS.md and you are directly competing with the autoloading tool map your harness already injects: the model receives both and they drift apart over time. When you know what your harness already puts into the context, you also know what your prompt can leave out, and the traces are where you see exactly that.
 
 ## What belongs in a prompt
 
