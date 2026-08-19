@@ -10,6 +10,19 @@ import queue
 import threading
 import logging
 
+import httpx
+
+
+def _is_permanent_client_error(error: BaseException) -> bool:
+    """
+    A 4xx other than request timeout (408) and rate limit (429) is a permanent
+    client error: retrying the identical request can never succeed.
+    """
+    if not isinstance(error, httpx.HTTPStatusError):
+        return False
+    status = error.response.status_code
+    return 400 <= status < 500 and status not in (408, 429)
+
 
 class ScenarioEventBus:
     """
@@ -76,34 +89,71 @@ class ScenarioEventBus:
     def _worker_loop(self) -> None:
         """Main worker thread loop - processes events from queue until shutdown"""
         self.logger.debug("Worker thread loop started")
-        while True:
-            try:
-                if self._shutdown_event.wait(timeout=0.1):
-                    self.logger.debug("Worker thread received shutdown signal")
-                    break
-
+        # One event loop and one shared HTTP client for the worker's lifetime,
+        # so retries and consecutive events reuse connections instead of
+        # paying a full client setup per event. The client is only lent to the
+        # reporter when it does not already carry an injected one.
+        loop = asyncio.new_event_loop()
+        owned_client: Optional[httpx.AsyncClient] = None
+        if getattr(self._event_reporter, "http_client", None) is None:
+            owned_client = httpx.AsyncClient(follow_redirects=True)
+            self._event_reporter.http_client = owned_client
+        try:
+            while True:
                 try:
-                    event = self._event_queue.get(timeout=0.1)
-                    self.logger.debug(
-                        f"Worker picked up event: {event.type_} ({event.scenario_run_id})"
-                    )
-                    self._process_event_sync(event)
-                    self._event_queue.task_done()
-                except queue.Empty:
-                    # Exit if stream completed and no more events
-                    if self._completed:
-                        self.logger.debug(
-                            "Stream completed and no more events, worker thread exiting"
-                        )
+                    if self._shutdown_event.wait(timeout=0.1):
+                        self.logger.debug("Worker thread received shutdown signal")
                         break
-                    continue
 
-            except Exception as e:
-                self.logger.error(f"Worker thread error: {e}")
+                    try:
+                        event = self._event_queue.get(timeout=0.1)
+                        self.logger.debug(
+                            f"Worker picked up event: {event.type_} ({event.scenario_run_id})"
+                        )
+                        self._process_event_sync(event, loop)
+                        self._event_queue.task_done()
+                    except queue.Empty:
+                        # Exit if stream completed and no more events, but
+                        # sweep first: an event enqueued between the timeout
+                        # and the completion check would otherwise be stranded
+                        # with task_done() never called, deadlocking drain().
+                        if self._completed:
+                            self._sweep_remaining_events(loop)
+                            self.logger.debug(
+                                "Stream completed and no more events, worker thread exiting"
+                            )
+                            break
+                        continue
+
+                except Exception as e:
+                    self.logger.error(f"Worker thread error: {e}")
+        finally:
+            if owned_client is not None:
+                self._event_reporter.http_client = None
+                try:
+                    loop.run_until_complete(owned_client.aclose())
+                except Exception as e:
+                    self.logger.debug(f"Error closing shared HTTP client: {e}")
+            loop.close()
 
         self.logger.debug("Worker thread loop ended")
 
-    def _process_event_sync(self, event: ScenarioEvent) -> None:
+    def _sweep_remaining_events(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Process any events that landed on the queue as the worker was exiting."""
+        while True:
+            try:
+                event = self._event_queue.get_nowait()
+            except queue.Empty:
+                return
+            self.logger.debug(
+                f"Worker exit sweep picked up event: {event.type_} ({event.scenario_run_id})"
+            )
+            self._process_event_sync(event, loop)
+            self._event_queue.task_done()
+
+    def _process_event_sync(
+        self, event: ScenarioEvent, loop: asyncio.AbstractEventLoop
+    ) -> None:
         """
         Process event synchronously in worker thread with retry logic.
         """
@@ -112,16 +162,18 @@ class ScenarioEventBus:
         )
 
         try:
-            result = self._post_event_with_retry(event)
+            result = self._post_event_with_retry(event, loop)
             self._handle_event_result(event, result)
         except Exception as e:
             self.logger.error(f"Error processing event {event.type_}: {e}")
 
-    def _post_event_with_retry(self, event: ScenarioEvent) -> Optional[Dict[str, Any]]:
+    def _post_event_with_retry(
+        self, event: ScenarioEvent, loop: asyncio.AbstractEventLoop
+    ) -> Optional[Dict[str, Any]]:
         """
-        Post event with retry logic, converting async to sync.
+        Post event with retry logic, converting async to sync on the worker's loop.
         """
-        return asyncio.run(self._process_event_with_retry(event))
+        return loop.run_until_complete(self._process_event_with_retry(event))
 
     def _handle_event_result(
         self, event: ScenarioEvent, result: Optional[Dict[str, Any]]
@@ -184,9 +236,9 @@ class ScenarioEventBus:
                 return await self._event_reporter.post_event(event)
             return {}
         except Exception as e:
-            if attempt >= self._max_retries:
+            if attempt >= self._max_retries or _is_permanent_client_error(e):
                 return None
-            print(
+            self.logger.warning(
                 f"Error processing event (attempt {attempt}/{self._max_retries}): {e}"
             )
             await asyncio.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
@@ -225,13 +277,19 @@ class ScenarioEventBus:
         """
         Waits for all queued events to complete processing.
 
-        This method blocks until all events in the queue have been processed.
-        Since _process_event_sync() uses asyncio.run(), HTTP requests complete
-        before task_done() is called, so join() ensures everything is finished.
+        This method blocks until all events in the queue have been processed:
+        the worker completes each HTTP request before calling task_done(), so
+        join() ensures everything is finished. After draining, the bus is
+        reset so it can subscribe to a new stream and be reused.
         """
         self.logger.debug("Drain started - waiting for queue to empty")
 
-        # Wait for all events to be processed - this is sufficient!
+        # If the worker exited in the completion race while an event was being
+        # enqueued, join() below would block forever; revive it first.
+        if not self._event_queue.empty():
+            self._get_or_create_worker()
+
+        # Wait for all events to be processed
         self._event_queue.join()
         self.logger.debug("Event queue drained")
 
@@ -244,6 +302,13 @@ class ScenarioEventBus:
                 self.logger.warning("Worker thread did not shutdown within timeout")
             else:
                 self.logger.debug("Worker thread shutdown complete")
+
+        # Reset so a reused bus can subscribe to a fresh stream and spin up a
+        # new worker.
+        self._shutdown_event = threading.Event()
+        self._completed = False
+        self._worker_thread = None
+        self._subscription = None
 
         self.logger.info("Drain completed")
 

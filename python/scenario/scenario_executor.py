@@ -267,6 +267,7 @@ class ScenarioExecutor:
 
         # Create executor's own event stream
         self._events = Subject()
+        self._finished_emitted = False
 
         # Create and configure event bus to subscribe to our events
         self.event_bus = event_bus or ScenarioEventBus()
@@ -635,6 +636,7 @@ class ScenarioExecutor:
         """
         scenario_run_id = generate_scenario_run_id()
         self._scenario_run_id = scenario_run_id
+        self._finished_emitted = False
         _check_failure: Optional[BaseException] = None
 
         # Connect all voice adapters before script runs; disconnect in finally.
@@ -697,20 +699,30 @@ class ScenarioExecutor:
                             "voice harvest failed on script-result path; returning result without voice fields",
                             exc_info=True,
                         )
-                    self._emit_run_finished_event(scenario_run_id, result, status)
+                    self._emit_finished_once(scenario_run_id, result, status)
                     return result
 
             if _check_failure is not None:
-                compiled_passed, compiled_failed = self._compiled_checkpoints
-                error_result = ScenarioResult(
-                    success=False,
-                    messages=self._state.messages,
-                    reasoning=f"Scenario failed with error: {str(_check_failure)}",
-                    passed_criteria=compiled_passed,
-                    failed_criteria=compiled_failed + [str(_check_failure)],
-                    total_time=time.time() - self._total_start_time,
-                    agent_time=0,
-                )
+                # Build the result defensively: a failure while assembling it
+                # must not cost us the finished event or mask the original
+                # AssertionError (#922).
+                try:
+                    compiled_passed, compiled_failed = self._compiled_checkpoints
+                    error_result = ScenarioResult(
+                        success=False,
+                        messages=self._state.messages,
+                        reasoning=f"Scenario failed with error: {str(_check_failure)}",
+                        passed_criteria=compiled_passed,
+                        failed_criteria=compiled_failed + [str(_check_failure)],
+                        total_time=time.time() - self._total_start_time,
+                        agent_time=0,
+                    )
+                except Exception:
+                    logger.warning(
+                        "failed to build check-failure result; falling back to a minimal result",
+                        exc_info=True,
+                    )
+                    error_result = self._minimal_error_result(_check_failure)
                 # Harvest voice output before emitting/raising so the
                 # check-failure (AssertionError in a script step) exit carries
                 # result.audio/timeline/latency for voice runs (AC E2b).
@@ -723,7 +735,7 @@ class ScenarioExecutor:
                         "voice harvest failed on check-failure path; preserving original error",
                         exc_info=True,
                     )
-                self._emit_run_finished_event(
+                self._emit_finished_once(
                     scenario_run_id,
                     error_result,
                     ScenarioRunFinishedEventStatus.ERROR,
@@ -766,7 +778,7 @@ class ScenarioExecutor:
                     if result.success
                     else ScenarioRunFinishedEventStatus.FAILED
                 )
-                self._emit_run_finished_event(scenario_run_id, result, status)
+                self._emit_finished_once(scenario_run_id, result, status)
                 return result
             else:
                 result = self._reached_max_turns(
@@ -783,37 +795,22 @@ class ScenarioExecutor:
                     if result.success
                     else ScenarioRunFinishedEventStatus.FAILED
                 )
-                self._emit_run_finished_event(scenario_run_id, result, status)
+                self._emit_finished_once(scenario_run_id, result, status)
                 return result
 
-        except Exception as e:
+        except BaseException as e:
+            # Publish the failure event before propagating the error. Catching
+            # BaseException keeps KeyboardInterrupt and CancelledError
+            # propagating while still reporting the run as finished, and the
+            # exactly-once guard covers the case where the finished event was
+            # already emitted above but its emit path raised afterwards (#922).
+            self._emit_error_run_finished_event(
+                scenario_run_id, error=_check_failure or e
+            )
             if _check_failure is not None:
-                # Already handled above — just propagate
-                raise
-
-            # Publish failure event before propagating the error
-            error_result = ScenarioResult(
-                success=False,
-                messages=self._state.messages,
-                reasoning=f"Scenario failed with error: {str(e)}",
-                total_time=time.time() - self._total_start_time,
-                agent_time=0,
-            )
-            # Harvest voice output before emitting/raising so the generic
-            # exception exit carries result.audio/timeline/latency for voice
-            # runs (AC E2).
-            # Guard: if harvest itself raises, log and continue so the
-            # original exception is not masked.
-            try:
-                error_result = self._attach_voice_output(error_result)
-            except Exception:
-                logger.warning(
-                    "voice harvest failed on except-Exception path; preserving original error",
-                    exc_info=True,
-                )
-            self._emit_run_finished_event(
-                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
-            )
+                # The emit path raised after the check-failure branch emitted;
+                # surface the original AssertionError, not the emit failure.
+                raise _check_failure
             raise  # Re-raise the exception after cleanup
         finally:
             await self._voice_disconnect_all()
@@ -1898,6 +1895,76 @@ class ScenarioExecutor:
                 exc_info=True,
             )
 
+    def _emit_finished_once(
+        self,
+        scenario_run_id: str,
+        result: ScenarioResult,
+        status: ScenarioRunFinishedEventStatus,
+    ) -> None:
+        """
+        Emit the run finished event exactly once per run.
+
+        Every exit path of :meth:`run` reports the run as finished through
+        this guard, so a path that already emitted (or an error path entered
+        after a successful emit) can never double-post the event or replay
+        the stream-completion side effects.
+        """
+        if self._finished_emitted:
+            return
+        self._emit_run_finished_event(scenario_run_id, result, status)
+
+    def _minimal_error_result(self, error: BaseException) -> ScenarioResult:
+        """Smallest valid ERROR result, for when building the full one fails."""
+        return ScenarioResult(
+            success=False,
+            messages=[],
+            reasoning=f"Scenario failed with error: {str(error)}",
+            total_time=time.time() - self._total_start_time,
+            agent_time=0,
+        )
+
+    def _emit_error_run_finished_event(
+        self, scenario_run_id: str, error: BaseException
+    ) -> None:
+        """
+        Report the run as finished with status ERROR without ever masking
+        ``error``: every step is guarded, and a failure to emit only logs.
+        """
+        if self._finished_emitted:
+            return
+        try:
+            try:
+                error_result = ScenarioResult(
+                    success=False,
+                    messages=self._state.messages,
+                    reasoning=f"Scenario failed with error: {str(error)}",
+                    total_time=time.time() - self._total_start_time,
+                    agent_time=0,
+                )
+            except Exception:
+                logger.warning(
+                    "failed to build error result; falling back to a minimal result",
+                    exc_info=True,
+                )
+                error_result = self._minimal_error_result(error)
+            # Harvest voice output before emitting/raising so error exits
+            # carry result.audio/timeline/latency for voice runs (AC E2).
+            try:
+                error_result = self._attach_voice_output(error_result)
+            except Exception:
+                logger.warning(
+                    "voice harvest failed on error path; preserving original error",
+                    exc_info=True,
+                )
+            self._emit_finished_once(
+                scenario_run_id, error_result, ScenarioRunFinishedEventStatus.ERROR
+            )
+        except Exception:
+            logger.warning(
+                "failed to emit run finished event; preserving original error",
+                exc_info=True,
+            )
+
     def _emit_run_finished_event(
         self,
         scenario_run_id: str,
@@ -1935,6 +2002,9 @@ class ScenarioExecutor:
             results=results,
         )
         self._emit_event(event)
+        # Marked as soon as the event is on the stream, so a failure in the
+        # closing steps below can never cause a second event to be emitted.
+        self._finished_emitted = True
 
         # Signal end of event stream
         self._events.on_completed()

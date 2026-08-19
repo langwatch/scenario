@@ -197,3 +197,125 @@ async def test_scenario_event_bus_handles_errors():
 
     finish_key = (scenario_run_id, "ScenarioRunFinishedEvent")
     assert reporter.attempt_counts[finish_key] == 1  # Should succeed on first try
+
+
+def _make_start_event(scenario_run_id: str = "run-789") -> ScenarioRunStartedEvent:
+    metadata = ScenarioRunStartedEventMetadata(
+        name="test-scenario", description="Test scenario description"
+    )
+    return ScenarioRunStartedEvent(
+        batch_run_id="batch-123",
+        scenario_id="scenario-456",
+        scenario_run_id=scenario_run_id,
+        metadata=metadata,
+        timestamp=int(time.time() * 1000),
+    )
+
+
+def _drain_with_deadline(bus: ScenarioEventBus, timeout: float = 10.0) -> None:
+    """Run drain() on a helper thread so a regression fails instead of hanging."""
+    import threading
+
+    thread = threading.Thread(target=bus.drain, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    assert not thread.is_alive(), "drain() deadlocked"
+
+
+@pytest.mark.asyncio
+async def test_permanently_failing_endpoint_drops_event_and_never_raises(caplog):
+    """When every attempt fails, the event is dropped with a warning after
+    max_retries and drain() still returns: transport failures must never fail
+    or hang the scenario run."""
+
+    class AlwaysFailingReporter(EventReporter):
+        def __init__(self):
+            self.attempts = 0
+
+        async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+            self.attempts += 1
+            raise Exception("endpoint is down")
+
+    reporter = AlwaysFailingReporter()
+    bus = ScenarioEventBus(event_reporter=reporter, max_retries=3)
+
+    bus.subscribe_to_events(from_iterable([_make_start_event()]))
+
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        _drain_with_deadline(bus)
+
+    assert reporter.attempts == 3
+    assert any(
+        "Failed to process event" in r.getMessage() for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_permanent_client_error_is_not_retried():
+    """A 4xx other than 408/429 can never succeed on a retry, so the ladder
+    stops after the first attempt."""
+    import httpx
+
+    class ForbiddenReporter(EventReporter):
+        def __init__(self):
+            self.attempts = 0
+
+        async def post_event(self, event: ScenarioEvent) -> Dict[str, Any]:
+            self.attempts += 1
+            request = httpx.Request("POST", "https://example.test")
+            raise httpx.HTTPStatusError(
+                "forbidden",
+                request=request,
+                response=httpx.Response(403, request=request),
+            )
+
+    reporter = ForbiddenReporter()
+    bus = ScenarioEventBus(event_reporter=reporter, max_retries=3)
+
+    bus.subscribe_to_events(from_iterable([_make_start_event()]))
+    _drain_with_deadline(bus)
+
+    assert reporter.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_drain_does_not_deadlock_when_worker_exits_as_event_is_enqueued():
+    """Worker-exit ordering race: the stream completes, the worker exits, and
+    only then does an event land on the queue. drain() must revive the worker
+    and deliver the event instead of blocking forever on queue.join()."""
+    reporter = MockEventReporter()
+    bus = ScenarioEventBus(event_reporter=reporter)
+
+    # Simulate the race deterministically: mark the stream completed, let a
+    # worker spin up and exit on the empty queue, then enqueue the event.
+    bus._completed = True
+    bus._get_or_create_worker()
+    assert bus._worker_thread is not None
+    bus._worker_thread.join(timeout=10.0)
+    assert not bus._worker_thread.is_alive()
+
+    bus._event_queue.put(_make_start_event())
+
+    _drain_with_deadline(bus)
+
+    assert len(reporter.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_bus_can_be_reused_after_drain():
+    """A drained bus accepts a new stream subscription and delivers the next
+    event: batch runners reuse one bus across scenario runs."""
+    reporter = MockEventReporter()
+    bus = ScenarioEventBus(event_reporter=reporter)
+
+    bus.subscribe_to_events(from_iterable([_make_start_event("run-1")]))
+    _drain_with_deadline(bus)
+    assert len(reporter.events) == 1
+
+    bus.subscribe_to_events(from_iterable([_make_start_event("run-2")]))
+    _drain_with_deadline(bus)
+
+    assert len(reporter.events) == 2
+    assert [e.scenario_run_id for e in reporter.events] == ["run-1", "run-2"]

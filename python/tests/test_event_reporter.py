@@ -329,7 +329,11 @@ async def test_post_event_failure_log_redacts_base64_audio(
             return_value=httpx.Response(500, text="boom")
         )
         with caplog.at_level(logging.ERROR):
-            await reporter.post_event(event)
+            # post_event now raises on failure so the bus can retry; this
+            # event's raw-dict messages make serialization itself fail, which
+            # is the in-flight exception path the redaction must also cover.
+            with pytest.raises(Exception):
+                await reporter.post_event(event)
 
     joined = "\n".join(r.getMessage() for r in caplog.records)
     # Either path (failed POST or in-flight exception) must scrub the payload.
@@ -459,3 +463,81 @@ async def test_message_snapshot_post_carries_tool_call_structured_not_flattened(
         # the serialized content of any posted message.
         for message in body["messages"]:
             assert json.dumps(expected_args) != message.get("content")
+
+
+@pytest.mark.asyncio
+async def test_post_event_raises_on_server_error(
+    caplog: LogCaptureFixture,
+) -> None:
+    """A non-2xx response must raise so the event bus retry ladder can fire.
+
+    Swallowing the failure here meant transport errors were never retried and
+    the event was silently lost (#922)."""
+    event = _make_event()
+    reporter = EventReporter(endpoint="https://example.test", api_key="sk-test")
+
+    with respx.mock:
+        respx.post("https://example.test/api/scenario-events").mock(
+            return_value=httpx.Response(500, text="boom")
+        )
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(httpx.HTTPStatusError):
+                await reporter.post_event(event)
+
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Event POST failed" in joined
+
+
+@pytest.mark.asyncio
+async def test_post_event_raises_on_connect_error() -> None:
+    event = _make_event()
+    reporter = EventReporter(endpoint="https://example.test", api_key="sk-test")
+
+    with respx.mock:
+        respx.post("https://example.test/api/scenario-events").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
+        with pytest.raises(httpx.ConnectError):
+            await reporter.post_event(event)
+
+
+@pytest.mark.asyncio
+async def test_post_event_still_skips_silently_when_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    _reset_langwatch_client_state: None,
+) -> None:
+    """Missing endpoint or api_key keeps the silent {} skip: not configured is
+    not a transport failure and must never raise or retry."""
+    monkeypatch.delenv("LANGWATCH_API_KEY", raising=False)
+
+    no_key = EventReporter(endpoint="https://example.test")
+    assert await no_key.post_event(_make_event()) == {}
+
+    no_endpoint = EventReporter(endpoint="https://example.test", api_key="sk-test")
+    no_endpoint.endpoint = ""
+    assert await no_endpoint.post_event(_make_event()) == {}
+
+
+@pytest.mark.asyncio
+async def test_post_event_reuses_injected_http_client() -> None:
+    """An injected shared httpx.AsyncClient is used for every POST and is not
+    closed by the reporter."""
+    request_count = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_count["count"] += 1
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    reporter = EventReporter(
+        endpoint="https://example.test",
+        api_key="sk-test",
+        http_client=client,
+    )
+
+    await reporter.post_event(_make_event())
+    await reporter.post_event(_make_event())
+
+    assert request_count["count"] == 2
+    assert not client.is_closed
+    await client.aclose()
