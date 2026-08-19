@@ -26,23 +26,23 @@ const toolCallingAgent: AgentAdapter = {
   call: async (input) => {
     const response = await generateText({
       model: openai("gpt-5-mini"),
+      instructions: "You are a helpful shopping assistant. Always use the lookup tool to check product details before responding.",
       messages: [
-        {
-          role: "system",
-          content: "You are a helpful shopping assistant. Always use the lookup tool to check product details before responding.",
-        },
         ...input.messages,
       ],
       tools: { lookup_product: lookupTool },
       toolChoice: "auto",
-      experimental_telemetry: { isEnabled: true },
     });
 
     if (response.toolCalls && response.toolCalls.length > 0) {
       const toolCall = response.toolCalls[0];
       const toolResult = await lookupTool.execute!(
         toolCall.input as { product: string },
-        { toolCallId: toolCall.toolCallId, messages: input.messages }
+        {
+          toolCallId: toolCall.toolCallId,
+          messages: input.messages,
+          context: {},
+        }
       );
       return [
         {

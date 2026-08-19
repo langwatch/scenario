@@ -44,18 +44,13 @@ beforeAll(async () => {
           // Stream response using real LLM
           const result = streamText({
             model: openai("gpt-5-mini"),
+            instructions: "You are a helpful weather assistant. Provide brief, friendly responses. Pretend you have access to weather data. Pretend like you have access to a weather API and make up the weather.",
             messages: [
-              {
-                role: "system",
-                content:
-                  "You are a helpful weather assistant. Provide brief, friendly responses. Pretend you have access to weather data. Pretend like you have access to a weather API and make up the weather.",
-              },
               {
                 role: "user",
                 content,
               },
             ],
-            experimental_telemetry: { isEnabled: true },
           });
 
           // Stream chunks in SSE format

@@ -60,17 +60,12 @@ beforeAll(async () => {
           const result = await context.with(extracted, () =>
             generateText({
               model: openai("gpt-5-mini"),
+              instructions: "You are an order support assistant. Use the lookup_order_status tool to check orders before answering.",
               messages: [
-                {
-                  role: "system",
-                  content:
-                    "You are an order support assistant. Use the lookup_order_status tool to check orders before answering.",
-                },
                 ...messages,
               ],
               tools: { lookup_order_status: lookupOrderStatus },
               stopWhen: stepCountIs(3),
-              experimental_telemetry: { isEnabled: true },
             })
           );
 

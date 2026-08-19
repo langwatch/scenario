@@ -25,15 +25,10 @@ describe("Demo: Lightweight Scenarios", () => {
     call: async (input) => {
       const response = await generateText({
         model: openai("gpt-5-mini"),
+        instructions: "You can analyze images and respond briefly and helpfully.",
         messages: [
-          {
-            role: "system",
-            content:
-              "You can analyze images and respond briefly and helpfully.",
-          },
           ...input.messages,
         ],
-        experimental_telemetry: { isEnabled: true },
       });
       return response.text;
     },

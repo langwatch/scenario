@@ -42,7 +42,6 @@ const weatherAgent: AgentAdapter = {
       messages: input.messages,
       tools: { get_weather: getWeatherTool },
       toolChoice: "auto",
-      experimental_telemetry: { isEnabled: true },
     });
 
     if (response.toolCalls && response.toolCalls.length > 0) {
