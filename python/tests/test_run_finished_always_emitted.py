@@ -191,7 +191,7 @@ async def test_finished_not_emitted_twice_when_a_subscriber_raises(
 
     # A subscriber that never sees on_completed keeps its worker waiting, so
     # the stream has to complete even though publication raised.
-    from rx.subject import Subject
+    from rx.subject.subject import Subject
 
     completions = {"count": 0}
     original_on_completed = Subject.on_completed
