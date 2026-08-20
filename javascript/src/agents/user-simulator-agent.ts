@@ -33,6 +33,20 @@ export interface UserSimulatorVoiceConfig {
   persona?: string;
 
   /**
+   * Default delivery style for every synthesized turn, e.g. `"angry"`,
+   * `"whispering"`. Distinct from {@link voice}: the same voice speaks it.
+   *
+   * Precedence: a per-step `user("…", { voiceStyle })` override wins for its
+   * one turn, then this value, then the per-run `voice.tts.voiceStyle`.
+   *
+   * Mapping is provider-specific — ElevenLabs prepends an inline `[angry]`
+   * marker (honoured by `eleven_v3`), OpenAI passes it as `instructions`. A
+   * provider that has not declared `supportsVoiceStyle` warns once and
+   * synthesizes unstyled.
+   */
+  voiceStyle?: string;
+
+  /**
    * Optional array of audio effect functions applied to each synthesized audio
    * turn AFTER the TTS cache hit (effects are never baked into the cache key).
    * Each function receives the raw PCM16 bytes and returns transformed bytes.
@@ -198,19 +212,23 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
    * Synthesize TTS audio. Exposed as a property so tests can replace it with
    * a stub without subclassing.
    *
-   * Signature mirrors `python/scenario/voice/tts.py:synthesize(text, voice)`.
+   * Signature mirrors `python/scenario/voice/tts.py:synthesize(text, voice)`
+   * plus a third `voiceStyle` argument — TS leads Python here (#533): the
+   * Python port still has no style channel, so this is NOT parity.
    * Returns an {@link AudioChunk} with the synthesized PCM16 data.
    *
    * Default: routes through the per-run TTS module (`voice/tts#synthesize`),
    * whose `"provider/voice"` router resolves the backend and whose LRU cache
-   * is keyed on `(sha256(text), voice)` — effects apply AFTER the cache read
-   * (in {@link voiceify}), never baked into the key. Per-run, not a module
-   * global. Tests inject a stub via `_synthesize`.
+   * is keyed on `(sha256(text), voice, voiceStyle)` — effects apply AFTER the
+   * cache read (in {@link synthesizeToAudioMessage}), never baked into the
+   * key. Per-run, not a module global. Tests inject a stub via `_synthesize`.
    */
-  _synthesize: (text: string, voice: string) => Promise<AudioChunk> = (
-    text,
-    voice,
-  ) => synthesize(text, voice);
+  _synthesize: (
+    text: string,
+    voice: string,
+    voiceStyle?: string,
+  ) => Promise<AudioChunk> = (text, voice, voiceStyle) =>
+    synthesize(text, voice, undefined, { voiceStyle });
 
   // ---------------------------------------------- per-step overrides (§4.2)
   // Mirror of python/scenario/user_simulator_agent.py _one_shot_override.
@@ -219,9 +237,6 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
 
   _voiceStyleOverride: string | null = null;
   _audioEffectsOverride: Array<(audio: Uint8Array) => Uint8Array> | null = null;
-
-  /** Class-level one-shot warning flag (mirrors Python's class attribute). */
-  private static _voiceStyleWarningEmitted = false;
 
   constructor(private readonly cfg?: UserSimulatorAgentConfig) {
     super();
@@ -248,18 +263,22 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
   }
 
   /**
-   * Emit a one-shot UserWarning if voice_style was passed (not yet wired).
+   * Returns the effective delivery style for this turn.
+   *
+   * Precedence mirrors {@link effectiveAudioEffects} / {@link effectiveVoice}:
+   * the per-step one-shot override wins, then the simulator's own
+   * `cfg.voiceStyle`, then the per-run `voice.tts.voiceStyle`.
+   *
+   * `_voiceStyleOverride === null` means "no override installed" — NOT "force
+   * unstyled" — so between steps the configured defaults still apply.
+   *
+   * @param runVoiceStyle The per-run `voice.tts.voiceStyle`, when set.
    */
-  private warnVoiceStyleOnce(): void {
-    if (UserSimulatorAgent._voiceStyleWarningEmitted) return;
-    UserSimulatorAgent._voiceStyleWarningEmitted = true;
-    // Node doesn't have a process.emitWarning parity issue — warn to console.
-    console.warn(
-      "UserSimulatorAgent: voice_style=... is accepted for forward " +
-        "compatibility but no TTS provider currently honours it. The " +
-        "simulator will synthesise without style modification. This will land " +
-        "as a per-provider instructions channel in a follow-up."
-    );
+  private effectiveVoiceStyle(runVoiceStyle?: string): string | undefined {
+    if (this._voiceStyleOverride !== null) {
+      return this._voiceStyleOverride;
+    }
+    return this.cfg?.voiceStyle ?? runVoiceStyle;
   }
 
   /**
@@ -330,7 +349,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
    */
   async voiceifyText(
     text: string,
-    runVoiceConfig?: { tts?: { voice?: string } },
+    runVoiceConfig?: { tts?: { voice?: string; voiceStyle?: string } },
   ): Promise<ModelMessage> {
     const voice = this.cfg?.voice ?? runVoiceConfig?.tts?.voice;
     const textMessage: ModelMessage = { role: "user", content: text };
@@ -345,7 +364,11 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       }
       return textMessage;
     }
-    return this.synthesizeToAudioMessage(text, voice);
+    return this.synthesizeToAudioMessage(
+      text,
+      voice,
+      this.effectiveVoiceStyle(runVoiceConfig?.tts?.voiceStyle),
+    );
   }
 
   /**
@@ -373,26 +396,32 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
       typeof textMessage.content === "string" ? textMessage.content : "";
     if (!content) return textMessage;
 
-    return this.synthesizeToAudioMessage(content, voice);
+    return this.synthesizeToAudioMessage(
+      content,
+      voice,
+      this.effectiveVoiceStyle(input.scenarioConfig.voice?.tts?.voiceStyle),
+    );
   }
 
   /**
    * Shared TTS pipeline behind {@link voiceifyText} (scripted content) and
-   * {@link voiceify} (auto-generated turns): synthesize `text` with `voice`,
-   * apply any active one-shot warning + audio effects, and wrap the result in
-   * the canonical audio {@link ModelMessage}. Callers own the
-   * "should this turn be voiced?" decision (voice/empty-content guards) so
-   * this stays a pure text→audio-message transform.
+   * {@link voiceify} (auto-generated turns): synthesize `text` with `voice` in
+   * `voiceStyle`, apply any active audio effects, and wrap the result in the
+   * canonical audio {@link ModelMessage}. Callers own the
+   * "should this turn be voiced?" decision (voice/empty-content guards) and
+   * resolve the style via {@link effectiveVoiceStyle}, so this stays a pure
+   * text→audio-message transform.
+   *
+   * `voiceStyle` reaches the provider through the TTS options channel (#533)
+   * and participates in the TTS cache key, so a styled turn never serves (or
+   * poisons) the unstyled entry for the same text+voice.
    */
   private async synthesizeToAudioMessage(
     text: string,
     voice: string,
+    voiceStyle?: string,
   ): Promise<ModelMessage> {
-    if (this._voiceStyleOverride !== null) {
-      this.warnVoiceStyleOnce();
-    }
-
-    const chunk = await this._synthesize(text, voice);
+    const chunk = await this._synthesize(text, voice, voiceStyle);
     let audioBytes = chunk.data;
     const effects = this.effectiveAudioEffects();
     for (const effect of effects) {
@@ -519,6 +548,9 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  *                    When set, each simulator turn is synthesized to audio.
  * @param config.persona Optional persona description appended to the system prompt.
  * @param config.audioEffects Optional audio effect functions applied after TTS synthesis.
+ * @param config.voiceStyle Optional default delivery style (e.g. `"angry"`) passed to the
+ *                    TTS provider for every turn. A per-step
+ *                    `user("…", { voiceStyle })` override wins for its one turn.
  *
  * @throws {Error} If no model is configured either in parameters or global config.
  *
@@ -566,7 +598,7 @@ class UserSimulatorAgent extends UserSimulatorAgentAdapter {
  * **Implementation Notes:**
  * - Uses role reversal internally to work around LLM biases toward assistant roles
  * - Audio content is stripped from messages sent to the text LLM
- * - TTS synthesis is applied AFTER the LLM generates text (cache key = (text, voice))
+ * - TTS synthesis is applied AFTER the LLM generates text (cache key = (text, voice, voiceStyle))
  * - Audio effects are applied AFTER any TTS cache hit (effects never enter the cache)
  */
 export const userSimulatorAgent = (config?: UserSimulatorAgentConfig) => {

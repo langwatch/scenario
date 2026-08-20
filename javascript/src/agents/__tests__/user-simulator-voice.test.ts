@@ -1,7 +1,7 @@
 /**
  * User simulator voice-path tests — PR4 of issue #372.
  *
- * Binds 4 scenarios from `specs/voice-agents.feature` tagged `@ts-simulator`.
+ * Binds 5 scenarios from `specs/voice-agents.feature` tagged `@ts-simulator`.
  * Each scenario exercises the voice path of {@link UserSimulatorAgent} without
  * making real LLM or TTS calls — all external I/O is replaced by vitest spies.
  *
@@ -9,12 +9,10 @@
  * over-matching PR1's voice-contract-surface.test.ts which uses
  * `includeTags: ["ts-bound"]`. See issue #523 for the tag-convention decision.
  *
- * Note: the `Per-step voice override applies to only that step` scenario in
- * specs/voice-agents.feature stays @todo for the AUDIBLE voiceStyle effect —
- * no TTS backend changes timbre by style yet (the simulator emits a one-shot
- * warning). The per-step override PLUMBING (voiceStyle/audioEffects installed
- * for one turn, then reverted) is wired and covered by
- * `script/__tests__/interrupt-after-and-user-overrides.test.ts`.
+ * Note: `Per-step voice override applies to only that step` left @todo for the
+ * AUDIBLE voiceStyle effect until #533 gave the TTS providers a real style
+ * channel (ElevenLabs inline markers, OpenAI `instructions`). It is now
+ * `@ts-simulator` and bound here alongside the rest.
  */
 
 import { dirname, resolve } from "node:path";
@@ -23,11 +21,11 @@ import { fileURLToPath } from "node:url";
 import { loadFeature, describeFeature } from "@amiceli/vitest-cucumber";
 import { expect, vi } from "vitest";
 
-import { AudioChunk } from "../../voice/audio-chunk";
 import { makeChunk } from "./fixtures/make-chunk";
+import type { AgentInput } from "../../domain";
+import { AudioChunk } from "../../voice/audio-chunk";
 import { extractAudio, messageHasAudio } from "../../voice/messages";
 import { userSimulatorAgent, type UserSimulatorAgentConfig } from "../user-simulator-agent";
-import type { AgentInput } from "../../domain";
 
 // Mock getProjectConfig to avoid filesystem dependency in unit tests.
 vi.mock("../../config", () => ({
@@ -99,10 +97,17 @@ function stubLlm(sim: ReturnType<typeof userSimulatorAgent>, text: string) {
 /**
  * Wire a stub synthesize function into the simulator.
  * Returns an AudioChunk with the given text as the transcript and 4 zero bytes.
+ *
+ * `fn` takes the full `_synthesize` signature — `voiceStyle` is the per-turn
+ * delivery style resolved by the simulator (#533).
  */
 function stubSynth(
   sim: ReturnType<typeof userSimulatorAgent>,
-  fn?: (text: string, voice: string) => Promise<AudioChunk>
+  fn?: (
+    text: string,
+    voice: string,
+    voiceStyle?: string
+  ) => Promise<AudioChunk>
 ) {
   const defaultFn = async (text: string): Promise<AudioChunk> =>
     makeChunk(text);
@@ -181,6 +186,60 @@ describeFeature(
             const chunk = extractAudio(msg);
             expect(chunk).not.toBeNull();
             expect(chunk!.transcript).toBe("I need help with my account");
+          }
+        );
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    // Scenario: Per-step voice override applies to only that step (line 315)
+    // -----------------------------------------------------------------------
+    Scenario(
+      "Per-step voice override applies to only that step",
+      ({ Given, When, Then, And }) => {
+        let sim: ReturnType<typeof userSimulatorAgent>;
+        const synthCalls: Array<{
+          text: string;
+          voice: string;
+          voiceStyle?: string;
+        }> = [];
+
+        Given(
+          "scenario.user(\"I'm really upset about this!\", voice_style=\"angry\")",
+          () => {
+            synthCalls.length = 0;
+            sim = userSimulatorAgent({ voice: "openai/nova" } as UserSimulatorAgentConfig);
+            stubLlm(sim, "I'm really upset about this!");
+            // Record what the TTS layer is actually asked for — the style must
+            // reach `_synthesize`, not stop at the simulator (#533).
+            stubSynth(sim, async (text, voice, voiceStyle) => {
+              synthCalls.push({ text, voice, voiceStyle });
+              return makeChunk(text);
+            });
+          }
+        );
+
+        When("the step runs", async () => {
+          // The executor installs the one-shot override around exactly one
+          // turn (script/voice-steps.ts:withUserStepOverride).
+          const restore = sim.setOneShotOverride({ voiceStyle: "angry" });
+          await sim.call(makeInput());
+          restore();
+
+          // A following turn runs with no override installed.
+          await sim.call(makeInput());
+        });
+
+        Then('the style "angry" is applied only to that turn', () => {
+          expect(synthCalls).toHaveLength(2);
+          expect(synthCalls[0].voiceStyle).toBe("angry");
+        });
+
+        And(
+          "the simulator's default voice/effects resume on subsequent turns",
+          () => {
+            expect(synthCalls[1].voiceStyle).toBeUndefined();
+            expect(synthCalls[1].voice).toBe("openai/nova");
           }
         );
       }

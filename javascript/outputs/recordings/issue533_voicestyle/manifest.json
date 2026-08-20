@@ -1,0 +1,58 @@
+{
+  "issue": 533,
+  "recorded": "2026-07-31",
+  "what_it_proves": "A voiceStyle threaded through the TypeScript simulator reaches the real ElevenLabs API and is honoured as a delivery directive, not spoken as text.",
+  "provider": "elevenlabs",
+  "tts_model": "eleven_v3",
+  "voice_id": "EXAVITQu4vr4xnSDxMaL",
+  "source_text": "I have been on hold for forty minutes and nobody has helped me.",
+  "harness": "javascript/scripts/voice-style-live-proof.ts",
+  "why_bytes_are_not_the_proof": "eleven_v3 is non-deterministic: two identical unstyled requests already return different bytes (168960 vs 161280 in this run). A byte-difference between styled and unstyled therefore proves nothing on its own. The discriminator is the transcript: eleven_v3 is the only ElevenLabs model that CONSUMES an inline [angry] marker as a delivery instruction \u2014 every other model reads it aloud. The styled clip never says 'angry', so the marker was consumed, not voiced.",
+  "clips": [
+    {
+      "file": "bare.wav",
+      "request_text": "I have been on hold for forty minutes and nobody has helped me.",
+      "voice_style": null,
+      "pcm_bytes": 168960,
+      "pcm_sha256_16": "10bf6a62071bcee5",
+      "transcript_scribe_v1": "I have been on hold for 40 minutes and nobody has helped me."
+    },
+    {
+      "file": "angry.wav",
+      "request_text": "[angry] I have been on hold for forty minutes and nobody has helped me.",
+      "voice_style": "angry",
+      "pcm_bytes": 195840,
+      "pcm_sha256_16": "e97d57ff6c8ac594",
+      "transcript_scribe_v1": "I have been on hold for 40 minutes and nobody has helped me"
+    }
+  ],
+  "checks": [
+    {
+      "name": "marker not voiced",
+      "result": "PASS",
+      "detail": "the styled clip never says \"angry\" or \"[\" \u2014 the marker was consumed as a delivery directive"
+    },
+    {
+      "name": "line still intact",
+      "result": "PASS",
+      "detail": "the styled clip still speaks the source line, so nothing was swallowed"
+    },
+    {
+      "name": "cache does not collide",
+      "result": "PASS",
+      "detail": "router bare sha=d448e4345a1e1170 vs angry sha=5eb13fc16bbbd2c7"
+    },
+    {
+      "name": "unstyled entry survives the styled call",
+      "result": "PASS",
+      "detail": "re-read of the unstyled key returned the cached bare bytes, not the styled ones"
+    }
+  ],
+  "format": {
+    "container": "wav",
+    "encoding": "pcm_s16le",
+    "sample_rate_hz": 24000,
+    "channels": 1
+  },
+  "not_proven": "Whether the styled clip SOUNDS angry to a human ear. No automated check can assert timbre \u2014 play both clips to judge that."
+}
